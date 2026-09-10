@@ -541,6 +541,20 @@ public class WindowsUpdateCollectorTests
     }
 
     [Fact]
+    public async Task CollectAsync_SearchesOfflineSoARoutineCheckInDoesNotCallOutToWindowsUpdate()
+    {
+        // A cabinet contacting Windows Update every five minutes would be slow
+        // and pointless. The explicit ScanForUpdates action is what asks
+        // Windows to actually go and look.
+        var gateway = new StubWindowsUpdateGateway();
+
+        await Collector(gateway, new FakeRegistryReader())
+            .CollectAsync(new CheckInDraft(), CancellationToken.None);
+
+        Assert.False(gateway.SearchedOnline);
+    }
+
+    [Fact]
     public async Task CollectAsync_DetectsARebootPendingFromEitherKey()
     {
         var autoUpdate = new FakeRegistryReader().AddKey(
@@ -597,8 +611,13 @@ public class WindowsUpdateCollectorTests
 
         public Exception? Failure { get; set; }
 
-        public IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(CancellationToken cancellationToken)
-            => Failure is not null ? throw Failure : Pending;
+        public bool? SearchedOnline { get; private set; }
+
+        public IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(bool online, CancellationToken cancellationToken)
+        {
+            SearchedOnline = online;
+            return Failure is not null ? throw Failure : Pending;
+        }
 
         public IReadOnlyList<UpdateHistoryEntry> GetHistory(int maximumEntries, CancellationToken cancellationToken)
             => Failure is not null ? throw Failure : History;

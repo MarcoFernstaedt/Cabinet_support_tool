@@ -12,8 +12,17 @@ namespace CabinetPlatform.Agent.Platform;
 /// </remarks>
 public interface IWindowsUpdateGateway
 {
-    /// <summary>Searches for applicable updates that are not yet installed.</summary>
-    IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(CancellationToken cancellationToken);
+    /// <summary>
+    /// Searches for applicable updates that are not yet installed.
+    /// </summary>
+    /// <param name="online">
+    /// When false, the search reads what Windows already knows and contacts
+    /// nothing. Routine check-ins use that: a cabinet reaching out to Windows
+    /// Update every five minutes would be slow and pointless. An explicit
+    /// ScanForUpdates action passes true, because a support engineer asking a
+    /// cabinet to scan means asking Windows to actually go and look.
+    /// </param>
+    IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(bool online, CancellationToken cancellationToken);
 
     /// <summary>Reads recent update history, newest first.</summary>
     IReadOnlyList<UpdateHistoryEntry> GetHistory(int maximumEntries, CancellationToken cancellationToken);

@@ -361,6 +361,96 @@ public class ServiceExecutorTests
     }
 }
 
+public class ScanForUpdatesExecutorTests
+{
+    [Fact]
+    public async Task AsksWindowsUpdateToActuallyLookRatherThanRereadingWhatItKnew()
+    {
+        // Somebody asked this cabinet to scan. Returning the last cached answer
+        // would look identical in the console and mean nothing.
+        var gateway = new StubGateway();
+
+        var result = await new ScanForUpdatesExecutor(gateway, NullLogger<ScanForUpdatesExecutor>.Instance)
+            .ExecuteAsync(Request(), CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Succeeded, result.Status);
+        Assert.True(gateway.SearchedOnline);
+    }
+
+    [Fact]
+    public async Task ReportsHowManyUpdatesAreSecurityUpdates()
+    {
+        var gateway = new StubGateway
+        {
+            Pending = new[]
+            {
+                new PendingUpdateInfo
+                {
+                    UpdateId = "a",
+                    Title = "2026-09 Cumulative Update",
+                    Classification = UpdateClassification.SecurityUpdate,
+                    IsSecurity = true,
+                },
+                new PendingUpdateInfo
+                {
+                    UpdateId = "b",
+                    Title = "A driver",
+                    Classification = UpdateClassification.Driver,
+                },
+            },
+        };
+
+        var result = await new ScanForUpdatesExecutor(gateway, NullLogger<ScanForUpdatesExecutor>.Instance)
+            .ExecuteAsync(Request(), CancellationToken.None);
+
+        Assert.Contains("2 update(s)", result.Output!, StringComparison.Ordinal);
+        Assert.Contains("1 of them security", result.Output!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DeniesARequestCarryingAnyParameterAtAll()
+    {
+        var gateway = new StubGateway();
+
+        var request = Request() with
+        {
+            Parameters = new Dictionary<string, string> { ["Online"] = "false" },
+        };
+
+        var result = await new ScanForUpdatesExecutor(gateway, NullLogger<ScanForUpdatesExecutor>.Instance)
+            .ExecuteAsync(request, CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Null(gateway.SearchedOnline);
+    }
+
+    private static ActionRequestDto Request() => new()
+    {
+        Id = Guid.NewGuid(),
+        Action = ActionName.ScanForUpdates,
+        CabinetId = Guid.NewGuid(),
+        Reason = "Checking patch level before a compliance review.",
+        RequestedByUserId = "support.jrivera",
+        RequestedUtc = DateTimeOffset.UtcNow,
+    };
+
+    private sealed class StubGateway : IWindowsUpdateGateway
+    {
+        public bool? SearchedOnline { get; private set; }
+
+        public IReadOnlyList<PendingUpdateInfo> Pending { get; set; } = Array.Empty<PendingUpdateInfo>();
+
+        public IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(bool online, CancellationToken cancellationToken)
+        {
+            SearchedOnline = online;
+            return Pending;
+        }
+
+        public IReadOnlyList<UpdateHistoryEntry> GetHistory(int maximumEntries, CancellationToken cancellationToken)
+            => Array.Empty<UpdateHistoryEntry>();
+    }
+}
+
 public class ScheduleUpdatesExecutorTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 10, 18, 0, 0, TimeSpan.Zero);

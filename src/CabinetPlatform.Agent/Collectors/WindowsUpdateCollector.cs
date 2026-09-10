@@ -57,7 +57,7 @@ public sealed class WindowsUpdateCollector : ICollector
         var timeout = TimeSpan.FromSeconds(_options.WindowsUpdateTimeoutSeconds);
 
         var pending = await RunWithTimeoutAsync(
-            () => _gateway.SearchPendingUpdates(cancellationToken),
+            () => _gateway.SearchPendingUpdates(online: false, cancellationToken),
             timeout,
             "pending update search",
             cancellationToken).ConfigureAwait(false);

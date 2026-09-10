@@ -20,7 +20,13 @@ error MSB4019: The imported project ".../Microsoft.NET.Sdk.WindowsDesktop/target
 Microsoft.NET.Sdk.WindowsDesktop.targets" was not found.
 ```
 
-The remaining projects are platform-neutral and build anywhere:
+`CabinetPlatform.Agent` also targets `net8.0-windows`, because it reads WMI,
+the registry, the Windows event log and the service control manager. Unlike the
+WPF console it needs no desktop targets, so `EnableWindowsTargeting` in
+`Directory.Build.props` is enough to build and test it on Linux CI. Only
+*running* it against real hardware requires Windows.
+
+Everything except the WPF console builds and tests anywhere:
 
 ```
 dotnet build src/CabinetPlatform.Contracts/CabinetPlatform.Contracts.csproj
@@ -29,6 +35,11 @@ dotnet build src/CabinetPlatform.Server/CabinetPlatform.Server.csproj
 dotnet test  tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj
 dotnet test  tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj
 ```
+
+The agent's tests run on a non-Windows machine because the code under test
+reaches Windows only through injected interfaces. That is a design property
+worth preserving: a collector that called WMI from a static helper could only
+be tested on a cabinet, which in practice means it would not be tested.
 
 ## Warnings are errors
 

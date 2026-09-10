@@ -32,7 +32,9 @@ public sealed class ScanForUpdatesExecutor : IActionExecutor
 
         try
         {
-            var pending = _gateway.SearchPendingUpdates(cancellationToken);
+            // Online: this action exists because somebody asked the cabinet to
+            // go and check, not to re-read what it already knew.
+            var pending = _gateway.SearchPendingUpdates(online: true, cancellationToken);
 
             var security = pending.Count(update =>
                 update.IsSecurity == true || update.Classification == UpdateClassification.SecurityUpdate);

@@ -22,15 +22,17 @@ public sealed class WindowsUpdateGateway : IWindowsUpdateGateway
 
     public WindowsUpdateGateway(ILogger<WindowsUpdateGateway> logger) => _logger = logger;
 
-    public IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(CancellationToken cancellationToken)
+    public IReadOnlyList<PendingUpdateInfo> SearchPendingUpdates(bool online, CancellationToken cancellationToken)
     {
         using var session = CreateSession();
         using var searcher = session.InvokeObject("CreateUpdateSearcher")
             ?? throw new InvalidOperationException("The Windows Update Agent returned no update searcher.");
 
-        // Search the local machine only. Reaching out to Windows Update over the
-        // network is the slow path and is not the agent's decision to make.
-        searcher.SetValue("Online", false);
+        // An online search asks Windows Update for a fresh answer and can take
+        // minutes; an offline one reads what Windows already knows and returns
+        // at once. The caller chooses, because the right answer differs between
+        // a routine check-in and somebody explicitly asking a cabinet to scan.
+        searcher.SetValue("Online", online);
 
         cancellationToken.ThrowIfCancellationRequested();
 
