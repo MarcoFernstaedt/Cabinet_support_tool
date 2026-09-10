@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>CabinetPlatform.Agent.Tests</RootNamespace>
+    <AssemblyName>CabinetPlatform.Agent.Tests</AssemblyName>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The agent's real configuration file, asserted against rather than a
+         copy that could drift away from it. -->
+    <None Include="..\..\src\CabinetPlatform.Agent\appsettings.json"
+          Link="appsettings.json"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\CabinetPlatform.Agent\CabinetPlatform.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

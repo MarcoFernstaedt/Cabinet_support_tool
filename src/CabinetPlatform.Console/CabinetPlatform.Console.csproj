@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Overrides the repository default: WPF is a Windows-only UI stack.
+         The .NET version itself still comes from Directory.Build.props. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>CabinetPlatform.Console</RootNamespace>
+    <AssemblyName>CabinetPlatform.Console</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

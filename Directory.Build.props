@@ -1,0 +1,21 @@
+<Project>
+
+  <!--
+    Single source of truth for framework and language settings.
+    Every project in this repository inherits these; no project should
+    restate them. Projects that must target a Windows-only UI stack
+    (the WPF console) override TargetFramework only.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <!-- Allows the Windows-targeted console project to restore on non-Windows CI. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+</Project>
