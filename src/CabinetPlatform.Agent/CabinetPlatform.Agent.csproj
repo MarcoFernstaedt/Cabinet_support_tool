@@ -1,21 +1,46 @@
 <Project Sdk="Microsoft.NET.Sdk.Worker">
 
   <PropertyGroup>
+    <!--
+      The agent reads WMI/CIM, the registry, the Windows event log, the service
+      control manager and the Windows Update Agent. Every one of those is
+      Windows-only, so the agent declares a Windows target framework rather than
+      suppressing the platform-compatibility analyser call by call. Building on a
+      non-Windows machine still works: Directory.Build.props sets
+      EnableWindowsTargeting.
+    -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>CabinetPlatform.Agent</RootNamespace>
     <AssemblyName>CabinetPlatform.Agent</AssemblyName>
     <UserSecretsId>cabinetplatform-agent</UserSecretsId>
+    <OutputType>Exe</OutputType>
+    <!-- Stamped into every check-in and registration so the server can tell
+         which build a cabinet is running. -->
+    <Version>1.0.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="8.0.0" />
     <PackageReference Include="Serilog.Settings.Configuration" Version="8.0.4" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Parsing and derivation helpers are internal because nothing outside the
+         agent should call them, but they are exactly the code most worth
+         testing directly rather than through a collector. -->
+    <InternalsVisibleTo Include="CabinetPlatform.Agent.Tests" />
   </ItemGroup>
 
 </Project>

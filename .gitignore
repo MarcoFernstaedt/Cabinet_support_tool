@@ -17,3 +17,11 @@ appsettings.Local.json
 secrets.json
 *.pfx
 *.snk
+
+# Agent runtime state, written next to the installed service. None of it is
+# source: the machine id and cabinet id are per-machine, and the spooled
+# payloads and diagnostic bundles contain a cabinet's own diagnostic data.
+state/
+buffer/
+bundles/
+logs/

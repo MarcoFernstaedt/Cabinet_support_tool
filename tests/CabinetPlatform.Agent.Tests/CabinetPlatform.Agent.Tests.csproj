@@ -3,6 +3,10 @@
   <PropertyGroup>
     <RootNamespace>CabinetPlatform.Agent.Tests</RootNamespace>
     <AssemblyName>CabinetPlatform.Agent.Tests</AssemblyName>
+    <!-- Matches the agent it exercises; verified to run on non-Windows CI
+         because the tested code paths take Windows access through injected
+         abstractions rather than calling WMI directly. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
