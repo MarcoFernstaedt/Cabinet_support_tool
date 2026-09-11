@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Mashura.CabinetSupport.Console</RootNamespace>
+    <AssemblyName>Mashura.CabinetSupport.Console</AssemblyName>
+
+    <!--
+      Lets the project restore and build from a non-Windows machine. It does not
+      make the application run there — WPF is Windows-only — but it keeps the
+      csproj honest on a build agent that is not Windows.
+    -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Mashura.CabinetSupport.Console.Core\Mashura.CabinetSupport.Console.Core.csproj" />
+    <ProjectReference Include="..\Mashura.CabinetSupport.Contracts\Mashura.CabinetSupport.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

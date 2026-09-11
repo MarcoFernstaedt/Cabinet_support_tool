@@ -96,6 +96,16 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
         ? Format.NotReported
         : Format.LocalTime(Summary.GeneratedUtc);
 
+    /// <summary>
+    /// The whole tab in one sentence, as a bindable property.
+    /// </summary>
+    /// <remarks>
+    /// The same text the live region announces. Showing it on screen as well is
+    /// deliberate: it is the most useful single line on the tab, and a sighted
+    /// user should not have to assemble it from six grids either.
+    /// </remarks>
+    public string SummaryText => Summarise();
+
     [RelayCommand]
     private async Task RefreshAsync() => await LoadAsync();
 
@@ -238,6 +248,7 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
 
         OnPropertyChanged(nameof(GeneratedAt));
         OnPropertyChanged(nameof(TruncationNote));
+        OnPropertyChanged(nameof(SummaryText));
     }
 
     private void Fill(

@@ -16,7 +16,18 @@ writes may be read in a compliance context, and the code is built accordingly.
 | **Contracts** | `src/Mashura.CabinetSupport.Contracts` | Shared enums and DTOs |
 | **Server** | `src/Mashura.CabinetSupport.Server` | ASP.NET Core Web API |
 | **Agent** | *(not in this repository yet)* | .NET Worker Service on each cabinet PC |
-| **Console** | *(not built yet)* | WPF desktop app |
+| **Console&nbsp;logic** | `src/Mashura.CabinetSupport.Console.Core` | ViewModels and API client, no WPF reference |
+| **Console&nbsp;shell** | `src/Mashura.CabinetSupport.Console` | WPF desktop app — see [docs/console.md](docs/console.md) |
+
+The console is split so that its ViewModels cannot reach a `Window`, a
+`Dispatcher` or a `MessageBox`: those types are not on the compile path of
+`Console.Core`. That makes "no business logic in code-behind" a property of the
+build, and it makes the whole logic layer testable on any platform.
+
+The WPF project needs the Windows Desktop SDK. Some distribution-packaged .NET
+SDKs are source-built with it stripped out, and on those the Console project
+cannot be evaluated — everything else still builds and tests. See
+[docs/console.md](docs/console.md) for the detail.
 
 ## Security properties
 
@@ -87,6 +98,17 @@ balancer probe; it reports check names and statuses only.
 dotnet test
 ```
 
+To run only what builds without the Windows Desktop SDK:
+
+```bash
+dotnet test tests/Mashura.CabinetSupport.Server.Tests
+dotnet test tests/Mashura.CabinetSupport.Console.Core.Tests
+```
+
+The console's tests drive its real API client against this server hosted
+in-process, so the client is checked against the actual pipeline, policies and
+refusal wording rather than against a fake that agrees with it by construction.
+
 ## Agent authentication
 
 This build proves an agent by a shared secret in a header, compared in constant
@@ -137,3 +159,9 @@ modified or deleted audit entry reaches `SaveChanges`.
   console consume the same assembly so the three cannot drift into private
   dialects. The wire convention (camelCase, enums as names) is defined once in
   `Contracts/Common/ContractJson.cs`.
+- `CheckInRequest` carries volumes, SMART readings, pending updates and
+  services. It carries no event log entries, no network configuration, no
+  system inventory and no per-process list, although the agent collects all
+  four. The console has a section for each and states the gap on screen rather
+  than rendering an empty panel; closing it means adding the fields here first.
+  See the *Honest gaps* section of [docs/console.md](docs/console.md).

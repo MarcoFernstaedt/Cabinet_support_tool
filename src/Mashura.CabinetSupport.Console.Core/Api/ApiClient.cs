@@ -234,7 +234,16 @@ public sealed class ApiClient : IApiClient
 
         try
         {
-            return await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+            HttpResponseMessage response = await _http.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+            // A cancelled call does not get to produce an error message. Whether
+            // the cancellation raced the response or the server noticed the
+            // disconnect and answered 499, the user navigated away — and telling
+            // them the request was refused would be false.
+            ct.ThrowIfCancellationRequested();
+
+            return response;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -297,7 +306,14 @@ public sealed class ApiClient : IApiClient
         int status = (int)response.StatusCode;
         string? detail = await TryReadProblemDetailAsync(response, ct);
 
-        ApiFailure failure = response.StatusCode switch
+        ApiFailure failure = status switch
+        {
+            // 499 is what a reverse proxy — and ASP.NET Core's own pipeline —
+            // reports when the client went away. Reaching here means our own
+            // token was not cancelled, so the disconnect happened in between:
+            // a transport problem, not a refusal.
+            499 => ApiFailure.Unreachable,
+            _ => response.StatusCode switch
         {
             HttpStatusCode.Unauthorized => ApiFailure.SessionExpired,
             HttpStatusCode.Forbidden when isLogin => ClassifyLoginRefusal(detail),
@@ -307,10 +323,13 @@ public sealed class ApiClient : IApiClient
             HttpStatusCode.TooManyRequests => ApiFailure.RateLimited,
             HttpStatusCode.BadRequest => ApiFailure.Invalid,
             _ => status >= 500 ? ApiFailure.ServerError : ApiFailure.Invalid
+        }
         };
 
         string message = failure switch
         {
+            ApiFailure.Unreachable =>
+                "The connection to the support server was lost before it answered. Try again.",
             ApiFailure.SessionExpired =>
                 "Your session has expired. Sign in again to continue.",
             ApiFailure.RateLimited =>

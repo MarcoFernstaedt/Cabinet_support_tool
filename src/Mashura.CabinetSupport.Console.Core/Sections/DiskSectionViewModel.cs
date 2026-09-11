@@ -52,6 +52,12 @@ public sealed partial class DiskSectionViewModel : MachineSectionViewModel
     [ObservableProperty]
     private int _historyDays = 7;
 
+    /// <summary>
+    /// Windows the trend view offers. All inside the server's 90-day maximum,
+    /// so no choice here can produce a request the server will refuse.
+    /// </summary>
+    public IReadOnlyList<int> HistoryDayChoices { get; } = new[] { 1, 7, 30, 90 };
+
     [ObservableProperty]
     private SectionAvailability _volumesAvailability = SectionAvailability.NoCheckIn;
 

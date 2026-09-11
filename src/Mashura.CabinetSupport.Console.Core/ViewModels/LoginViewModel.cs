@@ -234,11 +234,28 @@ public sealed partial class LoginViewModel : ObservableViewModelBase
     /// token expires mid-session, so the user is told why they are back here
     /// rather than being left to assume the application lost their work.
     /// </summary>
-    public void ErrorMessageForExpiredSession()
+    public void ExplainExpiredSession()
     {
         ErrorMessage = "Your session expired and you were signed out. Sign in again to continue.";
         Problem = SignInProblem.Credentials;
         Announcer.AnnounceImportant(ErrorMessage);
+    }
+
+    /// <summary>
+    /// Drops everything typed into a password field.
+    /// </summary>
+    /// <remarks>
+    /// Called by the host when the dialog closes, on cancel as well as on
+    /// success. The sign-in paths clear as they go, but the cancel path has no
+    /// natural moment to — and an abandoned dialog is exactly the case where a
+    /// half-typed password would otherwise sit in memory for the rest of the
+    /// session.
+    /// </remarks>
+    public void ClearSecrets()
+    {
+        Password = string.Empty;
+        NewPassword = string.Empty;
+        ConfirmNewPassword = string.Empty;
     }
 
     /// <summary>

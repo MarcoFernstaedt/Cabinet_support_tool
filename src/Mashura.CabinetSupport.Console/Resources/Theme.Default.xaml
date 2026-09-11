@@ -1,0 +1,23 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Severity colours. Every one of these is redundant with a label and a
+        glyph shown beside it: nothing in this console is knowable from the
+        colour alone. They are chosen to differ in lightness as well as hue, so
+        they remain distinguishable to the most common forms of colour
+        blindness and in greyscale print.
+    -->
+    <SolidColorBrush x:Key="Severity.Good.Brush" Color="#1B6E3C" />
+    <SolidColorBrush x:Key="Severity.Warning.Brush" Color="#8A5300" />
+    <SolidColorBrush x:Key="Severity.Critical.Brush" Color="#A31515" />
+    <SolidColorBrush x:Key="Severity.Neutral.Brush" Color="#2B2B2B" />
+    <SolidColorBrush x:Key="Severity.Unknown.Brush" Color="#5A5A5A" />
+
+    <SolidColorBrush x:Key="Surface.Brush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Surface.Alt.Brush" Color="#F4F4F4" />
+    <SolidColorBrush x:Key="Border.Brush" Color="#C9C9C9" />
+    <SolidColorBrush x:Key="Text.Brush" Color="#1A1A1A" />
+    <SolidColorBrush x:Key="Text.Subtle.Brush" Color="#4A4A4A" />
+
+</ResourceDictionary>
