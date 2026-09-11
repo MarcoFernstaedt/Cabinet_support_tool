@@ -1,0 +1,173 @@
+<UserControl x:Class="CabinetPlatform.Console.Views.ApprovalsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Surface.Brush}">
+
+    <UserControl.Resources>
+        <!--
+            The user's own requests are dimmed and italicised, and the row's
+            accessible name already carries the reason. Opacity alone would say
+            nothing to a screen reader, which is why the reason is also a column
+            and a line in the detail pane.
+        -->
+        <Style x:Key="QueueRow" TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CanDecide}" Value="False">
+                    <Setter Property="Opacity" Value="0.62" />
+                    <Setter Property="FontStyle" Value="Italic" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <DockPanel Margin="12">
+
+        <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="Approvals"
+                       Style="{StaticResource SectionHeading}"
+                       FontSize="17"
+                       AutomationProperties.HeadingLevel="Level2" />
+
+            <TextBlock Text="{Binding QueueSummary}"
+                       Style="{StaticResource ExplanationText}"
+                       AutomationProperties.LiveSetting="Polite"
+                       AutomationProperties.Name="Queue summary"
+                       Margin="0,0,0,8" />
+
+            <Border Style="{StaticResource ExplanationPanel}">
+                <TextBlock Text="{Binding FourEyesExplanation}"
+                           Style="{StaticResource ExplanationText}"
+                           AutomationProperties.Name="How approval works" />
+            </Border>
+
+            <Border Style="{StaticResource ExplanationPanel}"
+                    Visibility="{Binding IsForbidden, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding ForbiddenExplanation}"
+                           Style="{StaticResource ExplanationText}"
+                           AutomationProperties.LiveSetting="Assertive"
+                           AutomationProperties.Name="Approval access" />
+            </Border>
+
+            <Border Style="{StaticResource ExplanationPanel}"
+                    Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVisibility}}">
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Style="{StaticResource ExplanationText}"
+                           AutomationProperties.LiveSetting="Assertive"
+                           AutomationProperties.Name="Approval problem"
+                           Foreground="{DynamicResource Severity.Critical.Brush}" />
+            </Border>
+
+            <StackPanel Orientation="Horizontal" Margin="0,8,0,8">
+                <Button Content="Approve"
+                        Command="{Binding ApproveCommand}"
+                        MinWidth="110"
+                        AutomationProperties.Name="Approve the selected request. A dialog will ask for a note first."
+                        AutomationProperties.HelpText="You cannot approve a request you made yourself." />
+
+                <Button Content="Deny"
+                        Command="{Binding DenyCommand}"
+                        MinWidth="110"
+                        AutomationProperties.Name="Deny the selected request. A dialog will ask for a reason first." />
+
+                <Button Content="Refresh"
+                        Command="{Binding RefreshCommand}"
+                        AutomationProperties.Name="Refresh the approval queue" />
+            </StackPanel>
+
+            <ProgressBar IsIndeterminate="True" Height="4" Margin="0,0,0,4"
+                         AutomationProperties.Name="Loading the approval queue"
+                         Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
+        </StackPanel>
+
+        <!-- Detail for the selected row, beneath the grid. -->
+        <Border DockPanel.Dock="Bottom"
+                Style="{StaticResource ExplanationPanel}"
+                Visibility="{Binding SelectedRequest, Converter={StaticResource NullToVisibility}}">
+            <StackPanel DataContext="{Binding SelectedRequest}">
+                <TextBlock Text="Selected request"
+                           FontWeight="SemiBold"
+                           AutomationProperties.HeadingLevel="Level3"
+                           Margin="0,0,0,6" />
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" MinWidth="150" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition /><RowDefinition /><RowDefinition />
+                        <RowDefinition /><RowDefinition /><RowDefinition />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Action" Style="{StaticResource FieldLabel}" />
+                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ActionName}"
+                               Style="{StaticResource FieldValue}" AutomationProperties.Name="Action" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Parameters" Style="{StaticResource FieldLabel}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Parameters}"
+                               Style="{StaticResource FieldValue}" AutomationProperties.Name="Parameters" />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Reason given" Style="{StaticResource FieldLabel}" />
+                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Reason}"
+                               Style="{StaticResource FieldValue}" AutomationProperties.Name="Reason given by the requester" />
+
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Expiry" Style="{StaticResource FieldLabel}" />
+                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Expiry}"
+                               Style="{StaticResource FieldValue}" AutomationProperties.Name="Expiry" />
+
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Safety override"
+                               Style="{StaticResource FieldLabel}"
+                               Visibility="{Binding OverrideNote, Converter={StaticResource StringToVisibility}}" />
+                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding OverrideNote}"
+                               Style="{StaticResource FieldValue}"
+                               Foreground="{DynamicResource Severity.Warning.Brush}"
+                               AutomationProperties.Name="Safety override"
+                               Visibility="{Binding OverrideNote, Converter={StaticResource StringToVisibility}}" />
+
+                    <TextBlock Grid.Row="5" Grid.Column="0" Text="Why you cannot decide"
+                               Style="{StaticResource FieldLabel}"
+                               Visibility="{Binding UnavailableReason, Converter={StaticResource StringToVisibility}}" />
+                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding UnavailableReason}"
+                               Style="{StaticResource FieldValue}"
+                               FontWeight="SemiBold"
+                               AutomationProperties.Name="Why the buttons are unavailable"
+                               Visibility="{Binding UnavailableReason, Converter={StaticResource StringToVisibility}}" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <DataGrid ItemsSource="{Binding Queue}"
+                  SelectedItem="{Binding SelectedRequest}"
+                  Style="{StaticResource AccessibleDataGrid}"
+                  RowStyle="{StaticResource QueueRow}"
+                  AutomationProperties.Name="Requests awaiting a decision. Your own requests are listed but cannot be approved by you.">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Action" Binding="{Binding ActionName}" Width="Auto" />
+                <DataGridTextColumn Header="Cabinet" Binding="{Binding Hostname}" Width="*" />
+                <DataGridTextColumn Header="Client" Binding="{Binding Client}" Width="*" />
+                <DataGridTextColumn Header="Site" Binding="{Binding Site}" Width="Auto" />
+                <DataGridTextColumn Header="Requested by" Binding="{Binding RequestedBy}" Width="Auto" />
+                <DataGridTextColumn Header="Requested at" Binding="{Binding RequestedAt}" Width="Auto" />
+                <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="2*" />
+                <DataGridTextColumn Header="Ticket" Binding="{Binding Ticket}" Width="Auto" />
+                <DataGridTextColumn Header="Expiry" Binding="{Binding Expiry}" Width="Auto" />
+
+                <DataGridTemplateColumn Header="Status" Width="Auto" SortMemberPath="Status.Label">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <ContentPresenter Content="{Binding Status}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!--
+                    The reason a row cannot be decided is a column of its own,
+                    not just an opacity change. This is the column that makes
+                    the four-eyes rule legible instead of mysterious.
+                -->
+                <DataGridTextColumn Header="Availability" Binding="{Binding UnavailableReason}" Width="2*" />
+            </DataGrid.Columns>
+        </DataGrid>
+    </DockPanel>
+</UserControl>

@@ -47,8 +47,15 @@ public sealed record ActionRequestDto
     public string? TicketReference { get; init; }
 
     /// <summary>Identifier of the user who requested the action.</summary>
-    public required string RequestedByUserId { get; init; }
+    public required Guid RequestedByUserId { get; init; }
 
     /// <summary>UTC instant the request was raised.</summary>
     public required DateTimeOffset RequestedUtc { get; init; }
+
+    /// <summary>
+    /// When this request stops being executable. The agent checks it before
+    /// acting: a reboot approved six hours ago, collected after a long outage,
+    /// must not fire into a clinic's working day.
+    /// </summary>
+    public DateTimeOffset? ExpiresUtc { get; init; }
 }

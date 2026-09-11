@@ -16,4 +16,11 @@ public sealed record RegistrationResponse
     /// has no cabinet identity to report under.
     /// </summary>
     public Guid? CabinetId { get; init; }
+
+    /// <summary>
+    /// How long the agent should wait before asking again. It lets the server
+    /// pace a fleet of pending agents centrally rather than relying on each
+    /// one's local configuration.
+    /// </summary>
+    public required int RetryAfterSeconds { get; init; }
 }

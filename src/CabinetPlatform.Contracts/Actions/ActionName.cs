@@ -55,4 +55,38 @@ public enum ActionName
     /// and is gated on <see cref="Telemetry.SystemInfo.AnyUserLoggedOn"/>.
     /// </summary>
     RebootMachine = 9,
+
+    /// <summary>
+    /// Collect a window of Windows event log records and return them with the
+    /// result. Event logs are never part of a routine check-in: at seven
+    /// thousand cabinets they would dominate storage while being read for a
+    /// handful of them.
+    /// </summary>
+    CollectEventLogs = 10,
+
+    /// <summary>
+    /// Collect the current process list and return it with the result. On
+    /// demand only, for the same reason as <see cref="CollectEventLogs"/>.
+    /// </summary>
+    CollectProcessList = 11,
+
+    /// <summary>
+    /// Ping another cabinet at the same site, from this cabinet. The target is
+    /// named as a cabinet id; the server resolves its last-known local address
+    /// and the console never supplies one. Non-disruptive.
+    /// </summary>
+    PingCabinet = 12,
+
+    /// <summary>
+    /// Open a TCP connection from this cabinet to a port on another cabinet at
+    /// the same site, to tell a dead host from a blocked port. The port comes
+    /// from a server-side allow-list of the ports the CUBEX stack uses.
+    /// </summary>
+    TestCabinetPort = 13,
+
+    /// <summary>
+    /// Trace the network path from this cabinet to another cabinet at the same
+    /// site, to locate where a site network fault sits.
+    /// </summary>
+    TraceRouteToCabinet = 14,
 }

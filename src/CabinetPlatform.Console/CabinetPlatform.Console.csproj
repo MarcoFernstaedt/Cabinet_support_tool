@@ -2,19 +2,29 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <!-- Overrides the repository default: WPF is a Windows-only UI stack.
-         The .NET version itself still comes from Directory.Build.props. -->
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
     <RootNamespace>CabinetPlatform.Console</RootNamespace>
     <AssemblyName>CabinetPlatform.Console</AssemblyName>
+
+    <!--
+      Lets the project restore and build from a non-Windows machine. It does not
+      make the application run there — WPF is Windows-only — but it keeps the
+      csproj honest on a build agent that is not Windows.
+    -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\CabinetPlatform.Console.Core\CabinetPlatform.Console.Core.csproj" />
     <ProjectReference Include="..\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
   </ItemGroup>
 

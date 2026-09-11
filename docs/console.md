@@ -8,9 +8,9 @@ remote desktop session into a clinic's machine.
 
 | Project | Target | Purpose |
 | --- | --- | --- |
-| `Mashura.CabinetSupport.Console.Core` | `net8.0` | Every ViewModel, the API client, and all presentation logic. No WPF reference. |
-| `Mashura.CabinetSupport.Console` | `net8.0-windows` | The WPF shell: windows, XAML, converters, DI wiring. |
-| `Mashura.CabinetSupport.Console.Core.Tests` | `net8.0` | Drives the real API client against the real server, hosted in-process. |
+| `CabinetPlatform.Console.Core` | `net8.0` | Every ViewModel, the API client, and all presentation logic. No WPF reference. |
+| `CabinetPlatform.Console` | `net8.0-windows` | The WPF shell: windows, XAML, converters, DI wiring. |
+| `CabinetPlatform.Console.Core.Tests` | `net8.0` | Drives the real API client against the real server, hosted in-process. |
 
 The split is load-bearing rather than tidy. A ViewModel in `Core` cannot
 reach for a `Window`, a `Dispatcher` or a `MessageBox`, because none of
@@ -23,8 +23,8 @@ all.
 ## Building and running
 
 ```
-dotnet build Mashura.CabinetSupport.sln
-dotnet test  Mashura.CabinetSupport.sln
+dotnet build CabinetPlatform.sln
+dotnet test  CabinetPlatform.sln
 ```
 
 The WPF project needs the Windows Desktop SDK. Any Windows machine has
@@ -36,8 +36,8 @@ Console project cannot be evaluated at all. The `Core`, `Contracts`,
 `Server` and both test projects build and test anywhere:
 
 ```
-dotnet test tests/Mashura.CabinetSupport.Console.Core.Tests
-dotnet test tests/Mashura.CabinetSupport.Server.Tests
+dotnet test tests/CabinetPlatform.Console.Core.Tests
+dotnet test tests/CabinetPlatform.Server.Tests
 ```
 
 Point the console at a server with `Api:BaseAddress` in

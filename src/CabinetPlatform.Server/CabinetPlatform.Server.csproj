@@ -1,13 +1,31 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <RootNamespace>CabinetPlatform.Server</RootNamespace>
-    <AssemblyName>CabinetPlatform.Server</AssemblyName>
-    <UserSecretsId>cabinetplatform-server</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.11">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <!-- SQLite is fine for local development. PostgreSQL is required before any
+         multi-site deployment: the heartbeat and SMART tables reach volumes
+         SQLite cannot serve. Every query is LINQ with no provider-specific SQL,
+         so the choice is a connection string. -->
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.11" />
     <PackageReference Include="Serilog.AspNetCore" Version="8.0.3" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The sweep methods on the background services are internal because
+         nothing in the application should call them directly; the tests drive
+         them explicitly instead of waiting on a timer. -->
+    <InternalsVisibleTo Include="CabinetPlatform.Server.Tests" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CabinetPlatform.Console.Core\CabinetPlatform.Console.Core.csproj" />
+    <!--
+      The console's own tests drive the real ApiClient against the real server
+      pipeline hosted in-process. A hand-written fake HTTP handler would only
+      ever prove the client agrees with my guess about the server.
+    -->
+    <ProjectReference Include="..\..\src\CabinetPlatform.Server\CabinetPlatform.Server.csproj" />
+  </ItemGroup>
+
+</Project>

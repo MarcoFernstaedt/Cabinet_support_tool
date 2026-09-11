@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Common;
 
 namespace CabinetPlatform.Contracts.Audit;
 
@@ -31,12 +32,18 @@ public sealed record AuditEntryDto
     /// </summary>
     public required string ActorId { get; init; }
 
+    /// <summary>The actor's display name, when one is known. For reading, not for filtering.</summary>
+    public string? ActorDisplayName { get; init; }
+
     /// <summary>
     /// Whether the platform observed this or caused it. Required, never
     /// nullable, and written by whoever creates the record — never inferred at
     /// read time from the shape of the other fields.
     /// </summary>
     public required AuditEventKind EventKind { get; init; }
+
+    /// <summary>Which audit event this record is, drawn from the fixed catalog.</summary>
+    public required AuditEvent Event { get; init; }
 
     /// <summary>
     /// The action this record concerns, or <see langword="null"/> for records
@@ -49,6 +56,18 @@ public sealed record AuditEntryDto
     /// no cabinet context, such as a sign-in or a pending-agent decision.
     /// </summary>
     public Guid? CabinetId { get; init; }
+
+    /// <summary>Hostname of that cabinet at the time, for reading the trail without a join.</summary>
+    public string? CabinetHostname { get; init; }
+
+    /// <summary>
+    /// The cabinet a diagnostic probe targeted, for the cabinet-to-cabinet
+    /// actions. Both ends of a probe are named on the record.
+    /// </summary>
+    public Guid? TargetCabinetId { get; init; }
+
+    /// <summary>Hostname of that target cabinet.</summary>
+    public string? TargetCabinetHostname { get; init; }
 
     /// <summary>Outcome recorded for this entry, including refusals.</summary>
     public required AuditResult Result { get; init; }
@@ -67,7 +86,10 @@ public sealed record AuditEntryDto
     /// <see langword="null"/> when the action did not require approval. It is
     /// never the same person as the requester.
     /// </summary>
-    public string? ApprovedByUserId { get; init; }
+    public Guid? ApprovedByUserId { get; init; }
+
+    /// <summary>Batch this record belongs to, when it was part of one.</summary>
+    public Guid? BatchId { get; init; }
 
     /// <summary>
     /// Additional structured context as a JSON document, for example the
@@ -75,6 +97,12 @@ public sealed record AuditEntryDto
     /// It carries no command text, no credentials and no biometric data.
     /// </summary>
     public string? Details { get; init; }
+
+    /// <summary>
+    /// Identifier tying every record written while serving one request
+    /// together, and to the server's own logs.
+    /// </summary>
+    public string? CorrelationId { get; init; }
 }
 
 /// <summary>
@@ -91,6 +119,13 @@ public enum ActorType
 
     /// <summary>The platform itself, acting without a person, such as a scheduled evaluation.</summary>
     System = 3,
+
+    /// <summary>
+    /// An unauthenticated caller. A failed sign-in and a request refused before
+    /// authentication have no identity to attribute, and saying so is more
+    /// honest than attributing them to the server.
+    /// </summary>
+    Anonymous = 4,
 }
 
 /// <summary>
@@ -121,6 +156,11 @@ public enum AuditEventKind
 /// <summary>
 /// Outcome recorded on an audit entry.
 /// </summary>
+/// <remarks>
+/// These numbers are load-bearing: they are persisted. Session 3's server was
+/// written against <c>Denied = 2, Failure = 3</c>, the opposite of this, and a
+/// migration remaps any row written under that numbering. Do not renumber.
+/// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum AuditResult
 {
@@ -132,4 +172,29 @@ public enum AuditResult
 
     /// <summary>The action was refused. Denials are audited exactly like anything else.</summary>
     Denied = 3,
+}
+
+/// <summary>Filter over the audit trail.</summary>
+public sealed record AuditQuery : HistoryQuery
+{
+    /// <summary>Restrict to records about one cabinet.</summary>
+    public Guid? CabinetId { get; init; }
+
+    /// <summary>Restrict to one actor.</summary>
+    public string? ActorId { get; init; }
+
+    /// <summary>Restrict to observations or to changes.</summary>
+    public AuditEventKind? EventKind { get; init; }
+
+    /// <summary>Restrict to one outcome.</summary>
+    public AuditResult? Result { get; init; }
+
+    /// <summary>Restrict to one audit event.</summary>
+    public AuditEvent? Event { get; init; }
+
+    /// <summary>Restrict to records about one catalog action.</summary>
+    public ActionName? Action { get; init; }
+
+    /// <summary>Restrict to the records written for one batch.</summary>
+    public Guid? BatchId { get; init; }
 }

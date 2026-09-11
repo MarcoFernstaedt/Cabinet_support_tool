@@ -3,13 +3,10 @@ using System.Windows;
 namespace CabinetPlatform.Console.Views;
 
 /// <summary>
-/// Shell window for the support console.
+/// The main window. Layout only — every behaviour behind it lives in
+/// <see cref="Core.ViewModels.ShellViewModel"/>.
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>Creates the shell window.</summary>
-    public MainWindow()
-    {
-        InitializeComponent();
-    }
+    public MainWindow() => InitializeComponent();
 }

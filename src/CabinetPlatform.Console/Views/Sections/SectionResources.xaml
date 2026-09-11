@@ -1,0 +1,104 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sections="clr-namespace:CabinetPlatform.Console.Core.Sections;assembly=CabinetPlatform.Console.Core">
+
+    <!--
+        The panel a section shows instead of its data, with the reason in words.
+
+        This template is why there is no blank panel anywhere in the Machine
+        tab: a section with nothing to show renders this, and this cannot
+        render without a reason, because Availability.Reason is never empty
+        when ShowsReason is true.
+    -->
+    <DataTemplate x:Key="SectionUnavailableTemplate">
+        <Border Style="{StaticResource ExplanationPanel}">
+            <StackPanel>
+                <TextBlock Text="No data for this section"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,4"
+                           Foreground="{DynamicResource Text.Brush}" />
+                <TextBlock Text="{Binding Reason}"
+                           Style="{StaticResource ExplanationText}" />
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!--
+        One action button. Every consequence the catalogue records — disruptive,
+        needs approval, maintenance window only, blocked while a user is logged
+        on — is shown beside the button and folded into its accessible name, so
+        it is known before the press rather than after it.
+    -->
+    <DataTemplate x:Key="SectionActionTemplate" DataType="{x:Type sections:SectionActionViewModel}">
+        <Border BorderBrush="{DynamicResource Border.Brush}"
+                BorderThickness="1"
+                Padding="10"
+                Margin="0,0,8,8"
+                MinWidth="240"
+                Background="{DynamicResource Surface.Brush}">
+            <StackPanel>
+                <Button Content="{Binding DisplayName}"
+                        Command="{Binding InvokeCommand}"
+                        HorizontalAlignment="Left"
+                        AutomationProperties.Name="{Binding AccessibleName}"
+                        AutomationProperties.HelpText="{Binding Description}" />
+
+                <TextBlock Text="{Binding Description}"
+                           Style="{StaticResource ExplanationText}"
+                           Margin="0,6,0,0"
+                           Foreground="{DynamicResource Text.Subtle.Brush}" />
+
+                <!-- Warnings carry a word and a shape, never a colour alone. -->
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
+                            Visibility="{Binding IsDisruptive, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="▲" FontFamily="Segoe UI Symbol" Margin="0,0,6,0"
+                               AutomationProperties.AccessibilityView="Raw"
+                               Foreground="{DynamicResource Severity.Warning.Brush}" />
+                    <TextBlock Text="Disruptive — interrupts work on the cabinet"
+                               TextWrapping="Wrap"
+                               AutomationProperties.AccessibilityView="Raw"
+                               Foreground="{DynamicResource Severity.Warning.Brush}" />
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                            Visibility="{Binding RequiresApproval, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="⏸" FontFamily="Segoe UI Symbol" Margin="0,0,6,0"
+                               AutomationProperties.AccessibilityView="Raw"
+                               Foreground="{DynamicResource Severity.Warning.Brush}" />
+                    <TextBlock Text="A second person must approve this before it runs"
+                               TextWrapping="Wrap"
+                               AutomationProperties.AccessibilityView="Raw"
+                               Foreground="{DynamicResource Severity.Warning.Brush}" />
+                </StackPanel>
+
+                <!-- A disabled button always says why it is disabled. -->
+                <TextBlock Text="{Binding UnavailableReason}"
+                           Style="{StaticResource ExplanationText}"
+                           Margin="0,6,0,0"
+                           FontStyle="Italic"
+                           Foreground="{DynamicResource Text.Subtle.Brush}"
+                           Visibility="{Binding UnavailableReason, Converter={StaticResource StringToVisibility}}" />
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
+    <!-- The actions strip a section shows beneath its data. -->
+    <DataTemplate x:Key="SectionActionsTemplate">
+        <StackPanel Visibility="{Binding HasActions, Converter={StaticResource BoolToVisibility}}">
+            <TextBlock Text="Actions"
+                       Style="{StaticResource SectionHeading}"
+                       Margin="0,12,0,4"
+                       AutomationProperties.HeadingLevel="Level4" />
+            <ItemsControl ItemsSource="{Binding Actions}"
+                          ItemTemplate="{StaticResource SectionActionTemplate}"
+                          AutomationProperties.Name="Actions for this section">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </StackPanel>
+    </DataTemplate>
+
+</ResourceDictionary>
