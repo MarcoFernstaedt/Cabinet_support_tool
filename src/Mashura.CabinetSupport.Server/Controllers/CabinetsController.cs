@@ -180,12 +180,28 @@ public sealed class CabinetsController : SupportControllerBase
 
         // One row per drive: the newest reading for each serial this cabinet
         // has ever reported, rather than the newest handful overall.
-        List<SmartReadingDto> smart = await _db.SmartReadings.AsNoTracking()
+        //
+        // Expressed as a correlated max rather than GroupBy().Select(g =>
+        // g.First()), which no relational provider can translate and which
+        // therefore threw on every cabinet that had ever reported a drive.
+        List<Domain.SmartReading> newestPerDrive = await _db.SmartReadings.AsNoTracking()
             .Where(s => s.CabinetId == id)
-            .GroupBy(s => s.DriveSerial)
-            .Select(g => g.OrderByDescending(s => s.TimestampUtc).First())
-            .Select(s => ToDto(s))
+            .Where(s => s.TimestampUtc == _db.SmartReadings
+                .Where(other => other.CabinetId == id && other.DriveSerial == s.DriveSerial)
+                .Max(other => other.TimestampUtc))
             .ToListAsync(ct);
+
+        // A drive can hold two rows at the identical instant once retention has
+        // rolled a day up, so the tie is broken in memory — over a handful of
+        // drives, not a table scan. The as-sampled reading wins: it is the
+        // actual observation, and the roll-up is a summary of it.
+        List<SmartReadingDto> smart = newestPerDrive
+            .GroupBy(s => s.DriveSerial)
+            .Select(g => ToDto(g
+                .OrderBy(s => s.IsAggregated)
+                .ThenBy(s => s.Id)
+                .First()))
+            .ToList();
 
         var dto = new CabinetLatestDto
         {
