@@ -1,10 +1,8 @@
 using System.Text.Json;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Contracts.Audit;
-using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Cabinets;
-using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Server.Actions;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Data;
@@ -17,13 +15,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CabinetPlatform.Server.Controllers;
 
-/// <summary>
-/// Requesting, approving and denying catalogued actions.
-///
-/// Nothing here accepts a command, a script or SQL. The only thing a caller
-/// may name is an entry in <see cref="ActionCatalog"/>, and the only
-/// parameters that survive are the ones that entry declares.
-/// </summary>
+/// <summary>Requesting, approving and reading actions, singly and in batches.</summary>
 [Route("api/actions")]
 public sealed class ActionsController : SupportControllerBase
 {
@@ -31,8 +23,11 @@ public sealed class ActionsController : SupportControllerBase
     private readonly IActionRequestService _actions;
     private readonly IAuditService _audit;
 
-    public ActionsController(
-        SupportDbContext db, IActionRequestService actions, IAuditService audit)
+    /// <summary>Creates the controller.</summary>
+    /// <param name="db">The database.</param>
+    /// <param name="actions">The one path to creating and deciding actions.</param>
+    /// <param name="audit">The audit trail.</param>
+    public ActionsController(SupportDbContext db, IActionRequestService actions, IAuditService audit)
     {
         _db = db;
         _actions = actions;
@@ -40,16 +35,20 @@ public sealed class ActionsController : SupportControllerBase
     }
 
     /// <summary>
-    /// The catalogue, so the console can draw the right buttons. Advisory
-    /// only — the server re-checks every rule it describes when an action is
-    /// actually requested.
+    /// The catalog, as the server describes it.
     /// </summary>
+    /// <remarks>
+    /// The console uses it to label and disable buttons. The server enforces
+    /// every rule in it regardless, so nothing here is a permission.
+    /// </remarks>
+    /// <param name="ct">Cancels the request.</param>
     [HttpGet("catalog")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
     [ProducesResponseType(typeof(IReadOnlyList<ActionCatalogEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ActionCatalogEntryDto>>> Catalog(CancellationToken ct)
     {
-        List<ActionCatalogEntryDto> items = ActionCatalog.All
+        List<ActionCatalogEntryDto> entries = ActionCatalog.All
+            .OrderBy(e => e.Action)
             .Select(e => new ActionCatalogEntryDto
             {
                 Action = e.Action,
@@ -59,30 +58,32 @@ public sealed class ActionsController : SupportControllerBase
                 RequiresApproval = e.RequiresApproval,
                 IsDisruptive = e.IsDisruptive,
                 TimeoutSeconds = e.TimeoutSeconds,
-                AllowedParameterKeys = e.AllowedParameterKeys.OrderBy(k => k).ToList(),
+                AllowedParameterKeys = e.AllowedParameterKeys.OrderBy(k => k).ToArray(),
+                AllowedPorts = e.AllowedPorts.OrderBy(p => p).ToArray(),
                 MaintenanceWindowOnly = e.MaintenanceWindowOnly,
-                BlockedIfUserLoggedOn = e.BlockedIfUserLoggedOn
+                BlockedIfUserLoggedOn = e.BlockedIfUserLoggedOn,
+                TargetsAnotherCabinet = e.TargetsAnotherCabinet,
+                BatchSupervisorThreshold = e.Batchable ? e.BatchSupervisorThreshold : null,
+                MaximumBatchSize = e.Batchable ? e.MaximumBatchSize : null,
             })
-            .OrderBy(e => e.Action)
             .ToList();
 
-        await WriteObservedAsync(AuditActions.ViewActionCatalog, new { Count = items.Count }, ct);
+        await _audit.WriteAsync(Observed(AuditEvent.ViewActionCatalog, new { Count = entries.Count }), ct);
 
-        return Ok(items);
+        return Ok(entries);
     }
 
+    /// <summary>Requests one action on one cabinet.</summary>
+    /// <param name="request">What to do and why.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpPost]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(ActionRequestDto), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<ActionRequestDto>> Create(
+    public async Task<ActionResult<ActionRequestView>> Create(
         [FromBody] CreateActionRequest request, CancellationToken ct)
     {
-        // The minimum role for the specific action is enforced inside the
-        // service against the caller's token-resolved role. Tier1 here is only
-        // the floor for reaching the endpoint at all.
         OperationResult<ActionRequest> result = await _actions.CreateAsync(CurrentUser, request, ct);
 
         if (!result.Succeeded)
@@ -90,231 +91,296 @@ public sealed class ActionsController : SupportControllerBase
             return Problem(result);
         }
 
-        ActionRequestDto dto = await LoadDtoAsync(result.Value!.Id, ct)
-                               ?? throw new InvalidOperationException(
-                                   "Action request vanished immediately after creation.");
+        ActionRequestView view = await ProjectAsync(result.Value!.Id, ct)
+                                 ?? throw new InvalidOperationException("The created action could not be read back.");
 
-        return CreatedAtAction(nameof(GetById), new { id = dto.Id }, dto);
+        return CreatedAtAction(nameof(GetById), new { id = view.Id }, view);
     }
 
-    [HttpGet("{id:guid}")]
+    /// <summary>
+    /// Tests a cabinet's link to its site's sync cabinet, in one call.
+    /// </summary>
+    /// <remarks>
+    /// This is the common case by a wide margin — "is this satellite talking to
+    /// its sync cabinet?" — so the console offers it as one button and the
+    /// server resolves the target rather than making a rep pick it from a list
+    /// and get it wrong.
+    /// </remarks>
+    /// <param name="id">The source cabinet.</param>
+    /// <param name="request">Why, and against which ticket.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpPost("cabinets/{id:guid}/test-sync-link")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(ActionRequestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<ActionRequestDto>> GetById(Guid id, CancellationToken ct)
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<ActionRequestView>> TestSyncLink(
+        Guid id, [FromBody] TestSyncLinkRequest request, CancellationToken ct)
     {
-        ActionRequestDto? dto = await LoadDtoAsync(id, ct);
+        Domain.Cabinet? cabinet = await _db.Cabinets
+            .AsNoTracking()
+            .Include(c => c.Site)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
 
-        if (dto is null)
+        if (cabinet?.Site is null)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ListActions, "Action request not found.", null,
-                new { ActionRequestId = id }, ct);
+                AuditEvent.CabinetLinkTest, "Cabinet not found.", id, null, ActionName.PingCabinet, ct);
+            return Problem("Cabinet not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        if (cabinet.Site.SyncCabinetId is not { } syncId)
+        {
+            return Problem(
+                "This cabinet's site has no sync cabinet, so there is no link to test. Standalone sites " +
+                "are normal and are not an error.",
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Conflict");
+        }
+
+        if (syncId == cabinet.Id)
+        {
+            return Problem(
+                "This cabinet is its site's sync cabinet. Test the link from one of its satellites instead.",
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Conflict");
+        }
+
+        var create = new CreateActionRequest
+        {
+            Action = ActionName.PingCabinet,
+            CabinetId = cabinet.Id,
+            Parameters = new Dictionary<string, string>
+            {
+                [ActionCatalog.TargetCabinetIdKey] = syncId.ToString(),
+            },
+            Reason = string.IsNullOrWhiteSpace(request.Reason)
+                ? "Testing this cabinet's link to its site's sync cabinet."
+                : request.Reason.Trim(),
+            TicketReference = request.TicketReference,
+        };
+
+        OperationResult<ActionRequest> result = await _actions.CreateAsync(CurrentUser, create, ct);
+
+        if (!result.Succeeded)
+        {
+            return Problem(result);
+        }
+
+        ActionRequestView view = await ProjectAsync(result.Value!.Id, ct)
+                                 ?? throw new InvalidOperationException("The created action could not be read back.");
+
+        return CreatedAtAction(nameof(GetById), new { id = view.Id }, view);
+    }
+
+    /// <summary>One action, with its whole lifecycle.</summary>
+    /// <param name="id">The action.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpGet("{id:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ActionRequestView>> GetById(Guid id, CancellationToken ct)
+    {
+        ActionRequestView? view = await ProjectAsync(id, ct);
+
+        if (view is null)
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.ListActions, "Action request not found.", null, new { ActionRequestId = id }, null, ct);
             return Problem("Action request not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
 
-        await WriteObservedAsync(AuditActions.ListActions, new { ActionRequestId = id }, ct);
-
-        return Ok(dto);
+        return Ok(view);
     }
 
+    /// <summary>The action list.</summary>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpGet]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(PagedResult<ActionRequestDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PagedResult<ActionRequestDto>>> List(
+    [ProducesResponseType(typeof(PagedResult<ActionRequestView>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<ActionRequestView>>> List(
         [FromQuery] ActionQuery query, CancellationToken ct)
     {
-        IQueryable<ActionRequest> rows = BaseQuery();
+        IQueryable<ActionRequest> actions = _db.ActionRequests.AsNoTracking();
 
         if (query.CabinetId is { } cabinetId)
         {
-            rows = rows.Where(a => a.CabinetId == cabinetId);
+            actions = actions.Where(a => a.CabinetId == cabinetId);
         }
 
         if (query.Status is { } status)
         {
-            rows = rows.Where(a => a.Status == status);
+            actions = actions.Where(a => a.Status == status);
         }
 
-        int total = await rows.CountAsync(ct);
+        if (query.BatchId is { } batchId)
+        {
+            actions = actions.Where(a => a.BatchId == batchId);
+        }
 
-        List<ActionRequestDto> items = Materialise(await Project(rows)
-            .OrderByDescending(r => r.Action.RequestedUtc)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .ToListAsync(ct));
+        int total = await actions.CountAsync(ct);
 
-        await WriteObservedAsync(AuditActions.ListActions, new
+        List<ActionRequestView> items = await ProjectAsync(
+            actions.OrderByDescending(a => a.RequestedUtc).Skip(query.Skip).Take(query.PageSize), ct);
+
+        await _audit.WriteAsync(Observed(AuditEvent.ListActions, new
         {
             query.CabinetId,
             Status = query.Status?.ToString(),
-            ResultCount = items.Count
-        }, ct);
+            ResultCount = items.Count,
+        }), ct);
 
-        return Ok(PagedResult<ActionRequestDto>.Create(items, query.Page, query.PageSize, total));
+        return Ok(PagedResult<ActionRequestView>.Create(items, query.Page, query.PageSize, total));
     }
 
     /// <summary>
-    /// Actions this caller may actually approve.
-    ///
-    /// The caller's own requests are excluded here as well as refused at
-    /// approval time. Hiding them is a courtesy to the console; the explicit
-    /// check in the approve path is the rule.
+    /// Actions this caller is eligible to approve.
     /// </summary>
+    /// <remarks>
+    /// The caller's own requests are excluded here, because the four-eyes rule
+    /// means they can never approve them. The server enforces that separately
+    /// at approval time; this list exists so the console does not offer an
+    /// action it is about to refuse.
+    /// </remarks>
+    /// <param name="query">Page.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpGet("pending-approval")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
-    [ProducesResponseType(typeof(PagedResult<ActionRequestDto>), StatusCodes.Status200OK)]
-    public async Task<ActionResult<PagedResult<ActionRequestDto>>> PendingApproval(
+    [ProducesResponseType(typeof(PagedResult<ActionRequestView>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<PagedResult<ActionRequestView>>> PendingApproval(
         [FromQuery] PagedQuery query, CancellationToken ct)
     {
-        CurrentUser actor = CurrentUser;
+        Guid callerId = CurrentUser.UserId;
 
-        // Only actions whose minimum role this caller meets. Evaluated from
-        // the in-code catalogue, so it cannot drift from the approval check.
-        List<ActionName> approvable = ActionCatalog.All
-            .Where(e => actor.Role >= e.MinimumRole)
-            .Select(e => e.Action)
-            .ToList();
+        IQueryable<ActionRequest> actions = _db.ActionRequests.AsNoTracking()
+            .Where(a => a.Status == ActionRequestStatus.PendingApproval && a.RequestedByUserId != callerId);
 
-        IQueryable<ActionRequest> rows = BaseQuery()
-            .Where(a => a.Status == ActionRequestStatus.PendingApproval &&
-                        a.RequestedByUserId != actor.UserId &&
-                        approvable.Contains(a.Action));
+        int total = await actions.CountAsync(ct);
 
-        int total = await rows.CountAsync(ct);
+        List<ActionRequestView> items = await ProjectAsync(
+            actions.OrderBy(a => a.RequestedUtc).Skip(query.Skip).Take(query.PageSize), ct);
 
-        List<ActionRequestDto> items = Materialise(await Project(rows)
-            .OrderBy(r => r.Action.RequestedUtc)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .ToListAsync(ct));
+        await _audit.WriteAsync(
+            Observed(AuditEvent.ListPendingApproval, new { ResultCount = items.Count }), ct);
 
-        await WriteObservedAsync(
-            AuditActions.ListPendingApproval, new { ResultCount = items.Count }, ct);
-
-        return Ok(PagedResult<ActionRequestDto>.Create(items, query.Page, query.PageSize, total));
+        return Ok(PagedResult<ActionRequestView>.Create(items, query.Page, query.PageSize, total));
     }
 
-    /// <summary>
-    /// Approves an action. The four-eyes rule — approver must not be the
-    /// requester — is enforced inside the service with an explicit check.
-    /// </summary>
+    /// <summary>Approves one action.</summary>
+    /// <param name="id">The action.</param>
+    /// <param name="request">The approver's note.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/approve")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
-    [ProducesResponseType(typeof(ActionRequestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<ActionRequestDto>> Approve(
+    public async Task<ActionResult<ActionRequestView>> Approve(
         Guid id, [FromBody] ApproveActionRequest request, CancellationToken ct)
     {
         OperationResult<ActionRequest> result = await _actions.ApproveAsync(CurrentUser, id, request, ct);
 
-        return result.Succeeded ? Ok(await LoadDtoAsync(id, ct)) : Problem(result);
+        return result.Succeeded
+            ? Ok(await ProjectAsync(id, ct))
+            : Problem(result);
     }
 
+    /// <summary>Refuses one action.</summary>
+    /// <param name="id">The action.</param>
+    /// <param name="request">Why.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/deny")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
-    [ProducesResponseType(typeof(ActionRequestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<ActionRequestDto>> Deny(
+    public async Task<ActionResult<ActionRequestView>> Deny(
         Guid id, [FromBody] DenyActionRequest request, CancellationToken ct)
     {
         OperationResult<ActionRequest> result = await _actions.DenyAsync(CurrentUser, id, request, ct);
 
-        return result.Succeeded ? Ok(await LoadDtoAsync(id, ct)) : Problem(result);
+        return result.Succeeded
+            ? Ok(await ProjectAsync(id, ct))
+            : Problem(result);
     }
 
-    private IQueryable<ActionRequest> BaseQuery() => _db.ActionRequests.AsNoTracking();
+    private async Task<ActionRequestView?> ProjectAsync(Guid id, CancellationToken ct)
+    {
+        List<ActionRequestView> rows =
+            await ProjectAsync(_db.ActionRequests.AsNoTracking().Where(a => a.Id == id), ct);
+
+        return rows.FirstOrDefault();
+    }
 
     /// <summary>
-    /// Rows as the database can hand them over: scalar columns plus the raw
-    /// parameters JSON. Deserialising happens after materialisation, because a
-    /// dictionary is not something a query provider can build.
+    /// Projects action rows with the names a person needs, resolved in one
+    /// round trip rather than one per row.
     /// </summary>
-    private sealed record ActionRow
+    private async Task<List<ActionRequestView>> ProjectAsync(
+        IQueryable<ActionRequest> actions, CancellationToken ct)
     {
-        public required ActionRequest Action { get; init; }
-        public string? CabinetHostname { get; init; }
-        public string? ClientName { get; init; }
-        public string? SiteName { get; init; }
-        public string? RequestedByDisplayName { get; init; }
-        public string? ApprovedByDisplayName { get; init; }
+        var rows = await actions
+            .Select(a => new
+            {
+                Action = a,
+                CabinetHostname = a.Cabinet!.Hostname,
+                SiteName = a.Cabinet!.Site!.Name,
+                ClientName = a.Cabinet!.Site!.Client!.Name,
+                TargetHostname = _db.Cabinets
+                    .Where(c => c.Id == a.TargetCabinetId)
+                    .Select(c => c.Hostname)
+                    .FirstOrDefault(),
+                RequestedByDisplayName = _db.Users
+                    .Where(u => u.Id == a.RequestedByUserId)
+                    .Select(u => u.DisplayName)
+                    .FirstOrDefault(),
+                ApprovedByDisplayName = _db.Users
+                    .Where(u => u.Id == a.ApprovedByUserId)
+                    .Select(u => u.DisplayName)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r => new ActionRequestView
+        {
+            Id = r.Action.Id,
+            Action = r.Action.Action,
+            CabinetId = r.Action.CabinetId,
+            CabinetHostname = r.CabinetHostname,
+            ClientName = r.ClientName,
+            SiteName = r.SiteName,
+            RequestedByUserId = r.Action.RequestedByUserId,
+            RequestedByDisplayName = r.RequestedByDisplayName,
+            RequestedUtc = r.Action.RequestedUtc,
+            Parameters = DeserialiseParameters(r.Action.ParametersJson),
+            TargetCabinetId = r.Action.TargetCabinetId,
+            TargetCabinetHostname = r.TargetHostname,
+            Reason = r.Action.Reason,
+            TicketReference = r.Action.TicketReference,
+            Status = r.Action.Status,
+            ApprovedByUserId = r.Action.ApprovedByUserId,
+            ApprovedByDisplayName = r.ApprovedByDisplayName,
+            ApprovedUtc = r.Action.ApprovedUtc,
+            DispatchedUtc = r.Action.DispatchedUtc,
+            CompletedUtc = r.Action.CompletedUtc,
+            ResultStatus = r.Action.ResultStatus,
+            ResultOutput = r.Action.ResultOutput,
+            ExpiresUtc = r.Action.ExpiresUtc,
+            SafetyChecksOverridden = r.Action.SafetyChecksOverridden,
+            OverrideReason = r.Action.OverrideReason,
+            BatchId = r.Action.BatchId,
+        }).ToList();
     }
 
-    private IQueryable<ActionRow> Project(IQueryable<ActionRequest> rows) =>
-        from a in rows
-        join c in _db.Cabinets.AsNoTracking() on a.CabinetId equals c.Id into cabinets
-        from cabinet in cabinets.DefaultIfEmpty()
-        join r in _db.Users.AsNoTracking() on a.RequestedByUserId equals r.Id into requesters
-        from requester in requesters.DefaultIfEmpty()
-        join ap in _db.Users.AsNoTracking() on a.ApprovedByUserId equals ap.Id into approvers
-        from approver in approvers.DefaultIfEmpty()
-        select new ActionRow
-        {
-            Action = a,
-            CabinetHostname = cabinet != null ? cabinet.Hostname : null,
-            ClientName = cabinet != null ? cabinet.ClientName : null,
-            SiteName = cabinet != null ? cabinet.SiteName : null,
-            RequestedByDisplayName = requester != null ? requester.DisplayName : null,
-            ApprovedByDisplayName = approver != null ? approver.DisplayName : null
-        };
-
-    private static List<ActionRequestDto> Materialise(IEnumerable<ActionRow> rows) =>
-        rows.Select(ToDto).ToList();
-
-    private static ActionRequestDto ToDto(ActionRow row)
+    private static IReadOnlyDictionary<string, string> DeserialiseParameters(string json)
     {
-        ActionRequest a = row.Action;
-
-        return new ActionRequestDto
-        {
-            Id = a.Id,
-            Action = a.Action,
-            CabinetId = a.CabinetId,
-            CabinetHostname = row.CabinetHostname ?? string.Empty,
-            ClientName = row.ClientName ?? string.Empty,
-            SiteName = row.SiteName ?? string.Empty,
-            RequestedByUserId = a.RequestedByUserId,
-            RequestedByDisplayName = row.RequestedByDisplayName ?? string.Empty,
-            RequestedUtc = a.RequestedUtc,
-            Reason = a.Reason,
-            TicketReference = a.TicketReference,
-            Status = a.Status,
-            ApprovedByUserId = a.ApprovedByUserId,
-            ApprovedByDisplayName = row.ApprovedByDisplayName,
-            ApprovedUtc = a.ApprovedUtc,
-            DispatchedUtc = a.DispatchedUtc,
-            CompletedUtc = a.CompletedUtc,
-            ResultStatus = a.ResultStatus,
-            ResultOutput = a.ResultOutput,
-            ExpiresUtc = a.ExpiresUtc,
-            SafetyChecksOverridden = a.SafetyChecksOverridden,
-            OverrideReason = a.OverrideReason,
-            Parameters = Deserialise(a.ParametersJson)
-        };
-    }
-
-    private async Task<ActionRequestDto?> LoadDtoAsync(Guid id, CancellationToken ct)
-    {
-        ActionRow? row = await Project(BaseQuery().Where(a => a.Id == id)).FirstOrDefaultAsync(ct);
-
-        return row is null ? null : ToDto(row);
-    }
-
-    private static IReadOnlyDictionary<string, string> Deserialise(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json))
-        {
-            return new Dictionary<string, string>();
-        }
-
         try
         {
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json, Contracts.Common.ContractJson.Default)
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json, ContractJson.Default)
                    ?? new Dictionary<string, string>();
         }
         catch (JsonException)
@@ -323,19 +389,24 @@ public sealed class ActionsController : SupportControllerBase
         }
     }
 
-    private Task WriteObservedAsync(string action, object? details, CancellationToken ct)
+    private AuditRecord Observed(AuditEvent auditEvent, object details) => new()
     {
-        CurrentUser actor = CurrentUser;
+        Event = auditEvent,
+        EventKind = AuditEventKind.Observed,
+        Result = AuditResult.Success,
+        ActorType = ActorType.User,
+        ActorId = CurrentUser.UserId.ToString(),
+        ActorDisplayName = CurrentUser.Username,
+        Details = details,
+    };
+}
 
-        return _audit.WriteAsync(new AuditRecord
-        {
-            Action = action,
-            EventKind = AuditEventKind.Observed,
-            Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
-            ActorId = actor.UserId.ToString(),
-            ActorDisplayName = actor.Username,
-            Details = details
-        }, ct);
-    }
+/// <summary>Asking for the one-click sync-link test on a cabinet.</summary>
+public sealed record TestSyncLinkRequest
+{
+    /// <summary>Why the link is being tested. Optional; a default is recorded if omitted.</summary>
+    public string? Reason { get; init; }
+
+    /// <summary>Support ticket the test is associated with, if any.</summary>
+    public string? TicketReference { get; init; }
 }

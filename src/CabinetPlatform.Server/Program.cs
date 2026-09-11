@@ -60,12 +60,41 @@ builder.Services.Configure<ServiceAllowListOptions>(
     builder.Configuration.GetSection(ServiceAllowListOptions.SectionName));
 
 // --- Persistence ---------------------------------------------------------
-// SQLite today, PostgreSQL later. Every query in this codebase is LINQ with no
-// provider-specific SQL, so the swap is a package and a connection string.
+// SQLite is fine for local development. PostgreSQL is required before any
+// multi-site deployment: at seven thousand cabinets the heartbeat and SMART
+// tables reach volumes SQLite cannot serve, and its single-writer lock is the
+// wrong shape for twenty concurrent reps besides.
+//
+// Every query in this codebase is LINQ with no provider-specific SQL, so the
+// choice really is just this switch and a connection string. The same
+// migrations run against both.
+string provider = builder.Configuration["Database:Provider"] ?? "Sqlite";
+string connectionString = builder.Configuration.GetConnectionString("SupportDatabase")
+                          ?? "Data Source=cabinet-support.db";
+
 builder.Services.AddDbContext<SupportDbContext>(options =>
-    options.UseSqlite(
-        builder.Configuration.GetConnectionString("SupportDatabase")
-        ?? "Data Source=cabinet-support.db"));
+{
+    switch (provider.ToLowerInvariant())
+    {
+        case "postgresql":
+        case "postgres":
+        case "npgsql":
+            options.UseNpgsql(connectionString, npgsql =>
+                npgsql.MigrationsAssembly(typeof(SupportDbContext).Assembly.FullName));
+            break;
+
+        case "sqlite":
+            options.UseSqlite(connectionString, sqlite =>
+                sqlite.MigrationsAssembly(typeof(SupportDbContext).Assembly.FullName));
+            break;
+
+        default:
+            // An unrecognised provider is a startup failure, not a silent
+            // fallback to the development database.
+            throw new InvalidOperationException(
+                $"Database:Provider '{provider}' is not supported. Use Sqlite or PostgreSql.");
+    }
+});
 
 // --- Domain services -----------------------------------------------------
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
@@ -77,6 +106,9 @@ builder.Services.AddScoped<IActionParameterValidator, ActionParameterValidator>(
 builder.Services.AddScoped<IActionRequestService, ActionRequestService>();
 builder.Services.AddScoped<ICheckInIngestService, CheckInIngestService>();
 builder.Services.AddScoped<IUserAuthenticationService, UserAuthenticationService>();
+builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+builder.Services.AddScoped<ICabinetProjection, CabinetProjection>();
+builder.Services.AddScoped<ICabinetClock, CabinetClock>();
 builder.Services.AddScoped<DatabaseSeeder>();
 
 builder.Services.AddHostedService<RetentionService>();

@@ -8,6 +8,7 @@ using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
 using CabinetPlatform.Server.Security;
+using CabinetPlatform.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -27,17 +28,79 @@ public sealed class UsersController : SupportControllerBase
     private readonly IPasswordHasher _hasher;
     private readonly IAuditService _audit;
     private readonly TimeProvider _timeProvider;
+    private readonly IRefreshTokenService _refreshTokens;
 
+    /// <summary>Creates the controller.</summary>
+    /// <param name="db">The database.</param>
+    /// <param name="hasher">Hashes and validates passwords.</param>
+    /// <param name="audit">The audit trail.</param>
+    /// <param name="timeProvider">Clock.</param>
+    /// <param name="refreshTokens">Revokes sessions.</param>
     public UsersController(
         SupportDbContext db,
         IPasswordHasher hasher,
         IAuditService audit,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IRefreshTokenService refreshTokens)
     {
         _db = db;
         _hasher = hasher;
         _audit = audit;
         _timeProvider = timeProvider;
+        _refreshTokens = refreshTokens;
+    }
+
+    /// <summary>
+    /// Ends every session a user holds, immediately.
+    /// </summary>
+    /// <remarks>
+    /// This is the lockout path for an offboarded rep. The refresh chain dies
+    /// at once, so effective access ends when their outstanding access token
+    /// expires — within one access-token lifetime, not whenever a long-lived
+    /// token happens to run out.
+    /// </remarks>
+    /// <param name="id">The user whose sessions end.</param>
+    /// <param name="request">Why, and against which ticket.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpPost("{id:guid}/revoke-sessions")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> RevokeSessions(
+        Guid id, [FromBody] RevokeUserSessionsRequest request, CancellationToken ct)
+    {
+        CurrentUser actor = CurrentUser;
+
+        User? user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+
+        if (user is null)
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.RevokeUserSessions, "User not found.", null,
+                new { TargetUserId = id }, cancellationToken: ct);
+            return Problem("User not found.", statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        int revoked = await _refreshTokens.RevokeAllAsync(user.Id, request.Reason.Trim(), ct);
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RevokeUserSessions,
+            EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success,
+            ActorType = ActorType.User,
+            ActorId = actor.UserId.ToString(),
+            ActorDisplayName = actor.Username,
+            Reason = request.Reason.Trim(),
+            TicketReference = string.IsNullOrWhiteSpace(request.TicketReference)
+                ? null
+                : request.TicketReference.Trim(),
+            Details = new { TargetUserId = user.Id, user.Username, TokensRevoked = revoked },
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return NoContent();
     }
 
     [HttpGet]
@@ -73,7 +136,7 @@ public sealed class UsersController : SupportControllerBase
             })
             .ToListAsync(ct);
 
-        await WriteObservedAsync(AuditActions.ListUsers, new { ResultCount = items.Count }, ct);
+        await WriteObservedAsync(AuditEvent.ListUsers, new { ResultCount = items.Count }, ct);
 
         return Ok(PagedResult<UserDto>.Create(items, query.Page, query.PageSize, total));
     }
@@ -94,7 +157,7 @@ public sealed class UsersController : SupportControllerBase
         if (!Enum.IsDefined(request.Role))
         {
             await _audit.WriteDenialAsync(
-                AuditActions.CreateUser, "Role is not a defined value.", null, null, ct);
+                AuditEvent.CreateUser, "Role is not a defined value.", null, null, cancellationToken: ct);
             return Problem("Role is not valid.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -105,8 +168,8 @@ public sealed class UsersController : SupportControllerBase
         {
             // The complaint describes the policy. It never echoes the password.
             await _audit.WriteDenialAsync(
-                AuditActions.CreateUser, "Initial password did not meet policy.", null,
-                new { Username = username }, ct);
+                AuditEvent.CreateUser, "Initial password did not meet policy.", null,
+                new { Username = username }, cancellationToken: ct);
             return Problem(complaint,
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -114,8 +177,8 @@ public sealed class UsersController : SupportControllerBase
         if (await _db.Users.AnyAsync(u => u.Username == username, ct))
         {
             await _audit.WriteDenialAsync(
-                AuditActions.CreateUser, "Username already exists.", null,
-                new { Username = username }, ct);
+                AuditEvent.CreateUser, "Username already exists.", null,
+                new { Username = username }, cancellationToken: ct);
             return Problem("That username is already taken.",
                 statusCode: StatusCodes.Status409Conflict, title: "Conflict");
         }
@@ -143,10 +206,10 @@ public sealed class UsersController : SupportControllerBase
 
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.CreateUser,
+            Event = AuditEvent.CreateUser,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             Details = new
@@ -178,7 +241,7 @@ public sealed class UsersController : SupportControllerBase
         if (user is null)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.UpdateUser, "User not found.", null, new { UserId = id }, ct);
+                AuditEvent.UpdateUser, "User not found.", null, new { UserId = id }, cancellationToken: ct);
             return Problem("User not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -186,8 +249,8 @@ public sealed class UsersController : SupportControllerBase
         if (request.Role is { } role && !Enum.IsDefined(role))
         {
             await _audit.WriteDenialAsync(
-                AuditActions.UpdateUser, "Role is not a defined value.", null,
-                new { UserId = id }, ct);
+                AuditEvent.UpdateUser, "Role is not a defined value.", null,
+                new { UserId = id }, cancellationToken: ct);
             return Problem("Role is not valid.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -197,8 +260,8 @@ public sealed class UsersController : SupportControllerBase
         if (user.Id == actor.UserId && request.Role is { } newRole && newRole != user.Role)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.UpdateUser, "Supervisor attempted to change their own role.", null,
-                new { UserId = id }, ct);
+                AuditEvent.UpdateUser, "Supervisor attempted to change their own role.", null,
+                new { UserId = id }, cancellationToken: ct);
             return Problem("You cannot change your own role.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -206,13 +269,20 @@ public sealed class UsersController : SupportControllerBase
         if (user.Id == actor.UserId && request.IsActive is false)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.UpdateUser, "Supervisor attempted to deactivate themselves.", null,
-                new { UserId = id }, ct);
+                AuditEvent.UpdateUser, "Supervisor attempted to deactivate themselves.", null,
+                new { UserId = id }, cancellationToken: ct);
             return Problem("You cannot deactivate your own account.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
 
         var changes = new List<string>();
+
+        if (request.Role is { } demotedTo && demotedTo < user.Role)
+        {
+            // A demotion, like a deactivation, must not wait for a token to
+            // age out on its own.
+            changes.Add($"Sessions revoked: {await _refreshTokens.RevokeAllAsync(user.Id, "Role reduced.", ct)}");
+        }
 
         if (request.Role is { } assignedRole && assignedRole != user.Role)
         {
@@ -224,6 +294,15 @@ public sealed class UsersController : SupportControllerBase
         {
             changes.Add($"IsActive {user.IsActive} -> {isActive}");
             user.IsActive = isActive;
+
+            if (!isActive)
+            {
+                // Disabling an account ends its sessions now. The refresh path
+                // would refuse them anyway on its next exchange, but "within
+                // one access-token lifetime" is the promise, and waiting for a
+                // client to come asking is not that.
+                changes.Add($"Sessions revoked: {await _refreshTokens.RevokeAllAsync(user.Id, "Account deactivated.", ct)}");
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(request.DisplayName) &&
@@ -244,10 +323,10 @@ public sealed class UsersController : SupportControllerBase
         {
             _audit.Enqueue(new AuditRecord
             {
-                Action = AuditActions.UpdateUser,
+                Event = AuditEvent.UpdateUser,
                 EventKind = AuditEventKind.Observed,
                 Result = AuditResult.Success,
-                ActorType = ActorTypes.User,
+                ActorType = ActorType.User,
                 ActorId = actor.UserId.ToString(),
                 ActorDisplayName = actor.Username,
                 Details = new { TargetUserId = user.Id, user.Username, Changes = changes }
@@ -282,8 +361,8 @@ public sealed class UsersController : SupportControllerBase
         if (user is null)
         {
             await _audit.WriteDenialAsync(
-                request.Grant ? AuditActions.GrantElevatedSql : AuditActions.RevokeElevatedSql,
-                "User not found.", null, new { UserId = id }, ct);
+                request.Grant ? AuditEvent.GrantElevatedSql : AuditEvent.RevokeElevatedSql,
+                "User not found.", null, new { UserId = id }, cancellationToken: ct);
             return Problem("User not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -291,20 +370,28 @@ public sealed class UsersController : SupportControllerBase
         if (request.Grant && !user.IsActive)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.GrantElevatedSql, "Cannot grant to an inactive account.", null,
-                new { UserId = id }, ct);
+                AuditEvent.GrantElevatedSql, "Cannot grant to an inactive account.", null,
+                new { UserId = id }, cancellationToken: ct);
             return Problem("Cannot grant elevated access to an inactive account.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
 
         user.HasElevatedSql = request.Grant;
 
+        if (!request.Grant)
+        {
+            // Withdrawing the elevated grant is exactly the case the short
+            // access-token lifetime exists for: it takes effect now, not when
+            // the holder's token happens to expire.
+            await _refreshTokens.RevokeAllAsync(user.Id, "Elevated database grant withdrawn.", ct);
+        }
+
         _audit.Enqueue(new AuditRecord
         {
-            Action = request.Grant ? AuditActions.GrantElevatedSql : AuditActions.RevokeElevatedSql,
+            Event = request.Grant ? AuditEvent.GrantElevatedSql : AuditEvent.RevokeElevatedSql,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             // Required by the contract, and the part a compliance reviewer
@@ -320,16 +407,16 @@ public sealed class UsersController : SupportControllerBase
         return Ok(ToDto(user, nowUtc));
     }
 
-    private Task WriteObservedAsync(string action, object? details, CancellationToken ct)
+    private Task WriteObservedAsync(AuditEvent auditEvent, object? details, CancellationToken ct)
     {
         CurrentUser actor = CurrentUser;
 
         return _audit.WriteAsync(new AuditRecord
         {
-            Action = action,
+            Event = auditEvent,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             Details = details

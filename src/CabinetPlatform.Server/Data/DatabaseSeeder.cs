@@ -94,10 +94,10 @@ public sealed class DatabaseSeeder
 
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.SeedSupervisor,
+            Event = AuditEvent.SeedSupervisor,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.System,
+            ActorType = ActorType.System,
             ActorDisplayName = nameof(DatabaseSeeder),
             Reason = "Seeded the first Supervisor on an empty database.",
             // The username is an identifier. The password is not logged here,

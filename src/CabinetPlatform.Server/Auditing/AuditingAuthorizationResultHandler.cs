@@ -37,11 +37,11 @@ public sealed class AuditingAuthorizationResultHandler : IAuthorizationMiddlewar
             CurrentUser? user = context.User.GetCurrentUser();
             string? machineId = context.User.GetAgentMachineId();
 
-            (string actorType, string? actorId, string? actorName) = user is not null
-                ? (ActorTypes.User, user.UserId.ToString(), user.Username)
+            (ActorType actorType, string? actorId, string? actorName) = user is not null
+                ? (ActorType.User, user.UserId.ToString(), user.Username)
                 : machineId is not null
-                    ? (ActorTypes.Agent, machineId, (string?)null)
-                    : (ActorTypes.Anonymous, null, (string?)null);
+                    ? (ActorType.Agent, machineId, (string?)null)
+                    : (ActorType.Anonymous, null, (string?)null);
 
             string reason = authorizeResult.Challenged
                 ? "Not authenticated."
@@ -53,7 +53,7 @@ public sealed class AuditingAuthorizationResultHandler : IAuthorizationMiddlewar
             {
                 await audit.WriteAsync(new AuditRecord
                 {
-                    Action = AuditActions.AuthorizationDenied,
+                    Event = AuditEvent.AuthorizationDenied,
                     EventKind = AuditEventKind.Observed,
                     Result = AuditResult.Denied,
                     ActorType = actorType,

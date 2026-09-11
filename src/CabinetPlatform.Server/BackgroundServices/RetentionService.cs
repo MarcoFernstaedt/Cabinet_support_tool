@@ -1,7 +1,4 @@
-using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
-using CabinetPlatform.Contracts.Auth;
-using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
@@ -14,17 +11,28 @@ namespace CabinetPlatform.Server.BackgroundServices;
 
 /// <summary>
 /// Keeps the telemetry tables from growing without bound.
-///
-/// Three rules, and one deliberate omission:
-///   * Check-in rows older than the configured window are deleted outright.
-///   * SMART readings older than the full-resolution window are rolled into
-///     one row per drive per day rather than deleted, because predicting a
-///     drive failure means comparing a drive against its own history.
-///   * Those daily aggregates are kept far longer, then finally deleted.
-///
-/// AuditEntry appears nowhere in this file. Audit records are never deleted
-/// and never aggregated by this service, at any age.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Four rules, and one deliberate omission:
+/// </para>
+/// <list type="bullet">
+/// <item>Heartbeats are kept at full resolution for a week, then folded into
+/// one row per cabinet per hour and kept for a quarter. Two million samples a
+/// day is not a volume to keep at five-minute resolution for its own sake.</item>
+/// <item>SMART readings older than the full-resolution window are rolled into
+/// one row per drive per day rather than deleted, because predicting a drive
+/// failure means comparing a drive against its own history.</item>
+/// <item>Those daily aggregates are kept for two years, then deleted.</item>
+/// <item>Inventory versions are a change history and are not aged out by time
+/// at all. Only a per-cabinet cap applies, so a cabinet flapping between two
+/// configurations cannot grow without bound.</item>
+/// </list>
+/// <para>
+/// <see cref="AuditEntry"/> appears nowhere in this file. Audit records are
+/// never deleted and never aggregated by this service, at any age.
+/// </para>
+/// </remarks>
 public sealed class RetentionService : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -32,6 +40,11 @@ public sealed class RetentionService : BackgroundService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<RetentionService> _logger;
 
+    /// <summary>Creates the service.</summary>
+    /// <param name="scopeFactory">Creates a scope per sweep.</param>
+    /// <param name="options">Retention configuration.</param>
+    /// <param name="timeProvider">Clock.</param>
+    /// <param name="logger">Diagnostic log.</param>
     public RetentionService(
         IServiceScopeFactory scopeFactory,
         IOptions<RetentionOptions> options,
@@ -44,6 +57,7 @@ public sealed class RetentionService : BackgroundService
         _logger = logger;
     }
 
+    /// <inheritdoc />
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!_options.Enabled)
@@ -55,8 +69,7 @@ public sealed class RetentionService : BackgroundService
         var interval = TimeSpan.FromHours(Math.Max(1, _options.SweepIntervalHours));
 
         // A short initial delay keeps a heavy sweep off the cold-start path,
-        // which matters when several instances restart together behind a
-        // load balancer.
+        // which matters when several instances restart together.
         try
         {
             await Task.Delay(TimeSpan.FromMinutes(1), _timeProvider, stoppingToken);
@@ -94,250 +107,439 @@ public sealed class RetentionService : BackgroundService
         }
     }
 
+    /// <summary>Runs one sweep. Internal so tests can drive it without a timer.</summary>
+    /// <param name="ct">Cancels the sweep.</param>
     internal async Task SweepAsync(CancellationToken ct)
     {
         using IServiceScope scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
 
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
-        int checkInsDeleted = await DeleteCheckInsAsync(db, nowUtc, ct);
-        (int aggregatesWritten, int readingsFolded) = await AggregateSmartAsync(db, nowUtc, ct);
-        int aggregatesDeleted = await DeleteAgedAggregatesAsync(db, nowUtc, ct);
+        (int hourlyWritten, int heartbeatsFolded) = await AggregateHeartbeatsAsync(db, nowUtc, ct);
+        int heartbeatsDeleted = await DeleteAgedHeartbeatsAsync(db, nowUtc, ct);
+        (int dailyWritten, int readingsFolded) = await AggregateSmartAsync(db, nowUtc, ct);
+        int smartDeleted = await DeleteAgedSmartAggregatesAsync(db, nowUtc, ct);
+        int inventoriesTrimmed = await TrimInventoryVersionsAsync(db, ct);
 
-        if (checkInsDeleted == 0 && aggregatesWritten == 0 && aggregatesDeleted == 0)
+        int touched = hourlyWritten + heartbeatsDeleted + dailyWritten + smartDeleted + inventoriesTrimmed;
+
+        if (touched == 0)
         {
             return;
         }
 
         _logger.LogInformation(
-            "Retention sweep removed {CheckIns} check-ins, folded {Folded} SMART readings into " +
-            "{Aggregates} daily aggregates and removed {Expired} aged aggregates.",
-            checkInsDeleted, readingsFolded, aggregatesWritten, aggregatesDeleted);
+            "Retention sweep folded {Heartbeats} heartbeats into {Hourly} hourly rows, removed " +
+            "{ExpiredHeartbeats} aged heartbeat rows, folded {Readings} SMART readings into {Daily} " +
+            "daily rows, removed {ExpiredSmart} aged SMART rows and trimmed {Inventories} inventory " +
+            "versions.",
+            heartbeatsFolded, hourlyWritten, heartbeatsDeleted,
+            readingsFolded, dailyWritten, smartDeleted, inventoriesTrimmed);
 
         await audit.WriteAsync(new AuditRecord
         {
-            Action = AuditActions.RetentionSweep,
+            Event = AuditEvent.RetentionSweep,
             // The server tidied its own store. Nothing on a cabinet changed.
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.System,
+            ActorType = ActorType.System,
+            ActorId = nameof(RetentionService),
             ActorDisplayName = nameof(RetentionService),
             Details = new
             {
-                CheckInsDeleted = checkInsDeleted,
+                HeartbeatsFolded = heartbeatsFolded,
+                HourlyAggregatesWritten = hourlyWritten,
+                AgedHeartbeatsDeleted = heartbeatsDeleted,
                 SmartReadingsFolded = readingsFolded,
-                SmartAggregatesWritten = aggregatesWritten,
-                SmartAggregatesDeleted = aggregatesDeleted,
-                _options.CheckInRetentionDays,
-                _options.SmartFullResolutionDays,
-                _options.SmartAggregateRetentionDays
-            }
+                DailyAggregatesWritten = dailyWritten,
+                AgedSmartAggregatesDeleted = smartDeleted,
+                InventoryVersionsTrimmed = inventoriesTrimmed,
+            },
         }, ct);
     }
 
-    private async Task<int> DeleteCheckInsAsync(SupportDbContext db, DateTime nowUtc, CancellationToken ct)
+    /// <summary>
+    /// Folds full-resolution heartbeats older than the window into one row per
+    /// cabinet per hour.
+    /// </summary>
+    /// <remarks>
+    /// The aggregate keeps the <em>worst</em> value of each counter over the
+    /// hour, not the mean. A cabinet that spent five minutes at ninety-eight
+    /// percent memory and fifty-five minutes idle had a problem, and an average
+    /// would erase it. Counters that were null throughout stay null: an hour
+    /// with no reading aggregates to no reading, never to zero.
+    /// </remarks>
+    private async Task<(int Written, int Folded)> AggregateHeartbeatsAsync(
+        SupportDbContext db, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        DateTime cutoff = nowUtc.AddDays(-_options.CheckInRetentionDays);
-        int deleted = 0;
+        DateTimeOffset cutoff = nowUtc.AddDays(-_options.HeartbeatFullResolutionDays);
 
-        while (!ct.IsCancellationRequested)
+        List<Heartbeat> due = await db.Heartbeats
+            .Where(h => !h.IsAggregated && h.ReceivedUtc < cutoff)
+            .OrderBy(h => h.ReceivedUtc)
+            .Take(_options.BatchSize)
+            .ToListAsync(ct);
+
+        if (due.Count == 0)
         {
-            // Batched so a long-overdue first sweep does not hold one enormous
-            // transaction open across the request path.
-            List<CheckIn> batch = await db.CheckIns
-                .Where(c => c.ReceivedUtc < cutoff)
-                .OrderBy(c => c.ReceivedUtc)
-                .Take(_options.BatchSize)
-                .ToListAsync(ct);
-
-            if (batch.Count == 0)
-            {
-                break;
-            }
-
-            db.CheckIns.RemoveRange(batch);
-            await db.SaveChangesAsync(ct);
-            db.ChangeTracker.Clear();
-
-            deleted += batch.Count;
-
-            if (batch.Count < _options.BatchSize)
-            {
-                break;
-            }
+            return (0, 0);
         }
 
-        return deleted;
+        var written = 0;
+
+        foreach (IGrouping<(Guid CabinetId, DateTimeOffset Hour), Heartbeat> group in
+                 due.GroupBy(h => (h.CabinetId, Hour: TruncateToHour(h.ReceivedUtc))))
+        {
+            List<Heartbeat> rows = group.ToList();
+
+            Heartbeat? existing = await db.Heartbeats.FirstOrDefaultAsync(
+                h => h.CabinetId == group.Key.CabinetId &&
+                     h.IsAggregated &&
+                     h.CollectedAtUtc == group.Key.Hour, ct);
+
+            if (existing is null)
+            {
+                existing = new Heartbeat
+                {
+                    CabinetId = group.Key.CabinetId,
+                    ReceivedUtc = group.Key.Hour,
+                    CollectedAtUtc = group.Key.Hour,
+                    IsAggregated = true,
+                    SampleCount = 0,
+                    SectionErrorsJson = "{}",
+                    WorstDiskHealth = DiskHealthStatus.Unknown,
+                };
+
+                db.Heartbeats.Add(existing);
+                written++;
+            }
+
+            existing.AgentVersion ??= rows.Select(r => r.AgentVersion).LastOrDefault(v => v is not null);
+            existing.SampleCount += rows.Sum(r => r.SampleCount);
+            existing.UptimeSeconds = Max(existing.UptimeSeconds, rows.Max(r => r.UptimeSeconds));
+            existing.CpuPercent = Max(existing.CpuPercent, rows.Max(r => r.CpuPercent));
+            existing.RamUsedPercent = Max(existing.RamUsedPercent, rows.Max(r => r.RamUsedPercent));
+            existing.MinFreeDiskPercent = Min(existing.MinFreeDiskPercent, rows.Min(r => r.MinFreeDiskPercent));
+            existing.PendingUpdateCount = Max(existing.PendingUpdateCount, rows.Max(r => r.PendingUpdateCount));
+            existing.RebootPending = Or(existing.RebootPending, rows);
+            existing.AnyUserLoggedOn = OrLoggedOn(existing.AnyUserLoggedOn, rows);
+            existing.ClockDriftSeconds = MaxMagnitude(
+                existing.ClockDriftSeconds, rows.Select(r => r.ClockDriftSeconds));
+            existing.WorstDiskHealth = rows
+                .Select(r => r.WorstDiskHealth)
+                .Aggregate(existing.WorstDiskHealth, WorseDisk);
+
+            db.Heartbeats.RemoveRange(rows);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return (written, due.Count);
+    }
+
+    private async Task<int> DeleteAgedHeartbeatsAsync(
+        SupportDbContext db, DateTimeOffset nowUtc, CancellationToken ct)
+    {
+        DateTimeOffset cutoff = nowUtc.AddDays(-_options.HeartbeatAggregateRetentionDays);
+
+        List<Heartbeat> aged = await db.Heartbeats
+            .Where(h => h.ReceivedUtc < cutoff)
+            .Take(_options.BatchSize)
+            .ToListAsync(ct);
+
+        if (aged.Count == 0)
+        {
+            return 0;
+        }
+
+        db.Heartbeats.RemoveRange(aged);
+        await db.SaveChangesAsync(ct);
+        return aged.Count;
     }
 
     /// <summary>
-    /// Folds aged full-resolution readings into one row per drive per day.
-    ///
-    /// The aggregate keeps the worst value seen that day for every counter,
-    /// which is the shape failure prediction needs: a reallocated-sector count
-    /// that touched 40 and settled back matters, and an average would hide it.
+    /// Folds full-resolution SMART readings older than the window into one row
+    /// per drive per day, holding that day's worst observed value for each
+    /// counter.
     /// </summary>
-    private async Task<(int Aggregates, int Folded)> AggregateSmartAsync(
-        SupportDbContext db, DateTime nowUtc, CancellationToken ct)
+    private async Task<(int Written, int Folded)> AggregateSmartAsync(
+        SupportDbContext db, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        DateTime cutoff = nowUtc.Date.AddDays(-_options.SmartFullResolutionDays);
+        DateTimeOffset cutoff = nowUtc.AddDays(-_options.SmartFullResolutionDays);
 
-        int aggregates = 0;
-        int folded = 0;
+        List<SmartReading> due = await db.SmartReadings
+            .Where(s => !s.IsAggregated && s.TimestampUtc < cutoff)
+            .OrderBy(s => s.TimestampUtc)
+            .Take(_options.BatchSize)
+            .ToListAsync(ct);
 
-        while (!ct.IsCancellationRequested)
+        if (due.Count == 0)
         {
-            List<SmartReading> batch = await db.SmartReadings
-                .Where(s => !s.IsAggregated && s.TimestampUtc < cutoff)
-                .OrderBy(s => s.TimestampUtc)
-                .Take(_options.BatchSize)
-                .ToListAsync(ct);
+            return (0, 0);
+        }
 
-            if (batch.Count == 0)
+        var written = 0;
+
+        foreach (IGrouping<(Guid CabinetId, string Serial, DateTimeOffset Day), SmartReading> group in
+                 due.GroupBy(s => (s.CabinetId, Serial: s.DriveSerial, Day: TruncateToDay(s.TimestampUtc))))
+        {
+            List<SmartReading> rows = group.ToList();
+
+            SmartReading? existing = await db.SmartReadings.FirstOrDefaultAsync(
+                s => s.CabinetId == group.Key.CabinetId &&
+                     s.DriveSerial == group.Key.Serial &&
+                     s.IsAggregated &&
+                     s.TimestampUtc == group.Key.Day, ct);
+
+            if (existing is null)
             {
-                break;
-            }
-
-            // Group in memory: the batch is already bounded, and the
-            // worst-of-day fold is not something to push into SQL that has to
-            // stay provider-neutral.
-            var groups = batch
-                .GroupBy(s => new { s.CabinetId, s.DriveSerial, Day = s.TimestampUtc.Date })
-                .ToList();
-
-            foreach (var group in groups)
-            {
-                SmartReading? existing = await db.SmartReadings
-                    .FirstOrDefaultAsync(s =>
-                        s.IsAggregated &&
-                        s.CabinetId == group.Key.CabinetId &&
-                        s.DriveSerial == group.Key.DriveSerial &&
-                        s.TimestampUtc == group.Key.Day, ct);
-
-                if (existing is null)
+                existing = new SmartReading
                 {
-                    existing = new SmartReading
-                    {
-                        CabinetId = group.Key.CabinetId,
-                        DriveSerial = group.Key.DriveSerial,
-                        TimestampUtc = group.Key.Day,
-                        IsAggregated = true,
-                        SampleCount = 0,
-                        PredictedHealth = DiskHealthStatus.Unknown
-                    };
+                    CabinetId = group.Key.CabinetId,
+                    DriveSerial = group.Key.Serial,
+                    TimestampUtc = group.Key.Day,
+                    IsAggregated = true,
+                    Health = DiskHealthStatus.Unknown,
+                    Source = SmartSource.Unavailable,
+                };
 
-                    db.SmartReadings.Add(existing);
-                    aggregates++;
-                }
-
-                Fold(existing, group);
-                folded += group.Count();
+                db.SmartReadings.Add(existing);
+                written++;
             }
 
-            db.SmartReadings.RemoveRange(batch);
-            await db.SaveChangesAsync(ct);
-            db.ChangeTracker.Clear();
+            existing.DriveModel ??= rows.Select(r => r.DriveModel).FirstOrDefault(m => m is not null);
 
-            if (batch.Count < _options.BatchSize)
-            {
-                break;
-            }
+            // The aggregate keeps the strongest source seen that day. Mixing a
+            // structured counter with a decoded vendor byte under one label
+            // would make the provenance field a lie.
+            existing.Source = rows.Select(r => r.Source).Aggregate(existing.Source, BetterSource);
+
+            existing.Health = rows.Select(r => r.Health).Aggregate(existing.Health, WorseDisk);
+            existing.ReallocatedSectorCount = Max(existing.ReallocatedSectorCount, rows.Max(r => r.ReallocatedSectorCount));
+            existing.PendingSectorCount = Max(existing.PendingSectorCount, rows.Max(r => r.PendingSectorCount));
+            existing.UncorrectableErrorCount = Max(existing.UncorrectableErrorCount, rows.Max(r => r.UncorrectableErrorCount));
+            existing.PowerOnHours = Max(existing.PowerOnHours, rows.Max(r => r.PowerOnHours));
+            existing.TemperatureCelsius = Max(existing.TemperatureCelsius, rows.Max(r => r.TemperatureCelsius));
+            existing.TemperatureMax = Max(existing.TemperatureMax, rows.Max(r => r.TemperatureMax));
+            existing.StartStopCycleCount = Max(existing.StartStopCycleCount, rows.Max(r => r.StartStopCycleCount));
+            existing.Wear = Max(existing.Wear, rows.Max(r => r.Wear));
+            existing.ReadErrorsTotal = Max(existing.ReadErrorsTotal, rows.Max(r => r.ReadErrorsTotal));
+            existing.ReadErrorsUncorrected = Max(existing.ReadErrorsUncorrected, rows.Max(r => r.ReadErrorsUncorrected));
+            existing.WriteErrorsTotal = Max(existing.WriteErrorsTotal, rows.Max(r => r.WriteErrorsTotal));
+            existing.WriteErrorsUncorrected = Max(existing.WriteErrorsUncorrected, rows.Max(r => r.WriteErrorsUncorrected));
+            existing.OverallPredictFailure = Or(existing.OverallPredictFailure, rows.Select(r => r.OverallPredictFailure));
+            existing.PredictFailureReason ??= rows
+                .Select(r => r.PredictFailureReason)
+                .FirstOrDefault(v => v is not null);
+
+            db.SmartReadings.RemoveRange(rows);
         }
 
-        return (aggregates, folded);
+        await db.SaveChangesAsync(ct);
+        return (written, due.Count);
     }
 
-    private static void Fold(SmartReading target, IEnumerable<SmartReading> source)
+    private async Task<int> DeleteAgedSmartAggregatesAsync(
+        SupportDbContext db, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        foreach (SmartReading s in source)
+        DateTimeOffset cutoff = nowUtc.AddDays(-_options.SmartAggregateRetentionDays);
+
+        List<SmartReading> aged = await db.SmartReadings
+            .Where(s => s.TimestampUtc < cutoff)
+            .Take(_options.BatchSize)
+            .ToListAsync(ct);
+
+        if (aged.Count == 0)
         {
-            target.DriveModel ??= s.DriveModel;
-            target.FirmwareVersion ??= s.FirmwareVersion;
-            target.DeviceId ??= s.DeviceId;
-            target.SampleCount++;
-
-            if (s.PredictedHealth > target.PredictedHealth)
-            {
-                target.PredictedHealth = s.PredictedHealth;
-            }
-
-            // Error counters are monotonic on real hardware, so the maximum is
-            // the day's true reading; a null stays null rather than becoming a
-            // zero that would read as good news.
-            target.ReallocatedSectorCount = Max(target.ReallocatedSectorCount, s.ReallocatedSectorCount);
-            target.ReportedUncorrectableErrors =
-                Max(target.ReportedUncorrectableErrors, s.ReportedUncorrectableErrors);
-            target.CommandTimeoutCount = Max(target.CommandTimeoutCount, s.CommandTimeoutCount);
-            target.CurrentPendingSectorCount =
-                Max(target.CurrentPendingSectorCount, s.CurrentPendingSectorCount);
-            target.OfflineUncorrectableCount =
-                Max(target.OfflineUncorrectableCount, s.OfflineUncorrectableCount);
-            target.UdmaCrcErrorCount = Max(target.UdmaCrcErrorCount, s.UdmaCrcErrorCount);
-            target.SpinRetryCount = Max(target.SpinRetryCount, s.SpinRetryCount);
-            target.SeekErrorRate = Max(target.SeekErrorRate, s.SeekErrorRate);
-            target.ReadErrorRate = Max(target.ReadErrorRate, s.ReadErrorRate);
-            target.WearLevelingCount = Max(target.WearLevelingCount, s.WearLevelingCount);
-            target.MediaAndDataIntegrityErrors =
-                Max(target.MediaAndDataIntegrityErrors, s.MediaAndDataIntegrityErrors);
-            target.UnsafeShutdownCount = Max(target.UnsafeShutdownCount, s.UnsafeShutdownCount);
-            target.PowerOnHours = Max(target.PowerOnHours, s.PowerOnHours);
-            target.PowerCycleCount = Max(target.PowerCycleCount, s.PowerCycleCount);
-            target.TotalHostReadsGb = Max(target.TotalHostReadsGb, s.TotalHostReadsGb);
-            target.TotalHostWritesGb = Max(target.TotalHostWritesGb, s.TotalHostWritesGb);
-
-            target.PercentageUsed = Max(target.PercentageUsed, s.PercentageUsed);
-            target.TemperatureCelsius = Max(target.TemperatureCelsius, s.TemperatureCelsius);
-
-            // Spare capacity falls as a drive wears, so the worst case is the
-            // minimum rather than the maximum.
-            target.AvailableSparePercent = Min(target.AvailableSparePercent, s.AvailableSparePercent);
-            target.AvailableSpareThresholdPercent =
-                Min(target.AvailableSpareThresholdPercent, s.AvailableSpareThresholdPercent);
+            return 0;
         }
+
+        db.SmartReadings.RemoveRange(aged);
+        await db.SaveChangesAsync(ct);
+        return aged.Count;
     }
 
-    private async Task<int> DeleteAgedAggregatesAsync(
-        SupportDbContext db, DateTime nowUtc, CancellationToken ct)
+    /// <summary>
+    /// Caps how many inventory versions one cabinet may hold, oldest first.
+    /// </summary>
+    /// <remarks>
+    /// Inventory is a change history and is not aged out by time: a cabinet
+    /// that has not changed in two years holds one row, and deleting it would
+    /// lose the answer to "what is installed on this machine". The cap exists
+    /// only for a cabinet that flaps between configurations. The version
+    /// currently in force is never removed.
+    /// </remarks>
+    private async Task<int> TrimInventoryVersionsAsync(SupportDbContext db, CancellationToken ct)
     {
-        DateTime cutoff = nowUtc.AddDays(-_options.SmartAggregateRetentionDays);
-        int deleted = 0;
+        List<Guid> crowded = await db.InventoryVersions
+            .GroupBy(v => v.CabinetId)
+            .Where(g => g.Count() > _options.MaxInventoryVersionsPerCabinet)
+            .Select(g => g.Key)
+            .Take(50)
+            .ToListAsync(ct);
 
-        while (!ct.IsCancellationRequested)
+        if (crowded.Count == 0)
         {
-            List<SmartReading> batch = await db.SmartReadings
-                .Where(s => s.TimestampUtc < cutoff)
-                .OrderBy(s => s.TimestampUtc)
+            return 0;
+        }
+
+        var removed = 0;
+
+        foreach (Guid cabinetId in crowded)
+        {
+            Guid? current = await db.Cabinets
+                .Where(c => c.Id == cabinetId)
+                .Select(c => c.CurrentInventoryVersionId)
+                .FirstOrDefaultAsync(ct);
+
+            List<InventoryVersion> excess = await db.InventoryVersions
+                .Where(v => v.CabinetId == cabinetId && (current == null || v.Id != current))
+                .OrderBy(v => v.LastObservedUtc)
                 .Take(_options.BatchSize)
                 .ToListAsync(ct);
 
-            if (batch.Count == 0)
+            int keep = _options.MaxInventoryVersionsPerCabinet;
+            int total = await db.InventoryVersions.CountAsync(v => v.CabinetId == cabinetId, ct);
+            int toRemove = Math.Max(0, total - keep);
+
+            if (toRemove == 0)
             {
-                break;
+                continue;
             }
 
-            db.SmartReadings.RemoveRange(batch);
+            List<InventoryVersion> batch = excess.Take(toRemove).ToList();
+            db.InventoryVersions.RemoveRange(batch);
+            removed += batch.Count;
+        }
+
+        if (removed > 0)
+        {
             await db.SaveChangesAsync(ct);
-            db.ChangeTracker.Clear();
+        }
 
-            deleted += batch.Count;
+        return removed;
+    }
 
-            if (batch.Count < _options.BatchSize)
+    private static DateTimeOffset TruncateToHour(DateTimeOffset value) =>
+        new(value.Year, value.Month, value.Day, value.Hour, 0, 0, TimeSpan.Zero);
+
+    private static DateTimeOffset TruncateToDay(DateTimeOffset value) =>
+        new(value.Year, value.Month, value.Day, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
+    /// Keeps the larger of two readings, treating null as "no reading" rather
+    /// than as zero.
+    /// </summary>
+    private static T? Max<T>(T? left, T? right) where T : struct, IComparable<T> =>
+        left is null ? right : right is null ? left : left.Value.CompareTo(right.Value) >= 0 ? left : right;
+
+    private static T? Min<T>(T? left, T? right) where T : struct, IComparable<T> =>
+        left is null ? right : right is null ? left : left.Value.CompareTo(right.Value) <= 0 ? left : right;
+
+    private static double? MaxMagnitude(double? seed, IEnumerable<double?> values)
+    {
+        double? best = seed;
+
+        foreach (double? value in values)
+        {
+            if (value is null)
             {
-                break;
+                continue;
+            }
+
+            if (best is null || Math.Abs(value.Value) > Math.Abs(best.Value))
+            {
+                best = value;
             }
         }
 
-        return deleted;
+        return best;
     }
 
-    private static long? Max(long? a, long? b) =>
-        a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
+    /// <summary>
+    /// True if any sample was true; null only if every sample was null. An hour
+    /// in which a reboot was pending had a reboot pending.
+    /// </summary>
+    private static bool? Or(bool? seed, IEnumerable<Heartbeat> rows) =>
+        Or(seed, rows.Select(r => r.RebootPending));
 
-    private static int? Max(int? a, int? b) =>
-        a is null ? b : b is null ? a : Math.Max(a.Value, b.Value);
+    private static bool? Or(bool? seed, IEnumerable<bool?> values)
+    {
+        bool? result = seed;
 
-    private static int? Min(int? a, int? b) =>
-        a is null ? b : b is null ? a : Math.Min(a.Value, b.Value);
+        foreach (bool? value in values)
+        {
+            if (value is null)
+            {
+                continue;
+            }
+
+            result = result is true || value is true;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Folds the logged-on flag conservatively: any true wins, and an unknown
+    /// beats a false.
+    /// </summary>
+    /// <remarks>
+    /// This value gates reboots. Folding an hour that contained one unreadable
+    /// sample down to "nobody was logged on" would turn a missing reading into
+    /// permission, which is the failure this whole codebase is arranged to
+    /// prevent.
+    /// </remarks>
+    private static bool? OrLoggedOn(bool? seed, IEnumerable<Heartbeat> rows)
+    {
+        bool? result = seed;
+        var sawUnknown = false;
+
+        foreach (Heartbeat row in rows)
+        {
+            if (row.AnyUserLoggedOn is true)
+            {
+                return true;
+            }
+
+            if (row.AnyUserLoggedOn is null)
+            {
+                sawUnknown = true;
+            }
+            else
+            {
+                result ??= false;
+            }
+        }
+
+        return result is true ? true : sawUnknown ? null : result;
+    }
+
+    private static DiskHealthStatus WorseDisk(DiskHealthStatus left, DiskHealthStatus right) =>
+        DiskSeverity(left) >= DiskSeverity(right) ? left : right;
+
+    private static int DiskSeverity(DiskHealthStatus status) => status switch
+    {
+        DiskHealthStatus.Healthy => 0,
+        DiskHealthStatus.Unknown => 1,
+        DiskHealthStatus.Watch => 2,
+        DiskHealthStatus.Failing => 3,
+        _ => 1,
+    };
+
+    /// <summary>
+    /// Picks the more trustworthy of two sources: a structured reliability
+    /// counter beats a status flag, which beats decoded vendor bytes.
+    /// </summary>
+    private static SmartSource BetterSource(SmartSource left, SmartSource right) =>
+        SourceRank(left) >= SourceRank(right) ? left : right;
+
+    private static int SourceRank(SmartSource source) => source switch
+    {
+        SmartSource.StorageReliabilityCounter => 3,
+        SmartSource.FailurePredictStatus => 2,
+        SmartSource.FailurePredictData => 1,
+        _ => 0,
+    };
 }

@@ -71,10 +71,10 @@ public sealed class RegistrationsController : SupportControllerBase
 
         await _audit.WriteAsync(new AuditRecord
         {
-            Action = AuditActions.ListPendingRegistrations,
+            Event = AuditEvent.ListPendingRegistrations,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             Details = new { Status = status.ToString(), ResultCount = items.Count }
@@ -97,7 +97,7 @@ public sealed class RegistrationsController : SupportControllerBase
         Guid id, [FromBody] ApproveRegistrationRequest request, CancellationToken ct)
     {
         CurrentUser actor = CurrentUser;
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         PendingRegistration? registration =
             await _db.PendingRegistrations.FirstOrDefaultAsync(r => r.Id == id, ct);
@@ -105,8 +105,8 @@ public sealed class RegistrationsController : SupportControllerBase
         if (registration is null)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ApproveRegistration, "Registration not found.", null,
-                new { RegistrationId = id }, ct);
+                AuditEvent.ApproveRegistration, "Registration not found.", null,
+                new { RegistrationId = id }, cancellationToken: ct);
             return Problem("Registration not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -114,9 +114,9 @@ public sealed class RegistrationsController : SupportControllerBase
         if (registration.Status != RegistrationStatus.Pending)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ApproveRegistration,
+                AuditEvent.ApproveRegistration,
                 $"Registration is already {registration.Status}.", null,
-                new { RegistrationId = id }, ct);
+                new { RegistrationId = id }, cancellationToken: ct);
             return Problem($"This registration is already {registration.Status}.",
                 statusCode: StatusCodes.Status409Conflict, title: "Conflict");
         }
@@ -124,10 +124,38 @@ public sealed class RegistrationsController : SupportControllerBase
         if (await _db.Cabinets.AnyAsync(c => c.MachineId == registration.MachineId, ct))
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ApproveRegistration,
+                AuditEvent.ApproveRegistration,
                 "A cabinet already exists for this machine id.", null,
-                new { RegistrationId = id, registration.MachineId }, ct);
+                new { RegistrationId = id, registration.MachineId }, cancellationToken: ct);
             return Problem("A cabinet already exists for this machine.",
+                statusCode: StatusCodes.Status409Conflict, title: "Conflict");
+        }
+
+        if (request.Role is CabinetRole.Unknown)
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.ApproveRegistration,
+                "Approval did not name the cabinet's role in its site.", null,
+                new { RegistrationId = id }, cancellationToken: ct);
+            return Problem(
+                "A cabinet's role in its site must be set at approval: Sync, Satellite or Standalone.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
+        }
+
+        Site site = await ResolveSiteAsync(request.ClientName.Trim(), request.SiteName.Trim(), ct);
+
+        if (request.Role is CabinetRole.Sync && site.SyncCabinetId is not null)
+        {
+            // A site has exactly one sync cabinet. Admitting a second as Sync
+            // would silently demote the first, which is a decision somebody
+            // has to make deliberately.
+            await _audit.WriteDenialAsync(
+                AuditEvent.ApproveRegistration,
+                "Site already has a sync cabinet.", null,
+                new { RegistrationId = id, SiteId = site.Id }, cancellationToken: ct);
+            return Problem(
+                "This site already has a sync cabinet. Admit this machine as a satellite, or demote the "
+                + "current sync cabinet first.",
                 statusCode: StatusCodes.Status409Conflict, title: "Conflict");
         }
 
@@ -135,8 +163,8 @@ public sealed class RegistrationsController : SupportControllerBase
         {
             MachineId = registration.MachineId,
             Hostname = registration.Hostname,
-            ClientName = request.ClientName.Trim(),
-            SiteName = request.SiteName.Trim(),
+            SiteId = site.Id,
+            Role = request.Role,
             DepartmentName = string.IsNullOrWhiteSpace(request.DepartmentName)
                 ? null : request.DepartmentName.Trim(),
             Model = string.IsNullOrWhiteSpace(request.Model) ? null : request.Model.Trim(),
@@ -150,6 +178,11 @@ public sealed class RegistrationsController : SupportControllerBase
 
         _db.Cabinets.Add(cabinet);
 
+        if (request.Role is CabinetRole.Sync)
+        {
+            site.SyncCabinetId = cabinet.Id;
+        }
+
         registration.Status = RegistrationStatus.Approved;
         registration.DecidedByUserId = actor.UserId;
         registration.DecidedUtc = nowUtc;
@@ -158,10 +191,10 @@ public sealed class RegistrationsController : SupportControllerBase
         // Caused event rather than a mere observation.
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.ApproveRegistration,
+            Event = AuditEvent.ApproveRegistration,
             EventKind = AuditEventKind.Caused,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             CabinetId = cabinet.Id,
@@ -173,8 +206,10 @@ public sealed class RegistrationsController : SupportControllerBase
             {
                 RegistrationId = registration.Id,
                 cabinet.MachineId,
-                cabinet.ClientName,
-                cabinet.SiteName,
+                ClientName = site.Client!.Name,
+                SiteName = site.Name,
+                SiteId = site.Id,
+                Role = cabinet.Role.ToString(),
                 cabinet.DepartmentName
             }
         });
@@ -205,7 +240,7 @@ public sealed class RegistrationsController : SupportControllerBase
         Guid id, [FromBody] RejectRegistrationRequest request, CancellationToken ct)
     {
         CurrentUser actor = CurrentUser;
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         PendingRegistration? registration =
             await _db.PendingRegistrations.FirstOrDefaultAsync(r => r.Id == id, ct);
@@ -213,8 +248,8 @@ public sealed class RegistrationsController : SupportControllerBase
         if (registration is null)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.RejectRegistration, "Registration not found.", null,
-                new { RegistrationId = id }, ct);
+                AuditEvent.RejectRegistration, "Registration not found.", null,
+                new { RegistrationId = id }, cancellationToken: ct);
             return Problem("Registration not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -222,9 +257,9 @@ public sealed class RegistrationsController : SupportControllerBase
         if (registration.Status != RegistrationStatus.Pending)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.RejectRegistration,
+                AuditEvent.RejectRegistration,
                 $"Registration is already {registration.Status}.", null,
-                new { RegistrationId = id }, ct);
+                new { RegistrationId = id }, cancellationToken: ct);
             return Problem($"This registration is already {registration.Status}.",
                 statusCode: StatusCodes.Status409Conflict, title: "Conflict");
         }
@@ -235,10 +270,10 @@ public sealed class RegistrationsController : SupportControllerBase
 
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.RejectRegistration,
+            Event = AuditEvent.RejectRegistration,
             EventKind = AuditEventKind.Caused,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             Reason = request.Reason.Trim(),
@@ -250,5 +285,38 @@ public sealed class RegistrationsController : SupportControllerBase
         await _db.SaveChangesAsync(ct);
 
         return NoContent();
+    }
+
+    /// <summary>
+    /// Finds or creates the client and site a Supervisor named at approval.
+    /// </summary>
+    /// <remarks>
+    /// The hierarchy grows from approvals rather than from a separate
+    /// administration screen, because that is when a human actually knows which
+    /// clinic a machine belongs to. Names come from the Supervisor and never
+    /// from the agent: a cabinet must not be able to claim the clinic it
+    /// serves.
+    /// </remarks>
+    private async Task<Site> ResolveSiteAsync(string clientName, string siteName, CancellationToken ct)
+    {
+        Client? client = await _db.Clients.FirstOrDefaultAsync(c => c.Name == clientName, ct);
+
+        if (client is null)
+        {
+            client = new Client { Name = clientName };
+            _db.Clients.Add(client);
+        }
+
+        Site? site = await _db.Sites
+            .Include(s => s.Client)
+            .FirstOrDefaultAsync(s => s.ClientId == client.Id && s.Name == siteName, ct);
+
+        if (site is null)
+        {
+            site = new Site { ClientId = client.Id, Client = client, Name = siteName };
+            _db.Sites.Add(site);
+        }
+
+        return site;
     }
 }

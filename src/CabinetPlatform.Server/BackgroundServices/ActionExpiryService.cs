@@ -76,7 +76,7 @@ public sealed class ActionExpiryService : BackgroundService
         var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
         var audit = scope.ServiceProvider.GetRequiredService<IAuditService>();
 
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         // Only actions that were never handed to an agent. One that was
         // dispatched and is still awaiting its result is a different problem,
@@ -104,11 +104,13 @@ public sealed class ActionExpiryService : BackgroundService
 
             audit.Enqueue(new AuditRecord
             {
-                Action = AuditActions.ExpireAction,
+                Event = AuditEvent.ExpireAction,
+                Action = action.Action,
                 // Nothing reached the cabinet, so nothing was caused out there.
                 EventKind = AuditEventKind.Observed,
                 Result = AuditResult.Success,
-                ActorType = ActorTypes.System,
+                ActorType = ActorType.System,
+                ActorId = nameof(ActionExpiryService),
                 ActorDisplayName = nameof(ActionExpiryService),
                 CabinetId = action.CabinetId,
                 CabinetHostname = action.Cabinet?.Hostname,

@@ -52,15 +52,15 @@ public sealed class AuditController : SupportControllerBase
     public async Task<ActionResult<PagedResult<AuditEntryDto>>> Query(
         [FromQuery] AuditQuery query, CancellationToken ct)
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
-        DateTime to = query.ToUtc ?? nowUtc;
-        DateTime from = query.FromUtc ?? to.AddDays(-_queryLimits.DefaultHistoryRangeDays);
+        DateTimeOffset to = query.ToUtc ?? nowUtc;
+        DateTimeOffset from = query.FromUtc ?? to.AddDays(-_queryLimits.DefaultHistoryRangeDays);
 
         if (from >= to)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ViewAudit, "FromUtc was not earlier than ToUtc.", null, null, ct);
+                AuditEvent.ViewAudit, "FromUtc was not earlier than ToUtc.", null, null, null, ct);
             return Problem("FromUtc must be earlier than ToUtc.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -68,7 +68,7 @@ public sealed class AuditController : SupportControllerBase
         if ((to - from).TotalDays > _queryLimits.MaxHistoryRangeDays)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ViewAudit, "Requested audit range exceeded the maximum.", null, null, ct);
+                AuditEvent.ViewAudit, "Requested audit range exceeded the maximum.", null, null, null, ct);
             return Problem(
                 $"The requested range exceeds the maximum of {_queryLimits.MaxHistoryRangeDays} days.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
@@ -99,10 +99,19 @@ public sealed class AuditController : SupportControllerBase
             rows = rows.Where(a => a.Result == result);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Action))
+        if (query.Event is { } auditEvent)
         {
-            string action = query.Action.Trim();
+            rows = rows.Where(a => a.Event == auditEvent);
+        }
+
+        if (query.Action is { } action)
+        {
             rows = rows.Where(a => a.Action == action);
+        }
+
+        if (query.BatchId is { } batchId)
+        {
+            rows = rows.Where(a => a.BatchId == batchId);
         }
 
         int total = await rows.CountAsync(ct);
@@ -116,12 +125,16 @@ public sealed class AuditController : SupportControllerBase
                 Id = a.Id,
                 TimestampUtc = a.TimestampUtc,
                 ActorType = a.ActorType,
-                ActorId = a.ActorId,
+                ActorId = a.ActorId ?? string.Empty,
                 ActorDisplayName = a.ActorDisplayName,
                 EventKind = a.EventKind,
+                Event = a.Event,
                 Action = a.Action,
                 CabinetId = a.CabinetId,
                 CabinetHostname = a.CabinetHostname,
+                TargetCabinetId = a.TargetCabinetId,
+                TargetCabinetHostname = a.TargetCabinetHostname,
+                BatchId = a.BatchId,
                 Result = a.Result,
                 Reason = a.Reason,
                 TicketReference = a.TicketReference,
@@ -136,10 +149,10 @@ public sealed class AuditController : SupportControllerBase
         // Reading the trail is itself an event worth recording.
         await _audit.WriteAsync(new AuditRecord
         {
-            Action = AuditActions.ViewAudit,
+            Event = AuditEvent.ViewAudit,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username,
             CabinetId = query.CabinetId,

@@ -1,10 +1,8 @@
 using System.Text.Json;
-using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Audit;
-using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
 using CabinetPlatform.Server.Data;
@@ -17,59 +15,85 @@ using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Server.Controllers;
 
+/// <summary>Reading the fleet: cabinets, their telemetry and their topology.</summary>
 [Route("api/cabinets")]
 public sealed class CabinetsController : SupportControllerBase
 {
     private readonly SupportDbContext _db;
     private readonly IAuditService _audit;
-    private readonly AgentIngestOptions _ingestOptions;
+    private readonly ICabinetProjection _projection;
+    private readonly ICabinetClock _clock;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly TimeProvider _timeProvider;
 
+    /// <summary>Creates the controller.</summary>
+    /// <param name="db">The database.</param>
+    /// <param name="audit">The audit trail.</param>
+    /// <param name="projection">Builds cabinet read models.</param>
+    /// <param name="clock">Resolves cabinet-local time.</param>
+    /// <param name="queryLimits">History query bounds.</param>
+    /// <param name="timeProvider">Clock.</param>
     public CabinetsController(
         SupportDbContext db,
         IAuditService audit,
-        IOptions<AgentIngestOptions> ingestOptions,
+        ICabinetProjection projection,
+        ICabinetClock clock,
         IOptions<QueryLimitsOptions> queryLimits,
         TimeProvider timeProvider)
     {
         _db = db;
         _audit = audit;
-        _ingestOptions = ingestOptions.Value;
+        _projection = projection;
+        _clock = clock;
         _queryLimits = queryLimits.Value;
         _timeProvider = timeProvider;
     }
 
     /// <summary>
-    /// The fleet grid. Projects straight to the extracted columns and joins to
-    /// the newest check-in per cabinet — the stored payload is never touched,
-    /// because deserialising ten thousand of them to draw a list would fall over.
+    /// The fleet grid.
     /// </summary>
+    /// <remarks>
+    /// Projects straight to the extracted columns and joins to the newest
+    /// heartbeat per cabinet — no stored document is touched, because
+    /// deserialising seven thousand of them to draw a list would fall over.
+    /// </remarks>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the request.</param>
     [HttpGet]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
     [ProducesResponseType(typeof(PagedResult<CabinetSummary>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<CabinetSummary>>> List(
         [FromQuery] CabinetQuery query, CancellationToken ct)
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         IQueryable<Domain.Cabinet> cabinets = _db.Cabinets.AsNoTracking();
 
         if (!string.IsNullOrWhiteSpace(query.ClientName))
         {
             string client = query.ClientName.Trim();
-            cabinets = cabinets.Where(c => c.ClientName == client);
+            cabinets = cabinets.Where(c => c.Site!.Client!.Name == client);
         }
 
         if (!string.IsNullOrWhiteSpace(query.SiteName))
         {
             string site = query.SiteName.Trim();
-            cabinets = cabinets.Where(c => c.SiteName == site);
+            cabinets = cabinets.Where(c => c.Site!.Name == site);
+        }
+
+        if (query.SiteId is { } siteId)
+        {
+            cabinets = cabinets.Where(c => c.SiteId == siteId);
         }
 
         if (query.IsActive is { } isActive)
         {
             cabinets = cabinets.Where(c => c.IsActive == isActive);
+        }
+
+        if (query.Role is { } role)
+        {
+            cabinets = cabinets.Where(c => c.Role == role);
         }
 
         if (!string.IsNullOrWhiteSpace(query.Search))
@@ -78,114 +102,390 @@ public sealed class CabinetsController : SupportControllerBase
             cabinets = cabinets.Where(c =>
                 EF.Functions.Like(c.Hostname, $"%{term}%") ||
                 EF.Functions.Like(c.MachineId, $"%{term}%") ||
-                EF.Functions.Like(c.ClientName, $"%{term}%") ||
-                EF.Functions.Like(c.SiteName, $"%{term}%"));
+                EF.Functions.Like(c.Site!.Client!.Name, $"%{term}%") ||
+                EF.Functions.Like(c.Site!.Name, $"%{term}%"));
         }
 
         int total = await cabinets.CountAsync(ct);
 
-        // The correlated sub-query rides the (CabinetId, ReceivedUtc desc)
-        // index, so this stays one indexed seek per row rather than a scan.
-        var rows = await cabinets
-            .OrderBy(c => c.ClientName).ThenBy(c => c.SiteName).ThenBy(c => c.Hostname)
+        // Sync cabinets lead their site: when a whole site misbehaves, the
+        // sync cabinet is the common cause and a rep should not have to hunt
+        // for it among twenty rows.
+        IQueryable<Domain.Cabinet> page = cabinets
+            .OrderBy(c => c.Site!.Client!.Name)
+            .ThenBy(c => c.Site!.Name)
+            .ThenBy(c => c.Role == Contracts.Cabinets.CabinetRole.Sync ? 0 : 1)
+            .ThenBy(c => c.Hostname)
             .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(c => new
-            {
-                Cabinet = c,
-                Latest = _db.CheckIns
-                    .Where(ci => ci.CabinetId == c.Id)
-                    .OrderByDescending(ci => ci.ReceivedUtc)
-                    .Select(ci => new
-                    {
-                        ci.CpuPercent,
-                        ci.RamUsedPercent,
-                        ci.MinFreeDiskPercent,
-                        ci.PendingUpdateCount,
-                        ci.WorstDiskHealth,
-                        ci.AnyUserLoggedOn
-                    })
-                    .FirstOrDefault()
-            })
-            .ToListAsync(ct);
+            .Take(query.PageSize);
 
-        List<CabinetSummary> items = rows
-            .Select(r => new CabinetSummary
-            {
-                Id = r.Cabinet.Id,
-                MachineId = r.Cabinet.MachineId,
-                Hostname = r.Cabinet.Hostname,
-                ClientName = r.Cabinet.ClientName,
-                SiteName = r.Cabinet.SiteName,
-                DepartmentName = r.Cabinet.DepartmentName,
-                Model = r.Cabinet.Model,
-                SerialNumber = r.Cabinet.SerialNumber,
-                IsActive = r.Cabinet.IsActive,
-                LastCheckInUtc = r.Cabinet.LastCheckInUtc,
-                AgentVersion = r.Cabinet.AgentVersion,
-                CpuPercent = r.Latest?.CpuPercent,
-                RamUsedPercent = r.Latest?.RamUsedPercent,
-                MinFreeDiskPercent = r.Latest?.MinFreeDiskPercent,
-                PendingUpdateCount = r.Latest?.PendingUpdateCount,
-                WorstDiskHealth = r.Latest?.WorstDiskHealth,
-                AnyUserLoggedOn = r.Latest?.AnyUserLoggedOn,
-                Health = HealthEvaluator.Evaluate(
-                    r.Cabinet.IsActive,
-                    r.Cabinet.LastCheckInUtc,
-                    nowUtc,
-                    _ingestOptions.OfflineAfterMinutes,
-                    r.Latest?.CpuPercent,
-                    r.Latest?.RamUsedPercent,
-                    r.Latest?.MinFreeDiskPercent,
-                    r.Latest?.PendingUpdateCount,
-                    r.Latest?.WorstDiskHealth)
-            })
-            .Where(s => query.Health is null || s.Health == query.Health)
-            .ToList();
+        List<CabinetSummary> items = await _projection.ProjectAsync(page, nowUtc, ct);
 
-        await _audit.WriteAsync(Observed(AuditActions.ListCabinets, new
+        if (query.Health is { } health)
+        {
+            items = items.Where(s => s.Health == health).ToList();
+        }
+
+        await _audit.WriteAsync(Observed(AuditEvent.ListCabinets, new
         {
             query.ClientName,
             query.SiteName,
             query.Page,
             query.PageSize,
-            ResultCount = items.Count
+            ResultCount = items.Count,
         }), ct);
 
         return Ok(PagedResult<CabinetSummary>.Create(items, query.Page, query.PageSize, total));
     }
 
-    /// <summary>The newest observation for one cabinet, payload included.</summary>
-    [HttpGet("{id:guid}/latest")]
+    /// <summary>
+    /// Everything the cabinet detail view needs: the cabinet, its site, its
+    /// link to its sync cabinet, and the newest of each telemetry tier.
+    /// </summary>
+    /// <param name="id">The cabinet.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpGet("{id:guid}")]
     [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(CabinetLatestDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(CabinetDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<CabinetLatestDto>> Latest(Guid id, CancellationToken ct)
+    public async Task<ActionResult<CabinetDetailDto>> Detail(Guid id, CancellationToken ct)
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
-        Domain.Cabinet? cabinet = await _db.Cabinets.AsNoTracking()
+        Domain.Cabinet? cabinet = await _db.Cabinets
+            .AsNoTracking()
+            .Include(c => c.Site)
+            .ThenInclude(s => s!.Client)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
 
-        if (cabinet is null)
+        if (cabinet?.Site is null)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ViewCabinetLatest, "Cabinet not found.", id, null, ct);
+                AuditEvent.ViewCabinetLatest, "Cabinet not found.", id, null, null, ct);
             return Problem("Cabinet not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
 
-        Domain.CheckIn? latest = await _db.CheckIns.AsNoTracking()
-            .Where(c => c.CabinetId == id)
-            .OrderByDescending(c => c.ReceivedUtc)
+        CabinetSummary summary =
+            (await _projection.ProjectAsync(
+                _db.Cabinets.AsNoTracking().Where(c => c.Id == id), nowUtc, ct)).Single();
+
+        Domain.Heartbeat? heartbeat = await _db.Heartbeats.AsNoTracking()
+            .Where(h => h.CabinetId == id)
+            .OrderByDescending(h => h.ReceivedUtc)
             .FirstOrDefaultAsync(ct);
 
-        // One row per drive: the newest reading for each serial this cabinet
-        // has ever reported, rather than the newest handful overall.
-        //
-        // Expressed as a correlated max rather than GroupBy().Select(g =>
-        // g.First()), which no relational provider can translate and which
-        // therefore threw on every cabinet that had ever reported a drive.
+        Domain.InventoryVersion? inventory = cabinet.CurrentInventoryVersionId is { } inventoryId
+            ? await _db.InventoryVersions.AsNoTracking().FirstOrDefaultAsync(v => v.Id == inventoryId, ct)
+            : null;
+
+        List<SmartReadingDto> smart = await NewestSmartPerDriveAsync(id, ct);
+        SiteSummary site = await ProjectSiteAsync(cabinet.SiteId, nowUtc, ct);
+        SyncCabinetLinkDto? link = await ProjectSyncLinkAsync(cabinet, site, nowUtc, ct);
+
+        var dto = new CabinetDetailDto
+        {
+            Cabinet = summary,
+            Site = site,
+            SyncCabinetLink = link,
+            LatestHeartbeat = heartbeat is null ? null : ToDto(heartbeat),
+            CurrentInventory = inventory is null ? null : ToDto(inventory),
+            LatestSmartReadings = smart,
+            CabinetLocalTime = _clock.ToCabinetLocal(cabinet, nowUtc),
+        };
+
+        await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetLatest, new { CabinetId = id }, id), ct);
+
+        return Ok(dto);
+    }
+
+    /// <summary>One cabinet's heartbeat history, paged and bounded.</summary>
+    /// <param name="id">The cabinet.</param>
+    /// <param name="query">Window and page.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpGet("{id:guid}/heartbeats")]
+    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [ProducesResponseType(typeof(PagedResult<HeartbeatDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResult<HeartbeatDto>>> Heartbeats(
+        Guid id, [FromQuery] HistoryQuery query, CancellationToken ct)
+    {
+        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.ViewCabinetHistory, "Cabinet not found.", id, null, null, ct);
+            return Problem("Cabinet not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        OperationResult<(DateTimeOffset From, DateTimeOffset To)> window = ResolveWindow(query);
+
+        if (!window.Succeeded)
+        {
+            return Problem(window);
+        }
+
+        IQueryable<Domain.Heartbeat> rows = _db.Heartbeats.AsNoTracking()
+            .Where(h => h.CabinetId == id &&
+                        h.ReceivedUtc >= window.Value.From &&
+                        h.ReceivedUtc < window.Value.To);
+
+        int total = await rows.CountAsync(ct);
+
+        List<HeartbeatDto> items = (await rows
+                .OrderByDescending(h => h.ReceivedUtc)
+                .Skip(query.Skip)
+                .Take(query.PageSize)
+                .ToListAsync(ct))
+            .Select(ToDto)
+            .ToList();
+
+        await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetHistory, new
+        {
+            CabinetId = id,
+            window.Value.From,
+            window.Value.To,
+            ResultCount = items.Count,
+        }, id), ct);
+
+        return Ok(PagedResult<HeartbeatDto>.Create(items, query.Page, query.PageSize, total));
+    }
+
+    /// <summary>One cabinet's inventory change history.</summary>
+    /// <param name="id">The cabinet.</param>
+    /// <param name="query">Window and page.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpGet("{id:guid}/inventory")]
+    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [ProducesResponseType(typeof(PagedResult<InventoryVersionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResult<InventoryVersionDto>>> Inventory(
+        Guid id, [FromQuery] InventoryHistoryQuery query, CancellationToken ct)
+    {
+        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.ViewCabinetInventory, "Cabinet not found.", id, null, null, ct);
+            return Problem("Cabinet not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        IQueryable<Domain.InventoryVersion> rows = _db.InventoryVersions.AsNoTracking()
+            .Where(v => v.CabinetId == id);
+
+        if (query.FromUtc is { } from)
+        {
+            rows = rows.Where(v => v.LastObservedUtc >= from);
+        }
+
+        if (query.ToUtc is { } to)
+        {
+            rows = rows.Where(v => v.FirstObservedUtc < to);
+        }
+
+        int total = await rows.CountAsync(ct);
+
+        List<InventoryVersionDto> items = (await rows
+                .OrderByDescending(v => v.LastObservedUtc)
+                .Skip(query.Skip)
+                .Take(query.PageSize)
+                .ToListAsync(ct))
+            .Select(ToDto)
+            .ToList();
+
+        await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetInventory, new
+        {
+            CabinetId = id,
+            ResultCount = items.Count,
+        }, id), ct);
+
+        return Ok(PagedResult<InventoryVersionDto>.Create(items, query.Page, query.PageSize, total));
+    }
+
+    /// <summary>One cabinet's SMART history, the series failure prediction runs on.</summary>
+    /// <param name="id">The cabinet.</param>
+    /// <param name="query">Window, drive and page.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpGet("{id:guid}/smart")]
+    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [ProducesResponseType(typeof(PagedResult<SmartReadingDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<PagedResult<SmartReadingDto>>> Smart(
+        Guid id, [FromQuery] SmartHistoryQuery query, CancellationToken ct)
+    {
+        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.ViewSmartHistory, "Cabinet not found.", id, null, null, ct);
+            return Problem("Cabinet not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        OperationResult<(DateTimeOffset From, DateTimeOffset To)> window = ResolveWindow(query);
+
+        if (!window.Succeeded)
+        {
+            return Problem(window);
+        }
+
+        IQueryable<Domain.SmartReading> rows = _db.SmartReadings.AsNoTracking()
+            .Where(s => s.CabinetId == id &&
+                        s.TimestampUtc >= window.Value.From &&
+                        s.TimestampUtc < window.Value.To);
+
+        if (!string.IsNullOrWhiteSpace(query.DriveSerial))
+        {
+            string serial = query.DriveSerial.Trim();
+            rows = rows.Where(s => s.DriveSerial == serial);
+        }
+
+        int total = await rows.CountAsync(ct);
+
+        List<SmartReadingDto> items = (await rows
+                .OrderByDescending(s => s.TimestampUtc)
+                .Skip(query.Skip)
+                .Take(query.PageSize)
+                .ToListAsync(ct))
+            .Select(ToDto)
+            .ToList();
+
+        await _audit.WriteAsync(Observed(AuditEvent.ViewSmartHistory, new
+        {
+            CabinetId = id,
+            query.DriveSerial,
+            ResultCount = items.Count,
+        }, id), ct);
+
+        return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
+    }
+
+    /// <summary>
+    /// Changes a cabinet's part in its site's topology.
+    /// </summary>
+    /// <remarks>
+    /// Promoting a cabinet where its site already has a sync cabinet is
+    /// refused: a site has exactly one, and demoting the incumbent is a
+    /// separate decision somebody has to make and own.
+    /// </remarks>
+    /// <param name="id">The cabinet.</param>
+    /// <param name="request">The new role and why.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpPut("{id:guid}/role")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    [ProducesResponseType(typeof(CabinetSummary), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<CabinetSummary>> SetRole(
+        Guid id, [FromBody] SetCabinetRoleRequest request, CancellationToken ct)
+    {
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+
+        Domain.Cabinet? cabinet = await _db.Cabinets
+            .Include(c => c.Site)
+            .FirstOrDefaultAsync(c => c.Id == id, ct);
+
+        if (cabinet?.Site is null)
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.SetCabinetRole, "Cabinet not found.", id, null, null, ct);
+            return Problem("Cabinet not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        if (request.Role == CabinetRole.Unknown)
+        {
+            return Problem("A cabinet's role cannot be set back to Unknown.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
+        }
+
+        CabinetRole previous = cabinet.Role;
+        Domain.Site site = cabinet.Site;
+
+        if (request.Role == CabinetRole.Sync &&
+            site.SyncCabinetId is { } existing &&
+            existing != cabinet.Id)
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.SetCabinetRole,
+                "Site already has a sync cabinet.",
+                id,
+                new { site.Id, ExistingSyncCabinetId = existing },
+                null,
+                ct);
+
+            return Problem(
+                "This site already has a sync cabinet. Demote that one first — a site has exactly one.",
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Conflict");
+        }
+
+        cabinet.Role = request.Role;
+
+        if (request.Role == CabinetRole.Sync)
+        {
+            site.SyncCabinetId = cabinet.Id;
+        }
+        else if (site.SyncCabinetId == cabinet.Id)
+        {
+            // Demoting the incumbent leaves the site standalone until somebody
+            // promotes another. That is a real state, not a broken one.
+            site.SyncCabinetId = null;
+        }
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.SetCabinetRole,
+            EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success,
+            ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(),
+            ActorDisplayName = CurrentUser.Username,
+            CabinetId = cabinet.Id,
+            CabinetHostname = cabinet.Hostname,
+            Reason = request.Reason.Trim(),
+            TicketReference = string.IsNullOrWhiteSpace(request.TicketReference)
+                ? null
+                : request.TicketReference.Trim(),
+            Details = new
+            {
+                SiteId = site.Id,
+                PreviousRole = previous.ToString(),
+                NewRole = request.Role.ToString(),
+                SiteSyncCabinetId = site.SyncCabinetId,
+            },
+        });
+
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return Problem(
+                "This cabinet was changed by someone else while you were deciding. Reload and try again.",
+                statusCode: StatusCodes.Status409Conflict,
+                title: "Conflict");
+        }
+
+        CabinetSummary summary =
+            (await _projection.ProjectAsync(
+                _db.Cabinets.AsNoTracking().Where(c => c.Id == id), nowUtc, ct)).Single();
+
+        return Ok(summary);
+    }
+
+    /// <summary>
+    /// One row per drive: the newest reading for each serial this cabinet has
+    /// ever reported, rather than the newest handful overall.
+    /// </summary>
+    /// <remarks>
+    /// Expressed as a correlated max rather than <c>GroupBy().Select(g =&gt;
+    /// g.First())</c>, which no relational provider can translate and which
+    /// therefore threw on every cabinet that had ever reported a drive.
+    /// </remarks>
+    private async Task<List<SmartReadingDto>> NewestSmartPerDriveAsync(Guid id, CancellationToken ct)
+    {
         List<Domain.SmartReading> newestPerDrive = await _db.SmartReadings.AsNoTracking()
             .Where(s => s.CabinetId == id)
             .Where(s => s.TimestampUtc == _db.SmartReadings
@@ -197,235 +497,141 @@ public sealed class CabinetsController : SupportControllerBase
         // rolled a day up, so the tie is broken in memory — over a handful of
         // drives, not a table scan. The as-sampled reading wins: it is the
         // actual observation, and the roll-up is a summary of it.
-        List<SmartReadingDto> smart = newestPerDrive
+        return newestPerDrive
             .GroupBy(s => s.DriveSerial)
-            .Select(g => ToDto(g
-                .OrderBy(s => s.IsAggregated)
-                .ThenBy(s => s.Id)
-                .First()))
+            .Select(g => ToDto(g.OrderBy(s => s.IsAggregated).ThenBy(s => s.Id).First()))
             .ToList();
+    }
 
-        var dto = new CabinetLatestDto
+    private async Task<SiteSummary> ProjectSiteAsync(Guid siteId, DateTimeOffset nowUtc, CancellationToken ct)
+    {
+        Domain.Site site = await _db.Sites.AsNoTracking()
+            .Include(s => s.Client)
+            .FirstAsync(s => s.Id == siteId, ct);
+
+        List<CabinetSummary> members = await _projection.ProjectAsync(
+            _db.Cabinets.AsNoTracking().Where(c => c.SiteId == siteId), nowUtc, ct);
+
+        CabinetSummary? sync = members.FirstOrDefault(c => c.Id == site.SyncCabinetId);
+
+        return new SiteSummary
         {
-            Cabinet = new CabinetSummary
-            {
-                Id = cabinet.Id,
-                MachineId = cabinet.MachineId,
-                Hostname = cabinet.Hostname,
-                ClientName = cabinet.ClientName,
-                SiteName = cabinet.SiteName,
-                DepartmentName = cabinet.DepartmentName,
-                Model = cabinet.Model,
-                SerialNumber = cabinet.SerialNumber,
-                IsActive = cabinet.IsActive,
-                LastCheckInUtc = cabinet.LastCheckInUtc,
-                AgentVersion = cabinet.AgentVersion,
-                CpuPercent = latest?.CpuPercent,
-                RamUsedPercent = latest?.RamUsedPercent,
-                MinFreeDiskPercent = latest?.MinFreeDiskPercent,
-                PendingUpdateCount = latest?.PendingUpdateCount,
-                WorstDiskHealth = latest?.WorstDiskHealth,
-                AnyUserLoggedOn = latest?.AnyUserLoggedOn,
-                Health = HealthEvaluator.Evaluate(
-                    cabinet.IsActive, cabinet.LastCheckInUtc, nowUtc,
-                    _ingestOptions.OfflineAfterMinutes,
-                    latest?.CpuPercent, latest?.RamUsedPercent, latest?.MinFreeDiskPercent,
-                    latest?.PendingUpdateCount, latest?.WorstDiskHealth)
-            },
-            LatestCheckIn = latest is null ? null : new CheckInDetailDto
-            {
-                Id = latest.Id,
-                ReceivedUtc = latest.ReceivedUtc,
-                CollectedAtUtc = latest.CollectedAtUtc,
-                CpuPercent = latest.CpuPercent,
-                RamUsedPercent = latest.RamUsedPercent,
-                MinFreeDiskPercent = latest.MinFreeDiskPercent,
-                PendingUpdateCount = latest.PendingUpdateCount,
-                WorstDiskHealth = latest.WorstDiskHealth,
-                AnyUserLoggedOn = latest.AnyUserLoggedOn,
-                Payload = DeserialisePayload(latest.PayloadJson)
-            },
-            LatestSmartReadings = smart
+            Id = site.Id,
+            ClientName = site.Client!.Name,
+            SiteName = site.Name,
+            SyncCabinetId = site.SyncCabinetId,
+            SyncCabinetHostname = sync?.Hostname,
+            SyncCabinetHealth = sync?.Health,
+            CabinetCount = members.Count,
+            UnhealthyCabinetCount = members.Count(c => c.Health != CabinetHealthStatus.Healthy),
+            WorstHealth = members.Aggregate(
+                CabinetHealthStatus.Healthy, (worst, c) => HealthEvaluator.Worse(worst, c.Health)),
         };
-
-        await _audit.WriteAsync(Observed(
-            AuditActions.ViewCabinetLatest, new { CabinetId = id }, cabinet), ct);
-
-        return Ok(dto);
     }
 
-    /// <summary>
-    /// Paged check-in history over a bounded window. Returns summaries only —
-    /// the payload column is never read by a list view.
-    /// </summary>
-    [HttpGet("{id:guid}/history")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(PagedResult<CheckInSummaryDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<PagedResult<CheckInSummaryDto>>> History(
-        Guid id, [FromQuery] HistoryQuery query, CancellationToken ct)
+    private async Task<SyncCabinetLinkDto?> ProjectSyncLinkAsync(
+        Domain.Cabinet cabinet, SiteSummary site, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        OperationResult<(DateTime From, DateTime To)> range = ResolveRange(query);
-
-        if (!range.Succeeded)
+        if (site.SyncCabinetId is not { } syncId || syncId == cabinet.Id)
         {
-            await _audit.WriteDenialAsync(
-                AuditActions.ViewCabinetHistory, range.Reason!, id, null, ct);
-            return Problem(range);
+            return null;
         }
 
-        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        CabinetSummary? sync = (await _projection.ProjectAsync(
+            _db.Cabinets.AsNoTracking().Where(c => c.Id == syncId), nowUtc, ct)).FirstOrDefault();
+
+        if (sync is null)
         {
-            await _audit.WriteDenialAsync(
-                AuditActions.ViewCabinetHistory, "Cabinet not found.", id, null, ct);
-            return Problem("Cabinet not found.",
-                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+            return null;
         }
 
-        (DateTime from, DateTime to) = range.Value;
+        Domain.CabinetLinkProbe? probe = await _db.CabinetLinkProbes.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.SourceCabinetId == cabinet.Id && p.TargetCabinetId == syncId, ct);
 
-        IQueryable<Domain.CheckIn> rows = _db.CheckIns.AsNoTracking()
-            .Where(c => c.CabinetId == id && c.ReceivedUtc >= from && c.ReceivedUtc <= to);
-
-        int total = await rows.CountAsync(ct);
-
-        List<CheckInSummaryDto> items = await rows
-            .OrderByDescending(c => c.ReceivedUtc)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(c => new CheckInSummaryDto
-            {
-                Id = c.Id,
-                ReceivedUtc = c.ReceivedUtc,
-                CollectedAtUtc = c.CollectedAtUtc,
-                CpuPercent = c.CpuPercent,
-                RamUsedPercent = c.RamUsedPercent,
-                MinFreeDiskPercent = c.MinFreeDiskPercent,
-                PendingUpdateCount = c.PendingUpdateCount,
-                WorstDiskHealth = c.WorstDiskHealth,
-                AnyUserLoggedOn = c.AnyUserLoggedOn
-            })
-            .ToListAsync(ct);
-
-        await _audit.WriteAsync(Observed(AuditActions.ViewCabinetHistory,
-            new { CabinetId = id, From = from, To = to, ResultCount = items.Count }), ct);
-
-        return Ok(PagedResult<CheckInSummaryDto>.Create(items, query.Page, query.PageSize, total));
+        return new SyncCabinetLinkDto
+        {
+            SyncCabinetId = sync.Id,
+            SyncCabinetHostname = sync.Hostname,
+            SyncCabinetHealth = sync.Health,
+            SyncCabinetLastCheckInUtc = sync.LastCheckInUtc,
+            // Null until somebody actually probes it. Reachable from the server
+            // is a different question and must not be presented as this one.
+            LastProbeReachable = probe?.Reachable,
+            LastProbeUtc = probe?.ObservedUtc,
+            LastProbeLatencyMs = probe?.LatencyMs,
+        };
     }
 
-    /// <summary>Paged SMART history for one cabinet, optionally one drive.</summary>
-    [HttpGet("{id:guid}/smart-history")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
-    [ProducesResponseType(typeof(PagedResult<SmartReadingDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<PagedResult<SmartReadingDto>>> SmartHistory(
-        Guid id, [FromQuery] SmartHistoryQuery query, CancellationToken ct)
+    private OperationResult<(DateTimeOffset From, DateTimeOffset To)> ResolveWindow(HistoryQuery query)
     {
-        OperationResult<(DateTime From, DateTime To)> range = ResolveRange(query);
-
-        if (!range.Succeeded)
-        {
-            await _audit.WriteDenialAsync(AuditActions.ViewSmartHistory, range.Reason!, id, null, ct);
-            return Problem(range);
-        }
-
-        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
-        {
-            await _audit.WriteDenialAsync(
-                AuditActions.ViewSmartHistory, "Cabinet not found.", id, null, ct);
-            return Problem("Cabinet not found.",
-                statusCode: StatusCodes.Status404NotFound, title: "Not found");
-        }
-
-        (DateTime from, DateTime to) = range.Value;
-
-        IQueryable<Domain.SmartReading> rows = _db.SmartReadings.AsNoTracking()
-            .Where(s => s.CabinetId == id && s.TimestampUtc >= from && s.TimestampUtc <= to);
-
-        if (!string.IsNullOrWhiteSpace(query.DriveSerial))
-        {
-            string serial = query.DriveSerial.Trim();
-            rows = rows.Where(s => s.DriveSerial == serial);
-        }
-
-        int total = await rows.CountAsync(ct);
-
-        List<SmartReadingDto> items = await rows
-            .OrderByDescending(s => s.TimestampUtc)
-            .Skip(query.Skip)
-            .Take(query.PageSize)
-            .Select(s => ToDto(s))
-            .ToListAsync(ct);
-
-        await _audit.WriteAsync(Observed(AuditActions.ViewSmartHistory, new
-        {
-            CabinetId = id,
-            query.DriveSerial,
-            From = from,
-            To = to,
-            ResultCount = items.Count
-        }), ct);
-
-        return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
-    }
-
-    /// <summary>
-    /// Resolves the requested window, refusing one wider than policy allows.
-    /// Silently clamping would hand back a partial answer that looks complete.
-    /// </summary>
-    private OperationResult<(DateTime From, DateTime To)> ResolveRange(HistoryQuery query)
-    {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-
-        DateTime to = query.ToUtc ?? nowUtc;
-        DateTime from = query.FromUtc ?? to.AddDays(-_queryLimits.DefaultHistoryRangeDays);
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+        DateTimeOffset to = query.ToUtc ?? nowUtc;
+        DateTimeOffset from = query.FromUtc ?? to.AddDays(-_queryLimits.DefaultHistoryRangeDays);
 
         if (from >= to)
         {
-            return OperationResult<(DateTime, DateTime)>.Invalid("FromUtc must be earlier than ToUtc.");
+            return OperationResult<(DateTimeOffset, DateTimeOffset)>.Invalid(
+                "The history window's start must be before its end.");
         }
 
-        if ((to - from).TotalDays > _queryLimits.MaxHistoryRangeDays)
+        if (to - from > TimeSpan.FromDays(_queryLimits.MaxHistoryRangeDays))
         {
-            return OperationResult<(DateTime, DateTime)>.Invalid(
-                $"The requested range exceeds the maximum of {_queryLimits.MaxHistoryRangeDays} days.");
+            // Refused rather than silently clamped, so the caller learns their
+            // query was wrong instead of quietly receiving less than they asked.
+            return OperationResult<(DateTimeOffset, DateTimeOffset)>.Invalid(
+                $"A history window may span at most {_queryLimits.MaxHistoryRangeDays} days.");
         }
 
-        return OperationResult<(DateTime, DateTime)>.Ok((from, to));
+        return OperationResult<(DateTimeOffset, DateTimeOffset)>.Ok((from, to));
     }
 
-    private AuditRecord Observed(string action, object? details, Domain.Cabinet? cabinet = null)
+    private static HeartbeatDto ToDto(Domain.Heartbeat h) => new()
     {
-        CurrentUser actor = CurrentUser;
+        Id = h.Id,
+        ReceivedUtc = h.ReceivedUtc,
+        CollectedAtUtc = h.CollectedAtUtc,
+        AgentVersion = h.AgentVersion,
+        Uptime = h.UptimeSeconds is { } seconds ? TimeSpan.FromSeconds(seconds) : null,
+        CpuPercent = h.CpuPercent,
+        RamUsedPercent = h.RamUsedPercent,
+        MinFreeDiskPercent = h.MinFreeDiskPercent,
+        WorstDiskHealth = h.WorstDiskHealth,
+        AnyUserLoggedOn = h.AnyUserLoggedOn,
+        PendingUpdateCount = h.PendingUpdateCount,
+        RebootPending = h.RebootPending,
+        ClockDrift = h.ClockDriftSeconds is { } drift ? TimeSpan.FromSeconds(drift) : null,
+        SectionErrors = DeserialiseErrors(h.SectionErrorsJson),
+        IsAggregated = h.IsAggregated,
+    };
 
-        return new AuditRecord
-        {
-            Action = action,
-            EventKind = AuditEventKind.Observed,
-            Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
-            ActorId = actor.UserId.ToString(),
-            ActorDisplayName = actor.Username,
-            CabinetId = cabinet?.Id,
-            CabinetHostname = cabinet?.Hostname,
-            Details = details
-        };
-    }
-
-    private static CheckInRequest? DeserialisePayload(string json)
+    private static InventoryVersionDto ToDto(Domain.InventoryVersion v)
     {
+        StoredInventory? stored = null;
+
         try
         {
-            return JsonSerializer.Deserialize<CheckInRequest>(json, Contracts.Common.ContractJson.Default);
+            stored = JsonSerializer.Deserialize<StoredInventory>(v.PayloadJson, ContractJson.Default);
         }
         catch (JsonException)
         {
-            // An unreadable payload must not take the whole response down: the
-            // projected columns beside it are still perfectly good data.
-            return null;
+            // A document this build cannot read is reported as a version with
+            // no sections rather than failing the whole response: the fact that
+            // the inventory changed, and when, is still true.
         }
+
+        return new InventoryVersionDto
+        {
+            Id = v.Id,
+            FirstObservedUtc = v.FirstObservedUtc,
+            LastObservedUtc = v.LastObservedUtc,
+            ContentHash = v.ContentHash,
+            System = stored?.System,
+            Services = stored?.Services,
+            Network = stored?.Network,
+            WindowsUpdate = stored?.WindowsUpdate,
+            Disks = stored?.Disks,
+            SectionErrors = DeserialiseErrors(v.SectionErrorsJson),
+        };
     }
 
     private static SmartReadingDto ToDto(Domain.SmartReading s) => new()
@@ -434,27 +640,67 @@ public sealed class CabinetsController : SupportControllerBase
         DriveSerial = s.DriveSerial,
         DriveModel = s.DriveModel,
         TimestampUtc = s.TimestampUtc,
-        PredictedHealth = s.PredictedHealth,
+        Health = s.Health,
+        Source = s.Source,
         IsAggregated = s.IsAggregated,
-        ReallocatedSectorCount = s.ReallocatedSectorCount,
-        ReportedUncorrectableErrors = s.ReportedUncorrectableErrors,
-        CommandTimeoutCount = s.CommandTimeoutCount,
-        CurrentPendingSectorCount = s.CurrentPendingSectorCount,
-        OfflineUncorrectableCount = s.OfflineUncorrectableCount,
-        UdmaCrcErrorCount = s.UdmaCrcErrorCount,
-        SpinRetryCount = s.SpinRetryCount,
-        SeekErrorRate = s.SeekErrorRate,
-        ReadErrorRate = s.ReadErrorRate,
-        WearLevelingCount = s.WearLevelingCount,
-        PercentageUsed = s.PercentageUsed,
-        AvailableSparePercent = s.AvailableSparePercent,
-        AvailableSpareThresholdPercent = s.AvailableSpareThresholdPercent,
-        MediaAndDataIntegrityErrors = s.MediaAndDataIntegrityErrors,
-        UnsafeShutdownCount = s.UnsafeShutdownCount,
-        PowerOnHours = s.PowerOnHours,
-        PowerCycleCount = s.PowerCycleCount,
-        TemperatureCelsius = s.TemperatureCelsius,
-        TotalHostReadsGb = s.TotalHostReadsGb,
-        TotalHostWritesGb = s.TotalHostWritesGb
+        Smart = new SmartInfo
+        {
+            Source = s.Source,
+            ReallocatedSectorCount = s.ReallocatedSectorCount,
+            PendingSectorCount = s.PendingSectorCount,
+            UncorrectableErrorCount = s.UncorrectableErrorCount,
+            PowerOnHours = s.PowerOnHours,
+            TemperatureCelsius = s.TemperatureCelsius,
+            OverallPredictFailure = s.OverallPredictFailure,
+            PredictFailureReason = s.PredictFailureReason,
+            Wear = s.Wear,
+            ReadErrorsTotal = s.ReadErrorsTotal,
+            ReadErrorsUncorrected = s.ReadErrorsUncorrected,
+            WriteErrorsTotal = s.WriteErrorsTotal,
+            WriteErrorsUncorrected = s.WriteErrorsUncorrected,
+            TemperatureMax = s.TemperatureMax,
+            StartStopCycleCount = s.StartStopCycleCount,
+            SerialNumber = s.DriveSerial,
+            Model = s.DriveModel,
+        },
     };
+
+    private static IReadOnlyDictionary<string, string> DeserialiseErrors(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, string>>(json, ContractJson.Default)
+                   ?? new Dictionary<string, string>();
+        }
+        catch (JsonException)
+        {
+            return new Dictionary<string, string>();
+        }
+    }
+
+    private AuditRecord Observed(AuditEvent auditEvent, object details, Guid? cabinetId = null) => new()
+    {
+        Event = auditEvent,
+        EventKind = AuditEventKind.Observed,
+        Result = AuditResult.Success,
+        ActorType = ActorType.User,
+        ActorId = CurrentUser.UserId.ToString(),
+        ActorDisplayName = CurrentUser.Username,
+        CabinetId = cabinetId,
+        Details = details,
+    };
+
+    /// <summary>The shape an inventory version is stored in.</summary>
+    private sealed record StoredInventory
+    {
+        public SystemInfo? System { get; init; }
+
+        public IReadOnlyList<ServiceInfo>? Services { get; init; }
+
+        public NetworkInfo? Network { get; init; }
+
+        public WindowsUpdateInfo? WindowsUpdate { get; init; }
+
+        public IReadOnlyList<DiskInfo>? Disks { get; init; }
+    }
 }

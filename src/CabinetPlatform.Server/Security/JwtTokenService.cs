@@ -20,10 +20,26 @@ public sealed class JwtOptions
     /// </summary>
     public string? SigningKey { get; set; }
 
-    public int TokenLifetimeMinutes { get; set; } = 60;
+    /// <summary>
+    /// Access-token lifetime. Deliberately short: the token is stateless, so it
+    /// cannot be revoked, and its lifetime is therefore the upper bound on how
+    /// long a withdrawn permission can still be used. Fifteen minutes is the
+    /// window a Supervisor's revocation has to wait out.
+    /// </summary>
+    public int TokenLifetimeMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Refresh-token lifetime. Long enough that a rep works a shift without
+    /// signing in twice; every use rotates it, and every use re-reads the
+    /// user's current permissions from the database.
+    /// </summary>
+    public int RefreshTokenLifetimeMinutes { get; set; } = 720;
 }
 
-public sealed record IssuedToken(string AccessToken, DateTime ExpiresUtc);
+/// <summary>An access token and when it dies.</summary>
+/// <param name="AccessToken">The bearer token.</param>
+/// <param name="ExpiresUtc">When it stops being accepted.</param>
+public sealed record IssuedToken(string AccessToken, DateTimeOffset ExpiresUtc);
 
 public interface IJwtTokenService
 {

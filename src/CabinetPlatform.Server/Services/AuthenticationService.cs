@@ -40,6 +40,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
     private readonly SupportDbContext _db;
     private readonly IPasswordHasher _hasher;
     private readonly IJwtTokenService _tokens;
+    private readonly IRefreshTokenService _refreshTokens;
     private readonly IAuditService _audit;
     private readonly LoginSecurityOptions _options;
     private readonly PasswordOptions _passwordOptions;
@@ -49,6 +50,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         SupportDbContext db,
         IPasswordHasher hasher,
         IJwtTokenService tokens,
+        IRefreshTokenService refreshTokens,
         IAuditService audit,
         IOptions<LoginSecurityOptions> options,
         IOptions<PasswordOptions> passwordOptions,
@@ -57,6 +59,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         _db = db;
         _hasher = hasher;
         _tokens = tokens;
+        _refreshTokens = refreshTokens;
         _audit = audit;
         _options = options.Value;
         _passwordOptions = passwordOptions.Value;
@@ -114,10 +117,10 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
 
             _audit.Enqueue(new AuditRecord
             {
-                Action = AuditActions.Login,
+                Event = AuditEvent.Login,
                 EventKind = AuditEventKind.Observed,
                 Result = AuditResult.Denied,
-                ActorType = ActorTypes.User,
+                ActorType = ActorType.User,
                 ActorId = user.Id.ToString(),
                 ActorDisplayName = user.Username,
                 Reason = reason
@@ -142,13 +145,14 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         }
 
         IssuedToken token = _tokens.Issue(user);
+        IssuedRefreshToken refresh = await _refreshTokens.IssueAsync(user, ct);
 
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.Login,
+            Event = AuditEvent.Login,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = user.Id.ToString(),
             ActorDisplayName = user.Username,
             Details = new { user.Role, user.HasElevatedSql, user.MustChangePassword }
@@ -159,7 +163,10 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         return OperationResult<LoginResponse>.Ok(new LoginResponse
         {
             AccessToken = token.AccessToken,
-            ExpiresUtc = token.ExpiresUtc,
+            ExpiresAtUtc = token.ExpiresUtc,
+            RefreshToken = refresh.Value,
+            RefreshTokenExpiresAtUtc = refresh.ExpiresUtc,
+            UserId = user.Id,
             DisplayName = user.DisplayName,
             Role = user.Role,
             HasElevatedSql = user.HasElevatedSql,
@@ -175,7 +182,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         if (user is null || !user.IsActive)
         {
             await _audit.WriteDenialAsync(
-                AuditActions.ChangePassword, "Unknown or inactive user.", null, null, ct);
+                AuditEvent.ChangePassword, "Unknown or inactive user.", null, null, cancellationToken: ct);
             return OperationResult.Forbidden("Password change refused.");
         }
 
@@ -184,10 +191,10 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         {
             _audit.Enqueue(new AuditRecord
             {
-                Action = AuditActions.ChangePassword,
+                Event = AuditEvent.ChangePassword,
                 EventKind = AuditEventKind.Observed,
                 Result = AuditResult.Denied,
-                ActorType = ActorTypes.User,
+                ActorType = ActorType.User,
                 ActorId = user.Id.ToString(),
                 ActorDisplayName = user.Username,
                 Reason = "Current password did not verify."
@@ -218,10 +225,10 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
 
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.ChangePassword,
+            Event = AuditEvent.ChangePassword,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = user.Id.ToString(),
             ActorDisplayName = user.Username,
             Reason = "User changed their own password."
@@ -243,10 +250,10 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         string username, string reason, CancellationToken ct, User? user = null) =>
         _audit.WriteAsync(new AuditRecord
         {
-            Action = AuditActions.Login,
+            Event = AuditEvent.Login,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Denied,
-            ActorType = user is null ? ActorTypes.Anonymous : ActorTypes.User,
+            ActorType = user is null ? ActorType.Anonymous : ActorType.User,
             ActorId = user?.Id.ToString(),
             // The attempted username is an identifier, not a secret, and
             // without it a brute-force pattern is invisible in the trail.

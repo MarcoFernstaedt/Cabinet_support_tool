@@ -394,7 +394,7 @@ public class SupportDbContext : DbContext
             }
 
             PropertyEntry? token = entry.Properties
-                .FirstOrDefault(p => p.Metadata.Name == "RowVersion" && p.Metadata.IsConcurrencyToken());
+                .FirstOrDefault(p => p.Metadata.Name == "RowVersion" && p.Metadata.IsConcurrencyToken);
 
             if (token is not null)
             {

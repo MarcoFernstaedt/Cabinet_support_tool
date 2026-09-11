@@ -20,15 +20,52 @@ public sealed class AuthController : SupportControllerBase
     private readonly IUserAuthenticationService _auth;
     private readonly IAuditService _audit;
     private readonly SupportDbContext _db;
+    private readonly IRefreshTokenService _refreshTokens;
+    private readonly TimeProvider _timeProvider;
 
+    /// <summary>Creates the controller.</summary>
+    /// <param name="auth">Sign-in and password change.</param>
+    /// <param name="audit">The audit trail.</param>
+    /// <param name="db">The database.</param>
+    /// <param name="refreshTokens">Issues and rotates refresh tokens.</param>
+    /// <param name="timeProvider">Clock.</param>
     public AuthController(
         IUserAuthenticationService auth,
         IAuditService audit,
-        SupportDbContext db)
+        SupportDbContext db,
+        IRefreshTokenService refreshTokens,
+        TimeProvider timeProvider)
     {
         _auth = auth;
         _audit = audit;
         _db = db;
+        _refreshTokens = refreshTokens;
+        _timeProvider = timeProvider;
+    }
+
+    /// <summary>
+    /// Exchanges a refresh token for a fresh access token.
+    /// </summary>
+    /// <remarks>
+    /// Anonymous because the access token it replaces has, by definition,
+    /// probably expired. The refresh token itself is the credential, it is
+    /// checked against the database on every use, and the user's current role,
+    /// elevated grant and active flag are re-read rather than carried forward
+    /// from the claims minted at sign-in.
+    /// </remarks>
+    /// <param name="request">The refresh token.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    [EnableRateLimiting(RateLimitPolicies.Login)]
+    [ProducesResponseType(typeof(RefreshResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    public async Task<ActionResult<RefreshResponse>> Refresh(
+        [FromBody] RefreshRequest request, CancellationToken ct)
+    {
+        OperationResult<RefreshResponse> result = await _refreshTokens.RefreshAsync(request.RefreshToken, ct);
+
+        return result.Succeeded ? Ok(result.Value) : Problem(result);
     }
 
     /// <summary>
@@ -76,6 +113,7 @@ public sealed class AuthController : SupportControllerBase
     public async Task<ActionResult<UserDto>> Me(CancellationToken ct)
     {
         CurrentUser actor = CurrentUser;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         UserDto? dto = await _db.Users
             .AsNoTracking()
@@ -92,22 +130,23 @@ public sealed class AuthController : SupportControllerBase
                 CreatedUtc = u.CreatedUtc,
                 CreatedByUserId = u.CreatedByUserId,
                 LastLoginUtc = u.LastLoginUtc,
-                LockedUntilUtc = u.LockedUntilUtc
+                LockedUntilUtc = u.LockedUntilUtc,
+                IsLockedOut = u.LockedUntilUtc != null && u.LockedUntilUtc > nowUtc,
             })
             .FirstOrDefaultAsync(ct);
 
         if (dto is null)
         {
-            await _audit.WriteDenialAsync(AuditActions.ViewSelf, "User no longer exists.", null, null, ct);
+            await _audit.WriteDenialAsync(AuditEvent.ViewSelf, "User no longer exists.", null, null, cancellationToken: ct);
             return Problem("Not found.", statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
 
         await _audit.WriteAsync(new AuditRecord
         {
-            Action = AuditActions.ViewSelf,
+            Event = AuditEvent.ViewSelf,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.User,
+            ActorType = ActorType.User,
             ActorId = actor.UserId.ToString(),
             ActorDisplayName = actor.Username
         }, ct);

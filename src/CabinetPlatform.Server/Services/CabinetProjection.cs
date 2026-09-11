@@ -1,0 +1,130 @@
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Server.Configuration;
+using CabinetPlatform.Server.Data;
+using CabinetPlatform.Server.Domain;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace CabinetPlatform.Server.Services;
+
+/// <summary>
+/// Builds the fleet's read models from projected columns.
+/// </summary>
+/// <remarks>
+/// <para>
+/// One place, shared by the cabinet list, the site views and the fleet
+/// summary, so that "healthy" cannot mean two different things on two screens.
+/// </para>
+/// <para>
+/// Nothing here deserialises a stored document. Every value comes from a typed
+/// column on <see cref="Heartbeat"/> or <see cref="Cabinet"/>, because these
+/// queries run across the whole fleet and a list endpoint that opens payloads
+/// stops working somewhere between the pilot and the rollout.
+/// </para>
+/// </remarks>
+public interface ICabinetProjection
+{
+    /// <summary>
+    /// Projects a page of cabinets, newest heartbeat per cabinet, in one round
+    /// trip.
+    /// </summary>
+    /// <param name="cabinets">The already-filtered, already-paged query.</param>
+    /// <param name="nowUtc">The current instant.</param>
+    /// <param name="ct">Cancels the query.</param>
+    Task<List<CabinetSummary>> ProjectAsync(
+        IQueryable<Cabinet> cabinets, DateTimeOffset nowUtc, CancellationToken ct);
+}
+
+/// <inheritdoc />
+public sealed class CabinetProjection : ICabinetProjection
+{
+    private readonly SupportDbContext _db;
+    private readonly AgentIngestOptions _ingest;
+
+    /// <summary>Creates the projection.</summary>
+    /// <param name="db">The database.</param>
+    /// <param name="ingest">Supplies the offline threshold.</param>
+    public CabinetProjection(SupportDbContext db, IOptions<AgentIngestOptions> ingest)
+    {
+        _db = db;
+        _ingest = ingest.Value;
+    }
+
+    /// <inheritdoc />
+    public async Task<List<CabinetSummary>> ProjectAsync(
+        IQueryable<Cabinet> cabinets, DateTimeOffset nowUtc, CancellationToken ct)
+    {
+        // The correlated sub-query rides the (CabinetId, ReceivedUtc desc)
+        // index, so this stays one indexed seek per row rather than a scan.
+        var rows = await cabinets
+            .Select(c => new
+            {
+                Cabinet = c,
+                SiteName = c.Site!.Name,
+                ClientName = c.Site!.Client!.Name,
+                Latest = _db.Heartbeats
+                    .Where(h => h.CabinetId == c.Id)
+                    .OrderByDescending(h => h.ReceivedUtc)
+                    .Select(h => new
+                    {
+                        h.CpuPercent,
+                        h.RamUsedPercent,
+                        h.MinFreeDiskPercent,
+                        h.PendingUpdateCount,
+                        h.RebootPending,
+                        h.WorstDiskHealth,
+                        h.AnyUserLoggedOn,
+                        h.ClockDriftSeconds,
+                    })
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r =>
+        {
+            TimeSpan? drift = r.Latest?.ClockDriftSeconds is { } seconds
+                ? TimeSpan.FromSeconds(seconds)
+                : null;
+
+            DiskHealthStatus diskHealth = r.Latest?.WorstDiskHealth ?? DiskHealthStatus.Unknown;
+
+            return new CabinetSummary
+            {
+                Id = r.Cabinet.Id,
+                MachineId = r.Cabinet.MachineId,
+                Hostname = r.Cabinet.Hostname,
+                ClientName = r.ClientName,
+                SiteName = r.SiteName,
+                SiteId = r.Cabinet.SiteId,
+                DepartmentName = r.Cabinet.DepartmentName,
+                Role = r.Cabinet.Role,
+                Model = r.Cabinet.Model,
+                SerialNumber = r.Cabinet.SerialNumber,
+                IsActive = r.Cabinet.IsActive,
+                LastCheckInUtc = r.Cabinet.LastCheckInUtc,
+                AgentVersion = r.Cabinet.AgentVersion,
+                TimeZoneId = r.Cabinet.TimeZoneId,
+                CpuPercent = r.Latest?.CpuPercent,
+                RamUsedPercent = r.Latest?.RamUsedPercent,
+                MinFreeDiskPercent = r.Latest?.MinFreeDiskPercent,
+                PendingUpdateCount = r.Latest?.PendingUpdateCount,
+                RebootPending = r.Latest?.RebootPending,
+                WorstDiskHealth = diskHealth,
+                AnyUserLoggedOn = r.Latest?.AnyUserLoggedOn,
+                ClockDrift = drift,
+                Health = HealthEvaluator.Evaluate(
+                    r.Cabinet.IsActive,
+                    r.Cabinet.LastCheckInUtc,
+                    nowUtc,
+                    _ingest.OfflineAfterMinutes,
+                    r.Latest?.CpuPercent,
+                    r.Latest?.RamUsedPercent,
+                    r.Latest?.MinFreeDiskPercent,
+                    r.Latest?.PendingUpdateCount,
+                    diskHealth,
+                    drift),
+            };
+        }).ToList();
+    }
+}
