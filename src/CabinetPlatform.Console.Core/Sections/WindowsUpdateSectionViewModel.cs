@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.Rows;
-using CabinetPlatform.Contracts.Agent;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Contracts.Cabinets;
 
 namespace CabinetPlatform.Console.Core.Sections;

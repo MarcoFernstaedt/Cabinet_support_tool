@@ -1,6 +1,9 @@
 using System.Net;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +23,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task Reboot_is_blocked_while_a_user_is_logged_on()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("t2"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("t2"));
 
         Cabinet cabinet = await CabinetWithCheckInAsync(user.Id, anyUserLoggedOn: true);
 
@@ -43,7 +46,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task Reboot_is_blocked_when_the_logged_on_state_is_unknown()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("t2"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("t2"));
 
         // No check-in at all, so the server has no idea whether a clinician is
         // standing at the cabinet. Unknown is treated as occupied.
@@ -60,7 +63,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task A_Tier2_cannot_override_the_safety_checks()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("t2"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("t2"));
 
         Cabinet cabinet = await CabinetWithCheckInAsync(user.Id, anyUserLoggedOn: true);
 
@@ -77,7 +80,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task A_Supervisor_override_requires_a_reason()
     {
         (HttpClient client, User supervisor) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         Cabinet cabinet = await CabinetWithCheckInAsync(supervisor.Id, anyUserLoggedOn: true);
 
@@ -94,7 +97,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task A_Supervisor_override_with_a_reason_is_permitted_and_the_reason_is_recorded()
     {
         (HttpClient client, User supervisor) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         Cabinet cabinet = await CabinetWithCheckInAsync(supervisor.Id, anyUserLoggedOn: true);
 
@@ -134,7 +137,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     public async Task An_action_against_a_deactivated_cabinet_is_refused()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("t2"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("t2"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("retired"), user.Id, isActive: false);
@@ -143,7 +146,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
             "/api/actions",
             new CreateActionRequest
             {
-                Action = CabinetActionType.FlushDnsCache,
+                Action = ActionName.FlushDnsCache,
                 CabinetId = cabinet.Id,
                 Reason = "Name resolution failing."
             });
@@ -177,7 +180,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
     private static CreateActionRequest RebootRequest(Guid cabinetId) => new()
     {
-        Action = CabinetActionType.RebootMachine,
+        Action = ActionName.RebootMachine,
         CabinetId = cabinetId,
         Parameters = new Dictionary<string, string> { ["delaySeconds"] = "30" },
         Reason = "Cabinet is unresponsive to the console."

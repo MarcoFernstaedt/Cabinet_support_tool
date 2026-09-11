@@ -1,6 +1,10 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CabinetPlatform.Console.Core.Presentation;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.ViewModels;
 
@@ -76,7 +80,7 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
     /// it, and only on an action that actually has a safety gate to pass.
     /// </summary>
     public bool CanOfferOverride =>
-        Prompt.CallerRole >= UserRole.Supervisor &&
+        Prompt.CallerRole >= Role.Supervisor &&
         (Prompt.Catalogue.MaintenanceWindowOnly || Prompt.Catalogue.BlockedIfUserLoggedOn);
 
     public bool OverrideReasonRequired => OverrideSafetyChecks;

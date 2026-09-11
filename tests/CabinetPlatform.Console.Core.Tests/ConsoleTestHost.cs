@@ -1,8 +1,11 @@
 using System.Data.Common;
 using System.Text.Json;
 using CabinetPlatform.Console.Core.Api;
-using CabinetPlatform.Contracts.Agent;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
 using CabinetPlatform.Server.Security;
@@ -95,7 +98,7 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
     }
 
     public async Task<User> CreateUserAsync(
-        UserRole role,
+        Role role,
         string username,
         bool mustChangePassword = false,
         bool isActive = true,

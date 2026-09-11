@@ -1,6 +1,9 @@
 using System.Net;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -20,7 +23,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     public async Task Requester_cannot_approve_their_own_action()
     {
         (HttpClient requesterClient, User requester) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("selfapprover"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("selfapprover"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("machine"), requester.Id);
@@ -57,10 +60,10 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     public async Task A_different_user_can_approve_and_the_approver_is_recorded()
     {
         (HttpClient requesterClient, User requester) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("requester"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("requester"));
 
         (HttpClient approverClient, User approver) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("approver"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("approver"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("machine"), approver.Id);
@@ -100,7 +103,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     public async Task Pending_approval_list_excludes_the_callers_own_requests()
     {
         (HttpClient requesterClient, User requester) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("ownlist"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("ownlist"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("machine"), requester.Id);
@@ -118,14 +121,14 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     public async Task An_action_that_needs_no_approval_is_approved_on_creation_but_still_expires()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("tier1"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("tier1"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("machine"), user.Id);
 
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", new CreateActionRequest
         {
-            Action = CabinetActionType.ScanForUpdates,
+            Action = ActionName.ScanForUpdates,
             CabinetId = cabinet.Id,
             Reason = "Routine patch review."
         });
@@ -145,14 +148,14 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     public async Task Tier1_cannot_request_a_Tier2_action()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("lowtier"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("lowtier"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("machine"), user.Id);
 
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", new CreateActionRequest
         {
-            Action = CabinetActionType.StopService,
+            Action = ActionName.StopService,
             CabinetId = cabinet.Id,
             Parameters = new Dictionary<string, string> { ["serviceName"] = "Spooler" },
             Reason = "Trying to reach above my role."
@@ -167,7 +170,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
     {
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", new CreateActionRequest
         {
-            Action = CabinetActionType.StopService,
+            Action = ActionName.StopService,
             CabinetId = cabinetId,
             Parameters = new Dictionary<string, string> { ["serviceName"] = "Spooler" },
             Reason = "Print queue is wedged.",

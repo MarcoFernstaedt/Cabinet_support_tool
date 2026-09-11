@@ -3,7 +3,10 @@ using CommunityToolkit.Mvvm.Input;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Contracts.Cabinets;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.ViewModels;
 
@@ -117,17 +120,17 @@ public sealed partial class ShellViewModel : ObservableObject
         ? $"{name} ({_session.Role})"
         : "Not signed in";
 
-    public UserRole? Role => _session.Role;
+    public Role? Role => _session.Role;
 
     /// <summary>
     /// Whether the approvals queue is worth offering. Tier 1 cannot approve
     /// anything and the server refuses them the endpoint, so the entry point is
     /// hidden rather than offered and then refused.
     /// </summary>
-    public bool CanSeeApprovals => _session.Role >= UserRole.Tier2;
+    public bool CanSeeApprovals => _session.Role >= Role.Tier2;
 
     /// <summary>Whether the audit tab is worth offering. Supervisor-only at the server.</summary>
-    public bool CanSeeAudit => _session.Role >= UserRole.Supervisor;
+    public bool CanSeeAudit => _session.Role >= Role.Supervisor;
 
     /// <summary>
     /// The count on the approvals entry point, or null when there is nothing to

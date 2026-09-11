@@ -1,7 +1,10 @@
 using System.Text.Json;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Actions;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Data;
@@ -169,7 +172,7 @@ public sealed class ActionsController : SupportControllerBase
 
         // Only actions whose minimum role this caller meets. Evaluated from
         // the in-code catalogue, so it cannot drift from the approval check.
-        List<CabinetActionType> approvable = ActionCatalog.All
+        List<ActionName> approvable = ActionCatalog.All
             .Where(e => actor.Role >= e.MinimumRole)
             .Select(e => e.Action)
             .ToList();

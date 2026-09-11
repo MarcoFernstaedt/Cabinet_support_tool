@@ -1,6 +1,9 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
-using CabinetPlatform.Contracts.Agent;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Common;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
 using CabinetPlatform.Server.Data;
@@ -10,24 +13,53 @@ using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Server.Services;
 
-public sealed record CheckInIngestOutcome(bool WasDuplicate, CheckIn CheckIn);
+/// <summary>What one check-in did.</summary>
+/// <param name="WasDuplicate">The sample had already been stored.</param>
+/// <param name="InventoryUnchanged">The inventory matched the version in force, so nothing was written.</param>
+/// <param name="ReceivedUtc">When the server took the sample.</param>
+public sealed record CheckInIngestOutcome(
+    bool WasDuplicate,
+    bool InventoryUnchanged,
+    DateTimeOffset ReceivedUtc);
 
+/// <summary>Stores one agent observation according to its tier.</summary>
 public interface ICheckInIngestService
 {
+    /// <summary>Ingests one payload.</summary>
+    /// <param name="cabinet">The cabinet it came from, already resolved and checked.</param>
+    /// <param name="tier">Which tier the payload arrived on.</param>
+    /// <param name="payload">The payload.</param>
+    /// <param name="ct">Cancels the ingest.</param>
     Task<OperationResult<CheckInIngestOutcome>> IngestAsync(
-        Cabinet cabinet, CheckInRequest request, CancellationToken ct);
+        Cabinet cabinet, CheckInTier tier, CheckInPayload payload, CancellationToken ct);
 }
 
 /// <summary>
-/// Turns one agent observation into a stored check-in, its SMART readings and
-/// an Observed audit record, in a single transaction.
+/// Turns one agent observation into the rows its tier calls for, in a single
+/// transaction, with an Observed audit record.
 /// </summary>
+/// <remarks>
+/// <para>
+/// The tiers exist because of volume. Seven thousand cabinets at a five-minute
+/// cadence is roughly two million samples a day; storing a full payload for
+/// each reaches terabytes within weeks, and almost none of it would ever be
+/// read. So a heartbeat writes typed columns and no document; inventory writes
+/// only when its content hash differs from the version in force; SMART writes
+/// every time, because a gap in a failure-prediction series is a gap in the
+/// prediction.
+/// </para>
+/// <para>
+/// The tier is taken from the endpoint the request arrived on, never from the
+/// payload. An agent cannot ask for its heavy sections to be stored by
+/// claiming a tier, and a heartbeat that arrives carrying inventory has that
+/// inventory ignored rather than written.
+/// </para>
+/// </remarks>
 public sealed class CheckInIngestService : ICheckInIngestService
 {
     // The payload is stored verbatim in the shared wire convention, so it can
     // still be deserialised by any component years from now.
-    private static readonly JsonSerializerOptions PayloadJsonOptions =
-        Contracts.Common.ContractJson.CreateOptions();
+    private static readonly JsonSerializerOptions PayloadJsonOptions = ContractJson.CreateOptions();
 
     private readonly SupportDbContext _db;
     private readonly IAuditService _audit;
@@ -35,6 +67,12 @@ public sealed class CheckInIngestService : ICheckInIngestService
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<CheckInIngestService> _logger;
 
+    /// <summary>Creates the service.</summary>
+    /// <param name="db">The database.</param>
+    /// <param name="audit">The audit trail.</param>
+    /// <param name="options">Ingest configuration.</param>
+    /// <param name="timeProvider">Clock.</param>
+    /// <param name="logger">Diagnostic log.</param>
     public CheckInIngestService(
         SupportDbContext db,
         IAuditService audit,
@@ -49,11 +87,12 @@ public sealed class CheckInIngestService : ICheckInIngestService
         _logger = logger;
     }
 
+    /// <inheritdoc />
     public async Task<OperationResult<CheckInIngestOutcome>> IngestAsync(
-        Cabinet cabinet, CheckInRequest request, CancellationToken ct)
+        Cabinet cabinet, CheckInTier tier, CheckInPayload payload, CancellationToken ct)
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        DateTime collectedUtc = Normalise(request.CollectedAtUtc);
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+        DateTimeOffset collectedUtc = payload.CollectedAtUtc.ToUniversalTime();
 
         if (collectedUtc > nowUtc.AddMinutes(_options.MaxClockSkewMinutes))
         {
@@ -63,84 +102,100 @@ public sealed class CheckInIngestService : ICheckInIngestService
                 "CollectedAtUtc is implausibly far in the future.");
         }
 
-        // Idempotency. Agents retry over flaky clinic networks, and a retried
-        // sample must be acknowledged, not stored twice.
-        CheckIn? existing = await _db.CheckIns
+        bool duplicate = await _db.Heartbeats
             .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.CabinetId == cabinet.Id && c.CollectedAtUtc == collectedUtc, ct);
+            .AnyAsync(h => h.CabinetId == cabinet.Id && h.CollectedAtUtc == collectedUtc, ct);
 
-        if (existing is not null)
-        {
-            return OperationResult<CheckInIngestOutcome>.Ok(new CheckInIngestOutcome(true, existing));
-        }
+        // Drift is the cabinet's own clock against the instant it says it
+        // sampled at. Comparing against the server's receive time instead would
+        // fold network latency into the measurement and call it drift.
+        TimeSpan? clockDrift = payload.System?.SystemTimeUtc is { } reported
+            ? reported - collectedUtc
+            : null;
 
-        var checkIn = new CheckIn
+        var heartbeat = new Heartbeat
         {
             CabinetId = cabinet.Id,
             ReceivedUtc = nowUtc,
             CollectedAtUtc = collectedUtc,
-            PayloadJson = JsonSerializer.Serialize(request, PayloadJsonOptions),
-            CpuPercent = Clamp(request.CpuPercent),
-            RamUsedPercent = Clamp(request.RamUsedPercent),
-            MinFreeDiskPercent = MinFreeDiskPercent(request),
-            PendingUpdateCount = request.PendingUpdates?.Count ?? 0,
-            WorstDiskHealth = WorstDiskHealth(request),
-            AnyUserLoggedOn = request.AnyUserLoggedOn
+            AgentVersion = payload.AgentVersion,
+            UptimeSeconds = payload.System?.Uptime?.TotalSeconds,
+            CpuPercent = payload.Performance?.CpuTotalPercent,
+            RamUsedPercent = payload.Performance?.RamUsedPercent,
+            MinFreeDiskPercent = MinFreeDiskPercent(payload),
+            WorstDiskHealth = WorstDiskHealth(payload),
+            AnyUserLoggedOn = payload.System?.AnyUserLoggedOn,
+            PendingUpdateCount = payload.WindowsUpdate?.PendingUpdateCount,
+            RebootPending = payload.WindowsUpdate?.RebootPending,
+            ClockDriftSeconds = clockDrift?.TotalSeconds,
+            SectionErrorsJson = JsonSerializer.Serialize(payload.SectionErrors, PayloadJsonOptions),
+            IsAggregated = false,
+            SampleCount = 1,
         };
 
-        _db.CheckIns.Add(checkIn);
-
-        foreach (SmartSnapshot snapshot in request.SmartReadings ?? new List<SmartSnapshot>())
+        if (!duplicate)
         {
-            if (string.IsNullOrWhiteSpace(snapshot.DriveSerial))
+            _db.Heartbeats.Add(heartbeat);
+        }
+
+        bool inventoryUnchanged = true;
+
+        if (tier == CheckInTier.Full)
+        {
+            inventoryUnchanged = await StoreInventoryAsync(cabinet, payload, nowUtc, ct);
+
+            // SMART is stored every time, duplicate heartbeat or not. Skipping
+            // it because "nothing changed" is exactly how a failure-prediction
+            // series acquires the gap that makes the prediction wrong.
+            StoreSmartReadings(cabinet, payload, collectedUtc);
+
+            cabinet.LastFullCheckInUtc = nowUtc;
+        }
+
+        UpdateCabinetFacts(cabinet, payload, nowUtc);
+
+        if (clockDrift is { } drift && drift.Duration() >= HealthEvaluator.WarningClockDrift)
+        {
+            // Worth its own record: drift breaks site synchronisation and audit
+            // correlation, and neither failure announces itself at the time.
+            _audit.Enqueue(new AuditRecord
             {
-                // Without a stable serial there is nothing to trend the row
-                // against, so it is dropped rather than stored unattributable.
-                _logger.LogDebug(
-                    "Dropped a SMART snapshot with no drive serial from cabinet {CabinetId}.", cabinet.Id);
-                continue;
-            }
-
-            _db.SmartReadings.Add(ToReading(cabinet.Id, snapshot, collectedUtc));
-        }
-
-        cabinet.LastCheckInUtc = nowUtc;
-
-        if (!string.IsNullOrWhiteSpace(request.AgentVersion))
-        {
-            cabinet.AgentVersion = request.AgentVersion.Trim();
-        }
-
-        if (!string.IsNullOrWhiteSpace(request.Hostname))
-        {
-            // The agent may legitimately report a renamed host. It still
-            // cannot touch ClientName, SiteName or Department — those are the
-            // approving Supervisor's to set.
-            cabinet.Hostname = request.Hostname.Trim();
+                Event = AuditEvent.CabinetClockDrift,
+                EventKind = AuditEventKind.Observed,
+                Result = AuditResult.Success,
+                ActorType = ActorType.Agent,
+                ActorId = cabinet.MachineId,
+                CabinetId = cabinet.Id,
+                CabinetHostname = cabinet.Hostname,
+                Reason = $"Cabinet clock differs from its own sample time by {drift:g}.",
+                Details = new { DriftSeconds = drift.TotalSeconds, cabinet.TimeZoneId },
+            });
         }
 
         // A check-in changed nothing on the cabinet; the server merely saw it.
         _audit.Enqueue(new AuditRecord
         {
-            Action = AuditActions.AgentCheckIn,
+            Event = AuditEvent.AgentCheckIn,
             EventKind = AuditEventKind.Observed,
             Result = AuditResult.Success,
-            ActorType = ActorTypes.Agent,
+            ActorType = ActorType.Agent,
             ActorId = cabinet.MachineId,
             CabinetId = cabinet.Id,
             CabinetHostname = cabinet.Hostname,
             Details = new
             {
-                CheckInId = checkIn.Id,
-                checkIn.CollectedAtUtc,
-                checkIn.CpuPercent,
-                checkIn.RamUsedPercent,
-                checkIn.MinFreeDiskPercent,
-                checkIn.PendingUpdateCount,
-                WorstDiskHealth = checkIn.WorstDiskHealth.ToString(),
-                checkIn.AnyUserLoggedOn,
-                SmartReadingCount = request.SmartReadings?.Count ?? 0
-            }
+                Tier = tier.ToString(),
+                heartbeat.CollectedAtUtc,
+                heartbeat.CpuPercent,
+                heartbeat.RamUsedPercent,
+                heartbeat.MinFreeDiskPercent,
+                heartbeat.PendingUpdateCount,
+                WorstDiskHealth = heartbeat.WorstDiskHealth.ToString(),
+                heartbeat.AnyUserLoggedOn,
+                SmartReadingCount = CountSmartReadings(payload),
+                FailedSections = payload.SectionErrors.Keys.ToArray(),
+                InventoryUnchanged = inventoryUnchanged,
+            },
         });
 
         try
@@ -150,92 +205,391 @@ public sealed class CheckInIngestService : ICheckInIngestService
         catch (DbUpdateException)
         {
             // Two retries of the same sample raced past the check above. The
-            // unique index is the real guarantee; this just turns the race
-            // into the same answer the first request got. Anything that is not
-            // that race is a real failure and is rethrown untouched.
+            // unique index is the real guarantee; this just turns the race into
+            // the same answer the first request got. Anything that is not that
+            // race is a real failure and is rethrown untouched.
             _db.ChangeTracker.Clear();
 
-            CheckIn? stored = await _db.CheckIns
+            bool stored = await _db.Heartbeats
                 .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    c => c.CabinetId == cabinet.Id && c.CollectedAtUtc == collectedUtc, ct);
+                .AnyAsync(h => h.CabinetId == cabinet.Id && h.CollectedAtUtc == collectedUtc, ct);
 
-            if (stored is null)
+            if (!stored)
             {
                 throw;
             }
 
-            return OperationResult<CheckInIngestOutcome>.Ok(new CheckInIngestOutcome(true, stored));
+            return OperationResult<CheckInIngestOutcome>.Ok(
+                new CheckInIngestOutcome(true, inventoryUnchanged, nowUtc));
         }
 
-        return OperationResult<CheckInIngestOutcome>.Ok(new CheckInIngestOutcome(false, checkIn));
+        return OperationResult<CheckInIngestOutcome>.Ok(
+            new CheckInIngestOutcome(duplicate, inventoryUnchanged, nowUtc));
     }
 
-    private static SmartReading ToReading(Guid cabinetId, SmartSnapshot s, DateTime fallbackUtc) => new()
+    /// <summary>
+    /// Stores the inventory sections, but only when they differ from the
+    /// version already in force.
+    /// </summary>
+    /// <remarks>
+    /// The stored document carries the sections whole; the hash is taken over a
+    /// deliberately narrower projection. Otherwise a service restarting under a
+    /// new process id, or a disk losing a gigabyte of free space, would present
+    /// as an inventory change every six hours and the tier would store as much
+    /// as it was built to avoid.
+    /// </remarks>
+    /// <returns>True when nothing was written because nothing changed.</returns>
+    private async Task<bool> StoreInventoryAsync(
+        Cabinet cabinet, CheckInPayload payload, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        CabinetId = cabinetId,
-        DriveSerial = s.DriveSerial.Trim(),
-        DriveModel = s.DriveModel,
-        FirmwareVersion = s.FirmwareVersion,
-        DeviceId = s.DeviceId,
-        TimestampUtc = s.TimestampUtc == default ? fallbackUtc : Normalise(s.TimestampUtc),
-        PredictedHealth = s.PredictedHealth,
-        ReallocatedSectorCount = s.ReallocatedSectorCount,
-        ReportedUncorrectableErrors = s.ReportedUncorrectableErrors,
-        CommandTimeoutCount = s.CommandTimeoutCount,
-        CurrentPendingSectorCount = s.CurrentPendingSectorCount,
-        OfflineUncorrectableCount = s.OfflineUncorrectableCount,
-        UdmaCrcErrorCount = s.UdmaCrcErrorCount,
-        SpinRetryCount = s.SpinRetryCount,
-        SeekErrorRate = s.SeekErrorRate,
-        ReadErrorRate = s.ReadErrorRate,
-        WearLevelingCount = s.WearLevelingCount,
-        PercentageUsed = s.PercentageUsed,
-        AvailableSparePercent = s.AvailableSparePercent,
-        AvailableSpareThresholdPercent = s.AvailableSpareThresholdPercent,
-        MediaAndDataIntegrityErrors = s.MediaAndDataIntegrityErrors,
-        UnsafeShutdownCount = s.UnsafeShutdownCount,
-        PowerOnHours = s.PowerOnHours,
-        PowerCycleCount = s.PowerCycleCount,
-        TemperatureCelsius = s.TemperatureCelsius,
-        TotalHostReadsGb = s.TotalHostReadsGb,
-        TotalHostWritesGb = s.TotalHostWritesGb
+        var stored = new InventorySnapshot
+        {
+            System = payload.System,
+            Services = payload.Services,
+            Network = payload.Network,
+            WindowsUpdate = payload.WindowsUpdate,
+            Disks = payload.Disks,
+        };
+
+        string json = JsonSerializer.Serialize(stored, PayloadJsonOptions);
+        string hash = Sha256Hex(JsonSerializer.Serialize(StableProjection(payload), PayloadJsonOptions));
+
+        InventoryVersion? current = cabinet.CurrentInventoryVersionId is { } id
+            ? await _db.InventoryVersions.FirstOrDefaultAsync(v => v.Id == id, ct)
+            : null;
+
+        if (current is not null && current.ContentHash == hash)
+        {
+            // The whole point of the tier: an unchanged inventory writes one
+            // timestamp, not a second copy of itself.
+            current.LastObservedUtc = nowUtc;
+            return true;
+        }
+
+        var version = new InventoryVersion
+        {
+            CabinetId = cabinet.Id,
+            ContentHash = hash,
+            FirstObservedUtc = nowUtc,
+            LastObservedUtc = nowUtc,
+            PayloadJson = json,
+            SectionErrorsJson = JsonSerializer.Serialize(payload.SectionErrors, PayloadJsonOptions),
+        };
+
+        _db.InventoryVersions.Add(version);
+        cabinet.CurrentInventoryVersionId = version.Id;
+        return false;
+    }
+
+    /// <summary>
+    /// The parts of a payload that constitute the cabinet's configuration, as
+    /// opposed to its current condition.
+    /// </summary>
+    /// <remarks>
+    /// A section that failed to collect is null here and hashes differently
+    /// from an empty one, which is correct: "we could not read the services"
+    /// and "this machine runs no services" are different inventories, and only
+    /// one of them is plausible.
+    /// </remarks>
+    private static object StableProjection(CheckInPayload payload) => new
+    {
+        System = payload.System is null
+            ? null
+            : new
+            {
+                payload.System.Hostname,
+                payload.System.OsVersion,
+                payload.System.OsBuild,
+                payload.System.InstallDateUtc,
+                payload.System.TimeZoneId,
+                payload.System.DomainOrWorkgroup,
+                payload.System.IsDomainJoined,
+                InstalledSoftware = payload.System.InstalledSoftware?
+                    .OrderBy(s => s.Name, StringComparer.Ordinal)
+                    .Select(s => new { s.Name, s.Version, s.Publisher })
+                    .ToArray(),
+            },
+
+        // Process id is excluded: a service restarting is not a different
+        // inventory, and including it would create a version per restart.
+        Services = payload.Services?
+            .OrderBy(s => s.Name, StringComparer.Ordinal)
+            .Select(s => new { s.Name, s.DisplayName, s.State, s.StartType, s.RunAsAccount })
+            .ToArray(),
+
+        // Reachability and latency are condition, not configuration.
+        Network = payload.Network is null
+            ? null
+            : new
+            {
+                payload.Network.ProxyConfigured,
+                payload.Network.ProxyAddress,
+                payload.Network.FirewallDomainEnabled,
+                payload.Network.FirewallPrivateEnabled,
+                payload.Network.FirewallPublicEnabled,
+                Adapters = payload.Network.Adapters?
+                    .OrderBy(a => a.Name, StringComparer.Ordinal)
+                    .Select(a => new
+                    {
+                        a.Name,
+                        a.Description,
+                        a.MacAddress,
+                        a.Status,
+                        a.LinkSpeedBps,
+                        a.IpAddresses,
+                        a.SubnetMasks,
+                        a.Gateways,
+                        a.DnsServers,
+                        a.DhcpEnabled,
+                    })
+                    .ToArray(),
+            },
+
+        // Update history grows on every install, so it is stored but not
+        // hashed; the policy and the pending set are what a change means here.
+        WindowsUpdate = payload.WindowsUpdate is null
+            ? null
+            : new
+            {
+                payload.WindowsUpdate.PendingUpdateCount,
+                payload.WindowsUpdate.RebootPending,
+                payload.WindowsUpdate.ActiveHoursStart,
+                payload.WindowsUpdate.ActiveHoursEnd,
+                payload.WindowsUpdate.IsManagedByPolicy,
+                payload.WindowsUpdate.DeferralDays,
+                PendingUpdates = payload.WindowsUpdate.PendingUpdates?
+                    .OrderBy(u => u.UpdateId, StringComparer.Ordinal)
+                    .Select(u => new { u.UpdateId, u.Title, u.Classification, u.IsSecurity })
+                    .ToArray(),
+            },
+
+        // Free space is condition. Capacity, file system and encryption state
+        // are configuration, and a volume losing its BitLocker protection is
+        // exactly the change this history exists to make visible.
+        Disks = payload.Disks?
+            .OrderBy(d => d.DriveLetter, StringComparer.Ordinal)
+            .Select(d => new { d.DriveLetter, d.Label, d.FileSystem, d.TotalBytes, d.BitLockerStatus })
+            .ToArray(),
     };
 
     /// <summary>
-    /// The tightest volume on the machine. A cabinet with a comfortable C: and
-    /// a full data partition is a cabinet about to stop recording dispenses,
-    /// so the minimum is what the fleet view needs, not the average.
+    /// Writes one SMART row per drive that reported anything.
     /// </summary>
-    private static double MinFreeDiskPercent(CheckInRequest request)
+    /// <remarks>
+    /// A drive with no serial is dropped rather than stored unattributable:
+    /// without a stable identity there is nothing to trend the row against, and
+    /// a row that cannot be trended is noise in the table this system exists
+    /// for.
+    /// </remarks>
+    private void StoreSmartReadings(Cabinet cabinet, CheckInPayload payload, DateTimeOffset collectedUtc)
     {
-        List<VolumeSnapshot> volumes = request.Volumes ?? new List<VolumeSnapshot>();
+        if (payload.Disks is null)
+        {
+            return;
+        }
 
-        var sized = volumes.Where(v => v.TotalBytes > 0).ToList();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        return sized.Count == 0 ? 100d : Clamp(sized.Min(v => v.FreePercent));
+        foreach (DiskInfo disk in payload.Disks)
+        {
+            if (disk.Smart is not { } smart)
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(smart.SerialNumber))
+            {
+                _logger.LogDebug(
+                    "Dropped a SMART reading with no drive serial from cabinet {CabinetId}.", cabinet.Id);
+                continue;
+            }
+
+            string serial = smart.SerialNumber.Trim();
+
+            // Several volumes can sit on one physical drive, and each carries
+            // the same SMART block. One row per drive, not one per letter.
+            if (!seen.Add(serial))
+            {
+                continue;
+            }
+
+            _db.SmartReadings.Add(new SmartReading
+            {
+                CabinetId = cabinet.Id,
+                DriveSerial = serial,
+                DriveModel = smart.Model,
+                TimestampUtc = collectedUtc,
+                Health = disk.HealthStatus,
+                Source = smart.Source,
+                ReallocatedSectorCount = smart.ReallocatedSectorCount,
+                PendingSectorCount = smart.PendingSectorCount,
+                UncorrectableErrorCount = smart.UncorrectableErrorCount,
+                PowerOnHours = smart.PowerOnHours,
+                TemperatureCelsius = smart.TemperatureCelsius,
+                OverallPredictFailure = smart.OverallPredictFailure,
+                PredictFailureReason = smart.PredictFailureReason,
+                Wear = smart.Wear,
+                ReadErrorsTotal = smart.ReadErrorsTotal,
+                ReadErrorsUncorrected = smart.ReadErrorsUncorrected,
+                WriteErrorsTotal = smart.WriteErrorsTotal,
+                WriteErrorsUncorrected = smart.WriteErrorsUncorrected,
+                TemperatureMax = smart.TemperatureMax,
+                StartStopCycleCount = smart.StartStopCycleCount,
+                IsAggregated = false,
+            });
+        }
     }
 
-    private static DiskHealthStatus WorstDiskHealth(CheckInRequest request)
+    private static void UpdateCabinetFacts(Cabinet cabinet, CheckInPayload payload, DateTimeOffset nowUtc)
     {
-        List<SmartSnapshot> readings = request.SmartReadings ?? new List<SmartSnapshot>();
+        cabinet.LastCheckInUtc = nowUtc;
 
-        return readings.Count == 0
-            ? DiskHealthStatus.Unknown
-            : readings.Max(r => r.PredictedHealth);
+        if (!string.IsNullOrWhiteSpace(payload.AgentVersion))
+        {
+            cabinet.AgentVersion = payload.AgentVersion.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.System?.Hostname))
+        {
+            // The agent may legitimately report a renamed host. It still cannot
+            // touch its site, its client or its role — those are the approving
+            // Supervisor's to set.
+            cabinet.Hostname = payload.System.Hostname.Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(payload.System?.TimeZoneId))
+        {
+            cabinet.TimeZoneId = payload.System.TimeZoneId.Trim();
+        }
+
+        string? address = PrimaryAddress(payload.Network);
+
+        if (address is not null)
+        {
+            // This is what a cabinet-to-cabinet probe is later resolved
+            // against, which is why the console never supplies an address.
+            cabinet.LastKnownIpAddress = address;
+        }
     }
-
-    private static double Clamp(double value) => double.IsFinite(value) ? Math.Clamp(value, 0d, 100d) : 0d;
 
     /// <summary>
-    /// Everything stored is UTC. A timestamp that arrived without a kind is
-    /// taken at its word as UTC rather than reinterpreted through the server's
-    /// local zone, which would silently shift every clinic in another country.
+    /// Picks the address another cabinet at the same site would reach this one
+    /// on: the first address of the first adapter that is up and has a gateway.
     /// </summary>
-    private static DateTime Normalise(DateTime value) => value.Kind switch
+    private static string? PrimaryAddress(NetworkInfo? network)
     {
-        DateTimeKind.Utc => value,
-        DateTimeKind.Local => value.ToUniversalTime(),
-        _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        if (network?.Adapters is null)
+        {
+            return null;
+        }
+
+        foreach (NetworkAdapterInfo adapter in network.Adapters)
+        {
+            if (adapter.Status != NetworkAdapterStatus.Up ||
+                adapter.Gateways is not { Count: > 0 } ||
+                adapter.IpAddresses is not { Count: > 0 })
+            {
+                continue;
+            }
+
+            foreach (string candidate in adapter.IpAddresses)
+            {
+                if (System.Net.IPAddress.TryParse(candidate, out System.Net.IPAddress? parsed) &&
+                    parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                {
+                    return parsed.ToString();
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The tightest volume on the machine.
+    /// </summary>
+    /// <remarks>
+    /// A cabinet with a comfortable C: and a full data partition is a cabinet
+    /// about to stop recording dispenses, so the minimum is what the fleet view
+    /// needs, not the average. Null when no volume reported a figure — which is
+    /// not the same as a full disk, and is not the same as an empty one.
+    /// </remarks>
+    private static double? MinFreeDiskPercent(CheckInPayload payload)
+    {
+        if (payload.Disks is null)
+        {
+            return null;
+        }
+
+        double? lowest = null;
+
+        foreach (DiskInfo disk in payload.Disks)
+        {
+            if (disk.FreePercent is { } percent && (lowest is null || percent < lowest))
+            {
+                lowest = percent;
+            }
+        }
+
+        return lowest;
+    }
+
+    private static DiskHealthStatus WorstDiskHealth(CheckInPayload payload)
+    {
+        if (payload.Disks is null)
+        {
+            return DiskHealthStatus.Unknown;
+        }
+
+        DiskHealthStatus worst = DiskHealthStatus.Unknown;
+
+        foreach (DiskInfo disk in payload.Disks)
+        {
+            // Ordered by severity, and Unknown is not the mildest: a drive
+            // whose health could not be read must not be outranked by a healthy
+            // one and disappear from the roll-up.
+            if (Severity(disk.HealthStatus) > Severity(worst))
+            {
+                worst = disk.HealthStatus;
+            }
+        }
+
+        return worst;
+    }
+
+    private static int Severity(DiskHealthStatus status) => status switch
+    {
+        DiskHealthStatus.Healthy => 0,
+        DiskHealthStatus.Unknown => 1,
+        DiskHealthStatus.Watch => 2,
+        DiskHealthStatus.Failing => 3,
+        _ => 1,
     };
+
+    private static int CountSmartReadings(CheckInPayload payload) =>
+        payload.Disks?.Count(d => d.Smart is not null) ?? 0;
+
+    private static string Sha256Hex(string value) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    /// <summary>
+    /// The inventory half of a payload, hashed and stored as one document.
+    /// </summary>
+    /// <remarks>
+    /// A separate shape rather than the whole payload, so that the volatile
+    /// parts — CPU percent, uptime, the collection timestamp — cannot make an
+    /// otherwise unchanged inventory look different every six hours.
+    /// </remarks>
+    private sealed record InventorySnapshot
+    {
+        public SystemInfo? System { get; init; }
+
+        public IReadOnlyList<ServiceInfo>? Services { get; init; }
+
+        public NetworkInfo? Network { get; init; }
+
+        public WindowsUpdateInfo? WindowsUpdate { get; init; }
+
+        public IReadOnlyList<DiskInfo>? Disks { get; init; }
+    }
 }

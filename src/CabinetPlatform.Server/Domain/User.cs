@@ -1,4 +1,4 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Auth;
 
 namespace CabinetPlatform.Server.Domain;
 
@@ -23,7 +23,7 @@ public class User
 
     public string DisplayName { get; set; } = string.Empty;
 
-    public UserRole Role { get; set; } = UserRole.Tier1;
+    public Role Role { get; set; } = Role.Tier1;
 
     public bool HasElevatedSql { get; set; }
 
@@ -32,16 +32,31 @@ public class User
     /// <summary>Forces a password change before anything else is permitted.</summary>
     public bool MustChangePassword { get; set; }
 
-    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTimeOffset CreatedUtc { get; set; } = DateTimeOffset.UtcNow;
 
     /// <summary>Null only for the bootstrap Supervisor the server seeds itself.</summary>
     public Guid? CreatedByUserId { get; set; }
 
-    public DateTime? LastLoginUtc { get; set; }
+    public DateTimeOffset? LastLoginUtc { get; set; }
 
     public int FailedLoginCount { get; set; }
 
-    public DateTime? LockedUntilUtc { get; set; }
+    public DateTimeOffset? LockedUntilUtc { get; set; }
 
-    public bool IsLockedOut(DateTime nowUtc) => LockedUntilUtc.HasValue && LockedUntilUtc.Value > nowUtc;
+    /// <summary>Whether failed attempts currently bar this account.</summary>
+    /// <param name="nowUtc">The current instant.</param>
+    public bool IsLockedOut(DateTimeOffset nowUtc) => LockedUntilUtc.HasValue && LockedUntilUtc.Value > nowUtc;
+
+    /// <summary>
+    /// Optimistic concurrency token over the permission fields.
+    /// </summary>
+    /// <remarks>
+    /// Two Supervisors changing the same account's role or elevated grant at
+    /// once must not have one decision silently overwrite the other. A version
+    /// conflict returns a clear error and the second Supervisor re-reads.
+    /// </remarks>
+    public byte[]? RowVersion { get; set; }
+
+    /// <summary>Refresh tokens issued to this user.</summary>
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 }

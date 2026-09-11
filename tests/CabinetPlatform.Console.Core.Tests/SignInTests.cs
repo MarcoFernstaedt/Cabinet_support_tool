@@ -1,7 +1,11 @@
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.ViewModels;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Tests;
 
@@ -30,7 +34,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task Correct_credentials_sign_in_and_populate_the_session()
     {
         string username = Unique("t2");
-        await _host.CreateUserAsync(UserRole.Tier2, username);
+        await _host.CreateUserAsync(Role.Tier2, username);
 
         (LoginViewModel login, SessionStore session, RecordingLiveRegionAnnouncer announcer) =
             CreateLogin();
@@ -43,7 +47,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
         Assert.Null(login.ErrorMessage);
         Assert.Equal(SignInProblem.None, login.Problem);
         Assert.True(session.IsSignedIn);
-        Assert.Equal(UserRole.Tier2, session.Role);
+        Assert.Equal(Role.Tier2, session.Role);
 
         // The user id only arrives via /api/auth/me, and the Approvals view
         // needs it to recognise the user's own requests.
@@ -56,7 +60,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task Password_is_cleared_from_memory_after_a_successful_sign_in()
     {
         string username = Unique("clear");
-        await _host.CreateUserAsync(UserRole.Tier1, username);
+        await _host.CreateUserAsync(Role.Tier1, username);
 
         (LoginViewModel login, _, _) = CreateLogin();
 
@@ -72,7 +76,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task A_wrong_password_is_reported_as_a_credential_problem_and_is_cleared()
     {
         string username = Unique("wrong");
-        await _host.CreateUserAsync(UserRole.Tier1, username);
+        await _host.CreateUserAsync(Role.Tier1, username);
 
         (LoginViewModel login, SessionStore session, _) = CreateLogin();
 
@@ -96,7 +100,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task A_locked_account_is_distinguishable_from_a_wrong_password()
     {
         string username = Unique("lock");
-        await _host.CreateUserAsync(UserRole.Tier1, username);
+        await _host.CreateUserAsync(Role.Tier1, username);
 
         (LoginViewModel login, _, _) = CreateLogin();
         login.Username = username;
@@ -154,7 +158,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task A_first_login_is_held_at_the_change_password_step()
     {
         string username = Unique("first");
-        await _host.CreateUserAsync(UserRole.Supervisor, username, mustChangePassword: true);
+        await _host.CreateUserAsync(Role.Supervisor, username, mustChangePassword: true);
 
         (LoginViewModel login, SessionStore session, RecordingLiveRegionAnnouncer announcer) =
             CreateLogin();
@@ -177,7 +181,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task Changing_the_password_completes_the_first_login()
     {
         string username = Unique("change");
-        await _host.CreateUserAsync(UserRole.Supervisor, username, mustChangePassword: true);
+        await _host.CreateUserAsync(Role.Supervisor, username, mustChangePassword: true);
 
         (LoginViewModel login, SessionStore session, _) = CreateLogin();
 
@@ -208,7 +212,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task Mismatched_new_passwords_are_caught_before_the_server_is_asked()
     {
         string username = Unique("mismatch");
-        await _host.CreateUserAsync(UserRole.Supervisor, username, mustChangePassword: true);
+        await _host.CreateUserAsync(Role.Supervisor, username, mustChangePassword: true);
 
         (LoginViewModel login, _, _) = CreateLogin();
 
@@ -230,7 +234,7 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     public async Task A_weak_new_password_surfaces_the_servers_own_wording()
     {
         string username = Unique("weak");
-        await _host.CreateUserAsync(UserRole.Supervisor, username, mustChangePassword: true);
+        await _host.CreateUserAsync(Role.Supervisor, username, mustChangePassword: true);
 
         (LoginViewModel login, _, _) = CreateLogin();
 
@@ -255,8 +259,8 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     {
         var session = new SessionStore();
 
-        session.SignIn("a-token", DateTime.UtcNow.AddMinutes(30), "Someone", UserRole.Supervisor, false);
-        session.AttachIdentity(Guid.NewGuid(), "someone", UserRole.Supervisor, false);
+        session.SignIn("a-token", DateTime.UtcNow.AddMinutes(30), "Someone", Role.Supervisor, false);
+        session.AttachIdentity(Guid.NewGuid(), "someone", Role.Supervisor, false);
 
         Assert.True(session.IsSignedIn);
 

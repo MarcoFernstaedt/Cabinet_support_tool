@@ -7,7 +7,9 @@ using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Console.Core.Sections;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Cabinets;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.ViewModels;
 
@@ -277,18 +279,18 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// </remarks>
     private void BuildActions()
     {
-        Add(Services, CabinetActionType.RestartService, Services.CurrentServiceParameters);
-        Add(Services, CabinetActionType.StartService, Services.CurrentServiceParameters);
-        Add(Services, CabinetActionType.StopService, Services.CurrentServiceParameters);
+        Add(Services, ActionName.RestartService, Services.CurrentServiceParameters);
+        Add(Services, ActionName.StartService, Services.CurrentServiceParameters);
+        Add(Services, ActionName.StopService, Services.CurrentServiceParameters);
 
-        Add(WindowsUpdate, CabinetActionType.ScanForUpdates);
-        Add(WindowsUpdate, CabinetActionType.ScheduleUpdates);
+        Add(WindowsUpdate, ActionName.ScanForUpdates);
+        Add(WindowsUpdate, ActionName.ScheduleUpdates);
 
-        Add(Network, CabinetActionType.FlushDnsCache);
-        Add(Network, CabinetActionType.RenewDhcpLease);
+        Add(Network, ActionName.FlushDnsCache);
+        Add(Network, ActionName.RenewDhcpLease);
 
-        Add(System, CabinetActionType.RebootMachine);
-        Add(System, CabinetActionType.CollectDiagnosticBundle);
+        Add(System, ActionName.RebootMachine);
+        Add(System, ActionName.CollectDiagnosticBundle);
 
         // Every service action needs a selected row; none is selected yet.
         foreach (SectionActionViewModel action in Services.Actions)
@@ -304,7 +306,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private void Add(
         MachineSectionViewModel section,
-        CabinetActionType action,
+        ActionName action,
         Func<IReadOnlyDictionary<string, string>>? parameters = null)
     {
         ActionCatalogEntryDto? entry = _catalogue.FirstOrDefault(c => c.Action == action);

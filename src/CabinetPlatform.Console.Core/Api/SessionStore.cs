@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Api;
 
@@ -25,7 +29,7 @@ public sealed class SessionStore : ISessionStore
     private Guid? _userId;
     private string? _username;
     private string? _displayName;
-    private UserRole? _role;
+    private Role? _role;
     private bool _mustChangePassword;
 
     public string? AccessToken { get { lock (_gate) { return _accessToken; } } }
@@ -33,7 +37,7 @@ public sealed class SessionStore : ISessionStore
     public Guid? UserId { get { lock (_gate) { return _userId; } } }
     public string? Username { get { lock (_gate) { return _username; } } }
     public string? DisplayName { get { lock (_gate) { return _displayName; } } }
-    public UserRole? Role { get { lock (_gate) { return _role; } } }
+    public Role? Role { get { lock (_gate) { return _role; } } }
     public bool MustChangePassword { get { lock (_gate) { return _mustChangePassword; } } }
 
     public bool IsSignedIn { get { lock (_gate) { return _accessToken is { Length: > 0 }; } } }
@@ -41,7 +45,7 @@ public sealed class SessionStore : ISessionStore
     public event EventHandler? Changed;
 
     public void SignIn(
-        string accessToken, DateTime expiresUtc, string displayName, UserRole role, bool mustChangePassword)
+        string accessToken, DateTime expiresUtc, string displayName, Role role, bool mustChangePassword)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
 
@@ -57,7 +61,7 @@ public sealed class SessionStore : ISessionStore
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    public void AttachIdentity(Guid userId, string username, UserRole role, bool mustChangePassword)
+    public void AttachIdentity(Guid userId, string username, Role role, bool mustChangePassword)
     {
         lock (_gate)
         {

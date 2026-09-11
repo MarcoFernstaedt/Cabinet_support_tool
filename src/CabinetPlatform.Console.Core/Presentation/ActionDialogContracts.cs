@@ -1,5 +1,8 @@
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Presentation;
 
@@ -31,7 +34,7 @@ public sealed record ActionRequestPrompt(
     string ClientAndSite,
     IReadOnlyDictionary<string, string> Parameters,
     bool? UserIsLoggedOnToCabinet,
-    UserRole? CallerRole);
+    Role? CallerRole);
 
 /// <summary>
 /// What the user supplied in the dialog. Null from the dialog service means

@@ -1,8 +1,11 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
-using CabinetPlatform.Contracts.Enums;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
 using CabinetPlatform.Server.Security;
@@ -24,7 +27,7 @@ public static class TestClient
     /// </summary>
     public static async Task<(HttpClient Client, User User)> CreateUserClientAsync(
         SupportApiFactory factory,
-        UserRole role,
+        Role role,
         string username,
         bool hasElevatedSql = false,
         bool mustChangePassword = false,

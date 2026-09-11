@@ -2,7 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Auth;
 
 namespace CabinetPlatform.Console.Core.ViewModels;
 

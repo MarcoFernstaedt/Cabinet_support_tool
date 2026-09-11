@@ -1,6 +1,9 @@
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Presentation;
 

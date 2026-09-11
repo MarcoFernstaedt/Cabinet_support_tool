@@ -3,8 +3,10 @@ using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Console.Core.ViewModels;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Domain;
 
 namespace CabinetPlatform.Console.Core.Tests;
@@ -21,7 +23,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
-    private async Task<(ApiClient Api, SessionStore Session)> SignInAsync(UserRole role, string username)
+    private async Task<(ApiClient Api, SessionStore Session)> SignInAsync(Role role, string username)
     {
         await _host.CreateUserAsync(role, username);
 
@@ -48,7 +50,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         api.CreateActionAsync(
             new CreateActionRequest
             {
-                Action = CabinetActionType.StopService,
+                Action = ActionName.StopService,
                 CabinetId = cabinetId,
                 Reason = "Dispense controller wedged; bouncing it for ticket SUP-2001",
                 TicketReference = "SUP-2001",
@@ -61,13 +63,13 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("a")[..8]}");
 
-        (ApiClient requesterApi, _) = await SignInAsync(UserRole.Tier2, Unique("req"));
+        (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("req"));
         ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         Assert.Equal(ActionRequestStatus.PendingApproval, created.Status);
 
         (ApiClient approverApi, SessionStore approverSession) =
-            await SignInAsync(UserRole.Tier2, Unique("app"));
+            await SignInAsync(Role.Tier2, Unique("app"));
 
         RecordingLiveRegionAnnouncer announcer = new();
         ScriptedApprovalDialog dialog = ScriptedApprovalDialog.Accepting();
@@ -106,7 +108,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("b")[..8]}");
 
-        (ApiClient api, SessionStore session) = await SignInAsync(UserRole.Tier2, Unique("self"));
+        (ApiClient api, SessionStore session) = await SignInAsync(Role.Tier2, Unique("self"));
 
         ActionRequestDto mine = await RequestStopServiceAsync(api, cabinet.Id);
 
@@ -138,7 +140,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("c")[..8]}");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Supervisor, Unique("bypass"));
+        (ApiClient api, _) = await SignInAsync(Role.Supervisor, Unique("bypass"));
 
         ActionRequestDto mine = await RequestStopServiceAsync(api, cabinet.Id);
 
@@ -157,11 +159,11 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("d")[..8]}");
 
-        (ApiClient requesterApi, _) = await SignInAsync(UserRole.Tier2, Unique("dreq"));
+        (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("dreq"));
         ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient approverApi, SessionStore approverSession) =
-            await SignInAsync(UserRole.Supervisor, Unique("dapp"));
+            await SignInAsync(Role.Supervisor, Unique("dapp"));
 
         RecordingLiveRegionAnnouncer announcer = new();
 
@@ -187,11 +189,11 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("e")[..8]}");
 
-        (ApiClient requesterApi, _) = await SignInAsync(UserRole.Tier2, Unique("creq"));
+        (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("creq"));
         ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient approverApi, SessionStore approverSession) =
-            await SignInAsync(UserRole.Tier2, Unique("capp"));
+            await SignInAsync(Role.Tier2, Unique("capp"));
 
         ApprovalsViewModel approvals = Build(
             approverApi, approverSession, ScriptedApprovalDialog.Cancelling(),
@@ -209,7 +211,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_tier1_user_is_told_the_queue_is_not_theirs_rather_than_shown_an_empty_grid()
     {
-        (ApiClient api, SessionStore session) = await SignInAsync(UserRole.Tier1, Unique("t1q"));
+        (ApiClient api, SessionStore session) = await SignInAsync(Role.Tier1, Unique("t1q"));
 
         ApprovalsViewModel approvals = Build(
             api, session, ScriptedApprovalDialog.Accepting(), new RecordingLiveRegionAnnouncer());
@@ -226,13 +228,13 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("f")[..8]}");
 
-        (ApiClient requesterApi, _) = await SignInAsync(UserRole.Tier2, Unique("freq"));
+        (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("freq"));
         ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient firstApi, SessionStore firstSession) =
-            await SignInAsync(UserRole.Tier2, Unique("first"));
+            await SignInAsync(Role.Tier2, Unique("first"));
         (ApiClient secondApi, SessionStore secondSession) =
-            await SignInAsync(UserRole.Tier2, Unique("second"));
+            await SignInAsync(Role.Tier2, Unique("second"));
 
         ApprovalsViewModel second = Build(
             secondApi, secondSession, ScriptedApprovalDialog.Accepting(),

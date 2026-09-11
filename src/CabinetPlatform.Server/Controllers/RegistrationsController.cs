@@ -1,5 +1,9 @@
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Contracts.Registrations;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Data;

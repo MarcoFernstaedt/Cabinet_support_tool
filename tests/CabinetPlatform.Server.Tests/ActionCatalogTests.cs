@@ -1,5 +1,9 @@
 using System.Reflection;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Actions;
 using CabinetPlatform.Server.Services;
 using Microsoft.Extensions.Options;
@@ -15,11 +19,11 @@ public sealed class ActionCatalogTests
     [Fact]
     public void Every_enum_value_has_exactly_one_catalogue_entry()
     {
-        CabinetActionType[] declared = Enum.GetValues<CabinetActionType>();
+        ActionName[] declared = Enum.GetValues<ActionName>();
 
         Assert.Equal(declared.Length, ActionCatalog.All.Count);
 
-        foreach (CabinetActionType action in declared)
+        foreach (ActionName action in declared)
         {
             Assert.True(ActionCatalog.TryGet(action, out _), $"{action} has no catalogue entry.");
         }
@@ -30,22 +34,22 @@ public sealed class ActionCatalogTests
     {
         // A client can put any integer in a JSON body. It must not fall
         // through to a default entry.
-        Assert.False(ActionCatalog.TryGet((CabinetActionType)9999, out _));
-        Assert.False(ActionCatalog.TryGet((CabinetActionType)0, out _));
+        Assert.False(ActionCatalog.TryGet((ActionName)9999, out _));
+        Assert.False(ActionCatalog.TryGet((ActionName)0, out _));
     }
 
     [Theory]
-    [InlineData(CabinetActionType.ScanForUpdates, UserRole.Tier1, false, false)]
-    [InlineData(CabinetActionType.CollectDiagnosticBundle, UserRole.Tier1, false, false)]
-    [InlineData(CabinetActionType.FlushDnsCache, UserRole.Tier2, false, false)]
-    [InlineData(CabinetActionType.RenewDhcpLease, UserRole.Tier2, false, false)]
-    [InlineData(CabinetActionType.RestartService, UserRole.Tier2, false, false)]
-    [InlineData(CabinetActionType.StartService, UserRole.Tier2, true, false)]
-    [InlineData(CabinetActionType.StopService, UserRole.Tier2, true, true)]
-    [InlineData(CabinetActionType.ScheduleUpdates, UserRole.Tier2, true, false)]
-    [InlineData(CabinetActionType.RebootMachine, UserRole.Tier2, true, true)]
+    [InlineData(ActionName.ScanForUpdates, Role.Tier1, false, false)]
+    [InlineData(ActionName.CollectDiagnosticBundle, Role.Tier1, false, false)]
+    [InlineData(ActionName.FlushDnsCache, Role.Tier2, false, false)]
+    [InlineData(ActionName.RenewDhcpLease, Role.Tier2, false, false)]
+    [InlineData(ActionName.RestartService, Role.Tier2, false, false)]
+    [InlineData(ActionName.StartService, Role.Tier2, true, false)]
+    [InlineData(ActionName.StopService, Role.Tier2, true, true)]
+    [InlineData(ActionName.ScheduleUpdates, Role.Tier2, true, false)]
+    [InlineData(ActionName.RebootMachine, Role.Tier2, true, true)]
     public void Catalogue_entries_match_the_specified_matrix(
-        CabinetActionType action, UserRole minimumRole, bool requiresApproval, bool isDisruptive)
+        ActionName action, Role minimumRole, bool requiresApproval, bool isDisruptive)
     {
         ActionCatalogEntry entry = ActionCatalog.Get(action);
 
@@ -58,7 +62,7 @@ public sealed class ActionCatalogTests
     [Fact]
     public void Reboot_is_the_disruptive_maintenance_window_action_that_yields_to_a_logged_on_user()
     {
-        ActionCatalogEntry reboot = ActionCatalog.Get(CabinetActionType.RebootMachine);
+        ActionCatalogEntry reboot = ActionCatalog.Get(ActionName.RebootMachine);
 
         Assert.True(reboot.IsDisruptive);
         Assert.True(reboot.MaintenanceWindowOnly);
@@ -92,7 +96,7 @@ public sealed class ActionCatalogTests
         // a command or script property, this fails before it can be wired up.
         string[] forbidden = { "command", "script", "sql", "powershell", "shellcommand" };
 
-        IEnumerable<Type> contractTypes = typeof(Contracts.Enums.CabinetActionType).Assembly
+        IEnumerable<Type> contractTypes = typeof(Contracts.Enums.ActionName).Assembly
             .GetTypes()
             .Where(t => t is { IsClass: true, IsAbstract: false });
 
@@ -111,7 +115,7 @@ public sealed class ActionCatalogTests
     public void An_unrecognised_parameter_key_is_rejected_rather_than_dropped()
     {
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(CabinetActionType.RestartService);
+        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RestartService);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry,
@@ -130,7 +134,7 @@ public sealed class ActionCatalogTests
     public void A_service_name_off_the_allow_list_is_refused()
     {
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(CabinetActionType.RestartService);
+        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RestartService);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry, new Dictionary<string, string> { ["serviceName"] = "NotAnAllowedService" });
@@ -143,7 +147,7 @@ public sealed class ActionCatalogTests
     public void An_allow_listed_service_name_is_accepted_case_insensitively()
     {
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(CabinetActionType.RestartService);
+        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RestartService);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry, new Dictionary<string, string> { ["serviceName"] = "spooler" });
@@ -156,7 +160,7 @@ public sealed class ActionCatalogTests
     public void A_scheduled_update_time_in_the_past_is_refused()
     {
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(CabinetActionType.ScheduleUpdates);
+        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.ScheduleUpdates);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry,
@@ -172,7 +176,7 @@ public sealed class ActionCatalogTests
     public void An_out_of_range_reboot_delay_is_refused()
     {
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(CabinetActionType.RebootMachine);
+        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RebootMachine);
 
         Assert.False(validator.Validate(
             entry, new Dictionary<string, string> { ["delaySeconds"] = "99999" }).Succeeded);

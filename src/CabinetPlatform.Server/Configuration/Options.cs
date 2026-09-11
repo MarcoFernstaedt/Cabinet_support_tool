@@ -20,8 +20,20 @@ public sealed class AgentIngestOptions
 {
     public const string SectionName = "AgentIngest";
 
-    /// <summary>What the server tells a healthy agent to wait between check-ins.</summary>
+    /// <summary>
+    /// What the server tells a healthy agent to wait between heartbeats. Seven
+    /// thousand cabinets at five minutes is about twenty-three samples a
+    /// second, which one instance serves comfortably.
+    /// </summary>
     public int CheckInIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// What the server tells an agent to wait between full check-ins —
+    /// inventory and SMART. Six hours by default: often enough that a change is
+    /// noticed the same working day, rare enough that the inventory history
+    /// stays a history rather than a log.
+    /// </summary>
+    public int FullCheckInIntervalSeconds { get; set; } = 21_600;
 
     /// <summary>What the server tells an unapproved agent to wait before re-registering.</summary>
     public int RegistrationRetrySeconds { get; set; } = 900;
@@ -67,10 +79,31 @@ public sealed class ActionOptions
     /// <summary>How often the expiry sweep runs.</summary>
     public int ExpirySweepIntervalSeconds { get; set; } = 60;
 
-    /// <summary>Maintenance window start, local to the server, in whole hours (UTC).</summary>
-    public int MaintenanceWindowStartHourUtc { get; set; } = 2;
+    /// <summary>
+    /// Maintenance window start, in whole hours, <em>in the cabinet's own time
+    /// zone</em>. A window of 2 to 6 means 02:00 to 06:00 where the cabinet is,
+    /// not where the server is and not where the rep is. The fleet spans
+    /// thirteen countries; evaluating this against the server's clock would run
+    /// reboots in the middle of somebody's working day.
+    /// </summary>
+    public int MaintenanceWindowStartHourLocal { get; set; } = 2;
 
-    public int MaintenanceWindowEndHourUtc { get; set; } = 6;
+    /// <summary>
+    /// Maintenance window end, in whole hours, in the cabinet's own time zone.
+    /// A window whose end is before its start crosses midnight and is handled
+    /// as two intervals.
+    /// </summary>
+    public int MaintenanceWindowEndHourLocal { get; set; } = 6;
+
+    /// <summary>
+    /// How far ahead of now a scheduled update install may be set. Checked in
+    /// the cabinet's zone, so a daylight-saving transition between scheduling
+    /// and execution does not move the install.
+    /// </summary>
+    public int MaxUpdateScheduleDays { get; set; } = 30;
+
+    /// <summary>Hard ceiling on the number of cabinets one batch may name.</summary>
+    public int MaximumBatchSize { get; set; } = 500;
 }
 
 public sealed class RetentionOptions
@@ -79,8 +112,19 @@ public sealed class RetentionOptions
 
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Full-resolution check-in rows are kept this long, then deleted.</summary>
-    public int CheckInRetentionDays { get; set; } = 30;
+    /// <summary>
+    /// Full-resolution heartbeats are kept this long, then rolled into hourly
+    /// aggregates. Two million samples a day is not a volume to keep at full
+    /// resolution for its own sake, and nobody reads a five-minute sample from
+    /// three weeks ago.
+    /// </summary>
+    public int HeartbeatFullResolutionDays { get; set; } = 7;
+
+    /// <summary>
+    /// Hourly heartbeat aggregates are kept this long, then deleted. Ninety
+    /// days is enough to see a cabinet's trend across a quarter.
+    /// </summary>
+    public int HeartbeatAggregateRetentionDays { get; set; } = 90;
 
     /// <summary>
     /// Full-resolution SMART readings are kept this long before being rolled
@@ -96,6 +140,15 @@ public sealed class RetentionOptions
     /// </summary>
     public int SmartAggregateRetentionDays { get; set; } = 730;
 
+    /// <summary>
+    /// Inventory versions are a change history and are never aged out on their
+    /// own: a cabinet that has not changed in two years holds one row. This
+    /// caps the number of distinct versions kept per cabinet, oldest first, so
+    /// a cabinet flapping between two configurations cannot grow without bound.
+    /// </summary>
+    public int MaxInventoryVersionsPerCabinet { get; set; } = 200;
+
+    /// <summary>How often the retention sweep runs.</summary>
     public int SweepIntervalHours { get; set; } = 6;
 
     /// <summary>Rows deleted per batch, to keep a sweep off the hot path.</summary>

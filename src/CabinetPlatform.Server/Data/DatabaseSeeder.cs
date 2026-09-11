@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
 using CabinetPlatform.Server.Domain;
@@ -74,7 +78,7 @@ public sealed class DatabaseSeeder
         {
             Username = _options.SupervisorUsername.Trim(),
             DisplayName = _options.SupervisorDisplayName.Trim(),
-            Role = UserRole.Supervisor,
+            Role = Role.Supervisor,
             PasswordHash = hashed.Hash,
             PasswordSalt = hashed.Salt,
             PasswordIterations = hashed.Iterations,

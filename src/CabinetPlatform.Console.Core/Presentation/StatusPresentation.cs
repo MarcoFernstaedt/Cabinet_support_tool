@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Presentation;
 
@@ -74,12 +78,12 @@ public sealed record StatusPresentation(string Label, string Glyph, StatusSeveri
         _ => Unknown
     };
 
-    public static StatusPresentation ForActionResult(ActionResultStatus status) => status switch
+    public static StatusPresentation ForActionResult(ActionStatus status) => status switch
     {
-        ActionResultStatus.Succeeded => new("Succeeded", "✔", StatusSeverity.Good),
-        ActionResultStatus.Failed => new("Failed", "✖", StatusSeverity.Critical),
-        ActionResultStatus.TimedOut => new("Timed out", "○", StatusSeverity.Warning),
-        ActionResultStatus.Refused => new("Refused by agent", "✖", StatusSeverity.Critical),
+        ActionStatus.Succeeded => new("Succeeded", "✔", StatusSeverity.Good),
+        ActionStatus.Failed => new("Failed", "✖", StatusSeverity.Critical),
+        ActionStatus.TimedOut => new("Timed out", "○", StatusSeverity.Warning),
+        ActionStatus.Refused => new("Refused by agent", "✖", StatusSeverity.Critical),
         _ => Unknown
     };
 

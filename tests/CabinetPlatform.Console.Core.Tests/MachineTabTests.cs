@@ -3,8 +3,11 @@ using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Console.Core.Sections;
 using CabinetPlatform.Console.Core.ViewModels;
-using CabinetPlatform.Contracts.Agent;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Server.Domain;
 
 namespace CabinetPlatform.Console.Core.Tests;
@@ -22,7 +25,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
     private async Task<(MachineTabViewModel Tab, Cabinet Cabinet, RecordingLiveRegionAnnouncer Announcer,
         ScriptedActionDialog Dialog)>
-        SignedInTabAsync(UserRole role, ScriptedActionDialog? dialog = null)
+        SignedInTabAsync(Role role, ScriptedActionDialog? dialog = null)
     {
         string username = Unique("m");
         await _host.CreateUserAsync(role, username);
@@ -55,7 +58,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_cabinet_with_a_check_in_renders_real_data_in_every_served_section()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier2);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
         await _host.AddCheckInAsync(
             cabinet.Id,
@@ -113,7 +116,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_cabinet_that_has_never_checked_in_shows_the_reason_not_zeroes()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier2);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
         await tab.LoadAsync(cabinet.Id);
 
@@ -137,7 +140,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task Sections_this_server_cannot_fill_say_so_rather_than_appearing_empty()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier2);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
         await _host.AddCheckInAsync(
             cabinet.Id,
@@ -168,7 +171,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task All_eight_sections_are_present_in_the_order_the_brief_sets()
     {
-        (MachineTabViewModel tab, _, _, _) = await SignedInTabAsync(UserRole.Tier1);
+        (MachineTabViewModel tab, _, _, _) = await SignedInTabAsync(Role.Tier1);
 
         Assert.Equal(
             new[]
@@ -182,7 +185,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task The_auto_start_but_stopped_filter_narrows_to_the_service_that_matters()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier2);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
         await _host.AddCheckInAsync(
             cabinet.Id,
@@ -209,7 +212,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task SMART_counters_a_drive_does_not_report_stay_absent_rather_than_becoming_zero()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier1);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
         DateTime now = DateTime.UtcNow;
 
@@ -237,7 +240,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_rising_reallocated_sector_count_is_trended_and_described_in_words()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier1);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
         DateTime now = DateTime.UtcNow;
 
@@ -271,23 +274,23 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task Actions_sit_in_the_section_they_relate_to_and_nowhere_else()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Supervisor);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Supervisor);
 
         await tab.LoadAsync(cabinet.Id);
 
         Assert.Equal(
-            new[] { CabinetActionType.RestartService, CabinetActionType.StartService, CabinetActionType.StopService },
+            new[] { ActionName.RestartService, ActionName.StartService, ActionName.StopService },
             tab.Services.Actions.Select(a => a.Catalogue.Action).ToArray());
 
         Assert.Equal(
-            new[] { CabinetActionType.ScanForUpdates, CabinetActionType.ScheduleUpdates },
+            new[] { ActionName.ScanForUpdates, ActionName.ScheduleUpdates },
             tab.WindowsUpdate.Actions.Select(a => a.Catalogue.Action).ToArray());
 
         Assert.Equal(
-            new[] { CabinetActionType.FlushDnsCache, CabinetActionType.RenewDhcpLease },
+            new[] { ActionName.FlushDnsCache, ActionName.RenewDhcpLease },
             tab.Network.Actions.Select(a => a.Catalogue.Action).ToArray());
 
-        Assert.Contains(tab.System.Actions, a => a.Catalogue.Action == CabinetActionType.RebootMachine);
+        Assert.Contains(tab.System.Actions, a => a.Catalogue.Action == ActionName.RebootMachine);
 
         // Disk has none, deliberately.
         Assert.Empty(tab.Disk.Actions);
@@ -308,12 +311,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_tier1_user_sees_why_a_tier2_action_is_unavailable()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier1);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
         await tab.LoadAsync(cabinet.Id);
 
         SectionActionViewModel reboot =
-            tab.System.Actions.Single(a => a.Catalogue.Action == CabinetActionType.RebootMachine);
+            tab.System.Actions.Single(a => a.Catalogue.Action == ActionName.RebootMachine);
 
         Assert.False(reboot.RoleAllows);
         Assert.NotNull(reboot.UnavailableReason);
@@ -328,7 +331,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_service_action_is_disabled_until_a_service_row_is_selected()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Supervisor);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Supervisor);
 
         await _host.AddCheckInAsync(
             cabinet.Id, TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1)),
@@ -337,7 +340,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         await tab.LoadAsync(cabinet.Id);
 
         SectionActionViewModel restart = tab.Services.Actions
-            .Single(a => a.Catalogue.Action == CabinetActionType.RestartService);
+            .Single(a => a.Catalogue.Action == ActionName.RestartService);
 
         Assert.False(restart.IsContextSatisfied);
         Assert.Equal("Select a row first.", restart.UnavailableReason);
@@ -359,7 +362,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         ScriptedActionDialog dialog = ScriptedActionDialog.Accepting("Cabinet unresponsive since 09:10");
 
         (MachineTabViewModel tab, Cabinet cabinet, RecordingLiveRegionAnnouncer announcer, _) =
-            await SignedInTabAsync(UserRole.Supervisor, dialog);
+            await SignedInTabAsync(Role.Supervisor, dialog);
 
         // Nobody logged on: the safety gate the server enforces on reboot.
         await _host.AddCheckInAsync(
@@ -370,7 +373,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         await tab.LoadAsync(cabinet.Id);
 
         SectionActionViewModel reboot =
-            tab.System.Actions.Single(a => a.Catalogue.Action == CabinetActionType.RebootMachine);
+            tab.System.Actions.Single(a => a.Catalogue.Action == ActionName.RebootMachine);
 
         await reboot.InvokeCommand.ExecuteAsync(null);
 
@@ -408,12 +411,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     public async Task Cancelling_the_dialog_submits_nothing()
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) =
-            await SignedInTabAsync(UserRole.Supervisor, ScriptedActionDialog.Cancelling());
+            await SignedInTabAsync(Role.Supervisor, ScriptedActionDialog.Cancelling());
 
         await tab.LoadAsync(cabinet.Id);
 
         SectionActionViewModel scan = tab.WindowsUpdate.Actions
-            .Single(a => a.Catalogue.Action == CabinetActionType.ScanForUpdates);
+            .Single(a => a.Catalogue.Action == ActionName.ScanForUpdates);
 
         await scan.InvokeCommand.ExecuteAsync(null);
 
@@ -429,12 +432,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     public async Task A_scan_for_updates_request_is_accepted_and_needs_no_approval()
     {
         (MachineTabViewModel tab, Cabinet cabinet, RecordingLiveRegionAnnouncer announcer, _) =
-            await SignedInTabAsync(UserRole.Tier1);
+            await SignedInTabAsync(Role.Tier1);
 
         await tab.LoadAsync(cabinet.Id);
 
         SectionActionViewModel scan = tab.WindowsUpdate.Actions
-            .Single(a => a.Catalogue.Action == CabinetActionType.ScanForUpdates);
+            .Single(a => a.Catalogue.Action == ActionName.ScanForUpdates);
 
         Assert.True(scan.RoleAllows);
         Assert.False(scan.RequiresApproval);
@@ -447,7 +450,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions
                 .FirstAsync(db.ActionRequests.Where(a => a.CabinetId == cabinet.Id)));
 
-        Assert.Equal(CabinetActionType.ScanForUpdates, request.Action);
+        Assert.Equal(ActionName.ScanForUpdates, request.Action);
         Assert.Equal("Investigating ticket SUP-1042", request.Reason);
         Assert.Equal("SUP-1042", request.TicketReference);
         Assert.NotEqual(ActionRequestStatus.PendingApproval, request.Status);
@@ -458,7 +461,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_cabinet_that_does_not_exist_reports_the_servers_refusal_and_clears_the_panel()
     {
-        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(UserRole.Tier2);
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
         await _host.AddCheckInAsync(
             cabinet.Id, TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1)),

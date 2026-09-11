@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Api;
 
@@ -30,7 +34,7 @@ public interface ISessionStore
     Guid? UserId { get; }
     string? Username { get; }
     string? DisplayName { get; }
-    UserRole? Role { get; }
+    Role? Role { get; }
 
     /// <summary>
     /// True while the session may only change its own password. The server
@@ -44,14 +48,14 @@ public interface ISessionStore
     /// <summary>Raised whenever sign-in state changes, so the shell can react.</summary>
     event EventHandler? Changed;
 
-    void SignIn(string accessToken, DateTime expiresUtc, string displayName, UserRole role, bool mustChangePassword);
+    void SignIn(string accessToken, DateTime expiresUtc, string displayName, Role role, bool mustChangePassword);
 
     /// <summary>
     /// Fills in the facts only <c>GET /api/auth/me</c> carries — chiefly the
     /// user id, which the Approvals view needs to recognise the user's own
     /// requests. The token is untouched.
     /// </summary>
-    void AttachIdentity(Guid userId, string username, UserRole role, bool mustChangePassword);
+    void AttachIdentity(Guid userId, string username, Role role, bool mustChangePassword);
 
     /// <summary>Clears the password-change flag after the server accepted a change.</summary>
     void MarkPasswordChanged();

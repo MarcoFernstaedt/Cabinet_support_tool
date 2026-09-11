@@ -1,6 +1,9 @@
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Rows;
 
@@ -32,7 +35,7 @@ public sealed class ActionRow
     public ActionRequestDto Request { get; }
 
     public Guid Id => Request.Id;
-    public CabinetActionType Action => Request.Action;
+    public ActionName Action => Request.Action;
     public string ActionName => Request.Action.ToString();
     public string Hostname => Format.Text(Request.CabinetHostname);
     public string Client => Format.Text(Request.ClientName);

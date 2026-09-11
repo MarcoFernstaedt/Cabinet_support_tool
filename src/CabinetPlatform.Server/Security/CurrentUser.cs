@@ -1,5 +1,9 @@
 using System.Security.Claims;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Server.Security;
 
@@ -10,9 +14,9 @@ namespace CabinetPlatform.Server.Security;
 /// A client that sends its own user id, role or cabinet id in a payload is
 /// ignored — the server is the only authority on who the caller is.
 /// </summary>
-public sealed record CurrentUser(Guid UserId, string Username, UserRole Role, bool HasElevatedSql)
+public sealed record CurrentUser(Guid UserId, string Username, Role Role, bool HasElevatedSql)
 {
-    public bool IsAtLeast(UserRole minimum) => Role >= minimum;
+    public bool IsAtLeast(Role minimum) => Role >= minimum;
 }
 
 public static class ClaimsPrincipalExtensions
@@ -33,7 +37,7 @@ public static class ClaimsPrincipalExtensions
         string? rawRole = principal.FindFirst(SupportClaims.Role)?.Value;
 
         if (!Guid.TryParse(rawId, out Guid userId) ||
-            !Enum.TryParse(rawRole, ignoreCase: false, out UserRole role))
+            !Enum.TryParse(rawRole, ignoreCase: false, out Role role))
         {
             return null;
         }

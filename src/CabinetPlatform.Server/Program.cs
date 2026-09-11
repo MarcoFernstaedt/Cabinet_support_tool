@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Actions;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.BackgroundServices;
@@ -108,22 +112,22 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.RequireTier1, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(UserRole.Tier1))
+        .AddRequirements(new MinimumRoleRequirement(Role.Tier1))
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireTier2, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(UserRole.Tier2))
+        .AddRequirements(new MinimumRoleRequirement(Role.Tier2))
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireSupervisor, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(UserRole.Supervisor))
+        .AddRequirements(new MinimumRoleRequirement(Role.Supervisor))
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireElevatedSql, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(UserRole.Tier2))
+        .AddRequirements(new MinimumRoleRequirement(Role.Tier2))
         .AddRequirements(new ElevatedSqlRequirement())
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireAgent, policy => policy

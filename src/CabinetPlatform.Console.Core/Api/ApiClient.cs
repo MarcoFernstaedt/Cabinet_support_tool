@@ -5,7 +5,7 @@ using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Auth;
 
 namespace CabinetPlatform.Console.Core.Api;
 

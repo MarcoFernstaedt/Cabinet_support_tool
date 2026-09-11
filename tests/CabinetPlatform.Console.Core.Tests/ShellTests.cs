@@ -1,8 +1,11 @@
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.ViewModels;
-using CabinetPlatform.Contracts.Enums;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Domain;
 
 namespace CabinetPlatform.Console.Core.Tests;
@@ -19,7 +22,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
     private async Task<(ShellViewModel Shell, SessionStore Session, ApiClient Api,
-        RecordingLiveRegionAnnouncer Announcer)> SignedInShellAsync(UserRole role)
+        RecordingLiveRegionAnnouncer Announcer)> SignedInShellAsync(Role role)
     {
         string username = Unique(role.ToString().ToLowerInvariant());
         await _host.CreateUserAsync(role, username);
@@ -54,7 +57,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         await _host.CreateCabinetAsync($"SHELL-{Unique("a")[..6]}");
 
         (ShellViewModel shell, _, _, RecordingLiveRegionAnnouncer announcer) =
-            await SignedInShellAsync(UserRole.Supervisor);
+            await SignedInShellAsync(Role.Supervisor);
 
         await shell.StartSessionAsync();
 
@@ -75,7 +78,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-2)),
             DateTime.UtcNow.AddMinutes(-2));
 
-        (ShellViewModel shell, _, _, _) = await SignedInShellAsync(UserRole.Tier2);
+        (ShellViewModel shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
 
         shell.Cabinets.ClientFilter = cabinet.ClientName;
         await shell.Cabinets.LoadAsync();
@@ -94,11 +97,11 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     /// refuses them to, rather than offered and then refused.
     /// </summary>
     [Theory]
-    [InlineData(UserRole.Tier1, false, false)]
-    [InlineData(UserRole.Tier2, true, false)]
-    [InlineData(UserRole.Supervisor, true, true)]
+    [InlineData(Role.Tier1, false, false)]
+    [InlineData(Role.Tier2, true, false)]
+    [InlineData(Role.Supervisor, true, true)]
     public async Task Role_decides_which_entry_points_are_offered(
-        UserRole role, bool expectApprovals, bool expectAudit)
+        Role role, bool expectApprovals, bool expectAudit)
     {
         (ShellViewModel shell, _, _, _) = await SignedInShellAsync(role);
 
@@ -112,7 +115,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         await _host.CreateCabinetAsync($"OUT-{Unique("c")[..6]}");
 
         (ShellViewModel shell, SessionStore session, _, RecordingLiveRegionAnnouncer announcer) =
-            await SignedInShellAsync(UserRole.Supervisor);
+            await SignedInShellAsync(Role.Supervisor);
 
         await shell.StartSessionAsync();
         Assert.NotEmpty(shell.Cabinets.Cabinets);
@@ -137,7 +140,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     public async Task An_expired_token_asks_for_a_new_sign_in_rather_than_reporting_a_fault()
     {
         (ShellViewModel shell, SessionStore session, _, _) =
-            await SignedInShellAsync(UserRole.Supervisor);
+            await SignedInShellAsync(Role.Supervisor);
 
         await shell.StartSessionAsync();
 
@@ -147,7 +150,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         // Replace the token with one the server will reject. This is what a
         // lapsed token looks like from the console's side.
         session.SignIn(
-            "not.a.valid.token", DateTime.UtcNow.AddMinutes(30), "Someone", UserRole.Supervisor, false);
+            "not.a.valid.token", DateTime.UtcNow.AddMinutes(30), "Someone", Role.Supervisor, false);
 
         await shell.Cabinets.LoadAsync();
 
@@ -163,7 +166,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
 
         // A request from somebody else: approvable, so it counts.
         string requesterName = Unique("badgereq");
-        await _host.CreateUserAsync(UserRole.Tier2, requesterName);
+        await _host.CreateUserAsync(Role.Tier2, requesterName);
 
         (ApiClient requesterApi, _) = _host.CreateConsole();
         await requesterApi.LoginAsync(
@@ -173,7 +176,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         await requesterApi.CreateActionAsync(
             new Contracts.Actions.CreateActionRequest
             {
-                Action = CabinetActionType.StopService,
+                Action = ActionName.StopService,
                 CabinetId = cabinet.Id,
                 Reason = "Controller wedged",
                 TicketReference = "SUP-4001",
@@ -182,13 +185,13 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             CancellationToken.None);
 
         (ShellViewModel shell, _, ApiClient approverApi, _) =
-            await SignedInShellAsync(UserRole.Supervisor);
+            await SignedInShellAsync(Role.Supervisor);
 
         // And one of the approver's own, which must not count towards the badge.
         await approverApi.CreateActionAsync(
             new Contracts.Actions.CreateActionRequest
             {
-                Action = CabinetActionType.StopService,
+                Action = ActionName.StopService,
                 CabinetId = cabinet.Id,
                 Reason = "Second look at the controller",
                 TicketReference = "SUP-4002",
@@ -212,7 +215,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task Deactivating_cancels_work_in_flight_without_throwing()
     {
-        (ShellViewModel shell, _, _, _) = await SignedInShellAsync(UserRole.Tier1);
+        (ShellViewModel shell, _, _, _) = await SignedInShellAsync(Role.Tier1);
 
         Task loading = shell.Cabinets.LoadAsync();
         shell.DeactivateAll();

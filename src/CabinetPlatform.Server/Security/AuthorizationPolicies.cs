@@ -1,4 +1,8 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using Microsoft.AspNetCore.Authorization;
 
 namespace CabinetPlatform.Server.Security;
@@ -52,9 +56,9 @@ public static class AuthorizationPolicies
 /// <summary>Requires a resolved role at or above <see cref="MinimumRole"/>.</summary>
 public sealed class MinimumRoleRequirement : IAuthorizationRequirement
 {
-    public MinimumRoleRequirement(UserRole minimumRole) => MinimumRole = minimumRole;
+    public MinimumRoleRequirement(Role minimumRole) => MinimumRole = minimumRole;
 
-    public UserRole MinimumRole { get; }
+    public Role MinimumRole { get; }
 }
 
 /// <summary>
@@ -73,7 +77,7 @@ public sealed class MinimumRoleHandler : AuthorizationHandler<MinimumRoleRequire
         string? raw = context.User.FindFirst(SupportClaims.Role)?.Value;
 
         // An unparseable or absent role claim is a denial, never a default.
-        if (Enum.TryParse(raw, ignoreCase: false, out UserRole role) &&
+        if (Enum.TryParse(raw, ignoreCase: false, out Role role) &&
             role >= requirement.MinimumRole)
         {
             context.Succeed(requirement);

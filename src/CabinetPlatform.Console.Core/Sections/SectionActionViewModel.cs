@@ -2,7 +2,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Sections;
 
@@ -25,11 +28,11 @@ namespace CabinetPlatform.Console.Core.Sections;
 public sealed partial class SectionActionViewModel : ObservableObject
 {
     private readonly Func<SectionActionViewModel, CancellationToken, Task> _execute;
-    private readonly Func<UserRole?> _roleAccessor;
+    private readonly Func<Role?> _roleAccessor;
 
     public SectionActionViewModel(
         ActionCatalogEntryDto catalogue,
-        Func<UserRole?> roleAccessor,
+        Func<Role?> roleAccessor,
         Func<SectionActionViewModel, CancellationToken, Task> execute,
         Func<IReadOnlyDictionary<string, string>>? parameterFactory = null)
     {

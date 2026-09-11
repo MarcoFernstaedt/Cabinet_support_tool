@@ -1,7 +1,10 @@
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.ViewModels;
 using CabinetPlatform.Contracts.Actions;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Tests;
 
@@ -13,10 +16,10 @@ public sealed class DialogViewModelTests
 {
     private static ActionCatalogEntryDto Reboot() => new()
     {
-        Action = CabinetActionType.RebootMachine,
+        Action = ActionName.RebootMachine,
         DisplayName = "Reboot machine",
         Description = "Restarts the cabinet PC.",
-        MinimumRole = UserRole.Tier2,
+        MinimumRole = Role.Tier2,
         RequiresApproval = true,
         IsDisruptive = true,
         TimeoutSeconds = 900,
@@ -27,10 +30,10 @@ public sealed class DialogViewModelTests
 
     private static ActionCatalogEntryDto Scan() => new()
     {
-        Action = CabinetActionType.ScanForUpdates,
+        Action = ActionName.ScanForUpdates,
         DisplayName = "Scan for updates",
         Description = "Queries Windows Update. Installs nothing.",
-        MinimumRole = UserRole.Tier1,
+        MinimumRole = Role.Tier1,
         RequiresApproval = false,
         IsDisruptive = false,
         TimeoutSeconds = 600,
@@ -42,7 +45,7 @@ public sealed class DialogViewModelTests
     private static ActionRequestDialogViewModel Dialog(
         ActionCatalogEntryDto catalogue,
         bool? loggedOn = false,
-        UserRole role = UserRole.Tier2,
+        Role role = Role.Tier2,
         IReadOnlyDictionary<string, string>? parameters = null) =>
         new(new ActionRequestPrompt(
             catalogue,
@@ -132,18 +135,18 @@ public sealed class DialogViewModelTests
     [Fact]
     public void The_override_is_offered_only_to_a_supervisor_and_only_where_there_is_a_gate()
     {
-        Assert.False(Dialog(Reboot(), role: UserRole.Tier2).CanOfferOverride);
-        Assert.True(Dialog(Reboot(), role: UserRole.Supervisor).CanOfferOverride);
+        Assert.False(Dialog(Reboot(), role: Role.Tier2).CanOfferOverride);
+        Assert.True(Dialog(Reboot(), role: Role.Supervisor).CanOfferOverride);
 
         // Scan has no safety gate to override, so there is nothing to offer even
         // to a Supervisor.
-        Assert.False(Dialog(Scan(), role: UserRole.Supervisor).CanOfferOverride);
+        Assert.False(Dialog(Scan(), role: Role.Supervisor).CanOfferOverride);
     }
 
     [Fact]
     public void An_override_requires_its_own_stated_reason()
     {
-        ActionRequestDialogViewModel dialog = Dialog(Reboot(), role: UserRole.Supervisor);
+        ActionRequestDialogViewModel dialog = Dialog(Reboot(), role: Role.Supervisor);
 
         dialog.Reason = "Cabinet unresponsive, clinic closed";
         dialog.TicketReference = "SUP-2002";
@@ -174,7 +177,7 @@ public sealed class DialogViewModelTests
     [Fact]
     public void An_override_reason_is_dropped_when_the_override_is_unticked()
     {
-        ActionRequestDialogViewModel dialog = Dialog(Reboot(), role: UserRole.Supervisor);
+        ActionRequestDialogViewModel dialog = Dialog(Reboot(), role: Role.Supervisor);
 
         dialog.Reason = "Cabinet unresponsive";
         dialog.TicketReference = "SUP-2003";
@@ -215,7 +218,7 @@ public sealed class DialogViewModelTests
     private static ActionRequestDto PendingRequest() => new()
     {
         Id = Guid.NewGuid(),
-        Action = CabinetActionType.StopService,
+        Action = ActionName.StopService,
         CabinetId = Guid.NewGuid(),
         CabinetHostname = "CUBEX-NG-02",
         ClientName = "Northgate Veterinary",

@@ -1,11 +1,11 @@
 using System.Net;
-using CabinetPlatform.Contracts.Agent;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Registrations;
-using CabinetPlatform.Contracts.Users;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -22,7 +22,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_machine_becomes_a_cabinet_only_when_a_Supervisor_approves_it()
     {
         (HttpClient supervisor, User supervisorUser) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         string machineId = Unique("newmachine");
         HttpClient agent = TestClient.CreateAgentClient(_factory, machineId);
@@ -90,7 +90,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_rejected_machine_stays_rejected_however_often_it_asks()
     {
         (HttpClient supervisor, _) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         string machineId = Unique("rejected");
         HttpClient agent = TestClient.CreateAgentClient(_factory, machineId);
@@ -129,7 +129,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_created_user_must_change_the_password_a_Supervisor_chose_for_them()
     {
         (HttpClient supervisor, _) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         string username = Unique("newuser");
 
@@ -138,7 +138,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
             Username = username,
             DisplayName = "New Technician",
             InitialPassword = "Initial!Password9",
-            Role = UserRole.Tier1
+            Role = Role.Tier1
         });
 
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
@@ -155,14 +155,14 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_weak_initial_password_is_refused()
     {
         (HttpClient supervisor, _) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         HttpResponseMessage response = await supervisor.PostJsonAsync("/api/users", new CreateUserRequest
         {
             Username = Unique("weak"),
             DisplayName = "Weak Password User",
             InitialPassword = "password",
-            Role = UserRole.Tier1
+            Role = Role.Tier1
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -172,10 +172,10 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task Granting_elevated_sql_records_the_stated_reason()
     {
         (HttpClient supervisor, _) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         (_, User target) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("target"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("target"));
 
         const string reason = "Temporary access for the dispense-log reconciliation in SUP-6000.";
 
@@ -214,11 +214,11 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_Supervisor_cannot_demote_or_deactivate_themselves()
     {
         (HttpClient supervisor, User self) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         Assert.Equal(HttpStatusCode.BadRequest,
             (await supervisor.PatchJsonAsync($"/api/users/{self.Id}",
-                new UpdateUserRequest { Role = UserRole.Tier1 })).StatusCode);
+                new UpdateUserRequest { Role = Role.Tier1 })).StatusCode);
 
         Assert.Equal(HttpStatusCode.BadRequest,
             (await supervisor.PatchJsonAsync($"/api/users/{self.Id}",
@@ -229,7 +229,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task Fleet_health_counts_a_silent_cabinet_as_offline()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("t1"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("t1"));
 
         const string clientName = "Offline Test Client";
 
@@ -265,7 +265,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task The_audit_endpoint_filters_by_event_kind()
     {
         (HttpClient supervisor, _) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         var caused = await (await supervisor.GetAsync("/api/audit?eventKind=Caused&pageSize=200"))
             .ReadAsync<PagedResult<AuditEntryDto>>();
@@ -283,7 +283,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
     public async Task A_history_range_wider_than_policy_is_refused_rather_than_clamped()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("t1"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("t1"));
 
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("range"), user.Id);

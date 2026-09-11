@@ -2,8 +2,11 @@ using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Console.Core.ViewModels;
-using CabinetPlatform.Contracts.Enums;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Domain;
 
 namespace CabinetPlatform.Console.Core.Tests;
@@ -19,7 +22,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
-    private async Task<(ApiClient Api, SessionStore Session)> SignInAsync(UserRole role)
+    private async Task<(ApiClient Api, SessionStore Session)> SignInAsync(Role role)
     {
         string username = Unique(role.ToString().ToLowerInvariant());
         await _host.CreateUserAsync(role, username);
@@ -47,7 +50,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
 
         await _host.CreateCabinetAsync($"OTHER-{Unique("x")[..6]}", Unique("Elsewhere"), "Site B");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
         RecordingLiveRegionAnnouncer announcer = new();
 
         var list = new CabinetListViewModel(api, announcer, TimeProvider.System)
@@ -75,7 +78,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         string client = Unique("SelClinic");
         Cabinet cabinet = await _host.CreateCabinetAsync($"SEL-{Unique("s")[..6]}", client, "Site A");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
         var list = new CabinetListViewModel(api, NullLiveRegionAnnouncer.Instance, TimeProvider.System)
         {
@@ -103,7 +106,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
             DateTime.UtcNow.AddMinutes(-3),
             worstDiskHealth: DiskHealthStatus.Warning);
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
         var list = new CabinetListViewModel(api, NullLiveRegionAnnouncer.Instance, TimeProvider.System)
         {
@@ -131,7 +134,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_supervisor_can_read_the_audit_trail_and_filter_observed_from_caused()
     {
-        (ApiClient api, _) = await SignInAsync(UserRole.Supervisor);
+        (ApiClient api, _) = await SignInAsync(Role.Supervisor);
 
         // Generate traffic: reads produce Observed entries.
         await api.GetCabinetsAsync(new Contracts.Cabinets.CabinetQuery(), CancellationToken.None);
@@ -164,12 +167,12 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     {
         Cabinet cabinet = await _host.CreateCabinetAsync($"AUD-{Unique("a")[..6]}");
 
-        (ApiClient supervisorApi, _) = await SignInAsync(UserRole.Supervisor);
+        (ApiClient supervisorApi, _) = await SignInAsync(Role.Supervisor);
 
         await supervisorApi.CreateActionAsync(
             new Contracts.Actions.CreateActionRequest
             {
-                Action = CabinetActionType.ScanForUpdates,
+                Action = ActionName.ScanForUpdates,
                 CabinetId = cabinet.Id,
                 Reason = "Checking patch level for ticket SUP-3001",
                 TicketReference = "SUP-3001"
@@ -192,7 +195,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_tier2_user_is_told_the_audit_trail_is_supervisor_only()
     {
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier2);
+        (ApiClient api, _) = await SignInAsync(Role.Tier2);
 
         var audit = new AuditTabViewModel(api, new RecordingLiveRegionAnnouncer(), TimeProvider.System);
 
@@ -206,7 +209,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task An_inverted_date_range_surfaces_the_servers_refusal_rather_than_an_empty_grid()
     {
-        (ApiClient api, _) = await SignInAsync(UserRole.Supervisor);
+        (ApiClient api, _) = await SignInAsync(Role.Supervisor);
 
         var audit = new AuditTabViewModel(api, new RecordingLiveRegionAnnouncer(), TimeProvider.System);
 
@@ -224,7 +227,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task A_range_wider_than_the_server_allows_is_refused_in_the_servers_own_words()
     {
-        (ApiClient api, _) = await SignInAsync(UserRole.Supervisor);
+        (ApiClient api, _) = await SignInAsync(Role.Supervisor);
 
         var audit = new AuditTabViewModel(api, new RecordingLiveRegionAnnouncer(), TimeProvider.System);
 
@@ -277,7 +280,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         // Approved but never heard from — the most urgent kind of silence.
         Cabinet never = await _host.CreateCabinetAsync($"FL-NV-{Unique("n")[..5]}", client, "Site A");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
         RecordingLiveRegionAnnouncer announcer = new();
 
         var fleet = new FleetTabViewModel(api, announcer, TimeProvider.System)
@@ -324,7 +327,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         // No check-in at all, so no drive verdict exists for it.
         await _host.CreateCabinetAsync($"DH-NV-{Unique("n")[..5]}", client, "Site A");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
         var fleet = new FleetTabViewModel(api, NullLiveRegionAnnouncer.Instance, TimeProvider.System)
         {
@@ -356,7 +359,7 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
 
         await _host.CreateCabinetAsync($"AU-{Unique("a")[..6]}", client, "Site A");
 
-        (ApiClient api, _) = await SignInAsync(UserRole.Tier1);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
         var fleet = new FleetTabViewModel(api, NullLiveRegionAnnouncer.Instance, TimeProvider.System)
         {

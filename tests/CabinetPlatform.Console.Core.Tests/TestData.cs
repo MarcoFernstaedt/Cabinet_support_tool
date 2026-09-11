@@ -1,5 +1,8 @@
-using CabinetPlatform.Contracts.Agent;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Server.Domain;
 
 namespace CabinetPlatform.Console.Core.Tests;

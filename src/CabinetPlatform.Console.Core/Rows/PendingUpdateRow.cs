@@ -1,5 +1,5 @@
 using CabinetPlatform.Console.Core.Presentation;
-using CabinetPlatform.Contracts.Agent;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Rows;
 

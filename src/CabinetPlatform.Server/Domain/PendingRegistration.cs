@@ -1,4 +1,4 @@
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Auth;
 
 namespace CabinetPlatform.Server.Domain;
 
@@ -15,11 +15,11 @@ public class PendingRegistration
     public string? OsVersion { get; set; }
     public string? AgentVersion { get; set; }
 
-    public DateTime FirstSeenUtc { get; set; }
-    public DateTime LastSeenUtc { get; set; }
+    public DateTimeOffset FirstSeenUtc { get; set; }
+    public DateTimeOffset LastSeenUtc { get; set; }
 
     public RegistrationStatus Status { get; set; } = RegistrationStatus.Pending;
 
     public Guid? DecidedByUserId { get; set; }
-    public DateTime? DecidedUtc { get; set; }
+    public DateTimeOffset? DecidedUtc { get; set; }
 }

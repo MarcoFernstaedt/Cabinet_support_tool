@@ -1,8 +1,10 @@
 using System.Text.Json;
-using CabinetPlatform.Contracts.Agent;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
 using CabinetPlatform.Server.Data;

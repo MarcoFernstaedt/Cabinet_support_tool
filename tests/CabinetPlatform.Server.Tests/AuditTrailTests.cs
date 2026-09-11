@@ -1,7 +1,10 @@
 using System.Net;
 using System.Net.Http.Headers;
-using CabinetPlatform.Contracts.Enums;
-using CabinetPlatform.Contracts.Users;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
@@ -41,7 +44,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task A_Tier1_reaching_for_a_Supervisor_endpoint_is_refused_and_audited()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("tier1"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("tier1"));
 
         HttpResponseMessage response = await client.GetAsync("/api/registrations/pending");
 
@@ -66,7 +69,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task A_failed_login_is_audited_without_recording_the_password()
     {
         (_, User user) = await TestClient.CreateUserClientAsync(
-            _factory, UserRole.Tier1, Unique("loginfail"));
+            _factory, Role.Tier1, Unique("loginfail"));
 
         HttpClient client = _factory.CreateClient();
 
@@ -98,7 +101,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task Repeated_failures_lock_the_account_and_the_lockout_is_audited()
     {
         (_, User user) = await TestClient.CreateUserClientAsync(
-            _factory, UserRole.Tier1, Unique("lockout"));
+            _factory, Role.Tier1, Unique("lockout"));
 
         HttpClient client = _factory.CreateClient();
 
@@ -127,7 +130,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task A_successful_read_is_recorded_as_Observed_not_Caused()
     {
         (HttpClient client, User user) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier1, Unique("reader"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Unique("reader"));
 
         HttpResponseMessage response = await client.GetAsync("/api/cabinets");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -203,7 +206,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task A_must_change_password_session_cannot_do_anything_else()
     {
         (HttpClient client, User user) = await TestClient.CreateUserClientAsync(
-            _factory, UserRole.Supervisor, Unique("mustchange"), mustChangePassword: true);
+            _factory, Role.Supervisor, Unique("mustchange"), mustChangePassword: true);
 
         // The gate holds even for a Supervisor.
         HttpResponseMessage blocked = await client.GetAsync("/api/cabinets");
@@ -244,7 +247,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
         LoginResponse? body = await response.ReadAsync<LoginResponse>();
 
         Assert.NotNull(body);
-        Assert.Equal(UserRole.Supervisor, body!.Role);
+        Assert.Equal(Role.Supervisor, body!.Role);
         Assert.True(body.MustChangePassword);
 
         // The token it issues is real but hemmed in by the same gate.

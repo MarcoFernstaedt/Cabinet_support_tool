@@ -7,7 +7,9 @@ using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.ViewModels;
 

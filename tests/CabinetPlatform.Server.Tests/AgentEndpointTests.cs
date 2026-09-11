@@ -1,6 +1,9 @@
 using System.Net;
-using CabinetPlatform.Contracts.Agent;
-using CabinetPlatform.Contracts.Enums;
+using CabinetPlatform.Contracts.Telemetry;
+using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Audit;
+using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
@@ -140,7 +143,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     public async Task An_approved_cabinet_stores_its_checkin_projection_and_smart_readings()
     {
         (_, User supervisor) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         string machineId = Unique("approved");
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(_factory, machineId, supervisor.Id);
@@ -183,7 +186,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     public async Task A_repeated_checkin_with_the_same_collection_time_does_not_duplicate_rows()
     {
         (_, User supervisor) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Supervisor, Unique("sup"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Unique("sup"));
 
         string machineId = Unique("idempotent");
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(_factory, machineId, supervisor.Id);
@@ -210,9 +213,9 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     public async Task A_cabinet_cannot_report_a_result_for_another_cabinets_action()
     {
         (HttpClient requesterClient, User requester) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("req"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("req"));
         (HttpClient approverClient, User approver) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("app"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("app"));
 
         string ownerMachine = Unique("owner");
         string intruderMachine = Unique("intruder");
@@ -224,7 +227,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
             "/api/actions",
             new Contracts.Actions.CreateActionRequest
             {
-                Action = CabinetActionType.StopService,
+                Action = ActionName.StopService,
                 CabinetId = owner.Id,
                 Parameters = new Dictionary<string, string> { ["serviceName"] = "Spooler" },
                 Reason = "Service is hung."
@@ -240,7 +243,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         HttpResponseMessage response = await intruder.PostJsonAsync(
             $"/api/agent/actions/{dto.Id}/result",
-            new AgentActionResultRequest { Status = ActionResultStatus.Succeeded, Output = "done" });
+            new AgentActionResultRequest { Status = ActionStatus.Succeeded, Output = "done" });
 
         // 404 rather than 403: one cabinet should not learn that another
         // cabinet's work exists.
@@ -265,9 +268,9 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     public async Task An_agent_only_collects_its_own_approved_actions_and_they_are_marked_dispatched()
     {
         (HttpClient requesterClient, User requester) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("req"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("req"));
         (HttpClient approverClient, User approver) =
-            await TestClient.CreateUserClientAsync(_factory, UserRole.Tier2, Unique("app"));
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("app"));
 
         string mineMachine = Unique("mine");
         string theirsMachine = Unique("theirs");
@@ -313,7 +316,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
             "/api/actions",
             new Contracts.Actions.CreateActionRequest
             {
-                Action = CabinetActionType.StopService,
+                Action = ActionName.StopService,
                 CabinetId = cabinetId,
                 Parameters = new Dictionary<string, string> { ["serviceName"] = "Spooler" },
                 Reason = "Service is hung."
