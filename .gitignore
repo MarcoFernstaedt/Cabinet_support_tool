@@ -12,11 +12,21 @@ artifacts/
 *.user
 *.suo
 
-# Local secrets and local overrides — never commit these
+# Local databases — real deployments point at a configured connection string
+*.db
+*.db-shm
+*.db-wal
+
+# Local secrets and local overrides. Nothing in this repository contains a
+# usable credential, and nothing that does may be added to it: supply
+# Jwt__SigningKey, AgentAuth__SharedSecret and Seed__SupervisorInitialPassword
+# through the environment or the platform's secret store.
 appsettings.Local.json
+appsettings.*.local.json
 secrets.json
 *.pfx
 *.snk
+*.p12
 
 # Agent runtime state, written next to the installed service. None of it is
 # source: the machine id and cabinet id are per-machine, and the spooled
@@ -25,3 +35,7 @@ state/
 buffer/
 bundles/
 logs/
+
+# OS
+.DS_Store
+Thumbs.db

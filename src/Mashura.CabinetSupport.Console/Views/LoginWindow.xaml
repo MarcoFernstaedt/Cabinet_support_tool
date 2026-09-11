@@ -1,0 +1,154 @@
+<Window x:Class="Mashura.CabinetSupport.Console.Views.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:a11y="clr-namespace:Mashura.CabinetSupport.Console.Accessibility"
+        Title="Sign in — Mashura Support Console"
+        Width="460"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True"
+        Background="{DynamicResource Surface.Brush}"
+        FocusManager.FocusedElement="{Binding ElementName=UsernameBox}">
+
+    <!--
+        Tab order runs straight down the form: username, password, sign in.
+        Nothing in this window is reachable by mouse alone.
+    -->
+    <StackPanel Margin="24" KeyboardNavigation.TabNavigation="Cycle">
+
+        <TextBlock Text="Mashura Support Console"
+                   FontSize="20"
+                   FontWeight="SemiBold"
+                   Foreground="{DynamicResource Text.Brush}"
+                   AutomationProperties.HeadingLevel="Level1"
+                   Margin="0,0,0,4" />
+
+        <TextBlock Text="Sign in with your support account."
+                   Foreground="{DynamicResource Text.Subtle.Brush}"
+                   TextWrapping="Wrap"
+                   Margin="0,0,0,16" />
+
+        <!-- ===================== Credentials ===================== -->
+        <StackPanel Visibility="{Binding MustChangePassword,
+                                Converter={StaticResource BoolToVisibility},
+                                ConverterParameter=invert}">
+
+            <TextBlock Text="Username" Style="{StaticResource FieldLabel}" />
+            <TextBox x:Name="UsernameBox"
+                     Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
+                     AutomationProperties.Name="Username"
+                     AutomationProperties.HelpText="Your Mashura support account name."
+                     TabIndex="0"
+                     Margin="0,0,0,12" />
+
+            <TextBlock Text="Password" Style="{StaticResource FieldLabel}" />
+            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
+                         AutomationProperties.Name="Password"
+                         AutomationProperties.HelpText="Your account password. Five wrong attempts lock the account."
+                         TabIndex="1"
+                         MinHeight="28"
+                         Padding="6,4"
+                         Margin="0,0,0,16" />
+
+            <Button Content="Sign in"
+                    Command="{Binding SignInCommand}"
+                    IsDefault="True"
+                    TabIndex="2"
+                    HorizontalAlignment="Left"
+                    AutomationProperties.Name="Sign in" />
+        </StackPanel>
+
+        <!-- ================ Forced password change ================ -->
+        <StackPanel Visibility="{Binding MustChangePassword,
+                                Converter={StaticResource BoolToVisibility}}">
+
+            <Border Style="{StaticResource ExplanationPanel}" Margin="0,0,0,16">
+                <TextBlock Style="{StaticResource ExplanationText}"
+                           AutomationProperties.LiveSetting="Assertive"
+                           Text="You must choose a new password before you can use the console. This is required on a first sign-in and after a password reset." />
+            </Border>
+
+            <TextBlock Text="Current password" Style="{StaticResource FieldLabel}" />
+            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
+                         AutomationProperties.Name="Current password"
+                         AutomationProperties.HelpText="The password you just signed in with. Retyping it confirms it is still you at the keyboard."
+                         a11y:FocusBehaviour.FocusOnLoad="True"
+                         TabIndex="10"
+                         MinHeight="28"
+                         Padding="6,4"
+                         Margin="0,0,0,12" />
+
+            <TextBlock Text="New password" Style="{StaticResource FieldLabel}" />
+            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding NewPassword, Mode=TwoWay}"
+                         AutomationProperties.Name="New password"
+                         AutomationProperties.HelpText="At least twelve characters, mixing upper case, lower case, digits and symbols."
+                         TabIndex="11"
+                         MinHeight="28"
+                         Padding="6,4"
+                         Margin="0,0,0,12" />
+
+            <TextBlock Text="Confirm new password" Style="{StaticResource FieldLabel}" />
+            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding ConfirmNewPassword, Mode=TwoWay}"
+                         AutomationProperties.Name="Confirm new password"
+                         TabIndex="12"
+                         MinHeight="28"
+                         Padding="6,4"
+                         Margin="0,0,0,16" />
+
+            <Button Content="Change password and continue"
+                    Command="{Binding ChangePasswordCommand}"
+                    IsDefault="True"
+                    TabIndex="13"
+                    HorizontalAlignment="Left"
+                    MinWidth="220"
+                    AutomationProperties.Name="Change password and continue" />
+        </StackPanel>
+
+        <!-- ========================= Status ========================= -->
+
+        <!--
+            One live region for the whole window. Assertive because a failed
+            sign-in has to interrupt: a user who does not hear it will retype
+            the same password and lock the account.
+        -->
+        <Border Style="{StaticResource ExplanationPanel}"
+                Margin="0,16,0,0"
+                Visibility="{Binding ErrorMessage, Converter={StaticResource StringToVisibility}}">
+            <StackPanel>
+                <TextBlock Text="{Binding ErrorMessage}"
+                           Style="{StaticResource ExplanationText}"
+                           FontWeight="SemiBold"
+                           AutomationProperties.LiveSetting="Assertive"
+                           AutomationProperties.Name="Sign-in problem"
+                           Foreground="{DynamicResource Severity.Critical.Brush}" />
+
+                <TextBlock Text="{Binding Guidance}"
+                           Style="{StaticResource ExplanationText}"
+                           Margin="0,6,0,0"
+                           Visibility="{Binding Guidance, Converter={StaticResource StringToVisibility}}" />
+            </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal"
+                    Margin="0,12,0,0"
+                    Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}">
+            <ProgressBar IsIndeterminate="True"
+                         Width="140"
+                         Height="6"
+                         AutomationProperties.AccessibilityView="Raw" />
+            <TextBlock Text="Contacting the server…"
+                       Margin="10,0,0,0"
+                       AutomationProperties.LiveSetting="Polite"
+                       Foreground="{DynamicResource Text.Subtle.Brush}" />
+        </StackPanel>
+
+        <Button Content="Cancel"
+                IsCancel="True"
+                TabIndex="20"
+                HorizontalAlignment="Left"
+                Margin="0,16,0,0"
+                AutomationProperties.Name="Cancel and close the console" />
+
+    </StackPanel>
+</Window>
