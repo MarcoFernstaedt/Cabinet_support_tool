@@ -156,7 +156,15 @@ public sealed class CollectProcessListExecutor : IActionExecutor
         try
         {
             await _collector
-                .CollectAsync(draft, includeProcesses: true, cancellationToken)
+                .CollectAsync(
+                    draft,
+                    includeProcesses: true,
+
+                    // Not the startup programs. They ride the inventory tier,
+                    // and fetching them here would put a second copy in the
+                    // action's collected data for nobody to read.
+                    includeStartupPrograms: false,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)

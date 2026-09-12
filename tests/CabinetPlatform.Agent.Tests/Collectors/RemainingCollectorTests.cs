@@ -143,14 +143,72 @@ public class PerformanceCollectorTests
         Assert.Equal(2, provider.CallCount);
     }
 
-    private static async Task<CheckInDraft> CollectAsync(FakeWmiRepository wmi, IProcessProvider processes)
+    /// <summary>
+    /// The process list is on-demand only; the startup programs are inventory.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two different things that were briefly gated behind one flag, which made
+    /// the startup programs uncollectable: the server stored a field for them,
+    /// the console displayed it, and the agent never populated it on any tier.
+    /// Nothing failed — the panel was simply always empty.
+    /// </para>
+    /// <para>
+    /// They are gated separately because they are different kinds of thing. A
+    /// process list is a sample, large and constantly changing, read for one
+    /// cabinet at a time by somebody already looking at it. What a machine
+    /// launches at logon is configuration: it changes when somebody installs
+    /// something, and it belongs with the rest of the inventory.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(CheckInTier.Heartbeat, false)]
+    [InlineData(CheckInTier.Full, true)]
+    public async Task CollectAsync_CollectsStartupProgramsOnTheInventoryTierOnly(
+        CheckInTier tier, bool expected)
+    {
+        CheckInDraft draft = await CollectAsync(new FakeWmiRepository(), new StubProcessProvider(), tier);
+
+        Assert.Equal(expected, draft.Performance!.StartupPrograms is not null);
+
+        // Never on either routine tier. A process list is a sample and travels
+        // on an action.
+        Assert.Null(draft.Performance.Processes);
+    }
+
+    [Fact]
+    public async Task CollectAsync_CollectsProcessesOnlyWhenTheOnDemandActionAsks()
+    {
+        var options = new AgentOptions();
+        options.Collection.CpuSampleIntervalMilliseconds = 100;
+
+        var draft = new CheckInDraft();
+
+        await new PerformanceCollector(
+                new FakeWmiRepository(), new StubProcessProvider(), TestOptions.Create(options))
+            .CollectAsync(
+                draft,
+                includeProcesses: true,
+                includeStartupPrograms: false,
+                CancellationToken.None);
+
+        Assert.NotNull(draft.Performance!.Processes);
+
+        // And asking for the processes does not drag the startup programs along
+        // with them, which would put a second copy in the action's collected
+        // data for nobody to read.
+        Assert.Null(draft.Performance.StartupPrograms);
+    }
+
+    private static async Task<CheckInDraft> CollectAsync(
+        FakeWmiRepository wmi, IProcessProvider processes, CheckInTier tier = CheckInTier.Full)
     {
         var options = new AgentOptions();
         options.Collection.CpuSampleIntervalMilliseconds = 100;
 
         var draft = new CheckInDraft();
         await new PerformanceCollector(wmi, processes, TestOptions.Create(options))
-            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
+            .CollectAsync(draft, tier, CancellationToken.None);
 
         return draft;
     }

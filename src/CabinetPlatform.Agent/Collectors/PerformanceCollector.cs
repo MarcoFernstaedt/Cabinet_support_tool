@@ -47,23 +47,40 @@ public sealed class PerformanceCollector : ICollector
     public bool RunsOnHeartbeat => true;
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The two optional parts of this section are gated separately, because
+    /// they are different kinds of thing. The process list is a sample and is
+    /// never routine. The startup programs are configuration: they change when
+    /// somebody installs something, they belong to the inventory tier, and a
+    /// cabinet detail that could not say what a machine launches at logon is
+    /// missing one of the more useful things a support rep asks for.
+    /// </remarks>
     public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken) =>
-        CollectAsync(draft, includeProcesses: false, cancellationToken);
+        CollectAsync(
+            draft,
+            includeProcesses: false,
+            includeStartupPrograms: tier == CheckInTier.Full,
+            cancellationToken);
 
     /// <summary>
-    /// Samples the counters, and optionally the process list.
+    /// Samples the counters, and optionally the process list and the startup
+    /// programs.
     /// </summary>
     /// <remarks>
-    /// The process list is never part of a routine check-in. It is large, it
-    /// changes constantly, and it is read for one cabinet at a time by somebody
-    /// already looking at that cabinet — so it is collected only when the
-    /// on-demand action asks for it.
+    /// The process list is never part of a routine check-in of either tier. It
+    /// is large, it changes constantly, and it is read for one cabinet at a
+    /// time by somebody already looking at that cabinet — so it is collected
+    /// only when the on-demand action asks for it.
     /// </remarks>
     /// <param name="draft">The payload being assembled.</param>
-    /// <param name="includeProcesses">Whether to enumerate processes and startup entries.</param>
+    /// <param name="includeProcesses">Whether to enumerate running processes.</param>
+    /// <param name="includeStartupPrograms">Whether to enumerate startup entries.</param>
     /// <param name="cancellationToken">Cancels the collection.</param>
     public async Task CollectAsync(
-        CheckInDraft draft, bool includeProcesses, CancellationToken cancellationToken)
+        CheckInDraft draft,
+        bool includeProcesses,
+        bool includeStartupPrograms,
+        CancellationToken cancellationToken)
     {
         var sampleInterval = TimeSpan.FromMilliseconds(_options.CpuSampleIntervalMilliseconds);
 
@@ -127,7 +144,10 @@ public sealed class PerformanceCollector : ICollector
                     _options.MaxProcesses)
                 : null,
 
-            StartupPrograms = includeProcesses ? ReadStartupPrograms() : null,
+            // Null, not empty, for the same reason: a machine that launches
+            // nothing at logon and a machine nobody asked about are different
+            // statements.
+            StartupPrograms = includeStartupPrograms ? ReadStartupPrograms() : null,
         };
     }
 
