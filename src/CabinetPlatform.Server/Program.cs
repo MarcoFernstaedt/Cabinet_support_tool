@@ -66,35 +66,37 @@ builder.Services.Configure<ServiceAllowListOptions>(
 // wrong shape for twenty concurrent reps besides.
 //
 // Every query in this codebase is LINQ with no provider-specific SQL, so the
-// choice really is just this switch and a connection string. The same
-// migrations run against both.
+// choice really is just this switch and a connection string. Migrations are the
+// one thing that cannot be shared — column types differ — so there is one set
+// per provider, each scaffolded from its own context subclass.
 string provider = builder.Configuration["Database:Provider"] ?? "Sqlite";
 string connectionString = builder.Configuration.GetConnectionString("SupportDatabase")
                           ?? "Data Source=cabinet-support.db";
 
-builder.Services.AddDbContext<SupportDbContext>(options =>
+switch (provider.ToLowerInvariant())
 {
-    switch (provider.ToLowerInvariant())
-    {
-        case "postgresql":
-        case "postgres":
-        case "npgsql":
-            options.UseNpgsql(connectionString, npgsql =>
-                npgsql.MigrationsAssembly(typeof(SupportDbContext).Assembly.FullName));
-            break;
+    case "postgresql":
+    case "postgres":
+    case "npgsql":
+        builder.Services.AddDbContext<PostgresSupportDbContext>(options =>
+            options.UseNpgsql(connectionString));
+        builder.Services.AddScoped<SupportDbContext>(
+            sp => sp.GetRequiredService<PostgresSupportDbContext>());
+        break;
 
-        case "sqlite":
-            options.UseSqlite(connectionString, sqlite =>
-                sqlite.MigrationsAssembly(typeof(SupportDbContext).Assembly.FullName));
-            break;
+    case "sqlite":
+        builder.Services.AddDbContext<SqliteSupportDbContext>(options =>
+            options.UseSqlite(connectionString));
+        builder.Services.AddScoped<SupportDbContext>(
+            sp => sp.GetRequiredService<SqliteSupportDbContext>());
+        break;
 
-        default:
-            // An unrecognised provider is a startup failure, not a silent
-            // fallback to the development database.
-            throw new InvalidOperationException(
-                $"Database:Provider '{provider}' is not supported. Use Sqlite or PostgreSql.");
-    }
-});
+    default:
+        // An unrecognised provider is a startup failure, not a silent fallback
+        // to the development database.
+        throw new InvalidOperationException(
+            $"Database:Provider '{provider}' is not supported. Use Sqlite or PostgreSql.");
+}
 
 // --- Domain services -----------------------------------------------------
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();

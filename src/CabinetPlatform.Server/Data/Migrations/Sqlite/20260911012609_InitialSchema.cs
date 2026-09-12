@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace CabinetPlatform.Server.Data.Migrations
+namespace CabinetPlatform.Server.Data.Migrations.Sqlite
 {
     /// <inheritdoc />
     public partial class InitialSchema : Migration

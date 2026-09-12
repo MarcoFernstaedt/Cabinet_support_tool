@@ -3,16 +3,19 @@ using System;
 using CabinetPlatform.Server.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
 
-namespace CabinetPlatform.Server.Data.Migrations
+namespace CabinetPlatform.Server.Data.Migrations.Sqlite
 {
-    [DbContext(typeof(SupportDbContext))]
-    partial class SupportDbContextModelSnapshot : ModelSnapshot
+    [DbContext(typeof(SqliteSupportDbContext))]
+    [Migration("20260911012609_InitialSchema")]
+    partial class InitialSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
