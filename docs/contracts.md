@@ -62,7 +62,11 @@ it does not define, and the only evidence was work that never happened. Tests
 on both sides now assert that neither uses a literal.
 
 **No hardware actuation.** Nothing here opens a drawer, releases a lock or
-opens a cubie. That absence is by design.
+opens a cubie. `ActionName` reserves `OpenDrawer`, `UnlockLock` and `OpenCubie`
+at 900–902 so the names cannot be claimed for anything else, and the server
+refuses all three unconditionally with an audit row. Nothing implements them
+and nothing is registered to run them. See invariant 8 in
+[security-invariants.md](security-invariants.md).
 
 **No biometric data.** Nothing here carries a template, an image or any other
 biometric material. That an authentication happened, who it matched and how it
@@ -92,3 +96,46 @@ endpoint, reading back what the server actually persisted.
 `CheckInPayload.CabinetData` is `object?` and is always `null` in this build.
 Sensor and drawer discovery is incomplete, so the shape is deliberately not
 designed yet and must not be populated with placeholder data.
+
+`ActionRequestView.OnSiteConfirmedByUserId`, `OnSiteConfirmedUtc` and
+`ExpiresUtc` are carried and never set. They belong to a future in which
+something physical moves, where an authorisation granted remotely and executed
+some minutes later — with nobody at the cabinet — is the failure mode to design
+against. Reserving the fields now means that design starts from a shape that
+already exists rather than one invented alongside the code it guards.
+
+## Identifying a cabinet
+
+`CabinetPath` is the one way a cabinet is named to a human anywhere in this
+platform: client, site, department, cabinet name, serial number and role,
+travelling together. Every search hit, list row, detail header, action request
+view and confirmation dialog carries one.
+
+Picking the wrong cabinet is the most likely serious operator error this
+product has — 7,000 cabinets across 3,500 organisations produce hostname
+collisions as a matter of course — so a bare hostname is never a sufficient
+identifier, and the contract makes it awkward to pass one around alone.
+
+`CabinetPath` renders three ways, and all three are on the type rather than in
+any one caller: `Display` for a single line on a narrow screen, `Spoken` for a
+screen reader (client first, because that is the part that disambiguates), and
+`HostnameIsAmbiguous`, which a result set sets via `MarkAmbiguity` when two of
+its members share a name. Ambiguity is therefore a property of the result the
+rep is looking at, not of the cabinet — which is the honest statement, since the
+same cabinet is unambiguous in one search and not in another.
+
+## Payload contracts for the newer actions
+
+`ScheduledUpdateInstallDto`, `UpdateInstallOutcome`, `ProcessActionResultDto`,
+`NetworkChangeResultDto` and `EventLogViewResultDto` are the shapes the agent
+returns from the process, update, network and event-log actions. Two of them
+answer a question the action's status alone cannot:
+
+- `UpdateInstallOutcome` reports what an install *did*, not that it was
+  scheduled. It rides the next check-in after execution and the server turns it
+  into a `Caused` audit row against the original request. A schedule accepted
+  and an update installed are different facts, and the audit trail records both.
+- `NetworkChangeOutcome` distinguishes `Confirmed`, `Reverted`, `RevertFailed`
+  and `NotApplied`. "The action failed" is not enough when the question a rep
+  urgently needs answered is whether the cabinet is still reachable, and by
+  which configuration.

@@ -38,16 +38,36 @@ cannot be evaluated — everything else still builds and tests. See
   bodies or SQL text travel anywhere in this system.
 - The server decides every permission. The agent and console never enforce
   their own rules.
+- Any signed-in rep may reach any cabinet at any time. There is no case
+  scoping, no open-ticket requirement to look, and no per-rep cabinet
+  assignment — a rep taking a call cannot know in advance which cabinet it will
+  be about. Viewing needs no reason; every *action* requires a reason and a
+  ticket reference, and the audit trail is what replaces scoping.
+- Tier1, Tier2 and Supervisor all exist, on users and in the audit trail. In
+  this build they grant the same cabinet and Windows permissions: every
+  catalog entry's `MinimumRole` is `Tier1`, so the mechanism stays exercised
+  and can be tightened later by changing catalog values rather than rewriting
+  authorization. Supervisor is genuinely distinct for administration only —
+  users, cabinet registration and roles, site topology, event log view
+  definitions, and the reserved `HardwareActuation` grant.
 - Agent connections are outbound-only. Nothing is exposed for inbound access
   into a cabinet.
 - A new agent lands in a pending queue and reports nothing usable until a
   Supervisor approves and assigns it.
-- Cabinets are identified by a stable hardware-derived id, never by hostname.
+- Cabinets are identified by a stable hardware-derived id, never by hostname,
+  and are shown to people as a full path — client, site, department, cabinet,
+  role — never as a bare hostname.
 - Every action writes an audit record, denials included, and says whether the
   platform observed something or caused it.
 - Disruptive actions require a second person's approval, and the approver is
   never the requester.
-- No hardware actuation: no drawer open, no lock release, no cubie open.
+- No hardware actuation: no drawer open, no lock release, no cubie open. The
+  three names are reserved and permanently refused, with nothing registered to
+  run them.
+- A critical Windows process is never a kill target, enforced on the server and
+  independently again on the agent, which also refuses to kill itself.
+- A network change that cannot be confirmed reverts itself, and survives a
+  restart mid-change.
 - Biometric data is never stored or transmitted — only that an auth event
   occurred, who it matched and how it resolved.
 - No secrets in source, no plaintext passwords anywhere.

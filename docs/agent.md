@@ -15,7 +15,9 @@ Worker  (timer loop: collect, deliver, poll, wait)
   |
   +-- IServerClient ------ IPayloadBuffer (capped disk spool)
   |
-  +-- ActionDispatcher --- ActionExecutorRegistry --- IActionExecutor x9
+  +-- ActionDispatcher --- ActionExecutorRegistry --- IActionExecutor x28
+  |
+  +-- ScheduledUpdateRunner (due installs, interrupted network changes)
 ```
 
 Everything is registered in DI in `AgentServiceRegistration`. There is no static
@@ -40,6 +42,12 @@ alongside the disk and event-log data that collected perfectly well.
 | EventLogs       | `EventLogQuery` with an XPath level and time filter |
 | WindowsUpdate   | Windows Update Agent COM API, plus registry for reboot-pending and policy |
 | Network         | `NetworkInterface`, `MSFT_NetFirewallProfile`, WinINET registry, HTTP HEAD probe |
+
+The server-reachability probe the network collector uses is the same
+`IServerReachabilityProbe` the confirm-or-revert sequence polls. One
+implementation rather than two, because a network change that reverts is
+deciding "can this cabinet still reach the server" and must not answer it by a
+slightly different method than the collector that reports the same fact.
 
 Two collection details are worth knowing because getting them wrong is
 invisible:
@@ -148,9 +156,23 @@ no generic executor, no interpretation path and no default branch — adding an
 action means writing a class and shipping a build, which is the property that
 makes the catalog auditable.
 
-Implemented: `ScanForUpdates`, `ScheduleUpdates`, `CollectDiagnosticBundle`,
-`FlushDnsCache`, `RenewDhcpLease`, `RestartService`, `StartService`,
-`StopService`, `RebootMachine`. Nothing else.
+Implemented, in groups:
+
+| Group | Actions |
+| --- | --- |
+| Updates | `ScanForUpdates`, `ScheduleUpdates`, `InstallUpdatesNow`, `CancelScheduledUpdates`, `GetScheduledUpdates` |
+| Services | `RestartService`, `StartService`, `StopService`, `SetServiceStartType` |
+| Processes | `GetProcessList`, `KillProcess`, `KillProcessByName`, `RestartApplication` |
+| Network config | `SetDnsServers`, `SetStaticIpAddress`, `SetAdapterToDhcp`, `FlushDnsCache`, `RenewDhcpLease` |
+| Network probes | `PingHost`, `TraceRoute`, `TestPortConnectivity` |
+| Cabinet-to-cabinet probes | `PingCabinet`, `TestCabinetPort`, `TraceRouteToCabinet` |
+| Diagnostics | `RunEventLogView`, `CollectEventLogs`, `CollectDiagnosticBundle` |
+| Machine | `RebootMachine` |
+
+Nothing else. In particular `OpenDrawer`, `UnlockLock` and `OpenCubie` are
+deliberately *not* registered: the registry has no entry for them, so the rule
+above — no executor means `Denied` — is what refuses them here, with no code
+written to do it.
 
 Every executor re-validates its parameters even though the server already did.
 That is not redundancy for its own sake: it is what keeps a compromised or
@@ -160,14 +182,115 @@ parameter means the agent and server disagree about what was asked for.
 
 `FlushDnsCache` calls `DnsFlushResolverCache` rather than running `ipconfig`.
 The difference is not stylistic: shelling out would give the agent a general
-mechanism for launching programs, and its safety rests on not having one.
+mechanism for launching programs, and its safety rests on not having one. The
+same reasoning puts services behind `ServiceController` and
+`Win32_Service.ChangeStartMode` rather than `sc.exe`, network configuration
+behind `Win32_NetworkAdapterConfiguration` rather than `netsh`, ping and trace
+route behind `System.Net.NetworkInformation.Ping` rather than `ping.exe`, and a
+process kill behind `System.Diagnostics.Process` rather than `taskkill`.
 
-**Service targets are checked against the agent's own allow-list** as well as
-the server's. Two independent checks fail independently. An empty allow-list
-denies everything.
+## Changing a cabinet's network configuration
 
-**Reboot is refused while anybody is signed in**, unless the request carries an
-explicit supervisor override — and refused outright if the agent cannot
+`SetDnsServers`, `SetStaticIpAddress` and `SetAdapterToDhcp` can each cut the
+cabinet off from the server that is issuing them. There is nobody on site, and a
+cabinet that cannot be reached cannot be told to change back. So all three run
+one fixed sequence, in `NetworkConfigurationExecutorBase`:
+
+1. Read the adapter's current configuration.
+2. Write it to `state\network-rollback.json`, via a temp file and a move, so a
+   half-written rollback cannot exist.
+3. Apply the change.
+4. Poll the server-reachability probe until a timeout.
+5. Confirm — delete the rollback file — or restore the previous configuration.
+
+The rollback is on disk rather than in memory because the dangerous case is a
+restart in the middle. `RecoverInterruptedNetworkChange()` runs at startup: a
+rollback file still present means step 5 never completed, so the previous
+configuration is restored. If the restore itself fails, the file is deliberately
+left in place to be tried again on the next start rather than deleted to keep
+things tidy.
+
+`null` and empty are kept distinct for an adapter's DNS servers throughout.
+"The adapter had no DNS servers configured" and "we could not read what it had"
+restore to different states, and restoring the wrong one leaves a cabinet that
+resolves nothing.
+
+The outcome the rep sees says which of `Confirmed`, `Reverted`, `RevertFailed`
+or `NotApplied` happened. "The action failed" would not answer the question they
+urgently need answered, which is whether the cabinet is still reachable and on
+which configuration.
+
+## Scheduled updates
+
+`ScheduleUpdates` takes specific update ids and a time expressed in the
+*cabinet's* local zone, which the server converts to a UTC instant for transport
+and the agent stores as that instant. Storing the instant rather than the local
+wall-clock is what makes the schedule survive both a reboot and a daylight-saving
+transition between scheduling and execution — a stored "02:30 local" has no
+single meaning across a DST boundary, and one of its readings does not exist at
+all.
+
+`ScheduledUpdateRunner.RunDueInstall()` runs on each tick before the payload is
+built, and **clears the schedule before installing**, not after. A machine that
+reboots mid-install must not run the install again on the way back up.
+
+What was installed is reported on the next check-in as an `UpdateInstallOutcome`,
+which the server turns into a `Caused` audit row against the original request.
+The fact that an install was scheduled and the fact that it happened are
+separate facts, and only the second one is what a rep was actually asking about.
+Outcomes are queued with a cap and cleared only when a check-in is accepted, so
+a delivery failure does not lose the record.
+
+## Event log views
+
+`RunEventLogView` receives an `EventLogViewDefinition` — log names, providers,
+optional event ids, a minimum level, a window — and builds the XPath itself in
+`EventLogViewQueryBuilder`. It never receives an XPath.
+
+That is the whole point of the design. A view is defined once by a Supervisor,
+on the server, out of typed fields; a raw filter string arriving from a request
+would be a query language the agent evaluates on behalf of whoever sent it.
+Provider names that are not safe to embed are dropped rather than escaped,
+because an escaping bug here fails open.
+
+Results are returned to the rep who asked and stored nowhere.
+
+**Service and process targets are checked against the agent's own allow-list**
+as well as the server's. Two independent checks fail independently. An empty
+allow-list denies everything — a missing or blanked configuration section is the
+state a misconfigured deployment is actually in, and the safe reading of "no
+targets are listed" is "no target may be used".
+
+**A critical Windows process is never a target.** `ProcessTargetPolicy` holds a
+compiled-in list — `system`, `smss`, `csrss`, `wininit`, `winlogon`, `services`,
+`lsass` — consulted before the allow-list, plus process id 4. Killing `lsass`
+bluescreens the machine. The server holds the same list independently and
+neither defers to the other.
+
+**The agent refuses to kill itself**, by process name *and* by process id. A
+kill of the agent leaves a cabinet with no way back short of a site visit, so
+this is not left to the list above catching it by name.
+
+**`KillProcess` takes a process id and the name the requester expected**, and
+the agent re-reads the live name for that id before killing anything. Windows
+reuses process ids: between a rep reading a process list and a second rep
+approving the kill, the id can belong to something else entirely. A mismatch is
+refused and reported as a mismatch, so the rep knows to look again rather than
+to retry.
+
+**`RestartApplication` will not start a second instance.** If the old process
+would not stop, nothing is launched. If it stopped but the new one would not
+start, that is reported plainly rather than as a failure of the whole action —
+the machine is in a different state than before, and the rep needs to know
+which.
+
+**Nothing about a launch comes from the request.** `RestartApplication` receives
+an application *name* from the server's allow-list; the agent resolves it to an
+absolute install path from its own configuration, and refuses a path that is not
+Windows-absolute. There are no arguments and no shell.
+
+**Reboot and an immediate update install are refused while anybody is signed
+in**, unless the request carries an explicit supervisor override — and refused outright if the agent cannot
 determine whether anybody is signed in. Somebody standing at a cabinet may be
 part-way through pulling a controlled substance against a patient record. An
 unnecessary refusal costs a support call; the alternative costs an interrupted

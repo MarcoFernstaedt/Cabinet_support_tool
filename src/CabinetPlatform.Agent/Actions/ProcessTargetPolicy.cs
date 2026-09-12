@@ -230,17 +230,52 @@ public sealed class ProcessTargetPolicy
             return false;
         }
 
-        if (!Path.IsPathFullyQualified(path))
+        if (!IsWindowsAbsolutePath(path))
         {
             failureReason =
-                $"The registered install path for '{candidate}' is not absolute, so it would be " +
-                "resolved against whatever the agent's working directory happens to be.";
+                $"The registered install path for '{candidate}' is not an absolute Windows path, " +
+                "so it would be resolved against whatever the agent's working directory happens " +
+                "to be.";
             return false;
         }
 
         executablePath = path;
         failureReason = string.Empty;
         return true;
+    }
+
+    /// <summary>
+    /// Whether a path is absolute by Windows' rules — a drive letter, or a UNC
+    /// share.
+    /// </summary>
+    /// <remarks>
+    /// Spelled out rather than deferred to <see cref="Path.IsPathFullyQualified"/>,
+    /// because that method answers for whatever platform it is running on. This
+    /// agent only ever runs on Windows, so the Windows answer is the correct
+    /// one everywhere — including on the Linux build agent that runs its tests,
+    /// where the framework method would call a perfectly good install path
+    /// relative and quietly change what the check means.
+    /// </remarks>
+    /// <param name="path">The candidate path.</param>
+    internal static bool IsWindowsAbsolutePath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        // A UNC share: two separators, then a host.
+        if (path.StartsWith(@"\\", StringComparison.Ordinal) && path.Length > 2)
+        {
+            return true;
+        }
+
+        // A drive-qualified path: letter, colon, separator. "C:file" is
+        // drive-relative rather than absolute and is refused.
+        return path.Length >= 3 &&
+               char.IsAsciiLetter(path[0]) &&
+               path[1] == ':' &&
+               path[2] is '\\' or '/';
     }
 
     /// <summary>Strips a trailing <c>.exe</c> so both spellings are one name.</summary>

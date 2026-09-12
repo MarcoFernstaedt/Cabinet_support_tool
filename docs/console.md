@@ -1,8 +1,15 @@
 # Support Console
 
-The WPF desktop application support staff use: sign in, pick a client's
-cabinet, read its health, and run approved actions — instead of taking a
-remote desktop session into a clinic's machine.
+The WPF desktop application support staff use: sign in, find a cabinet,
+read its health, and run approved actions — instead of taking a remote
+desktop session into a clinic's machine.
+
+Any signed-in rep may reach any cabinet at any time. There is no case
+scoping, no open-ticket requirement to look, and no per-rep cabinet
+assignment: a rep taking a call about a cabinet has no way to know in
+advance which one it will be. What replaces scoping is the audit trail —
+viewing needs no reason, but every *action* requires a reason and a
+ticket reference, and every action and every refusal writes a row.
 
 ## Projects
 
@@ -51,15 +58,20 @@ credential-harvesting target.
 ```
 LoginWindow ──► ShellViewModel ──► MainWindow
                       │
+                      ├── CabinetFinderViewModel    (search, clients, hierarchy, recent)
                       ├── CabinetListViewModel      (left pane)
-                      ├── MachineTabViewModel       (8 collapsible sections)
+                      ├── MachineTabViewModel       (9 collapsible sections)
                       ├── CabinetTabViewModel       (honest empty state)
-                      ├── AuditTabViewModel         (Supervisor only)
+                      ├── AuditTabViewModel         (any signed-in rep)
                       ├── FleetTabViewModel         (aggregate health)
-                      └── ApprovalsViewModel        (Tier 2 and above)
+                      └── ApprovalsViewModel        (any signed-in rep)
                       │
                       └── IApiClient ──► the support server
 ```
+
+Approvals and Audit are open to every rep. The four-eyes rule is about
+separation of people, not rank, so any authenticated rep may approve
+another's request — and none may approve their own.
 
 `IApiClient` is the only place in the console that speaks HTTP: one typed
 method per endpoint, returning Contracts types. No ViewModel builds a
@@ -93,6 +105,60 @@ they are now looking at.
 - **No hardware actuation.** There is no drawer, lock or cubie control,
   and the Cabinet tab says so in as many words, because a tab about
   drawers is exactly where somebody would look for a button to open one.
+  The three reserved action names exist on the server and are refused
+  there; the console does not offer them, so there is no control whose
+  only protection is the server saying no.
+- **The cabinet is confirmed before any action runs.** Every action
+  dialog restates the whole path — client, site, department, cabinet,
+  role and serial — and will not enable its submit button until the
+  operator ticks a box confirming it is the right one. Cancelling and
+  submitting without confirming are treated identically. Where the name
+  is shared with another cabinet in the result the rep came from, the
+  dialog says so in words in its warnings list, not only with an icon.
+
+## Finding a cabinet
+
+Picking the wrong cabinet is the most likely serious operator error this
+product has, so identification gets more attention than anything else in
+the UI.
+
+- **A search box is reachable from anywhere.** It is docked at the top of
+  the main window, outside any tab, with `Ctrl+F` bound at window level
+  and an access key on its label. A rep on a call does not navigate to
+  search; it is already there.
+- **One term matches across everything a caller might say.** Client name,
+  site, department, cabinet name, serial number, or the cabinet id
+  itself — partial and case-insensitive. Callers identify their cabinet
+  by whichever of those they can see, and asking them to pick the right
+  field is asking them to know the data model.
+- **Nothing is ever identified by a bare hostname.** Every row in every
+  result, list, tree, dialog and confirmation carries the full path.
+  `CabinetIdentity` renders it, so there is one spelling of it rather
+  than one per screen.
+- **Duplicate names are called out in words.** When two rows in a result
+  share a name, each is marked with a visible marker *and* the row's
+  screen-reader sentence says so, and a banner above the grid explains
+  it. A colour or an icon alone fails for a rep using a screen reader and
+  for one glancing at a grid — the two people most likely to pick the
+  wrong row. The warning is only applied when it is true, because marking
+  every row would train reps to ignore it.
+- **Browsing, as well as searching.** A client list and a per-client tree
+  of sites and cabinets, with each site's sync cabinet listed first — a
+  site that misbehaves as a whole is usually its sync cabinet, and a rep
+  should not have to find it among twenty rows.
+- **A recent list, per rep, held by the server.** It follows a rep
+  between machines and survives a client restart mid-call. Opening a
+  cabinet's detail is what records it, so the list reflects what was
+  actually looked at rather than what was clicked.
+- **The detail header is persistent.** The Machine tab's path header sits
+  outside the scroll region, so scrolling to the Services section cannot
+  leave a rep acting on a cabinet whose name has scrolled off the top.
+
+`CabinetFinderTests` covers this end to end against the real server: the
+whole path on every row, the duplicate warning in words and on the row,
+its absence when names are unique, an empty result that says so rather
+than showing a blank grid, an empty search box that invites a term
+instead, the recent list, and the sync-first hierarchy.
 
 ## Accessibility
 
@@ -131,7 +197,7 @@ reads the Machine tab in a sensible order. That pass is still owed.
 
 ## Honest gaps
 
-The Machine tab has all eight sections the design calls for. Every one of
+The Machine tab has all nine sections the design calls for. Every one of
 them is filled from real data, with two exceptions that are deliberate
 rather than missing:
 
@@ -139,15 +205,32 @@ rather than missing:
 | --- | --- |
 | Overview, Performance, Disk | The latest heartbeat, plus the inventory in force |
 | Services, Network, System, Windows Update | The inventory tier |
-| Event Logs | On request, via the "View event logs" action |
-| The per-process list, inside Performance | On request, via the "View process list" action |
+| Event Logs | On request, via "Run an event log view" |
+| Processes | On request, via "Get process list" |
 
 Event logs and process lists are large, change constantly, and are read
 for one cabinet at a time by somebody already looking at it. Sending them
 from seven thousand cabinets every five minutes would dominate storage
 while being read for a handful. So they travel on an action rather than
 on a check-in, and the section says which action fetches it rather than
-drawing an empty panel.
+drawing an empty panel. Event logs in particular are never stored at all:
+they are read, shown to the rep who asked, and not retained.
+
+Three sections do more than display:
+
+- **Processes** lists what is running on demand, with a filter, and turns
+  a selected row into the parameters for `KillProcess` — a process id
+  *and* the name the rep saw against it, which the agent re-checks before
+  killing anything. It never offers a critical Windows process as a
+  target.
+- **Services** has a preset filter for auto-start services that are
+  currently stopped, which is the shape of most "the cabinet is up but
+  nothing works" calls, and a start-type control offering only the four
+  types it is safe to set. Boot and System are absent rather than
+  disabled.
+- **Event Logs** selects a named view a Supervisor defined on the server
+  and a time window, and shows the result in a grid. The console never
+  composes a filter; it names one.
 
 That distinction is the whole reason `SectionAvailability` exists, and
 its kinds name the several different reasons a panel can be empty:
@@ -191,7 +274,7 @@ how a tool like this misleads:
 
 ## Verification
 
-72 tests. They drive the real `ApiClient` against the real server hosted
+102 tests. They drive the real `ApiClient` against the real server hosted
 in-process — the real pipeline, the real authorization policies, the real
 403 wording that the login screen has to tell apart from a lockout. A
 hand-written fake HTTP handler would only ever prove that the client
@@ -202,9 +285,9 @@ Covered end to end: the three distinguishable sign-in failures, the
 forced password change, section availability for a cabinet that has
 never checked in, SMART counters staying absent rather than becoming
 zero, a rising reallocated-sector trend, action submission and refusal,
-the four-eyes rule from both sides, role refusals on audit and
-approvals, bounded history windows, and an expired token returning the
-user to sign-in.
+the four-eyes rule from both sides, bounded history windows, an expired
+token returning the user to sign-in, and the whole of cabinet
+identification described above.
 
 `XamlContractTests` reads the markup as XML and checks it against the
 Core assembly by reflection: every binding path root, every resource

@@ -61,15 +61,22 @@ pair, so the detail view can answer without scanning an action history.
 
 Three actions take a target cabinet:
 
-| Action | Tier | Approval | What it answers |
-|---|---|---|---|
-| `PingCabinet` | Tier 1 | none | can this cabinet reach that one at all |
-| `TestCabinetPort` | Tier 2 | none | is the host up with the port filtered |
-| `TraceRouteToCabinet` | Tier 2 | none | where in the path it stops |
+| Action | Approval | What it answers |
+|---|---|---|
+| `PingCabinet` | none | can this cabinet reach that one at all |
+| `TestCabinetPort` | none | is the host up with the port filtered |
+| `TraceRouteToCabinet` | none | where in the path it stops |
 
-None requires approval. A probe is an observation; making a rep wait for a
-second pair of eyes to find out whether a site can talk to itself would mean
-nobody ever runs it.
+None requires approval, and every rep may run all three. A probe is an
+observation; making a rep wait for a second pair of eyes to find out whether a
+site can talk to itself would mean nobody ever runs it.
+
+The three free-target probes — `PingHost`, `TraceRoute` and
+`TestPortConnectivity` — sit alongside them and are the same in every respect
+except that the rep supplies the host. They are still not a general network
+tool: `DiagnosticHostPolicy` refuses loopback, the unspecified address,
+broadcast, multicast and link-local targets on the server, and the agent
+re-checks the port against the CUBEX list.
 
 ### The rules that make them safe
 
@@ -118,6 +125,33 @@ The probe runs on the cabinet, so the answer arrives with a later check-in
 rather than with the response. The console says so rather than showing a
 spinner that stops with nothing visibly changed.
 
+## Fleet and site aggregates
+
+The fleet view answers "what is wrong across all of this" for a scope the rep
+chooses: everything, one client, one site, or one department. It counts
+cabinets by disk health, cabinets stale beyond a configurable window, cabinets
+with pending updates and with pending *security* updates separately, drives in
+Watch or Failing, reboot pending, auto-start services stopped, and the spread of
+agent versions.
+
+Two properties make that affordable at 7,000 cabinets, and both are in the code
+rather than in a note:
+
+- **Aggregates project to extracted columns and never deserialize a payload.**
+  `PendingSecurityUpdateCount` and `AutoStartServicesStoppedCount` are pulled out
+  of a check-in at ingest and stored as columns, precisely so the fleet view can
+  count them in the database. Reading them back out of stored JSON would mean
+  materialising the estate to answer one question.
+- **Every drill-down is paginated and every query is `AsNoTracking`.** A fleet
+  aggregate that loads the change tracker with 7,000 entities is a slow page
+  today and an unusable one at twice the size.
+
+The counts that describe a *state* are distinguished from the counts that
+describe a *staleness*: a cabinet that has not reported for two days is not
+healthy and is not unhealthy, it is silent, and the window after which silence
+counts is configuration (`AgentIngest.StaleAfterHours`, default 24) rather than
+a constant.
+
 ## How the views are arranged
 
 The fleet view groups by site, and within each site the sync cabinet is listed
@@ -128,3 +162,13 @@ condition that explains a whole clinic rather than one machine.
 
 A standalone site says it is standalone. Blank fields where a sync cabinet
 would be read as a fault, and a site with one cabinet is not a fault.
+
+The site view carries each site's sync reachability as its own summary — how
+many satellites are reaching it, how many are not, and how many have never
+probed — rather than a single reachable/unreachable flag. "Never probed" is the
+common state and is not the same fact as "not reaching"; collapsing them would
+report a working site as broken every time nobody had asked.
+
+Every cabinet named anywhere in these views carries its full `CabinetPath`, for
+the reason set out in [console.md](console.md): a hostname alone is not an
+identifier in an estate this size.
