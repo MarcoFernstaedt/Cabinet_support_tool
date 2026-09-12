@@ -127,11 +127,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             Assert.False(section.Availability.HasData);
             Assert.NotEmpty(section.Availability.Reason);
 
-            // Event logs are on-demand whether or not a cabinet has checked in,
-            // so their reason is the action to run rather than the absence of
-            // telemetry. Everything else is simply "nothing collected yet".
+            // Event logs and the process list are on-demand whether or not a
+            // cabinet has checked in, so their reason is the action to run
+            // rather than the absence of telemetry. Everything else is simply
+            // "nothing collected yet".
             Assert.Equal(
-                section == tab.EventLogs
+                section == tab.EventLogs || section == tab.Processes
                     ? SectionAvailabilityKind.OnDemandOnly
                     : SectionAvailabilityKind.NoCheckIn,
                 section.Availability.Kind);
@@ -171,14 +172,21 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.EventLogs.Availability.Kind);
         Assert.Contains("collected on request",
             tab.EventLogs.Availability.Reason, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("View event logs",
+        Assert.Contains("Run an event log view",
             tab.EventLogs.Availability.Reason, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Performance.ProcessListAvailability.Kind);
+        // The process list is its own section now rather than a panel inside
+        // Performance, because ending a process is an action that belongs
+        // beside the row it acts on.
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Processes.Availability.Kind);
         Assert.Contains("View process list",
-            tab.Performance.ProcessListAvailability.Reason, StringComparison.OrdinalIgnoreCase);
+            tab.Processes.Availability.Reason, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Equal(1, tab.OnDemandSectionCount);
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Performance.ProcessListAvailability.Kind);
+
+        // Both say so up front. An empty panel and a healthy cabinet look the
+        // same, and only one of them is good news.
+        Assert.Equal(2, tab.OnDemandSectionCount);
         Assert.NotNull(tab.OnDemandSectionNote);
     }
 
@@ -212,15 +220,26 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.Equal("Europe/London", tab.System.TimeZone);
     }
 
+    /// <summary>
+    /// The sections appear in the order support staff are taught to read them.
+    /// </summary>
+    /// <remarks>
+    /// Processes now sits between Performance and Services, which is where a
+    /// rep looks next: the performance counters say the machine is busy,
+    /// Processes says what is making it busy, and Services says whether the
+    /// thing that should be running is. The order is fixed rather than
+    /// user-sortable so that one engineer can describe a cabinet to another
+    /// over the phone.
+    /// </remarks>
     [Fact]
-    public async Task All_eight_sections_are_present_in_the_order_the_brief_sets()
+    public async Task All_nine_sections_are_present_in_the_order_the_brief_sets()
     {
         (MachineTabViewModel tab, _, _, _) = await SignedInTabAsync(Role.Tier1);
 
         Assert.Equal(
             new[]
             {
-                "Overview", "Performance", "Services", "Disk",
+                "Overview", "Performance", "Processes", "Services", "Disk",
                 "Windows Update", "Event Logs", "Network", "System"
             },
             tab.Sections.Select(s => s.Title).ToArray());
@@ -329,15 +348,38 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         await tab.LoadAsync(cabinet.Id);
 
         Assert.Equal(
-            new[] { ActionName.RestartService, ActionName.StartService, ActionName.StopService },
+            new[]
+            {
+                ActionName.RestartService,
+                ActionName.StartService,
+                ActionName.StopService,
+                ActionName.SetServiceStartType,
+            },
             tab.Services.Actions.Select(a => a.Catalogue.Action).ToArray());
 
         Assert.Equal(
-            new[] { ActionName.ScanForUpdates, ActionName.ScheduleUpdates },
+            new[]
+            {
+                ActionName.ScanForUpdates,
+                ActionName.ScheduleUpdates,
+                ActionName.InstallUpdatesNow,
+                ActionName.CancelScheduledUpdates,
+                ActionName.GetScheduledUpdates,
+            },
             tab.WindowsUpdate.Actions.Select(a => a.Catalogue.Action).ToArray());
 
         Assert.Equal(
-            new[] { ActionName.FlushDnsCache, ActionName.RenewDhcpLease },
+            new[]
+            {
+                ActionName.FlushDnsCache,
+                ActionName.RenewDhcpLease,
+                ActionName.PingHost,
+                ActionName.TraceRoute,
+                ActionName.TestPortConnectivity,
+                ActionName.SetDnsServers,
+                ActionName.SetStaticIpAddress,
+                ActionName.SetAdapterToDhcp,
+            },
             tab.Network.Actions.Select(a => a.Catalogue.Action).ToArray());
 
         Assert.Contains(tab.System.Actions, a => a.Catalogue.Action == ActionName.RebootMachine);
@@ -358,8 +400,20 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         }
     }
 
+    /// <summary>
+    /// A Tier 1 rep is offered the disruptive actions, and is told what they
+    /// cost before pressing one.
+    /// </summary>
+    /// <remarks>
+    /// This replaces a test that asserted the button was disabled for the role.
+    /// Reps work any cabinet at any time; the control on a reboot is that a
+    /// second person has to approve it, not that some reps cannot ask. What has
+    /// not changed, and is what this now pins, is that the consequence is on
+    /// the button before it is pressed rather than only inside the dialog
+    /// afterwards.
+    /// </remarks>
     [Fact]
-    public async Task A_tier1_user_sees_why_a_tier2_action_is_unavailable()
+    public async Task A_tier1_user_is_offered_reboot_and_told_its_consequence_on_the_button()
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
@@ -368,12 +422,8 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         SectionActionViewModel reboot =
             tab.System.Actions.Single(a => a.Catalogue.Action == ActionName.RebootMachine);
 
-        Assert.False(reboot.RoleAllows);
-        Assert.NotNull(reboot.UnavailableReason);
-        Assert.Contains("Tier2", reboot.UnavailableReason!);
+        Assert.True(reboot.RoleAllows);
 
-        // And the button's accessible name carries the consequence before the
-        // user presses it, not only inside the dialog afterwards.
         Assert.Contains("disruptive", reboot.AccessibleName, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("second person", reboot.AccessibleName, StringComparison.OrdinalIgnoreCase);
     }
@@ -431,7 +481,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         ActionRequestPrompt prompt = Assert.Single(dialog.Prompts);
         Assert.True(prompt.Catalogue.IsDisruptive);
         Assert.True(prompt.Catalogue.RequiresApproval);
-        Assert.Equal(cabinet.Hostname, prompt.CabinetHostname);
+        // The full path, not the hostname. It is what the dialog restates and
+        // what the operator has to confirm before anything is submitted.
+        Assert.Equal(cabinet.Hostname, prompt.Path.CabinetName);
+        Assert.Equal(cabinet.Id, prompt.Path.CabinetId);
+        Assert.NotEmpty(prompt.Path.ClientName);
+        Assert.NotEmpty(prompt.Path.SiteName);
         Assert.False(prompt.UserIsLoggedOnToCabinet);
 
         // Reboot is maintenance-window-only, so outside that window the server

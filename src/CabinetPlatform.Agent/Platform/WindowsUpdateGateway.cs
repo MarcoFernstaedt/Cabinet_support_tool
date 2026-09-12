@@ -18,6 +18,9 @@ public sealed class WindowsUpdateGateway : IWindowsUpdateGateway
     /// </summary>
     private const string PendingSearchCriteria = "IsInstalled=0 and IsHidden=0";
 
+    /// <summary>The COM collection an install's chosen updates are put into.</summary>
+    private const string UpdateCollectionProgId = "Microsoft.Update.UpdateColl";
+
     private readonly ILogger<WindowsUpdateGateway> _logger;
 
     public WindowsUpdateGateway(ILogger<WindowsUpdateGateway> logger) => _logger = logger;
@@ -120,6 +123,167 @@ public sealed class WindowsUpdateGateway : IWindowsUpdateGateway
         }
 
         return entries;
+    }
+
+    /// <inheritdoc />
+    public UpdateInstallOutcome InstallUpdates(
+        IReadOnlyList<string> updateIds, CancellationToken cancellationToken)
+    {
+        if (updateIds.Count == 0)
+        {
+            throw new ArgumentException(
+                "An install must name the updates it is installing.", nameof(updateIds));
+        }
+
+        var wanted = new HashSet<string>(updateIds, StringComparer.OrdinalIgnoreCase);
+
+        using ComObject session = CreateSession();
+        using ComObject searcher = session.InvokeObject("CreateUpdateSearcher")
+            ?? throw new InvalidOperationException("The Windows Update Agent returned no update searcher.");
+
+        // Searched offline. The rep chose from a scan; going back to Windows
+        // Update here would find a different set and install a different thing
+        // from the one that was approved.
+        searcher.SetValue("Online", false);
+
+        using ComObject searchResult = searcher.InvokeObject("Search", PendingSearchCriteria)
+            ?? throw new InvalidOperationException("The Windows Update Agent returned no search result.");
+
+        using ComObject? candidates = searchResult.GetObject("Updates");
+
+        using ComObject selected = ComObject.CreateFromProgId(UpdateCollectionProgId)
+            ?? throw new InvalidOperationException(
+                $"The COM class '{UpdateCollectionProgId}' is not registered on this machine.");
+
+        var titles = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var found = new List<string>();
+
+        if (candidates is not null)
+        {
+            foreach (ComObject update in candidates.EnumerateCollection())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                string? id = ReadUpdateId(update);
+
+                if (id is null || !wanted.Contains(id))
+                {
+                    update.Dispose();
+                    continue;
+                }
+
+                titles[id] = update.GetString("Title");
+                found.Add(id);
+
+                // EULAs are accepted here rather than skipped. An update the
+                // machine will not install because nobody clicked through a
+                // licence is an update that silently never installs.
+                if (update.GetBoolean("EulaAccepted") == false)
+                {
+                    update.Invoke("AcceptEula");
+                }
+
+                selected.InvokeWithObject("Add", update);
+                update.Dispose();
+            }
+        }
+
+        DateTimeOffset completed = DateTimeOffset.UtcNow;
+
+        // Updates the machine no longer offers are reported as not started
+        // rather than dropped. "We could not find it" and "it installed" must
+        // never look the same in a patch record.
+        List<UpdateInstallResult> missing = wanted
+            .Where(id => !found.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .Select(id => new UpdateInstallResult
+            {
+                UpdateId = id,
+                Title = null,
+                ResultCode = UpdateResultCode.NotStarted,
+            })
+            .ToList();
+
+        if (found.Count == 0)
+        {
+            _logger.LogWarning(
+                "None of the {RequestedCount} requested update(s) are still applicable to this machine.",
+                wanted.Count);
+
+            return new UpdateInstallOutcome
+            {
+                ActionRequestId = Guid.Empty,
+                CompletedUtc = completed,
+                Results = missing,
+                RebootRequired = false,
+            };
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using (ComObject downloader = session.InvokeObject("CreateUpdateDownloader")
+                   ?? throw new InvalidOperationException(
+                       "The Windows Update Agent returned no downloader."))
+        {
+            downloader.SetObject("Updates", selected);
+            downloader.Invoke("Download");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using ComObject installer = session.InvokeObject("CreateUpdateInstaller")
+            ?? throw new InvalidOperationException("The Windows Update Agent returned no installer.");
+
+        installer.SetObject("Updates", selected);
+
+        using ComObject installResult = installer.InvokeObject("Install")
+            ?? throw new InvalidOperationException("The Windows Update Agent returned no install result.");
+
+        var results = new List<UpdateInstallResult>(found.Count);
+
+        for (var i = 0; i < found.Count; i++)
+        {
+            using ComObject? perUpdate = installResult.InvokeObject("GetUpdateResult", i);
+
+            int? hresult = perUpdate?.GetInt32("HResult");
+
+            results.Add(new UpdateInstallResult
+            {
+                UpdateId = found[i],
+                Title = titles.GetValueOrDefault(found[i]),
+                ResultCode = WindowsUpdateResultMapping.MapResultCode(perUpdate?.GetInt32("ResultCode")),
+                ErrorCode = hresult is 0 or null ? null : hresult,
+            });
+        }
+
+        results.AddRange(missing);
+
+        bool? rebootRequired = installResult.GetBoolean("RebootRequired");
+
+        _logger.LogInformation(
+            "Installed {InstalledCount} of {RequestedCount} update(s). Reboot required: {RebootRequired}.",
+            results.Count(r => r.ResultCode is UpdateResultCode.Succeeded
+                or UpdateResultCode.SucceededWithErrors),
+            wanted.Count,
+            rebootRequired);
+
+        return new UpdateInstallOutcome
+        {
+            // Filled in by the executor, which is what knows the request id.
+            // The gateway's job ends at what the machine did.
+            ActionRequestId = Guid.Empty,
+            CompletedUtc = DateTimeOffset.UtcNow,
+            Results = results,
+            RebootRequired = rebootRequired,
+        };
+    }
+
+    /// <summary>
+    /// Reads an update's identity, which the COM API nests one object deep.
+    /// </summary>
+    private static string? ReadUpdateId(ComObject update)
+    {
+        using ComObject? identity = update.GetObject("Identity");
+        return identity?.GetString("UpdateID");
     }
 
     private static ComObject CreateSession()

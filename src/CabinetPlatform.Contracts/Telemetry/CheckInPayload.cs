@@ -70,6 +70,26 @@ public sealed record CheckInPayload
     public object? CabinetData { get; init; }
 
     /// <summary>
+    /// Outcomes of update installs this platform asked for, reported once the
+    /// machine has actually carried them out.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Scheduling an install and installing one are different facts. The
+    /// scheduling is known the moment the action is dispatched; what the
+    /// machine did with it is only known afterwards, and may be a failure, a
+    /// rollback or a superseded package. A fleet that treats the first as the
+    /// second believes it is patched when it is not.
+    /// </para>
+    /// <para>
+    /// The agent carries an outcome here until the server has acknowledged the
+    /// check-in that reported it, so an install whose report was lost to an
+    /// outage is still reported afterwards rather than silently forgotten.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<UpdateInstallOutcome>? UpdateInstallOutcomes { get; init; }
+
+    /// <summary>
     /// Section name to failure reason for every collector that could not
     /// complete, so a partial payload explains its own gaps. Empty when every
     /// collector succeeded.

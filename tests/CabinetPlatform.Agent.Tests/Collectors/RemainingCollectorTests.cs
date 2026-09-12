@@ -446,6 +446,16 @@ public class EventLogCollectorTests
 
         public bool FailAll { get; set; }
 
+        /// <summary>Views this stub was asked to run.</summary>
+        public List<EventLogViewDefinition> RequestedViews { get; } = new();
+
+        public IReadOnlyList<EventLogEntry> RunView(
+            EventLogViewDefinition definition, CancellationToken cancellationToken)
+        {
+            RequestedViews.Add(definition);
+            return Array.Empty<EventLogEntry>();
+        }
+
         public IReadOnlyList<EventLogEntry> Read(
             EventLogName log,
             TimeSpan window,
@@ -679,5 +689,9 @@ public class WindowsUpdateCollectorTests
 
         public IReadOnlyList<UpdateHistoryEntry> GetHistory(int maximumEntries, CancellationToken cancellationToken)
             => Failure is not null ? throw Failure : History;
+
+        public UpdateInstallOutcome InstallUpdates(
+            IReadOnlyList<string> updateIds, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The collector never installs.");
     }
 }

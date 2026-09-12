@@ -190,7 +190,8 @@ public sealed class CabinetClockTests
         // to 03:30 would put an update on a cabinet an hour later than the rep
         // agreed with the clinic, and nothing would say so.
         var validator = new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 
         ActionCatalogEntry entry = ActionCatalog.Get(ActionName.ScheduleUpdates);
         Cabinet chicago = In("America/Chicago");
@@ -245,7 +246,8 @@ public sealed class CabinetClockTests
         // converted once and cached, or a contract that only ever carried UTC,
         // would put one of them an hour wrong.
         var validator = new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 
         ActionCatalogEntry entry = ActionCatalog.Get(ActionName.ScheduleUpdates);
         Cabinet chicago = In("America/Chicago");
@@ -275,7 +277,8 @@ public sealed class CabinetClockTests
         // is not a value a caller gets to assert. Accepting one here would let
         // a console bypass the daylight-saving check entirely.
         var validator = new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             ActionCatalog.Get(ActionName.ScheduleUpdates),
@@ -298,7 +301,8 @@ public sealed class CabinetClockTests
         // "In the future" is judged at the cabinet, not at the server. A
         // cabinet twelve hours ahead has already had this morning.
         var validator = new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             ActionCatalog.Get(ActionName.ScheduleUpdates),
@@ -322,7 +326,8 @@ public sealed class CabinetClockTests
         // schedule against, and guessing one would put the install an arbitrary
         // number of hours from where the rep meant it.
         var validator = new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             ActionCatalog.Get(ActionName.ScheduleUpdates),

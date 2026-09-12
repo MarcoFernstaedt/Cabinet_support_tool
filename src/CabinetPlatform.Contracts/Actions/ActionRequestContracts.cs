@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
 
 namespace CabinetPlatform.Contracts.Actions;
@@ -62,6 +63,12 @@ public sealed record ActionRequestView
     public required Guid CabinetId { get; init; }
 
     /// <summary>Hostname of that cabinet, for display.</summary>
+    /// <remarks>
+    /// Never shown on its own. Hostnames repeat across clients, so anything a
+    /// person reads to decide what they are about to do reads
+    /// <see cref="CabinetPath"/> instead; this field exists for the grid column
+    /// that sits beside the rest of the path, not instead of it.
+    /// </remarks>
     public string? CabinetHostname { get; init; }
 
     /// <summary>Client the cabinet belongs to.</summary>
@@ -69,6 +76,17 @@ public sealed record ActionRequestView
 
     /// <summary>Site the cabinet sits at.</summary>
     public string? SiteName { get; init; }
+
+    /// <summary>
+    /// The cabinet's full identifying path: client, site, department, name and
+    /// role.
+    /// </summary>
+    /// <remarks>
+    /// Carried on every action so that an approver, who did not raise the
+    /// request and has no other context for it, can see exactly whose cabinet
+    /// they are about to authorise work on.
+    /// </remarks>
+    public CabinetPath? CabinetPath { get; init; }
 
     /// <summary>Identifier of the requesting user.</summary>
     public required Guid RequestedByUserId { get; init; }
@@ -91,6 +109,9 @@ public sealed record ActionRequestView
 
     /// <summary>Hostname of the probed cabinet, for display.</summary>
     public string? TargetCabinetHostname { get; init; }
+
+    /// <summary>The probed cabinet's full identifying path, where there is one.</summary>
+    public CabinetPath? TargetCabinetPath { get; init; }
 
     /// <summary>Justification the requester gave.</summary>
     public required string Reason { get; init; }
@@ -122,6 +143,18 @@ public sealed record ActionRequestView
     /// <summary>Agent-reported outcome detail. Display only.</summary>
     public string? ResultOutput { get; init; }
 
+    /// <summary>
+    /// Structured data an on-demand action returned, as a JSON document: an
+    /// event log view's records, a process list, a network change's outcome.
+    /// Null for every action that collects nothing.
+    /// </summary>
+    /// <remarks>
+    /// Data the agent read, never anything anybody executes. The console
+    /// deserialises it into the grid for the section that asked; the server
+    /// stores it verbatim and does not interpret it.
+    /// </remarks>
+    public string? CollectedData { get; init; }
+
     /// <summary>When the request stops being dispatchable.</summary>
     public DateTimeOffset? ExpiresUtc { get; init; }
 
@@ -136,6 +169,22 @@ public sealed record ActionRequestView
     /// was raised on its own.
     /// </summary>
     public Guid? BatchId { get; init; }
+
+    /// <summary>
+    /// Reserved. The person at the cabinet who confirmed that actuating its
+    /// hardware was safe.
+    /// </summary>
+    /// <remarks>
+    /// Always null in this build. It exists because an actuation that is
+    /// authorised remotely and performed with nobody standing at the cabinet is
+    /// the failure mode the whole design is arranged to prevent, and the field
+    /// that records the second, physical confirmation should already be part of
+    /// the record's shape before anything can set it.
+    /// </remarks>
+    public Guid? OnSiteConfirmedByUserId { get; init; }
+
+    /// <summary>Reserved. UTC instant of that on-site confirmation. Always null here.</summary>
+    public DateTimeOffset? OnSiteConfirmedUtc { get; init; }
 }
 
 /// <summary>Filter over the action list.</summary>

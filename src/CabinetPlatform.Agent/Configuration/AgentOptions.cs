@@ -154,4 +154,65 @@ public sealed class ActionOptions
     /// <summary>How far ahead of now a scheduled update install may be set.</summary>
     [Range(1, 90)]
     public int MaxUpdateScheduleDays { get; set; } = 30;
+
+    /// <summary>
+    /// Image names this agent will end, without path or extension.
+    /// </summary>
+    /// <remarks>
+    /// The agent's own copy, checked independently of the server's. Two lists
+    /// that must both permit a name is not duplication for its own sake: it is
+    /// what stops a compromised or simply buggy server from reaching a process
+    /// this machine was never meant to expose. The critical-process deny-list
+    /// is compiled in rather than configured, so a mistake here cannot widen it.
+    /// </remarks>
+    public List<string> ProcessAllowList { get; set; } = new();
+
+    /// <summary>
+    /// Applications this agent may stop and relaunch, mapped to the executable
+    /// each one launches from on this machine.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The path lives here, in deployment configuration on the cabinet, and
+    /// nowhere else. It is never supplied in a request, never sent by the
+    /// server, and never echoed back: a path the server could choose would be a
+    /// command line in everything but name, and would turn a restart action
+    /// into arbitrary execution.
+    /// </para>
+    /// <para>
+    /// An application named in a request but absent from this map is refused.
+    /// The agent does not search for an executable and does not guess.
+    /// </para>
+    /// </remarks>
+    public Dictionary<string, string> ApplicationInstallPaths { get; set; } = new();
+
+    /// <summary>
+    /// How long the agent waits for a process to exit after asking it to, in
+    /// seconds, before reporting that it did not.
+    /// </summary>
+    [Range(1, 120)]
+    public int ProcessExitTimeoutSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// How long a network configuration change has to prove the cabinet can
+    /// still reach the server before it is rolled back, in seconds.
+    /// </summary>
+    /// <remarks>
+    /// Long enough for DHCP to settle and DNS to answer, short enough that a
+    /// clinic is not without its cabinet while the agent waits. Without the
+    /// revert, one wrong DNS server is a site visit.
+    /// </remarks>
+    [Range(10, 600)]
+    public int NetworkConfirmationTimeoutSeconds { get; set; } = 60;
+
+    /// <summary>
+    /// File the previous network configuration is written to before a change is
+    /// applied.
+    /// </summary>
+    /// <remarks>
+    /// On disk rather than in memory, because the case that matters is the one
+    /// where the machine restarts mid-change. A rollback held only in a running
+    /// process is exactly the rollback that is not there when it is needed.
+    /// </remarks>
+    public string NetworkRollbackFileName { get; set; } = "network-rollback.json";
 }

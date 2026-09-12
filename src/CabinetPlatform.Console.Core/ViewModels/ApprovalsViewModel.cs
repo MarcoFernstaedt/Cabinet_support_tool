@@ -98,9 +98,20 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
         "deny buttons are unavailable on them. The server enforces this regardless of what " +
         "this console shows.";
 
+    /// <summary>
+    /// What to show when the server refuses the queue.
+    /// </summary>
+    /// <remarks>
+    /// Every authenticated rep may reach the queue in this build, so a refusal
+    /// here means a session problem rather than a role one — a token that
+    /// expired, an account deactivated mid-shift, or a password change still
+    /// outstanding. The wording says that rather than naming a role, because a
+    /// message that blames a role the caller does have is worse than no message.
+    /// </remarks>
     public string ForbiddenExplanation =>
-        "The approval queue is restricted to Tier 2 and above. The server refused this request, " +
-        "which is correct — approving an action is not part of your role.";
+        "The server refused the approval queue for this session. Every rep may approve another " +
+        "rep's request, so this is not about your role: sign out and back in, and if it happens " +
+        "again ask a Supervisor to check your account is still active.";
 
     [RelayCommand]
     private async Task RefreshAsync() => await LoadAsync();

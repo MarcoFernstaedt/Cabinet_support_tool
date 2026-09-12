@@ -154,6 +154,12 @@ public sealed class CheckInIngestService : ICheckInIngestService
 
         UpdateCabinetFacts(cabinet, payload, nowUtc);
 
+        // What the machine actually did with an install this platform asked
+        // for, as opposed to the fact that one was scheduled. Recorded whatever
+        // the tier: an outcome arrives when the install finishes, which is
+        // rarely the moment a full check-in is due.
+        await RecordUpdateOutcomesAsync(cabinet, payload, ct);
+
         if (clockDrift is { } drift && drift.Duration() >= HealthEvaluator.WarningClockDrift)
         {
             // Worth its own record: drift breaks site synchronisation and audit
@@ -492,6 +498,117 @@ public sealed class CheckInIngestService : ICheckInIngestService
             // This is what a cabinet-to-cabinet probe is later resolved
             // against, which is why the console never supplies an address.
             cabinet.LastKnownIpAddress = address;
+        }
+
+        // Two fleet-wide counts, extracted here so the dashboard reads columns
+        // instead of opening seven thousand inventory documents. Both are left
+        // alone when the section they come from is absent: a heartbeat carries
+        // neither, and overwriting a known count with null every five minutes
+        // would make the fleet view flicker between the truth and nothing.
+        if (payload.WindowsUpdate?.PendingUpdates is { } pending)
+        {
+            cabinet.PendingSecurityUpdateCount = pending.Count(u =>
+                u.IsSecurity == true || u.Classification == UpdateClassification.SecurityUpdate);
+        }
+
+        if (payload.Services is { } services)
+        {
+            // Automatic and automatic-delayed both count. A delayed-start
+            // service that is stopped long after boot is as broken as an
+            // ordinary one, and the distinction is about start order rather
+            // than about whether it should be running.
+            cabinet.AutoStartServicesStoppedCount = services.Count(svc =>
+                svc.StartType is ServiceStartType.Automatic or ServiceStartType.AutomaticDelayed &&
+                svc.State == ServiceState.Stopped);
+        }
+    }
+
+    /// <summary>
+    /// Turns a reported install outcome into a Caused audit entry against the
+    /// action that asked for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Caused rather than Observed, and that is the whole point of this method.
+    /// The platform asked for the install; Windows performed it. A fleet that
+    /// records only "we scheduled it" believes it is patched the moment the
+    /// request is dispatched, when the machine may still reboot into a
+    /// rollback, run out of disk, or find the package superseded.
+    /// </para>
+    /// <para>
+    /// The outcome is attached to the action request as its result, so the
+    /// console shows what happened where a rep already looks, rather than in a
+    /// second place they would have to know about.
+    /// </para>
+    /// </remarks>
+    private async Task RecordUpdateOutcomesAsync(
+        Cabinet cabinet, CheckInPayload payload, CancellationToken ct)
+    {
+        if (payload.UpdateInstallOutcomes is not { Count: > 0 } outcomes)
+        {
+            return;
+        }
+
+        List<Guid> ids = outcomes.Select(o => o.ActionRequestId).Distinct().ToList();
+
+        List<ActionRequest> requests = await _db.ActionRequests
+            .Where(a => ids.Contains(a.Id) && a.CabinetId == cabinet.Id)
+            .ToListAsync(ct);
+
+        var byId = requests.ToDictionary(a => a.Id);
+
+        foreach (UpdateInstallOutcome outcome in outcomes)
+        {
+            // An outcome naming an action that belongs to another cabinet, or
+            // none at all, is dropped rather than stored against whatever it
+            // happens to match. An agent cannot report on somebody else's work.
+            if (!byId.TryGetValue(outcome.ActionRequestId, out ActionRequest? request))
+            {
+                _logger.LogWarning(
+                    "Cabinet {CabinetId} reported an update outcome for action {ActionRequestId}, " +
+                    "which is not an action on that cabinet. It was discarded.",
+                    cabinet.Id,
+                    outcome.ActionRequestId);
+
+                continue;
+            }
+
+            var failed = outcome.Results
+                .Where(r => r.ResultCode is not (UpdateResultCode.Succeeded
+                    or UpdateResultCode.SucceededWithErrors))
+                .ToList();
+
+            _audit.Enqueue(new AuditRecord
+            {
+                Event = AuditEvent.UpdateInstallOutcome,
+                Action = request.Action,
+                EventKind = AuditEventKind.Caused,
+                Result = failed.Count == 0 ? AuditResult.Success : AuditResult.Failure,
+                ActorType = ActorType.Agent,
+                ActorId = cabinet.MachineId,
+                CabinetId = cabinet.Id,
+                CabinetHostname = cabinet.Hostname,
+                Reason = failed.Count == 0
+                    ? $"{outcome.Results.Count} update(s) installed."
+                    : $"{failed.Count} of {outcome.Results.Count} update(s) did not install.",
+                Details = new
+                {
+                    ActionRequestId = request.Id,
+                    outcome.CompletedUtc,
+                    outcome.RebootRequired,
+                    Results = outcome.Results.Select(r => new
+                    {
+                        r.UpdateId,
+                        r.Title,
+                        ResultCode = r.ResultCode.ToString(),
+                        r.ErrorCode,
+                    }),
+                },
+            });
+
+            // The outcome lands on the request that caused it, so a rep reading
+            // the action sees what it did rather than only that it was sent.
+            request.CollectedDataJson = JsonSerializer.Serialize(outcome, PayloadJsonOptions);
         }
     }
 

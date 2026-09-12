@@ -57,6 +57,9 @@ public sealed partial class ServicesSectionViewModel : MachineSectionViewModel
 
     partial void OnShowOnlyAutoStartStoppedChanged(bool value) => ApplyFilter();
 
+    partial void OnSelectedStartTypeChanged(ServiceStartType value) =>
+        OnPropertyChanged(nameof(StartTypeWarning));
+
     partial void OnSelectedServiceChanged(ServiceRow? value)
     {
         // The three service actions all need a service name, and the name comes
@@ -142,10 +145,58 @@ public sealed partial class ServicesSectionViewModel : MachineSectionViewModel
     /// server checks the value against its own allow-list before an agent ever
     /// sees it.
     /// </summary>
+    /// <summary>The parameters the three run-state actions take.</summary>
     public IReadOnlyDictionary<string, string> CurrentServiceParameters() =>
         SelectedService is { } row
-            ? new Dictionary<string, string> { ["serviceName"] = row.ServiceName }
+            ? new Dictionary<string, string>
+            {
+                [Contracts.Actions.ActionParameterKeys.ServiceName] = row.ServiceName,
+            }
             : new Dictionary<string, string>();
+
+    /// <summary>
+    /// The start types a rep may set, and the one currently selected.
+    /// </summary>
+    /// <remarks>
+    /// Boot and System are absent on purpose. They are driver load orders:
+    /// setting an ordinary service to one does not make it start earlier, it
+    /// makes the machine fail to boot. The server refuses both, and offering
+    /// them here would only produce a refusal a rep had to interpret.
+    /// </remarks>
+    public IReadOnlyList<ServiceStartType> StartTypeChoices { get; } = new[]
+    {
+        ServiceStartType.Automatic,
+        ServiceStartType.AutomaticDelayed,
+        ServiceStartType.Manual,
+        ServiceStartType.Disabled,
+    };
+
+    /// <summary>The start type a set-start-type action would apply.</summary>
+    [ObservableProperty]
+    private ServiceStartType _selectedStartType = ServiceStartType.Automatic;
+
+    /// <summary>The parameters the set-start-type action takes.</summary>
+    public IReadOnlyDictionary<string, string> CurrentStartTypeParameters() =>
+        SelectedService is { } row
+            ? new Dictionary<string, string>
+            {
+                [Contracts.Actions.ActionParameterKeys.ServiceName] = row.ServiceName,
+                [Contracts.Actions.ActionParameterKeys.StartType] = SelectedStartType.ToString(),
+            }
+            : new Dictionary<string, string>();
+
+    /// <summary>
+    /// The warning shown beside the start-type control when Disabled is chosen.
+    /// </summary>
+    /// <remarks>
+    /// The consequence of disabling a service is delayed and invisible: nothing
+    /// changes now, and the cabinet comes back from its next reboot without the
+    /// service. Saying so at the moment of choosing is the only place it helps.
+    /// </remarks>
+    public string? StartTypeWarning => SelectedStartType == ServiceStartType.Disabled
+        ? "Disabled means the service will not start at the next reboot either. Nothing about the " +
+          "cabinet changes until then, which is what makes this easy to forget."
+        : null;
 
     public override string Summarise() =>
         Availability.HasData

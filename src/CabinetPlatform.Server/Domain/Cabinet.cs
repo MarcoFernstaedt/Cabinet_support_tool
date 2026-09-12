@@ -75,6 +75,32 @@ public class Cabinet
     public string? AgentVersion { get; set; }
 
     /// <summary>
+    /// How many of the cabinet's pending updates Windows classes as security
+    /// fixes, as of the last inventory check-in, or null when the scan did not
+    /// complete.
+    /// </summary>
+    /// <remarks>
+    /// Extracted to a column at ingest rather than derived from the stored
+    /// inventory document. The fleet view answers "how many cabinets are
+    /// missing security updates" across seven thousand rows; deserialising
+    /// seven thousand documents to do it is the difference between a dashboard
+    /// and a timeout.
+    /// </remarks>
+    public int? PendingSecurityUpdateCount { get; set; }
+
+    /// <summary>
+    /// How many services configured to start automatically are currently
+    /// stopped, as of the last inventory check-in, or null when services could
+    /// not be read.
+    /// </summary>
+    /// <remarks>
+    /// Extracted for the same reason, and it is the single highest-value
+    /// diagnostic in the fleet view: a service set to start at boot and not
+    /// running is usually the direct cause of the call.
+    /// </remarks>
+    public int? AutoStartServicesStoppedCount { get; set; }
+
+    /// <summary>
     /// The inventory version currently in force, or null if none has been
     /// stored. Holding the pointer here is what lets an unchanged inventory
     /// check-in write nothing at all.

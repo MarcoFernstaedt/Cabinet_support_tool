@@ -61,6 +61,12 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<bool>("IsCrossSiteTarget")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("OnSiteConfirmedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("OnSiteConfirmedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("OverrideReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -318,6 +324,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<DateTimeOffset>("ApprovedUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<int?>("AutoStartServicesStoppedCount")
+                        .HasColumnType("integer");
+
                     b.Property<Guid?>("CurrentInventoryVersionId")
                         .HasColumnType("uuid");
 
@@ -352,6 +361,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)");
 
+                    b.Property<int?>("PendingSecurityUpdateCount")
+                        .HasColumnType("integer");
+
                     b.Property<int>("Role")
                         .HasColumnType("integer");
 
@@ -372,6 +384,14 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AutoStartServicesStoppedCount");
+
+                    b.HasIndex("DepartmentName")
+                        .HasDatabaseName("IX_Cabinets_DepartmentName");
+
+                    b.HasIndex("Hostname")
+                        .HasDatabaseName("IX_Cabinets_Hostname");
+
                     b.HasIndex("IsActive");
 
                     b.HasIndex("LastCheckInUtc");
@@ -379,7 +399,12 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.HasIndex("MachineId")
                         .IsUnique();
 
+                    b.HasIndex("PendingSecurityUpdateCount");
+
                     b.HasIndex("Role");
+
+                    b.HasIndex("SerialNumber")
+                        .HasDatabaseName("IX_Cabinets_SerialNumber");
 
                     b.HasIndex("SiteId");
 
@@ -432,6 +457,74 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .IsUnique();
 
                     b.ToTable("Clients");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.EventLogView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DefaultWindowHours")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("EventIdsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsRetired")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsSeeded")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LogNamesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaximumEntries")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MinimumLevel")
+                        .HasColumnType("integer");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bytea");
+
+                    b.Property<string>("SourcesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName")
+                        .IsUnique();
+
+                    b.HasIndex("IsRetired");
+
+                    b.ToTable("EventLogViews");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.Heartbeat", b =>
@@ -591,6 +684,35 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.HasIndex("Status");
 
                     b.ToTable("PendingRegistrations");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.RecentCabinetView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("LastViewedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CabinetId");
+
+                    b.HasIndex("UserId", "CabinetId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "LastViewedUtc")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_RecentCabinetViews_UserId_LastViewedUtc_Desc");
+
+                    b.ToTable("RecentCabinetViews");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.RefreshToken", b =>
@@ -777,6 +899,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<bool>("HasElevatedSql")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("HasHardwareActuation")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -875,6 +1000,17 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.InventoryVersion", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "Cabinet")
+                        .WithMany()
+                        .HasForeignKey("CabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Cabinet");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.RecentCabinetView", b =>
                 {
                     b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "Cabinet")
                         .WithMany()

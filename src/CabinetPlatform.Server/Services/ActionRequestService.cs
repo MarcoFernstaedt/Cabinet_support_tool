@@ -4,6 +4,7 @@ using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Common;
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Actions;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
@@ -80,6 +81,7 @@ public sealed class ActionRequestService : IActionRequestService
     private readonly IActionParameterValidator _parameterValidator;
     private readonly ICabinetClock _clock;
     private readonly IAuditService _audit;
+    private readonly IEventLogViewService _eventLogViews;
     private readonly ActionOptions _options;
     private readonly TimeProvider _timeProvider;
 
@@ -88,6 +90,7 @@ public sealed class ActionRequestService : IActionRequestService
     /// <param name="parameterValidator">Checks parameters against the catalog.</param>
     /// <param name="clock">Resolves cabinet-local time.</param>
     /// <param name="audit">The audit trail.</param>
+    /// <param name="eventLogViews">Expands a named event log view into its fields.</param>
     /// <param name="options">Action configuration.</param>
     /// <param name="timeProvider">Clock.</param>
     public ActionRequestService(
@@ -95,6 +98,7 @@ public sealed class ActionRequestService : IActionRequestService
         IActionParameterValidator parameterValidator,
         ICabinetClock clock,
         IAuditService audit,
+        IEventLogViewService eventLogViews,
         IOptions<ActionOptions> options,
         TimeProvider timeProvider)
     {
@@ -102,6 +106,7 @@ public sealed class ActionRequestService : IActionRequestService
         _parameterValidator = parameterValidator;
         _clock = clock;
         _audit = audit;
+        _eventLogViews = eventLogViews;
         _options = options.Value;
         _timeProvider = timeProvider;
     }
@@ -931,6 +936,45 @@ public sealed class ActionRequestService : IActionRequestService
         AuditEvent auditEvent,
         CancellationToken ct)
     {
+        // ---------------------------------------------------------------
+        // Hardware actuation. Refused first, before the cabinet's state, the
+        // caller's role, their grants or their parameters are considered — so
+        // that there is no ordering of those checks under which one of these
+        // could succeed. No agent has an executor for them either, which is the
+        // second, independent reason nothing happens; this one is the reason
+        // nothing is ever dispatched.
+        // ---------------------------------------------------------------
+        if (entry.IsReservedHardwareActuation)
+        {
+            await _audit.WriteAsync(new AuditRecord
+            {
+                Event = AuditEvent.HardwareActuationRefused,
+                Action = entry.Action,
+                EventKind = AuditEventKind.Observed,
+                Result = AuditResult.Denied,
+                ActorType = ActorType.User,
+                ActorId = actor.UserId.ToString(),
+                ActorDisplayName = actor.Username,
+                CabinetId = cabinet.Id,
+                CabinetHostname = cabinet.Hostname,
+                Reason = $"{entry.Action} is a reserved hardware-actuation action and is always refused.",
+                Details = new
+                {
+                    Action = entry.Action.ToString(),
+                    ActorRole = actor.Role.ToString(),
+                    // Recorded either way. "Did the grant make a difference?"
+                    // is the question a reviewer will have, and the answer has
+                    // to be visible rather than inferred.
+                    ActorHoldsHardwareActuationGrant = actor.HasHardwareActuation,
+                },
+            }, ct);
+
+            return OperationResult<PreparedAction>.Forbidden(
+                $"{entry.DisplayName} actuates cabinet hardware, which this platform does not do. " +
+                "No role and no grant permits it, and no agent has an implementation of it. " +
+                "The refusal has been recorded.");
+        }
+
         if (!cabinet.IsActive)
         {
             return await DeniedAsync(
@@ -960,6 +1004,22 @@ public sealed class ActionRequestService : IActionRequestService
         }
 
         var mutable = new Dictionary<string, string>(parameters.Value!, StringComparer.OrdinalIgnoreCase);
+
+        // The rep named a view. The server reads it from the database and
+        // attaches its fields, so what reaches the agent is a Supervisor's
+        // definition rather than anything a caller composed. A request that
+        // arrived already carrying a definition was refused by the validator.
+        if (entry.Action == ActionName.RunEventLogView)
+        {
+            OperationResult<PreparedAction> expanded =
+                await ExpandEventLogViewAsync(actor, cabinet, mutable, auditEvent, ct);
+
+            if (!expanded.Succeeded)
+            {
+                return expanded;
+            }
+        }
+
         Guid? targetCabinetId = null;
         string? targetHostname = null;
         var crossSite = false;
@@ -1063,6 +1123,53 @@ public sealed class ActionRequestService : IActionRequestService
     /// allowed but must be asked for explicitly, because the default and the
     /// useful case is a satellite testing its own site's sync cabinet.
     /// </remarks>
+    /// <summary>
+    /// Reads the named view and attaches its fields to the request.
+    /// </summary>
+    /// <remarks>
+    /// The definition is serialised into a single validated parameter rather
+    /// than spread across a dozen keys, because it is one indivisible thing: a
+    /// view with its sources but not its event ids is a different filter, and
+    /// a partially-applied one would silently return the firehose the view
+    /// exists to replace.
+    /// </remarks>
+    private async Task<OperationResult<PreparedAction>> ExpandEventLogViewAsync(
+        CurrentUser actor,
+        Cabinet cabinet,
+        Dictionary<string, string> parameters,
+        AuditEvent auditEvent,
+        CancellationToken ct)
+    {
+        Guid viewId = Guid.Parse(parameters[ActionParameterKeys.EventLogViewId]);
+
+        int? windowOverride =
+            parameters.TryGetValue(ActionParameterKeys.HoursOfHistory, out string? rawWindow) &&
+            int.TryParse(rawWindow, NumberStyles.Integer, CultureInfo.InvariantCulture, out int hours)
+                ? hours
+                : null;
+
+        OperationResult<EventLogViewDefinition> definition =
+            await _eventLogViews.ExpandAsync(viewId, windowOverride, ct);
+
+        if (!definition.Succeeded)
+        {
+            return await DeniedAsync(
+                auditEvent, actor, cabinet, definition.Reason!,
+                Propagate<EventLogViewDefinition, PreparedAction>(definition), ct);
+        }
+
+        parameters[ActionParameterKeys.EventLogViewDefinition] =
+            JsonSerializer.Serialize(definition.Value!, ContractJson.Default);
+
+        // The window the agent will actually use, echoed back so the stored
+        // request says what was run rather than what was asked for.
+        parameters[ActionParameterKeys.HoursOfHistory] =
+            definition.Value!.WindowHours.ToString(CultureInfo.InvariantCulture);
+
+        return OperationResult<PreparedAction>.Ok(
+            new PreparedAction(parameters, null, null, false, false));
+    }
+
     private async Task<OperationResult<ResolvedTarget>> ResolveTargetAsync(
         CurrentUser actor,
         ActionCatalogEntry entry,

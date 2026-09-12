@@ -2,6 +2,7 @@ using CabinetPlatform.Agent.Actions;
 using CabinetPlatform.Agent.Actions.Executors;
 using CabinetPlatform.Agent.Collectors;
 using CabinetPlatform.Agent.Configuration;
+using CabinetPlatform.Agent.Identity;
 using CabinetPlatform.Agent.Platform;
 using CabinetPlatform.Agent.Tests.Platform;
 using CabinetPlatform.Agent.Tests.TestSupport;
@@ -401,6 +402,16 @@ public class ServiceExecutorTests
         public void Start(string serviceName, TimeSpan timeout) => Calls.Add($"Start:{serviceName}");
 
         public void Stop(string serviceName, TimeSpan timeout) => Calls.Add($"Stop:{serviceName}");
+
+        public ServiceStartType StartType { get; set; } = ServiceStartType.Automatic;
+
+        public ServiceStartType GetStartType(string serviceName) => StartType;
+
+        public void SetStartType(string serviceName, ServiceStartType startType)
+        {
+            Calls.Add($"SetStartType:{serviceName}:{startType}");
+            StartType = startType;
+        }
     }
 }
 
@@ -491,6 +502,10 @@ public class ScanForUpdatesExecutorTests
 
         public IReadOnlyList<UpdateHistoryEntry> GetHistory(int maximumEntries, CancellationToken cancellationToken)
             => Array.Empty<UpdateHistoryEntry>();
+
+        public UpdateInstallOutcome InstallUpdates(
+            IReadOnlyList<string> updateIds, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("This stub does not install.");
     }
 }
 
@@ -581,13 +596,34 @@ public class ScheduleUpdatesExecutorTests
         Reason = "Applying the September cumulative update.",
         RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = Now,
-        Parameters = new Dictionary<string, string> { [ActionParameterKeys.ScheduledForUtc] = scheduledUtc },
+        Parameters = new Dictionary<string, string>
+        {
+            [ActionParameterKeys.ScheduledForUtc] = scheduledUtc,
+
+            // Specific updates, always. "Everything applicable" would install
+            // whatever had become applicable between the rep choosing and the
+            // machine acting, which is not what anybody agreed to.
+            [ActionParameterKeys.UpdateIds] = "a0d9f1e4-0000-4000-8000-000000000001",
+        },
     };
 
     private sealed class StubScheduledUpdateWriter : IScheduledUpdateWriter
     {
-        public DateTimeOffset? Scheduled { get; private set; }
+        private ScheduledUpdateInstall? _schedule;
 
-        public void ScheduleInstall(DateTimeOffset scheduledUtc) => Scheduled = scheduledUtc;
+        public DateTimeOffset? Scheduled => _schedule?.ScheduledForUtc;
+
+        public IReadOnlyList<string> UpdateIds => _schedule?.UpdateIds ?? Array.Empty<string>();
+
+        public void Schedule(ScheduledUpdateInstall schedule) => _schedule = schedule;
+
+        public ScheduledUpdateInstall? Read() => _schedule;
+
+        public bool Cancel()
+        {
+            bool had = _schedule is not null;
+            _schedule = null;
+            return had;
+        }
     }
 }

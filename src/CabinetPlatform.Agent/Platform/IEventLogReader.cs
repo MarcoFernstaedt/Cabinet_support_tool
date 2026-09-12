@@ -17,4 +17,16 @@ public interface IEventLogReader
         TimeSpan window,
         int maximumEntries,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs one server-defined view across the logs it names.
+    /// </summary>
+    /// <remarks>
+    /// The agent composes the XPath itself from the view's fields. It never
+    /// receives one, and there is no overload here that takes one.
+    /// </remarks>
+    /// <param name="definition">The view, as the server expanded it.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    IReadOnlyList<EventLogEntry> RunView(
+        EventLogViewDefinition definition, CancellationToken cancellationToken);
 }

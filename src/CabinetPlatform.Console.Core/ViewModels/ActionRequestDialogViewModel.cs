@@ -39,12 +39,59 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
 
     public ActionRequestPrompt Prompt { get; }
 
-    public string Title => $"{Prompt.Catalogue.DisplayName} — {Prompt.CabinetHostname}";
+    /// <summary>The dialog's title, naming the cabinet in full.</summary>
+    public string Title => $"{Prompt.Catalogue.DisplayName} — {Prompt.Path.Display}";
 
+    /// <summary>What is about to be done.</summary>
     public string ActionName => Prompt.Catalogue.DisplayName;
+
+    /// <summary>The server's own description of it.</summary>
     public string Description => Prompt.Catalogue.Description;
-    public string Hostname => Prompt.CabinetHostname;
-    public string ClientAndSite => Prompt.ClientAndSite;
+
+    /// <summary>The cabinet's full identifying path, on one line.</summary>
+    public string CabinetPathDisplay => Prompt.Path.Display;
+
+    /// <summary>The cabinet's own name.</summary>
+    public string CabinetName => Prompt.Path.CabinetName;
+
+    /// <summary>Its client, site and department.</summary>
+    public string ClientAndSite => CabinetIdentity.ClientAndSite(Prompt.Path);
+
+    /// <summary>Its part in its site's topology.</summary>
+    public string CabinetRoleLabel => CabinetIdentity.RoleLabel(Prompt.Path.Role);
+
+    /// <summary>Its serial number, or a dash.</summary>
+    public string SerialNumber => Format.Text(Prompt.Path.SerialNumber);
+
+    /// <summary>
+    /// The sentence the operator has to agree to before the dialog will submit.
+    /// </summary>
+    public string CabinetConfirmationQuestion =>
+        CabinetIdentity.ConfirmationQuestion(Prompt.Path, Prompt.Catalogue.DisplayName);
+
+    /// <summary>Whether another cabinet in the list this came from shares its name.</summary>
+    public bool CabinetNameIsAmbiguous => Prompt.Path.HostnameIsAmbiguous;
+
+    /// <summary>
+    /// The operator's confirmation that this is the cabinet they meant.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Unticked every time the dialog opens, and required. It is the last point
+    /// at which the wrong cabinet can be caught, and it is worth the extra
+    /// click: a rep with twenty tabs open and a client on the phone has no
+    /// other moment where the question "is this the right machine" is actually
+    /// put to them.
+    /// </para>
+    /// <para>
+    /// It is not a substitute for anything the server does. The server still
+    /// decides whether the action is permitted; this only establishes that a
+    /// person read the identification.
+    /// </para>
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanSubmit), nameof(ValidationMessage))]
+    private bool _cabinetConfirmed;
 
     public IReadOnlyList<ParameterRow> Parameters { get; }
 
@@ -129,6 +176,13 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
                     "check-in. Expect the server to refuse this.");
             }
 
+            if (Prompt.Path.HostnameIsAmbiguous)
+            {
+                warnings.Add(
+                    "Another cabinet in the list you chose this from has the same name. Check the " +
+                    "client and site above before confirming.");
+            }
+
             if (Prompt.Catalogue.BlockedIfUserLoggedOn && Prompt.UserIsLoggedOnToCabinet is null)
             {
                 // Unknown is not the same as nobody, and the safer reading is
@@ -168,6 +222,13 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
                 return "Overriding a safety check requires its own stated reason.";
             }
 
+            // Checked last, so that a rep who has filled the form in is left
+            // looking at the one question that matters most.
+            if (!CabinetConfirmed)
+            {
+                return CabinetConfirmationQuestion;
+            }
+
             return null;
         }
     }
@@ -180,7 +241,8 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
             Reason.Trim(),
             TicketReference.Trim(),
             OverrideSafetyChecks,
-            OverrideSafetyChecks ? OverrideReason.Trim() : null)
+            OverrideSafetyChecks ? OverrideReason.Trim() : null,
+            CabinetConfirmed)
         : null;
 
     /// <summary>
@@ -188,12 +250,12 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
     /// consequence is heard before anything is typed.
     /// </summary>
     public string AccessibleSummary =>
-        $"{ActionName} on {Hostname}, {ClientAndSite}. {Description} " +
+        $"{ActionName}. {CabinetIdentity.Spoken(Prompt.Path)} {Description} " +
         (HasParameters
             ? "Parameters: " + string.Join(", ", Parameters.Select(p => $"{p.Key} {p.Value}")) + ". "
             : string.Empty) +
         string.Join(" ", Warnings) +
-        " A reason and a ticket reference are required.";
+        " A reason and a ticket reference are required, and you must confirm the cabinet.";
 
 }
 

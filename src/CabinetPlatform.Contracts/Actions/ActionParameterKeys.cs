@@ -90,4 +90,96 @@ public static class ActionParameterKeys
 
     /// <summary>Whether a probe may target a cabinet at a different site of the same client.</summary>
     public const string AllowCrossSite = "allowCrossSite";
+
+    /// <summary>Which process a kill names, by operating system process id.</summary>
+    /// <remarks>
+    /// Never sufficient on its own. Process ids are reused within minutes on a
+    /// busy machine, so <see cref="ExpectedProcessName"/> travels with it and
+    /// the agent refuses the pair if the machine disagrees.
+    /// </remarks>
+    public const string ProcessId = "processId";
+
+    /// <summary>
+    /// The image name the console believes <see cref="ProcessId"/> currently
+    /// belongs to. Checked by the agent against the live process table before
+    /// anything is ended.
+    /// </summary>
+    public const string ExpectedProcessName = "expectedProcessName";
+
+    /// <summary>
+    /// An image name from the server's process allow-list, without path or
+    /// extension.
+    /// </summary>
+    /// <remarks>
+    /// Checked against the allow-list on the server and against the agent's own
+    /// list again, and against both deny-lists. It names a process; it is not a
+    /// path and is never launched from this value.
+    /// </remarks>
+    public const string ProcessName = "processName";
+
+    /// <summary>
+    /// Which registered application a restart names, from the server's
+    /// allow-list.
+    /// </summary>
+    /// <remarks>
+    /// The executable it relaunches comes from the agent's own registered
+    /// install path for that application. There is deliberately no path
+    /// parameter: one would be a command line in everything but name.
+    /// </remarks>
+    public const string ApplicationName = "applicationName";
+
+    /// <summary>The start type a service is being set to.</summary>
+    public const string StartType = "startType";
+
+    /// <summary>Which stored event log view to run, by identifier.</summary>
+    /// <remarks>
+    /// The view's own fields are expanded by the server and travel as
+    /// <see cref="EventLogViewDefinition"/>. A caller names a view; nobody
+    /// names an XPath.
+    /// </remarks>
+    public const string EventLogViewId = "eventLogViewId";
+
+    /// <summary>
+    /// The view definition the server expanded, as JSON, for the agent to build
+    /// its own query from. Never supplied by a caller.
+    /// </summary>
+    public const string EventLogViewDefinition = "eventLogViewDefinition";
+
+    /// <summary>
+    /// Which updates an install or schedule names, as a comma-separated list of
+    /// Windows Update identifiers.
+    /// </summary>
+    /// <remarks>
+    /// Specific updates, never "everything applicable". A rep looked at a
+    /// scan result and chose; the machine must install what was chosen and not
+    /// whatever has become applicable since.
+    /// </remarks>
+    public const string UpdateIds = "updateIds";
+
+    /// <summary>Which network adapter a configuration change names, by its stable identifier.</summary>
+    public const string AdapterId = "adapterId";
+
+    /// <summary>DNS server addresses to set, comma-separated, in order of preference.</summary>
+    public const string DnsServers = "dnsServers";
+
+    /// <summary>The IPv4 address a static configuration sets.</summary>
+    public const string IpAddress = "ipAddress";
+
+    /// <summary>The subnet mask a static configuration sets.</summary>
+    public const string SubnetMask = "subnetMask";
+
+    /// <summary>The default gateway a static configuration sets. Optional.</summary>
+    public const string DefaultGateway = "defaultGateway";
+
+    /// <summary>
+    /// The host a generic network probe targets, as a host name or an IP
+    /// address.
+    /// </summary>
+    /// <remarks>
+    /// Validated as a host, not accepted as text: the server refuses anything
+    /// that is not a well-formed name or address, and refuses loopback,
+    /// link-local, multicast and unspecified addresses, none of which name
+    /// something worth probing from a cabinet.
+    /// </remarks>
+    public const string TargetHost = "targetHost";
 }

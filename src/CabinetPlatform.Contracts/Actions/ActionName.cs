@@ -65,10 +65,17 @@ public enum ActionName
     CollectEventLogs = 10,
 
     /// <summary>
-    /// Collect the current process list and return it with the result. On
-    /// demand only, for the same reason as <see cref="CollectEventLogs"/>.
+    /// Read the current process list and return it with the result, outside
+    /// the normal check-in cadence. On demand only, for the same reason as
+    /// <see cref="CollectEventLogs"/>.
     /// </summary>
-    CollectProcessList = 11,
+    /// <remarks>
+    /// Spelled <c>CollectProcessList</c> in earlier builds. The stored value is
+    /// an integer, so renaming the member renames what travels on the wire and
+    /// leaves every audit row and action request already in the database
+    /// pointing at the same action.
+    /// </remarks>
+    GetProcessList = 11,
 
     /// <summary>
     /// Ping another cabinet at the same site, from this cabinet. The target is
@@ -89,4 +96,112 @@ public enum ActionName
     /// site, to locate where a site network fault sits.
     /// </summary>
     TraceRouteToCabinet = 14,
+
+    /// <summary>
+    /// End one process, named by its process id together with the image name
+    /// the console believes that id belongs to.
+    /// </summary>
+    /// <remarks>
+    /// Both are required because process ids are reused. A rep reads a list,
+    /// picks a row, and by the time the agent acts the id may name something
+    /// else entirely; the agent re-reads the name for that id and refuses if it
+    /// has changed. Approval required.
+    /// </remarks>
+    KillProcess = 15,
+
+    /// <summary>
+    /// End every process running under one image name, drawn from the
+    /// server-side process allow-list. Approval required.
+    /// </summary>
+    KillProcessByName = 16,
+
+    /// <summary>
+    /// Stop an allow-listed application and start it again from its registered
+    /// install path. Approval required.
+    /// </summary>
+    /// <remarks>
+    /// The install path is the agent's own registered value for that
+    /// application. It is never supplied in the request: a path parameter would
+    /// be a command line wearing a different hat.
+    /// </remarks>
+    RestartApplication = 17,
+
+    /// <summary>
+    /// Run one server-defined event log view on the cabinet and return the
+    /// matching records.
+    /// </summary>
+    /// <remarks>
+    /// The agent receives the view's fields — log names, sources, event ids,
+    /// minimum level, window — and builds the XPath itself. No user-supplied
+    /// XPath ever reaches it.
+    /// </remarks>
+    RunEventLogView = 18,
+
+    /// <summary>
+    /// Install specific updates now. Disruptive, approval required, and blocked
+    /// while anybody is signed in at the cabinet.
+    /// </summary>
+    InstallUpdatesNow = 19,
+
+    /// <summary>Withdraw a pending scheduled install. Non-disruptive.</summary>
+    CancelScheduledUpdates = 20,
+
+    /// <summary>Read what is currently scheduled to install, and when.</summary>
+    GetScheduledUpdates = 21,
+
+    /// <summary>
+    /// Change a service's start type, from the server-side service allow-list.
+    /// Approval required: a service left disabled does not come back at the
+    /// next reboot.
+    /// </summary>
+    SetServiceStartType = 22,
+
+    /// <summary>
+    /// Replace an adapter's DNS servers. Disruptive, approval required, and
+    /// applied under confirm-or-revert.
+    /// </summary>
+    SetDnsServers = 23,
+
+    /// <summary>
+    /// Give an adapter a static address. Disruptive, approval required, and
+    /// applied under confirm-or-revert.
+    /// </summary>
+    SetStaticIpAddress = 24,
+
+    /// <summary>
+    /// Return an adapter to DHCP. Disruptive, approval required, and applied
+    /// under confirm-or-revert.
+    /// </summary>
+    SetAdapterToDhcp = 25,
+
+    /// <summary>Ping a host from this cabinet. Non-disruptive.</summary>
+    PingHost = 26,
+
+    /// <summary>Trace the network path from this cabinet to a host.</summary>
+    TraceRoute = 27,
+
+    /// <summary>
+    /// Open a TCP connection from this cabinet to a host and port, to tell a
+    /// dead host from a blocked port.
+    /// </summary>
+    TestPortConnectivity = 28,
+
+    /// <summary>
+    /// Reserved. Opening a drawer is hardware actuation, which this build does
+    /// not perform.
+    /// </summary>
+    /// <remarks>
+    /// The value exists so that the permission, the audit event and the refusal
+    /// are all real and exercised. There is no executor for it on any agent and
+    /// the server answers every request for it with a denial and an audit row.
+    /// Do not implement it here; actuation is a separate, on-site decision with
+    /// its own safety case.
+    /// </remarks>
+    OpenDrawer = 900,
+
+    /// <summary>Reserved. Releasing a lock is hardware actuation. Always denied.</summary>
+    UnlockLock = 901,
+
+    /// <summary>Reserved. Opening a cubie is hardware actuation. Always denied.</summary>
+    OpenCubie = 902,
 }

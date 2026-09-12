@@ -204,6 +204,7 @@ public partial class App : Application
 
         services.AddSingleton<LoginViewModel>();
         services.AddSingleton<CabinetListViewModel>();
+        services.AddSingleton<CabinetFinderViewModel>();
         services.AddSingleton<MachineTabViewModel>();
         services.AddSingleton<CabinetTabViewModel>();
         services.AddSingleton<AuditTabViewModel>();

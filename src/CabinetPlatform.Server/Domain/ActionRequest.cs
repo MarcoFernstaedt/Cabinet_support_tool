@@ -99,6 +99,22 @@ public class ActionRequest
     /// </summary>
     public DateTimeOffset? ExpiresUtc { get; set; }
 
+    /// <summary>
+    /// Reserved. The person standing at the cabinet who confirmed that
+    /// actuating its hardware was safe.
+    /// </summary>
+    /// <remarks>
+    /// Always null in this build, and nothing sets it. It exists now because
+    /// the failure this product must never have is an actuation authorised from
+    /// a desk with nobody at the cabinet, and the column that records the
+    /// physical half of that authorisation belongs in the record's shape before
+    /// any code can write to it.
+    /// </remarks>
+    public Guid? OnSiteConfirmedByUserId { get; set; }
+
+    /// <summary>Reserved. UTC instant of that on-site confirmation.</summary>
+    public DateTimeOffset? OnSiteConfirmedUtc { get; set; }
+
     /// <summary>Set when a Supervisor ran a disruptive action past its safety checks.</summary>
     public bool SafetyChecksOverridden { get; set; }
 

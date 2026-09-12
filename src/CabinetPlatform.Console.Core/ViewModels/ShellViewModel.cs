@@ -13,7 +13,13 @@ namespace CabinetPlatform.Console.Core.ViewModels;
 /// <summary>Which top-level view the main window is showing.</summary>
 public enum ShellView
 {
+    /// <summary>The cabinet list and the detail tabs beside it.</summary>
     Cabinets,
+
+    /// <summary>Search, the client hierarchy, and this rep's recent cabinets.</summary>
+    Find,
+
+    /// <summary>Actions waiting for a second person.</summary>
     Approvals
 }
 
@@ -43,6 +49,7 @@ public sealed partial class ShellViewModel : ObservableObject
 
     public ShellViewModel(
         CabinetListViewModel cabinets,
+        CabinetFinderViewModel finder,
         MachineTabViewModel machine,
         CabinetTabViewModel cabinet,
         AuditTabViewModel audit,
@@ -52,11 +59,17 @@ public sealed partial class ShellViewModel : ObservableObject
         ILiveRegionAnnouncer announcer)
     {
         Cabinets = cabinets;
+        Finder = finder;
         Machine = machine;
         Cabinet = cabinet;
         Audit = audit;
         Fleet = fleet;
         Approvals = approvals;
+
+        // The finder is reachable from every screen, so choosing a cabinet in
+        // it has to land the same way as choosing one in the list: the detail
+        // pane loads, and the shell goes back to showing it.
+        Finder.CabinetChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
 
         _session = session;
         _announcer = announcer;
@@ -78,13 +91,24 @@ public sealed partial class ShellViewModel : ObservableObject
         };
 
         foreach (ObservableViewModelBase screen in
-                 new ObservableViewModelBase[] { Cabinets, Machine, Audit, Fleet, Approvals })
+                 new ObservableViewModelBase[] { Cabinets, Finder, Machine, Audit, Fleet, Approvals })
         {
             WatchForExpiry(screen);
         }
     }
 
     public CabinetListViewModel Cabinets { get; }
+
+    /// <summary>
+    /// Search, the client hierarchy, and this rep's recent cabinets.
+    /// </summary>
+    /// <remarks>
+    /// Reachable from anywhere rather than being a screen a rep navigates to.
+    /// With seven thousand cabinets, finding the right one is the most frequent
+    /// thing anybody does here, and burying it behind a tab would mean a rep on
+    /// a call losing whatever they were looking at to go and search.
+    /// </remarks>
+    public CabinetFinderViewModel Finder { get; }
 
     /// <summary>
     /// The detail load started by the most recent cabinet selection, or a
@@ -130,14 +154,26 @@ public sealed partial class ShellViewModel : ObservableObject
     public Role? Role => _session.Role;
 
     /// <summary>
-    /// Whether the approvals queue is worth offering. Tier 1 cannot approve
-    /// anything and the server refuses them the endpoint, so the entry point is
-    /// hidden rather than offered and then refused.
+    /// Whether the approvals queue is worth offering.
     /// </summary>
-    public bool CanSeeApprovals => _session.Role >= Contracts.Auth.Role.Tier2;
+    /// <remarks>
+    /// Every authenticated rep, because any rep may approve another's request —
+    /// what they may not do is approve their own, and that is a per-request
+    /// rule the queue itself applies rather than a reason to hide the queue.
+    /// The property stays rather than being replaced with a literal so that
+    /// tightening this later is a change here rather than in the markup.
+    /// </remarks>
+    public bool CanSeeApprovals => _session.IsSignedIn;
 
-    /// <summary>Whether the audit tab is worth offering. Supervisor-only at the server.</summary>
-    public bool CanSeeAudit => _session.Role >= Contracts.Auth.Role.Supervisor;
+    /// <summary>
+    /// Whether the audit tab is worth offering.
+    /// </summary>
+    /// <remarks>
+    /// Every authenticated rep. With no case scoping and no per-rep cabinet
+    /// assignment, the audit trail is the control that replaces them — and a
+    /// control everybody can see is one everybody behaves as though exists.
+    /// </remarks>
+    public bool CanSeeAudit => _session.IsSignedIn;
 
     /// <summary>
     /// The count on the approvals entry point, or null when there is nothing to
@@ -177,6 +213,10 @@ public sealed partial class ShellViewModel : ObservableObject
         // it is loaded up front rather than on first click.
         await Fleet.LoadAsync();
 
+        // So the search box and the recent list are usable the moment the
+        // window appears, rather than after a rep has clicked into them.
+        await Finder.LoadAsync();
+
         if (CanSeeApprovals)
         {
             await Approvals.LoadAsync();
@@ -195,6 +235,44 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         CurrentView = ShellView.Cabinets;
         _announcer.Announce($"Cabinets. {Cabinets.PageSummary}");
+    }
+
+    /// <summary>
+    /// Opens the finder and puts the caret in the search box.
+    /// </summary>
+    /// <remarks>
+    /// Bound to an access key so it is reachable from the keyboard on any
+    /// screen. A rep taking a second call while looking at the first client's
+    /// cabinet should not have to navigate anywhere to start looking for the
+    /// second one's.
+    /// </remarks>
+    [RelayCommand]
+    private async Task ShowFinderAsync()
+    {
+        CurrentView = ShellView.Find;
+        await Finder.LoadAsync();
+
+        _announcer.Announce(
+            "Find a cabinet. Search by client, site, department, cabinet name, serial number or " +
+            $"cabinet id. {Finder.ResultSummary}");
+    }
+
+    /// <summary>
+    /// Opens one cabinet in the detail pane, from wherever it was chosen.
+    /// </summary>
+    /// <param name="cabinetId">The cabinet.</param>
+    public async Task OpenCabinetAsync(Guid cabinetId)
+    {
+        CurrentView = ShellView.Cabinets;
+        SelectedTabIndex = 0;
+
+        await Machine.LoadAsync(cabinetId);
+
+        // The recent list has just gained this cabinet, server-side, because
+        // reading a cabinet's detail is what puts it there.
+        await Finder.LoadRecentAsync();
+
+        _announcer.AnnounceImportant($"Opened {Machine.HeaderPath}.");
     }
 
     [RelayCommand]
@@ -253,6 +331,7 @@ public sealed partial class ShellViewModel : ObservableObject
     public void DeactivateAll()
     {
         Cabinets.Deactivate();
+        Finder.Deactivate();
         Machine.Deactivate();
         Audit.Deactivate();
         Fleet.Deactivate();
@@ -270,6 +349,13 @@ public sealed partial class ShellViewModel : ObservableObject
         Cabinets.Cabinets.Clear();
         Approvals.Queue.Clear();
         Audit.Entries.Clear();
+
+        // The recent list is this rep's, so it goes with their session rather
+        // than being left on screen for whoever signs in next.
+        Finder.Results.Clear();
+        Finder.Recent.Clear();
+        Finder.Clients.Clear();
+        Finder.HierarchySites.Clear();
 
         RaiseSessionChanged();
 

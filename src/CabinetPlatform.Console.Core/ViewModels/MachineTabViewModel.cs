@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CabinetPlatform.Console.Core.Api;
@@ -7,6 +8,7 @@ using CabinetPlatform.Console.Core.Rows;
 using CabinetPlatform.Console.Core.Sections;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Telemetry;
@@ -64,7 +66,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         Sections = new ObservableCollection<MachineSectionViewModel>
         {
-            Overview, Performance, Services, Disk, WindowsUpdate, EventLogs, Network, System
+            Overview, Performance, Processes, Services, Disk, WindowsUpdate, EventLogs, Network, System
         };
 
         // The user changing drive or window starts a fetch that nothing is in a
@@ -80,8 +82,14 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         };
     }
 
+    /// <summary>Rolled-up state and the sync-link test.</summary>
     public OverviewSectionViewModel Overview { get; } = new();
+
+    /// <summary>CPU, memory and page file.</summary>
     public PerformanceSectionViewModel Performance { get; } = new();
+
+    /// <summary>What is running, and the three ways of stopping it.</summary>
+    public ProcessSectionViewModel Processes { get; } = new();
     public ServicesSectionViewModel Services { get; } = new();
     public DiskSectionViewModel Disk { get; } = new();
     public WindowsUpdateSectionViewModel WindowsUpdate { get; } = new();
@@ -106,6 +114,37 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     [ObservableProperty]
     private string _clientAndSite = string.Empty;
+
+    /// <summary>
+    /// The selected cabinet's full identifying path, or null when none is
+    /// selected.
+    /// </summary>
+    /// <remarks>
+    /// This is what the tab's persistent header shows and what every action
+    /// dialog restates. It stays visible while the sections below it scroll,
+    /// because a rep forty rows into an event log has had the cabinet's name
+    /// off screen for some time and the next thing they do will be on whichever
+    /// cabinet they believe they are looking at.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HeaderPath), nameof(HeaderClientAndSite),
+        nameof(HeaderCabinetName), nameof(HeaderRoleLabel), nameof(HeaderAccessibleSummary))]
+    private CabinetPath? _path;
+
+    /// <summary>The header's one-line identification.</summary>
+    public string HeaderPath => CabinetIdentity.Line(Path);
+
+    /// <summary>The header's client, site and department.</summary>
+    public string HeaderClientAndSite => CabinetIdentity.ClientAndSite(Path);
+
+    /// <summary>The header's cabinet name.</summary>
+    public string HeaderCabinetName => Path?.CabinetName ?? string.Empty;
+
+    /// <summary>The header's topology role.</summary>
+    public string HeaderRoleLabel => Path is null ? string.Empty : CabinetIdentity.RoleLabel(Path.Role);
+
+    /// <summary>The header as a sentence, for a screen reader.</summary>
+    public string HeaderAccessibleSummary => CabinetIdentity.Spoken(Path);
 
     /// <summary>
     /// How many sections arrive on request rather than with routine telemetry.
@@ -144,6 +183,16 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             {
                 _catalogue = await _api.GetActionCatalogAsync(ct);
                 BuildActions();
+            }
+
+            if (EventLogs.Views.Count == 0)
+            {
+                // Fetched once per session, like the catalogue. Views change
+                // when a Supervisor edits one, which is rare, and re-fetching
+                // per cabinet would add a round trip to every selection.
+                EventLogs.ApplyViews(
+                    (await _api.GetEventLogViewsAsync(new EventLogViewQuery { PageSize = 100 }, ct))
+                    .Items);
             }
 
             _latest = await _api.GetCabinetLatestAsync(cabinetId, ct);
@@ -225,6 +274,80 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// <summary>Whether there is a sync cabinet to test the link to.</summary>
     public bool CanTestSyncLink => Overview.CanTestSyncLink;
 
+    /// <summary>
+    /// Re-reads one action and, if it has finished and collected something,
+    /// renders it into the section that asked for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The on-demand sections work this way because the work happens on the
+    /// cabinet, not in the response to the request. A rep presses "View process
+    /// list", the action is queued, the agent collects it on its next poll, and
+    /// the answer arrives some seconds later. The alternative — blocking the
+    /// console until a machine somewhere in another country answers — is worse.
+    /// </para>
+    /// <para>
+    /// Nothing is inferred from a result that is not there. A pending action
+    /// leaves the section saying it is pending, which is the truth and is not
+    /// the same as an empty grid.
+    /// </para>
+    /// </remarks>
+    /// <param name="actionId">The action to re-read.</param>
+    public async Task<bool> TryApplyActionResultAsync(Guid actionId)
+    {
+        ActionRequestView? action = await RunAsync(ct => _api.GetActionAsync(actionId, ct));
+
+        if (action?.CollectedData is not { Length: > 0 } collected)
+        {
+            return false;
+        }
+
+        try
+        {
+            switch (action.Action)
+            {
+                case ActionName.GetProcessList:
+                    IReadOnlyList<ProcessInfo>? processes =
+                        JsonSerializer.Deserialize<IReadOnlyList<ProcessInfo>>(
+                            collected, ContractJson.Default);
+
+                    if (processes is not null)
+                    {
+                        Processes.ApplyProcesses(
+                            processes, action.CompletedUtc ?? _timeProvider.GetUtcNow());
+                        Announcer.Announce(Processes.Summarise());
+                        return true;
+                    }
+
+                    return false;
+
+                case ActionName.RunEventLogView:
+                    EventLogViewResultDto? result =
+                        JsonSerializer.Deserialize<EventLogViewResultDto>(
+                            collected, ContractJson.Default);
+
+                    if (result is not null)
+                    {
+                        EventLogs.ApplyResult(result);
+                        Announcer.Announce(EventLogs.Summarise());
+                        return true;
+                    }
+
+                    return false;
+
+                default:
+                    return false;
+            }
+        }
+        catch (JsonException)
+        {
+            // A payload this build cannot read leaves the section saying it has
+            // nothing, which is honest. Rendering half a grid from a document
+            // we do not understand would be worse than rendering none.
+            return false;
+        }
+    }
+
     /// <summary>Re-reads the same cabinet, for the Refresh button.</summary>
     [RelayCommand]
     private async Task RefreshAsync()
@@ -240,10 +363,9 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
+        Path = _latest?.Path;
         CabinetHostname = _latest?.Cabinet.Hostname ?? string.Empty;
-        ClientAndSite = _latest is null
-            ? string.Empty
-            : $"{_latest.Cabinet.ClientName} — {_latest.Cabinet.SiteName}";
+        ClientAndSite = CabinetIdentity.ClientAndSite(_latest?.Path);
 
         _suppressHistoryRequests = true;
 
@@ -344,21 +466,53 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// </remarks>
     private void BuildActions()
     {
+        // Processes. All three act on the selected row; none accepts a typed
+        // name, because the server and the agent both keep allow-lists and a
+        // free-text box would only be a way of asking them to say no.
+        Add(Processes, ActionName.GetProcessList);
+        Add(Processes, ActionName.KillProcess, Processes.CurrentProcessIdParameters);
+        Add(Processes, ActionName.KillProcessByName, Processes.CurrentProcessNameParameters);
+        Add(Processes, ActionName.RestartApplication, Processes.CurrentApplicationParameters);
+
         Add(Services, ActionName.RestartService, Services.CurrentServiceParameters);
         Add(Services, ActionName.StartService, Services.CurrentServiceParameters);
         Add(Services, ActionName.StopService, Services.CurrentServiceParameters);
+        Add(Services, ActionName.SetServiceStartType, Services.CurrentStartTypeParameters);
 
         Add(WindowsUpdate, ActionName.ScanForUpdates);
         Add(WindowsUpdate, ActionName.ScheduleUpdates);
+        Add(WindowsUpdate, ActionName.InstallUpdatesNow);
+        Add(WindowsUpdate, ActionName.CancelScheduledUpdates);
+        Add(WindowsUpdate, ActionName.GetScheduledUpdates);
+
+        Add(EventLogs, ActionName.RunEventLogView, EventLogs.CurrentViewParameters);
+        Add(EventLogs, ActionName.CollectEventLogs);
 
         Add(Network, ActionName.FlushDnsCache);
         Add(Network, ActionName.RenewDhcpLease);
+        Add(Network, ActionName.PingHost);
+        Add(Network, ActionName.TraceRoute);
+        Add(Network, ActionName.TestPortConnectivity);
+        Add(Network, ActionName.SetDnsServers);
+        Add(Network, ActionName.SetStaticIpAddress);
+        Add(Network, ActionName.SetAdapterToDhcp);
 
         Add(System, ActionName.RebootMachine);
         Add(System, ActionName.CollectDiagnosticBundle);
 
-        // Every service action needs a selected row; none is selected yet.
+        // Deliberately absent: OpenDrawer, UnlockLock and OpenCubie. The server
+        // refuses all three at every role, no agent has an executor for any of
+        // them, and there is no control for them here. Do not add one.
+
+        // Every service and process action needs a selected row; none is
+        // selected yet. The fetch actions are not gated on one.
         foreach (SectionActionViewModel action in Services.Actions)
+        {
+            action.IsContextSatisfied = false;
+        }
+
+        foreach (SectionActionViewModel action in Processes.Actions
+                     .Where(a => a.Catalogue.Action != ActionName.GetProcessList))
         {
             action.IsContextSatisfied = false;
         }
@@ -393,16 +547,14 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private async Task InvokeAsync(SectionActionViewModel button, CancellationToken ct)
     {
-        if (CabinetId is not { } cabinetId)
+        if (Path is not { } path)
         {
             return;
         }
 
         ActionInvocationResult result = await _invoker.InvokeAsync(
             button.Catalogue,
-            cabinetId,
-            CabinetHostname,
-            ClientAndSite,
+            path,
             button.ParameterFactory?.Invoke(),
             _latest?.LatestHeartbeat?.AnyUserLoggedOn,
             ct);

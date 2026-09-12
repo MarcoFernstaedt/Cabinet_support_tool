@@ -108,9 +108,36 @@ public sealed class SecurityInvariantTests
     [Fact]
     public void Nothing_in_the_product_starts_a_process()
     {
+        // Support needs Task Manager equivalence, so the agent does now launch
+        // exactly one thing: an allow-listed application, from the install path
+        // registered for it on that machine. That is a named target, not a
+        // command line, and it is the only launch in the product.
+        //
+        // What the invariant actually guards is therefore narrower and sharper
+        // than "never call Process.Start": no shell, no interpreter, no
+        // command-line utility standing in for an API, and no path a request
+        // could supply. Those are the properties that would let a request
+        // become arbitrary execution; a single call site launching a
+        // configured executable with no arguments is not one of them.
         string[] forbidden =
         {
-            "Process.Start", "ProcessStartInfo", "UseShellExecute", "cmd.exe", "powershell.exe",
+            // Shells and interpreters. Any of these is arbitrary execution by
+            // definition, whatever is passed to them.
+            "cmd.exe", "powershell.exe", "pwsh.exe", "wscript", "cscript", "rundll32",
+
+            // Command-line utilities the product has a typed API for. Each of
+            // these appearing would mean somebody had reached for a process
+            // where an interface existed, which is how the general mechanism
+            // gets reintroduced by accident.
+            "taskkill", "netsh.exe", "sc.exe", "wmic", "reg.exe", "ping.exe", "tracert",
+
+            // The shell's own resolution: PATH lookup, file associations, URL
+            // schemes. All interpretation, none of it wanted near a cabinet.
+            "UseShellExecute = true", "UseShellExecute=true",
+
+            // Arguments are the payload a launch would carry. The one launch in
+            // the product passes none, and there is no property here to set.
+            "ProcessStartInfo().Arguments", ".Arguments =", "ArgumentList",
         };
 
         var offenders = new List<string>();
@@ -141,7 +168,49 @@ public sealed class SecurityInvariantTests
         }
 
         Assert.True(offenders.Count == 0,
-            "Process-launching code: " + string.Join(", ", offenders));
+            "Shell, interpreter or command-line-utility code: " + string.Join(", ", offenders));
+    }
+
+    /// <summary>
+    /// The one place in the product that launches anything is the agent's
+    /// process-control gateway, and it launches a registered path with no
+    /// arguments.
+    /// </summary>
+    /// <remarks>
+    /// Counted rather than forbidden, because the count is the property that
+    /// matters. One call site can be read in a minute and reasoned about; five
+    /// scattered ones are a general mechanism nobody has noticed growing. If
+    /// this test fails because a second launch appeared, the question to answer
+    /// is not "how do I make the test pass" but "why does a support tool need
+    /// to start two different things".
+    /// </remarks>
+    [Fact]
+    public void Only_the_agents_process_gateway_launches_anything()
+    {
+        var callSites = new List<string>();
+
+        foreach (string file in SourceFiles)
+        {
+            foreach (string line in File.ReadAllLines(file))
+            {
+                string trimmed = line.TrimStart();
+
+                if (trimmed.StartsWith("//", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("///", StringComparison.Ordinal) ||
+                    trimmed.StartsWith("<!--", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (line.Contains("Process.Start(", StringComparison.Ordinal))
+                {
+                    callSites.Add(Path.GetFileName(file));
+                }
+            }
+        }
+
+        Assert.Equal(new[] { "IProcessControlGateway.cs" }, callSites.Distinct().ToArray());
+        Assert.Single(callSites);
     }
 
     /// <summary>
@@ -260,10 +329,14 @@ public sealed class SecurityInvariantTests
     [Fact]
     public void Nothing_actuates_cabinet_hardware()
     {
+        // Three reserved names now exist — OpenDrawer, UnlockLock, OpenCubie —
+        // so that the refusal is a real, exercised path with its own audit
+        // event rather than a gap a future change could fill by accident. What
+        // must not exist is anything that would carry the refusal out.
         string[] forbidden =
         {
-            "OpenDrawer", "CloseDrawer", "UnlockDrawer", "ReleaseLock",
-            "OpenCubie", "ActuateLock", "EnergiseSolenoid", "SetRelay",
+            "ActuateLock", "EnergiseSolenoid", "DeenergiseSolenoid", "SetRelay",
+            "ReleaseLock", "CloseDrawer", "UnlockDrawer", "DriveMotor",
         };
 
         var offenders = new List<string>();
@@ -293,12 +366,114 @@ public sealed class SecurityInvariantTests
 
         Assert.True(offenders.Count == 0,
             "Hardware actuation code: " + string.Join(", ", offenders));
+    }
 
-        // And the action catalog — the whole of what this product can do to a
-        // cabinet — names nothing of the kind.
-        Assert.DoesNotContain(
-            ActionCatalog.All,
-            e => forbidden.Any(f => e.Action.ToString().Contains(f, StringComparison.OrdinalIgnoreCase)));
+    /// <summary>
+    /// The three reserved actuation actions are in the catalog, are flagged as
+    /// reserved, and are arranged so that nothing can run them.
+    /// </summary>
+    /// <remarks>
+    /// They exist rather than being omitted because a refusal nobody has
+    /// written is a refusal nobody has tested. This asserts the shape of that
+    /// refusal: the flag the service checks, and the most restrictive settings
+    /// on every other field, so that even a change which accidentally routed
+    /// one of them past the reserved check would find an action nobody can
+    /// request.
+    /// </remarks>
+    [Fact]
+    public void The_reserved_actuation_actions_are_arranged_so_nothing_can_run_them()
+    {
+        ActionName[] reserved = { ActionName.OpenDrawer, ActionName.UnlockLock, ActionName.OpenCubie };
+
+        foreach (ActionName action in reserved)
+        {
+            Assert.True(ActionCatalog.TryGet(action, out ActionCatalogEntry entry));
+
+            Assert.True(entry.IsReservedHardwareActuation,
+                $"{action} must be flagged reserved; the flag is what the request service refuses on.");
+
+            // No parameters at all, so there is nothing for a caller to supply
+            // and nothing for a validator to have to reason about.
+            Assert.Empty(entry.AllowedParameterKeys);
+
+            // And every other gate at its most restrictive, as defence in depth
+            // behind the flag.
+            Assert.True(entry.RequiresApproval);
+            Assert.True(entry.IsDisruptive);
+            Assert.True(entry.MaintenanceWindowOnly);
+            Assert.True(entry.BlockedIfUserLoggedOn);
+            Assert.False(entry.Batchable);
+        }
+
+        // Every other action in the catalog is not reserved, so the flag has
+        // not been spread by a copy-and-paste.
+        Assert.Equal(
+            reserved.Length,
+            ActionCatalog.All.Count(e => e.IsReservedHardwareActuation));
+    }
+
+    /// <summary>
+    /// The hardware interfaces are read-only: every method on them returns a
+    /// reading, and none of them changes anything.
+    /// </summary>
+    /// <remarks>
+    /// Asserted by reflection rather than by reading the file, because the
+    /// point is that it stays true. A method added later that returns void, or
+    /// one named to suggest a change, fails here.
+    /// </remarks>
+    [Fact]
+    public void The_hardware_interfaces_only_read()
+    {
+        Type[] interfaces =
+        {
+            typeof(Server.Hardware.IDrawerController),
+            typeof(Server.Hardware.ILockController),
+            typeof(Server.Hardware.ICubieController),
+            typeof(Server.Hardware.ISensorReader),
+        };
+
+        foreach (Type contract in interfaces)
+        {
+            foreach (System.Reflection.MethodInfo method in contract.GetMethods())
+            {
+                Assert.StartsWith("Read", method.Name, StringComparison.Ordinal);
+
+                Assert.True(
+                    method.ReturnType != typeof(void) && method.ReturnType != typeof(Task),
+                    $"{contract.Name}.{method.Name} returns nothing, so it is not a read.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The adapter this build ships reports every reading as unavailable.
+    /// </summary>
+    /// <remarks>
+    /// Not an empty list, not a default value, not an exception. An empty list
+    /// would read as "this cabinet has no drawers" and a default would read as
+    /// "the drawer is closed" — both are assertions about a physical state
+    /// nobody has observed, on a cabinet holding controlled substances.
+    /// </remarks>
+    [Fact]
+    public async Task The_shipped_hardware_adapter_reports_everything_unavailable()
+    {
+        var adapter = new Server.Hardware.NullHardwareAdapter();
+
+        Server.Hardware.HardwareReading<Server.Hardware.DrawerState> drawer =
+            await adapter.ReadDrawerAsync(1, CancellationToken.None);
+
+        Assert.False(drawer.IsAvailable);
+        Assert.Null(drawer.Value);
+        Assert.Equal(Server.Hardware.HardwareAvailability.NoAdapter, drawer.Unavailable);
+        Assert.NotEmpty(drawer.Detail);
+
+        Assert.False((await adapter.ReadAllDrawersAsync(CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadLockAsync(1, CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadAllLocksAsync(CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadCubieAsync(1, CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadAllCubiesAsync(CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadSensorAsync("temperature", CancellationToken.None)).IsAvailable);
+        Assert.False((await adapter.ReadAllSensorsAsync(CancellationToken.None)).IsAvailable);
     }
 
     /// <summary>

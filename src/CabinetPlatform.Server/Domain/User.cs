@@ -27,6 +27,19 @@ public class User
 
     public bool HasElevatedSql { get; set; }
 
+    /// <summary>
+    /// The reserved hardware-actuation grant. Nothing in this build consumes
+    /// it.
+    /// </summary>
+    /// <remarks>
+    /// It is a separate column rather than a role because actuating a lock on a
+    /// cabinet holding controlled substances is not a tier of support work, it
+    /// is a different kind of authority. Keeping the grant real and audited now
+    /// means the day an actuation feature is designed it inherits a permission
+    /// with a history, rather than acquiring one written in a hurry beside it.
+    /// </remarks>
+    public bool HasHardwareActuation { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     /// <summary>Forces a password change before anything else is permitted.</summary>

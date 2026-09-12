@@ -14,8 +14,20 @@ namespace CabinetPlatform.Server.Security;
 /// A client that sends its own user id, role or cabinet id in a payload is
 /// ignored — the server is the only authority on who the caller is.
 /// </summary>
-public sealed record CurrentUser(Guid UserId, string Username, Role Role, bool HasElevatedSql)
+public sealed record CurrentUser(
+    Guid UserId,
+    string Username,
+    Role Role,
+    bool HasElevatedSql,
+    bool HasHardwareActuation)
 {
+    /// <summary>Whether this caller's role reaches a threshold.</summary>
+    /// <remarks>
+    /// Still evaluated on every action request even though every catalog entry
+    /// currently names Tier 1. The comparison being live is what makes
+    /// tightening an action later a catalog edit rather than a rewrite.
+    /// </remarks>
+    /// <param name="minimum">The threshold.</param>
     public bool IsAtLeast(Role minimum) => Role >= minimum;
 }
 
@@ -45,8 +57,12 @@ public static class ClaimsPrincipalExtensions
         string username = principal.FindFirst(ClaimTypes.Name)?.Value ?? string.Empty;
         bool elevated = string.Equals(
             principal.FindFirst(SupportClaims.ElevatedSql)?.Value, "true", StringComparison.OrdinalIgnoreCase);
+        bool actuation = string.Equals(
+            principal.FindFirst(SupportClaims.HardwareActuation)?.Value,
+            "true",
+            StringComparison.OrdinalIgnoreCase);
 
-        return new CurrentUser(userId, username, role, elevated);
+        return new CurrentUser(userId, username, role, elevated, actuation);
     }
 
     /// <summary>The machine id an authenticated agent presented, if any.</summary>

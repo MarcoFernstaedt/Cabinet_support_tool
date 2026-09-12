@@ -38,6 +38,7 @@ public sealed class Worker : BackgroundService
     private readonly IPayloadBuffer _buffer;
     private readonly RegistrationService _registration;
     private readonly ActionDispatcher _dispatcher;
+    private readonly ScheduledUpdateRunner _scheduledUpdates;
     private readonly IAgentStateStore _stateStore;
     private readonly IOptions<AgentOptions> _options;
     private readonly ILogger<Worker> _logger;
@@ -52,6 +53,7 @@ public sealed class Worker : BackgroundService
         IPayloadBuffer buffer,
         RegistrationService registration,
         ActionDispatcher dispatcher,
+        ScheduledUpdateRunner scheduledUpdates,
         IAgentStateStore stateStore,
         IOptions<AgentOptions> options,
         ILogger<Worker> logger)
@@ -61,6 +63,7 @@ public sealed class Worker : BackgroundService
         _buffer = buffer;
         _registration = registration;
         _dispatcher = dispatcher;
+        _scheduledUpdates = scheduledUpdates;
         _stateStore = stateStore;
         _options = options;
         _logger = logger;
@@ -75,6 +78,12 @@ public sealed class Worker : BackgroundService
             _options.Value.ServerBaseUrl,
             _options.Value.CheckInIntervalSeconds,
             _options.Value.CheckInJitterPercent);
+
+        // A network change applied but never confirmed is undone before
+        // anything else happens. The agent restarting between applying and
+        // confirming is exactly the case confirm-or-revert exists for, and the
+        // previous configuration is the one known to have worked.
+        _scheduledUpdates.RecoverInterruptedNetworkChange();
 
         // Anything that was running when the agent last stopped is reported as
         // unknown before any new work is taken on, and is never resumed.
@@ -127,6 +136,11 @@ public sealed class Worker : BackgroundService
         // The slow tier is due on its own schedule, and on the first tick after
         // a start: a cabinet that has just rebooted is exactly the one whose
         // inventory is most likely to have changed.
+        // A scheduled install whose instant has arrived runs before the
+        // payload is built, so the same tick reports what it did rather than
+        // leaving the outcome until the next one.
+        _scheduledUpdates.RunDueInstall(cancellationToken);
+
         CheckInTier tier = IsFullCheckInDue() ? CheckInTier.Full : CheckInTier.Heartbeat;
 
         // The current payload goes first: the freshest picture of the cabinet
@@ -154,6 +168,14 @@ public sealed class Worker : BackgroundService
                 if (result.CabinetId is { } cabinetId)
                 {
                     _registration.RecordApproval(cabinetId);
+                }
+
+                // Cleared only once the server has taken them. An outcome lost
+                // to an outage would leave the fleet believing this cabinet is
+                // patched when it is not.
+                if (payload.UpdateInstallOutcomes is { Count: > 0 } reported)
+                {
+                    _scheduledUpdates.ClearReportedOutcomes(reported);
                 }
 
                 await FlushBufferAsync(cancellationToken).ConfigureAwait(false);

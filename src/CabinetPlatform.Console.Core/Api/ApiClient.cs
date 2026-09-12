@@ -6,6 +6,7 @@ using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Api;
 
@@ -179,6 +180,52 @@ public sealed class ApiClient : IApiClient
     }
 
     // --- Topology --------------------------------------------------------
+
+    /// <inheritdoc />
+    public Task<PagedResult<CabinetSearchHit>> SearchCabinetsAsync(
+        CabinetSearchQuery query, CancellationToken ct)
+    {
+        string url = "api/search/cabinets" + new QueryString()
+            .Add("term", query.Term)
+            .Add("isActive", query.IsActive)
+            .Add("page", query.Page)
+            .Add("pageSize", query.PageSize);
+
+        return GetAsync<PagedResult<CabinetSearchHit>>(url, ct);
+    }
+
+    /// <inheritdoc />
+    public Task<PagedResult<ClientSummary>> GetClientsAsync(ClientQuery query, CancellationToken ct)
+    {
+        string url = "api/search/clients" + new QueryString()
+            .Add("search", query.Search)
+            .Add("page", query.Page)
+            .Add("pageSize", query.PageSize);
+
+        return GetAsync<PagedResult<ClientSummary>>(url, ct);
+    }
+
+    /// <inheritdoc />
+    public Task<ClientHierarchyDto> GetClientHierarchyAsync(Guid clientId, CancellationToken ct) =>
+        GetAsync<ClientHierarchyDto>($"api/search/clients/{clientId}", ct);
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<RecentCabinetDto>> GetRecentCabinetsAsync(int limit, CancellationToken ct) =>
+        GetAsync<IReadOnlyList<RecentCabinetDto>>(
+            "api/search/recent" + new QueryString().Add("limit", limit), ct);
+
+    /// <inheritdoc />
+    public Task<PagedResult<EventLogViewDto>> GetEventLogViewsAsync(
+        EventLogViewQuery query, CancellationToken ct)
+    {
+        string url = "api/event-log-views" + new QueryString()
+            .Add("search", query.Search)
+            .Add("includeRetired", query.IncludeRetired)
+            .Add("page", query.Page)
+            .Add("pageSize", query.PageSize);
+
+        return GetAsync<PagedResult<EventLogViewDto>>(url, ct);
+    }
 
     /// <inheritdoc />
     public Task<PagedResult<SiteSummary>> GetSitesAsync(SiteQuery query, CancellationToken ct)

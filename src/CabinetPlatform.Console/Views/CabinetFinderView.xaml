@@ -1,0 +1,217 @@
+<UserControl x:Class="CabinetPlatform.Console.Views.CabinetFinderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Surface.Brush}">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/CabinetPlatform.Console;component/Views/Sections/SectionResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!--
+        Three routes to the same place, side by side rather than behind tabs. A
+        rep on a call starts wherever they happen to have something to go on and
+        switches mid-sentence when the first thing turns out to be wrong.
+
+        Every row in every one of these panes shows the full path — client,
+        site, department, cabinet name and role. There is no view here that
+        shows a bare hostname, because across three and a half thousand client
+        organisations a hostname is not an identification.
+    -->
+    <Grid Margin="8">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320" MinWidth="240" />
+            <ColumnDefinition Width="*" MinWidth="480" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ============ Left: hierarchy and recent ============ -->
+        <DockPanel Grid.Column="0" Margin="0,0,8,0">
+
+            <TextBlock DockPanel.Dock="Top"
+                       Text="Recently viewed"
+                       Style="{StaticResource SectionHeading}"
+                       AutomationProperties.HeadingLevel="Level2" />
+
+            <ListBox DockPanel.Dock="Top"
+                     MaxHeight="180"
+                     ItemsSource="{Binding Recent}"
+                     AutomationProperties.Name="Cabinets you opened recently"
+                     AutomationProperties.HelpText="Yours alone, kept by the server so it follows you between machines.">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel AutomationProperties.Name="{Binding AccessibleSummary}">
+                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ViewedAge}"
+                                       FontSize="11"
+                                       Foreground="{DynamicResource Text.Subtle.Brush}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <TextBlock DockPanel.Dock="Top"
+                       Text="Browse by client"
+                       Style="{StaticResource SectionHeading}"
+                       Margin="0,12,0,0"
+                       AutomationProperties.HeadingLevel="Level2" />
+
+            <TextBlock DockPanel.Dock="Top"
+                       Text="For when the client has rung and you do not yet know which of their sites it is."
+                       TextWrapping="Wrap"
+                       FontSize="11"
+                       Margin="0,0,0,4"
+                       Foreground="{DynamicResource Text.Subtle.Brush}" />
+
+            <ListBox ItemsSource="{Binding Clients}"
+                     SelectedItem="{Binding SelectedClient}"
+                     AutomationProperties.Name="Client organisations">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                            <TextBlock FontSize="11"
+                                       Foreground="{DynamicResource Text.Subtle.Brush}">
+                                <Run Text="{Binding SiteCount, Mode=OneWay}" />
+                                <Run Text="site(s)," />
+                                <Run Text="{Binding CabinetCount, Mode=OneWay}" />
+                                <Run Text="cabinet(s)" />
+                            </TextBlock>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- ============ Right: results, then the opened client ============ -->
+        <DockPanel Grid.Column="1">
+
+            <TextBlock DockPanel.Dock="Top"
+                       Text="Search results"
+                       Style="{StaticResource SectionHeading}"
+                       AutomationProperties.HeadingLevel="Level2" />
+
+            <TextBlock DockPanel.Dock="Top"
+                       Text="{Binding ResultSummary}"
+                       TextWrapping="Wrap"
+                       Margin="0,0,0,4"
+                       Foreground="{DynamicResource Text.Subtle.Brush}" />
+
+            <!--
+                Shown only when two rows in front of the rep carry one name.
+                Telling them a hostname is duplicated somewhere among seven
+                thousand cabinets would be noise; telling them that two of the
+                rows they are choosing between look the same is the warning that
+                prevents the mistake.
+            -->
+            <Border DockPanel.Dock="Top"
+                    Background="{DynamicResource Severity.Warning.Brush}"
+                    Padding="8,4"
+                    Margin="0,0,0,6"
+                    Visibility="{Binding ResultsContainDuplicateNames, Converter={StaticResource BoolToVisibility}}">
+                <TextBlock Text="{Binding DuplicateNameWarning}"
+                           TextWrapping="Wrap"
+                           Foreground="White"
+                           AutomationProperties.LiveSetting="Assertive" />
+            </Border>
+
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0">
+                <Button DockPanel.Dock="Left"
+                        Content="Previous"
+                        Command="{Binding PreviousPageCommand}"
+                        AutomationProperties.Name="Previous page of results" />
+
+                <Button DockPanel.Dock="Left"
+                        Content="Next"
+                        Command="{Binding NextPageCommand}"
+                        Margin="6,0,0,0"
+                        AutomationProperties.Name="Next page of results" />
+
+                <TextBlock Text="{Binding ErrorMessage}"
+                           TextWrapping="Wrap"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource Severity.Critical.Brush}" />
+            </DockPanel>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DataGrid Grid.Row="0"
+                          ItemsSource="{Binding Results}"
+                          SelectedItem="{Binding SelectedResult}"
+                          Style="{StaticResource AccessibleDataGrid}"
+                          AutomationProperties.Name="Search results, each showing the cabinet's full path">
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow">
+                            <Setter Property="AutomationProperties.Name"
+                                    Value="{Binding AccessibleSummary}" />
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Client" Binding="{Binding ClientName}" Width="1.4*" />
+                        <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="1.2*" />
+                        <DataGridTextColumn Header="Department" Binding="{Binding Department}" Width="*" />
+                        <DataGridTextColumn Header="Cabinet" Binding="{Binding CabinetName}" Width="*" />
+                        <DataGridTextColumn Header="Role" Binding="{Binding RoleLabel}" Width="0.8*" />
+                        <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="*" />
+                        <DataGridTextColumn Header="Health" Binding="{Binding Health.Label}" Width="0.7*" />
+                        <DataGridTextColumn Header="Last seen" Binding="{Binding LastCheckInAge}" Width="0.8*" />
+                        <DataGridTextColumn Header="Matched on" Binding="{Binding MatchedOn}" Width="*" />
+                        <!--
+                            Text, not a colour or an icon. Two identically-named
+                            rows distinguished by something the eye skips is
+                            precisely how the wrong cabinet gets picked, and a
+                            colour says nothing to a screen reader.
+                        -->
+                        <DataGridTextColumn Header="Warning"
+                                            Binding="{Binding DuplicateNameMarker}"
+                                            Width="*" />
+                    </DataGrid.Columns>
+                </DataGrid>
+
+                <TextBlock Grid.Row="1"
+                           Text="Opened client"
+                           Style="{StaticResource SectionHeading}"
+                           Margin="0,12,0,0"
+                           AutomationProperties.HeadingLevel="Level2" />
+
+                <!--
+                    Sites worst first, and the sync cabinet first at each site.
+                    A site that misbehaves as a whole is usually its sync
+                    cabinet, and a rep should not have to find it among twenty
+                    rows.
+                -->
+                <TreeView Grid.Row="2"
+                          ItemsSource="{Binding HierarchySites}"
+                          AutomationProperties.Name="Sites of the opened client, worst first, with the sync cabinet first at each site">
+                    <TreeView.ItemTemplate>
+                        <HierarchicalDataTemplate ItemsSource="{Binding Cabinets}">
+                            <TextBlock>
+                                <Run Text="{Binding Site.SiteName, Mode=OneWay}" FontWeight="SemiBold" />
+                                <Run Text=" — " />
+                                <Run Text="{Binding Site.CabinetCount, Mode=OneWay}" />
+                                <Run Text="cabinet(s)," />
+                                <Run Text="{Binding Site.UnhealthyCabinetCount, Mode=OneWay}" />
+                                <Run Text="not healthy" />
+                            </TextBlock>
+                            <HierarchicalDataTemplate.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Display}"
+                                               TextWrapping="Wrap"
+                                               AutomationProperties.Name="{Binding Spoken}" />
+                                </DataTemplate>
+                            </HierarchicalDataTemplate.ItemTemplate>
+                        </HierarchicalDataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+            </Grid>
+        </DockPanel>
+    </Grid>
+</UserControl>

@@ -29,7 +29,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid?>("ApprovedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ApprovedUtc")
+                    b.Property<string>("ApprovedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("BatchId")
@@ -41,20 +41,26 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<string>("CollectedDataJson")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("CompletedUtc")
+                    b.Property<string>("CompletedUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("DispatchedUtc")
+                    b.Property<string>("DispatchedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("ExitCode")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ExpiresUtc")
+                    b.Property<string>("ExpiresUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsCrossSiteTarget")
                         .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("OnSiteConfirmedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OnSiteConfirmedUtc")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("OverrideReason")
                         .HasMaxLength(1000)
@@ -72,7 +78,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid>("RequestedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("RequestedUtc")
+                    b.Property<string>("RequestedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ResultOutput")
@@ -89,7 +96,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<bool>("SafetyChecksOverridden")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("StartedUtc")
+                    b.Property<string>("StartedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<int>("Status")
@@ -186,7 +193,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("TimestampUtc")
+                    b.Property<string>("TimestampUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -223,7 +231,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid?>("ApprovedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ApprovedUtc")
+                    b.Property<string>("ApprovedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DenialReason")
@@ -242,7 +250,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid>("RequestedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("RequestedUtc")
+                    b.Property<string>("RequestedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("RowVersion")
@@ -310,8 +319,12 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid>("ApprovedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("ApprovedUtc")
+                    b.Property<string>("ApprovedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("AutoStartServicesStoppedCount")
+                        .HasColumnType("INTEGER");
 
                     b.Property<Guid?>("CurrentInventoryVersionId")
                         .HasColumnType("TEXT");
@@ -328,10 +341,10 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastCheckInUtc")
+                    b.Property<string>("LastCheckInUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("LastFullCheckInUtc")
+                    b.Property<string>("LastFullCheckInUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("LastKnownIpAddress")
@@ -346,6 +359,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<string>("Model")
                         .HasMaxLength(128)
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("PendingSecurityUpdateCount")
+                        .HasColumnType("INTEGER");
 
                     b.Property<int>("Role")
                         .HasColumnType("INTEGER");
@@ -367,6 +383,14 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
 
                     b.HasKey("Id");
 
+                    b.HasIndex("AutoStartServicesStoppedCount");
+
+                    b.HasIndex("DepartmentName")
+                        .HasDatabaseName("IX_Cabinets_DepartmentName");
+
+                    b.HasIndex("Hostname")
+                        .HasDatabaseName("IX_Cabinets_Hostname");
+
                     b.HasIndex("IsActive");
 
                     b.HasIndex("LastCheckInUtc");
@@ -374,7 +398,12 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.HasIndex("MachineId")
                         .IsUnique();
 
+                    b.HasIndex("PendingSecurityUpdateCount");
+
                     b.HasIndex("Role");
+
+                    b.HasIndex("SerialNumber")
+                        .HasDatabaseName("IX_Cabinets_SerialNumber");
 
                     b.HasIndex("SiteId");
 
@@ -390,7 +419,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<double?>("LatencyMs")
                         .HasColumnType("REAL");
 
-                    b.Property<DateTimeOffset>("ObservedUtc")
+                    b.Property<string>("ObservedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Reachable")
@@ -429,6 +459,75 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.EventLogView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CreatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CreatedUtc")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DefaultWindowHours")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EventIdsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsRetired")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsSeeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LogNamesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MaximumEntries")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MinimumLevel")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .HasColumnType("BLOB");
+
+                    b.Property<string>("SourcesJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DisplayName")
+                        .IsUnique();
+
+                    b.HasIndex("IsRetired");
+
+                    b.ToTable("EventLogViews");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.Heartbeat", b =>
                 {
                     b.Property<Guid>("Id")
@@ -448,7 +547,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<double?>("ClockDriftSeconds")
                         .HasColumnType("REAL");
 
-                    b.Property<DateTimeOffset>("CollectedAtUtc")
+                    b.Property<string>("CollectedAtUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<double?>("CpuPercent")
@@ -469,7 +569,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<bool?>("RebootPending")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("ReceivedUtc")
+                    b.Property<string>("ReceivedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int>("SampleCount")
@@ -514,10 +615,12 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("FirstObservedUtc")
+                    b.Property<string>("FirstObservedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("LastObservedUtc")
+                    b.Property<string>("LastObservedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PayloadJson")
@@ -552,10 +655,11 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid?>("DecidedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("DecidedUtc")
+                    b.Property<string>("DecidedUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("FirstSeenUtc")
+                    b.Property<string>("FirstSeenUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Hostname")
@@ -563,7 +667,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("LastSeenUtc")
+                    b.Property<string>("LastSeenUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("MachineId")
@@ -588,6 +693,36 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.ToTable("PendingRegistrations");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.RecentCabinetView", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CabinetId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LastViewedUtc")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CabinetId");
+
+                    b.HasIndex("UserId", "CabinetId")
+                        .IsUnique();
+
+                    b.HasIndex("UserId", "LastViewedUtc")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_RecentCabinetViews_UserId_LastViewedUtc_Desc");
+
+                    b.ToTable("RecentCabinetViews");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -597,13 +732,15 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid>("ChainId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("ConsumedUtc")
+                    b.Property<string>("ConsumedUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("ExpiresUtc")
+                    b.Property<string>("ExpiresUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("IssuedUtc")
+                    b.Property<string>("IssuedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<Guid?>("ReplacedByTokenId")
@@ -613,7 +750,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasMaxLength(256)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("RevokedUtc")
+                    b.Property<string>("RevokedUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("TokenHash")
@@ -719,7 +856,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<int?>("TemperatureMax")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset>("TimestampUtc")
+                    b.Property<string>("TimestampUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("UncorrectableErrorCount")
@@ -758,7 +896,8 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<Guid?>("CreatedByUserId")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset>("CreatedUtc")
+                    b.Property<string>("CreatedUtc")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("DisplayName")
@@ -772,13 +911,16 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<bool>("HasElevatedSql")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("HasHardwareActuation")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("LastLoginUtc")
+                    b.Property<string>("LastLoginUtc")
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTimeOffset?>("LockedUntilUtc")
+                    b.Property<string>("LockedUntilUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("MustChangePassword")
@@ -870,6 +1012,17 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.InventoryVersion", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "Cabinet")
+                        .WithMany()
+                        .HasForeignKey("CabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Cabinet");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.RecentCabinetView", b =>
                 {
                     b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "Cabinet")
                         .WithMany()

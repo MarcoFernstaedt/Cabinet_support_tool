@@ -62,6 +62,23 @@ public sealed partial class CabinetListViewModel : ObservableViewModelBase
     public bool CanGoPrevious => Page > 1 && !IsLoading;
     public bool CanGoNext => Page < TotalPages && !IsLoading;
 
+    /// <summary>
+    /// Whether two cabinets on this page share a name.
+    /// </summary>
+    /// <remarks>
+    /// Surfaced for the whole page as well as per row. A rep who has not
+    /// noticed the per-row marker is exactly the one who needs telling.
+    /// </remarks>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DuplicateNameWarning))]
+    private bool _hasDuplicateNamesOnPage;
+
+    /// <summary>The banner shown above a page with colliding names.</summary>
+    public string? DuplicateNameWarning => HasDuplicateNamesOnPage
+        ? "Two or more cabinets on this page have the same name. Check the client and site before " +
+          "acting on one."
+        : null;
+
     public string PageSummary => TotalCount == 0
         ? "No cabinets match"
         : $"Page {Page} of {Math.Max(1, TotalPages)}, {TotalCount:N0} cabinets";
@@ -103,7 +120,10 @@ public sealed partial class CabinetListViewModel : ObservableViewModelBase
             // Selecting a row moves the whole right-hand pane. Announced,
             // because a keyboard user arrowing down the grid has no other signal
             // that the detail beside it has been replaced.
-            Announcer.Announce($"Selected {value.Hostname}. {value.AccessibleSummary}");
+            // The whole path, not the hostname. A rep arrowing down a grid has
+            // no other signal which client's cabinet the pane beside them has
+            // just been replaced with.
+            Announcer.Announce($"Selected {value.Display}. {value.AccessibleSummary}");
         }
     }
 
@@ -174,13 +194,25 @@ public sealed partial class CabinetListViewModel : ObservableViewModelBase
 
         Cabinets.Clear();
 
-        foreach (CabinetRow row in result.Items.Select(c => new CabinetRow(c, nowUtc)))
+        // Marked across the page, because the warning that matters is "two rows
+        // in front of you carry one name", not "this name exists twice
+        // somewhere among seven thousand cabinets".
+        HashSet<string> duplicated = result.Items
+            .GroupBy(c => c.Hostname, StringComparer.OrdinalIgnoreCase)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (CabinetRow row in result.Items.Select(
+                     c => new CabinetRow(c, nowUtc, duplicated.Contains(c.Hostname))))
         {
             Cabinets.Add(row);
 
             Remember(KnownClients, row.ClientName);
             Remember(KnownSites, row.SiteName);
         }
+
+        HasDuplicateNamesOnPage = duplicated.Count > 0;
 
         TotalCount = result.TotalCount;
         TotalPages = result.TotalPages;

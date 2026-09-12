@@ -86,6 +86,26 @@ public sealed record ActionCatalogEntry
     /// is rejected, never truncated to fit.
     /// </summary>
     public int MaximumBatchSize { get; init; }
+
+    /// <summary>
+    /// A reserved hardware-actuation action. Always refused, at every role and
+    /// with every grant.
+    /// </summary>
+    /// <remarks>
+    /// These entries exist so that the refusal is a real, exercised path with
+    /// its own audit event, rather than a gap that a future change could fill
+    /// by accident. No agent has an executor for any of them, and the server
+    /// never dispatches one: the denial happens here, before anything else
+    /// about the request is considered.
+    /// </remarks>
+    public bool IsReservedHardwareActuation { get; init; }
+
+    /// <summary>
+    /// Names another cabinet's <em>address or host name</em> rather than a
+    /// cabinet, so the value is checked against
+    /// <see cref="DiagnosticHostPolicy"/> instead of resolved from the fleet.
+    /// </summary>
+    public bool TargetsAHost { get; init; }
 }
 
 /// <summary>
@@ -126,15 +146,38 @@ public static class ActionCatalog
     /// </summary>
     public const string AllowCrossSiteKey = ActionParameterKeys.AllowCrossSite;
 
+    /// <summary>
+    /// Every action's minimum role for this build.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Tier 1 everywhere, deliberately and temporarily. Reps work any cabinet
+    /// at any time — that is how the team already works over remote desktop,
+    /// and pretending otherwise in the tool would only push work back onto
+    /// remote desktop. The three roles remain on users, in tokens and in the
+    /// audit trail, and the comparison below still runs on every request.
+    /// </para>
+    /// <para>
+    /// The point of spelling it once here rather than repeating a literal
+    /// thirty times is that tightening an action later is a one-line change to
+    /// its entry, not a rewrite of authorization. The mechanism is exercised on
+    /// every request today; only the value is permissive.
+    /// </para>
+    /// </remarks>
+    private const Role EveryRep = Role.Tier1;
+
     private static readonly ImmutableDictionary<ActionName, ActionCatalogEntry> Entries =
         new[]
         {
+            // ---------------------------------------------------------------
+            // Windows Update
+            // ---------------------------------------------------------------
             new ActionCatalogEntry
             {
                 Action = ActionName.ScanForUpdates,
                 DisplayName = "Scan for updates",
                 Description = "Queries Windows Update for applicable patches. Installs nothing.",
-                MinimumRole = Role.Tier1,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 600,
@@ -142,15 +185,105 @@ public static class ActionCatalog
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = true,
-                BatchSupervisorThreshold = 50,
                 MaximumBatchSize = 500,
             },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.ScheduleUpdates,
+                DisplayName = "Schedule updates",
+                Description =
+                    "Schedules specific updates to install at a time given in the cabinet's own " +
+                    "local clock.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 600,
+                // The install time is specified in the cabinet's own local
+                // time, because that is what a rep and a clinic agree on. The
+                // server converts it and adds scheduledForUtc, which is also
+                // the only place the conversion can be checked: a local time
+                // that does not exist because the zone springs forward that
+                // morning is undetectable once converted.
+                //
+                // The update ids are specific. "Everything applicable" would
+                // install whatever has become applicable between the rep
+                // choosing and the machine acting, which is not what anybody
+                // agreed to.
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.ScheduledForLocal,
+                    ActionParameterKeys.ScheduledForUtc,
+                    ActionParameterKeys.UpdateIds,
+                    ActionParameterKeys.RebootIfRequired),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 500,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.InstallUpdatesNow,
+                DisplayName = "Install updates now",
+                Description =
+                    "Installs the named updates immediately. Takes the cabinet out of service " +
+                    "while it runs and may restart it.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 3600,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.UpdateIds,
+                    ActionParameterKeys.RebootIfRequired),
+                MaintenanceWindowOnly = false,
+                // An install can restart the machine and always makes it
+                // unresponsive for a while. A clinician mid-dispense is a
+                // chain-of-custody problem, not an inconvenience, so an
+                // unreadable logged-on flag blocks it exactly as a true one
+                // does; only a Supervisor override with a stated reason passes.
+                BlockedIfUserLoggedOn = true,
+                Batchable = true,
+                MaximumBatchSize = 50,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.CancelScheduledUpdates,
+                DisplayName = "Cancel scheduled updates",
+                Description = "Withdraws a pending scheduled install. Installs and removes nothing.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 500,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.GetScheduledUpdates,
+                DisplayName = "View scheduled updates",
+                Description = "Reads what the cabinet has scheduled to install, and when in its own time.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+
+            // ---------------------------------------------------------------
+            // Diagnostics that collect and change nothing
+            // ---------------------------------------------------------------
             new ActionCatalogEntry
             {
                 Action = ActionName.CollectDiagnosticBundle,
                 DisplayName = "Collect diagnostic bundle",
                 Description = "Gathers event logs and agent logs into an uploadable bundle.",
-                MinimumRole = Role.Tier1,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 900,
@@ -165,144 +298,10 @@ public static class ActionCatalog
             },
             new ActionCatalogEntry
             {
-                Action = ActionName.FlushDnsCache,
-                DisplayName = "Flush DNS cache",
-                Description = "Clears the local resolver cache.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = false,
-                IsDisruptive = false,
-                TimeoutSeconds = 60,
-                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 25,
-                MaximumBatchSize = 500,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.RenewDhcpLease,
-                DisplayName = "Renew DHCP lease",
-                Description = "Releases and renews the lease on the primary adapter.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = false,
-                IsDisruptive = false,
-                TimeoutSeconds = 120,
-                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 10,
-                MaximumBatchSize = 200,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.RestartService,
-                DisplayName = "Restart service",
-                Description = "Restarts one service from the server-side service allow-list.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = false,
-                IsDisruptive = false,
-                TimeoutSeconds = 180,
-                // The value is additionally checked against ServiceAllowList —
-                // an allow-listed key with a free-form value would just be
-                // arbitrary execution wearing a different hat.
-                AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 10,
-                MaximumBatchSize = 200,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.StartService,
-                DisplayName = "Start service",
-                Description = "Starts one service from the server-side service allow-list.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = true,
-                IsDisruptive = false,
-                TimeoutSeconds = 180,
-                AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 10,
-                MaximumBatchSize = 200,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.StopService,
-                DisplayName = "Stop service",
-                Description = "Stops one service from the server-side service allow-list.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = true,
-                IsDisruptive = true,
-                TimeoutSeconds = 180,
-                AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 5,
-                BatchSupervisorOnlyThreshold = 20,
-                MaximumBatchSize = 100,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.ScheduleUpdates,
-                DisplayName = "Schedule updates",
-                Description = "Schedules approved Windows updates for a maintenance window.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = true,
-                IsDisruptive = false,
-                TimeoutSeconds = 600,
-                // The install time is specified in the cabinet's own local
-                // time, because that is what a rep and a clinic agree on. The
-                // server converts it and adds scheduledForUtc, which is also
-                // the only place the conversion can be checked: a local time
-                // that does not exist because the zone springs forward that
-                // morning is undetectable once converted.
-                AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase,
-                    ActionParameterKeys.ScheduledForLocal,
-                    ActionParameterKeys.ScheduledForUtc,
-                    ActionParameterKeys.RebootIfRequired),
-                MaintenanceWindowOnly = false,
-                BlockedIfUserLoggedOn = false,
-                Batchable = true,
-                BatchSupervisorThreshold = 25,
-                MaximumBatchSize = 500,
-            },
-            new ActionCatalogEntry
-            {
-                Action = ActionName.RebootMachine,
-                DisplayName = "Reboot machine",
-                Description = "Restarts the cabinet PC. Takes the cabinet offline for several minutes.",
-                MinimumRole = Role.Tier2,
-                RequiresApproval = true,
-                IsDisruptive = true,
-                TimeoutSeconds = 900,
-                AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.DelaySeconds),
-                MaintenanceWindowOnly = true,
-                BlockedIfUserLoggedOn = true,
-                // Rebooting a whole site is the most dangerous thing this tool
-                // can do. Any batch of it needs a Supervisor, and Tier 2 may
-                // never approve one however small.
-                Batchable = true,
-                BatchSupervisorThreshold = 1,
-                BatchSupervisorOnlyThreshold = 1,
-                MaximumBatchSize = 50,
-            },
-            new ActionCatalogEntry
-            {
                 Action = ActionName.CollectEventLogs,
                 DisplayName = "View event logs",
                 Description = "Fetches a window of Windows event log records for review.",
-                MinimumRole = Role.Tier1,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 300,
@@ -318,10 +317,34 @@ public static class ActionCatalog
             },
             new ActionCatalogEntry
             {
-                Action = ActionName.CollectProcessList,
+                Action = ActionName.RunEventLogView,
+                DisplayName = "Run an event log view",
+                Description =
+                    "Runs one saved, named event log filter on the cabinet and returns what matched.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 300,
+                // The caller names a view. The definition key is filled in by
+                // the server after it has read that view from the database, and
+                // a request that arrives already carrying one is refused: the
+                // whole point is that no expression a user wrote reaches the
+                // agent's event log query.
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.EventLogViewId,
+                    ActionParameterKeys.EventLogViewDefinition,
+                    ActionParameterKeys.HoursOfHistory),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.GetProcessList,
                 DisplayName = "View process list",
-                Description = "Fetches the cabinet's current process list for review.",
-                MinimumRole = Role.Tier1,
+                Description = "Reads the cabinet's current process list, outside the check-in cadence.",
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 120,
@@ -331,12 +354,255 @@ public static class ActionCatalog
                 BlockedIfUserLoggedOn = false,
                 Batchable = false,
             },
+
+            // ---------------------------------------------------------------
+            // Process management
+            // ---------------------------------------------------------------
+            new ActionCatalogEntry
+            {
+                Action = ActionName.KillProcess,
+                DisplayName = "End a process",
+                Description =
+                    "Ends one process, checked against the name the console believes its id belongs to.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                // Both keys are required together. A process id alone is not an
+                // identification: ids are reused within minutes, and by the
+                // time the agent acts the id may name something else entirely.
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.ProcessId,
+                    ActionParameterKeys.ExpectedProcessName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.KillProcessByName,
+                DisplayName = "End processes by name",
+                Description = "Ends every process running under one allow-listed image name.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ProcessName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 100,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.RestartApplication,
+                DisplayName = "Restart an application",
+                Description =
+                    "Stops an allow-listed application and starts it again from its registered " +
+                    "install path on that machine.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 300,
+                // Only the application's name. The executable comes from the
+                // agent's own registration for that name; a path parameter
+                // would be a command line wearing a different hat.
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ApplicationName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 100,
+            },
+
+            // ---------------------------------------------------------------
+            // Services
+            // ---------------------------------------------------------------
+            new ActionCatalogEntry
+            {
+                Action = ActionName.RestartService,
+                DisplayName = "Restart service",
+                Description = "Restarts one service from the server-side service allow-list.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 180,
+                // The value is additionally checked against ServiceAllowList —
+                // an allow-listed key with a free-form value would just be
+                // arbitrary execution wearing a different hat.
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 200,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.StartService,
+                DisplayName = "Start service",
+                Description = "Starts one service from the server-side service allow-list.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 180,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 200,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.StopService,
+                DisplayName = "Stop service",
+                Description = "Stops one service from the server-side service allow-list.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 180,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 100,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.SetServiceStartType,
+                DisplayName = "Set service start type",
+                Description =
+                    "Changes whether an allow-listed service starts at boot, on demand, or not at all.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.ServiceName,
+                    ActionParameterKeys.StartType),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 100,
+            },
+
+            // ---------------------------------------------------------------
+            // Machine state
+            // ---------------------------------------------------------------
+            new ActionCatalogEntry
+            {
+                Action = ActionName.RebootMachine,
+                DisplayName = "Reboot machine",
+                Description = "Restarts the cabinet PC. Takes the cabinet offline for several minutes.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 900,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.DelaySeconds),
+                MaintenanceWindowOnly = true,
+                BlockedIfUserLoggedOn = true,
+                // Rebooting a whole site is the widest thing this tool can do,
+                // so the batch is capped tightly even though approval no longer
+                // scales with size in this build.
+                Batchable = true,
+                MaximumBatchSize = 50,
+            },
+
+            // ---------------------------------------------------------------
+            // Network: read-only probes
+            // ---------------------------------------------------------------
+            new ActionCatalogEntry
+            {
+                Action = ActionName.FlushDnsCache,
+                DisplayName = "Flush DNS cache",
+                Description = "Clears the local resolver cache.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 60,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 500,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.RenewDhcpLease,
+                DisplayName = "Renew DHCP lease",
+                Description = "Releases and renews the lease on the primary adapter.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = true,
+                MaximumBatchSize = 200,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.PingHost,
+                DisplayName = "Ping a host",
+                Description = "Pings a named host or address from this cabinet.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 60,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.TargetHost),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                TargetsAHost = true,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.TraceRoute,
+                DisplayName = "Trace route to a host",
+                Description = "Traces the network path from this cabinet to a named host or address.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 180,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.TargetHost),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                TargetsAHost = true,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.TestPortConnectivity,
+                DisplayName = "Test a port on a host",
+                Description = "Opens a TCP connection to a CUBEX port on a named host or address.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 60,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.TargetHost, PortKey),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                TargetsAHost = true,
+                AllowedPorts = CubexPorts.All,
+                Batchable = false,
+            },
             new ActionCatalogEntry
             {
                 Action = ActionName.PingCabinet,
                 DisplayName = "Ping another cabinet",
                 Description = "Pings another cabinet at this site, from this cabinet.",
-                MinimumRole = Role.Tier1,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 60,
@@ -353,7 +619,7 @@ public static class ActionCatalog
                 Action = ActionName.TestCabinetPort,
                 DisplayName = "Test a port on another cabinet",
                 Description = "Opens a TCP connection to a CUBEX port on another cabinet at this site.",
-                MinimumRole = Role.Tier2,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 60,
@@ -371,7 +637,7 @@ public static class ActionCatalog
                 Action = ActionName.TraceRouteToCabinet,
                 DisplayName = "Trace route to another cabinet",
                 Description = "Traces the network path to another cabinet at this site.",
-                MinimumRole = Role.Tier2,
+                MinimumRole = EveryRep,
                 RequiresApproval = false,
                 IsDisruptive = false,
                 TimeoutSeconds = 180,
@@ -383,7 +649,127 @@ public static class ActionCatalog
                 TargetsAnotherCabinet = true,
                 Batchable = false,
             },
+
+            // ---------------------------------------------------------------
+            // Network: configuration changes, all under confirm-or-revert
+            // ---------------------------------------------------------------
+            // Each of these can strand a cabinet. The agent writes the previous
+            // configuration to disk, applies the new one, and puts the old one
+            // back unless it can reach this server within a timeout — so the
+            // worst case is a short outage rather than a site visit. They are
+            // marked disruptive and need a second person because a wrong answer
+            // costs a clinic its cabinet until somebody drives there.
+            new ActionCatalogEntry
+            {
+                Action = ActionName.SetDnsServers,
+                DisplayName = "Set DNS servers",
+                Description =
+                    "Replaces an adapter's DNS servers, and puts the old ones back if the cabinet " +
+                    "then cannot reach this server.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 300,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.AdapterId,
+                    ActionParameterKeys.DnsServers),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.SetStaticIpAddress,
+                DisplayName = "Set a static address",
+                Description =
+                    "Gives an adapter a static address, and puts the old configuration back if the " +
+                    "cabinet then cannot reach this server.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 300,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.AdapterId,
+                    ActionParameterKeys.IpAddress,
+                    ActionParameterKeys.SubnetMask,
+                    ActionParameterKeys.DefaultGateway),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
+                Action = ActionName.SetAdapterToDhcp,
+                DisplayName = "Return an adapter to DHCP",
+                Description =
+                    "Returns an adapter to DHCP, and puts the old configuration back if the cabinet " +
+                    "then cannot reach this server.",
+                MinimumRole = EveryRep,
+                RequiresApproval = true,
+                IsDisruptive = true,
+                TimeoutSeconds = 300,
+                AllowedParameterKeys = ImmutableHashSet.Create(
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.AdapterId),
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+
+            // ---------------------------------------------------------------
+            // Reserved: hardware actuation. Always denied.
+            // ---------------------------------------------------------------
+            // These three exist so the refusal is a real path with a real audit
+            // event rather than a gap. No agent has an executor for any of them,
+            // the server refuses them before it considers anything else about
+            // the request, and no role or grant changes that. Do not add an
+            // executor here; actuating a lock on a cabinet holding controlled
+            // substances is a separate design with its own safety case and its
+            // own on-site confirmation.
+            ReservedActuation(
+                ActionName.OpenDrawer,
+                "Open a drawer",
+                "Reserved. This platform does not actuate cabinet hardware."),
+            ReservedActuation(
+                ActionName.UnlockLock,
+                "Release a lock",
+                "Reserved. This platform does not actuate cabinet hardware."),
+            ReservedActuation(
+                ActionName.OpenCubie,
+                "Open a cubie",
+                "Reserved. This platform does not actuate cabinet hardware."),
         }.ToImmutableDictionary(x => x.Action);
+
+    /// <summary>
+    /// Builds one reserved actuation entry.
+    /// </summary>
+    /// <remarks>
+    /// Every field is set to the most restrictive value it can take, so that
+    /// even a future change that accidentally routed one of these past the
+    /// reserved check would find an action nobody can request: no parameters,
+    /// no batching, maintenance window only, and blocked while anybody is at
+    /// the cabinet.
+    /// </remarks>
+    /// <param name="action">The reserved action.</param>
+    /// <param name="displayName">Label, so the refusal names something a person recognises.</param>
+    /// <param name="description">One sentence saying why it is refused.</param>
+    private static ActionCatalogEntry ReservedActuation(
+        ActionName action, string displayName, string description) => new()
+    {
+        Action = action,
+        DisplayName = displayName,
+        Description = description,
+        MinimumRole = Role.Supervisor,
+        RequiresApproval = true,
+        IsDisruptive = true,
+        TimeoutSeconds = 60,
+        AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+        MaintenanceWindowOnly = true,
+        BlockedIfUserLoggedOn = true,
+        Batchable = false,
+        IsReservedHardwareActuation = true,
+    };
 
     /// <summary>Every entry in the catalog.</summary>
     public static IReadOnlyCollection<ActionCatalogEntry> All { get; } = Entries.Values.ToImmutableArray();

@@ -247,10 +247,20 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
         return "Filters: " + string.Join("; ", parts) + ".";
     }
 
+    /// <summary>
+    /// What to show when the server refuses the trail.
+    /// </summary>
+    /// <remarks>
+    /// Every authenticated rep may read the audit trail: with no case scoping
+    /// and no per-rep cabinet assignment it is the control that replaces them,
+    /// and a control everybody can see is one everybody behaves as though
+    /// exists. A refusal therefore means a session problem, and the wording
+    /// says so rather than naming a role the caller does have.
+    /// </remarks>
     public string ForbiddenExplanation =>
-        "The audit trail is restricted to Supervisors. The server refused this request, which " +
-        "is correct — your role does not include audit access. Ask a Supervisor if you need an " +
-        "entry looked up.";
+        "The server refused the audit trail for this session. Every rep may read it, so this is " +
+        "not about your role: sign out and back in, and if it happens again ask a Supervisor to " +
+        "check your account is still active.";
 
     protected override void OnLoadingChanged(bool isLoading) => RaisePagingChanged();
 

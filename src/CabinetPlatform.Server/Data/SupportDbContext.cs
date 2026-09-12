@@ -80,6 +80,12 @@ public class SupportDbContext : DbContext
     /// <summary>The frozen target list of each batch.</summary>
     public DbSet<BatchActionTarget> BatchActionTargets => Set<BatchActionTarget>();
 
+    /// <summary>Named event log filters, shared across every support user.</summary>
+    public DbSet<EventLogView> EventLogViews => Set<EventLogView>();
+
+    /// <summary>Each rep's recently opened cabinets.</summary>
+    public DbSet<RecentCabinetView> RecentCabinetViews => Set<RecentCabinetView>();
+
     /// <inheritdoc />
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -168,6 +174,55 @@ public class SupportDbContext : DbContext
             e.HasIndex(x => x.SiteId);
             e.HasIndex(x => x.IsActive);
             e.HasIndex(x => x.Role);
+
+            // Search indexes. A rep types one term and it is matched against
+            // every identifying column at once, so each of them has to be able
+            // to narrow on its own: hostname and serial number are what a rep
+            // reads off the cabinet, and department is how larger clients
+            // distinguish four cabinets in one building.
+            e.HasIndex(x => x.Hostname).HasDatabaseName("IX_Cabinets_Hostname");
+            e.HasIndex(x => x.SerialNumber).HasDatabaseName("IX_Cabinets_SerialNumber");
+            e.HasIndex(x => x.DepartmentName).HasDatabaseName("IX_Cabinets_DepartmentName");
+
+            // Fleet aggregates read these two straight off the row rather than
+            // opening seven thousand inventory documents.
+            e.HasIndex(x => x.PendingSecurityUpdateCount);
+            e.HasIndex(x => x.AutoStartServicesStoppedCount);
+        });
+
+        b.Entity<EventLogView>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.DisplayName).IsRequired().HasMaxLength(128);
+
+            // Unique, because views are shared by every rep and two with the
+            // same name would be indistinguishable in the picker.
+            e.HasIndex(x => x.DisplayName).IsUnique();
+            e.Property(x => x.Description).HasMaxLength(1000);
+            e.Property(x => x.LogNamesJson).IsRequired();
+            e.Property(x => x.SourcesJson).IsRequired();
+            e.Property(x => x.EventIdsJson).IsRequired();
+            e.Property(x => x.MinimumLevel).HasConversion<int>();
+            e.Property(x => x.RowVersion).IsConcurrencyToken();
+
+            e.HasIndex(x => x.IsRetired);
+        });
+
+        b.Entity<RecentCabinetView>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.Cabinet)
+                .WithMany()
+                .HasForeignKey(x => x.CabinetId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            // One row per rep and cabinet, updated in place. A history of every
+            // view would be a second audit trail with none of the guarantees of
+            // the real one.
+            e.HasIndex(x => new { x.UserId, x.CabinetId }).IsUnique();
+            e.HasIndex(x => new { x.UserId, x.LastViewedUtc })
+                .IsDescending(false, true)
+                .HasDatabaseName("IX_RecentCabinetViews_UserId_LastViewedUtc_Desc");
         });
 
         b.Entity<PendingRegistration>(e =>
@@ -310,6 +365,13 @@ public class SupportDbContext : DbContext
             e.Property(x => x.OverrideReason).HasMaxLength(1000);
             e.Property(x => x.ResultOutput).HasMaxLength(8000);
             e.Property(x => x.RowVersion).IsConcurrencyToken();
+
+            // Reserved for hardware actuation and never written in this build.
+            // Mapped so that the column exists with the rest of the record,
+            // rather than arriving in a migration alongside the feature that
+            // first needs it.
+            e.Property(x => x.OnSiteConfirmedByUserId);
+            e.Property(x => x.OnSiteConfirmedUtc);
 
             // The agent poll: approved, undispatched, unexpired, this cabinet.
             e.HasIndex(x => new { x.CabinetId, x.Status })

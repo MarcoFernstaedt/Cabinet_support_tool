@@ -135,6 +135,18 @@ public sealed record CabinetDetailDto
     /// <summary>The cabinet's list-view facts.</summary>
     public required CabinetSummary Cabinet { get; init; }
 
+    /// <summary>
+    /// Its full identifying path, for the header a console keeps visible while
+    /// the rest of the detail scrolls.
+    /// </summary>
+    /// <remarks>
+    /// A rep reading a log view forty rows down has scrolled the cabinet's name
+    /// off the screen. Every action they then take is on whichever cabinet they
+    /// believe they are looking at, which is why the path is a first-class part
+    /// of this response rather than something a console reassembles.
+    /// </remarks>
+    public required CabinetPath Path { get; init; }
+
     /// <summary>Its site, including which cabinet syncs the site.</summary>
     public required SiteSummary Site { get; init; }
 
@@ -251,8 +263,82 @@ public sealed record FleetHealthSummary
     /// <summary>Sites whose sync cabinet is offline, the usual cause of a whole site misbehaving.</summary>
     public required int SitesWithOfflineSyncCabinet { get; init; }
 
+    /// <summary>
+    /// Cabinets whose last check-in is older than the stale window, which is
+    /// configurable and is not the same as the offline threshold.
+    /// </summary>
+    /// <remarks>
+    /// Offline is a health verdict and shows up as a red row. Stale is a
+    /// question about the telemetry rather than the cabinet: a fleet with three
+    /// hundred stale cabinets has an agent or a network problem, not three
+    /// hundred broken cabinets, and the two numbers diverging is itself the
+    /// signal.
+    /// </remarks>
+    public required int Stale { get; init; }
+
+    /// <summary>How far back the stale count reaches, in hours.</summary>
+    public required int StaleAfterHours { get; init; }
+
+    /// <summary>Cabinets with at least one update detected and not installed.</summary>
+    public required int WithPendingUpdates { get; init; }
+
+    /// <summary>Cabinets with at least one pending update Windows classes as a security fix.</summary>
+    public required int WithPendingSecurityUpdates { get; init; }
+
+    /// <summary>Cabinets waiting on a restart to finish an installation.</summary>
+    public required int RebootPending { get; init; }
+
+    /// <summary>
+    /// Cabinets with at least one automatic-start service that is stopped.
+    /// </summary>
+    /// <remarks>
+    /// The highest-value diagnostic in the fleet: a service configured to start
+    /// at boot and not running is nearly always the direct cause of whatever
+    /// the client is ringing about.
+    /// </remarks>
+    public required int WithAutoStartServicesStopped { get; init; }
+
+    /// <summary>Cabinets by the worst health of any drive in them.</summary>
+    public required DiskHealthCounts Disks { get; init; }
+
+    /// <summary>
+    /// How many cabinets run each agent version, highest count first.
+    /// </summary>
+    /// <remarks>
+    /// A fleet running four agent versions is a fleet where a bug report means
+    /// four different things, so the distribution is a first-class number
+    /// rather than something to derive from a filtered list.
+    /// </remarks>
+    public IReadOnlyList<AgentVersionCount> AgentVersions { get; init; } = Array.Empty<AgentVersionCount>();
+
     /// <summary>UTC instant the summary was computed.</summary>
     public required DateTimeOffset GeneratedUtc { get; init; }
+}
+
+/// <summary>Cabinets counted by the worst drive health reported in them.</summary>
+public sealed record DiskHealthCounts
+{
+    /// <summary>No drive shows an indicator of trouble.</summary>
+    public required int Healthy { get; init; }
+
+    /// <summary>At least one drive warrants monitoring.</summary>
+    public required int Watch { get; init; }
+
+    /// <summary>At least one drive is failing.</summary>
+    public required int Failing { get; init; }
+
+    /// <summary>No drive health could be established.</summary>
+    public required int Unknown { get; init; }
+}
+
+/// <summary>One agent version and how many cabinets run it.</summary>
+public sealed record AgentVersionCount
+{
+    /// <summary>The version string the agent reported, or null where none has been.</summary>
+    public string? Version { get; init; }
+
+    /// <summary>How many cabinets report it.</summary>
+    public required int CabinetCount { get; init; }
 }
 
 /// <summary>Filter over the fleet summary.</summary>
@@ -263,4 +349,21 @@ public sealed record FleetHealthQuery
 
     /// <summary>Restrict to one site.</summary>
     public string? SiteName { get; init; }
+
+    /// <summary>Restrict to one site by identifier.</summary>
+    public Guid? SiteId { get; init; }
+
+    /// <summary>Restrict to one department within the filtered sites.</summary>
+    public string? DepartmentName { get; init; }
+
+    /// <summary>
+    /// How old a cabinet's last check-in must be to count as stale, in hours.
+    /// </summary>
+    /// <remarks>
+    /// Configurable per request rather than fixed, because the useful window
+    /// differs by what is being asked: twelve hours answers "did the overnight
+    /// run reach everything", and seven days answers "which cabinets has
+    /// nobody heard from since the upgrade". Clamped server-side.
+    /// </remarks>
+    public int? StaleAfterHours { get; init; }
 }

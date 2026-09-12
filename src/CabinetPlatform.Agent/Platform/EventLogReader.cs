@@ -77,6 +77,109 @@ public sealed class EventLogReader : IEventLogReader
         return entries;
     }
 
+    /// <inheritdoc />
+    public IReadOnlyList<EventLogEntry> RunView(
+        EventLogViewDefinition definition, CancellationToken cancellationToken)
+    {
+        var window = TimeSpan.FromHours(Math.Max(definition.WindowHours, 1));
+        var entries = new List<EventLogEntry>(Math.Min(definition.MaximumEntries, 256));
+
+        // A view may name several logs. Each is read under its own query and
+        // the results are merged newest-first afterwards, because the event log
+        // service has no cross-channel query and interleaving by hand would
+        // mean reading all of every log first.
+        foreach (EventLogName log in definition.LogNames.Distinct())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (entries.Count >= definition.MaximumEntries)
+            {
+                break;
+            }
+
+            entries.AddRange(ReadView(log, definition, window, definition.MaximumEntries, cancellationToken));
+        }
+
+        return entries
+            .OrderByDescending(e => e.TimeCreatedUtc)
+            .Take(definition.MaximumEntries)
+            .ToArray();
+    }
+
+    private IReadOnlyList<EventLogEntry> ReadView(
+        EventLogName log,
+        EventLogViewDefinition definition,
+        TimeSpan window,
+        int maximumEntries,
+        CancellationToken cancellationToken)
+    {
+        var query = new EventLogQuery(
+            ToChannelName(log),
+            PathType.LogName,
+            EventLogViewQueryBuilder.Build(definition, window))
+        {
+            ReverseDirection = true,
+        };
+
+        var entries = new List<EventLogEntry>();
+
+        System.Diagnostics.Eventing.Reader.EventLogReader reader;
+
+        try
+        {
+            reader = new System.Diagnostics.Eventing.Reader.EventLogReader(query);
+        }
+        catch (EventLogException e)
+        {
+            // A log this machine does not have, or one the agent cannot open.
+            // One unavailable channel must not cost the view its other logs.
+            _logger.LogWarning(
+                e, "The {Log} log could not be opened for view '{View}'.", log, definition.DisplayName);
+
+            return entries;
+        }
+
+        using (reader)
+        {
+            while (entries.Count < maximumEntries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                EventRecord? record;
+
+                try
+                {
+                    record = reader.ReadEvent();
+                }
+                catch (EventLogException e)
+                {
+                    _logger.LogWarning(
+                        e, "Reading the {Log} log for view '{View}' stopped early.",
+                        log, definition.DisplayName);
+
+                    break;
+                }
+
+                if (record is null)
+                {
+                    break;
+                }
+
+                using (record)
+                {
+                    EventLogEntry? entry = ToEntry(log, record);
+
+                    if (entry is not null)
+                    {
+                        entries.Add(entry);
+                    }
+                }
+            }
+        }
+
+        return entries;
+    }
+
     /// <summary>
     /// Builds the XPath filter for critical, error and warning records inside
     /// the window.

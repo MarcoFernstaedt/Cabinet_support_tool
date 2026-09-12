@@ -15,8 +15,14 @@ namespace CabinetPlatform.Console.Core.Presentation;
 /// action as safe after the server has reclassified it as disruptive.
 /// </param>
 /// <param name="CabinetId">Cabinet the action will run against.</param>
-/// <param name="CabinetHostname">For the dialog's text, so the user can see which machine.</param>
-/// <param name="ClientAndSite">Clinic and site, because hostnames repeat across clients.</param>
+/// <param name="Path">
+/// The cabinet's full identifying path — client, site, department, name and
+/// role. The dialog restates it and will not submit until the operator has
+/// confirmed it. A hostname on its own is not an identification: across three
+/// and a half thousand client organisations, names repeat constantly, and
+/// picking the wrong cabinet is the most likely serious operator error this
+/// product has.
+/// </param>
 /// <param name="Parameters">
 /// Parameters already determined by context — the service name from the row the
 /// user clicked, for instance. The dialog shows them; it does not invent them,
@@ -30,8 +36,7 @@ namespace CabinetPlatform.Console.Core.Presentation;
 public sealed record ActionRequestPrompt(
     ActionCatalogEntryDto Catalogue,
     Guid CabinetId,
-    string CabinetHostname,
-    string ClientAndSite,
+    CabinetPath Path,
     IReadOnlyDictionary<string, string> Parameters,
     bool? UserIsLoggedOnToCabinet,
     Role? CallerRole);
@@ -40,11 +45,20 @@ public sealed record ActionRequestPrompt(
 /// What the user supplied in the dialog. Null from the dialog service means
 /// they cancelled, which is never treated as a submission.
 /// </summary>
+/// <param name="Reason">Why, for the audit trail.</param>
+/// <param name="TicketReference">The ticket this belongs to.</param>
+/// <param name="OverrideSafetyChecks">Whether a Supervisor waived the safety gates.</param>
+/// <param name="OverrideReason">Why they waived them.</param>
+/// <param name="CabinetConfirmed">
+/// That the operator read the cabinet's full path back and agreed it is the one
+/// they meant. The dialog will not produce a submission without it.
+/// </param>
 public sealed record ActionRequestSubmission(
     string Reason,
     string? TicketReference,
     bool OverrideSafetyChecks,
-    string? OverrideReason);
+    string? OverrideReason,
+    bool CabinetConfirmed = true);
 
 /// <summary>
 /// Collects a reason and a ticket reference before an action is submitted.

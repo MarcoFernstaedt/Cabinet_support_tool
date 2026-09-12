@@ -23,6 +23,7 @@ public sealed class CabinetsController : SupportControllerBase
     private readonly IAuditService _audit;
     private readonly ICabinetProjection _projection;
     private readonly ICabinetClock _clock;
+    private readonly ICabinetSearchService _search;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly TimeProvider _timeProvider;
 
@@ -31,6 +32,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="audit">The audit trail.</param>
     /// <param name="projection">Builds cabinet read models.</param>
     /// <param name="clock">Resolves cabinet-local time.</param>
+    /// <param name="search">Records which cabinets this rep has opened.</param>
     /// <param name="queryLimits">History query bounds.</param>
     /// <param name="timeProvider">Clock.</param>
     public CabinetsController(
@@ -38,6 +40,7 @@ public sealed class CabinetsController : SupportControllerBase
         IAuditService audit,
         ICabinetProjection projection,
         ICabinetClock clock,
+        ICabinetSearchService search,
         IOptions<QueryLimitsOptions> queryLimits,
         TimeProvider timeProvider)
     {
@@ -45,6 +48,7 @@ public sealed class CabinetsController : SupportControllerBase
         _audit = audit;
         _projection = projection;
         _clock = clock;
+        _search = search;
         _queryLimits = queryLimits.Value;
         _timeProvider = timeProvider;
     }
@@ -60,7 +64,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="query">Filter and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<CabinetSummary>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<CabinetSummary>>> List(
         [FromQuery] CabinetQuery query, CancellationToken ct)
@@ -145,7 +149,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="id">The cabinet.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(CabinetDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<CabinetDetailDto>> Detail(Guid id, CancellationToken ct)
@@ -186,6 +190,11 @@ public sealed class CabinetsController : SupportControllerBase
         var dto = new CabinetDetailDto
         {
             Cabinet = summary,
+            // The path a console pins to its header so a rep deep in a log view
+            // can always see whose cabinet they are reading. Ambiguity is not
+            // marked here: a single cabinet is not a result set, and there is
+            // nothing for its name to collide with.
+            Path = CabinetPath.From(summary),
             Site = site,
             SyncCabinetLink = link,
             LatestHeartbeat = heartbeat is null ? null : ToDto(heartbeat),
@@ -196,6 +205,12 @@ public sealed class CabinetsController : SupportControllerBase
 
         await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetLatest, new { CabinetId = id }, id), ct);
 
+        // Opening a cabinet puts it at the top of this rep's recent list. It
+        // rides the same save as the audit write, so it costs no extra round
+        // trip on the hottest read in the console.
+        await _search.RecordViewAsync(CurrentUser.UserId, id, nowUtc, ct);
+        await _db.SaveChangesAsync(ct);
+
         return Ok(dto);
     }
 
@@ -204,7 +219,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="query">Window and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}/heartbeats")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<HeartbeatDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PagedResult<HeartbeatDto>>> Heartbeats(
@@ -263,7 +278,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="query">Window and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}/inventory")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<InventoryVersionDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PagedResult<InventoryVersionDto>>> Inventory(
@@ -314,7 +329,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="query">Window, drive and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}/smart")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<SmartReadingDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PagedResult<SmartReadingDto>>> Smart(

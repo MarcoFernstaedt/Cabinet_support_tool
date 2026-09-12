@@ -58,6 +58,10 @@ public static class AgentServiceRegistration
         services.AddSingleton<IServiceControlGateway, ServiceControlGateway>();
         services.AddSingleton<INativeSystemGateway, NativeSystemGateway>();
         services.AddSingleton<IScheduledUpdateWriter, ScheduledUpdateWriter>();
+        services.AddSingleton<IProcessControlGateway, ProcessControlGateway>();
+        services.AddSingleton<INetworkConfigurationGateway, NetworkConfigurationGateway>();
+        services.AddSingleton<INetworkRollbackStore, FileNetworkRollbackStore>();
+        services.AddSingleton<IServerReachabilityProbe, ServerReachabilityProbe>();
     }
 
     private static void AddIdentity(IServiceCollection services)
@@ -137,22 +141,57 @@ public static class AgentServiceRegistration
     private static void AddActions(IServiceCollection services)
     {
         services.AddSingleton<ServiceNameAllowList>();
+        services.AddSingleton<ProcessTargetPolicy>();
         services.AddSingleton<ActionExecutorRegistry>();
         services.AddSingleton<ActionDispatcher>();
+        services.AddSingleton<ScheduledUpdateRunner>();
 
+        // Windows Update
         services.AddSingleton<IActionExecutor, ScanForUpdatesExecutor>();
         services.AddSingleton<IActionExecutor, ScheduleUpdatesExecutor>();
+        services.AddSingleton<IActionExecutor, InstallUpdatesNowExecutor>();
+        services.AddSingleton<IActionExecutor, CancelScheduledUpdatesExecutor>();
+        services.AddSingleton<IActionExecutor, GetScheduledUpdatesExecutor>();
+
+        // Diagnostics that collect and change nothing
         services.AddSingleton<IActionExecutor, CollectDiagnosticBundleExecutor>();
-        services.AddSingleton<IActionExecutor, FlushDnsCacheExecutor>();
-        services.AddSingleton<IActionExecutor, RenewDhcpLeaseExecutor>();
+        services.AddSingleton<IActionExecutor, CollectEventLogsExecutor>();
+        services.AddSingleton<IActionExecutor, RunEventLogViewExecutor>();
+        services.AddSingleton<IActionExecutor, GetProcessListExecutor>();
+
+        // Process management
+        services.AddSingleton<IActionExecutor, KillProcessExecutor>();
+        services.AddSingleton<IActionExecutor, KillProcessByNameExecutor>();
+        services.AddSingleton<IActionExecutor, RestartApplicationExecutor>();
+
+        // Services
         services.AddSingleton<IActionExecutor, RestartServiceExecutor>();
         services.AddSingleton<IActionExecutor, StartServiceExecutor>();
         services.AddSingleton<IActionExecutor, StopServiceExecutor>();
+        services.AddSingleton<IActionExecutor, SetServiceStartTypeExecutor>();
+
+        // Machine state
         services.AddSingleton<IActionExecutor, RebootMachineExecutor>();
-        services.AddSingleton<IActionExecutor, CollectEventLogsExecutor>();
-        services.AddSingleton<IActionExecutor, CollectProcessListExecutor>();
+
+        // Network probes
+        services.AddSingleton<IActionExecutor, FlushDnsCacheExecutor>();
+        services.AddSingleton<IActionExecutor, RenewDhcpLeaseExecutor>();
+        services.AddSingleton<IActionExecutor, PingHostExecutor>();
+        services.AddSingleton<IActionExecutor, TraceRouteExecutor>();
+        services.AddSingleton<IActionExecutor, TestPortConnectivityExecutor>();
         services.AddSingleton<IActionExecutor, PingCabinetExecutor>();
         services.AddSingleton<IActionExecutor, TestCabinetPortExecutor>();
         services.AddSingleton<IActionExecutor, TraceRouteToCabinetExecutor>();
+
+        // Network configuration, all under confirm-or-revert
+        services.AddSingleton<IActionExecutor, SetDnsServersExecutor>();
+        services.AddSingleton<IActionExecutor, SetStaticIpAddressExecutor>();
+        services.AddSingleton<IActionExecutor, SetAdapterToDhcpExecutor>();
+
+        // Deliberately absent: OpenDrawer, UnlockLock and OpenCubie. There is
+        // no executor for any of them, which is the agent's own half of the
+        // guarantee that this platform does not actuate cabinet hardware. The
+        // server refuses them before dispatch; an agent that somehow received
+        // one would deny it for want of an implementation. Do not add one here.
     }
 }

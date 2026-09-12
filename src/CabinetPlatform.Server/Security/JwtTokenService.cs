@@ -96,6 +96,7 @@ public sealed class JwtTokenService : IJwtTokenService
             new(SupportClaims.UserId, user.Id.ToString()),
             new(SupportClaims.Role, user.Role.ToString()),
             new(SupportClaims.ElevatedSql, user.HasElevatedSql ? "true" : "false"),
+            new(SupportClaims.HardwareActuation, user.HasHardwareActuation ? "true" : "false"),
             new(SupportClaims.MustChangePassword, user.MustChangePassword ? "true" : "false"),
             new(SupportClaims.SessionId, Guid.NewGuid().ToString()),
             new(ClaimTypes.Name, user.Username),

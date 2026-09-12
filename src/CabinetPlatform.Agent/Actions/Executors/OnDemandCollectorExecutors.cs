@@ -123,23 +123,23 @@ public sealed class CollectEventLogsExecutor : IActionExecutor
 /// changes constantly, and is read for one cabinet at a time when somebody is
 /// already looking at it.
 /// </remarks>
-public sealed class CollectProcessListExecutor : IActionExecutor
+public sealed class GetProcessListExecutor : IActionExecutor
 {
     private readonly PerformanceCollector _collector;
-    private readonly ILogger<CollectProcessListExecutor> _logger;
+    private readonly ILogger<GetProcessListExecutor> _logger;
 
     /// <summary>Creates the executor.</summary>
     /// <param name="collector">Samples the performance counters and processes.</param>
     /// <param name="logger">Diagnostic log.</param>
-    public CollectProcessListExecutor(
-        PerformanceCollector collector, ILogger<CollectProcessListExecutor> logger)
+    public GetProcessListExecutor(
+        PerformanceCollector collector, ILogger<GetProcessListExecutor> logger)
     {
         _collector = collector;
         _logger = logger;
     }
 
     /// <inheritdoc />
-    public ActionName Action => ActionName.CollectProcessList;
+    public ActionName Action => ActionName.GetProcessList;
 
     /// <inheritdoc />
     public async Task<ActionOutcome> ExecuteAsync(

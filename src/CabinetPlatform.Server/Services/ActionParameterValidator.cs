@@ -34,9 +34,17 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private const int MaxValueLength = 256;
 
     private readonly IServiceAllowList _serviceAllowList;
+    private readonly IProcessAllowList _processAllowList;
 
-    public ActionParameterValidator(IServiceAllowList serviceAllowList) =>
+    /// <summary>Creates the validator.</summary>
+    /// <param name="serviceAllowList">Which services may be acted on.</param>
+    /// <param name="processAllowList">Which processes and applications may be acted on.</param>
+    public ActionParameterValidator(
+        IServiceAllowList serviceAllowList, IProcessAllowList processAllowList)
+    {
         _serviceAllowList = serviceAllowList;
+        _processAllowList = processAllowList;
+    }
 
     /// <inheritdoc />
     public OperationResult<IReadOnlyDictionary<string, string>> Validate(
@@ -92,17 +100,38 @@ public sealed class ActionParameterValidator : IActionParameterValidator
             ActionName.StartService or
             ActionName.StopService => ValidateServiceName(normalised),
 
+            ActionName.SetServiceStartType => ValidateServiceStartType(normalised),
+
             ActionName.CollectDiagnosticBundle => ValidateDiagnosticBundle(normalised),
             ActionName.ScheduleUpdates => ValidateScheduleUpdates(normalised, nowUtc, cabinet, clock),
+            ActionName.InstallUpdatesNow => ValidateInstallUpdatesNow(normalised),
             ActionName.RebootMachine => ValidateReboot(normalised),
             ActionName.CollectEventLogs => ValidateEventLogs(normalised),
-            ActionName.CollectProcessList => ValidateProcessList(normalised),
+            ActionName.RunEventLogView => ValidateEventLogView(normalised),
+            ActionName.GetProcessList => ValidateProcessList(normalised),
+
+            ActionName.KillProcess => ValidateKillProcess(normalised),
+            ActionName.KillProcessByName => ValidateProcessName(normalised),
+            ActionName.RestartApplication => ValidateApplicationName(normalised),
 
             ActionName.PingCabinet or
             ActionName.TraceRouteToCabinet => ValidateCabinetTarget(entry, normalised),
 
             ActionName.TestCabinetPort => ValidateCabinetPort(entry, normalised),
 
+            ActionName.PingHost or
+            ActionName.TraceRoute => ValidateHostTarget(normalised),
+
+            ActionName.TestPortConnectivity => ValidateHostPort(entry, normalised),
+
+            ActionName.SetDnsServers => ValidateDnsServers(normalised),
+            ActionName.SetStaticIpAddress => ValidateStaticIp(normalised),
+            ActionName.SetAdapterToDhcp => ValidateAdapterOnly(normalised),
+
+            // The reserved actuation actions accept no parameters at all, and
+            // are refused before dispatch regardless. Falling through here is
+            // therefore correct and not an omission: an empty allow-list has
+            // already rejected anything a caller sent.
             _ => OperationResult<IReadOnlyDictionary<string, string>>.Ok(normalised)
         };
     }
@@ -312,6 +341,534 @@ public sealed class ActionParameterValidator : IActionParameterValidator
 
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateProcessList(
         Dictionary<string, string> p) => ValidateMaxEntries(p, 2000);
+
+    /// <summary>
+    /// Checks a kill by process id.
+    /// </summary>
+    /// <remarks>
+    /// Both keys are required together, and that is the whole safety property.
+    /// A process id on its own is not an identification: Windows reuses ids
+    /// within minutes on a busy machine, so between a rep reading a list and
+    /// the agent acting, the id may name something else entirely — plausibly
+    /// something the allow-list would never have permitted. The expected name
+    /// travels with it and the agent re-reads the live process table before it
+    /// acts, refusing the pair if the machine disagrees.
+    /// </remarks>
+    private OperationResult<IReadOnlyDictionary<string, string>> ValidateKillProcess(
+        Dictionary<string, string> p)
+    {
+        if (!p.TryGetValue(ActionParameterKeys.ProcessId, out string? rawPid) ||
+            !int.TryParse(rawPid, NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid) ||
+            pid <= 0)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.ProcessId}' must be a positive process id.");
+        }
+
+        // Process id 4 is the Windows kernel on every version of Windows there
+        // is. Nothing else uses it, and nothing good comes of naming it.
+        if (pid == 4)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "Process id 4 is the Windows System process and is never a valid target.");
+        }
+
+        if (!p.TryGetValue(ActionParameterKeys.ExpectedProcessName, out string? name) ||
+            string.IsNullOrWhiteSpace(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.ExpectedProcessName}' is required alongside " +
+                $"'{ActionParameterKeys.ProcessId}'. Process ids are reused, so an id without the " +
+                "name it is expected to belong to is not an identification.");
+        }
+
+        OperationResult<IReadOnlyDictionary<string, string>> permitted =
+            CheckProcessName(name, ActionParameterKeys.ExpectedProcessName);
+
+        if (!permitted.Succeeded)
+        {
+            return permitted;
+        }
+
+        p[ActionParameterKeys.ProcessId] = pid.ToString(CultureInfo.InvariantCulture);
+        p[ActionParameterKeys.ExpectedProcessName] = CriticalProcessDenyList.Normalise(name);
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private OperationResult<IReadOnlyDictionary<string, string>> ValidateProcessName(
+        Dictionary<string, string> p)
+    {
+        if (!p.TryGetValue(ActionParameterKeys.ProcessName, out string? name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>
+                .Invalid($"Parameter '{ActionParameterKeys.ProcessName}' is required.");
+        }
+
+        OperationResult<IReadOnlyDictionary<string, string>> permitted =
+            CheckProcessName(name, ActionParameterKeys.ProcessName);
+
+        if (!permitted.Succeeded)
+        {
+            return permitted;
+        }
+
+        p[ActionParameterKeys.ProcessName] = CriticalProcessDenyList.Normalise(name);
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    /// <summary>
+    /// The deny-list first, then the allow-list.
+    /// </summary>
+    /// <remarks>
+    /// The order is the point, and the two refusals say different things on
+    /// purpose. A name on the deny-list is refused with an explanation of what
+    /// ending it would do, because a rep who asked for it is about to ask again
+    /// a different way unless they understand why not. Ending <c>lsass</c>
+    /// bluescreens the machine immediately, which on a cabinet holding
+    /// controlled substances means a site visit and an interrupted
+    /// chain-of-custody record.
+    /// </remarks>
+    private OperationResult<IReadOnlyDictionary<string, string>> CheckProcessName(
+        string? name, string key)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>
+                .Invalid($"Parameter '{key}' is required.");
+        }
+
+        if (CriticalProcessDenyList.IsCritical(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{name.Trim()}' is a critical Windows process. Ending it would take the cabinet " +
+                "down immediately, in some cases with a bluescreen, and no role or grant permits it.");
+        }
+
+        if (!_processAllowList.IsProcessAllowed(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Process '{name.Trim()}' is not on the server-side process allow-list.");
+        }
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private OperationResult<IReadOnlyDictionary<string, string>> ValidateApplicationName(
+        Dictionary<string, string> p)
+    {
+        if (!p.TryGetValue(ActionParameterKeys.ApplicationName, out string? name) ||
+            string.IsNullOrWhiteSpace(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>
+                .Invalid($"Parameter '{ActionParameterKeys.ApplicationName}' is required.");
+        }
+
+        if (CriticalProcessDenyList.IsCritical(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{name.Trim()}' is a critical Windows process and is never restarted this way.");
+        }
+
+        if (!_processAllowList.IsApplicationAllowed(name))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Application '{name.Trim()}' is not on the server-side application allow-list. " +
+                "The executable it would relaunch comes from the agent's own registration for that " +
+                "name; there is no path parameter to supply instead.");
+        }
+
+        p[ActionParameterKeys.ApplicationName] = CriticalProcessDenyList.Normalise(name);
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private OperationResult<IReadOnlyDictionary<string, string>> ValidateServiceStartType(
+        Dictionary<string, string> p)
+    {
+        OperationResult<IReadOnlyDictionary<string, string>> named = ValidateServiceName(p);
+
+        if (!named.Succeeded)
+        {
+            return named;
+        }
+
+        if (!p.TryGetValue(ActionParameterKeys.StartType, out string? raw) ||
+            !Enum.TryParse(raw, ignoreCase: true, out Contracts.Telemetry.ServiceStartType startType))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.StartType}' must be Automatic, AutomaticDelayed, " +
+                "Manual or Disabled.");
+        }
+
+        // Boot and System start types belong to drivers loaded before the
+        // service control manager is running. Setting an ordinary service to
+        // one of them does not make it start earlier; it makes the machine fail
+        // to boot. Unknown is not a setting at all.
+        if (startType is Contracts.Telemetry.ServiceStartType.Boot
+            or Contracts.Telemetry.ServiceStartType.System
+            or Contracts.Telemetry.ServiceStartType.Unknown)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{startType}' is a driver load order, not a service start type support may set. " +
+                "Use Automatic, AutomaticDelayed, Manual or Disabled.");
+        }
+
+        p[ActionParameterKeys.StartType] = startType.ToString();
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    /// <summary>
+    /// Checks the view a run names, and refuses a caller-supplied definition.
+    /// </summary>
+    /// <remarks>
+    /// The definition key is filled in by the server after it has read the view
+    /// from the database. A request that arrives already carrying one is
+    /// refused outright, because that definition would be the caller's rather
+    /// than the Supervisor's — and the reason views are stored server-side at
+    /// all is that nobody should be able to hand an agent a filter of their own
+    /// devising.
+    /// </remarks>
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateEventLogView(
+        Dictionary<string, string> p)
+    {
+        if (p.ContainsKey(ActionParameterKeys.EventLogViewDefinition))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.EventLogViewDefinition}' is expanded by the server " +
+                "from the stored view and may not be supplied.");
+        }
+
+        if (!p.TryGetValue(ActionParameterKeys.EventLogViewId, out string? raw) ||
+            !Guid.TryParse(raw, out Guid viewId) ||
+            viewId == Guid.Empty)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.EventLogViewId}' must be the id of a stored event " +
+                "log view.");
+        }
+
+        p[ActionParameterKeys.EventLogViewId] = viewId.ToString();
+
+        if (p.TryGetValue(ActionParameterKeys.HoursOfHistory, out string? hours) &&
+            (!int.TryParse(hours, NumberStyles.Integer, CultureInfo.InvariantCulture, out int window) ||
+             window is < 1 or > 168))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>
+                .Invalid($"Parameter '{ActionParameterKeys.HoursOfHistory}' must be between 1 and 168.");
+        }
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateInstallUpdatesNow(
+        Dictionary<string, string> p)
+    {
+        OperationResult<IReadOnlyDictionary<string, string>> ids = ValidateUpdateIds(p, required: true);
+
+        if (!ids.Succeeded)
+        {
+            return ids;
+        }
+
+        if (p.TryGetValue(ActionParameterKeys.RebootIfRequired, out string? reboot) &&
+            !bool.TryParse(reboot, out _))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.RebootIfRequired}' must be true or false.");
+        }
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    /// <summary>
+    /// Checks the list of updates an install names.
+    /// </summary>
+    /// <remarks>
+    /// Specific ids, always. "Everything applicable" would install whatever has
+    /// become applicable between the rep reading a scan result and the machine
+    /// acting on it, which is not what the clinic agreed to and not what the
+    /// audit trail would then be describing.
+    /// </remarks>
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateUpdateIds(
+        Dictionary<string, string> p, bool required)
+    {
+        const int MaxUpdates = 50;
+
+        if (!p.TryGetValue(ActionParameterKeys.UpdateIds, out string? raw) ||
+            string.IsNullOrWhiteSpace(raw))
+        {
+            return required
+                ? OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                    $"Parameter '{ActionParameterKeys.UpdateIds}' is required: an install names the " +
+                    "specific updates a person chose, never everything that happens to be applicable.")
+                : OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+        }
+
+        string[] ids = raw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+
+        if (ids.Length == 0)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.UpdateIds}' names no updates.");
+        }
+
+        if (ids.Length > MaxUpdates)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.UpdateIds}' names more than {MaxUpdates} updates.");
+        }
+
+        foreach (string id in ids)
+        {
+            // Windows Update identifies an update by a GUID. Parsing it as one
+            // rather than accepting text is what keeps this a name and not a
+            // string the agent might do something else with.
+            if (!Guid.TryParse(id, out _))
+            {
+                return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                    $"'{id}' is not a Windows Update identifier.");
+            }
+        }
+
+        p[ActionParameterKeys.UpdateIds] = string.Join(',', ids.Select(id => Guid.Parse(id).ToString()));
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateHostTarget(
+        Dictionary<string, string> p)
+    {
+        if (!DiagnosticHostPolicy.TryNormalise(
+                p.GetValueOrDefault(ActionParameterKeys.TargetHost),
+                out string host,
+                out string failure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(failure);
+        }
+
+        p[ActionParameterKeys.TargetHost] = host;
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateHostPort(
+        ActionCatalogEntry entry, Dictionary<string, string> p)
+    {
+        OperationResult<IReadOnlyDictionary<string, string>> host = ValidateHostTarget(p);
+
+        if (!host.Succeeded)
+        {
+            return host;
+        }
+
+        if (!DiagnosticHostPolicy.TryNormalisePort(
+                p.GetValueOrDefault(ActionCatalog.PortKey),
+                entry.AllowedPorts,
+                out string port,
+                out string failure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(failure);
+        }
+
+        p[ActionCatalog.PortKey] = port;
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    /// <summary>
+    /// Checks the adapter every network configuration change names.
+    /// </summary>
+    /// <remarks>
+    /// The adapter is named by its stable Windows identifier — the settings id
+    /// the agent reports on every check-in — rather than by its friendly name,
+    /// which a site administrator can rename at any time and which is not
+    /// unique on a machine with two identical cards.
+    /// </remarks>
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateAdapterOnly(
+        Dictionary<string, string> p)
+    {
+        if (!p.TryGetValue(ActionParameterKeys.AdapterId, out string? adapter) ||
+            string.IsNullOrWhiteSpace(adapter))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>
+                .Invalid($"Parameter '{ActionParameterKeys.AdapterId}' is required.");
+        }
+
+        if (adapter.Length > 128 || adapter.Any(c => char.IsControl(c) || c is '"' or '\\'))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.AdapterId}' is not a network adapter identifier.");
+        }
+
+        p[ActionParameterKeys.AdapterId] = adapter.Trim();
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateDnsServers(
+        Dictionary<string, string> p)
+    {
+        OperationResult<IReadOnlyDictionary<string, string>> adapter = ValidateAdapterOnly(p);
+
+        if (!adapter.Succeeded)
+        {
+            return adapter;
+        }
+
+        if (!p.TryGetValue(ActionParameterKeys.DnsServers, out string? raw) ||
+            string.IsNullOrWhiteSpace(raw))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.DnsServers}' is required, as one or two addresses " +
+                "separated by a comma.");
+        }
+
+        string[] servers = raw
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToArray();
+
+        if (servers.Length is < 1 or > 3)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "Between one and three DNS servers may be set.");
+        }
+
+        var parsed = new List<string>(servers.Length);
+
+        foreach (string server in servers)
+        {
+            if (!System.Net.IPAddress.TryParse(server, out System.Net.IPAddress? address))
+            {
+                return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                    $"'{server}' is not an IP address. A DNS server is set by address, never by name — " +
+                    "a name would have to be resolved by the resolver being reconfigured.");
+            }
+
+            if (!DiagnosticHostPolicy.IsProbableTarget(address, out string failure))
+            {
+                return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                    $"'{server}' cannot be a DNS server: {failure}");
+            }
+
+            parsed.Add(address.ToString());
+        }
+
+        p[ActionParameterKeys.DnsServers] = string.Join(',', parsed);
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static OperationResult<IReadOnlyDictionary<string, string>> ValidateStaticIp(
+        Dictionary<string, string> p)
+    {
+        OperationResult<IReadOnlyDictionary<string, string>> adapter = ValidateAdapterOnly(p);
+
+        if (!adapter.Succeeded)
+        {
+            return adapter;
+        }
+
+        if (!TryReadIpv4(p, ActionParameterKeys.IpAddress, required: true, out string address, out string failure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(failure);
+        }
+
+        if (!System.Net.IPAddress.TryParse(address, out System.Net.IPAddress? parsedAddress))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{address}' is not an IPv4 address.");
+        }
+
+        if (!DiagnosticHostPolicy.IsProbableTarget(parsedAddress, out string addressFailure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{address}' is not an address a cabinet can be given: {addressFailure}");
+        }
+
+        if (!TryReadIpv4(p, ActionParameterKeys.SubnetMask, required: true, out string mask, out failure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(failure);
+        }
+
+        if (!IsContiguousMask(mask))
+        {
+            // A mask with a hole in it is accepted by nothing and produces a
+            // machine that can reach some of its own subnet.
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"'{mask}' is not a valid subnet mask: the set bits must be contiguous.");
+        }
+
+        if (!TryReadIpv4(p, ActionParameterKeys.DefaultGateway, required: false, out string gateway, out failure))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(failure);
+        }
+
+        p[ActionParameterKeys.IpAddress] = address;
+        p[ActionParameterKeys.SubnetMask] = mask;
+
+        if (!string.IsNullOrEmpty(gateway))
+        {
+            p[ActionParameterKeys.DefaultGateway] = gateway;
+        }
+
+        return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
+    }
+
+    private static bool TryReadIpv4(
+        Dictionary<string, string> p,
+        string key,
+        bool required,
+        out string value,
+        out string failureReason)
+    {
+        value = string.Empty;
+        failureReason = string.Empty;
+
+        if (!p.TryGetValue(key, out string? raw) || string.IsNullOrWhiteSpace(raw))
+        {
+            if (!required)
+            {
+                return true;
+            }
+
+            failureReason = $"Parameter '{key}' is required.";
+            return false;
+        }
+
+        if (!System.Net.IPAddress.TryParse(raw.Trim(), out System.Net.IPAddress? address) ||
+            address.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            failureReason = $"Parameter '{key}' must be an IPv4 address.";
+            return false;
+        }
+
+        value = address.ToString();
+        return true;
+    }
+
+    private static bool IsContiguousMask(string mask)
+    {
+        if (!System.Net.IPAddress.TryParse(mask, out System.Net.IPAddress? parsed))
+        {
+            return false;
+        }
+
+        byte[] octets = parsed.GetAddressBytes();
+        uint bits = ((uint)octets[0] << 24) | ((uint)octets[1] << 16) | ((uint)octets[2] << 8) | octets[3];
+
+        // A contiguous mask is a run of ones followed by a run of zeroes, so
+        // its complement plus one is a power of two. Zero and all-ones are
+        // handled by the same arithmetic.
+        uint complement = ~bits;
+
+        return (complement & (complement + 1)) == 0;
+    }
 
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateMaxEntries(
         Dictionary<string, string> p, int ceiling)

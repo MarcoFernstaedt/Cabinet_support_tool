@@ -126,6 +126,7 @@ public sealed class UsersController : SupportControllerBase
                 DisplayName = u.DisplayName,
                 Role = u.Role,
                 HasElevatedSql = u.HasElevatedSql,
+                HasHardwareActuation = u.HasHardwareActuation,
                 IsActive = u.IsActive,
                 MustChangePassword = u.MustChangePassword,
                 CreatedUtc = u.CreatedUtc,
@@ -198,6 +199,11 @@ public sealed class UsersController : SupportControllerBase
             // not chosen. It buys one login and then must be replaced.
             MustChangePassword = true,
             HasElevatedSql = false,
+
+            // Neither standalone grant is ever given at creation. Both are
+            // separate, audited decisions a Supervisor makes afterwards, which
+            // is the point of their being separate from role at all.
+            HasHardwareActuation = false,
             CreatedUtc = nowUtc,
             CreatedByUserId = actor.UserId
         };
@@ -407,6 +413,108 @@ public sealed class UsersController : SupportControllerBase
         return Ok(ToDto(user, nowUtc));
     }
 
+    /// <summary>
+    /// Grants or withdraws the reserved hardware-actuation permission.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing in this build consumes the grant. The three reserved actuation
+    /// actions are refused whether or not a caller holds it, no endpoint
+    /// carries the policy, and no executor exists on any agent.
+    /// </para>
+    /// <para>
+    /// It is implemented anyway, in full and with its own audit events, because
+    /// the alternative is a permission invented in a hurry beside the first
+    /// feature that needs it. Actuating a lock on a cabinet holding controlled
+    /// substances is the single most consequential thing this product could
+    /// ever do; the permission that would govern it should already exist, be
+    /// grantable, be withdrawable, and have a history, before anybody designs
+    /// the feature.
+    /// </para>
+    /// </remarks>
+    /// <param name="id">The user.</param>
+    /// <param name="request">Grant or withdraw, and why.</param>
+    /// <param name="ct">Cancels the request.</param>
+    [HttpPost("{id:guid}/hardware-actuation")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    [ProducesResponseType(typeof(UserDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<UserDto>> SetHardwareActuation(
+        Guid id, [FromBody] HardwareActuationRequest request, CancellationToken ct)
+    {
+        CurrentUser actor = CurrentUser;
+        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+
+        AuditEvent auditEvent = request.Grant
+            ? AuditEvent.GrantHardwareActuation
+            : AuditEvent.RevokeHardwareActuation;
+
+        if (string.IsNullOrWhiteSpace(request.Reason))
+        {
+            await _audit.WriteDenialAsync(
+                auditEvent, "No reason was given.", null, new { UserId = id }, cancellationToken: ct);
+
+            return Problem("A reason is required for this decision.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
+        }
+
+        User? user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+
+        if (user is null)
+        {
+            await _audit.WriteDenialAsync(
+                auditEvent, "User not found.", null, new { UserId = id }, cancellationToken: ct);
+
+            return Problem("User not found.",
+                statusCode: StatusCodes.Status404NotFound, title: "Not found");
+        }
+
+        if (request.Grant && !user.IsActive)
+        {
+            await _audit.WriteDenialAsync(
+                auditEvent, "Cannot grant to an inactive account.", null,
+                new { UserId = id }, cancellationToken: ct);
+
+            return Problem("Cannot grant hardware actuation to an inactive account.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
+        }
+
+        user.HasHardwareActuation = request.Grant;
+
+        if (!request.Grant)
+        {
+            // The grant rides in the access token, so withdrawing it has to
+            // reach sessions already open rather than waiting for one to
+            // expire — the same reasoning as the elevated database grant.
+            await _refreshTokens.RevokeAllAsync(user.Id, "Hardware actuation grant withdrawn.", ct);
+        }
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = auditEvent,
+            EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success,
+            ActorType = ActorType.User,
+            ActorId = actor.UserId.ToString(),
+            ActorDisplayName = actor.Username,
+            Reason = request.Reason.Trim(),
+            TicketReference = string.IsNullOrWhiteSpace(request.TicketReference)
+                ? null : request.TicketReference.Trim(),
+            Details = new
+            {
+                TargetUserId = user.Id,
+                user.Username,
+                Granted = request.Grant,
+                ConsumedByNothingInThisBuild = true,
+            },
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(ToDto(user, nowUtc));
+    }
+
     private Task WriteObservedAsync(AuditEvent auditEvent, object? details, CancellationToken ct)
     {
         CurrentUser actor = CurrentUser;
@@ -430,6 +538,7 @@ public sealed class UsersController : SupportControllerBase
         DisplayName = u.DisplayName,
         Role = u.Role,
         HasElevatedSql = u.HasElevatedSql,
+        HasHardwareActuation = u.HasHardwareActuation,
         IsActive = u.IsActive,
         MustChangePassword = u.MustChangePassword,
         CreatedUtc = u.CreatedUtc,

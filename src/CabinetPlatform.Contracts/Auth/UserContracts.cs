@@ -35,6 +35,17 @@ public sealed record UserDto
     /// <summary>Whether the user holds the elevated database grant.</summary>
     public required bool HasElevatedSql { get; init; }
 
+    /// <summary>
+    /// Whether the user holds the reserved hardware-actuation grant.
+    /// </summary>
+    /// <remarks>
+    /// Nothing in this build consumes it. It exists, is granted and withdrawn
+    /// by a Supervisor, and is audited, so that the day actuation is designed
+    /// the permission is already a real thing with a history rather than
+    /// something bolted on beside the feature that needs it.
+    /// </remarks>
+    public required bool HasHardwareActuation { get; init; }
+
     /// <summary>Whether the account may sign in at all.</summary>
     public required bool IsActive { get; init; }
 
@@ -100,6 +111,28 @@ public sealed record UpdateUserRequest
 
     /// <summary>Clears an active lockout without touching the password.</summary>
     public bool? ClearLockout { get; init; }
+}
+
+/// <summary>
+/// A Supervisor granting or withdrawing the reserved hardware-actuation grant.
+/// </summary>
+/// <remarks>
+/// Separate from every other permission and from role, because it is the one
+/// permission that would let software move a physical lock on a cabinet holding
+/// controlled substances. Granting it today confers nothing: no endpoint, no
+/// action and no executor consumes it, and the three reserved actuation actions
+/// are refused at any role and any grant. The separation is the point.
+/// </remarks>
+public sealed record HardwareActuationRequest
+{
+    /// <summary>Whether to grant it or withdraw it.</summary>
+    public required bool Grant { get; init; }
+
+    /// <summary>Required, and written to the audit trail.</summary>
+    public required string Reason { get; init; }
+
+    /// <summary>Support ticket the decision is associated with, if any.</summary>
+    public string? TicketReference { get; init; }
 }
 
 /// <summary>A Supervisor granting or withdrawing the elevated database grant.</summary>

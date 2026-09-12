@@ -501,7 +501,8 @@ public sealed class ConcurrencyTests : IClassFixture<SupportApiFactory>
         using IServiceScope scope = _factory.Services.CreateScope();
 
         var service = scope.ServiceProvider.GetRequiredService<IActionRequestService>();
-        var user = new CurrentUser(actor.Id, actor.Username, actor.Role, actor.HasElevatedSql);
+        var user = new CurrentUser(
+            actor.Id, actor.Username, actor.Role, actor.HasElevatedSql, actor.HasHardwareActuation);
 
         return approve
             ? await service.ApproveAsync(

@@ -46,7 +46,11 @@ public sealed class AuditController : SupportControllerBase
     }
 
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    // Any rep. Reading the trail is not one of the five decisions Supervisors
+    // still own, and with no case scoping and no per-rep cabinet assignment the
+    // trail is the control that replaces them — a control everybody can see is
+    // a control everybody behaves as though exists.
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<AuditEntryDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PagedResult<AuditEntryDto>>> Query(

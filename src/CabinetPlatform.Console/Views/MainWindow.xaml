@@ -16,6 +16,14 @@
         <KeyBinding Key="F5" Command="{Binding RefreshAllCommand}" />
         <KeyBinding Key="L" Modifiers="Control" Command="{Binding ShowCabinetsCommand}" />
         <KeyBinding Key="A" Modifiers="Control" Command="{Binding ShowApprovalsCommand}" />
+
+        <!--
+            Ctrl+F from anywhere. Finding the right cabinet among seven thousand
+            is the most frequent thing anybody does here, and a rep taking a
+            second call should not have to navigate away from the first one's
+            cabinet to start looking.
+        -->
+        <KeyBinding Key="F" Modifiers="Control" Command="{Binding ShowFinderCommand}" />
     </Window.InputBindings>
 
     <DockPanel>
@@ -48,6 +56,11 @@
                             AutomationProperties.Name="Show cabinets. Keyboard shortcut Control L."
                             AutomationProperties.AcceleratorKey="Ctrl+L" />
 
+                    <Button Content="Find"
+                            Command="{Binding ShowFinderCommand}"
+                            AutomationProperties.Name="Find a cabinet by search, by client hierarchy, or from the ones you looked at recently. Keyboard shortcut Control F."
+                            AutomationProperties.AcceleratorKey="Ctrl+F" />
+
                     <Button Command="{Binding ShowApprovalsCommand}"
                             Visibility="{Binding CanSeeApprovals, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.Name="{Binding ApprovalBadgeAccessibleText}"
@@ -75,9 +88,9 @@
 
                     <!--
                         The shortest path from "this cabinet is misbehaving" to
-                        "here is what has been done to it". Hidden for roles the
-                        server refuses the audit trail to, rather than offered
-                        and then refused.
+                        "here is what has been done to it". Every rep can read
+                        the trail: with no case scoping and no per-rep cabinet
+                        assignment, it is the control that replaces them.
                     -->
                     <Button Content="Audit this cabinet"
                             Command="{Binding ShowAuditForSelectedCabinetCommand}"
@@ -94,6 +107,53 @@
                             Command="{Binding SignOutCommand}"
                             AutomationProperties.Name="Sign out and discard the access token" />
                 </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ====================== Search bar ====================== -->
+        <!--
+            Persistent, on every screen, and the first thing in the tab order
+            below the header. It is not inside the cabinet list, because a rep
+            looking at the fleet view or the approvals queue needs it just as
+            much and should not have to leave where they are.
+        -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource Surface.Brush}"
+                BorderBrush="{DynamicResource Border.Brush}"
+                BorderThickness="0,0,0,1"
+                Padding="12,6"
+                DataContext="{Binding Finder}">
+            <DockPanel>
+                <Label DockPanel.Dock="Left"
+                       Content="_Find cabinet"
+                       Target="{Binding ElementName=GlobalSearchBox}"
+                       VerticalAlignment="Center"
+                       Margin="0,0,8,0" />
+
+                <Button DockPanel.Dock="Right"
+                        Content="Clear"
+                        Command="{Binding ClearSearchCommand}"
+                        Margin="8,0,0,0"
+                        AutomationProperties.Name="Clear the search" />
+
+                <Button DockPanel.Dock="Right"
+                        Content="Search"
+                        Command="{Binding SearchCommand}"
+                        IsDefault="False"
+                        Margin="8,0,0,0"
+                        AutomationProperties.Name="Run the search" />
+
+                <TextBox x:Name="GlobalSearchBox"
+                         Text="{Binding Term, UpdateSourceTrigger=PropertyChanged}"
+                         VerticalAlignment="Center"
+                         AutomationProperties.Name="Find a cabinet by client, site, department, cabinet name, serial number or cabinet id"
+                         AutomationProperties.HelpText="Partial matches work. Results show the full path: client, site, department, cabinet name and role."
+                         AutomationProperties.AcceleratorKey="Ctrl+F"
+                         ToolTip="Client, site, department, cabinet name, serial number or cabinet id. Ctrl+F from anywhere.">
+                    <TextBox.InputBindings>
+                        <KeyBinding Key="Return" Command="{Binding SearchCommand}" />
+                    </TextBox.InputBindings>
+                </TextBox>
             </DockPanel>
         </Border>
 
@@ -176,6 +236,22 @@
                     </TabItem>
                 </TabControl>
             </Grid>
+
+            <!-- Find a cabinet -->
+            <views:CabinetFinderView DataContext="{Binding Finder}">
+                <views:CabinetFinderView.Style>
+                    <Style TargetType="views:CabinetFinderView">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.CurrentView,
+                                                   RelativeSource={RelativeSource AncestorType=Window}}"
+                                         Value="Find">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </views:CabinetFinderView.Style>
+            </views:CabinetFinderView>
 
             <!-- Approvals -->
             <views:ApprovalsView DataContext="{Binding Approvals}">

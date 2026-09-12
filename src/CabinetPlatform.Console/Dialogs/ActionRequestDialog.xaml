@@ -26,19 +26,42 @@
                        Margin="0,4,0,12"
                        Foreground="{DynamicResource Text.Subtle.Brush}" />
 
-            <!-- Which machine, spelled out: hostnames repeat across clients. -->
+            <!--
+                The full path, restated. Client first, then site, then
+                department, then the cabinet's own name and its role — because a
+                hostname on its own identifies nothing across three and a half
+                thousand client organisations, and this dialog is the last point
+                at which the wrong cabinet can be caught.
+            -->
             <Border Style="{StaticResource ExplanationPanel}" Margin="0,0,0,12">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Cabinet" Style="{StaticResource FieldLabel}" MinWidth="70" />
-                        <TextBlock Text="{Binding Hostname}" FontWeight="SemiBold"
+                        <TextBlock Text="Client" Style="{StaticResource FieldLabel}" MinWidth="90" />
+                        <TextBlock Text="{Binding ClientAndSite}" FontWeight="SemiBold"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.Name="Client, site and department" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Cabinet" Style="{StaticResource FieldLabel}" MinWidth="90" />
+                        <TextBlock Text="{Binding CabinetName}" FontWeight="SemiBold"
                                    AutomationProperties.Name="Cabinet this action will run on" />
                     </StackPanel>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Clinic" Style="{StaticResource FieldLabel}" MinWidth="70" />
-                        <TextBlock Text="{Binding ClientAndSite}"
-                                   AutomationProperties.Name="Client and site" />
+                        <TextBlock Text="Role" Style="{StaticResource FieldLabel}" MinWidth="90" />
+                        <TextBlock Text="{Binding CabinetRoleLabel}"
+                                   AutomationProperties.Name="This cabinet's part in its site" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Serial" Style="{StaticResource FieldLabel}" MinWidth="90" />
+                        <TextBlock Text="{Binding SerialNumber}"
+                                   AutomationProperties.Name="Serial number" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding CabinetPathDisplay}"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               Margin="0,6,0,0"
+                               Foreground="{DynamicResource Text.Subtle.Brush}"
+                               AutomationProperties.Name="Full path" />
                 </StackPanel>
             </Border>
 
@@ -142,6 +165,22 @@
                              AutomationProperties.HelpText="Required when overriding. Recorded alongside the override itself." />
                 </StackPanel>
             </StackPanel>
+
+            <!--
+                The confirmation. Unticked every time the dialog opens, and
+                required before Submit is enabled. It is the last moment at
+                which somebody is actually asked "is this the right machine",
+                and a rep with twenty tabs open and a client on the phone has no
+                other one.
+            -->
+            <Border Style="{StaticResource ExplanationPanel}" Margin="0,0,0,8">
+                <CheckBox IsChecked="{Binding CabinetConfirmed}"
+                          TabIndex="4"
+                          AutomationProperties.Name="{Binding CabinetConfirmationQuestion}"
+                          AutomationProperties.HelpText="Required. Read the client, site and cabinet above before ticking this.">
+                    <TextBlock Text="{Binding CabinetConfirmationQuestion}" TextWrapping="Wrap" />
+                </CheckBox>
+            </Border>
 
             <!-- A disabled confirm always says why. -->
             <Border Style="{StaticResource ExplanationPanel}"

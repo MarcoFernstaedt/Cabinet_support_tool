@@ -40,6 +40,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
 
         var shell = new ShellViewModel(
             new CabinetListViewModel(api, announcer, time),
+            new CabinetFinderViewModel(api, announcer, time),
             new MachineTabViewModel(api, invoker, session, announcer, time),
             new CabinetTabViewModel(),
             new AuditTabViewModel(api, announcer, time),
@@ -94,20 +95,31 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     }
 
     /// <summary>
-    /// The audit tab and the approvals queue are hidden for roles the server
-    /// refuses them to, rather than offered and then refused.
+    /// Every rep is offered the approvals queue and the audit trail.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This replaces a test that asserted Tier 1 saw neither. Both are open to
+    /// every authenticated rep now: any rep may approve another rep's request —
+    /// what none may do is approve their own — and the audit trail is the
+    /// control that replaces case scoping, which only works if everybody can
+    /// see it.
+    /// </para>
+    /// <para>
+    /// The properties stay on the shell rather than being replaced by literals
+    /// in the markup, so tightening this later is one change in one place.
+    /// </para>
+    /// </remarks>
     [Theory]
-    [InlineData(Role.Tier1, false, false)]
-    [InlineData(Role.Tier2, true, false)]
-    [InlineData(Role.Supervisor, true, true)]
-    public async Task Role_decides_which_entry_points_are_offered(
-        Role role, bool expectApprovals, bool expectAudit)
+    [InlineData(Role.Tier1)]
+    [InlineData(Role.Tier2)]
+    [InlineData(Role.Supervisor)]
+    public async Task Every_rep_is_offered_the_queue_and_the_trail(Role role)
     {
         (ShellViewModel shell, _, _, _) = await SignedInShellAsync(role);
 
-        Assert.Equal(expectApprovals, shell.CanSeeApprovals);
-        Assert.Equal(expectAudit, shell.CanSeeAudit);
+        Assert.True(shell.CanSeeApprovals);
+        Assert.True(shell.CanSeeAudit);
     }
 
     [Fact]

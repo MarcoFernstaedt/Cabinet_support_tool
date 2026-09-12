@@ -55,6 +55,22 @@ public sealed class AgentIngestOptions
     /// </summary>
     public int OfflineAfterMinutes { get; set; } = 20;
 
+    /// <summary>
+    /// Default window for the fleet view's stale count, in hours.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately much wider than <see cref="OfflineAfterMinutes"/>, because
+    /// the two answer different questions. Offline is a verdict about one
+    /// cabinet. Stale asks whether the telemetry itself is arriving: a fleet
+    /// with three hundred stale cabinets has an agent or a network problem, not
+    /// three hundred broken cabinets, and the two numbers diverging is the
+    /// signal worth acting on.
+    /// </remarks>
+    public int StaleAfterHours { get; set; } = 24;
+
+    /// <summary>Widest stale window a caller may ask the fleet view for, in hours.</summary>
+    public int MaxStaleAfterHours { get; set; } = 8_760;
+
     /// <summary>Rejects a sample timestamped implausibly far in the future.</summary>
     public int MaxClockSkewMinutes { get; set; } = 10;
 }

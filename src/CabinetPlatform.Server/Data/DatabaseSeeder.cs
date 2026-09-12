@@ -1,7 +1,9 @@
+using System.Text.Json;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Configuration;
@@ -45,8 +47,16 @@ public sealed class DatabaseSeeder
         _logger = logger;
     }
 
+    /// <summary>Seeds whatever an empty database is missing.</summary>
+    /// <param name="ct">Cancels the operation.</param>
     public async Task SeedAsync(CancellationToken ct = default)
     {
+        // Independent of the Supervisor seed on purpose. A deployment that is
+        // already running should still pick up a default view added in a later
+        // release, and views are shared rather than per-account so there is no
+        // reason to tie them to whether anybody has signed in yet.
+        await SeedEventLogViewsAsync(ct);
+
         // Only ever on a genuinely empty user table. A deployment that already
         // has accounts must not gain a back door on restart.
         if (await _db.Users.AnyAsync(ct))
@@ -111,4 +121,152 @@ public sealed class DatabaseSeeder
             "Seeded initial Supervisor '{Username}'. This account must change its password at " +
             "first login.", supervisor.Username);
     }
+
+    /// <summary>
+    /// Adds the default event log views a support desk needs on day one.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Support should not have to invent these before they can use the screen.
+    /// Each one is a question that comes up on real calls: what is the CUBEX
+    /// application complaining about, did Windows Update fail, is the disk
+    /// retrying reads, and did a service die rather than being stopped.
+    /// </para>
+    /// <para>
+    /// Seeded by name and never overwritten. A Supervisor who has narrowed one
+    /// of these after a year of calls knows more about it than this method
+    /// does, and a restart must not undo that. A view that has been retired
+    /// stays retired for the same reason.
+    /// </para>
+    /// </remarks>
+    private async Task SeedEventLogViewsAsync(CancellationToken ct)
+    {
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+
+        var defaults = new[]
+        {
+            new SeededView(
+                "CUBEX application errors",
+                "Errors and warnings from the CUBEX and ZIMBIS application stack.",
+                new[] { EventLogName.Application },
+                new[]
+                {
+                    "MashuraCabinetService",
+                    "MashuraDispenseController",
+                    "MashuraSyncService",
+                    "CubexClient",
+                    "ZimbisClient",
+                    "Application Error",
+                    ".NET Runtime",
+                },
+                Array.Empty<int>(),
+                EventLogLevel.Warning,
+                DefaultWindowHours: 24,
+                MaximumEntries: 500),
+
+            new SeededView(
+                "Windows Update client",
+                "What the update client did, and why an install failed when one did.",
+                new[] { EventLogName.System, EventLogName.Application },
+                new[] { "Microsoft-Windows-WindowsUpdateClient", "Microsoft-Windows-WUSA" },
+                // The four ids that carry an install outcome. Without them this
+                // view is every routine detection message the client emits,
+                // which is the firehose it exists to replace.
+                new[] { 19, 20, 21, 43 },
+                EventLogLevel.Information,
+                DefaultWindowHours: 168,
+                MaximumEntries: 300),
+
+            new SeededView(
+                "Disk and storage",
+                "The disk and storage stack retrying, timing out, or reporting bad blocks.",
+                new[] { EventLogName.System },
+                new[]
+                {
+                    "disk",
+                    "Disk",
+                    "Ntfs",
+                    "storahci",
+                    "stornvme",
+                    "volmgr",
+                    "Microsoft-Windows-Ntfs",
+                    "Microsoft-Windows-StorageSpaces-Driver",
+                },
+                // 7, 11, 51, 52, 98 and 153 are the ones that actually precede a
+                // failing drive: bad block, controller error, paging error,
+                // predictive failure, corruption and retried request.
+                new[] { 7, 11, 51, 52, 98, 153 },
+                EventLogLevel.Warning,
+                DefaultWindowHours: 168,
+                MaximumEntries: 500),
+
+            new SeededView(
+                "Service control manager",
+                "Services that failed to start, terminated unexpectedly, or changed start type.",
+                new[] { EventLogName.System },
+                new[] { "Service Control Manager" },
+                new[] { 7000, 7001, 7009, 7011, 7022, 7023, 7024, 7031, 7034, 7040 },
+                EventLogLevel.Warning,
+                DefaultWindowHours: 72,
+                MaximumEntries: 300),
+        };
+
+        var added = 0;
+
+        foreach (SeededView seed in defaults)
+        {
+            if (await _db.EventLogViews.AnyAsync(v => v.DisplayName == seed.DisplayName, ct))
+            {
+                continue;
+            }
+
+            _db.EventLogViews.Add(new EventLogView
+            {
+                DisplayName = seed.DisplayName,
+                Description = seed.Description,
+                LogNamesJson = JsonSerializer.Serialize(seed.LogNames, ContractJson.Default),
+                SourcesJson = JsonSerializer.Serialize(seed.Sources, ContractJson.Default),
+                EventIdsJson = JsonSerializer.Serialize(seed.EventIds, ContractJson.Default),
+                MinimumLevel = seed.MinimumLevel,
+                DefaultWindowHours = seed.DefaultWindowHours,
+                MaximumEntries = seed.MaximumEntries,
+                IsSeeded = true,
+                CreatedUtc = nowUtc,
+                // Null: nobody defined this view, the platform did.
+                CreatedByUserId = null,
+            });
+
+            added++;
+        }
+
+        if (added == 0)
+        {
+            return;
+        }
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.CreateEventLogView,
+            EventKind = AuditEventKind.Observed,
+            Result = AuditResult.Success,
+            ActorType = ActorType.System,
+            ActorDisplayName = nameof(DatabaseSeeder),
+            Reason = "Seeded the platform's default event log views.",
+            Details = new { SeededCount = added },
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Seeded {Count} default event log view(s).", added);
+    }
+
+    private sealed record SeededView(
+        string DisplayName,
+        string Description,
+        EventLogName[] LogNames,
+        string[] Sources,
+        int[] EventIds,
+        EventLogLevel MinimumLevel,
+        int DefaultWindowHours,
+        int MaximumEntries);
 }

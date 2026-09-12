@@ -57,12 +57,32 @@ public sealed class DialogViewModelTests
         IReadOnlyDictionary<string, string>? parameters = null) =>
         new(new ActionRequestPrompt(
             catalogue,
-            Guid.NewGuid(),
-            "CUBEX-NG-01",
-            "Northgate Veterinary — Main Surgery",
+            CabinetId,
+            Path(),
             parameters ?? new Dictionary<string, string>(),
             loggedOn,
             role));
+
+    private static readonly Guid CabinetId = Guid.NewGuid();
+
+    /// <summary>
+    /// The full identifying path the dialog restates and requires confirming.
+    /// </summary>
+    /// <param name="ambiguous">
+    /// Whether another cabinet in the set this was chosen from shares the name.
+    /// </param>
+    private static CabinetPath Path(bool ambiguous = false) => new()
+    {
+        CabinetId = CabinetId,
+        ClientName = "Northgate Veterinary",
+        SiteName = "Main Surgery",
+        SiteId = Guid.NewGuid(),
+        DepartmentName = "Dispensary",
+        CabinetName = "CUBEX-NG-01",
+        Role = CabinetRole.Satellite,
+        SerialNumber = "NG-0041",
+        HostnameIsAmbiguous = ambiguous,
+    };
 
     [Fact]
     public void A_reason_and_a_ticket_are_both_required_before_anything_can_be_submitted()
@@ -80,6 +100,14 @@ public sealed class DialogViewModelTests
 
         dialog.TicketReference = "SUP-1042";
 
+        // Still not submittable. The last question, and the one this console
+        // adds on top of what the server requires, is whether this is the
+        // cabinet the operator meant.
+        Assert.False(dialog.CanSubmit);
+        Assert.Contains("Confirm", dialog.ValidationMessage!, StringComparison.OrdinalIgnoreCase);
+
+        dialog.CabinetConfirmed = true;
+
         Assert.True(dialog.CanSubmit);
         Assert.Null(dialog.ValidationMessage);
 
@@ -87,6 +115,76 @@ public sealed class DialogViewModelTests
         Assert.Equal("Patch level check", submission.Reason);
         Assert.Equal("SUP-1042", submission.TicketReference);
         Assert.False(submission.OverrideSafetyChecks);
+        Assert.True(submission.CabinetConfirmed);
+    }
+
+    /// <summary>
+    /// The dialog restates the whole path, and will not submit until the
+    /// operator has agreed to it.
+    /// </summary>
+    /// <remarks>
+    /// With three and a half thousand client organisations and seven thousand
+    /// cabinets, picking the wrong one is the most likely serious operator
+    /// error this product has. This dialog is the last point at which it can be
+    /// caught, and a checkbox is cheap next to a reboot on another client's
+    /// dispensing cabinet.
+    /// </remarks>
+    [Fact]
+    public void The_dialog_restates_the_full_path_and_requires_it_to_be_confirmed()
+    {
+        ActionRequestDialogViewModel dialog = Dialog(Scan());
+
+        Assert.Contains("Northgate Veterinary", dialog.CabinetPathDisplay, StringComparison.Ordinal);
+        Assert.Contains("Main Surgery", dialog.CabinetPathDisplay, StringComparison.Ordinal);
+        Assert.Contains("Dispensary", dialog.CabinetPathDisplay, StringComparison.Ordinal);
+        Assert.Contains("CUBEX-NG-01", dialog.CabinetPathDisplay, StringComparison.Ordinal);
+
+        Assert.Equal("CUBEX-NG-01", dialog.CabinetName);
+        Assert.Contains("Satellite", dialog.CabinetRoleLabel, StringComparison.Ordinal);
+        Assert.Contains("NG-0041", dialog.SerialNumber, StringComparison.Ordinal);
+
+        // The whole identification is spoken, not only the name.
+        Assert.Contains("Northgate Veterinary", dialog.AccessibleSummary, StringComparison.Ordinal);
+        Assert.Contains("confirm the cabinet", dialog.AccessibleSummary, StringComparison.OrdinalIgnoreCase);
+
+        // Unticked when the dialog opens. A pre-ticked confirmation confirms
+        // nothing.
+        Assert.False(dialog.CabinetConfirmed);
+
+        dialog.Reason = "Patch level check";
+        dialog.TicketReference = "SUP-1042";
+
+        Assert.False(dialog.CanSubmit);
+        Assert.Null(dialog.BuildSubmission());
+    }
+
+    /// <summary>
+    /// When the chosen cabinet shares its name with another in the same result
+    /// set, the dialog says so in words.
+    /// </summary>
+    /// <remarks>
+    /// Two identically-named rows distinguished by something the eye skips is
+    /// exactly how the wrong cabinet gets picked, and a colour says nothing to
+    /// a screen reader.
+    /// </remarks>
+    [Fact]
+    public void A_duplicated_cabinet_name_is_warned_about_in_words()
+    {
+        var dialog = new ActionRequestDialogViewModel(new ActionRequestPrompt(
+            Scan(),
+            CabinetId,
+            Path(ambiguous: true),
+            new Dictionary<string, string>(),
+            false,
+            Role.Tier1));
+
+        Assert.True(dialog.CabinetNameIsAmbiguous);
+
+        Assert.Contains(
+            dialog.Warnings,
+            w => w.Contains("same name", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains("same name", dialog.CabinetConfirmationQuestion, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -158,6 +256,7 @@ public sealed class DialogViewModelTests
 
         dialog.Reason = "Cabinet unresponsive, clinic closed";
         dialog.TicketReference = "SUP-2002";
+        dialog.CabinetConfirmed = true;
 
         Assert.True(dialog.CanSubmit);
 
@@ -189,6 +288,7 @@ public sealed class DialogViewModelTests
 
         dialog.Reason = "Cabinet unresponsive";
         dialog.TicketReference = "SUP-2003";
+        dialog.CabinetConfirmed = true;
         dialog.OverrideSafetyChecks = true;
         dialog.OverrideReason = "Nobody on site";
         dialog.OverrideSafetyChecks = false;

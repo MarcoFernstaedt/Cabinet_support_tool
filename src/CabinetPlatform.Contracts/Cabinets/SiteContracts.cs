@@ -41,6 +41,46 @@ public sealed record SiteSummary
 
     /// <summary>Worst health across the site, for ordering the fleet view.</summary>
     public required CabinetHealthStatus WorstHealth { get; init; }
+
+    /// <summary>
+    /// How the site's satellites last found their sync cabinet.
+    /// </summary>
+    /// <remarks>
+    /// Carried on the site row rather than left for a rep to open each cabinet
+    /// and find, because a sync cabinet problem does not present as a sync
+    /// cabinet problem: it presents as every cabinet at the site behaving
+    /// oddly. Null for a standalone site, which has no such relationship to
+    /// report and must not be shown an empty one.
+    /// </remarks>
+    public SyncReachabilitySummary? SyncReachability { get; init; }
+}
+
+/// <summary>
+/// How many of a site's satellites could last reach the cabinet that syncs it.
+/// </summary>
+/// <remarks>
+/// Reachable from the server is a different fact and is never substituted for
+/// this one. A sync cabinet can be perfectly healthy from the support desk's
+/// point of view while a switch inside the clinic stops its satellites talking
+/// to it, and that is precisely the fault this exists to surface.
+/// </remarks>
+public sealed record SyncReachabilitySummary
+{
+    /// <summary>Satellites whose most recent probe reached the sync cabinet.</summary>
+    public required int Reaching { get; init; }
+
+    /// <summary>Satellites whose most recent probe did not reach it.</summary>
+    public required int NotReaching { get; init; }
+
+    /// <summary>
+    /// Satellites that have never probed it. Counted separately and never
+    /// folded into either of the others: not knowing is not the same as
+    /// reaching, and it is not the same as failing.
+    /// </summary>
+    public required int NeverProbed { get; init; }
+
+    /// <summary>UTC instant of the most recent probe at this site, when there has been one.</summary>
+    public DateTimeOffset? MostRecentProbeUtc { get; init; }
 }
 
 /// <summary>Filter over the site list.</summary>
@@ -67,6 +107,40 @@ public sealed record SiteDetailDto
 
     /// <summary>Its cabinets, the sync cabinet first and the rest by hostname.</summary>
     public IReadOnlyList<CabinetSummary> Cabinets { get; init; } = Array.Empty<CabinetSummary>();
+
+    /// <summary>
+    /// The same cabinets as full identifying paths, in the same order.
+    /// </summary>
+    /// <remarks>
+    /// Carried alongside the summaries so that no console has to assemble an
+    /// identification of its own, and so that a hostname repeated within the
+    /// site is flagged here rather than left to be noticed.
+    /// </remarks>
+    public IReadOnlyList<CabinetPath> CabinetPaths { get; init; } = Array.Empty<CabinetPath>();
+
+    /// <summary>
+    /// Each satellite's last probe of the sync cabinet, keyed by cabinet id.
+    /// </summary>
+    public IReadOnlyList<SatelliteLinkDto> SatelliteLinks { get; init; } = Array.Empty<SatelliteLinkDto>();
+}
+
+/// <summary>One satellite's most recent probe of its site's sync cabinet.</summary>
+public sealed record SatelliteLinkDto
+{
+    /// <summary>The satellite.</summary>
+    public required Guid CabinetId { get; init; }
+
+    /// <summary>
+    /// Whether its most recent probe reached the sync cabinet, or
+    /// <see langword="null"/> when it has never probed.
+    /// </summary>
+    public bool? Reachable { get; init; }
+
+    /// <summary>UTC instant of that probe.</summary>
+    public DateTimeOffset? ObservedUtc { get; init; }
+
+    /// <summary>Round-trip time it measured.</summary>
+    public double? LatencyMs { get; init; }
 }
 
 /// <summary>A Supervisor changing a cabinet's part in its site's topology.</summary>

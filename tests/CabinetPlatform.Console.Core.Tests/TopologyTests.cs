@@ -199,6 +199,10 @@ public sealed class TopologyTests
         CabinetRole role, SyncCabinetLinkDto? link, Guid? syncCabinetId = null) => new()
     {
         Cabinet = Summary("CUBEX-NG-07", Guid.NewGuid(), role),
+
+        // The path the detail view pins to its header, so a rep deep in a log
+        // can always see whose cabinet they are reading.
+        Path = CabinetPath.From(Summary("CUBEX-NG-07", Guid.NewGuid(), role)),
         Site = new SiteSummary
         {
             Id = Guid.NewGuid(),

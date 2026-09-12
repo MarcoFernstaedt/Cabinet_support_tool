@@ -154,6 +154,15 @@ public sealed class CheckInBuilder
             EventLogs = draft.EventLogs,
             WindowsUpdate = draft.WindowsUpdate,
             Network = draft.Network,
+
+            // Carried on every tier, not only the full one. An install
+            // finishes when it finishes, which is rarely the moment a full
+            // check-in happens to be due, and what a machine actually did with
+            // an install is the fact the whole scheduling feature exists to
+            // establish.
+            UpdateInstallOutcomes = _stateStore.Load().PendingUpdateOutcomes is { Count: > 0 } outcomes
+                ? outcomes
+                : null,
             SectionErrors = sectionErrors,
         };
     }

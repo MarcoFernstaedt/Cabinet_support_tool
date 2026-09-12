@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Agent.Identity;
 
@@ -45,6 +46,30 @@ public sealed record AgentState
     /// </para>
     /// </remarks>
     public IReadOnlyList<CompletedAction> CompletedActions { get; init; } = Array.Empty<CompletedAction>();
+
+    /// <summary>
+    /// The update install this cabinet is due to perform, or null when there is
+    /// none.
+    /// </summary>
+    /// <remarks>
+    /// On disk because the case that matters is the one where the machine
+    /// reboots between scheduling and execution. A schedule held only in a
+    /// running process is exactly the schedule that is not there when it is
+    /// needed.
+    /// </remarks>
+    public ScheduledUpdateInstall? ScheduledUpdate { get; init; }
+
+    /// <summary>
+    /// Install outcomes this agent has not yet managed to report.
+    /// </summary>
+    /// <remarks>
+    /// Kept until a check-in carrying them is accepted. What a machine actually
+    /// did with an install is the fact the whole scheduling feature exists to
+    /// establish, and losing it to a network outage would leave the fleet
+    /// believing it is patched when it is not.
+    /// </remarks>
+    public IReadOnlyList<UpdateInstallOutcome> PendingUpdateOutcomes { get; init; }
+        = Array.Empty<UpdateInstallOutcome>();
 
     /// <summary>
     /// True once the server has approved this cabinet. Until then the agent
@@ -93,4 +118,31 @@ public sealed record CompletedAction
 
     /// <summary>The outcome detail reported at the time.</summary>
     public string? Output { get; init; }
+}
+
+/// <summary>
+/// An update install this cabinet is due to perform.
+/// </summary>
+/// <remarks>
+/// Specific updates and a UTC instant. Not "everything applicable", because
+/// that would install whatever has become applicable between the rep choosing
+/// and the machine acting; and not a wall-clock time, because a wall-clock time
+/// written down in March means a different instant in April.
+/// </remarks>
+public sealed record ScheduledUpdateInstall
+{
+    /// <summary>The action request that asked for it.</summary>
+    public required Guid ActionRequestId { get; init; }
+
+    /// <summary>Who asked, recorded so the outcome can be attributed.</summary>
+    public required Guid RequestedByUserId { get; init; }
+
+    /// <summary>When the install is due, in UTC.</summary>
+    public required DateTimeOffset ScheduledForUtc { get; init; }
+
+    /// <summary>The updates to install, by Windows Update identifier.</summary>
+    public IReadOnlyList<string> UpdateIds { get; init; } = Array.Empty<string>();
+
+    /// <summary>Whether the install may restart the cabinet when it needs to.</summary>
+    public required bool RebootIfRequired { get; init; }
 }

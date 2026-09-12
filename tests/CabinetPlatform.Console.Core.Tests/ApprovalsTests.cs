@@ -208,8 +208,18 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Assert.Equal(ActionRequestStatus.PendingApproval, after.Status);
     }
 
+    /// <summary>
+    /// A Tier 1 rep reaches the approval queue like anybody else.
+    /// </summary>
+    /// <remarks>
+    /// This replaces a test that asserted they were refused it. Any
+    /// authenticated rep may approve another rep's request; what none of them
+    /// may do is approve their own, which is a per-request rule the queue
+    /// itself applies. Refusing a whole role would have meant a disruptive
+    /// action sitting unapproved because the only person at the desk was Tier 1.
+    /// </remarks>
     [Fact]
-    public async Task A_tier1_user_is_told_the_queue_is_not_theirs_rather_than_shown_an_empty_grid()
+    public async Task A_tier1_user_reaches_the_queue_like_anybody_else()
     {
         (ApiClient api, SessionStore session) = await SignInAsync(Role.Tier1, Unique("t1q"));
 
@@ -218,9 +228,8 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
 
         await approvals.LoadAsync();
 
-        Assert.True(approvals.IsForbidden);
-        Assert.Empty(approvals.Queue);
-        Assert.Contains("Tier 2", approvals.ForbiddenExplanation);
+        Assert.False(approvals.IsForbidden);
+        Assert.Null(approvals.ErrorMessage);
     }
 
     [Fact]

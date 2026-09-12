@@ -192,18 +192,26 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         Assert.Contains(audit.Entries, e => e.Ticket == "SUP-3001");
     }
 
+    /// <summary>
+    /// Every rep can read the audit trail.
+    /// </summary>
+    /// <remarks>
+    /// This replaces a test that asserted it was Supervisor-only. With no
+    /// case scoping and no per-rep cabinet assignment, the trail is the control
+    /// that replaces them — and a control everybody can see is one everybody
+    /// behaves as though exists.
+    /// </remarks>
     [Fact]
-    public async Task A_tier2_user_is_told_the_audit_trail_is_supervisor_only()
+    public async Task Every_rep_can_read_the_audit_trail()
     {
-        (ApiClient api, _) = await SignInAsync(Role.Tier2);
+        (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
         var audit = new AuditTabViewModel(api, new RecordingLiveRegionAnnouncer(), TimeProvider.System);
 
         await audit.LoadAsync();
 
-        Assert.True(audit.IsForbidden);
-        Assert.Empty(audit.Entries);
-        Assert.Contains("Supervisors", audit.ForbiddenExplanation);
+        Assert.False(audit.IsForbidden);
+        Assert.Null(audit.ErrorMessage);
     }
 
     [Fact]

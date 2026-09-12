@@ -59,20 +59,29 @@ public sealed class ActionInvoker
         _session = session;
     }
 
+    /// <summary>Prompts for a reason and a ticket, then submits the action.</summary>
+    /// <param name="catalogue">The server's description of the action.</param>
+    /// <param name="path">
+    /// The cabinet's full identifying path. The dialog restates it and will not
+    /// submit until the operator confirms it, which is the last point at which
+    /// the wrong cabinet can be caught.
+    /// </param>
+    /// <param name="parameters">Operands already fixed by context.</param>
+    /// <param name="userIsLoggedOnToCabinet">Whether the last check-in saw a session.</param>
+    /// <param name="ct">Cancels the call.</param>
     public async Task<ActionInvocationResult> InvokeAsync(
         ActionCatalogEntryDto catalogue,
-        Guid cabinetId,
-        string cabinetHostname,
-        string clientAndSite,
+        CabinetPath path,
         IReadOnlyDictionary<string, string>? parameters,
         bool? userIsLoggedOnToCabinet,
         CancellationToken ct)
     {
+        Guid cabinetId = path.CabinetId;
+
         var prompt = new ActionRequestPrompt(
             catalogue,
             cabinetId,
-            cabinetHostname,
-            clientAndSite,
+            path,
             parameters ?? new Dictionary<string, string>(),
             userIsLoggedOnToCabinet,
             _session.Role);
@@ -81,6 +90,18 @@ public sealed class ActionInvoker
 
         if (submission is null)
         {
+            return ActionInvocationResult.Cancelled;
+        }
+
+        if (!submission.CabinetConfirmed)
+        {
+            // A dialog implementation that returns a submission without the
+            // confirmation has not obtained one. Treated as a cancellation
+            // rather than submitted anyway: this check is cheap, and the thing
+            // it guards against is a rep acting on the wrong client's cabinet.
+            _announcer.AnnounceImportant(
+                "The cabinet was not confirmed, so nothing was requested.");
+
             return ActionInvocationResult.Cancelled;
         }
 
@@ -103,7 +124,7 @@ public sealed class ActionInvoker
         {
             ActionRequestView created = await _api.CreateActionAsync(request, ct);
 
-            _announcer.AnnounceImportant(DescribeOutcome(catalogue, cabinetHostname, created));
+            _announcer.AnnounceImportant(DescribeOutcome(catalogue, path.Display, created));
 
             return ActionInvocationResult.Succeeded(created);
         }

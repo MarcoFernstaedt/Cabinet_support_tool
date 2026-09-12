@@ -461,6 +461,42 @@ public sealed class CheckInRoundTripTests : IClassFixture<SupportApiFactory>
             },
         },
 
+        // What the machine actually did with an install this platform asked
+        // for, as distinct from the fact that one was scheduled. It rides every
+        // tier, because an install finishes when it finishes rather than when a
+        // full check-in happens to be due.
+        UpdateInstallOutcomes = new[]
+        {
+            new UpdateInstallOutcome
+            {
+                ActionRequestId = Guid.Parse("6f1a2b3c-4d5e-4f60-8172-9a0b1c2d3e4f"),
+                CompletedUtc = new DateTimeOffset(2026, 9, 11, 2, 41, 0, TimeSpan.Zero),
+                RebootRequired = true,
+                Results = new[]
+                {
+                    new UpdateInstallResult
+                    {
+                        UpdateId = "c1b2a3d4-5e6f-4071-8293-a4b5c6d7e8f9",
+                        Title = "2026-09 Cumulative Update for Windows 10 (KB5099999)",
+                        ResultCode = UpdateResultCode.SucceededWithErrors,
+
+                        // Populated on both results, because this test's whole
+                        // point is that every property survives the trip. A
+                        // succeeded install with no error code would leave one
+                        // nullable field untested.
+                        ErrorCode = unchecked((int)0x8024200D),
+                    },
+                    new UpdateInstallResult
+                    {
+                        UpdateId = "d2c3b4a5-6f70-4182-93a4-b5c6d7e8f9a0",
+                        Title = "2026-09 Servicing Stack Update",
+                        ResultCode = UpdateResultCode.Failed,
+                        ErrorCode = unchecked((int)0x80240022),
+                    },
+                },
+            },
+        },
+
         SectionErrors = new Dictionary<string, string>
         {
             ["CabinetData"] = "Sensor and drawer discovery is not implemented in this build.",

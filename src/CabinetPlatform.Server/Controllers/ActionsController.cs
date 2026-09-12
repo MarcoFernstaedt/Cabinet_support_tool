@@ -43,7 +43,7 @@ public sealed class ActionsController : SupportControllerBase
     /// </remarks>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("catalog")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(IReadOnlyList<ActionCatalogEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ActionCatalogEntryDto>>> Catalog(CancellationToken ct)
     {
@@ -78,7 +78,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="request">What to do and why.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -111,7 +111,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="request">Why, and against which ticket.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("cabinets/{id:guid}/test-sync-link")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -179,7 +179,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="id">The action.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<ActionRequestView>> GetById(Guid id, CancellationToken ct)
@@ -201,7 +201,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="query">Filter and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<ActionRequestView>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ActionRequestView>>> List(
         [FromQuery] ActionQuery query, CancellationToken ct)
@@ -250,7 +250,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="query">Page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("pending-approval")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<ActionRequestView>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<ActionRequestView>>> PendingApproval(
         [FromQuery] PagedQuery query, CancellationToken ct)
@@ -276,7 +276,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="request">The approver's note.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/approve")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -295,7 +295,7 @@ public sealed class ActionsController : SupportControllerBase
     /// <param name="request">Why.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/deny")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -330,10 +330,28 @@ public sealed class ActionsController : SupportControllerBase
                 Action = a,
                 CabinetHostname = a.Cabinet!.Hostname,
                 SiteName = a.Cabinet!.Site!.Name,
+                SiteId = a.Cabinet!.SiteId,
                 ClientName = a.Cabinet!.Site!.Client!.Name,
+                Department = a.Cabinet!.DepartmentName,
+                CabinetRole = a.Cabinet!.Role,
+                SerialNumber = a.Cabinet!.SerialNumber,
                 TargetHostname = _db.Cabinets
                     .Where(c => c.Id == a.TargetCabinetId)
                     .Select(c => c.Hostname)
+                    .FirstOrDefault(),
+                Target = _db.Cabinets
+                    .Where(c => c.Id == a.TargetCabinetId)
+                    .Select(c => new
+                    {
+                        c.Id,
+                        c.Hostname,
+                        c.SiteId,
+                        SiteName = c.Site!.Name,
+                        ClientName = c.Site!.Client!.Name,
+                        c.DepartmentName,
+                        c.Role,
+                        c.SerialNumber,
+                    })
                     .FirstOrDefault(),
                 RequestedByDisplayName = _db.Users
                     .Where(u => u.Id == a.RequestedByUserId)
@@ -354,12 +372,42 @@ public sealed class ActionsController : SupportControllerBase
             CabinetHostname = r.CabinetHostname,
             ClientName = r.ClientName,
             SiteName = r.SiteName,
+
+            // The full path travels with every action. An approver did not
+            // raise the request and has no other context for it, so the one
+            // thing they must be able to read off the row is exactly whose
+            // cabinet they are about to authorise work on. A hostname alone
+            // would not tell them: hostnames repeat across clients.
+            CabinetPath = new CabinetPath
+            {
+                CabinetId = r.Action.CabinetId,
+                ClientName = r.ClientName,
+                SiteName = r.SiteName,
+                SiteId = r.SiteId,
+                DepartmentName = r.Department,
+                CabinetName = r.CabinetHostname,
+                Role = r.CabinetRole,
+                SerialNumber = r.SerialNumber,
+            },
             RequestedByUserId = r.Action.RequestedByUserId,
             RequestedByDisplayName = r.RequestedByDisplayName,
             RequestedUtc = r.Action.RequestedUtc,
             Parameters = DeserialiseParameters(r.Action.ParametersJson),
             TargetCabinetId = r.Action.TargetCabinetId,
             TargetCabinetHostname = r.TargetHostname,
+            TargetCabinetPath = r.Target is null
+                ? null
+                : new CabinetPath
+                {
+                    CabinetId = r.Target.Id,
+                    ClientName = r.Target.ClientName,
+                    SiteName = r.Target.SiteName,
+                    SiteId = r.Target.SiteId,
+                    DepartmentName = r.Target.DepartmentName,
+                    CabinetName = r.Target.Hostname,
+                    Role = r.Target.Role,
+                    SerialNumber = r.Target.SerialNumber,
+                },
             Reason = r.Action.Reason,
             TicketReference = r.Action.TicketReference,
             Status = r.Action.Status,
@@ -370,10 +418,17 @@ public sealed class ActionsController : SupportControllerBase
             CompletedUtc = r.Action.CompletedUtc,
             ResultStatus = r.Action.ResultStatus,
             ResultOutput = r.Action.ResultOutput,
+            CollectedData = r.Action.CollectedDataJson,
             ExpiresUtc = r.Action.ExpiresUtc,
             SafetyChecksOverridden = r.Action.SafetyChecksOverridden,
             OverrideReason = r.Action.OverrideReason,
             BatchId = r.Action.BatchId,
+
+            // Reserved for hardware actuation and always null in this build.
+            // Carried so that the shape a future actuation feature has to fit
+            // is already visible to whoever designs it.
+            OnSiteConfirmedByUserId = r.Action.OnSiteConfirmedByUserId,
+            OnSiteConfirmedUtc = r.Action.OnSiteConfirmedUtc,
         }).ToList();
     }
 

@@ -38,25 +38,121 @@ public sealed class ActionCatalogTests
         Assert.False(ActionCatalog.TryGet((ActionName)0, out _));
     }
 
+    /// <summary>
+    /// The approval and disruption matrix, action by action.
+    /// </summary>
+    /// <remarks>
+    /// Role is deliberately absent from this matrix. Every action is Tier 1 in
+    /// this build — reps work any cabinet at any time — and repeating that
+    /// thirty times here would assert a decision that is stated once in the
+    /// catalog and pinned once below. What is worth pinning per action is which
+    /// ones need a second person and which ones interrupt a clinic, because
+    /// those differ and because getting one wrong is how a cabinet goes down
+    /// mid-dispense.
+    /// </remarks>
     [Theory]
-    [InlineData(ActionName.ScanForUpdates, Role.Tier1, false, false)]
-    [InlineData(ActionName.CollectDiagnosticBundle, Role.Tier1, false, false)]
-    [InlineData(ActionName.FlushDnsCache, Role.Tier2, false, false)]
-    [InlineData(ActionName.RenewDhcpLease, Role.Tier2, false, false)]
-    [InlineData(ActionName.RestartService, Role.Tier2, false, false)]
-    [InlineData(ActionName.StartService, Role.Tier2, true, false)]
-    [InlineData(ActionName.StopService, Role.Tier2, true, true)]
-    [InlineData(ActionName.ScheduleUpdates, Role.Tier2, true, false)]
-    [InlineData(ActionName.RebootMachine, Role.Tier2, true, true)]
+    // Reads and probes: nobody else need be involved.
+    [InlineData(ActionName.ScanForUpdates, false, false)]
+    [InlineData(ActionName.GetScheduledUpdates, false, false)]
+    [InlineData(ActionName.CancelScheduledUpdates, false, false)]
+    [InlineData(ActionName.CollectDiagnosticBundle, false, false)]
+    [InlineData(ActionName.CollectEventLogs, false, false)]
+    [InlineData(ActionName.RunEventLogView, false, false)]
+    [InlineData(ActionName.GetProcessList, false, false)]
+    [InlineData(ActionName.FlushDnsCache, false, false)]
+    [InlineData(ActionName.RenewDhcpLease, false, false)]
+    [InlineData(ActionName.PingHost, false, false)]
+    [InlineData(ActionName.TraceRoute, false, false)]
+    [InlineData(ActionName.TestPortConnectivity, false, false)]
+    [InlineData(ActionName.PingCabinet, false, false)]
+    [InlineData(ActionName.TestCabinetPort, false, false)]
+    [InlineData(ActionName.TraceRouteToCabinet, false, false)]
+
+    // Restarting an allow-listed service is the one change that needs no
+    // second person: it is the routine remedy, it restores the intended state
+    // rather than leaving a new one, and requiring approval would mean reps
+    // going back to remote desktop for it.
+    [InlineData(ActionName.RestartService, false, false)]
+
+    // Changes that leave the cabinet in a state somebody has to remember.
+    [InlineData(ActionName.StartService, true, false)]
+    [InlineData(ActionName.SetServiceStartType, true, false)]
+    [InlineData(ActionName.ScheduleUpdates, true, false)]
+    [InlineData(ActionName.KillProcess, true, false)]
+    [InlineData(ActionName.KillProcessByName, true, false)]
+    [InlineData(ActionName.RestartApplication, true, false)]
+
+    // Disruptive: the cabinet stops doing its job while these run.
+    [InlineData(ActionName.StopService, true, true)]
+    [InlineData(ActionName.RebootMachine, true, true)]
+    [InlineData(ActionName.InstallUpdatesNow, true, true)]
+    [InlineData(ActionName.SetDnsServers, true, true)]
+    [InlineData(ActionName.SetStaticIpAddress, true, true)]
+    [InlineData(ActionName.SetAdapterToDhcp, true, true)]
     public void Catalogue_entries_match_the_specified_matrix(
-        ActionName action, Role minimumRole, bool requiresApproval, bool isDisruptive)
+        ActionName action, bool requiresApproval, bool isDisruptive)
     {
         ActionCatalogEntry entry = ActionCatalog.Get(action);
 
-        Assert.Equal(minimumRole, entry.MinimumRole);
         Assert.Equal(requiresApproval, entry.RequiresApproval);
         Assert.Equal(isDisruptive, entry.IsDisruptive);
         Assert.True(entry.TimeoutSeconds > 0);
+    }
+
+    /// <summary>
+    /// Every action a rep can request is Tier 1, and the role comparison is
+    /// still the thing that says so.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Reps reach any cabinet at any time. That is how the team already works
+    /// over remote desktop, and a tool that pretended otherwise would push the
+    /// work back onto remote desktop, where none of this audit trail exists.
+    /// </para>
+    /// <para>
+    /// The three roles stay on users, in tokens and in the trail, and the
+    /// <c>MinimumRole</c> comparison runs on every request — so tightening an
+    /// action later is a one-line change to its catalog entry rather than the
+    /// introduction of a mechanism. This test pins the current values; it is
+    /// meant to be edited when somebody decides to tighten one, and to fail
+    /// when somebody does it by accident.
+    /// </para>
+    /// <para>
+    /// The reserved actuation entries are excluded because they are not
+    /// requestable at any role: the service refuses them on their reserved flag
+    /// before it looks at anything else.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_requestable_action_is_open_to_every_rep()
+    {
+        foreach (ActionCatalogEntry entry in ActionCatalog.All
+                     .Where(e => !e.IsReservedHardwareActuation))
+        {
+            Assert.Equal(Role.Tier1, entry.MinimumRole);
+        }
+    }
+
+    /// <summary>
+    /// Approval no longer scales with batch size, matching the single-cabinet
+    /// rule.
+    /// </summary>
+    /// <remarks>
+    /// The thresholds stay on the entry so the mechanism is still there and
+    /// still tested; their values are open, exactly as MinimumRole is. Any rep
+    /// may approve another rep's request, of any size — what none of them may
+    /// do is approve their own, which is a per-request rule rather than a size
+    /// one.
+    /// </remarks>
+    [Fact]
+    public void No_batch_size_currently_demands_a_supervisor()
+    {
+        foreach (ActionCatalogEntry entry in ActionCatalog.All.Where(e => e.Batchable))
+        {
+            Assert.Equal(int.MaxValue, entry.BatchSupervisorThreshold);
+            Assert.Equal(int.MaxValue, entry.BatchSupervisorOnlyThreshold);
+            Assert.True(entry.MaximumBatchSize > 0);
+        }
     }
 
     [Fact]
@@ -401,5 +497,6 @@ public sealed class ActionCatalogTests
 
     private static IActionParameterValidator CreateValidator() =>
         new ActionParameterValidator(
-            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())));
+            new ServiceAllowList(Options.Create(new ServiceAllowListOptions())),
+            new ProcessAllowList(Options.Create(new ProcessControlOptions())));
 }

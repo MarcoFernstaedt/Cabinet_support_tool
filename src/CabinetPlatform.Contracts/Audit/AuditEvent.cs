@@ -184,4 +184,54 @@ public enum AuditEvent
     /// Drift breaks both site synchronisation and audit ordering.
     /// </summary>
     CabinetClockDrift = 93,
+
+    /// <summary>The cabinet search was run.</summary>
+    SearchCabinets = 100,
+
+    /// <summary>The client list was read for the hierarchy browser.</summary>
+    ListClients = 101,
+
+    /// <summary>One client's site-and-cabinet hierarchy was read.</summary>
+    ViewClientHierarchy = 102,
+
+    /// <summary>A rep's recently-viewed cabinet list was read.</summary>
+    ViewRecentCabinets = 103,
+
+    /// <summary>The event log view list was read.</summary>
+    ListEventLogViews = 110,
+
+    /// <summary>A Supervisor defined a new event log view.</summary>
+    CreateEventLogView = 111,
+
+    /// <summary>A Supervisor edited an event log view shared by everyone.</summary>
+    UpdateEventLogView = 112,
+
+    /// <summary>A Supervisor retired an event log view.</summary>
+    RetireEventLogView = 113,
+
+    /// <summary>An event log view was run against a cabinet.</summary>
+    RunEventLogView = 114,
+
+    /// <summary>
+    /// A cabinet reported what an update install actually did, as distinct from
+    /// the fact that one was scheduled.
+    /// </summary>
+    UpdateInstallOutcome = 120,
+
+    /// <summary>The reserved hardware-actuation grant was given to a user.</summary>
+    GrantHardwareActuation = 130,
+
+    /// <summary>The reserved hardware-actuation grant was withdrawn from a user.</summary>
+    RevokeHardwareActuation = 131,
+
+    /// <summary>
+    /// A reserved hardware-actuation action was requested and refused.
+    /// </summary>
+    /// <remarks>
+    /// Its own event rather than a generic denial, because "did anybody ever
+    /// try to open a drawer from the support console" is a question a regulator
+    /// may ask, and it must be answerable with one filter rather than by
+    /// reading denial text.
+    /// </remarks>
+    HardwareActuationRefused = 132,
 }

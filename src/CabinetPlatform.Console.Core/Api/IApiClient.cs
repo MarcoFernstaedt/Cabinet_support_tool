@@ -3,6 +3,7 @@ using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
 using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Contracts.Telemetry;
 
 namespace CabinetPlatform.Console.Core.Api;
 
@@ -54,6 +55,52 @@ public interface IApiClient
 
     Task<PagedResult<SmartReadingDto>> GetSmartHistoryAsync(
         Guid cabinetId, SmartHistoryQuery query, CancellationToken ct);
+
+    // --- Finding a cabinet -----------------------------------------------
+
+    /// <summary>
+    /// Searches across client name, site name, department, hostname, serial
+    /// number and cabinet id at once.
+    /// </summary>
+    /// <remarks>
+    /// One term, every identifying column, because a rep does not know in
+    /// advance which kind of thing they are holding. Every hit carries the
+    /// cabinet's full path, and hits whose names collide within the page are
+    /// flagged by the server.
+    /// </remarks>
+    /// <param name="query">What to look for, and which page.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<PagedResult<CabinetSearchHit>> SearchCabinetsAsync(
+        CabinetSearchQuery query, CancellationToken ct);
+
+    /// <summary>The client list, for the top level of the hierarchy browser.</summary>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<PagedResult<ClientSummary>> GetClientsAsync(ClientQuery query, CancellationToken ct);
+
+    /// <summary>One client's sites, each with its cabinets, sync cabinet first.</summary>
+    /// <param name="clientId">The client.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<ClientHierarchyDto> GetClientHierarchyAsync(Guid clientId, CancellationToken ct);
+
+    /// <summary>
+    /// The cabinets this rep has opened most recently.
+    /// </summary>
+    /// <remarks>
+    /// Scoped to the caller by their token. There is no parameter for whose
+    /// list to fetch, and no endpoint that would serve somebody else's.
+    /// </remarks>
+    /// <param name="limit">How many to return.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<IReadOnlyList<RecentCabinetDto>> GetRecentCabinetsAsync(int limit, CancellationToken ct);
+
+    // --- Event log views -------------------------------------------------
+
+    /// <summary>The saved event log views a rep may run.</summary>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<PagedResult<EventLogViewDto>> GetEventLogViewsAsync(
+        EventLogViewQuery query, CancellationToken ct);
 
     // --- Actions ---------------------------------------------------------
 

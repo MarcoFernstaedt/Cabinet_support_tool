@@ -21,14 +21,39 @@
                         Command="{Binding RefreshCommand}"
                         AutomationProperties.Name="Refresh this cabinet's machine data" />
 
+                <!--
+                    The persistent identification. It sits above the
+                    ScrollViewer rather than inside it, so it stays on screen
+                    while the sections below scroll: a rep forty rows into an
+                    event log has had the cabinet's name off screen for some
+                    time, and the next thing they do will be on whichever
+                    cabinet they believe they are looking at.
+
+                    Client and site lead, because the cabinet name alone
+                    identifies nothing — hostnames repeat freely across three
+                    and a half thousand client organisations.
+                -->
                 <StackPanel>
-                    <TextBlock Text="{Binding CabinetHostname}"
-                               Style="{StaticResource SectionHeading}"
+                    <TextBlock Text="{Binding HeaderClientAndSite}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource Text.Subtle.Brush}"
+                               AutomationProperties.Name="Client and site" />
+
+                    <TextBlock Style="{StaticResource SectionHeading}"
                                FontSize="17"
                                AutomationProperties.HeadingLevel="Level2"
-                               AutomationProperties.Name="Selected cabinet" />
-                    <TextBlock Text="{Binding ClientAndSite}"
-                               Foreground="{DynamicResource Text.Subtle.Brush}" />
+                               AutomationProperties.Name="{Binding HeaderAccessibleSummary}">
+                        <Run Text="{Binding HeaderCabinetName, Mode=OneWay}" />
+                        <Run Text=" — " />
+                        <Run Text="{Binding HeaderRoleLabel, Mode=OneWay}" FontSize="13" />
+                    </TextBlock>
+
+                    <TextBlock Text="{Binding HeaderPath}"
+                               TextWrapping="Wrap"
+                               FontSize="11"
+                               Foreground="{DynamicResource Text.Subtle.Brush}"
+                               AutomationProperties.Name="Full path" />
                 </StackPanel>
             </DockPanel>
 
@@ -272,6 +297,95 @@
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Start mode" Binding="{Binding StartMode}" Width="Auto" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <!--
+                            The start type the set-start-type action would
+                            apply. Boot and System are absent: they are driver
+                            load orders, and setting an ordinary service to one
+                            does not make it start earlier, it makes the machine
+                            fail to boot.
+                        -->
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Label Content="Set start type to"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0" />
+
+                            <ComboBox ItemsSource="{Binding StartTypeChoices}"
+                                      SelectedItem="{Binding SelectedStartType}"
+                                      MinWidth="180"
+                                      AutomationProperties.Name="Start type to apply to the selected service" />
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding StartTypeWarning}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,0"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="Start type warning"
+                                   Foreground="{DynamicResource Severity.Warning.Brush}"
+                                   Visibility="{Binding StartTypeWarning, Converter={StaticResource StringToVisibility}}" />
+
+                        <ContentControl Content="{Binding}"
+                                        ContentTemplate="{StaticResource SectionActionsTemplate}" />
+                    </StackPanel>
+                </Expander>
+
+                <!--
+                    Processes. Task Manager equivalence, which is most of what a
+                    remote desktop session was being opened for. Ending a
+                    process is offered from the selected row and never from a
+                    typed name: the server keeps an allow-list and so does the
+                    agent, and a free-text box would only be a way of asking
+                    both of them to say no.
+                -->
+                <Expander IsExpanded="{Binding Processes.IsExpanded}"
+                          Margin="0,0,0,6"
+                          AutomationProperties.Name="{Binding Processes.Title}"
+                          AutomationProperties.HelpText="{Binding Processes.AccessibleDescription}">
+                    <Expander.Header>
+                        <TextBlock Text="{Binding Processes.Title}"
+                                   Style="{StaticResource SectionHeading}"
+                                   AutomationProperties.HeadingLevel="Level3" />
+                    </Expander.Header>
+
+                    <StackPanel Margin="12,8,0,8" DataContext="{Binding Processes}">
+                        <ContentControl Content="{Binding Availability}"
+                                        ContentTemplate="{StaticResource SectionUnavailableTemplate}"
+                                        Visibility="{Binding Availability.ShowsReason,
+                                                     Converter={StaticResource BoolToVisibility}}" />
+
+                        <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                                 MinWidth="220"
+                                 HorizontalAlignment="Left"
+                                 Margin="0,0,0,6"
+                                 AutomationProperties.Name="Filter processes by name or process id" />
+
+                        <TextBlock Text="{Binding FilterSummary}"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="Process list result"
+                                   Foreground="{DynamicResource Text.Subtle.Brush}"
+                                   Margin="0,0,0,6" />
+
+                        <DataGrid ItemsSource="{Binding Processes}"
+                                  SelectedItem="{Binding SelectedProcess}"
+                                  Style="{StaticResource AccessibleDataGrid}"
+                                  MaxHeight="320"
+                                  AutomationProperties.Name="Running processes. Select a row, then choose an action below.">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
+                                <!--
+                                    The id is shown beside the name because the
+                                    pair is the identification. Windows reuses
+                                    ids within minutes, which is why an action
+                                    on this row carries both and the agent
+                                    refuses them if the machine disagrees.
+                                -->
+                                <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="Auto" />
+                                <DataGridTextColumn Header="CPU" Binding="{Binding Cpu}" Width="Auto" />
+                                <DataGridTextColumn Header="Memory" Binding="{Binding Memory}" Width="Auto" />
+                                <DataGridTextColumn Header="Threads" Binding="{Binding Threads}" Width="Auto" />
+                                <DataGridTextColumn Header="Handles" Binding="{Binding Handles}" Width="Auto" />
                             </DataGrid.Columns>
                         </DataGrid>
 
@@ -521,7 +635,71 @@
 
                     <StackPanel Margin="12,8,0,8" DataContext="{Binding EventLogs}">
                         <ContentControl Content="{Binding Availability}"
-                                        ContentTemplate="{StaticResource SectionUnavailableTemplate}" />
+                                        ContentTemplate="{StaticResource SectionUnavailableTemplate}"
+                                        Visibility="{Binding Availability.ShowsReason,
+                                                     Converter={StaticResource BoolToVisibility}}" />
+
+                        <!--
+                            A view and a window, not a log picker and a filter
+                            box. The views are written once by a Supervisor who
+                            knew which four event ids answer the question, and
+                            shared with everyone. Nothing here accepts a query
+                            expression: the server expands the view's stored
+                            fields and the agent builds its own query from them.
+                        -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Label Content="View"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0" />
+
+                            <ComboBox ItemsSource="{Binding Views}"
+                                      SelectedItem="{Binding SelectedView}"
+                                      DisplayMemberPath="DisplayName"
+                                      MinWidth="240"
+                                      Margin="0,0,16,0"
+                                      AutomationProperties.Name="Event log view to run"
+                                      AutomationProperties.HelpText="Defined by Supervisors and shared across every rep." />
+
+                            <Label Content="Window"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0" />
+
+                            <ComboBox ItemsSource="{Binding WindowChoices}"
+                                      SelectedItem="{Binding SelectedWindow}"
+                                      DisplayMemberPath="Label"
+                                      MinWidth="180"
+                                      AutomationProperties.Name="How far back to look" />
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding SelectedView.Description}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,6"
+                                   Foreground="{DynamicResource Text.Subtle.Brush}"
+                                   AutomationProperties.Name="What this view answers" />
+
+                        <TextBlock Text="{Binding ResultSummary}"
+                                   TextWrapping="Wrap"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="Event log result"
+                                   Foreground="{DynamicResource Text.Subtle.Brush}"
+                                   Margin="0,0,0,6" />
+
+                        <DataGrid ItemsSource="{Binding Entries}"
+                                  Style="{StaticResource AccessibleDataGrid}"
+                                  MaxHeight="320"
+                                  AutomationProperties.Name="Event log records the view matched, newest first">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Time" Binding="{Binding TimeCreatedUtc}" Width="Auto" />
+                                <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="Auto" />
+                                <DataGridTextColumn Header="Log" Binding="{Binding LogName}" Width="Auto" />
+                                <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="*" />
+                                <DataGridTextColumn Header="Event" Binding="{Binding EventId}" Width="Auto" />
+                                <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="2*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <ContentControl Content="{Binding}"
+                                        ContentTemplate="{StaticResource SectionActionsTemplate}" />
                     </StackPanel>
                 </Expander>
 

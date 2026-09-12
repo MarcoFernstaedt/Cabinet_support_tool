@@ -125,6 +125,7 @@ public sealed class AuthController : SupportControllerBase
                 DisplayName = u.DisplayName,
                 Role = u.Role,
                 HasElevatedSql = u.HasElevatedSql,
+                HasHardwareActuation = u.HasHardwareActuation,
                 IsActive = u.IsActive,
                 MustChangePassword = u.MustChangePassword,
                 CreatedUtc = u.CreatedUtc,

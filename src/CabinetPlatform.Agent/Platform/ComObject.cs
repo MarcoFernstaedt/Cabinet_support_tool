@@ -77,6 +77,27 @@ public sealed class ComObject : IDisposable
             arguments,
             CultureInfo.InvariantCulture);
 
+    /// <summary>
+    /// Sets a property to another COM object this wrapper holds.
+    /// </summary>
+    /// <remarks>
+    /// The Windows Update API is full of properties that take a COM collection
+    /// rather than a value — a downloader's <c>Updates</c>, an installer's
+    /// <c>Updates</c>. This exists so callers can pass one without the wrapper
+    /// having to expose the raw instance, which is the one thing that would let
+    /// an underlying COM pointer escape the lifetime this class manages.
+    /// </remarks>
+    /// <param name="propertyName">The property to set.</param>
+    /// <param name="value">The COM object to set it to.</param>
+    public void SetObject(string propertyName, ComObject value) =>
+        SetValue(propertyName, value.Instance);
+
+    /// <summary>Invokes a method with another COM object as its only argument.</summary>
+    /// <param name="methodName">The method to invoke.</param>
+    /// <param name="argument">The COM object to pass.</param>
+    public object? InvokeWithObject(string methodName, ComObject argument) =>
+        Invoke(methodName, argument.Instance);
+
     public void SetValue(string propertyName, object? value)
         => Instance.GetType().InvokeMember(
             propertyName,

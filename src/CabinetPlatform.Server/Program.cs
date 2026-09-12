@@ -4,6 +4,7 @@ using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Actions;
+using CabinetPlatform.Server.Hardware;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.BackgroundServices;
 using CabinetPlatform.Server.Configuration;
@@ -58,6 +59,8 @@ builder.Services.Configure<QueryLimitsOptions>(
     builder.Configuration.GetSection(QueryLimitsOptions.SectionName));
 builder.Services.Configure<ServiceAllowListOptions>(
     builder.Configuration.GetSection(ServiceAllowListOptions.SectionName));
+builder.Services.Configure<ProcessControlOptions>(
+    builder.Configuration.GetSection(ProcessControlOptions.SectionName));
 
 // --- Persistence ---------------------------------------------------------
 // SQLite is fine for local development. PostgreSQL is required before any
@@ -103,6 +106,12 @@ builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 builder.Services.AddSingleton<IAgentAuthenticator, SharedSecretAgentAuthenticator>();
 builder.Services.AddSingleton<IServiceAllowList, ServiceAllowList>();
+builder.Services.AddSingleton<IProcessAllowList, ProcessAllowList>();
+builder.Services.AddSingleton<IHardwareController, NullHardwareAdapter>();
+builder.Services.AddSingleton<IDrawerController>(sp => sp.GetRequiredService<IHardwareController>());
+builder.Services.AddSingleton<ILockController>(sp => sp.GetRequiredService<IHardwareController>());
+builder.Services.AddSingleton<ICubieController>(sp => sp.GetRequiredService<IHardwareController>());
+builder.Services.AddSingleton<ISensorReader>(sp => sp.GetRequiredService<IHardwareController>());
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<IActionParameterValidator, ActionParameterValidator>();
 builder.Services.AddScoped<IActionRequestService, ActionRequestService>();
@@ -111,6 +120,8 @@ builder.Services.AddScoped<IUserAuthenticationService, UserAuthenticationService
 builder.Services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 builder.Services.AddScoped<ICabinetProjection, CabinetProjection>();
 builder.Services.AddScoped<ICabinetClock, CabinetClock>();
+builder.Services.AddScoped<IEventLogViewService, EventLogViewService>();
+builder.Services.AddScoped<ICabinetSearchService, CabinetSearchService>();
 builder.Services.AddScoped<DatabaseSeeder>();
 
 builder.Services.AddHostedService<RetentionService>();
@@ -127,6 +138,7 @@ builder.Services
 builder.Services.AddSingleton<IAuthorizationHandler, MinimumRoleHandler>();
 builder.Services.AddSingleton<IAuthorizationHandler, PasswordNotExpiredHandler>();
 builder.Services.AddSingleton<IAuthorizationHandler, ElevatedSqlHandler>();
+builder.Services.AddSingleton<IAuthorizationHandler, HardwareActuationHandler>();
 
 // Denials that happen in the authorization middleware — before any controller
 // runs — are recorded here. Otherwise the requests that never reach an
@@ -143,26 +155,34 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(AuthorizationPolicies.RequireAuthenticatedUser, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser())
-    .AddPolicy(AuthorizationPolicies.RequireTier1, policy => policy
+    // Every cabinet and Windows operation. Reps work any cabinet at any time,
+    // so the threshold is Tier 1 — but the requirement is still here and still
+    // evaluated, because the day one of these is tightened it should be a
+    // change to a value rather than the introduction of a mechanism.
+    .AddPolicy(AuthorizationPolicies.RequireSupportUser, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
         .AddRequirements(new MinimumRoleRequirement(Role.Tier1))
-        .AddRequirements(new PasswordNotExpiredRequirement()))
-    .AddPolicy(AuthorizationPolicies.RequireTier2, policy => policy
-        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
-        .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(Role.Tier2))
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireSupervisor, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
         .AddRequirements(new MinimumRoleRequirement(Role.Supervisor))
         .AddRequirements(new PasswordNotExpiredRequirement()))
+    // The two standalone grants. Neither is a role and neither is implied by
+    // one: a Supervisor without the grant does not hold it, which is the whole
+    // reason they are separate columns.
     .AddPolicy(AuthorizationPolicies.RequireElevatedSql, policy => policy
         .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
         .RequireAuthenticatedUser()
-        .AddRequirements(new MinimumRoleRequirement(Role.Tier2))
+        .AddRequirements(new MinimumRoleRequirement(Role.Tier1))
         .AddRequirements(new ElevatedSqlRequirement())
+        .AddRequirements(new PasswordNotExpiredRequirement()))
+    .AddPolicy(AuthorizationPolicies.RequireHardwareActuation, policy => policy
+        .AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme)
+        .RequireAuthenticatedUser()
+        .AddRequirements(new MinimumRoleRequirement(Role.Tier1))
+        .AddRequirements(new HardwareActuationRequirement())
         .AddRequirements(new PasswordNotExpiredRequirement()))
     .AddPolicy(AuthorizationPolicies.RequireAgent, policy => policy
         .AddAuthenticationSchemes(AgentAuthenticationHandler.SchemeName)

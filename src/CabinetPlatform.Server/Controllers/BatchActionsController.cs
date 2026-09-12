@@ -44,7 +44,7 @@ public sealed class BatchActionsController : SupportControllerBase
     /// <param name="request">The action, its parameters and its frozen targets.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(BatchActionView), StatusCodes.Status201Created)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -68,7 +68,7 @@ public sealed class BatchActionsController : SupportControllerBase
     /// <param name="id">The batch.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet("{id:guid}")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(BatchActionView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<BatchActionView>> GetById(Guid id, CancellationToken ct)
@@ -91,7 +91,7 @@ public sealed class BatchActionsController : SupportControllerBase
     /// <param name="query">Filter and page.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpGet]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier1)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(PagedResult<BatchActionView>), StatusCodes.Status200OK)]
     public async Task<ActionResult<PagedResult<BatchActionView>>> List(
         [FromQuery] BatchActionQuery query, CancellationToken ct)
@@ -143,7 +143,7 @@ public sealed class BatchActionsController : SupportControllerBase
     /// <param name="request">The approver's note.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/approve")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(BatchActionView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
@@ -160,7 +160,7 @@ public sealed class BatchActionsController : SupportControllerBase
     /// <param name="request">Why.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("{id:guid}/deny")]
-    [Authorize(Policy = AuthorizationPolicies.RequireTier2)]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     [ProducesResponseType(typeof(BatchActionView), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
