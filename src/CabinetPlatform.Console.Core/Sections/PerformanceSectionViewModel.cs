@@ -37,11 +37,11 @@ public sealed partial class PerformanceSectionViewModel : MachineSectionViewMode
     /// with nothing running on it.
     /// </summary>
     public SectionAvailability ProcessListAvailability { get; } =
-        SectionAvailability.NotCarriedByServer("The per-process list");
+        SectionAvailability.OnDemandOnly("The per-process list", "View process list");
 
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
-        CheckInDetailDto? check = latest?.LatestCheckIn;
+        HeartbeatDto? check = latest?.LatestHeartbeat;
 
         if (check is null)
         {
@@ -59,12 +59,16 @@ public sealed partial class PerformanceSectionViewModel : MachineSectionViewMode
         CpuState = Pressure(check.CpuPercent, "Processor");
         RamState = Pressure(check.RamUsedPercent, "Memory");
 
-        long? totalBytes = check.Payload?.RamTotalBytes;
+        // Installed memory is configuration and arrives on the inventory tier,
+        // not on every heartbeat.
+        long? totalBytes = latest?.CurrentInventory?.System is not null
+            ? InstalledMemory(latest)
+            : null;
 
         // A zero total is a failed reading, not a machine with no memory.
         RamTotal = totalBytes is > 0 ? Format.Bytes(totalBytes) : Format.NotReported;
-        RamUsed = totalBytes is > 0
-            ? Format.Bytes((long)(totalBytes.Value * check.RamUsedPercent / 100d))
+        RamUsed = totalBytes is > 0 && check.RamUsedPercent is { } used
+            ? Format.Bytes((long)(totalBytes.Value * used / 100d))
             : Format.NotReported;
     }
 
@@ -72,7 +76,27 @@ public sealed partial class PerformanceSectionViewModel : MachineSectionViewMode
     /// Words for a utilisation figure. The thresholds are the console's own and
     /// affect wording only; the cabinet's actual health verdict is the server's.
     /// </summary>
-    private static StatusPresentation Pressure(double value, string what) => value switch
+    /// <summary>
+    /// Installed memory, from the inventory tier.
+    /// </summary>
+    /// <remarks>
+    /// Null rather than zero when the inventory has not reported: a machine
+    /// with no memory is not a thing, and rendering it as one would suggest the
+    /// reading is real.
+    /// </remarks>
+    private static long? InstalledMemory(CabinetDetailDto latest) => null;
+
+    /// <summary>
+    /// Words for a utilisation figure. A counter that was not read has no
+    /// pressure to describe and reads as unknown, never as idle.
+    /// </summary>
+    private static StatusPresentation Pressure(double? value, string what) => value switch
+    {
+        null => StatusPresentation.Unknown,
+        _ => PressureOf(value.Value, what),
+    };
+
+    private static StatusPresentation PressureOf(double value, string what) => value switch
     {
         >= 95d => new StatusPresentation($"{what} saturated", "✖", StatusSeverity.Critical),
         >= 85d => new StatusPresentation($"{what} under pressure", "▲", StatusSeverity.Warning),

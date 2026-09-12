@@ -1,38 +1,123 @@
+using System.Collections.ObjectModel;
+using CabinetPlatform.Console.Core.Presentation;
+using CabinetPlatform.Contracts.Cabinets;
+using CabinetPlatform.Contracts.Telemetry;
+
 namespace CabinetPlatform.Console.Core.Sections;
 
 /// <summary>
-/// Time zone, clock drift, domain membership and installed software — and the
-/// reboot action.
+/// Operating system, domain membership, time zone, clock drift and installed
+/// software — and the reboot action.
 /// </summary>
 /// <remarks>
-/// As with Network, the readings are not carried by this server's contract and
-/// the action is. Reboot is the most consequential thing this console can ask
-/// for: disruptive, approval-required, maintenance-window-only, and refused
-/// outright while anyone is logged on to the cabinet. It sits here, in the
-/// section it belongs to, with all four of those facts on the button.
+/// Reboot is the most consequential thing this console can ask for: disruptive,
+/// approval-required, evaluated against the cabinet's own maintenance window,
+/// and refused outright while anyone is logged on — or while the cabinet cannot
+/// say whether anyone is. It sits here, in the section it belongs to, with all
+/// of those facts on the button.
 /// </remarks>
-public sealed class SystemSectionViewModel : UnservedSectionViewModel
+public sealed class SystemSectionViewModel : MachineSectionViewModel
 {
+    /// <summary>Creates the section.</summary>
     public SystemSectionViewModel()
         : base("System",
-            "Time zone, clock drift against the server, domain or workgroup, and installed " +
-            "software inventory. Not carried by this server build. The reboot action is " +
-            "inside this section and does work.")
+            "Operating system and build, install date, domain or workgroup, time zone, clock " +
+            "drift against the server, and installed software. The reboot action is inside " +
+            "this section.")
     {
     }
 
-    public string ActionsStillWorkNote =>
-        "The reboot action below is fully supported by the server. Only the system readings " +
-        "above are missing.";
+    /// <summary>Operating system product name.</summary>
+    public string OsVersion { get; private set; } = Format.NotReported;
+
+    /// <summary>Operating system build number.</summary>
+    public string OsBuild { get; private set; } = Format.NotReported;
+
+    /// <summary>When the operating system was installed.</summary>
+    public string InstallDate { get; private set; } = Format.NotReported;
+
+    /// <summary>Domain or workgroup the machine belongs to.</summary>
+    public string Domain { get; private set; } = Format.NotReported;
+
+    /// <summary>The cabinet's own time zone.</summary>
+    public string TimeZone { get; private set; } = Format.NotReported;
+
+    /// <summary>The cabinet's current local time, labelled with its zone.</summary>
+    public string CabinetLocalTime { get; private set; } = Format.NotReported;
 
     /// <summary>
-    /// Clock drift is worth its own note: it is not merely missing, it is the
-    /// one reading in this section whose absence has a consequence for the audit
-    /// trail, since a cabinet whose clock has drifted files check-ins that sort
-    /// wrongly against everything else.
+    /// How far the cabinet's clock sits from the server's.
     /// </summary>
-    public string ClockDriftNote =>
-        "Clock drift cannot be shown: the server stores the moment a check-in was collected " +
-        "but not the cabinet's own reading of the current time, so there is nothing to compare " +
-        "against. Drift still affects how check-ins sort in the audit trail.";
+    /// <remarks>
+    /// Worth its own line: drift breaks site synchronisation and the ordering of
+    /// audit records against a dispensing system's own log, and neither failure
+    /// announces itself at the time.
+    /// </remarks>
+    public string ClockDrift { get; private set; } = Format.NotReported;
+
+    /// <summary>Whether the drift is far enough to matter.</summary>
+    public StatusPresentation ClockDriftStatus { get; private set; } = StatusPresentation.Unknown;
+
+    /// <summary>Installed software, as the last inventory reported it.</summary>
+    public ObservableCollection<InstalledSoftwareInfo> InstalledSoftware { get; } = new();
+
+    /// <inheritdoc />
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
+    {
+        InstalledSoftware.Clear();
+
+        if (latest is null)
+        {
+            Availability = SectionAvailability.NoCheckIn;
+            return;
+        }
+
+        TimeZone = Format.Text(latest.Cabinet.TimeZoneId);
+        CabinetLocalTime = Format.CabinetTime(latest.CabinetLocalTime, latest.Cabinet.TimeZoneId);
+
+        (ClockDrift, ClockDriftStatus) = latest.Cabinet.ClockDrift is { } drift
+            ? (Format.Duration(drift.Duration()), DescribeDrift(drift))
+            : (Format.NotReported, StatusPresentation.Unknown);
+
+        SystemInfo? system = latest.CurrentInventory?.System;
+
+        if (system is null)
+        {
+            Availability = latest.CurrentInventory is null
+                ? SectionAvailability.NoInventoryYet(Title)
+                : SectionAvailability.CollectorFailed(Title);
+            return;
+        }
+
+        Availability = SectionAvailability.Available;
+        OsVersion = Format.Text(system.OsVersion);
+        OsBuild = Format.Text(system.OsBuild);
+        InstallDate = Format.LocalTime(system.InstallDateUtc);
+        Domain = Format.Text(system.DomainOrWorkgroup);
+
+        foreach (InstalledSoftwareInfo software in
+                 system.InstalledSoftware ?? Array.Empty<InstalledSoftwareInfo>())
+        {
+            InstalledSoftware.Add(software);
+        }
+
+        _ = nowUtc;
+    }
+
+    /// <inheritdoc />
+    public override string Summarise() =>
+        Availability.HasData
+            ? $"System: {OsVersion} build {OsBuild}. Domain {Domain}. Cabinet time " +
+              $"{CabinetLocalTime}. Clock drift {ClockDrift}. " +
+              $"{InstalledSoftware.Count} installed program(s)."
+            : $"System: {Availability.Reason}";
+
+    private static StatusPresentation DescribeDrift(TimeSpan drift) => drift.Duration() switch
+    {
+        var d when d >= TimeSpan.FromMinutes(10) =>
+            new StatusPresentation("Far enough to break audit ordering", "✖", StatusSeverity.Critical),
+        var d when d >= TimeSpan.FromMinutes(2) =>
+            new StatusPresentation("Drifting", "▲", StatusSeverity.Warning),
+        _ => new StatusPresentation("In step with the server", "✔", StatusSeverity.Good),
+    };
 }

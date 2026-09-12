@@ -62,10 +62,14 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
     [ObservableProperty] private CabinetSummary? _selectedCabinet;
     [ObservableProperty] private string _actorId = string.Empty;
     [ObservableProperty] private AuditEventKind? _eventKind;
+
+    // The trail's action column is an ActionName, not free text, so the filter
+    // is a picker over the catalog rather than a substring match that can only
+    // ever match or silently miss.
+    [ObservableProperty] private ActionName? _actionFilter;
     [ObservableProperty] private AuditResult? _result;
-    [ObservableProperty] private string _actionFilter = string.Empty;
-    [ObservableProperty] private DateTime _fromLocal;
-    [ObservableProperty] private DateTime _toLocal;
+    [ObservableProperty] private DateTimeOffset _fromLocal;
+    [ObservableProperty] private DateTimeOffset _toLocal;
 
     [ObservableProperty] private int _page = 1;
     [ObservableProperty] private int _pageSize = 50;
@@ -99,6 +103,16 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
         new AuditKindChoice(AuditEventKind.Caused, "Caused — cabinet state changed")
     };
 
+    /// <summary>
+    /// The action filter's options, built from the catalog enum itself so the
+    /// picker cannot drift from what the trail can actually contain.
+    /// </summary>
+    public IReadOnlyList<AuditActionChoice> ActionChoices { get; } =
+        new[] { new AuditActionChoice(null, "Any action") }
+            .Concat(Enum.GetValues<ActionName>().Select(a => new AuditActionChoice(a, a.ToString())))
+            .ToArray();
+
+    /// <summary>The result filter's options.</summary>
     public IReadOnlyList<AuditResultChoice> ResultChoices { get; } = new[]
     {
         new AuditResultChoice(null, "Any result"),
@@ -138,8 +152,11 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
     /// </summary>
     public async Task ShowForCabinetAsync(Guid cabinetId)
     {
-        SelectedCabinet = Cabinets.FirstOrDefault(c => c.Id == cabinetId)
-                          ?? new CabinetSummary { Id = cabinetId };
+        // A cabinet the list has not loaded is still worth filtering by: the
+        // rep came here from that cabinet's own page. The placeholder carries
+        // its id and says plainly that the rest is not loaded, rather than
+        // inventing a hostname or a health verdict for it.
+        SelectedCabinet = Cabinets.FirstOrDefault(c => c.Id == cabinetId) ?? Placeholder(cabinetId);
         Page = 1;
         await LoadAsync();
     }
@@ -154,7 +171,7 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
             ActorId = string.IsNullOrWhiteSpace(ActorId) ? null : ActorId.Trim(),
             EventKind = EventKind,
             Result = Result,
-            Action = string.IsNullOrWhiteSpace(ActionFilter) ? null : ActionFilter.Trim(),
+            Action = ActionFilter,
             FromUtc = FromLocal.ToUniversalTime(),
             ToUtc = ToLocal.ToUniversalTime(),
             Page = Page,
@@ -221,9 +238,9 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
             parts.Add($"result {StatusPresentation.ForAuditResult(result).Label}");
         }
 
-        if (!string.IsNullOrWhiteSpace(ActionFilter))
+        if (ActionFilter is { } action)
         {
-            parts.Add($"action {ActionFilter.Trim()}");
+            parts.Add($"action {action}");
         }
 
         return "Filters: " + string.Join("; ", parts) + ".";
@@ -244,10 +261,35 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
         PreviousPageCommand.NotifyCanExecuteChanged();
         NextPageCommand.NotifyCanExecuteChanged();
     }
+    /// <summary>
+    /// A stand-in for a cabinet the list has not loaded, carrying its id and
+    /// nothing invented.
+    /// </summary>
+    /// <param name="cabinetId">The cabinet to filter by.</param>
+    private static CabinetSummary Placeholder(Guid cabinetId) => new()
+    {
+        Id = cabinetId,
+        MachineId = string.Empty,
+        Hostname = "(not loaded)",
+        ClientName = string.Empty,
+        SiteName = string.Empty,
+        SiteId = Guid.Empty,
+        Role = CabinetRole.Unknown,
+        IsActive = true,
+        Health = CabinetHealthStatus.Unknown,
+        WorstDiskHealth = DiskHealthStatus.Unknown,
+    };
 }
-
-/// <summary>A named choice in the Observed / Caused filter.</summary>
-public sealed record AuditKindChoice(AuditEventKind? Value, string Label);
 
 /// <summary>A named choice in the result filter.</summary>
 public sealed record AuditResultChoice(AuditResult? Value, string Label);
+
+/// <summary>A named choice in the observed-or-caused filter.</summary>
+/// <param name="Value">The kind, or null for both.</param>
+/// <param name="Label">What the picker shows.</param>
+public sealed record AuditKindChoice(AuditEventKind? Value, string Label);
+
+/// <summary>A named choice in the action filter.</summary>
+/// <param name="Value">The action, or null for any.</param>
+/// <param name="Label">What the picker shows.</param>
+public sealed record AuditActionChoice(ActionName? Value, string Label);

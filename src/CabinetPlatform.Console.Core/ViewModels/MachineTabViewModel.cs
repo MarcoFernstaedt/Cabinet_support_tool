@@ -38,7 +38,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     private readonly TimeProvider _timeProvider;
 
     private IReadOnlyList<ActionCatalogEntryDto> _catalogue = Array.Empty<ActionCatalogEntryDto>();
-    private CabinetLatestDto? _latest;
+    private CabinetDetailDto? _latest;
 
     /// <summary>
     /// Set while sections are being rebuilt, so selecting the first drive during
@@ -175,7 +175,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private void ApplyLatest()
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         CabinetHostname = _latest?.Cabinet.Hostname ?? string.Empty;
         ClientAndSite = _latest is null
@@ -244,7 +244,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         try
         {
-            DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+            DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
             var query = new SmartHistoryQuery
             {
@@ -339,7 +339,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             CabinetHostname,
             ClientAndSite,
             button.ParameterFactory?.Invoke(),
-            _latest?.LatestCheckIn?.AnyUserLoggedOn,
+            _latest?.LatestHeartbeat?.AnyUserLoggedOn,
             ct);
 
         if (result.FailureMessage is { } failure)

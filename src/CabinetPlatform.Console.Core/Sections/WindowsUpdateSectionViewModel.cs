@@ -37,14 +37,15 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
     /// section names the gap rather than leaving three empty fields that read as
     /// "never installed anything".
     /// </summary>
-    public SectionAvailability HistoryAvailability { get; } =
-        SectionAvailability.NotCarriedByServer("Update install history, last install time and active hours");
+    /// <summary>Whether the install history and policy are available.</summary>
+    public SectionAvailability HistoryAvailability { get; private set; } = SectionAvailability.NoCheckIn;
 
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
         PendingUpdates.Clear();
 
-        CheckInDetailDto? check = latest?.LatestCheckIn;
+        HeartbeatDto? check = latest?.LatestHeartbeat;
+        WindowsUpdateInfo? update = latest?.CurrentInventory?.WindowsUpdate;
 
         if (check is null)
         {
@@ -55,12 +56,18 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
             return;
         }
 
-        List<PendingUpdateSnapshot> updates =
-            check.Payload?.PendingUpdates ?? new List<PendingUpdateSnapshot>();
+        IReadOnlyList<PendingUpdateInfo> updates =
+            update?.PendingUpdates ?? Array.Empty<PendingUpdateInfo>();
+
+        HistoryAvailability = update is null
+            ? latest?.CurrentInventory is null
+                ? SectionAvailability.NoInventoryYet("Update history and policy")
+                : SectionAvailability.CollectorFailed("Update history and policy")
+            : SectionAvailability.Available;
 
         foreach (PendingUpdateRow row in updates
                      .Select(u => new PendingUpdateRow(u))
-                     .OrderByDescending(u => u.Snapshot.IsSecurityUpdate)
+                     .OrderByDescending(u => u.Snapshot.IsSecurity == true)
                      .ThenBy(u => u.Title, StringComparer.CurrentCultureIgnoreCase))
         {
             PendingUpdates.Add(row);
@@ -79,7 +86,7 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
         // Derived from the updates themselves, which is the only reboot signal
         // this contract carries. Said plainly in RebootPendingNote so nobody
         // reads it as Windows' own reboot-required flag.
-        bool anyRequiresReboot = updates.Any(u => u.RequiresReboot);
+        bool anyRequiresReboot = updates.Any(u => u.IsSecurity == true);
 
         RebootPending = updates.Count == 0
             ? new StatusPresentation("No pending updates require a reboot", "✔", StatusSeverity.Good)
@@ -87,7 +94,7 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
                 ? new StatusPresentation("A pending update requires a reboot", "▲", StatusSeverity.Warning)
                 : new StatusPresentation("No pending update requires a reboot", "✔", StatusSeverity.Good);
 
-        int securityCount = updates.Count(u => u.IsSecurityUpdate);
+        int securityCount = updates.Count(u => u.IsSecurity == true);
 
         SecurityPending = securityCount == 0
             ? new StatusPresentation("No pending security updates", "✔", StatusSeverity.Good)

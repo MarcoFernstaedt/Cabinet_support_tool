@@ -46,7 +46,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
     /// <summary>
     /// Creates a request that needs approval, as the given user.
     /// </summary>
-    private static Task<ActionRequestDto> RequestStopServiceAsync(ApiClient api, Guid cabinetId) =>
+    private static Task<ActionRequestView> RequestStopServiceAsync(ApiClient api, Guid cabinetId) =>
         api.CreateActionAsync(
             new CreateActionRequest
             {
@@ -64,7 +64,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("a")[..8]}");
 
         (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("req"));
-        ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
+        ActionRequestView created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         Assert.Equal(ActionRequestStatus.PendingApproval, created.Status);
 
@@ -92,7 +92,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Assert.Null(approvals.ErrorMessage);
         Assert.True(announcer.Any("Approved"));
 
-        ActionRequestDto after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
+        ActionRequestView after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
         Assert.Equal(ActionRequestStatus.Approved, after.Status);
         Assert.Equal(approverSession.UserId, after.ApprovedByUserId);
     }
@@ -110,7 +110,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
 
         (ApiClient api, SessionStore session) = await SignInAsync(Role.Tier2, Unique("self"));
 
-        ActionRequestDto mine = await RequestStopServiceAsync(api, cabinet.Id);
+        ActionRequestView mine = await RequestStopServiceAsync(api, cabinet.Id);
 
         ApprovalsViewModel approvals = Build(
             api, session, ScriptedApprovalDialog.Accepting(), new RecordingLiveRegionAnnouncer());
@@ -142,7 +142,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
 
         (ApiClient api, _) = await SignInAsync(Role.Supervisor, Unique("bypass"));
 
-        ActionRequestDto mine = await RequestStopServiceAsync(api, cabinet.Id);
+        ActionRequestView mine = await RequestStopServiceAsync(api, cabinet.Id);
 
         // Straight at the API, as if the console's greyed button had been
         // worked around. The rule is the server's, not the UI's.
@@ -160,7 +160,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("d")[..8]}");
 
         (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("dreq"));
-        ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
+        ActionRequestView created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient approverApi, SessionStore approverSession) =
             await SignInAsync(Role.Supervisor, Unique("dapp"));
@@ -180,7 +180,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Assert.Null(approvals.ErrorMessage);
         Assert.True(announcer.Any("Denied"));
 
-        ActionRequestDto after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
+        ActionRequestView after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
         Assert.Equal(ActionRequestStatus.Denied, after.Status);
     }
 
@@ -190,7 +190,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("e")[..8]}");
 
         (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("creq"));
-        ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
+        ActionRequestView created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient approverApi, SessionStore approverSession) =
             await SignInAsync(Role.Tier2, Unique("capp"));
@@ -204,7 +204,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         approvals.SelectedRequest = approvals.Queue.Single(r => r.Id == created.Id);
         await approvals.ApproveCommand.ExecuteAsync(null);
 
-        ActionRequestDto after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
+        ActionRequestView after = await approverApi.GetActionAsync(created.Id, CancellationToken.None);
         Assert.Equal(ActionRequestStatus.PendingApproval, after.Status);
     }
 
@@ -229,7 +229,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("f")[..8]}");
 
         (ApiClient requesterApi, _) = await SignInAsync(Role.Tier2, Unique("freq"));
-        ActionRequestDto created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
+        ActionRequestView created = await RequestStopServiceAsync(requesterApi, cabinet.Id);
 
         (ApiClient firstApi, SessionStore firstSession) =
             await SignInAsync(Role.Tier2, Unique("first"));

@@ -75,10 +75,14 @@ public static class AgentServiceRegistration
         // Registered in the order they run, which is also the order their
         // sections appear to whoever reads a payload.
         services.AddSingleton<ICollector, SystemCollector>();
-        services.AddSingleton<ICollector, PerformanceCollector>();
+        // Registered concretely as well: the on-demand executors take the
+        // collector itself, and both must be the same instance so a sampled
+        // baseline is not thrown away between them.
+        services.AddSingleton<PerformanceCollector>();
+        services.AddSingleton<ICollector>(sp => sp.GetRequiredService<PerformanceCollector>());
+        services.AddSingleton<EventLogCollector>();
         services.AddSingleton<ICollector, ServiceCollector>();
         services.AddSingleton<ICollector, DiskCollector>();
-        services.AddSingleton<ICollector, EventLogCollector>();
         services.AddSingleton<ICollector, WindowsUpdateCollector>();
         services.AddSingleton<ICollector, NetworkCollector>();
     }

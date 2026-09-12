@@ -69,21 +69,30 @@ public sealed partial class ServicesSectionViewModel : MachineSectionViewModel
         }
     }
 
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
         _all.Clear();
         SelectedService = null;
 
-        CheckInDetailDto? check = latest?.LatestCheckIn;
+        // Services are inventory: which ones exist and how they are configured
+        // is configuration, and it is stored only when it changes.
+        IReadOnlyList<ServiceInfo>? snapshots = latest?.CurrentInventory?.Services;
 
-        if (check is null)
+        if (latest is null)
         {
             Availability = SectionAvailability.NoCheckIn;
             ApplyFilter();
             return;
         }
 
-        List<ServiceSnapshot> snapshots = check.Payload?.Services ?? new List<ServiceSnapshot>();
+        if (snapshots is null)
+        {
+            Availability = latest.CurrentInventory is null
+                ? SectionAvailability.NoInventoryYet("Services")
+                : SectionAvailability.CollectorFailed("Services");
+            ApplyFilter();
+            return;
+        }
 
         _all.AddRange(snapshots
             .Select(s => new ServiceRow(s))

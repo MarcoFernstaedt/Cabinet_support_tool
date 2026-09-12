@@ -34,7 +34,8 @@ public sealed class ApiClient : IApiClient
 
         _session.SignIn(
             response.AccessToken,
-            response.ExpiresUtc,
+            response.ExpiresAtUtc,
+            response.RefreshToken,
             response.DisplayName,
             response.Role,
             response.MustChangePassword);
@@ -81,25 +82,25 @@ public sealed class ApiClient : IApiClient
         return GetAsync<PagedResult<CabinetSummary>>(url, ct);
     }
 
-    public Task<CabinetLatestDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct) =>
-        GetAsync<CabinetLatestDto>($"api/cabinets/{cabinetId:D}/latest", ct);
+    public Task<CabinetDetailDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct) =>
+        GetAsync<CabinetDetailDto>($"api/cabinets/{cabinetId:D}", ct);
 
-    public Task<PagedResult<CheckInSummaryDto>> GetCheckInHistoryAsync(
+    public Task<PagedResult<HeartbeatDto>> GetCheckInHistoryAsync(
         Guid cabinetId, HistoryQuery query, CancellationToken ct)
     {
-        string url = $"api/cabinets/{cabinetId:D}/history" + new QueryString()
+        string url = $"api/cabinets/{cabinetId:D}/heartbeats" + new QueryString()
             .Add("fromUtc", query.FromUtc)
             .Add("toUtc", query.ToUtc)
             .Add("page", query.Page)
             .Add("pageSize", query.PageSize);
 
-        return GetAsync<PagedResult<CheckInSummaryDto>>(url, ct);
+        return GetAsync<PagedResult<HeartbeatDto>>(url, ct);
     }
 
     public Task<PagedResult<SmartReadingDto>> GetSmartHistoryAsync(
         Guid cabinetId, SmartHistoryQuery query, CancellationToken ct)
     {
-        string url = $"api/cabinets/{cabinetId:D}/smart-history" + new QueryString()
+        string url = $"api/cabinets/{cabinetId:D}/smart" + new QueryString()
             .Add("driveSerial", query.DriveSerial)
             .Add("fromUtc", query.FromUtc)
             .Add("toUtc", query.ToUtc)
@@ -114,13 +115,13 @@ public sealed class ApiClient : IApiClient
     public async Task<IReadOnlyList<ActionCatalogEntryDto>> GetActionCatalogAsync(CancellationToken ct) =>
         await GetAsync<List<ActionCatalogEntryDto>>("api/actions/catalog", ct);
 
-    public Task<ActionRequestDto> CreateActionAsync(CreateActionRequest request, CancellationToken ct) =>
-        PostAsync<CreateActionRequest, ActionRequestDto>("api/actions", request, isLogin: false, ct);
+    public Task<ActionRequestView> CreateActionAsync(CreateActionRequest request, CancellationToken ct) =>
+        PostAsync<CreateActionRequest, ActionRequestView>("api/actions", request, isLogin: false, ct);
 
-    public Task<ActionRequestDto> GetActionAsync(Guid actionId, CancellationToken ct) =>
-        GetAsync<ActionRequestDto>($"api/actions/{actionId:D}", ct);
+    public Task<ActionRequestView> GetActionAsync(Guid actionId, CancellationToken ct) =>
+        GetAsync<ActionRequestView>($"api/actions/{actionId:D}", ct);
 
-    public Task<PagedResult<ActionRequestDto>> GetActionsAsync(ActionQuery query, CancellationToken ct)
+    public Task<PagedResult<ActionRequestView>> GetActionsAsync(ActionQuery query, CancellationToken ct)
     {
         string url = "api/actions" + new QueryString()
             .Add("cabinetId", query.CabinetId)
@@ -128,26 +129,26 @@ public sealed class ApiClient : IApiClient
             .Add("page", query.Page)
             .Add("pageSize", query.PageSize);
 
-        return GetAsync<PagedResult<ActionRequestDto>>(url, ct);
+        return GetAsync<PagedResult<ActionRequestView>>(url, ct);
     }
 
-    public Task<PagedResult<ActionRequestDto>> GetPendingApprovalsAsync(PagedQuery query, CancellationToken ct)
+    public Task<PagedResult<ActionRequestView>> GetPendingApprovalsAsync(PagedQuery query, CancellationToken ct)
     {
         string url = "api/actions/pending-approval" + new QueryString()
             .Add("page", query.Page)
             .Add("pageSize", query.PageSize);
 
-        return GetAsync<PagedResult<ActionRequestDto>>(url, ct);
+        return GetAsync<PagedResult<ActionRequestView>>(url, ct);
     }
 
-    public Task<ActionRequestDto> ApproveActionAsync(
+    public Task<ActionRequestView> ApproveActionAsync(
         Guid actionId, ApproveActionRequest request, CancellationToken ct) =>
-        PostAsync<ApproveActionRequest, ActionRequestDto>(
+        PostAsync<ApproveActionRequest, ActionRequestView>(
             $"api/actions/{actionId:D}/approve", request, isLogin: false, ct);
 
-    public Task<ActionRequestDto> DenyActionAsync(
+    public Task<ActionRequestView> DenyActionAsync(
         Guid actionId, DenyActionRequest request, CancellationToken ct) =>
-        PostAsync<DenyActionRequest, ActionRequestDto>(
+        PostAsync<DenyActionRequest, ActionRequestView>(
             $"api/actions/{actionId:D}/deny", request, isLogin: false, ct);
 
     // --- Audit and fleet -------------------------------------------------
@@ -177,32 +178,185 @@ public sealed class ApiClient : IApiClient
         return GetAsync<FleetHealthSummary>(url, ct);
     }
 
+    // --- Topology --------------------------------------------------------
+
+    /// <inheritdoc />
+    public Task<PagedResult<SiteSummary>> GetSitesAsync(SiteQuery query, CancellationToken ct)
+    {
+        string url = "api/fleet/sites" + new QueryString()
+            .Add("clientName", query.ClientName)
+            .Add("search", query.Search)
+            .Add("page", query.Page)
+            .Add("pageSize", query.PageSize);
+
+        return GetAsync<PagedResult<SiteSummary>>(url, ct);
+    }
+
+    /// <inheritdoc />
+    public Task<SiteDetailDto> GetSiteAsync(Guid siteId, CancellationToken ct) =>
+        GetAsync<SiteDetailDto>($"api/fleet/sites/{siteId:D}", ct);
+
+    /// <inheritdoc />
+    public Task<CabinetSummary> SetCabinetRoleAsync(
+        Guid cabinetId, SetCabinetRoleRequest request, CancellationToken ct) =>
+        PutAsync<SetCabinetRoleRequest, CabinetSummary>(
+            $"api/cabinets/{cabinetId:D}/role", request, ct);
+
+    /// <inheritdoc />
+    public Task<ActionRequestView> TestSyncLinkAsync(
+        Guid cabinetId, TestSyncLinkRequest request, CancellationToken ct) =>
+        PostAsync<TestSyncLinkRequest, ActionRequestView>(
+            $"api/actions/cabinets/{cabinetId:D}/test-sync-link", request, isLogin: false, ct);
+
+    // --- Batches ---------------------------------------------------------
+
+    /// <inheritdoc />
+    public Task<BatchActionView> CreateBatchAsync(CreateBatchActionRequest request, CancellationToken ct) =>
+        PostAsync<CreateBatchActionRequest, BatchActionView>("api/batches", request, isLogin: false, ct);
+
+    /// <inheritdoc />
+    public Task<BatchActionView> GetBatchAsync(Guid batchId, CancellationToken ct) =>
+        GetAsync<BatchActionView>($"api/batches/{batchId:D}", ct);
+
+    /// <inheritdoc />
+    public Task<PagedResult<BatchActionView>> GetBatchesAsync(
+        BatchActionQuery query, CancellationToken ct)
+    {
+        string url = "api/batches" + new QueryString()
+            .Add("status", query.Status)
+            .Add("page", query.Page)
+            .Add("pageSize", query.PageSize);
+
+        return GetAsync<PagedResult<BatchActionView>>(url, ct);
+    }
+
+    /// <inheritdoc />
+    public Task<BatchActionView> ApproveBatchAsync(
+        Guid batchId, ApproveActionRequest request, CancellationToken ct) =>
+        PostAsync<ApproveActionRequest, BatchActionView>(
+            $"api/batches/{batchId:D}/approve", request, isLogin: false, ct);
+
+    /// <inheritdoc />
+    public Task<BatchActionView> DenyBatchAsync(
+        Guid batchId, DenyActionRequest request, CancellationToken ct) =>
+        PostAsync<DenyActionRequest, BatchActionView>(
+            $"api/batches/{batchId:D}/deny", request, isLogin: false, ct);
+
     // --- Transport -------------------------------------------------------
+
+    private async Task<TResponse> PutAsync<TRequest, TResponse>(
+        string url, TRequest body, CancellationToken ct)
+    {
+        using HttpResponseMessage response = await SendWithRefreshAsync(
+            () => new HttpRequestMessage(HttpMethod.Put, url)
+            {
+                Content = JsonContent.Create(body, options: Json),
+            },
+            ct);
+
+        return await ReadAsync<TResponse>(response, isLogin: false, ct);
+    }
 
     private async Task<T> GetAsync<T>(string url, CancellationToken ct)
     {
-        using HttpResponseMessage response = await SendAsync(
+        using HttpResponseMessage response = await SendWithRefreshAsync(
             () => new HttpRequestMessage(HttpMethod.Get, url), ct);
 
         return await ReadAsync<T>(response, isLogin: false, ct);
     }
 
-    private async Task<TResponse> PostAsync<TRequest, TResponse>(
-        string url, TRequest body, bool isLogin, CancellationToken ct)
+    /// <summary>
+    /// Sends a request and, on a 401, exchanges the refresh token once and
+    /// sends it again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Access tokens last fifteen minutes, so a rep working through a shift
+    /// crosses that boundary many times. Making them sign in again each time
+    /// would teach them to keep the console closed, which is the opposite of
+    /// what a support tool wants.
+    /// </para>
+    /// <para>
+    /// Exactly one retry. A second 401 after a fresh token means the session is
+    /// genuinely over — the account was disabled, the role was withdrawn, a
+    /// Supervisor revoked the chain — and looping would turn that into a hang
+    /// instead of a sign-in prompt.
+    /// </para>
+    /// </remarks>
+    private async Task<HttpResponseMessage> SendWithRefreshAsync(
+        Func<HttpRequestMessage> requestFactory, CancellationToken ct)
+    {
+        HttpResponseMessage response = await SendAsync(requestFactory, ct);
+
+        if (response.StatusCode != HttpStatusCode.Unauthorized || _session.RefreshToken is not { } refresh)
+        {
+            return response;
+        }
+
+        response.Dispose();
+
+        if (!await TryRefreshAsync(refresh, ct))
+        {
+            // The session is over. Clearing it is what makes the shell show the
+            // sign-in screen rather than a wall of refusals.
+            _session.SignOut();
+            return await SendAsync(requestFactory, ct);
+        }
+
+        return await SendAsync(requestFactory, ct);
+    }
+
+    private async Task<bool> TryRefreshAsync(string refreshToken, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(
-            () => new HttpRequestMessage(HttpMethod.Post, url)
+            () => new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh")
             {
-                Content = JsonContent.Create(body, options: Json)
+                Content = JsonContent.Create(new RefreshRequest { RefreshToken = refreshToken }, options: Json),
             },
             ct);
 
+        if (!response.IsSuccessStatusCode)
+        {
+            return false;
+        }
+
+        RefreshResponse? refreshed = await response.Content.ReadFromJsonAsync<RefreshResponse>(Json, ct);
+
+        if (refreshed is null)
+        {
+            return false;
+        }
+
+        _session.Refreshed(
+            refreshed.AccessToken,
+            refreshed.ExpiresAtUtc,
+            refreshed.RefreshToken,
+            refreshed.Role,
+            refreshed.MustChangePassword);
+
+        return true;
+    }
+
+    private async Task<TResponse> PostAsync<TRequest, TResponse>(
+        string url, TRequest body, bool isLogin, CancellationToken ct)
+    {
+        // Sign-in cannot be retried through a refresh: it is the call that
+        // produces one.
+        using HttpResponseMessage response = isLogin
+            ? await SendAsync(Factory(), ct)
+            : await SendWithRefreshAsync(Factory(), ct);
+
         return await ReadAsync<TResponse>(response, isLogin, ct);
+
+        Func<HttpRequestMessage> Factory() => () => new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(body, options: Json),
+        };
     }
 
     private async Task PostAsync<TRequest>(string url, TRequest body, CancellationToken ct)
     {
-        using HttpResponseMessage response = await SendAsync(
+        using HttpResponseMessage response = await SendWithRefreshAsync(
             () => new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = JsonContent.Create(body, options: Json)

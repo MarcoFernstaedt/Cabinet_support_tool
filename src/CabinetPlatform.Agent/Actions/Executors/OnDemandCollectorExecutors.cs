@@ -149,7 +149,9 @@ public sealed class CollectProcessListExecutor : IActionExecutor
 
         try
         {
-            await _collector.CollectAsync(draft, CheckInTier.Full, cancellationToken).ConfigureAwait(false);
+            await _collector
+                .CollectAsync(draft, includeProcesses: true, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {

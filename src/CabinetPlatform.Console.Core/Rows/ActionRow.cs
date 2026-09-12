@@ -20,7 +20,7 @@ namespace CabinetPlatform.Console.Core.Rows;
 /// </remarks>
 public sealed class ActionRow
 {
-    public ActionRow(ActionRequestDto request, Guid? currentUserId, DateTime nowUtc)
+    public ActionRow(ActionRequestView request, Guid? currentUserId, DateTimeOffset nowUtc)
     {
         Request = request;
         Status = StatusPresentation.ForAction(request.Status);
@@ -32,7 +32,7 @@ public sealed class ActionRow
         Expiry = DescribeExpiry(request.ExpiresUtc, nowUtc);
     }
 
-    public ActionRequestDto Request { get; }
+    public ActionRequestView Request { get; }
 
     public Guid Id => Request.Id;
     public ActionName Action => Request.Action;
@@ -94,14 +94,14 @@ public sealed class ActionRow
         }
     }
 
-    private static string DescribeExpiry(DateTime? expiresUtc, DateTime nowUtc)
+    private static string DescribeExpiry(DateTimeOffset? expiresUtc, DateTimeOffset nowUtc)
     {
         if (expiresUtc is null)
         {
             return "No expiry set";
         }
 
-        TimeSpan remaining = DateTime.SpecifyKind(expiresUtc.Value, DateTimeKind.Utc) - nowUtc;
+        TimeSpan remaining = expiresUtc.Value - nowUtc;
 
         if (remaining <= TimeSpan.Zero)
         {

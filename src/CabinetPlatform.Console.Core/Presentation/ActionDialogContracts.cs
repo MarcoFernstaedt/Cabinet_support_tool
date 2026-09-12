@@ -69,7 +69,7 @@ public interface IActionRequestDialog
 }
 
 /// <summary>Whether the approver is approving or denying, and what they are deciding on.</summary>
-public sealed record ApprovalDecisionPrompt(ActionRequestDto Action, bool IsApproval);
+public sealed record ApprovalDecisionPrompt(ActionRequestView Action, bool IsApproval);
 
 /// <summary>
 /// An approver's decision. <see cref="Note"/> is required for a denial — the

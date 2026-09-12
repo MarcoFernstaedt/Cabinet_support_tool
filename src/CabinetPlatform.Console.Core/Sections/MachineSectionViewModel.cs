@@ -69,7 +69,7 @@ public abstract partial class MachineSectionViewModel : ObservableObject
     /// Rebuilds from the newest observation. <paramref name="latest"/> is null
     /// when the cabinet has never checked in.
     /// </summary>
-    public abstract void Apply(CabinetLatestDto? latest, DateTime nowUtc);
+    public abstract void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc);
 
     /// <summary>
     /// The section's state as one sentence for the live region, so a refresh
@@ -77,42 +77,12 @@ public abstract partial class MachineSectionViewModel : ObservableObject
     /// </summary>
     public abstract string Summarise();
 
-    protected void SetNoData(CabinetLatestDto? latest)
+    /// <summary>Marks the section as having nothing to show.</summary>
+    /// <param name="latest">The cabinet's newest state.</param>
+    protected void SetNoData(CabinetDetailDto? latest)
     {
-        Availability = latest?.LatestCheckIn is null
+        Availability = latest?.LatestHeartbeat is null
             ? SectionAvailability.NoCheckIn
             : SectionAvailability.Available;
     }
-}
-
-/// <summary>
-/// A section that this server build cannot populate, shown with the reason
-/// rather than as an empty panel.
-/// </summary>
-/// <remarks>
-/// The agent collects event logs, network configuration and system inventory,
-/// and the Machine tab has a place for each because that structure is part of
-/// how support staff are taught to read a cabinet. This server's check-in
-/// contract carries none of the three, so the console says exactly that. The
-/// alternative — omitting the sections — would teach the wrong mental model,
-/// and stubbing plausible values into them would be worse than either.
-/// </remarks>
-public abstract class UnservedSectionViewModel : MachineSectionViewModel
-{
-    protected UnservedSectionViewModel(string title, string accessibleDescription)
-        : base(title, accessibleDescription)
-    {
-        Availability = SectionAvailability.NotCarriedByServer(title);
-    }
-
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
-    {
-        // Deliberately ignores the payload: there is nothing in it for this
-        // section, and a check-in arriving must not make the panel look filled.
-        Availability = latest?.LatestCheckIn is null
-            ? SectionAvailability.NoCheckIn
-            : SectionAvailability.NotCarriedByServer(Title);
-    }
-
-    public override string Summarise() => $"{Title}: {Availability.Reason}";
 }

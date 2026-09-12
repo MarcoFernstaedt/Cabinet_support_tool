@@ -215,7 +215,7 @@ public sealed class DialogViewModelTests
 
     // --- Approval decision ------------------------------------------------
 
-    private static ActionRequestDto PendingRequest() => new()
+    private static ActionRequestView PendingRequest() => new()
     {
         Id = Guid.NewGuid(),
         Action = ActionName.StopService,

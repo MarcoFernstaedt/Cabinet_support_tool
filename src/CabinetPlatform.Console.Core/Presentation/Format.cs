@@ -61,31 +61,68 @@ public static class Format
     /// to guess which zone they are looking at. Chain-of-custody arguments have
     /// been lost over exactly that ambiguity.
     /// </summary>
-    public static string LocalTime(DateTime? utc)
+    public static string LocalTime(DateTimeOffset? instant)
     {
-        if (utc is null)
+        if (instant is null)
         {
             return NotReported;
         }
 
-        DateTime local = DateTime.SpecifyKind(utc.Value, DateTimeKind.Utc).ToLocalTime();
+        DateTimeOffset local = instant.Value.ToLocalTime();
 
         return local.ToString("yyyy-MM-dd HH:mm:ss ", CultureInfo.CurrentCulture) +
                TimeZoneInfo.Local.StandardName;
     }
 
     /// <summary>
+    /// An instant shown in a <em>cabinet's</em> zone, labelled with it.
+    /// </summary>
+    /// <remarks>
+    /// The fleet spans thirteen countries, so "02:00" on a cabinet detail view
+    /// is meaningless without saying whose 02:00. A cabinet that has not
+    /// reported a zone this host can resolve says so rather than silently
+    /// falling back to the reader's own, which would be a wrong answer
+    /// presented as a right one.
+    /// </remarks>
+    /// <param name="instant">The instant to show.</param>
+    /// <param name="timeZoneId">The cabinet's reported time zone.</param>
+    public static string CabinetTime(DateTimeOffset? instant, string? timeZoneId)
+    {
+        if (instant is null)
+        {
+            return NotReported;
+        }
+
+        if (string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            return "Cabinet time zone not reported";
+        }
+
+        try
+        {
+            TimeZoneInfo zone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            DateTimeOffset local = TimeZoneInfo.ConvertTime(instant.Value, zone);
+
+            return local.ToString("yyyy-MM-dd HH:mm:ss ", CultureInfo.CurrentCulture) + zone.StandardName;
+        }
+        catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            return $"Unknown time zone ({timeZoneId.Trim()})";
+        }
+    }
+
+    /// <summary>
     /// How long ago, in words. Used for check-in age, where "22 minutes ago"
     /// answers the question a timestamp only lets the reader work out.
     /// </summary>
-    public static string Age(DateTime? utc, DateTime nowUtc)
+    public static string Age(DateTimeOffset? instant, DateTimeOffset nowUtc)
     {
-        if (utc is null)
+        if (instant is null)
         {
             return "Never";
         }
 
-        TimeSpan elapsed = nowUtc - DateTime.SpecifyKind(utc.Value, DateTimeKind.Utc);
+        TimeSpan elapsed = nowUtc - instant.Value;
 
         if (elapsed < TimeSpan.Zero)
         {

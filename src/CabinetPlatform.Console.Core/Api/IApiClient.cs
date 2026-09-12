@@ -47,9 +47,9 @@ public interface IApiClient
 
     Task<PagedResult<CabinetSummary>> GetCabinetsAsync(CabinetQuery query, CancellationToken ct);
 
-    Task<CabinetLatestDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct);
+    Task<CabinetDetailDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct);
 
-    Task<PagedResult<CheckInSummaryDto>> GetCheckInHistoryAsync(
+    Task<PagedResult<HeartbeatDto>> GetCheckInHistoryAsync(
         Guid cabinetId, HistoryQuery query, CancellationToken ct);
 
     Task<PagedResult<SmartReadingDto>> GetSmartHistoryAsync(
@@ -63,11 +63,11 @@ public interface IApiClient
     /// </summary>
     Task<IReadOnlyList<ActionCatalogEntryDto>> GetActionCatalogAsync(CancellationToken ct);
 
-    Task<ActionRequestDto> CreateActionAsync(CreateActionRequest request, CancellationToken ct);
+    Task<ActionRequestView> CreateActionAsync(CreateActionRequest request, CancellationToken ct);
 
-    Task<ActionRequestDto> GetActionAsync(Guid actionId, CancellationToken ct);
+    Task<ActionRequestView> GetActionAsync(Guid actionId, CancellationToken ct);
 
-    Task<PagedResult<ActionRequestDto>> GetActionsAsync(ActionQuery query, CancellationToken ct);
+    Task<PagedResult<ActionRequestView>> GetActionsAsync(ActionQuery query, CancellationToken ct);
 
     /// <summary>
     /// Actions this caller is eligible to approve. The server already excludes
@@ -75,16 +75,87 @@ public interface IApiClient
     /// those separately so it can show them dimmed with the reason rather than
     /// leaving a gap the user cannot explain.
     /// </summary>
-    Task<PagedResult<ActionRequestDto>> GetPendingApprovalsAsync(PagedQuery query, CancellationToken ct);
+    Task<PagedResult<ActionRequestView>> GetPendingApprovalsAsync(PagedQuery query, CancellationToken ct);
 
-    Task<ActionRequestDto> ApproveActionAsync(
+    Task<ActionRequestView> ApproveActionAsync(
         Guid actionId, ApproveActionRequest request, CancellationToken ct);
 
-    Task<ActionRequestDto> DenyActionAsync(Guid actionId, DenyActionRequest request, CancellationToken ct);
+    Task<ActionRequestView> DenyActionAsync(Guid actionId, DenyActionRequest request, CancellationToken ct);
 
     // --- Audit and fleet -------------------------------------------------
 
     Task<PagedResult<AuditEntryDto>> GetAuditAsync(AuditQuery query, CancellationToken ct);
 
     Task<FleetHealthSummary> GetFleetHealthAsync(FleetHealthQuery query, CancellationToken ct);
+
+    // --- Topology --------------------------------------------------------
+
+    /// <summary>
+    /// The site list, worst first, with each site's sync cabinet on the row.
+    /// </summary>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<PagedResult<SiteSummary>> GetSitesAsync(SiteQuery query, CancellationToken ct);
+
+    /// <summary>One site and its cabinets, the sync cabinet first.</summary>
+    /// <param name="siteId">The site.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<SiteDetailDto> GetSiteAsync(Guid siteId, CancellationToken ct);
+
+    /// <summary>Changes a cabinet's part in its site's topology.</summary>
+    /// <param name="cabinetId">The cabinet.</param>
+    /// <param name="request">The new role and why.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<CabinetSummary> SetCabinetRoleAsync(
+        Guid cabinetId, SetCabinetRoleRequest request, CancellationToken ct);
+
+    /// <summary>
+    /// Tests a cabinet's link to its site's sync cabinet, in one call.
+    /// </summary>
+    /// <remarks>
+    /// The common case by a wide margin. The server resolves the target and its
+    /// address; the rep picks nothing and types nothing.
+    /// </remarks>
+    /// <param name="cabinetId">The cabinet to test from.</param>
+    /// <param name="request">Why, and against which ticket.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<ActionRequestView> TestSyncLinkAsync(
+        Guid cabinetId, TestSyncLinkRequest request, CancellationToken ct);
+
+    // --- Batches ---------------------------------------------------------
+
+    /// <summary>
+    /// Requests one action across an explicit list of cabinets.
+    /// </summary>
+    /// <remarks>
+    /// The console never loops over the single-action endpoint to do this. A
+    /// Supervisor asked to approve fifty separate one-cabinet requests is being
+    /// shown the same information arranged so nobody can weigh it.
+    /// </remarks>
+    /// <param name="request">The action, its parameters and its frozen targets.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<BatchActionView> CreateBatchAsync(CreateBatchActionRequest request, CancellationToken ct);
+
+    /// <summary>One batch, with every cabinet's own state.</summary>
+    /// <param name="batchId">The batch.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<BatchActionView> GetBatchAsync(Guid batchId, CancellationToken ct);
+
+    /// <summary>The batch list.</summary>
+    /// <param name="query">Filter and page.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<PagedResult<BatchActionView>> GetBatchesAsync(BatchActionQuery query, CancellationToken ct);
+
+    /// <summary>Approves a batch, expanding it into one request per cabinet.</summary>
+    /// <param name="batchId">The batch.</param>
+    /// <param name="request">The approver's note.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<BatchActionView> ApproveBatchAsync(
+        Guid batchId, ApproveActionRequest request, CancellationToken ct);
+
+    /// <summary>Refuses a batch. Nothing is expanded and nothing is dispatched.</summary>
+    /// <param name="batchId">The batch.</param>
+    /// <param name="request">Why.</param>
+    /// <param name="ct">Cancels the call.</param>
+    Task<BatchActionView> DenyBatchAsync(Guid batchId, DenyActionRequest request, CancellationToken ct);
 }

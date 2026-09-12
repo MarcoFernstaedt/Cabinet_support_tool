@@ -57,7 +57,7 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
         "The server's check-in contract carries one operating system version string and no " +
         "separate build number.";
 
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
         if (latest is null)
         {
@@ -84,7 +84,14 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
         LastCheckInAge = Format.Age(cabinet.LastCheckInUtc, nowUtc);
         LastCheckInExact = Format.LocalTime(cabinet.LastCheckInUtc);
 
-        CheckInDetailDto? check = latest.LatestCheckIn;
+        HeartbeatDto? check = latest.LatestHeartbeat;
+
+        // The cabinet's local time sits beside the rep's own, because "02:00"
+        // means nothing across thirteen countries without saying whose.
+        CabinetLocalTime = Format.CabinetTime(latest.CabinetLocalTime, cabinet.TimeZoneId);
+        ClockDrift = cabinet.ClockDrift is { } drift
+            ? Format.Duration(drift.Duration())
+            : Format.NotReported;
 
         if (check is null)
         {
@@ -100,12 +107,21 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
 
         Availability = SectionAvailability.Available;
         CollectedAt = Format.LocalTime(check.CollectedAtUtc);
-        OsVersion = Format.Text(check.Payload?.OsVersion);
-        Uptime = Format.Duration(check.Payload?.Uptime);
+
+        // The operating system is inventory, not a heartbeat field: it changes
+        // on a servicing, not every five minutes.
+        OsVersion = Format.Text(latest.CurrentInventory?.System?.OsVersion);
+        Uptime = Format.Duration(check.Uptime);
 
         LoggedOn = StatusPresentation.ForBoolean(
             check.AnyUserLoggedOn, "A user is logged on", "Nobody is logged on");
     }
+
+    /// <summary>The cabinet's own local time, labelled with its zone.</summary>
+    public string CabinetLocalTime { get; private set; } = Format.NotReported;
+
+    /// <summary>How far the cabinet's clock sits from the server's.</summary>
+    public string ClockDrift { get; private set; } = Format.NotReported;
 
     public override string Summarise() =>
         Availability.HasData

@@ -10,7 +10,7 @@ namespace CabinetPlatform.Console.Core.Rows;
 /// <summary>One cabinet in the list, pre-formatted for display and for reading aloud.</summary>
 public sealed class CabinetRow
 {
-    public CabinetRow(CabinetSummary summary, DateTime nowUtc)
+    public CabinetRow(CabinetSummary summary, DateTimeOffset nowUtc)
     {
         Summary = summary;
         Health = StatusPresentation.ForCabinet(summary.Health);

@@ -51,9 +51,8 @@ public sealed record StatusPresentation(string Label, string Glyph, StatusSeveri
     public static StatusPresentation ForDisk(DiskHealthStatus status) => status switch
     {
         DiskHealthStatus.Healthy => new("Healthy", "✔", StatusSeverity.Good),
-        DiskHealthStatus.Warning => new("Watch", "▲", StatusSeverity.Warning),
-        DiskHealthStatus.Critical => new("Failing", "✖", StatusSeverity.Critical),
-        DiskHealthStatus.Failed => new("Failed", "✖", StatusSeverity.Critical),
+        DiskHealthStatus.Watch => new("Watch", "▲", StatusSeverity.Warning),
+        DiskHealthStatus.Failing => new("Failing", "✖", StatusSeverity.Critical),
         _ => Unknown
     };
 
@@ -83,8 +82,13 @@ public sealed record StatusPresentation(string Label, string Glyph, StatusSeveri
         ActionStatus.Succeeded => new("Succeeded", "✔", StatusSeverity.Good),
         ActionStatus.Failed => new("Failed", "✖", StatusSeverity.Critical),
         ActionStatus.TimedOut => new("Timed out", "○", StatusSeverity.Warning),
-        ActionStatus.Refused => new("Refused by agent", "✖", StatusSeverity.Critical),
-        _ => Unknown
+        ActionStatus.Denied => new("Refused by agent", "✖", StatusSeverity.Critical),
+
+        // Distinct from a failure on purpose. The agent restarted while this
+        // was running and genuinely cannot say whether it took effect; nothing
+        // retries it, and a person establishes what actually happened.
+        ActionStatus.UnknownResult => new("Outcome unknown", "?", StatusSeverity.Warning),
+        _ => Unknown,
     };
 
     // --- Audit ------------------------------------------------------------
@@ -112,28 +116,26 @@ public sealed record StatusPresentation(string Label, string Glyph, StatusSeveri
     // --- Windows service state -------------------------------------------
 
     /// <summary>
-    /// Built from the agent's own strings rather than an enum, because
-    /// <see cref="Contracts.Agent.ServiceSnapshot.Status"/> is free text from
-    /// the machine. An unrecognised value is shown as itself: inventing a
-    /// category for it would be a guess displayed as a fact.
+    /// How a service's run state reads at a glance.
     /// </summary>
-    public static StatusPresentation ForServiceState(string? status)
+    /// <remarks>
+    /// <see cref="ServiceState.Unknown"/> is shown as "not reported", never as
+    /// stopped. A state the agent could not read is not a service that is down,
+    /// and presenting it as one sends a rep looking for a fault that is not
+    /// there.
+    /// </remarks>
+    /// <param name="state">The state the agent reported.</param>
+    public static StatusPresentation ForServiceState(ServiceState state) => state switch
     {
-        if (string.IsNullOrWhiteSpace(status))
-        {
-            return new("Not reported", "?", StatusSeverity.Unknown);
-        }
-
-        return status.Trim().ToLowerInvariant() switch
-        {
-            "running" => new("Running", "✔", StatusSeverity.Good),
-            "stopped" => new("Stopped", "■", StatusSeverity.Warning),
-            "paused" => new("Paused", "⏸", StatusSeverity.Warning),
-            "startpending" or "start pending" => new("Starting", "▶", StatusSeverity.Neutral),
-            "stoppending" or "stop pending" => new("Stopping", "▶", StatusSeverity.Neutral),
-            _ => new(status.Trim(), "?", StatusSeverity.Unknown)
-        };
-    }
+        ServiceState.Running => new("Running", "✔", StatusSeverity.Good),
+        ServiceState.Stopped => new("Stopped", "■", StatusSeverity.Warning),
+        ServiceState.Paused => new("Paused", "⏸", StatusSeverity.Warning),
+        ServiceState.StartPending => new("Starting", "▶", StatusSeverity.Neutral),
+        ServiceState.StopPending => new("Stopping", "▶", StatusSeverity.Neutral),
+        ServiceState.ContinuePending => new("Resuming", "▶", StatusSeverity.Neutral),
+        ServiceState.PausePending => new("Pausing", "▶", StatusSeverity.Neutral),
+        _ => new("Not reported", "?", StatusSeverity.Unknown),
+    };
 
     public static StatusPresentation ForBoolean(bool? value, string whenTrue, string whenFalse) => value switch
     {

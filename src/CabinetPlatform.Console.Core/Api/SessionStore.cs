@@ -25,7 +25,8 @@ public sealed class SessionStore : ISessionStore
     private readonly object _gate = new();
 
     private string? _accessToken;
-    private DateTime? _expiresUtc;
+    private DateTimeOffset? _expiresUtc;
+    private string? _refreshToken;
     private Guid? _userId;
     private string? _username;
     private string? _displayName;
@@ -33,7 +34,11 @@ public sealed class SessionStore : ISessionStore
     private bool _mustChangePassword;
 
     public string? AccessToken { get { lock (_gate) { return _accessToken; } } }
-    public DateTime? ExpiresUtc { get { lock (_gate) { return _expiresUtc; } } }
+    /// <inheritdoc />
+    public DateTimeOffset? ExpiresUtc { get { lock (_gate) { return _expiresUtc; } } }
+
+    /// <inheritdoc />
+    public string? RefreshToken { get { lock (_gate) { return _refreshToken; } } }
     public Guid? UserId { get { lock (_gate) { return _userId; } } }
     public string? Username { get { lock (_gate) { return _username; } } }
     public string? DisplayName { get { lock (_gate) { return _displayName; } } }
@@ -44,8 +49,14 @@ public sealed class SessionStore : ISessionStore
 
     public event EventHandler? Changed;
 
+    /// <inheritdoc />
     public void SignIn(
-        string accessToken, DateTime expiresUtc, string displayName, Role role, bool mustChangePassword)
+        string accessToken,
+        DateTimeOffset expiresUtc,
+        string refreshToken,
+        string displayName,
+        Role role,
+        bool mustChangePassword)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
 
@@ -53,6 +64,7 @@ public sealed class SessionStore : ISessionStore
         {
             _accessToken = accessToken;
             _expiresUtc = expiresUtc;
+            _refreshToken = refreshToken;
             _displayName = displayName;
             _role = role;
             _mustChangePassword = mustChangePassword;
@@ -90,6 +102,7 @@ public sealed class SessionStore : ISessionStore
         {
             _accessToken = null;
             _expiresUtc = null;
+            _refreshToken = null;
             _userId = null;
             _username = null;
             _displayName = null;
@@ -98,5 +111,30 @@ public sealed class SessionStore : ISessionStore
         }
 
         Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <inheritdoc />
+    public void Refreshed(
+        string accessToken,
+        DateTimeOffset expiresUtc,
+        string refreshToken,
+        Role role,
+        bool mustChangePassword)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accessToken);
+
+        lock (_gate)
+        {
+            _accessToken = accessToken;
+            _expiresUtc = expiresUtc;
+            _refreshToken = refreshToken;
+
+            // The role comes back from the refresh because the server re-read
+            // it from the user row just now. A demotion that happened five
+            // minutes ago takes effect here, not whenever the console is next
+            // restarted.
+            _role = role;
+            _mustChangePassword = mustChangePassword;
+        }
     }
 }

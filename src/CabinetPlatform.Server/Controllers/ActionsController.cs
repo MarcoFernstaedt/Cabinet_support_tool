@@ -400,13 +400,3 @@ public sealed class ActionsController : SupportControllerBase
         Details = details,
     };
 }
-
-/// <summary>Asking for the one-click sync-link test on a cabinet.</summary>
-public sealed record TestSyncLinkRequest
-{
-    /// <summary>Why the link is being tested. Optional; a default is recorded if omitted.</summary>
-    public string? Reason { get; init; }
-
-    /// <summary>Support ticket the test is associated with, if any.</summary>
-    public string? TicketReference { get; init; }
-}

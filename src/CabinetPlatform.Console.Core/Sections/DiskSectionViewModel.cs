@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Telemetry;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CabinetPlatform.Console.Core.Presentation;
@@ -86,14 +87,17 @@ public sealed partial class DiskSectionViewModel : MachineSectionViewModel
     public IReadOnlyList<SmartTrendSeries> TrendSeries { get; private set; } =
         Array.Empty<SmartTrendSeries>();
 
-    public override void Apply(CabinetLatestDto? latest, DateTime nowUtc)
+    public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
         Volumes.Clear();
         Drives.Clear();
 
-        CheckInDetailDto? check = latest?.LatestCheckIn;
+        // Volumes are inventory: capacity, file system and BitLocker state are
+        // configuration, and free space rides along with them rather than being
+        // re-sent every five minutes.
+        IReadOnlyList<DiskInfo>? volumes = latest?.CurrentInventory?.Disks;
 
-        if (latest is null || check is null)
+        if (latest is null || latest.LatestHeartbeat is null)
         {
             Availability = SectionAvailability.NoCheckIn;
             VolumesAvailability = SectionAvailability.NoCheckIn;
@@ -104,14 +108,16 @@ public sealed partial class DiskSectionViewModel : MachineSectionViewModel
 
         Availability = SectionAvailability.Available;
 
-        foreach (VolumeRow row in (check.Payload?.Volumes ?? new()).Select(v => new VolumeRow(v)))
+        foreach (VolumeRow row in (volumes ?? Array.Empty<DiskInfo>()).Select(v => new VolumeRow(v)))
         {
             Volumes.Add(row);
         }
 
-        VolumesAvailability = Volumes.Count == 0
-            ? SectionAvailability.Empty("disk volumes")
-            : SectionAvailability.Available;
+        VolumesAvailability = volumes is null
+            ? SectionAvailability.NoInventoryYet("Disk volumes")
+            : Volumes.Count == 0
+                ? SectionAvailability.Empty("disk volumes")
+                : SectionAvailability.Available;
 
         foreach (SmartRow row in latest.LatestSmartReadings
                      .Select(s => new SmartRow(s))
@@ -171,18 +177,18 @@ public sealed partial class DiskSectionViewModel : MachineSectionViewModel
 
         (string Name, Func<SmartRow, double?> Selector)[] candidates =
         {
-            ("Reallocated sectors", r => r.Reading.ReallocatedSectorCount),
-            ("Pending sectors", r => r.Reading.CurrentPendingSectorCount),
-            ("Offline uncorrectable", r => r.Reading.OfflineUncorrectableCount),
-            ("Reported uncorrectable", r => r.Reading.ReportedUncorrectableErrors),
-            ("Command timeouts", r => r.Reading.CommandTimeoutCount),
-            ("CRC errors", r => r.Reading.UdmaCrcErrorCount),
-            ("Percentage used", r => r.Reading.PercentageUsed),
-            ("Available spare %", r => r.Reading.AvailableSparePercent),
-            ("Media and data integrity errors", r => r.Reading.MediaAndDataIntegrityErrors),
-            ("Unsafe shutdowns", r => r.Reading.UnsafeShutdownCount),
-            ("Temperature °C", r => r.Reading.TemperatureCelsius),
-            ("Power-on hours", r => r.Reading.PowerOnHours)
+            ("Reallocated sectors", r => r.Reading.Smart.ReallocatedSectorCount),
+            ("Pending sectors", r => r.Reading.Smart.PendingSectorCount),
+            ("Uncorrectable errors", r => r.Reading.Smart.UncorrectableErrorCount),
+            ("Read errors (total)", r => r.Reading.Smart.ReadErrorsTotal),
+            ("Read errors (uncorrected)", r => r.Reading.Smart.ReadErrorsUncorrected),
+            ("Write errors (total)", r => r.Reading.Smart.WriteErrorsTotal),
+            ("Write errors (uncorrected)", r => r.Reading.Smart.WriteErrorsUncorrected),
+            ("Wear %", r => r.Reading.Smart.Wear),
+            ("Temperature °C", r => r.Reading.Smart.TemperatureCelsius),
+            ("Peak temperature °C", r => r.Reading.Smart.TemperatureMax),
+            ("Start-stop cycles", r => r.Reading.Smart.StartStopCycleCount),
+            ("Power-on hours", r => r.Reading.Smart.PowerOnHours),
         };
 
         List<SmartTrendSeries> series = new();
@@ -211,7 +217,7 @@ public sealed partial class DiskSectionViewModel : MachineSectionViewModel
 }
 
 /// <summary>One counter's value at one moment, or null where it was not reported.</summary>
-public sealed record SmartTrendPoint(DateTime TimestampUtc, double? Value, bool IsAggregated)
+public sealed record SmartTrendPoint(DateTimeOffset TimestampUtc, double? Value, bool IsAggregated)
 {
     public string Timestamp => Format.LocalTime(TimestampUtc);
 

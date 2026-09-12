@@ -127,10 +127,10 @@ public sealed partial class ShellViewModel : ObservableObject
     /// anything and the server refuses them the endpoint, so the entry point is
     /// hidden rather than offered and then refused.
     /// </summary>
-    public bool CanSeeApprovals => _session.Role >= Role.Tier2;
+    public bool CanSeeApprovals => _session.Role >= Contracts.Auth.Role.Tier2;
 
     /// <summary>Whether the audit tab is worth offering. Supervisor-only at the server.</summary>
-    public bool CanSeeAudit => _session.Role >= Role.Supervisor;
+    public bool CanSeeAudit => _session.Role >= Contracts.Auth.Role.Supervisor;
 
     /// <summary>
     /// The count on the approvals entry point, or null when there is nothing to

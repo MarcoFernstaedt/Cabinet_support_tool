@@ -29,7 +29,7 @@ public interface ISessionStore
     /// <summary>The bearer token, or null when signed out.</summary>
     string? AccessToken { get; }
 
-    DateTime? ExpiresUtc { get; }
+    DateTimeOffset? ExpiresUtc { get; }
 
     Guid? UserId { get; }
     string? Username { get; }
@@ -48,7 +48,44 @@ public interface ISessionStore
     /// <summary>Raised whenever sign-in state changes, so the shell can react.</summary>
     event EventHandler? Changed;
 
-    void SignIn(string accessToken, DateTime expiresUtc, string displayName, Role role, bool mustChangePassword);
+    /// <param name="accessToken">The short-lived bearer token.</param>
+    /// <param name="expiresUtc">When it stops being accepted.</param>
+    /// <param name="refreshToken">The token used to obtain the next access token.</param>
+    /// <param name="displayName">The signed-in user's display name.</param>
+    /// <param name="role">Their role, for shaping what the console offers.</param>
+    /// <param name="mustChangePassword">Whether they must change their password first.</param>
+    void SignIn(
+        string accessToken,
+        DateTimeOffset expiresUtc,
+        string refreshToken,
+        string displayName,
+        Role role,
+        bool mustChangePassword);
+
+    /// <summary>
+    /// The refresh token, or null when there is no session.
+    /// </summary>
+    /// <remarks>
+    /// Held in memory only. Writing it to disk would turn a stolen profile
+    /// directory into a usable session, and the console has no need to survive
+    /// its own restart signed in.
+    /// </remarks>
+    string? RefreshToken { get; }
+
+    /// <summary>
+    /// Replaces the token pair after a refresh, keeping the identity.
+    /// </summary>
+    /// <param name="accessToken">The new access token.</param>
+    /// <param name="expiresUtc">When it stops being accepted.</param>
+    /// <param name="refreshToken">Its replacement refresh token.</param>
+    /// <param name="role">The role as the server re-read it just now.</param>
+    /// <param name="mustChangePassword">Whether a password change is still outstanding.</param>
+    void Refreshed(
+        string accessToken,
+        DateTimeOffset expiresUtc,
+        string refreshToken,
+        Role role,
+        bool mustChangePassword);
 
     /// <summary>
     /// Fills in the facts only <c>GET /api/auth/me</c> carries — chiefly the

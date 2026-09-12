@@ -10,7 +10,7 @@ namespace CabinetPlatform.Console.Core.Presentation;
 /// <summary>The outcome of asking for an action, as the UI needs to see it.</summary>
 public sealed record ActionInvocationResult(
     bool Submitted,
-    ActionRequestDto? Request,
+    ActionRequestView? Request,
     string? FailureMessage,
     bool WasCancelledByUser)
 {
@@ -18,7 +18,7 @@ public sealed record ActionInvocationResult(
 
     public static ActionInvocationResult Failed(string message) => new(false, null, message, false);
 
-    public static ActionInvocationResult Succeeded(ActionRequestDto request) => new(true, request, null, false);
+    public static ActionInvocationResult Succeeded(ActionRequestView request) => new(true, request, null, false);
 }
 
 /// <summary>
@@ -91,17 +91,17 @@ public sealed class ActionInvoker
             Reason = submission.Reason,
             TicketReference = submission.TicketReference,
             OverrideSafetyChecks = submission.OverrideSafetyChecks,
-            OverrideReason = submission.OverrideReason
-        };
+            OverrideReason = submission.OverrideReason,
 
-        foreach (KeyValuePair<string, string> parameter in prompt.Parameters)
-        {
-            request.Parameters[parameter.Key] = parameter.Value;
-        }
+            // Built once and handed over read-only. A request whose parameters
+            // can still be edited after it has been assembled is a request
+            // nobody can point at and say what it asked for.
+            Parameters = new Dictionary<string, string>(prompt.Parameters, StringComparer.OrdinalIgnoreCase),
+        };
 
         try
         {
-            ActionRequestDto created = await _api.CreateActionAsync(request, ct);
+            ActionRequestView created = await _api.CreateActionAsync(request, ct);
 
             _announcer.AnnounceImportant(DescribeOutcome(catalogue, cabinetHostname, created));
 
@@ -125,7 +125,7 @@ public sealed class ActionInvoker
     /// approves it.
     /// </summary>
     private static string DescribeOutcome(
-        ActionCatalogEntryDto catalogue, string hostname, ActionRequestDto created) =>
+        ActionCatalogEntryDto catalogue, string hostname, ActionRequestView created) =>
         created.Status == ActionRequestStatus.PendingApproval
             ? $"{catalogue.DisplayName} requested on {hostname}. " +
               "It is now waiting for a second person to approve it, and will not run until they do."

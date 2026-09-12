@@ -46,7 +46,24 @@ public sealed class PerformanceCollector : ICollector
     /// <inheritdoc />
     public bool RunsOnHeartbeat => true;
 
-    public async Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken) =>
+        CollectAsync(draft, includeProcesses: false, cancellationToken);
+
+    /// <summary>
+    /// Samples the counters, and optionally the process list.
+    /// </summary>
+    /// <remarks>
+    /// The process list is never part of a routine check-in. It is large, it
+    /// changes constantly, and it is read for one cabinet at a time by somebody
+    /// already looking at that cabinet — so it is collected only when the
+    /// on-demand action asks for it.
+    /// </remarks>
+    /// <param name="draft">The payload being assembled.</param>
+    /// <param name="includeProcesses">Whether to enumerate processes and startup entries.</param>
+    /// <param name="cancellationToken">Cancels the collection.</param>
+    public async Task CollectAsync(
+        CheckInDraft draft, bool includeProcesses, CancellationToken cancellationToken)
     {
         var sampleInterval = TimeSpan.FromMilliseconds(_options.CpuSampleIntervalMilliseconds);
 
@@ -98,14 +115,19 @@ public sealed class PerformanceCollector : ICollector
             PageFileTotalBytes = pageFileTotal,
             PageFileUsedBytes = pageFileUsed,
 
-            Processes = ProcessCpuCalculator.Combine(
-                firstProcessSample,
-                secondProcessSample,
-                stopwatch.Elapsed,
-                _processes.ProcessorCount,
-                _options.MaxProcesses),
+            // Null, not empty, when the list was not asked for: "not collected"
+            // and "this machine runs no processes" are different statements and
+            // only one of them is possible.
+            Processes = includeProcesses
+                ? ProcessCpuCalculator.Combine(
+                    firstProcessSample,
+                    secondProcessSample,
+                    stopwatch.Elapsed,
+                    _processes.ProcessorCount,
+                    _options.MaxProcesses)
+                : null,
 
-            StartupPrograms = ReadStartupPrograms(),
+            StartupPrograms = includeProcesses ? ReadStartupPrograms() : null,
         };
     }
 

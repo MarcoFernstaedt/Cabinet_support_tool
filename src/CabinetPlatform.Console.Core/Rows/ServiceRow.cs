@@ -6,29 +6,37 @@ namespace CabinetPlatform.Console.Core.Rows;
 /// <summary>One Windows service from the last check-in.</summary>
 public sealed class ServiceRow
 {
-    public ServiceRow(ServiceSnapshot snapshot)
+    /// <summary>Creates the row.</summary>
+    /// <param name="snapshot">The service as the agent reported it.</param>
+    public ServiceRow(ServiceInfo snapshot)
     {
         Snapshot = snapshot;
-        State = StatusPresentation.ForServiceState(snapshot.Status);
+        State = StatusPresentation.ForServiceState(snapshot.State);
     }
 
-    public ServiceSnapshot Snapshot { get; }
+    /// <summary>The service as the agent reported it.</summary>
+    public ServiceInfo Snapshot { get; }
 
-    public string ServiceName => Snapshot.ServiceName;
-    public string DisplayName => Format.Text(Snapshot.DisplayName ?? Snapshot.ServiceName);
-    public string StartMode => Format.Text(Snapshot.StartMode);
+    /// <summary>Service short name, as the service control manager uses it.</summary>
+    public string ServiceName => Snapshot.Name;
 
+    /// <summary>Friendly name shown in Windows.</summary>
+    public string DisplayName => Format.Text(Snapshot.DisplayName ?? Snapshot.Name);
+
+    /// <summary>Configured start type, in words.</summary>
+    public string StartMode => Snapshot.StartType.ToString();
+
+    /// <summary>How the run state reads at a glance.</summary>
     public StatusPresentation State { get; }
 
-    public bool IsRunning =>
-        string.Equals(Snapshot.Status?.Trim(), "Running", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Whether the service is running.</summary>
+    public bool IsRunning => Snapshot.State == ServiceState.Running;
 
-    public bool IsStopped =>
-        string.Equals(Snapshot.Status?.Trim(), "Stopped", StringComparison.OrdinalIgnoreCase);
+    /// <summary>Whether the service is stopped. Unknown is neither.</summary>
+    public bool IsStopped => Snapshot.State == ServiceState.Stopped;
 
     private bool IsAutoStart =>
-        Snapshot.StartMode is { } mode &&
-        mode.Replace(" ", string.Empty).StartsWith("Auto", StringComparison.OrdinalIgnoreCase);
+        Snapshot.StartType is ServiceStartType.Automatic or ServiceStartType.AutomaticDelayed;
 
     /// <summary>
     /// Set to auto-start and not running. This is the preset support staff
@@ -37,6 +45,7 @@ public sealed class ServiceRow
     /// </summary>
     public bool IsAutoStartButStopped => IsAutoStart && IsStopped;
 
+    /// <summary>One sentence a screen reader announces for this row.</summary>
     public string AccessibleSummary =>
         $"{DisplayName}. Service name {ServiceName}. State {State.Label}. Start mode {StartMode}." +
         (IsAutoStartButStopped ? " Set to start automatically but currently stopped." : string.Empty);

@@ -37,11 +37,10 @@ internal sealed class QueryString
     /// local-format timestamp would be interpreted in the server's culture — an
     /// audit query silently off by hours is worse than one that fails.
     /// </summary>
-    public QueryString Add(string name, DateTime? value) =>
+    public QueryString Add(string name, DateTimeOffset? value) =>
         value is null
             ? this
-            : AddRaw(name, DateTime.SpecifyKind(value.Value, DateTimeKind.Utc)
-                .ToString("o", CultureInfo.InvariantCulture));
+            : AddRaw(name, value.Value.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture));
 
     private QueryString AddRaw(string name, string value)
     {

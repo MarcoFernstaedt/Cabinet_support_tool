@@ -111,12 +111,12 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
 
         Guid? currentUserId = _session.UserId;
 
-        List<ActionRequestDto> approvable = new();
-        List<ActionRequestDto> ownRequests = new();
+        List<ActionRequestView> approvable = new();
+        List<ActionRequestView> ownRequests = new();
 
         bool loaded = await RunAsync(async ct =>
         {
-            PagedResult<ActionRequestDto> pendingForMe =
+            PagedResult<ActionRequestView> pendingForMe =
                 await _api.GetPendingApprovalsAsync(new PagedQuery { PageSize = 100 }, ct);
 
             approvable.AddRange(pendingForMe.Items);
@@ -126,7 +126,7 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
             // which Tier 1 can also reach, then narrowed to this user.
             if (currentUserId is { } userId)
             {
-                PagedResult<ActionRequestDto> pending = await _api.GetActionsAsync(
+                PagedResult<ActionRequestView> pending = await _api.GetActionsAsync(
                     new ActionQuery { Status = ActionRequestStatus.PendingApproval, PageSize = 100 }, ct);
 
                 ownRequests.AddRange(pending.Items.Where(a => a.RequestedByUserId == userId));
@@ -148,12 +148,12 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
 
         // Actionable first. The user's own requests sit below, visible but out of
         // the way of the work they can actually do.
-        foreach (ActionRequestDto request in approvable)
+        foreach (ActionRequestView request in approvable)
         {
             Queue.Add(new ActionRow(request, currentUserId, nowUtc));
         }
 
-        foreach (ActionRequestDto request in ownRequests.OrderBy(r => r.RequestedUtc))
+        foreach (ActionRequestView request in ownRequests.OrderBy(r => r.RequestedUtc))
         {
             Queue.Add(new ActionRow(request, currentUserId, nowUtc));
         }
@@ -190,7 +190,7 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
 
         try
         {
-            ActionRequestDto updated = isApproval
+            ActionRequestView updated = isApproval
                 ? await _api.ApproveActionAsync(
                     row.Id, new ApproveActionRequest
                     {

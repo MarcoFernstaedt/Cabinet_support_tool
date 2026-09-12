@@ -173,3 +173,21 @@ public sealed record DenyActionRequest
     /// <summary>Support ticket the refusal is associated with, if any.</summary>
     public string? TicketReference { get; init; }
 }
+
+/// <summary>
+/// Asking for the one-click test of a cabinet's link to its site's sync
+/// cabinet.
+/// </summary>
+/// <remarks>
+/// It names no target and no address. The server resolves both from the
+/// cabinet's site, which is the whole point: a rep selects a cabinet, not an
+/// address, and cannot select the wrong one.
+/// </remarks>
+public sealed record TestSyncLinkRequest
+{
+    /// <summary>Why the link is being tested. Optional; a default is recorded if omitted.</summary>
+    public string? Reason { get; init; }
+
+    /// <summary>Support ticket the test is associated with, if any.</summary>
+    public string? TicketReference { get; init; }
+}

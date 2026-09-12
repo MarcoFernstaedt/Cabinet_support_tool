@@ -212,8 +212,7 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
         // folded into healthy.
         foreach (DiskHealthStatus status in new[]
                  {
-                     DiskHealthStatus.Healthy, DiskHealthStatus.Warning,
-                     DiskHealthStatus.Critical, DiskHealthStatus.Failed
+                     DiskHealthStatus.Healthy, DiskHealthStatus.Watch, DiskHealthStatus.Failing,
                  })
         {
             Add(DiskHealthCounts,
@@ -223,30 +222,28 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
 
         Add(DiskHealthCounts,
             StatusPresentation.Unknown,
-            cabinets.Count(c => c.WorstDiskHealth is null or DiskHealthStatus.Unknown));
+            cabinets.Count(c => c.WorstDiskHealth == DiskHealthStatus.Unknown));
     }
 
     private void ApplyWorklists(IReadOnlyList<CabinetSummary> cabinets)
     {
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         Fill(StaleCheckIns, cabinets
             .Where(c => c.IsActive)
             .Where(c => c.LastCheckInUtc is null ||
-                        (nowUtc - DateTime.SpecifyKind(c.LastCheckInUtc.Value, DateTimeKind.Utc))
-                        .TotalMinutes > StaleCheckInMinutes)
+                        (nowUtc - c.LastCheckInUtc.Value).TotalMinutes > StaleCheckInMinutes)
             // Never-checked-in cabinets first: an approved cabinet that has
             // never reported is a different and more urgent problem than one
             // that has gone quiet.
-            .OrderBy(c => c.LastCheckInUtc ?? DateTime.MinValue), nowUtc);
+            .OrderBy(c => c.LastCheckInUtc ?? DateTimeOffset.MinValue), nowUtc);
 
         Fill(PendingUpdates, cabinets
             .Where(c => c.PendingUpdateCount is > 0)
             .OrderByDescending(c => c.PendingUpdateCount), nowUtc);
 
         Fill(DrivesNeedingAttention, cabinets
-            .Where(c => c.WorstDiskHealth is DiskHealthStatus.Warning
-                        or DiskHealthStatus.Critical or DiskHealthStatus.Failed)
+            .Where(c => c.WorstDiskHealth is DiskHealthStatus.Watch or DiskHealthStatus.Failing)
             .OrderByDescending(c => c.WorstDiskHealth), nowUtc);
 
         OnPropertyChanged(nameof(GeneratedAt));
@@ -255,7 +252,7 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
     }
 
     private void Fill(
-        ObservableCollection<CabinetRow> target, IEnumerable<CabinetSummary> source, DateTime nowUtc)
+        ObservableCollection<CabinetRow> target, IEnumerable<CabinetSummary> source, DateTimeOffset nowUtc)
     {
         target.Clear();
 
