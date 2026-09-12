@@ -9,6 +9,13 @@ public sealed record ActionOutcome
 
     public string? Output { get; init; }
 
+    /// <summary>
+    /// Structured data the action collected, as JSON, for the on-demand
+    /// collectors. Null for every other action. It is data the agent read,
+    /// never anything the server executes.
+    /// </summary>
+    public string? CollectedData { get; init; }
+
     public static ActionOutcome Succeeded(string? output = null)
         => new() { Status = ActionStatus.Succeeded, Output = output };
 
@@ -25,6 +32,12 @@ public sealed record ActionOutcome
 
     public static ActionOutcome TimedOut(string reason)
         => new() { Status = ActionStatus.TimedOut, Output = reason };
+
+    /// <summary>An on-demand collector succeeded and is returning what it read.</summary>
+    /// <param name="output">One line a person reads.</param>
+    /// <param name="collectedData">The records themselves, as JSON.</param>
+    public static ActionOutcome Collected(string output, string collectedData)
+        => new() { Status = ActionStatus.Succeeded, Output = output, CollectedData = collectedData };
 }
 
 /// <summary>

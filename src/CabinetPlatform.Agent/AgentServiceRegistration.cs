@@ -145,5 +145,10 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, StartServiceExecutor>();
         services.AddSingleton<IActionExecutor, StopServiceExecutor>();
         services.AddSingleton<IActionExecutor, RebootMachineExecutor>();
+        services.AddSingleton<IActionExecutor, CollectEventLogsExecutor>();
+        services.AddSingleton<IActionExecutor, CollectProcessListExecutor>();
+        services.AddSingleton<IActionExecutor, PingCabinetExecutor>();
+        services.AddSingleton<IActionExecutor, TestCabinetPortExecutor>();
+        services.AddSingleton<IActionExecutor, TraceRouteToCabinetExecutor>();
     }
 }

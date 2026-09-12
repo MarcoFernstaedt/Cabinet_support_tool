@@ -86,9 +86,62 @@ public sealed class ActionDispatcher
         };
     }
 
+    /// <summary>
+    /// How many completed requests the agent remembers.
+    /// </summary>
+    /// <remarks>
+    /// The duplicate window that matters is minutes, not days: a repeat arrives
+    /// because a result report was lost or a poll raced one, and the server
+    /// stops offering an action once it has an outcome. A couple of hundred
+    /// entries covers a long outage's worth of catch-up without turning the
+    /// state file into a history.
+    /// </remarks>
+    public const int RememberedActionCount = 200;
+
     /// <summary>Validates, journals, runs and reports one action.</summary>
+    /// <param name="request">The action to carry out.</param>
+    /// <param name="cancellationToken">Cancels the action.</param>
     public async Task<ActionResultDto> DispatchAsync(ActionRequestDto request, CancellationToken cancellationToken)
     {
+        // Idempotency first, before the catalog and before validation. A
+        // request this agent has already carried out is answered with what it
+        // answered last time, whatever that was — a second reboot because the
+        // first acknowledgement was lost is exactly the failure this prevents.
+        CompletedAction? already = _stateStore.Load().CompletedActions
+            .FirstOrDefault(c => c.RequestId == request.Id);
+
+        if (already is not null)
+        {
+            _logger.LogInformation(
+                "Action {RequestId} ({Action}) has already been carried out; replaying its result of " +
+                "{Status} rather than running it again.",
+                request.Id,
+                request.Action,
+                already.Status);
+
+            return new ActionResultDto
+            {
+                RequestId = already.RequestId,
+                Status = already.Status,
+                Output = already.Output,
+                CompletedAtUtc = already.CompletedAtUtc,
+            };
+        }
+
+        // An action that expired while it sat in a queue must not fire late.
+        if (request.ExpiresUtc is { } expiry && expiry <= _clock.UtcNow)
+        {
+            _logger.LogWarning(
+                "Action {RequestId} ({Action}) expired at {ExpiresUtc} and will not be run.",
+                request.Id,
+                request.Action,
+                expiry);
+
+            return Remember(request, ActionOutcome.Denied(
+                $"This action expired at {expiry:O} and was not run. A cabinet's state moves on, and an " +
+                "approval nobody collected in time is no longer an approval for what is there now."));
+        }
+
         // The catalog check comes first. An action with no compiled-in executor
         // is refused before anything else about the request is considered.
         var executor = _registry.Resolve(request.Action);
@@ -99,7 +152,7 @@ public sealed class ActionDispatcher
                 request.Id,
                 request.Action);
 
-            return Result(request, ActionOutcome.Denied(
+            return Remember(request, ActionOutcome.Denied(
                 $"This agent has no executor for {request.Action}, so it cannot be performed. " +
                 "The agent runs only actions it has compiled-in support for."));
         }
@@ -112,7 +165,7 @@ public sealed class ActionDispatcher
                 request.Action,
                 envelopeFailure);
 
-            return Result(request, ActionOutcome.Denied(envelopeFailure));
+            return Remember(request, ActionOutcome.Denied(envelopeFailure));
         }
 
         var timeout = ResolveTimeout(request.Action);
@@ -148,7 +201,7 @@ public sealed class ActionDispatcher
                 request.Action,
                 outcome.Status);
 
-            return Result(request, outcome);
+            return Remember(request, outcome);
         }
         finally
         {
@@ -156,6 +209,42 @@ public sealed class ActionDispatcher
             // result has been decided, so this is no longer an unknown.
             _stateStore.Update(current => current with { InFlightAction = null });
         }
+    }
+
+    /// <summary>
+    /// Builds the result and records that this request has been carried out.
+    /// </summary>
+    /// <remarks>
+    /// Recorded for every terminal outcome, refusals included: a request the
+    /// agent refused must be refused the same way the second time, not
+    /// reconsidered against a machine whose state has moved on.
+    /// </remarks>
+    private ActionResultDto Remember(ActionRequestDto request, ActionOutcome outcome)
+    {
+        ActionResultDto result = Result(request, outcome);
+
+        _stateStore.Update(current =>
+        {
+            var completed = new List<CompletedAction>(current.CompletedActions.Count + 1)
+            {
+                new()
+                {
+                    RequestId = result.RequestId,
+                    Action = request.Action,
+                    Status = result.Status,
+                    CompletedAtUtc = result.CompletedAtUtc,
+                    Output = result.Output,
+                },
+            };
+
+            completed.AddRange(current.CompletedActions
+                .Where(c => c.RequestId != result.RequestId)
+                .Take(RememberedActionCount - 1));
+
+            return current with { CompletedActions = completed };
+        });
+
+        return result;
     }
 
     private async Task<ActionOutcome> RunWithTimeoutAsync(
@@ -283,5 +372,6 @@ public sealed class ActionDispatcher
         Status = outcome.Status,
         Output = outcome.Output,
         CompletedAtUtc = _clock.UtcNow,
+        CollectedData = outcome.CollectedData,
     };
 }
