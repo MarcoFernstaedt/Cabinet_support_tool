@@ -15,19 +15,38 @@ namespace CabinetPlatform.Agent.Actions;
 /// </remarks>
 public static class ActionParameters
 {
-    /// <summary>Target of the service actions.</summary>
-    public const string ServiceName = "ServiceName";
-
-    /// <summary>When <see cref="ActionName.ScheduleUpdates"/> should install.</summary>
-    public const string ScheduledUtc = "ScheduledUtc";
-
     /// <summary>
-    /// Set by a supervisor to allow a reboot while somebody is signed in.
+    /// Reads a parameter by name, whatever case it arrived in.
     /// </summary>
-    public const string SupervisorOverride = "SupervisorOverride";
+    /// <remarks>
+    /// Parameters arrive as a plain JSON object and deserialise into an
+    /// ordinal dictionary, so a lookup that differs from the sent key only in
+    /// case silently finds nothing — and the agent then declines an action a
+    /// person approved, for a reason nobody can see from either side. The names
+    /// themselves now come from <see cref="ActionParameterKeys"/>, shared with
+    /// the server's catalog, so this is belt and braces rather than the only
+    /// guarantee.
+    /// </remarks>
+    private static bool TryFind(ActionRequestDto request, string name, out string value)
+    {
+        if (request.Parameters.TryGetValue(name, out string? exact) && exact is not null)
+        {
+            value = exact;
+            return true;
+        }
 
-    /// <summary>Optional note included in a diagnostic bundle.</summary>
-    public const string BundleNote = "Note";
+        foreach ((string key, string candidate) in request.Parameters)
+        {
+            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+            {
+                value = candidate;
+                return true;
+            }
+        }
+
+        value = string.Empty;
+        return false;
+    }
 
     /// <summary>
     /// Reads a required string parameter.
@@ -38,7 +57,7 @@ public static class ActionParameters
         out string value,
         out string failureReason)
     {
-        if (!request.Parameters.TryGetValue(name, out var raw) || string.IsNullOrWhiteSpace(raw))
+        if (!TryFind(request, name, out string raw) || string.IsNullOrWhiteSpace(raw))
         {
             value = string.Empty;
             failureReason = $"The '{name}' parameter is required and was not supplied.";
@@ -60,7 +79,7 @@ public static class ActionParameters
     /// </remarks>
     public static bool GetBooleanFlag(ActionRequestDto request, string name)
     {
-        if (!request.Parameters.TryGetValue(name, out var raw) || string.IsNullOrWhiteSpace(raw))
+        if (!TryFind(request, name, out string raw) || string.IsNullOrWhiteSpace(raw))
         {
             return false;
         }
@@ -105,6 +124,30 @@ public static class ActionParameters
 
         value = parsed.ToUniversalTime();
         failureReason = string.Empty;
+        return true;
+    }
+
+    /// <summary>
+    /// Reads an optional duration in whole seconds.
+    /// </summary>
+    /// <remarks>
+    /// Absent and unparseable both read as absent, so the caller gets the
+    /// agent's own default rather than a zero. A zero-second reboot warning is
+    /// the one thing a misread must never produce.
+    /// </remarks>
+    public static bool TryGetOptionalSeconds(
+        ActionRequestDto request, string name, out TimeSpan value)
+    {
+        value = default;
+
+        if (!TryFind(request, name, out string raw) ||
+            !int.TryParse(raw.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int seconds) ||
+            seconds < 0)
+        {
+            return false;
+        }
+
+        value = TimeSpan.FromSeconds(seconds);
         return true;
     }
 

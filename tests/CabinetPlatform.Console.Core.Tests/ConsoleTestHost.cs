@@ -72,12 +72,19 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
             services.RemoveAll<SupportDbContext>();
             services.RemoveAll<DbConnection>();
 
-            _connection = new SqliteConnection("DataSource=:memory:");
+            // A shared-cache in-memory database named uniquely per fixture, so
+            // every context opens its own connection and SQLite serialises them
+            // itself. One connection shared across concurrent requests produces
+            // an intermittent "SQL logic error" that reads as a product fault
+            // and is not one.
+            string name = $"console-tests-{Guid.NewGuid():N}";
+            var connectionString = $"DataSource=file:{name}?mode=memory&cache=shared";
+
+            _connection = new SqliteConnection(connectionString);
             _connection.Open();
 
             services.AddSingleton(_connection);
-            services.AddDbContext<SqliteSupportDbContext>((sp, options) =>
-                options.UseSqlite(sp.GetRequiredService<DbConnection>()));
+            services.AddDbContext<SqliteSupportDbContext>(options => options.UseSqlite(connectionString));
             services.AddScoped<SupportDbContext>(sp => sp.GetRequiredService<SqliteSupportDbContext>());
 
             services.RemoveAll<IHostedService>();

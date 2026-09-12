@@ -27,7 +27,7 @@ namespace CabinetPlatform.Agent.Actions.Executors;
 /// </remarks>
 public sealed class RebootMachineExecutor : IActionExecutor
 {
-    private static readonly string[] PermittedParameters = { ActionParameters.SupervisorOverride };
+    private static readonly string[] PermittedParameters = { ActionParameterKeys.DelaySeconds };
 
     private readonly LogonSessionReader _logons;
     private readonly INativeSystemGateway _native;
@@ -55,7 +55,13 @@ public sealed class RebootMachineExecutor : IActionExecutor
             return Task.FromResult(ActionOutcome.Denied(unknownFailure));
         }
 
-        var supervisorOverride = ActionParameters.GetBooleanFlag(request, ActionParameters.SupervisorOverride);
+        // There is deliberately no "override" parameter. A Supervisor's waiver
+        // of the safety interlock is a server-side decision recorded on the
+        // request; letting it travel as a parameter would make the agent's last
+        // line of defence something the caller could simply assert.
+        //
+        // The agent therefore re-checks for itself whether anybody is signed in
+        // and refuses if they are, whatever the server decided.
 
         IReadOnlyList<string> loggedOnUsers;
         try
@@ -75,32 +81,31 @@ public sealed class RebootMachineExecutor : IActionExecutor
                 "so it did not restart it."));
         }
 
-        if (loggedOnUsers.Count > 0 && !supervisorOverride)
+        if (loggedOnUsers.Count > 0)
         {
             _logger.LogWarning(
-                "Refusing to restart: {UserCount} interactive session(s) are open ({Users}). " +
-                "A supervisor override is required to restart an occupied cabinet.",
+                "Refusing to restart: {UserCount} interactive session(s) are open ({Users}).",
                 loggedOnUsers.Count,
                 string.Join(", ", loggedOnUsers));
 
             return Task.FromResult(ActionOutcome.Denied(
                 $"{loggedOnUsers.Count} user(s) are signed in to this cabinet ({string.Join(", ", loggedOnUsers)}). " +
-                "The agent does not restart an occupied cabinet without an explicit supervisor override."));
+                "The agent does not restart an occupied cabinet. The server's own check uses the last " +
+                "check-in, which can be minutes old; this one is what the cabinet sees now."));
         }
 
-        if (loggedOnUsers.Count > 0)
+        // The caller may ask for a longer warning than the agent's default, up
+        // to the ceiling the server's validator enforces. It may not ask for a
+        // shorter one: the floor is this agent's, so a request cannot shorten
+        // the notice the people at the cabinet get.
+        TimeSpan delay = TimeSpan.FromSeconds(_options.RebootDelaySeconds);
+
+        if (ActionParameters.TryGetOptionalSeconds(
+                request, ActionParameterKeys.DelaySeconds, out TimeSpan requested) &&
+            requested > delay)
         {
-            // Recorded prominently: this is a person deciding to interrupt
-            // another person, and the audit trail should say so plainly.
-            _logger.LogWarning(
-                "Restarting an occupied cabinet under a supervisor override from {RequestedBy}. " +
-                "Signed in: {Users}. Reason: {Reason}",
-                request.RequestedByUserId,
-                string.Join(", ", loggedOnUsers),
-                request.Reason);
+            delay = requested;
         }
-
-        var delay = TimeSpan.FromSeconds(_options.RebootDelaySeconds);
 
         try
         {

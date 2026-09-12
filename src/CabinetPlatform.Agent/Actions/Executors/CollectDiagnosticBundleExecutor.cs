@@ -28,7 +28,11 @@ namespace CabinetPlatform.Agent.Actions.Executors;
 /// </remarks>
 public sealed class CollectDiagnosticBundleExecutor : IActionExecutor
 {
-    private static readonly string[] PermittedParameters = { ActionParameters.BundleNote };
+    private static readonly string[] PermittedParameters =
+    {
+        ActionParameterKeys.IncludeEventLogs,
+        ActionParameterKeys.HoursOfHistory,
+    };
 
     /// <summary>Log files older than this are not worth bundling.</summary>
     private static readonly TimeSpan LogWindow = TimeSpan.FromDays(7);
@@ -126,7 +130,8 @@ public sealed class CollectDiagnosticBundleExecutor : IActionExecutor
             request.RequestedByUserId,
             request.Reason,
             request.TicketReference,
-            Note = request.Parameters.TryGetValue(ActionParameters.BundleNote, out var note) ? note : null,
+            IncludeEventLogs = ActionParameters.GetBooleanFlag(
+                request, ActionParameterKeys.IncludeEventLogs),
             SectionErrorCount = sectionErrorCount,
             Contents = "The agent's rolling logs and one check-in snapshot. No clinical, user or biometric data.",
         };

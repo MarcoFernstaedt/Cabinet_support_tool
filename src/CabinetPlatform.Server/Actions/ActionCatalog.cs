@@ -101,23 +101,30 @@ public sealed record ActionCatalogEntry
 public static class ActionCatalog
 {
     /// <summary>Parameter key naming the cabinet a diagnostic probe targets.</summary>
-    public const string TargetCabinetIdKey = "targetCabinetId";
+    /// <remarks>
+    /// These four are aliases of <see cref="ActionParameterKeys"/>, which is
+    /// where every operand name in the product is spelled. They stay because
+    /// the resolution code reads better for them; they must never be given a
+    /// literal of their own, because the agent reads the same names from the
+    /// same shared class and a second spelling is how the two sides drift.
+    /// </remarks>
+    public const string TargetCabinetIdKey = ActionParameterKeys.TargetCabinetId;
 
     /// <summary>Parameter key carrying the port a probe should open.</summary>
-    public const string PortKey = "port";
+    public const string PortKey = ActionParameterKeys.Port;
 
     /// <summary>
     /// Parameter key by which the server hands the agent the address it
     /// resolved. The console never supplies it, and a request that arrives
     /// carrying it is rejected.
     /// </summary>
-    public const string ResolvedTargetAddressKey = "resolvedTargetAddress";
+    public const string ResolvedTargetAddressKey = ActionParameterKeys.ResolvedTargetAddress;
 
     /// <summary>
     /// Parameter key by which a rep explicitly accepts a cross-site target.
     /// Absent means same-site only.
     /// </summary>
-    public const string AllowCrossSiteKey = "allowCrossSite";
+    public const string AllowCrossSiteKey = ActionParameterKeys.AllowCrossSite;
 
     private static readonly ImmutableDictionary<ActionName, ActionCatalogEntry> Entries =
         new[]
@@ -150,7 +157,8 @@ public static class ActionCatalog
                 // The agent maps these to fixed collectors; neither is a path
                 // or a command, and the agent resolves its own output location.
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "includeEventLogs", "hoursOfHistory"),
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.IncludeEventLogs, ActionParameterKeys.HoursOfHistory),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = false,
@@ -200,7 +208,7 @@ public static class ActionCatalog
                 // an allow-listed key with a free-form value would just be
                 // arbitrary execution wearing a different hat.
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "serviceName"),
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = true,
@@ -217,7 +225,7 @@ public static class ActionCatalog
                 IsDisruptive = false,
                 TimeoutSeconds = 180,
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "serviceName"),
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = true,
@@ -234,7 +242,7 @@ public static class ActionCatalog
                 IsDisruptive = true,
                 TimeoutSeconds = 180,
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "serviceName"),
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.ServiceName),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = true,
@@ -251,11 +259,17 @@ public static class ActionCatalog
                 RequiresApproval = true,
                 IsDisruptive = false,
                 TimeoutSeconds = 600,
-                // scheduledForUtc arrives already converted from the cabinet's
-                // local time by the console, and is re-checked here against the
-                // cabinet's own zone.
+                // The install time is specified in the cabinet's own local
+                // time, because that is what a rep and a clinic agree on. The
+                // server converts it and adds scheduledForUtc, which is also
+                // the only place the conversion can be checked: a local time
+                // that does not exist because the zone springs forward that
+                // morning is undetectable once converted.
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "scheduledForUtc", "rebootIfRequired"),
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.ScheduledForLocal,
+                    ActionParameterKeys.ScheduledForUtc,
+                    ActionParameterKeys.RebootIfRequired),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = true,
@@ -272,7 +286,7 @@ public static class ActionCatalog
                 IsDisruptive = true,
                 TimeoutSeconds = 900,
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "delaySeconds"),
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.DelaySeconds),
                 MaintenanceWindowOnly = true,
                 BlockedIfUserLoggedOn = true,
                 // Rebooting a whole site is the most dangerous thing this tool
@@ -293,7 +307,11 @@ public static class ActionCatalog
                 IsDisruptive = false,
                 TimeoutSeconds = 300,
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "logName", "hoursOfHistory", "maxEntries", "minimumLevel"),
+                    StringComparer.OrdinalIgnoreCase,
+                    ActionParameterKeys.LogName,
+                    ActionParameterKeys.HoursOfHistory,
+                    ActionParameterKeys.MaxEntries,
+                    ActionParameterKeys.MinimumLevel),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = false,
@@ -308,7 +326,7 @@ public static class ActionCatalog
                 IsDisruptive = false,
                 TimeoutSeconds = 120,
                 AllowedParameterKeys = ImmutableHashSet.Create(
-                    StringComparer.OrdinalIgnoreCase, "maxEntries"),
+                    StringComparer.OrdinalIgnoreCase, ActionParameterKeys.MaxEntries),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = false,

@@ -67,14 +67,24 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
             services.RemoveAll<SupportDbContext>();
             services.RemoveAll<DbConnection>();
 
-            // One connection held open for the fixture's lifetime: an in-memory
-            // SQLite database exists only as long as a connection to it does.
-            _connection = new SqliteConnection("DataSource=:memory:");
+            // A shared-cache in-memory database, named uniquely per fixture,
+            // with one connection held open for the fixture's lifetime: an
+            // in-memory SQLite database exists only as long as a connection to
+            // it does.
+            //
+            // Named and shared rather than ":memory:" on a single shared
+            // connection, because every context then opens its own connection
+            // and SQLite serialises them itself. Sharing one connection across
+            // concurrent requests produces an intermittent "SQL logic error"
+            // that looks like a product fault and is not one.
+            string name = $"support-tests-{Guid.NewGuid():N}";
+            var connectionString = $"DataSource=file:{name}?mode=memory&cache=shared";
+
+            _connection = new SqliteConnection(connectionString);
             _connection.Open();
 
             services.AddSingleton(_connection);
-            services.AddDbContext<SqliteSupportDbContext>((sp, options) =>
-                options.UseSqlite(sp.GetRequiredService<DbConnection>()));
+            services.AddDbContext<SqliteSupportDbContext>(options => options.UseSqlite(connectionString));
             services.AddScoped<SupportDbContext>(sp => sp.GetRequiredService<SqliteSupportDbContext>());
 
             // Background sweeps are driven by hand in the tests that cover

@@ -237,6 +237,74 @@ public sealed class ActionCatalogTests
         }
     }
 
+    /// <summary>
+    /// Every operand name in the catalog is one of the shared contract's, and
+    /// none of them is a literal.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The merge found four of the nine original actions broken end to end on
+    /// exactly this: the server's catalog allowed <c>serviceName</c> while the
+    /// agent read <c>ServiceName</c> from a case-sensitive dictionary, and the
+    /// server sent <c>delaySeconds</c> for a reboot while the agent permitted
+    /// only a supervisor-override key that no longer existed on either side.
+    /// </para>
+    /// <para>
+    /// No build, type check or unit test of either half can see that: the
+    /// request arrives, the agent declines it, and the only evidence is an
+    /// action that never runs. Sourcing both sides from one class is what makes
+    /// the failure impossible rather than merely fixed, and this test is what
+    /// keeps a literal from creeping back in.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Every_catalogue_parameter_name_comes_from_the_shared_contract()
+    {
+        HashSet<string> shared = typeof(ActionParameterKeys)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f is { IsLiteral: true, FieldType.Name: nameof(String) })
+            .Select(f => (string)f.GetRawConstantValue()!)
+            .ToHashSet(StringComparer.Ordinal);
+
+        // The class is not empty, so a rename that emptied it would fail here
+        // rather than making every check below vacuously true.
+        Assert.NotEmpty(shared);
+
+        var strangers = new List<string>();
+
+        foreach (ActionCatalogEntry entry in ActionCatalog.All)
+        {
+            foreach (string key in entry.AllowedParameterKeys)
+            {
+                if (!shared.Contains(key))
+                {
+                    strangers.Add($"{entry.Action}.{key}");
+                }
+            }
+        }
+
+        Assert.True(strangers.Count == 0,
+            "Parameter names not drawn from ActionParameterKeys, which the agent reads from too: " +
+            string.Join(", ", strangers));
+    }
+
+    [Fact]
+    public void The_catalogue_matches_its_parameter_names_case_exactly()
+    {
+        // Case-insensitive comparison inside the allow-list is a safety net,
+        // not a licence: what travels on the wire is the spelling stored on the
+        // request, and the agent's dictionary is built from JSON. The two must
+        // agree exactly, not merely case-insensitively.
+        foreach (ActionCatalogEntry entry in ActionCatalog.All)
+        {
+            foreach (string key in entry.AllowedParameterKeys)
+            {
+                Assert.Equal(key, key.ToLowerInvariant()[0] + key[1..]);
+                Assert.DoesNotContain(' ', key);
+            }
+        }
+    }
+
     [Fact]
     public void An_unrecognised_parameter_key_is_rejected_rather_than_dropped()
     {
@@ -247,7 +315,7 @@ public sealed class ActionCatalogTests
             entry,
             new Dictionary<string, string>
             {
-                ["serviceName"] = "Spooler",
+                [ActionParameterKeys.ServiceName] = "Spooler",
                 ["command"] = "shutdown /r /t 0"
             },
             DateTimeOffset.UtcNow);
@@ -265,7 +333,7 @@ public sealed class ActionCatalogTests
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry,
-            new Dictionary<string, string> { ["serviceName"] = "NotAnAllowedService" },
+            new Dictionary<string, string> { [ActionParameterKeys.ServiceName] = "NotAnAllowedService" },
             DateTimeOffset.UtcNow);
 
         Assert.False(result.Succeeded);
@@ -280,28 +348,33 @@ public sealed class ActionCatalogTests
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
             entry,
-            new Dictionary<string, string> { ["serviceName"] = "spooler" },
+            new Dictionary<string, string> { [ActionParameterKeys.ServiceName] = "spooler" },
             DateTimeOffset.UtcNow);
 
         Assert.True(result.Succeeded);
-        Assert.Equal("spooler", result.Value!["serviceName"]);
+        Assert.Equal("spooler", result.Value![ActionParameterKeys.ServiceName]);
     }
 
     [Fact]
-    public void A_scheduled_update_time_in_the_past_is_refused()
+    public void An_update_cannot_be_scheduled_without_the_cabinet_whose_clock_it_uses()
     {
+        // An install time is stated in the cabinet's own local time, so there
+        // is no answer to "is this in the future" without the cabinet. Guessing
+        // a zone would put the install an arbitrary number of hours from where
+        // the rep meant it; the timing cases themselves live in
+        // CabinetClockTests, where a zone is supplied.
         IActionParameterValidator validator = CreateValidator();
-        ActionCatalogEntry entry = ActionCatalog.Get(ActionName.ScheduleUpdates);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
-            entry,
+            ActionCatalog.Get(ActionName.ScheduleUpdates),
             new Dictionary<string, string>
             {
-                ["scheduledForUtc"] = DateTimeOffset.UtcNow.AddDays(-1).ToString("O")
+                [ActionParameterKeys.ScheduledForLocal] = "2030-01-01T03:00:00"
             },
             DateTimeOffset.UtcNow);
 
         Assert.False(result.Succeeded);
+        Assert.Equal(OperationFailure.Invalid, result.Failure);
     }
 
     [Fact]
@@ -312,17 +385,17 @@ public sealed class ActionCatalogTests
 
         Assert.False(validator.Validate(
             entry,
-            new Dictionary<string, string> { ["delaySeconds"] = "99999" },
+            new Dictionary<string, string> { [ActionParameterKeys.DelaySeconds] = "99999" },
             DateTimeOffset.UtcNow).Succeeded);
 
         Assert.False(validator.Validate(
             entry,
-            new Dictionary<string, string> { ["delaySeconds"] = "not-a-number" },
+            new Dictionary<string, string> { [ActionParameterKeys.DelaySeconds] = "not-a-number" },
             DateTimeOffset.UtcNow).Succeeded);
 
         Assert.True(validator.Validate(
             entry,
-            new Dictionary<string, string> { ["delaySeconds"] = "60" },
+            new Dictionary<string, string> { [ActionParameterKeys.DelaySeconds] = "60" },
             DateTimeOffset.UtcNow).Succeeded);
     }
 

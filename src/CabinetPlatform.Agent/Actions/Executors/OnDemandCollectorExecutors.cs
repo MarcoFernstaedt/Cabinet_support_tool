@@ -47,7 +47,13 @@ public sealed class CollectEventLogsExecutor : IActionExecutor
     {
         if (!ActionParameters.TryValidateNoUnknownParameters(
                 request,
-                new[] { "logName", "hoursOfHistory", "maxEntries", "minimumLevel" },
+                new[]
+                {
+                    ActionParameterKeys.LogName,
+                    ActionParameterKeys.HoursOfHistory,
+                    ActionParameterKeys.MaxEntries,
+                    ActionParameterKeys.MinimumLevel,
+                },
                 out string unknownFailure))
         {
             return ActionOutcome.Denied(unknownFailure);
@@ -86,19 +92,19 @@ public sealed class CollectEventLogsExecutor : IActionExecutor
     {
         IEnumerable<EventLogEntry> filtered = entries;
 
-        if (request.Parameters.TryGetValue("logName", out string? rawLog) &&
+        if (request.Parameters.TryGetValue(ActionParameterKeys.LogName, out string? rawLog) &&
             Enum.TryParse(rawLog, ignoreCase: true, out EventLogName logName))
         {
             filtered = filtered.Where(e => e.LogName == logName);
         }
 
-        if (request.Parameters.TryGetValue("minimumLevel", out string? rawLevel) &&
+        if (request.Parameters.TryGetValue(ActionParameterKeys.MinimumLevel, out string? rawLevel) &&
             Enum.TryParse(rawLevel, ignoreCase: true, out EventLogLevel minimum))
         {
             filtered = filtered.Where(e => e.Level >= minimum);
         }
 
-        if (request.Parameters.TryGetValue("maxEntries", out string? rawMax) &&
+        if (request.Parameters.TryGetValue(ActionParameterKeys.MaxEntries, out string? rawMax) &&
             int.TryParse(rawMax, NumberStyles.None, CultureInfo.InvariantCulture, out int max) &&
             max > 0)
         {
@@ -140,7 +146,7 @@ public sealed class CollectProcessListExecutor : IActionExecutor
         ActionRequestDto request, CancellationToken cancellationToken)
     {
         if (!ActionParameters.TryValidateNoUnknownParameters(
-                request, new[] { "maxEntries" }, out string unknownFailure))
+                request, new[] { ActionParameterKeys.MaxEntries }, out string unknownFailure))
         {
             return ActionOutcome.Denied(unknownFailure);
         }
@@ -161,7 +167,7 @@ public sealed class CollectProcessListExecutor : IActionExecutor
 
         IReadOnlyList<ProcessInfo> processes = draft.Performance?.Processes ?? Array.Empty<ProcessInfo>();
 
-        if (request.Parameters.TryGetValue("maxEntries", out string? rawMax) &&
+        if (request.Parameters.TryGetValue(ActionParameterKeys.MaxEntries, out string? rawMax) &&
             int.TryParse(rawMax, NumberStyles.None, CultureInfo.InvariantCulture, out int max) &&
             max > 0)
         {

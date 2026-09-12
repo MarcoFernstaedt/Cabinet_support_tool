@@ -95,7 +95,17 @@ public sealed class ScanForUpdatesExecutor : IActionExecutor
 /// </remarks>
 public sealed class ScheduleUpdatesExecutor : IActionExecutor
 {
-    private static readonly string[] PermittedParameters = { ActionParameters.ScheduledUtc };
+    /// <remarks>
+    /// The local time travels alongside the UTC instant the server derived from
+    /// it. The agent acts on the UTC one and never re-derives it: one
+    /// conversion, done by the component that knows the cabinet's zone.
+    /// </remarks>
+    private static readonly string[] PermittedParameters =
+    {
+        ActionParameterKeys.ScheduledForUtc,
+        ActionParameterKeys.ScheduledForLocal,
+        ActionParameterKeys.RebootIfRequired,
+    };
 
     private readonly IScheduledUpdateWriter _writer;
     private readonly IClock _clock;
@@ -125,7 +135,7 @@ public sealed class ScheduleUpdatesExecutor : IActionExecutor
 
         if (!ActionParameters.TryGetUtcTimestamp(
                 request,
-                ActionParameters.ScheduledUtc,
+                ActionParameterKeys.ScheduledForUtc,
                 out var scheduledUtc,
                 out var parseFailure))
         {

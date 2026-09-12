@@ -18,7 +18,7 @@ namespace CabinetPlatform.Agent.Actions.Executors;
 /// </remarks>
 public abstract class ServiceExecutorBase : IActionExecutor
 {
-    private static readonly string[] PermittedParameters = { ActionParameters.ServiceName };
+    private static readonly string[] PermittedParameters = { ActionParameterKeys.ServiceName };
 
     private readonly ServiceNameAllowList _allowList;
     private readonly ActionOptions _options;
@@ -57,7 +57,7 @@ public abstract class ServiceExecutorBase : IActionExecutor
 
         if (!ActionParameters.TryGetRequiredString(
                 request,
-                ActionParameters.ServiceName,
+                ActionParameterKeys.ServiceName,
                 out var serviceName,
                 out var missingFailure))
         {

@@ -380,12 +380,20 @@ public sealed class ActionsController : SupportControllerBase
     {
         try
         {
-            return JsonSerializer.Deserialize<Dictionary<string, string>>(json, ContractJson.Default)
-                   ?? new Dictionary<string, string>();
+            Dictionary<string, string>? read =
+                JsonSerializer.Deserialize<Dictionary<string, string>>(json, ContractJson.Default);
+
+            // Rebuilt case-insensitively. Stored parameter names are the
+            // catalog's, but a dictionary that compares ordinally turns any
+            // future difference in case into an action the agent silently
+            // declines, for a reason visible from neither side.
+            return read is null
+                ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(read, StringComparer.OrdinalIgnoreCase);
         }
         catch (JsonException)
         {
-            return new Dictionary<string, string>();
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
     }
 

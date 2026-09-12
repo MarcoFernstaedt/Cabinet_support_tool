@@ -41,45 +41,88 @@ public class RebootMachineExecutorTests
         Assert.Equal(TimeSpan.FromSeconds(60), native.Delay);
     }
 
+    /// <summary>
+    /// The agent refuses to restart an occupied cabinet, and there is no
+    /// parameter that changes its mind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A Supervisor's waiver is a server-side decision, recorded on the request
+    /// with the reason they gave. It deliberately does not travel to the agent
+    /// as a parameter: a flag that waives a safety check, carried in the same
+    /// channel as the request itself, is a safety check the caller can simply
+    /// assert their way past.
+    /// </para>
+    /// <para>
+    /// The two checks answer different questions anyway. The server's uses the
+    /// last check-in, which can be minutes old. The agent's asks the machine
+    /// who is signed in right now, and that is the one that matters to somebody
+    /// standing at the cabinet.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public async Task RestartsAnOccupiedCabinetOnlyWithASupervisorOverride()
+    public async Task RefusesToRestartAnOccupiedCabinetWhateverTheRequestSays()
     {
         var native = new StubNativeSystemGateway();
         var executor = Executor(native, loggedOnUser: @"CLINIC\jrivera");
 
-        var request = Request(new Dictionary<string, string>
-        {
-            [ActionParameters.SupervisorOverride] = "true",
-        });
+        var result = await executor.ExecuteAsync(Request(), CancellationToken.None);
 
-        var result = await executor.ExecuteAsync(request, CancellationToken.None);
-
-        Assert.Equal(ActionStatus.Succeeded, result.Status);
-        Assert.True(native.RestartInitiated);
-        Assert.Contains("override", result.Output!, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.False(native.RestartInitiated);
+        Assert.Contains("signed in", result.Output!, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Theory]
-    [InlineData("false")]
-    [InlineData("")]
-    [InlineData("maybe")]
-    [InlineData("0")]
-    public async Task DoesNotTreatAnAmbiguousOverrideValueAsConsent(string overrideValue)
+    [Fact]
+    public async Task RejectsAnOverrideFlagRatherThanHonouringIt()
     {
-        // A flag that waives a safety check is not something to infer from a
-        // value the agent could not parse.
+        // There is no such parameter, so this is the unknown-parameter path:
+        // the agent and the server disagree about what was asked for, and on a
+        // controlled-substance cabinet the safe reading of that disagreement is
+        // to do nothing.
         var native = new StubNativeSystemGateway();
         var executor = Executor(native, loggedOnUser: @"CLINIC\jrivera");
 
         var request = Request(new Dictionary<string, string>
         {
-            [ActionParameters.SupervisorOverride] = overrideValue,
+            ["supervisorOverride"] = "true",
         });
 
         var result = await executor.ExecuteAsync(request, CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
         Assert.False(native.RestartInitiated);
+        Assert.Contains("does not define", result.Output!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HonoursALongerWarningThanItsDefaultButNeverAShorterOne()
+    {
+        // The floor is the agent's. A request cannot shorten the notice the
+        // people at the cabinet get, however it is spelled.
+        var native = new StubNativeSystemGateway();
+
+        var longer = await Executor(native).ExecuteAsync(
+            Request(new Dictionary<string, string>
+            {
+                [ActionParameterKeys.DelaySeconds] = "300",
+            }),
+            CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Succeeded, longer.Status);
+        Assert.Equal(TimeSpan.FromSeconds(300), native.Delay);
+
+        var shorter = new StubNativeSystemGateway();
+
+        var result = await Executor(shorter).ExecuteAsync(
+            Request(new Dictionary<string, string>
+            {
+                [ActionParameterKeys.DelaySeconds] = "0",
+            }),
+            CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Succeeded, result.Status);
+        Assert.Equal(TimeSpan.FromSeconds(60), shorter.Delay);
     }
 
     [Fact]
@@ -318,7 +361,7 @@ public class ServiceExecutorTests
         {
             Parameters = new Dictionary<string, string>
             {
-                [ActionParameters.ServiceName] = "Spooler",
+                [ActionParameterKeys.ServiceName] = "Spooler",
                 ["Arguments"] = "--unexpected",
             },
         };
@@ -346,7 +389,7 @@ public class ServiceExecutorTests
         RequestedUtc = DateTimeOffset.UtcNow,
         Parameters = serviceName is null
             ? new Dictionary<string, string>()
-            : new Dictionary<string, string> { [ActionParameters.ServiceName] = serviceName },
+            : new Dictionary<string, string> { [ActionParameterKeys.ServiceName] = serviceName },
     };
 
     private sealed class StubServiceControlGateway : IServiceControlGateway
@@ -538,7 +581,7 @@ public class ScheduleUpdatesExecutorTests
         Reason = "Applying the September cumulative update.",
         RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = Now,
-        Parameters = new Dictionary<string, string> { [ActionParameters.ScheduledUtc] = scheduledUtc },
+        Parameters = new Dictionary<string, string> { [ActionParameterKeys.ScheduledForUtc] = scheduledUtc },
     };
 
     private sealed class StubScheduledUpdateWriter : IScheduledUpdateWriter

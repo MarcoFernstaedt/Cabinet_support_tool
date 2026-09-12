@@ -19,10 +19,10 @@ namespace CabinetPlatform.Agent.Actions.Executors;
 /// </remarks>
 internal static class LinkParameters
 {
-    public const string TargetCabinetId = "targetCabinetId";
-    public const string ResolvedTargetAddress = "resolvedTargetAddress";
-    public const string Port = "port";
-    public const string AllowCrossSite = "allowCrossSite";
+    public const string TargetCabinetId = ActionParameterKeys.TargetCabinetId;
+    public const string ResolvedTargetAddress = ActionParameterKeys.ResolvedTargetAddress;
+    public const string Port = ActionParameterKeys.Port;
+    public const string AllowCrossSite = ActionParameterKeys.AllowCrossSite;
 
     /// <summary>
     /// Reads and validates the address the server resolved.

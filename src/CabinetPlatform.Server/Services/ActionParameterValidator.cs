@@ -110,11 +110,11 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private OperationResult<IReadOnlyDictionary<string, string>> ValidateServiceName(
         Dictionary<string, string> p)
     {
-        if (!p.TryGetValue("serviceName", out string? serviceName) ||
+        if (!p.TryGetValue(ActionParameterKeys.ServiceName, out string? serviceName) ||
             string.IsNullOrWhiteSpace(serviceName))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'serviceName' is required.");
+                .Invalid($"Parameter '{ActionParameterKeys.ServiceName}' is required.");
         }
 
         if (!_serviceAllowList.IsAllowed(serviceName))
@@ -131,20 +131,20 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateDiagnosticBundle(
         Dictionary<string, string> p)
     {
-        if (p.TryGetValue("includeEventLogs", out string? include) &&
+        if (p.TryGetValue(ActionParameterKeys.IncludeEventLogs, out string? include) &&
             !bool.TryParse(include, out _))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'includeEventLogs' must be true or false.");
+                .Invalid($"Parameter '{ActionParameterKeys.IncludeEventLogs}' must be true or false.");
         }
 
-        if (p.TryGetValue("hoursOfHistory", out string? hours))
+        if (p.TryGetValue(ActionParameterKeys.HoursOfHistory, out string? hours))
         {
             if (!int.TryParse(hours, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ||
                 value is < 1 or > 168)
             {
                 return OperationResult<IReadOnlyDictionary<string, string>>
-                    .Invalid("Parameter 'hoursOfHistory' must be between 1 and 168.");
+                    .Invalid($"Parameter '{ActionParameterKeys.HoursOfHistory}' must be between 1 and 168.");
             }
         }
 
@@ -152,14 +152,24 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     }
 
     /// <summary>
-    /// Checks a scheduled install time.
+    /// Converts a scheduled install time from the cabinet's local clock to UTC,
+    /// and refuses a local time that clock does not actually have.
     /// </summary>
     /// <remarks>
-    /// The console sends UTC, having converted from the time the rep typed in
-    /// the cabinet's local zone. It is re-checked here against that same zone:
-    /// a schedule set before a daylight-saving transition and executed after it
-    /// must still land at the local hour the rep chose, and an instant that
-    /// falls in a skipped hour is refused rather than quietly moved.
+    /// <para>
+    /// The rep specifies local time because that is what they agreed with the
+    /// clinic: "Tuesday at 2am" means 2am at the cabinet, in a fleet spanning
+    /// thirteen countries. The conversion happens here rather than in the
+    /// console so that one implementation is authoritative and testable.
+    /// </para>
+    /// <para>
+    /// It is also the only place the daylight-saving check can work. Converting
+    /// an instant that already arrived as UTC can never produce an invalid
+    /// local time — every UTC instant maps to exactly one valid local one — so
+    /// a request phrased in UTC has already lost the evidence that the rep
+    /// asked for an hour the zone skips. Phrased in local time, it is
+    /// detectable, and it is refused rather than quietly slid an hour later.
+    /// </para>
     /// </remarks>
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateScheduleUpdates(
         Dictionary<string, string> p,
@@ -167,61 +177,90 @@ public sealed class ActionParameterValidator : IActionParameterValidator
         Cabinet? cabinet,
         ICabinetClock? clock)
     {
-        if (!p.TryGetValue("scheduledForUtc", out string? scheduled) ||
+        if (p.ContainsKey(ActionParameterKeys.ScheduledForUtc))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.ScheduledForUtc}' is derived by the server from " +
+                $"'{ActionParameterKeys.ScheduledForLocal}' and may not be supplied.");
+        }
+
+        if (!p.TryGetValue(ActionParameterKeys.ScheduledForLocal, out string? scheduled) ||
             string.IsNullOrWhiteSpace(scheduled))
         {
-            return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'scheduledForUtc' is required.");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.ScheduledForLocal}' is required, in the cabinet's " +
+                "own local time.");
         }
 
-        if (!DateTimeOffset.TryParse(
+        // Parsed as an unspecified wall-clock time, deliberately. An offset
+        // here would be the caller asserting which side of a transition they
+        // meant, which is exactly the judgement this method exists to make.
+        if (!DateTime.TryParse(
                 scheduled,
                 CultureInfo.InvariantCulture,
-                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
-                out DateTimeOffset parsed))
+                DateTimeStyles.None,
+                out DateTime local) ||
+            local.Kind is not DateTimeKind.Unspecified)
         {
-            return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'scheduledForUtc' must be an ISO-8601 UTC timestamp.");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.ScheduledForLocal}' must be a local date and time " +
+                "with no time zone offset, for example 2026-03-08T02:30:00.");
         }
 
-        if (parsed <= nowUtc)
+        if (cabinet is null || clock is null)
         {
-            return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'scheduledForUtc' must be in the future.");
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "An install cannot be scheduled without the cabinet whose clock it is scheduled " +
+                "against.");
         }
 
-        if (cabinet is not null && clock is not null)
+        TimeZoneInfo? zone = clock.ResolveZone(cabinet);
+
+        if (zone is null)
         {
-            TimeZoneInfo? zone = clock.ResolveZone(cabinet);
-
-            if (zone is null)
-            {
-                return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
-                    "This cabinet has not reported a time zone this server can resolve, so an install " +
-                    "cannot be scheduled against its local clock.");
-            }
-
-            // The instant is fixed; what has to survive the transition is which
-            // local hour it lands on. Converting it back through the cabinet's
-            // zone is how that is checked rather than assumed.
-            DateTimeOffset local = TimeZoneInfo.ConvertTime(parsed, zone);
-
-            if (zone.IsInvalidTime(local.DateTime))
-            {
-                return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
-                    "That local time does not exist at this cabinet: it falls in the hour skipped by a " +
-                    "daylight-saving transition.");
-            }
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "This cabinet has not reported a time zone this server can resolve, so an install " +
+                "cannot be scheduled against its local clock.");
         }
 
-        // Re-normalised to round-trip format so the agent never has to guess
-        // at the caller's locale.
-        p["scheduledForUtc"] = parsed.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-
-        if (p.TryGetValue("rebootIfRequired", out string? reboot) && !bool.TryParse(reboot, out _))
+        if (zone.IsInvalidTime(local))
         {
-            return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'rebootIfRequired' must be true or false.");
+            // The morning a zone springs forward, an hour simply does not
+            // happen. Sliding the install into the next real hour would put an
+            // update on a cabinet an hour later than the rep agreed with the
+            // clinic, and nothing would say so.
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"{local:yyyy-MM-dd HH:mm} does not exist at this cabinet: the clock skips that hour " +
+                "for a daylight-saving transition. Choose a time before or after it.");
+        }
+
+        // An ambiguous local time happens twice on the morning a zone falls
+        // back. The earlier of the two is taken, which is the one a person
+        // reading a clock means, and the choice is recorded on the request
+        // rather than left for somebody to deduce later.
+        TimeSpan offset = zone.IsAmbiguousTime(local)
+            ? zone.GetAmbiguousTimeOffsets(local).Max()
+            : zone.GetUtcOffset(local);
+
+        var scheduledUtc = new DateTimeOffset(local, offset).ToUniversalTime();
+
+        if (scheduledUtc <= nowUtc)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"{local:yyyy-MM-dd HH:mm} at this cabinet has already passed.");
+        }
+
+        // Round-trip format, so the agent never has to guess at a locale.
+        p[ActionParameterKeys.ScheduledForLocal] =
+            local.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture);
+        p[ActionParameterKeys.ScheduledForUtc] =
+            scheduledUtc.ToString("O", CultureInfo.InvariantCulture);
+
+        if (p.TryGetValue(ActionParameterKeys.RebootIfRequired, out string? reboot) &&
+            !bool.TryParse(reboot, out _))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                $"Parameter '{ActionParameterKeys.RebootIfRequired}' must be true or false.");
         }
 
         return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
@@ -230,13 +269,13 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateReboot(
         Dictionary<string, string> p)
     {
-        if (p.TryGetValue("delaySeconds", out string? delay))
+        if (p.TryGetValue(ActionParameterKeys.DelaySeconds, out string? delay))
         {
             if (!int.TryParse(delay, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ||
                 value is < 0 or > 3600)
             {
                 return OperationResult<IReadOnlyDictionary<string, string>>
-                    .Invalid("Parameter 'delaySeconds' must be between 0 and 3600.");
+                    .Invalid($"Parameter '{ActionParameterKeys.DelaySeconds}' must be between 0 and 3600.");
             }
         }
 
@@ -246,26 +285,26 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateEventLogs(
         Dictionary<string, string> p)
     {
-        if (p.TryGetValue("logName", out string? logName) &&
+        if (p.TryGetValue(ActionParameterKeys.LogName, out string? logName) &&
             !Enum.TryParse<Contracts.Telemetry.EventLogName>(logName, ignoreCase: true, out _))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
-                "Parameter 'logName' must be Application, System or Security.");
+                $"Parameter '{ActionParameterKeys.LogName}' must be Application, System or Security.");
         }
 
-        if (p.TryGetValue("minimumLevel", out string? level) &&
+        if (p.TryGetValue(ActionParameterKeys.MinimumLevel, out string? level) &&
             !Enum.TryParse<Contracts.Telemetry.EventLogLevel>(level, ignoreCase: true, out _))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
-                "Parameter 'minimumLevel' is not a known event log level.");
+                $"Parameter '{ActionParameterKeys.MinimumLevel}' is not a known event log level.");
         }
 
-        if (p.TryGetValue("hoursOfHistory", out string? hours) &&
+        if (p.TryGetValue(ActionParameterKeys.HoursOfHistory, out string? hours) &&
             (!int.TryParse(hours, NumberStyles.Integer, CultureInfo.InvariantCulture, out int window) ||
              window is < 1 or > 168))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>
-                .Invalid("Parameter 'hoursOfHistory' must be between 1 and 168.");
+                .Invalid($"Parameter '{ActionParameterKeys.HoursOfHistory}' must be between 1 and 168.");
         }
 
         return ValidateMaxEntries(p, 5000);
@@ -277,12 +316,12 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     private static OperationResult<IReadOnlyDictionary<string, string>> ValidateMaxEntries(
         Dictionary<string, string> p, int ceiling)
     {
-        if (p.TryGetValue("maxEntries", out string? max) &&
+        if (p.TryGetValue(ActionParameterKeys.MaxEntries, out string? max) &&
             (!int.TryParse(max, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ||
              value < 1 || value > ceiling))
         {
             return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
-                $"Parameter 'maxEntries' must be between 1 and {ceiling}.");
+                $"Parameter '{ActionParameterKeys.MaxEntries}' must be between 1 and {ceiling}.");
         }
 
         return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);

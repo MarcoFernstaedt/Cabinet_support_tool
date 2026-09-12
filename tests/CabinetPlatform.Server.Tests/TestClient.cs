@@ -171,6 +171,10 @@ public static class TestClient
         this HttpClient client, string url, T body) =>
         client.PostAsJsonAsync(url, body, Json);
 
+    public static Task<HttpResponseMessage> PutJsonAsync<T>(
+        this HttpClient client, string url, T body) =>
+        client.PutAsJsonAsync(url, body, Json);
+
     public static Task<HttpResponseMessage> PatchJsonAsync<T>(
         this HttpClient client, string url, T body) =>
         client.PatchAsJsonAsync(url, body, Json);
