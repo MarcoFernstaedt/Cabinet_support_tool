@@ -41,13 +41,14 @@ public sealed partial class AuditTabViewModel : ObservableViewModelBase
         _api = api;
         _timeProvider = timeProvider;
 
-        DateTime nowUtc = timeProvider.GetUtcNow().UtcDateTime;
-
         // A week, which is inside the server's bound and is the window a support
         // engineer usually wants. Unbounded is not on offer: the server refuses
         // it rather than clamping, so offering it here would only produce an
         // error the user did not ask for.
-        ToLocal = DateTime.SpecifyKind(nowUtc, DateTimeKind.Utc).ToLocalTime();
+        //
+        // Shown in the reader's own zone: the rep picks the window they mean,
+        // and the client converts it back to UTC on the way out.
+        ToLocal = timeProvider.GetUtcNow().ToLocalTime();
         FromLocal = ToLocal.AddDays(-7);
     }
 

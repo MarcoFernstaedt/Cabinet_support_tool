@@ -124,6 +124,30 @@ public sealed record InventoryVersionDto
     /// <summary>Volumes and their encryption state, or null if the section failed.</summary>
     public IReadOnlyList<DiskInfo>? Disks { get; init; }
 
+    /// <summary>
+    /// Physical memory installed, in bytes, or <see langword="null"/> if it
+    /// could not be read.
+    /// </summary>
+    /// <remarks>
+    /// Installed memory is configuration, not a counter: it changes when
+    /// somebody opens the machine, so it rides the inventory tier rather than
+    /// every heartbeat. Null rather than zero when unread — a cabinet with no
+    /// memory is not a thing, and showing it as one would suggest the reading
+    /// is real.
+    /// </remarks>
+    public long? InstalledMemoryBytes { get; init; }
+
+    /// <summary>
+    /// Programs configured to launch at logon or boot, or null if they could
+    /// not be enumerated.
+    /// </summary>
+    /// <remarks>
+    /// Inbound observation only. The command each entry carries is the string
+    /// Windows already holds; it is shown so a rep can read what a machine
+    /// launches, and is never executed or accepted back as input.
+    /// </remarks>
+    public IReadOnlyList<StartupProgramInfo>? StartupPrograms { get; init; }
+
     /// <summary>Collectors that could not complete, and why.</summary>
     public IReadOnlyDictionary<string, string> SectionErrors { get; init; }
         = new Dictionary<string, string>();

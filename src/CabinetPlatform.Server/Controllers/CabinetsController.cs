@@ -644,6 +644,8 @@ public sealed class CabinetsController : SupportControllerBase
             Network = stored?.Network,
             WindowsUpdate = stored?.WindowsUpdate,
             Disks = stored?.Disks,
+            InstalledMemoryBytes = stored?.Performance?.RamTotalBytes,
+            StartupPrograms = stored?.Performance?.StartupPrograms,
             SectionErrors = DeserialiseErrors(v.SectionErrorsJson),
         };
     }
@@ -716,5 +718,12 @@ public sealed class CabinetsController : SupportControllerBase
         public WindowsUpdateInfo? WindowsUpdate { get; init; }
 
         public IReadOnlyList<DiskInfo>? Disks { get; init; }
+
+        /// <summary>
+        /// The performance section as it was stored. Only its configuration
+        /// facts are read back: the counters in it were a sample taken at one
+        /// instant six hours ago and would be misleading shown as current.
+        /// </summary>
+        public PerformanceInfo? Performance { get; init; }
     }
 }

@@ -71,16 +71,17 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task Selecting_a_cabinet_loads_its_machine_tab()
     {
-        Cabinet cabinet = await _host.CreateCabinetAsync($"SEL-{Unique("b")[..6]}", Unique("SelClient"));
+        string clientName = Unique("SelClient");
+        Cabinet cabinet = await _host.CreateCabinetAsync($"SEL-{Unique("b")[..6]}", clientName);
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-2)),
-            DateTime.UtcNow.AddMinutes(-2));
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-2)),
+            DateTimeOffset.UtcNow.AddMinutes(-2));
 
         (ShellViewModel shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
 
-        shell.Cabinets.ClientFilter = cabinet.ClientName;
+        shell.Cabinets.ClientFilter = clientName;
         await shell.Cabinets.LoadAsync();
 
         // Selecting a row starts the detail load from an event handler; the
@@ -150,7 +151,12 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         // Replace the token with one the server will reject. This is what a
         // lapsed token looks like from the console's side.
         session.SignIn(
-            "not.a.valid.token", DateTime.UtcNow.AddMinutes(30), "Someone", Role.Supervisor, false);
+            "not.a.valid.token",
+            DateTimeOffset.UtcNow.AddMinutes(30),
+            "not.a.valid.refresh.token",
+            "Someone",
+            Role.Supervisor,
+            mustChangePassword: false);
 
         await shell.Cabinets.LoadAsync();
 
@@ -180,7 +186,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
                 CabinetId = cabinet.Id,
                 Reason = "Controller wedged",
                 TicketReference = "SUP-4001",
-                Parameters = { ["serviceName"] = "MashuraDispenseController" }
+                Parameters = new Dictionary<string, string> { ["serviceName"] = "MashuraDispenseController" }
             },
             CancellationToken.None);
 
@@ -195,7 +201,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
                 CabinetId = cabinet.Id,
                 Reason = "Second look at the controller",
                 TicketReference = "SUP-4002",
-                Parameters = { ["serviceName"] = "MashuraDispenseController" }
+                Parameters = new Dictionary<string, string> { ["serviceName"] = "MashuraDispenseController" }
             },
             CancellationToken.None);
 

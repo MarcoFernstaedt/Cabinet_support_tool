@@ -105,6 +105,13 @@ public sealed partial class ShellViewModel : ObservableObject
     /// </summary>
     public event EventHandler<SignInReason>? SignInRequired;
 
+    /// <summary>
+    /// Whether this shell believes a session is running. Distinct from the
+    /// session store's own flag, which the API client clears on its own when a
+    /// refresh is refused.
+    /// </summary>
+    private bool _sessionLive;
+
     [ObservableProperty]
     private ShellView _currentView = ShellView.Cabinets;
 
@@ -157,6 +164,8 @@ public sealed partial class ShellViewModel : ObservableObject
     /// </summary>
     public async Task StartSessionAsync()
     {
+        _sessionLive = true;
+
         RaiseSessionChanged();
 
         CurrentView = ShellView.Cabinets;
@@ -252,6 +261,8 @@ public sealed partial class ShellViewModel : ObservableObject
 
     private void EndSession(SignInReason reason)
     {
+        _sessionLive = false;
+
         DeactivateAll();
 
         _session.SignOut();
@@ -309,12 +320,21 @@ public sealed partial class ShellViewModel : ObservableObject
     }
 
     /// <summary>Asks for a new sign-in when any screen reports an expired token.</summary>
+    /// <remarks>
+    /// Gated on this shell's own view of the session rather than on
+    /// <c>_session.IsSignedIn</c>. The API client clears the session itself when
+    /// a refresh is refused, so by the time a screen reports the expiry the
+    /// store already says "signed out" — and reading that as "somebody has
+    /// already handled this" left the user looking at a dead window with no
+    /// login prompt. The flag makes the check "have I already ended this
+    /// session?", which is the question actually being asked.
+    /// </remarks>
     private void WatchForExpiry(ObservableViewModelBase viewModel) =>
         viewModel.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(ObservableViewModelBase.RequiresReauthentication) &&
                 viewModel.RequiresReauthentication &&
-                _session.IsSignedIn)
+                _sessionLive)
             {
                 EndSession(SignInReason.SessionExpired);
             }

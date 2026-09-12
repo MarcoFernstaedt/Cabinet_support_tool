@@ -15,7 +15,7 @@ namespace CabinetPlatform.Console.Core.ViewModels;
 /// </remarks>
 public sealed partial class ApprovalDecisionDialogViewModel : ObservableObject
 {
-    public ApprovalDecisionDialogViewModel(ApprovalDecisionPrompt prompt, DateTime nowUtc)
+    public ApprovalDecisionDialogViewModel(ApprovalDecisionPrompt prompt, DateTimeOffset nowUtc)
     {
         Prompt = prompt;
         Row = new ActionRow(prompt.Action, currentUserId: null, nowUtc);

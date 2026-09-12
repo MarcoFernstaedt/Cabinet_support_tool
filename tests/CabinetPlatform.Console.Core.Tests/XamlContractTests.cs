@@ -163,9 +163,15 @@ public sealed class XamlContractTests
     {
         Assembly core = typeof(StatusPresentation).Assembly;
 
+        // Contracts too: a section that holds a list of contract records — the
+        // network adapters, the installed software — binds a grid column
+        // straight at those records rather than wrapping each one in a row type
+        // that would add nothing.
+        Assembly contracts = typeof(Contracts.Telemetry.NetworkAdapterInfo).Assembly;
+
         HashSet<string> members = new(StringComparer.Ordinal);
 
-        foreach (Type type in core.GetExportedTypes())
+        foreach (Type type in core.GetExportedTypes().Concat(contracts.GetExportedTypes()))
         {
             foreach (MemberInfo member in type.GetMembers(
                          BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
@@ -194,7 +200,8 @@ public sealed class XamlContractTests
                 }
 
                 unknown.Add($"{Path.GetFileName(file)} binds to '{path}', and no public member " +
-                            $"named '{root}' exists in {core.GetName().Name}");
+                            $"named '{root}' exists in {core.GetName().Name} or " +
+                            $"{contracts.GetName().Name}");
             }
         }
 

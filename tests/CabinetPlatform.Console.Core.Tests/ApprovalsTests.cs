@@ -54,7 +54,7 @@ public sealed class ApprovalsTests : IClassFixture<ConsoleTestHost>
                 CabinetId = cabinetId,
                 Reason = "Dispense controller wedged; bouncing it for ticket SUP-2001",
                 TicketReference = "SUP-2001",
-                Parameters = { ["serviceName"] = "MashuraDispenseController" }
+                Parameters = new Dictionary<string, string> { ["serviceName"] = "MashuraDispenseController" }
             },
             CancellationToken.None);
 

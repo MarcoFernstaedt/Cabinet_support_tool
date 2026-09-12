@@ -48,13 +48,13 @@
             </Border>
 
             <!--
-                Says up front how much of this tab this server build cannot
-                fill, so the limitation is not something a user only discovers
-                by opening a section.
+                Says up front which sections arrive on request rather than with
+                routine telemetry, so an empty panel is never something a user
+                discovers only by opening it and guessing.
             -->
             <Border Style="{StaticResource ExplanationPanel}"
-                    Visibility="{Binding UnservedSectionNote, Converter={StaticResource StringToVisibility}}">
-                <TextBlock Text="{Binding UnservedSectionNote}"
+                    Visibility="{Binding OnDemandSectionNote, Converter={StaticResource StringToVisibility}}">
+                <TextBlock Text="{Binding OnDemandSectionNote}"
                            Style="{StaticResource ExplanationText}"
                            AutomationProperties.Name="Coverage note" />
             </Border>
@@ -358,10 +358,22 @@
                                 </DataGridTemplateColumn>
                                 <DataGridTextColumn Header="Reallocated sectors" Binding="{Binding ReallocatedSectors}" Width="Auto" />
                                 <DataGridTextColumn Header="Pending sectors" Binding="{Binding PendingSectors}" Width="Auto" />
-                                <DataGridTextColumn Header="Percentage used" Binding="{Binding PercentageUsed}" Width="Auto" />
-                                <DataGridTextColumn Header="Available spare" Binding="{Binding AvailableSpare}" Width="Auto" />
+                                <DataGridTextColumn Header="Uncorrectable errors" Binding="{Binding UncorrectableErrors}" Width="Auto" />
+                                <DataGridTextColumn Header="Wear" Binding="{Binding Wear}" Width="Auto" />
+                                <DataGridTextColumn Header="Read errors" Binding="{Binding ReadErrorsTotal}" Width="Auto" />
+                                <DataGridTextColumn Header="Write errors" Binding="{Binding WriteErrorsTotal}" Width="Auto" />
                                 <DataGridTextColumn Header="Power-on hours" Binding="{Binding PowerOnHours}" Width="Auto" />
                                 <DataGridTextColumn Header="Temperature" Binding="{Binding Temperature}" Width="Auto" />
+                                <DataGridTextColumn Header="Highest temperature" Binding="{Binding TemperatureMax}" Width="Auto" />
+                                <DataGridTextColumn Header="Predicted failure" Binding="{Binding PredictedFailure}" Width="Auto" />
+                                <!--
+                                    Shown rather than hidden: a counter decoded out of a
+                                    vendor-specific byte array and a documented reliability
+                                    counter deserve different amounts of confidence, and only
+                                    the row itself knows which it is.
+                                -->
+                                <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="Auto" />
+                                <DataGridTextColumn Header="Resolution" Binding="{Binding Resolution}" Width="Auto" />
                                 <DataGridTextColumn Header="Sampled" Binding="{Binding Timestamp}"
                                                     SortMemberPath="TimestampUtc" Width="Auto" />
                             </DataGrid.Columns>
@@ -483,14 +495,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTemplateColumn Header="Reboot" Width="Auto" SortMemberPath="Reboot.Label">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <ContentPresenter Content="{Binding Reboot}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Size" Binding="{Binding SizeBytes}" Width="Auto" />
                             </DataGrid.Columns>
                         </DataGrid>
 
@@ -535,10 +540,64 @@
                         <ContentControl Content="{Binding Availability}"
                                         ContentTemplate="{StaticResource SectionUnavailableTemplate}" />
 
-                        <TextBlock Text="{Binding ActionsStillWorkNote}"
-                                   Style="{StaticResource ExplanationText}"
-                                   Margin="0,8,0,0"
-                                   AutomationProperties.Name="Note about the actions in this section" />
+                        <Grid Visibility="{Binding Availability.HasData, Converter={StaticResource BoolToVisibility}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Reaches this server" Style="{StaticResource FieldLabel}" />
+                            <ContentPresenter Grid.Row="0" Grid.Column="1" Content="{Binding ServerReachable}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Firewall, domain" Style="{StaticResource FieldLabel}" />
+                            <ContentPresenter Grid.Row="1" Grid.Column="1" Content="{Binding FirewallDomain}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Firewall, private" Style="{StaticResource FieldLabel}" />
+                            <ContentPresenter Grid.Row="2" Grid.Column="1" Content="{Binding FirewallPrivate}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Firewall, public" Style="{StaticResource FieldLabel}" />
+                            <ContentPresenter Grid.Row="3" Grid.Column="1" Content="{Binding FirewallPublic}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Proxy" Style="{StaticResource FieldLabel}" />
+                            <ContentPresenter Grid.Row="4" Grid.Column="1" Content="{Binding Proxy}"
+                                              ContentTemplate="{StaticResource StatusTemplate}" />
+
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Proxy address" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ProxyAddress}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Proxy address" />
+                        </Grid>
+
+                        <!--
+                            Adapters that are down are listed rather than filtered
+                            out: a cabinet on the wrong port is exactly what a rep
+                            opening this section is looking for.
+                        -->
+                        <DataGrid ItemsSource="{Binding Adapters}"
+                                  Style="{StaticResource AccessibleDataGrid}"
+                                  Margin="0,8,0,0"
+                                  MaxHeight="220"
+                                  Visibility="{Binding Availability.HasData, Converter={StaticResource BoolToVisibility}}"
+                                  AutomationProperties.Name="Network adapters">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Adapter" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="2*" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="Auto" />
+                                <DataGridTextColumn Header="MAC" Binding="{Binding MacAddress}" Width="Auto" />
+                                <DataGridTextColumn Header="DHCP" Binding="{Binding DhcpEnabled}" Width="Auto" />
+                            </DataGrid.Columns>
+                        </DataGrid>
 
                         <ContentControl Content="{Binding}"
                                         ContentTemplate="{StaticResource SectionActionsTemplate}" />
@@ -560,15 +619,78 @@
                         <ContentControl Content="{Binding Availability}"
                                         ContentTemplate="{StaticResource SectionUnavailableTemplate}" />
 
-                        <TextBlock Text="{Binding ClockDriftNote}"
-                                   Style="{StaticResource ExplanationText}"
-                                   Margin="0,8,0,0"
-                                   AutomationProperties.Name="Note about clock drift" />
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
 
-                        <TextBlock Text="{Binding ActionsStillWorkNote}"
-                                   Style="{StaticResource ExplanationText}"
-                                   Margin="0,8,0,0"
-                                   AutomationProperties.Name="Note about the actions in this section" />
+                            <TextBlock Grid.Row="0" Grid.Column="0" Text="Operating system" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding OsVersion}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Operating system" />
+
+                            <TextBlock Grid.Row="1" Grid.Column="0" Text="Build" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding OsBuild}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Operating system build" />
+
+                            <TextBlock Grid.Row="2" Grid.Column="0" Text="Installed" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InstallDate}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Operating system install date" />
+
+                            <TextBlock Grid.Row="3" Grid.Column="0" Text="Domain" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Domain}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Domain or workgroup" />
+
+                            <TextBlock Grid.Row="4" Grid.Column="0" Text="Time zone" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding TimeZone}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Cabinet time zone" />
+
+                            <!--
+                                The cabinet's own clock, shown beside the rep's.
+                                A maintenance window is evaluated in this zone,
+                                never the server's and never the reader's.
+                            -->
+                            <TextBlock Grid.Row="5" Grid.Column="0" Text="Cabinet local time" Style="{StaticResource FieldLabel}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CabinetLocalTime}" Style="{StaticResource FieldValue}"
+                                       AutomationProperties.Name="Cabinet local time" />
+
+                            <!--
+                                Its own line because drift breaks site
+                                synchronisation and the ordering of audit records
+                                against a dispensing system's log, and neither
+                                failure announces itself at the time.
+                            -->
+                            <TextBlock Grid.Row="6" Grid.Column="0" Text="Clock drift" Style="{StaticResource FieldLabel}" />
+                            <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal">
+                                <TextBlock Text="{Binding ClockDrift}" Style="{StaticResource FieldValue}"
+                                           AutomationProperties.Name="Clock drift from the server" />
+                                <ContentPresenter Content="{Binding ClockDriftStatus}"
+                                                  ContentTemplate="{StaticResource StatusTemplate}"
+                                                  Margin="8,0,0,0" />
+                            </StackPanel>
+                        </Grid>
+
+                        <DataGrid ItemsSource="{Binding InstalledSoftware}"
+                                  Style="{StaticResource AccessibleDataGrid}"
+                                  Margin="0,8,0,0"
+                                  MaxHeight="220"
+                                  Visibility="{Binding Availability.HasData, Converter={StaticResource BoolToVisibility}}"
+                                  AutomationProperties.Name="Installed software">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="2*" />
+                                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="Auto" />
+                                <DataGridTextColumn Header="Publisher" Binding="{Binding Publisher}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
 
                         <ContentControl Content="{Binding}"
                                         ContentTemplate="{StaticResource SectionActionsTemplate}" />

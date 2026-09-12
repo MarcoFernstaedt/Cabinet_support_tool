@@ -168,7 +168,7 @@ public sealed partial class CabinetListViewModel : ObservableViewModelBase
             return;
         }
 
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         Guid? previouslySelected = SelectedCabinet?.Id;
 

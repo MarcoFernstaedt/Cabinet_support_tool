@@ -60,10 +60,10 @@ public sealed partial class PerformanceSectionViewModel : MachineSectionViewMode
         RamState = Pressure(check.RamUsedPercent, "Memory");
 
         // Installed memory is configuration and arrives on the inventory tier,
-        // not on every heartbeat.
-        long? totalBytes = latest?.CurrentInventory?.System is not null
-            ? InstalledMemory(latest)
-            : null;
+        // not on every heartbeat. A cabinet that has heartbeated but not yet
+        // sent an inventory therefore shows live utilisation and no total,
+        // which is the truth about what the server knows.
+        long? totalBytes = latest?.CurrentInventory?.InstalledMemoryBytes;
 
         // A zero total is a failed reading, not a machine with no memory.
         RamTotal = totalBytes is > 0 ? Format.Bytes(totalBytes) : Format.NotReported;
@@ -71,20 +71,6 @@ public sealed partial class PerformanceSectionViewModel : MachineSectionViewMode
             ? Format.Bytes((long)(totalBytes.Value * used / 100d))
             : Format.NotReported;
     }
-
-    /// <summary>
-    /// Words for a utilisation figure. The thresholds are the console's own and
-    /// affect wording only; the cabinet's actual health verdict is the server's.
-    /// </summary>
-    /// <summary>
-    /// Installed memory, from the inventory tier.
-    /// </summary>
-    /// <remarks>
-    /// Null rather than zero when the inventory has not reported: a machine
-    /// with no memory is not a thing, and rendering it as one would suggest the
-    /// reading is real.
-    /// </remarks>
-    private static long? InstalledMemory(CabinetDetailDto latest) => null;
 
     /// <summary>
     /// Words for a utilisation figure. A counter that was not read has no

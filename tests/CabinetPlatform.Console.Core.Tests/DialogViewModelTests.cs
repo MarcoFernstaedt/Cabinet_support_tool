@@ -25,7 +25,8 @@ public sealed class DialogViewModelTests
         TimeoutSeconds = 900,
         AllowedParameterKeys = new[] { "delaySeconds" },
         MaintenanceWindowOnly = true,
-        BlockedIfUserLoggedOn = true
+        BlockedIfUserLoggedOn = true,
+        TargetsAnotherCabinet = false
     };
 
     private static ActionCatalogEntryDto Scan() => new()
@@ -39,7 +40,8 @@ public sealed class DialogViewModelTests
         TimeoutSeconds = 600,
         AllowedParameterKeys = Array.Empty<string>(),
         MaintenanceWindowOnly = false,
-        BlockedIfUserLoggedOn = false
+        BlockedIfUserLoggedOn = false,
+        TargetsAnotherCabinet = false
     };
 
     private static ActionRequestDialogViewModel Dialog(
@@ -225,11 +227,12 @@ public sealed class DialogViewModelTests
         SiteName = "Main Surgery",
         RequestedByUserId = Guid.NewGuid(),
         RequestedByDisplayName = "A. Requester",
-        RequestedUtc = DateTime.UtcNow.AddMinutes(-6),
+        RequestedUtc = DateTimeOffset.UtcNow.AddMinutes(-6),
         Reason = "Dispense controller wedged",
         TicketReference = "SUP-2001",
         Status = ActionRequestStatus.PendingApproval,
-        ExpiresUtc = DateTime.UtcNow.AddMinutes(24),
+        SafetyChecksOverridden = false,
+        ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(24),
         Parameters = new Dictionary<string, string> { ["serviceName"] = "MashuraDispenseController" }
     };
 
@@ -237,7 +240,7 @@ public sealed class DialogViewModelTests
     public void Denying_requires_a_reason_and_approving_does_not()
     {
         var deny = new ApprovalDecisionDialogViewModel(
-            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: false), DateTime.UtcNow);
+            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: false), DateTimeOffset.UtcNow);
 
         Assert.False(deny.CanConfirm);
         Assert.Contains("requester needs to know", deny.ValidationMessage!, StringComparison.OrdinalIgnoreCase);
@@ -247,7 +250,7 @@ public sealed class DialogViewModelTests
         Assert.Equal("Clinic is mid-session", deny.BuildSubmission()!.Note);
 
         var approve = new ApprovalDecisionDialogViewModel(
-            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: true), DateTime.UtcNow);
+            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: true), DateTimeOffset.UtcNow);
 
         Assert.True(approve.CanConfirm);
         Assert.Null(approve.ValidationMessage);
@@ -258,7 +261,7 @@ public sealed class DialogViewModelTests
     public void The_decision_dialog_shows_the_requesters_own_words_and_the_consequence()
     {
         var approve = new ApprovalDecisionDialogViewModel(
-            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: true), DateTime.UtcNow);
+            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: true), DateTimeOffset.UtcNow);
 
         Assert.Equal("Approve", approve.ConfirmLabel);
         Assert.Contains("Dispense controller wedged", approve.AccessibleSummary);
@@ -269,7 +272,7 @@ public sealed class DialogViewModelTests
         Assert.Contains("serviceName: MashuraDispenseController", approve.Row.Parameters);
 
         var deny = new ApprovalDecisionDialogViewModel(
-            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: false), DateTime.UtcNow);
+            new ApprovalDecisionPrompt(PendingRequest(), IsApproval: false), DateTimeOffset.UtcNow);
 
         Assert.Equal("Deny", deny.ConfirmLabel);
         Assert.Contains("stops this permanently", deny.Consequence, StringComparison.OrdinalIgnoreCase);

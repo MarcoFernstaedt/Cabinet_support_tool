@@ -26,12 +26,6 @@ public enum SectionAvailabilityKind
     Empty,
 
     /// <summary>
-    /// This server build does not carry the section. The console names the gap
-    /// rather than drawing an empty panel that looks like a healthy machine.
-    /// </summary>
-    NotCarriedByServer,
-
-    /// <summary>
     /// The data exists but is fetched by an explicit action rather than
     /// arriving with routine telemetry.
     /// </summary>
@@ -71,18 +65,6 @@ public sealed record SectionAvailability(SectionAvailabilityKind Kind, string Re
         string.IsNullOrWhiteSpace(reason)
             ? "The agent could not collect this section and gave no reason."
             : reason);
-
-    /// <summary>
-    /// Names a section the agent collects but this server build does not store
-    /// or serve. The wording says which component the gap is in, because
-    /// "unavailable" alone sends a support engineer to check the cabinet for a
-    /// fault that is not there.
-    /// </summary>
-    public static SectionAvailability NotCarriedByServer(string sectionName) => new(
-        SectionAvailabilityKind.NotCarriedByServer,
-        $"{sectionName} is not carried by this server build. The agent collects it, but the " +
-        "server's check-in contract has no field for it, so there is nothing to display. " +
-        "This is a gap in the platform, not a fault on the cabinet.");
 
     /// <summary>
     /// The section's data is fetched on request rather than routinely.

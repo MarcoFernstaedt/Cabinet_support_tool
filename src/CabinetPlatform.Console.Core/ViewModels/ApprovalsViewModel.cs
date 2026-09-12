@@ -142,7 +142,7 @@ public sealed partial class ApprovalsViewModel : ObservableViewModelBase
             return;
         }
 
-        DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
         Queue.Clear();
 

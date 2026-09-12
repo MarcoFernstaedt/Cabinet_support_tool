@@ -33,7 +33,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         (ApiClient api, SessionStore session) = _host.CreateConsole();
 
         await api.LoginAsync(
-            new Contracts.Users.LoginRequest
+            new Contracts.Auth.LoginRequest
             {
                 Username = username,
                 Password = ConsoleTestHost.KnownPassword
@@ -60,12 +60,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-4)),
-            DateTime.UtcNow.AddMinutes(-4),
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-4)),
+            DateTimeOffset.UtcNow.AddMinutes(-4),
             minFreeDiskPercent: 2d,
-            worstDiskHealth: DiskHealthStatus.Warning);
+            worstDiskHealth: DiskHealthStatus.Watch);
 
         await tab.LoadAsync(cabinet.Id);
 
@@ -99,7 +99,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.True(tab.Disk.Availability.HasData);
         Assert.Equal(2, tab.Disk.Volumes.Count);
 
-        VolumeRow nearlyFull = tab.Disk.Volumes.Single(v => v.VolumeId == "D:");
+        VolumeRow nearlyFull = tab.Disk.Volumes.Single(v => v.VolumeId == "D");
         Assert.Equal("Critically low", nearlyFull.Space.Label);
 
         // Windows Update.
@@ -125,8 +125,16 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         foreach (MachineSectionViewModel section in tab.Sections)
         {
             Assert.False(section.Availability.HasData);
-            Assert.Equal(SectionAvailabilityKind.NoCheckIn, section.Availability.Kind);
             Assert.NotEmpty(section.Availability.Reason);
+
+            // Event logs are on-demand whether or not a cabinet has checked in,
+            // so their reason is the action to run rather than the absence of
+            // telemetry. Everything else is simply "nothing collected yet".
+            Assert.Equal(
+                section == tab.EventLogs
+                    ? SectionAvailabilityKind.OnDemandOnly
+                    : SectionAvailabilityKind.NoCheckIn,
+                section.Availability.Kind);
         }
 
         // Identity is still real and still shown; only the readings are absent.
@@ -137,35 +145,71 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.Equal("Never", tab.Overview.LastCheckInAge);
     }
 
+    /// <summary>
+    /// Sections that arrive on request say which action fetches them, rather
+    /// than drawing an empty panel that reads as a quiet machine.
+    /// </summary>
+    /// <remarks>
+    /// Event logs and process lists are large, change constantly, and are read
+    /// for one cabinet at a time by somebody already looking at it — so they
+    /// travel on an action, not on a check-in every five minutes from seven
+    /// thousand cabinets. That is a deliberate design, not a gap, and the
+    /// wording has to say so.
+    /// </remarks>
     [Fact]
-    public async Task Sections_this_server_cannot_fill_say_so_rather_than_appearing_empty()
+    public async Task Sections_fetched_on_request_name_the_action_rather_than_appearing_empty()
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-2)),
-            DateTime.UtcNow.AddMinutes(-2));
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-2)),
+            DateTimeOffset.UtcNow.AddMinutes(-2));
 
         await tab.LoadAsync(cabinet.Id);
 
-        foreach (MachineSectionViewModel section in new MachineSectionViewModel[]
-                 {
-                     tab.EventLogs, tab.Network, tab.System
-                 })
-        {
-            Assert.Equal(SectionAvailabilityKind.NotCarriedByServer, section.Availability.Kind);
-            Assert.Contains("not carried by this server build",
-                section.Availability.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.EventLogs.Availability.Kind);
+        Assert.Contains("collected on request",
+            tab.EventLogs.Availability.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("View event logs",
+            tab.EventLogs.Availability.Reason, StringComparison.OrdinalIgnoreCase);
 
-            // Says where the gap is, so nobody goes looking for a fault on the
-            // cabinet that is not there.
-            Assert.Contains("not a fault on the cabinet",
-                section.Availability.Reason, StringComparison.OrdinalIgnoreCase);
-        }
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Performance.ProcessListAvailability.Kind);
+        Assert.Contains("View process list",
+            tab.Performance.ProcessListAvailability.Reason, StringComparison.OrdinalIgnoreCase);
 
-        Assert.Equal(3, tab.UnservedSectionCount);
-        Assert.NotNull(tab.UnservedSectionNote);
+        Assert.Equal(1, tab.OnDemandSectionCount);
+        Assert.NotNull(tab.OnDemandSectionNote);
+    }
+
+    /// <summary>
+    /// Network and System are filled from the inventory tier, which Ruling 8
+    /// requires the server to store in full.
+    /// </summary>
+    [Fact]
+    public async Task Network_and_system_render_what_the_inventory_tier_carried()
+    {
+        (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+
+        await _host.AddFullCheckInAsync(
+            cabinet.Id,
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-2)),
+            DateTimeOffset.UtcNow.AddMinutes(-2));
+
+        await tab.LoadAsync(cabinet.Id);
+
+        Assert.True(tab.Network.Availability.HasData);
+        Assert.Equal(2, tab.Network.Adapters.Count);
+
+        // The unplugged adapter is listed rather than filtered out: a cabinet
+        // on the wrong port is exactly what a rep opening this section wants.
+        Assert.Contains(tab.Network.Adapters, a => a.Status == NetworkAdapterStatus.Down);
+
+        Assert.True(tab.System.Availability.HasData);
+        Assert.Equal("Windows 10 Enterprise LTSC 21H2", tab.System.OsVersion);
+        Assert.Equal("19044.3086", tab.System.OsBuild);
+        Assert.Equal("NORTHGATE", tab.System.Domain);
+        Assert.Equal("Europe/London", tab.System.TimeZone);
     }
 
     [Fact]
@@ -187,10 +231,10 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1)),
-            DateTime.UtcNow.AddMinutes(-1));
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            DateTimeOffset.UtcNow.AddMinutes(-1));
 
         await tab.LoadAsync(cabinet.Id);
 
@@ -214,9 +258,9 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
-        DateTime now = DateTime.UtcNow;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id, TestData.Payload(cabinet.MachineId, now.AddMinutes(-1)), now.AddMinutes(-1));
 
         await _host.AddSmartReadingsAsync(cabinet.Id, new[]
@@ -228,13 +272,19 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
         SmartRow nvme = Assert.Single(tab.Disk.Drives);
 
-        Assert.Equal("7%", nvme.PercentageUsed);
-        Assert.Equal("100%", nvme.AvailableSpare);
+        Assert.Equal("7%", nvme.Wear);
+        Assert.Equal("1,204", nvme.ReadErrorsTotal);
+        Assert.Equal("58 \u00b0C", nvme.TemperatureMax);
 
         // The whole point: a rotational counter an NVMe module never reports
         // must read as unreported, not as a clean zero.
         Assert.Equal("Not reported", nvme.ReallocatedSectors);
         Assert.Equal("Not reported", nvme.PendingSectors);
+
+        // And the row says which source the numbers came from, because a
+        // structured reliability counter and a value decoded out of a
+        // vendor-specific byte array are not the same measurement.
+        Assert.Equal("Storage reliability counters", nvme.Source);
     }
 
     [Fact]
@@ -242,9 +292,9 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier1);
 
-        DateTime now = DateTime.UtcNow;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id, TestData.Payload(cabinet.MachineId, now.AddMinutes(-1)), now.AddMinutes(-1));
 
         await _host.AddSmartReadingsAsync(
@@ -333,9 +383,9 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Supervisor);
 
-        await _host.AddCheckInAsync(
-            cabinet.Id, TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1)),
-            DateTime.UtcNow.AddMinutes(-1));
+        await _host.AddFullCheckInAsync(
+            cabinet.Id, TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            DateTimeOffset.UtcNow.AddMinutes(-1));
 
         await tab.LoadAsync(cabinet.Id);
 
@@ -365,10 +415,10 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             await SignedInTabAsync(Role.Supervisor, dialog);
 
         // Nobody logged on: the safety gate the server enforces on reboot.
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1), anyUserLoggedOn: false),
-            DateTime.UtcNow.AddMinutes(-1));
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-1), anyUserLoggedOn: false),
+            DateTimeOffset.UtcNow.AddMinutes(-1));
 
         await tab.LoadAsync(cabinet.Id);
 
@@ -463,9 +513,9 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
 
-        await _host.AddCheckInAsync(
-            cabinet.Id, TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-1)),
-            DateTime.UtcNow.AddMinutes(-1));
+        await _host.AddFullCheckInAsync(
+            cabinet.Id, TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-1)),
+            DateTimeOffset.UtcNow.AddMinutes(-1));
 
         await tab.LoadAsync(cabinet.Id);
         Assert.True(tab.Overview.Availability.HasData);

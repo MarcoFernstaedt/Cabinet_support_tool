@@ -259,7 +259,13 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     {
         var session = new SessionStore();
 
-        session.SignIn("a-token", DateTime.UtcNow.AddMinutes(30), "Someone", Role.Supervisor, false);
+        session.SignIn(
+            "a-token",
+            DateTimeOffset.UtcNow.AddMinutes(30),
+            "a-refresh-token",
+            "Someone",
+            Role.Supervisor,
+            mustChangePassword: false);
         session.AttachIdentity(Guid.NewGuid(), "someone", Role.Supervisor, false);
 
         Assert.True(session.IsSignedIn);

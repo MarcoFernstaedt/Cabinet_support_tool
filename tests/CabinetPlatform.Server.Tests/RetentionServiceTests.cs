@@ -31,8 +31,12 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
 
         // Two samples inside one hour 45 days ago — old enough to fold, young
         // enough to keep — one sample 200 days ago, past even the aggregate
-        // window, and one from this morning that must not be touched at all.
-        DateTimeOffset foldable = nowUtc.AddDays(-45);
+        // window, and one from two hours ago that must not be touched at all.
+        //
+        // Pinned to the start of the hour rather than offset from now: two
+        // samples five minutes apart straddle an hour boundary whenever the
+        // suite happens to run near one, and would then fold into two rows.
+        DateTimeOffset foldable = TruncateToHour(nowUtc.AddDays(-45));
 
         await _factory.WithDbAsync(async db =>
         {
@@ -106,12 +110,15 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("loggedon"), Guid.NewGuid());
 
-        DateTimeOffset hour = DateTimeOffset.UtcNow.AddDays(-45);
+        DateTimeOffset hour = TruncateToHour(DateTimeOffset.UtcNow.AddDays(-45));
 
         await _factory.WithDbAsync(async db =>
         {
             db.Heartbeats.Add(NewHeartbeat(cabinet.Id, hour, loggedOn: false));
             db.Heartbeats.Add(NewHeartbeat(cabinet.Id, hour.AddMinutes(5), loggedOn: null));
+
+            // Both inside one hour, so they fold into one row. See the pinning
+            // note above for why the hour is truncated rather than offset.
 
             await db.SaveChangesAsync();
         });
@@ -213,6 +220,9 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
 
     private static DateTimeOffset TruncateToDay(DateTimeOffset value) =>
         new(value.Year, value.Month, value.Day, 0, 0, 0, TimeSpan.Zero);
+
+    private static DateTimeOffset TruncateToHour(DateTimeOffset value) =>
+        new(value.Year, value.Month, value.Day, value.Hour, 0, 0, TimeSpan.Zero);
 
     private static Heartbeat NewHeartbeat(
         Guid cabinetId,

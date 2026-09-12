@@ -100,11 +100,11 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
 
         Cabinet cabinet = await _host.CreateCabinetAsync($"ROW-{Unique("r")[..6]}", client, "Site A");
 
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             cabinet.Id,
-            TestData.Payload(cabinet.MachineId, DateTime.UtcNow.AddMinutes(-3)),
-            DateTime.UtcNow.AddMinutes(-3),
-            worstDiskHealth: DiskHealthStatus.Warning);
+            TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow.AddMinutes(-3)),
+            DateTimeOffset.UtcNow.AddMinutes(-3),
+            worstDiskHealth: DiskHealthStatus.Watch);
 
         (ApiClient api, _) = await SignInAsync(Role.Tier1);
 
@@ -246,33 +246,33 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     public async Task The_fleet_view_builds_the_three_worklists_from_real_cabinet_data()
     {
         string client = Unique("FleetClinic");
-        DateTime now = DateTime.UtcNow;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
 
         // Healthy and recent.
         Cabinet healthy = await _host.CreateCabinetAsync($"FL-OK-{Unique("o")[..5]}", client, "Site A");
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             healthy.Id,
             TestData.Payload(healthy.MachineId, now.AddMinutes(-2), pendingUpdates: 0),
             now.AddMinutes(-2));
 
         // Has pending updates.
         Cabinet patchy = await _host.CreateCabinetAsync($"FL-UP-{Unique("u")[..5]}", client, "Site A");
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             patchy.Id,
             TestData.Payload(patchy.MachineId, now.AddMinutes(-3), pendingUpdates: 11),
             now.AddMinutes(-3));
 
         // Failing drive.
         Cabinet failing = await _host.CreateCabinetAsync($"FL-DK-{Unique("d")[..5]}", client, "Site A");
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             failing.Id,
             TestData.Payload(failing.MachineId, now.AddMinutes(-4), pendingUpdates: 0),
             now.AddMinutes(-4),
-            worstDiskHealth: DiskHealthStatus.Critical);
+            worstDiskHealth: DiskHealthStatus.Failing);
 
         // Gone quiet.
         Cabinet stale = await _host.CreateCabinetAsync($"FL-ST-{Unique("s")[..5]}", client, "Site A");
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             stale.Id,
             TestData.Payload(stale.MachineId, now.AddHours(-9), pendingUpdates: 0),
             now.AddHours(-9));
@@ -317,10 +317,10 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
     public async Task Disk_health_counts_keep_not_reported_separate_from_healthy()
     {
         string client = Unique("DiskClinic");
-        DateTime now = DateTime.UtcNow;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
 
         Cabinet healthy = await _host.CreateCabinetAsync($"DH-OK-{Unique("o")[..5]}", client, "Site A");
-        await _host.AddCheckInAsync(
+        await _host.AddFullCheckInAsync(
             healthy.Id, TestData.Payload(healthy.MachineId, now.AddMinutes(-1)), now.AddMinutes(-1),
             worstDiskHealth: DiskHealthStatus.Healthy);
 

@@ -25,9 +25,11 @@ namespace CabinetPlatform.Console.Core.ViewModels;
 /// order is what lets one engineer describe a cabinet to another over the phone.
 /// </para>
 /// <para>
-/// Three of the eight sections cannot be filled by this server build. They are
-/// present and say so. See <see cref="SectionAvailability.NotCarriedByServer"/>
-/// for why that is the right answer rather than hiding them.
+/// The Event Logs section is filled on request rather than from routine
+/// telemetry, and says so rather than drawing an empty panel. See
+/// <see cref="SectionAvailability.OnDemandOnly"/> for why naming the reason
+/// beats hiding the section: an empty panel and a healthy cabinet look the
+/// same, and only one of them is good news.
 /// </para>
 /// </remarks>
 public sealed partial class MachineTabViewModel : ObservableViewModelBase
@@ -106,17 +108,23 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     private string _clientAndSite = string.Empty;
 
     /// <summary>
-    /// How many of the eight sections this server build cannot fill. Surfaced so
-    /// the limitation is visible at the top of the tab and not only inside the
-    /// sections a user might never open.
+    /// How many sections arrive on request rather than with routine telemetry.
     /// </summary>
-    public int UnservedSectionCount => Sections.Count(s =>
-        s.Availability.Kind == SectionAvailabilityKind.NotCarriedByServer);
+    /// <remarks>
+    /// Event logs and process lists are read for one cabinet at a time by
+    /// somebody already looking at it, so they travel on an action rather than
+    /// on a check-in every five minutes from seven thousand cabinets. Surfaced
+    /// at the top of the tab so an empty panel is never something a user
+    /// discovers only by opening it and guessing.
+    /// </remarks>
+    public int OnDemandSectionCount => Sections.Count(s =>
+        s.Availability.Kind == SectionAvailabilityKind.OnDemandOnly);
 
-    public string? UnservedSectionNote => UnservedSectionCount == 0
+    public string? OnDemandSectionNote => OnDemandSectionCount == 0
         ? null
-        : $"{UnservedSectionCount} of {Sections.Count} sections cannot be filled by this server " +
-          "build. Each says which data it is missing and why. No values have been substituted.";
+        : $"{OnDemandSectionCount} of {Sections.Count} sections are collected on request rather " +
+          "than with every check-in. Each says which action fetches it. No values have been " +
+          "substituted.";
 
     /// <summary>
     /// Loads the newest observation for one cabinet and rebuilds every section.
@@ -201,8 +209,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             action.RefreshAvailability();
         }
 
-        OnPropertyChanged(nameof(UnservedSectionCount));
-        OnPropertyChanged(nameof(UnservedSectionNote));
+        OnPropertyChanged(nameof(OnDemandSectionCount));
+        OnPropertyChanged(nameof(OnDemandSectionNote));
     }
 
     private void ClearSections()

@@ -67,15 +67,18 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<DbContextOptions<SqliteSupportDbContext>>();
             services.RemoveAll<DbContextOptions<SupportDbContext>>();
+            services.RemoveAll<SupportDbContext>();
             services.RemoveAll<DbConnection>();
 
             _connection = new SqliteConnection("DataSource=:memory:");
             _connection.Open();
 
             services.AddSingleton(_connection);
-            services.AddDbContext<SupportDbContext>((sp, options) =>
+            services.AddDbContext<SqliteSupportDbContext>((sp, options) =>
                 options.UseSqlite(sp.GetRequiredService<DbConnection>()));
+            services.AddScoped<SupportDbContext>(sp => sp.GetRequiredService<SqliteSupportDbContext>());
 
             services.RemoveAll<IHostedService>();
         });
@@ -120,7 +123,7 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
             PasswordIterations = hashed.Iterations,
             IsActive = isActive,
             MustChangePassword = mustChangePassword,
-            CreatedUtc = DateTime.UtcNow
+            CreatedUtc = DateTimeOffset.UtcNow
         };
 
         db.Users.Add(user);
@@ -129,27 +132,41 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
         return user;
     }
 
+    /// <summary>
+    /// Creates a cabinet, together with the client and site it hangs off.
+    /// </summary>
+    /// <remarks>
+    /// Client and site are rows rather than strings on the cabinet because the
+    /// client is a security boundary: a cabinet-to-cabinet probe may not cross
+    /// it. Two cabinets that are meant to be on one network therefore have to be
+    /// created with the same client and site names.
+    /// </remarks>
     public async Task<Cabinet> CreateCabinetAsync(
         string hostname,
         string client = "Northgate Veterinary",
         string site = "Main Surgery",
         string? department = "Pharmacy",
         bool isActive = true,
-        DateTime? lastCheckInUtc = null)
+        DateTimeOffset? lastCheckInUtc = null,
+        CabinetRole role = CabinetRole.Standalone,
+        string? timeZoneId = null)
     {
         using IServiceScope scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+
+        Site resolved = await ResolveSiteAsync(db, client, site);
 
         var cabinet = new Cabinet
         {
             MachineId = $"machine-{Guid.NewGuid():N}",
             Hostname = hostname,
-            ClientName = client,
-            SiteName = site,
+            SiteId = resolved.Id,
             DepartmentName = department,
+            Role = role,
+            TimeZoneId = timeZoneId,
             Model = "CUBEX MedBank 2",
             SerialNumber = $"SN{Random.Shared.Next(100000, 999999)}",
-            ApprovedUtc = DateTime.UtcNow.AddDays(-30),
+            ApprovedUtc = DateTimeOffset.UtcNow.AddDays(-30),
             ApprovedByUserId = Guid.NewGuid(),
             IsActive = isActive,
             LastCheckInUtc = lastCheckInUtc,
@@ -159,51 +176,161 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Program>
         db.Cabinets.Add(cabinet);
         await db.SaveChangesAsync();
 
+        if (role == CabinetRole.Sync && resolved.SyncCabinetId is null)
+        {
+            // Written after the cabinet exists: a site points at its sync
+            // cabinet and that cabinet points back at its site, which is a
+            // circular foreign key if both go in one batch.
+            resolved.SyncCabinetId = cabinet.Id;
+            await db.SaveChangesAsync();
+        }
+
         return cabinet;
     }
 
+    /// <summary>Finds or creates the client and site a cabinet belongs to.</summary>
+    private static async Task<Site> ResolveSiteAsync(
+        SupportDbContext db, string clientName, string siteName)
+    {
+        Client? client = await db.Clients.FirstOrDefaultAsync(c => c.Name == clientName);
+
+        if (client is null)
+        {
+            client = new Client { Name = clientName };
+            db.Clients.Add(client);
+            await db.SaveChangesAsync();
+        }
+
+        Site? site = await db.Sites
+            .FirstOrDefaultAsync(s => s.ClientId == client.Id && s.Name == siteName);
+
+        if (site is null)
+        {
+            site = new Site { ClientId = client.Id, Name = siteName };
+            db.Sites.Add(site);
+            await db.SaveChangesAsync();
+        }
+
+        return site;
+    }
+
     /// <summary>
-    /// Writes a check-in exactly as the ingest path would: the verbatim payload
-    /// JSON plus the projected columns the list views read.
+    /// Writes a heartbeat exactly as the ingest path would: the typed columns
+    /// the list views read, and no payload document.
     /// </summary>
-    public async Task<CheckIn> AddCheckInAsync(
+    /// <remarks>
+    /// A heartbeat carries no JSON blob by design — seven thousand cabinets at a
+    /// five-minute cadence is two million rows a day, and no list or aggregate
+    /// query in the server reads anything but these columns. Inventory travels
+    /// on the full tier instead, through <see cref="AddInventoryAsync"/>.
+    /// </remarks>
+    public async Task<Heartbeat> AddHeartbeatAsync(
         Guid cabinetId,
-        CheckInRequest payload,
-        DateTime receivedUtc,
+        CheckInPayload payload,
+        DateTimeOffset receivedUtc,
         double minFreeDiskPercent = 42d,
         DiskHealthStatus worstDiskHealth = DiskHealthStatus.Healthy)
     {
         using IServiceScope scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
 
-        var checkIn = new CheckIn
+        var heartbeat = new Heartbeat
         {
             CabinetId = cabinetId,
             ReceivedUtc = receivedUtc,
             CollectedAtUtc = payload.CollectedAtUtc,
-            PayloadJson = JsonSerializer.Serialize(
-                payload, Contracts.Common.ContractJson.Default),
-            CpuPercent = payload.CpuPercent,
-            RamUsedPercent = payload.RamUsedPercent,
+            AgentVersion = payload.AgentVersion,
+            CpuPercent = payload.Performance?.CpuTotalPercent,
+            RamUsedPercent = payload.Performance?.RamUsedPercent,
             MinFreeDiskPercent = minFreeDiskPercent,
-            PendingUpdateCount = payload.PendingUpdates.Count,
+            PendingUpdateCount = payload.WindowsUpdate?.PendingUpdateCount,
+            RebootPending = payload.WindowsUpdate?.RebootPending,
             WorstDiskHealth = worstDiskHealth,
-            AnyUserLoggedOn = payload.AnyUserLoggedOn
+            AnyUserLoggedOn = payload.System?.AnyUserLoggedOn,
+            UptimeSeconds = payload.System?.Uptime?.TotalSeconds,
+            SectionErrorsJson = JsonSerializer.Serialize(
+                payload.SectionErrors, Contracts.Common.ContractJson.Default),
         };
 
-        db.CheckIns.Add(checkIn);
+        db.Heartbeats.Add(heartbeat);
 
         Cabinet? cabinet = await db.Cabinets.FirstOrDefaultAsync(c => c.Id == cabinetId);
 
         if (cabinet is not null)
         {
             cabinet.LastCheckInUtc = receivedUtc;
-            cabinet.AgentVersion = payload.AgentVersion ?? cabinet.AgentVersion;
+            cabinet.AgentVersion = payload.AgentVersion;
+
+            // Mirrors the ingest path: the cabinet's own zone comes from what
+            // the agent reported, and is what every maintenance window and
+            // scheduled install is evaluated against.
+            cabinet.TimeZoneId = payload.System?.TimeZoneId ?? cabinet.TimeZoneId;
         }
 
         await db.SaveChangesAsync();
 
-        return checkIn;
+        return heartbeat;
+    }
+
+    /// <summary>
+    /// Stores one inventory version, the way a full-tier check-in whose content
+    /// hash had changed would.
+    /// </summary>
+    public async Task<InventoryVersion> AddInventoryAsync(
+        Guid cabinetId, CheckInPayload payload, DateTimeOffset observedUtc)
+    {
+        using IServiceScope scope = Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+
+        var version = new InventoryVersion
+        {
+            CabinetId = cabinetId,
+            ContentHash = Guid.NewGuid().ToString("N"),
+            FirstObservedUtc = observedUtc,
+            LastObservedUtc = observedUtc,
+            PayloadJson = JsonSerializer.Serialize(payload, Contracts.Common.ContractJson.Default),
+            SectionErrorsJson = JsonSerializer.Serialize(
+                payload.SectionErrors, Contracts.Common.ContractJson.Default),
+        };
+
+        db.InventoryVersions.Add(version);
+
+        Cabinet? cabinet = await db.Cabinets.FirstOrDefaultAsync(c => c.Id == cabinetId);
+
+        if (cabinet is not null)
+        {
+            cabinet.CurrentInventoryVersionId = version.Id;
+            cabinet.LastFullCheckInUtc = observedUtc;
+        }
+
+        await db.SaveChangesAsync();
+
+        return version;
+    }
+
+    /// <summary>
+    /// Stores one cabinet's full-tier check-in: the heartbeat projection and the
+    /// inventory version together.
+    /// </summary>
+    /// <remarks>
+    /// This is what most of the console's tests want, because the machine tab
+    /// reads both: the header comes from the latest heartbeat and every section
+    /// below it from the inventory in force. Splitting them is still possible
+    /// where a test needs a cabinet that has only heartbeated.
+    /// </remarks>
+    public async Task<Heartbeat> AddFullCheckInAsync(
+        Guid cabinetId,
+        CheckInPayload payload,
+        DateTimeOffset receivedUtc,
+        double minFreeDiskPercent = 42d,
+        DiskHealthStatus worstDiskHealth = DiskHealthStatus.Healthy)
+    {
+        Heartbeat heartbeat = await AddHeartbeatAsync(
+            cabinetId, payload, receivedUtc, minFreeDiskPercent, worstDiskHealth);
+
+        await AddInventoryAsync(cabinetId, payload, receivedUtc);
+
+        return heartbeat;
     }
 
     public async Task AddSmartReadingsAsync(Guid cabinetId, IEnumerable<SmartReading> readings)
