@@ -57,6 +57,7 @@ cannot be evaluated — everything else still builds and tests. See
 ## Documentation
 
 - [Shared contracts](docs/contracts.md)
+- [Security invariants](docs/security-invariants.md)
 - [Check-in tiers and retention](docs/check-in-tiers.md)
 - [Site topology and the sync cabinet](docs/topology.md)
 - [Time zones](docs/time-zones.md)
