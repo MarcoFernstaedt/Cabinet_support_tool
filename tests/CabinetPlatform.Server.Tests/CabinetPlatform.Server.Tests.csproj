@@ -23,6 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CabinetPlatform.Server\CabinetPlatform.Server.csproj" />
     <ProjectReference Include="..\..\src\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
+
   </ItemGroup>
 
 </Project>

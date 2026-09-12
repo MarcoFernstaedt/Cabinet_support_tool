@@ -1,5 +1,5 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
+using CabinetPlatform.Contracts.Common;
 
 namespace CabinetPlatform.Agent.Transport;
 
@@ -8,18 +8,22 @@ namespace CabinetPlatform.Agent.Transport;
 /// offline spool alike.
 /// </summary>
 /// <remarks>
-/// One shared instance matters here: a payload spooled during an outage is
-/// deserialised by a later run of the agent, possibly a newer build. Serialising
-/// with different settings than it is read back with turns a delivery failure
-/// into permanent data loss.
+/// <para>
+/// It is the shared contract convention and nothing else. A second set of
+/// settings that merely looked equivalent is how an agent and a server drift
+/// into private dialects: the payload still parses, the check-in still returns
+/// 200, and one field quietly stops arriving. Pointing at the shared instance
+/// makes that class of bug impossible rather than unlikely.
+/// </para>
+/// <para>
+/// Using one instance matters for the spool too: a payload written during an
+/// outage is read back by a later run of the agent, possibly a newer build.
+/// Serialising with different settings than it is read with turns a delivery
+/// failure into permanent data loss.
+/// </para>
 /// </remarks>
 public static class AgentJson
 {
-    public static JsonSerializerOptions SerializerOptions { get; } = new(JsonSerializerDefaults.Web)
-    {
-        // The contracts carry their own JsonStringEnumConverter attributes, so
-        // enums travel as names; nothing here overrides that.
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        PropertyNameCaseInsensitive = true,
-    };
+    /// <summary>The shared wire convention: camelCase, named enums, nulls omitted.</summary>
+    public static JsonSerializerOptions SerializerOptions => ContractJson.Default;
 }

@@ -249,6 +249,14 @@ public sealed class CheckInIngestService : ICheckInIngestService
             Network = payload.Network,
             WindowsUpdate = payload.WindowsUpdate,
             Disks = payload.Disks,
+            Performance = payload.Performance is null
+                ? null
+                : new PerformanceInfo
+                {
+                    RamTotalBytes = payload.Performance.RamTotalBytes,
+                    PageFileTotalBytes = payload.Performance.PageFileTotalBytes,
+                    StartupPrograms = payload.Performance.StartupPrograms,
+                },
         };
 
         string json = JsonSerializer.Serialize(stored, PayloadJsonOptions);
@@ -370,6 +378,21 @@ public sealed class CheckInIngestService : ICheckInIngestService
             .OrderBy(d => d.DriveLetter, StringComparer.Ordinal)
             .Select(d => new { d.DriveLetter, d.Label, d.FileSystem, d.TotalBytes, d.BitLockerStatus })
             .ToArray(),
+
+        // Installed memory and what the machine launches at logon are
+        // configuration; utilisation and the process list are condition and are
+        // excluded, or every sample would be a new inventory.
+        Performance = payload.Performance is null
+            ? null
+            : new
+            {
+                payload.Performance.RamTotalBytes,
+                payload.Performance.PageFileTotalBytes,
+                StartupPrograms = payload.Performance.StartupPrograms?
+                    .OrderBy(p => p.Name, StringComparer.Ordinal)
+                    .Select(p => new { p.Name, p.Command, p.Location })
+                    .ToArray(),
+            },
     };
 
     /// <summary>
@@ -591,5 +614,18 @@ public sealed class CheckInIngestService : ICheckInIngestService
         public WindowsUpdateInfo? WindowsUpdate { get; init; }
 
         public IReadOnlyList<DiskInfo>? Disks { get; init; }
+
+        /// <summary>
+        /// The configuration half of the performance section: installed memory
+        /// and what the machine launches at logon.
+        /// </summary>
+        /// <remarks>
+        /// The counters are deliberately not stored here. CPU and memory
+        /// utilisation are a sample taken at one instant, they ride the
+        /// heartbeat, and putting them in a change history would make every
+        /// six-hourly check-in look like a change — which is the exact cost
+        /// this tier exists to avoid.
+        /// </remarks>
+        public PerformanceInfo? Performance { get; init; }
     }
 }
