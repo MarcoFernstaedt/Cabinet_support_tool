@@ -71,6 +71,17 @@ public sealed record ActionCatalogEntryDto
     public int? BatchSupervisorThreshold { get; init; }
 
     /// <summary>
+    /// Whether this action may be requested across several cabinets at once.
+    /// </summary>
+    /// <remarks>
+    /// Not every action makes sense in bulk, and the ones that do not are the
+    /// ones where a mistake is widest. The console offers the batch path only
+    /// for actions marked here; the server checks again and refuses a batch of
+    /// anything else.
+    /// </remarks>
+    public required bool Batchable { get; init; }
+
+    /// <summary>
     /// Largest batch of this action the server will accept. A batch above it is
     /// rejected outright, never truncated to fit.
     /// </summary>

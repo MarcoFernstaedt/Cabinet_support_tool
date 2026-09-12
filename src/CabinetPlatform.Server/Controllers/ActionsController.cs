@@ -63,6 +63,7 @@ public sealed class ActionsController : SupportControllerBase
                 MaintenanceWindowOnly = e.MaintenanceWindowOnly,
                 BlockedIfUserLoggedOn = e.BlockedIfUserLoggedOn,
                 TargetsAnotherCabinet = e.TargetsAnotherCabinet,
+                Batchable = e.Batchable,
                 BatchSupervisorThreshold = e.Batchable ? e.BatchSupervisorThreshold : null,
                 MaximumBatchSize = e.Batchable ? e.MaximumBatchSize : null,
             })

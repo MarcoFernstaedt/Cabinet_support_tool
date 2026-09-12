@@ -195,6 +195,17 @@ public sealed partial class ActionRequestDialogViewModel : ObservableObject
         string.Join(" ", Warnings) +
         " A reason and a ticket reference are required.";
 
-    /// <summary>One read-only parameter, shown so the user can see what they are approving.</summary>
-    public sealed record ParameterRow(string Key, string Value);
 }
+
+/// <summary>
+/// One read-only parameter, shown so the user can see what they are approving.
+/// </summary>
+/// <remarks>
+/// Read-only by design and shared by both the single-cabinet and batch
+/// dialogs. Nothing typed into this console becomes a parameter: the values
+/// come from the row the user selected, and the only free text on either
+/// dialog is the reason and the ticket, neither of which reaches an agent.
+/// </remarks>
+/// <param name="Key">The operand's name.</param>
+/// <param name="Value">Its value, as the server will receive it.</param>
+public sealed record ParameterRow(string Key, string Value);

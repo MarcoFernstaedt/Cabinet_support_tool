@@ -26,7 +26,10 @@ public sealed class DialogViewModelTests
         AllowedParameterKeys = new[] { "delaySeconds" },
         MaintenanceWindowOnly = true,
         BlockedIfUserLoggedOn = true,
-        TargetsAnotherCabinet = false
+        TargetsAnotherCabinet = false,
+        Batchable = true,
+        BatchSupervisorThreshold = 10,
+        MaximumBatchSize = 100
     };
 
     private static ActionCatalogEntryDto Scan() => new()
@@ -41,7 +44,10 @@ public sealed class DialogViewModelTests
         AllowedParameterKeys = Array.Empty<string>(),
         MaintenanceWindowOnly = false,
         BlockedIfUserLoggedOn = false,
-        TargetsAnotherCabinet = false
+        TargetsAnotherCabinet = false,
+        Batchable = true,
+        BatchSupervisorThreshold = 50,
+        MaximumBatchSize = 500
     };
 
     private static ActionRequestDialogViewModel Dialog(
@@ -202,7 +208,7 @@ public sealed class DialogViewModelTests
 
         Assert.True(dialog.HasParameters);
 
-        ActionRequestDialogViewModel.ParameterRow row = Assert.Single(dialog.Parameters);
+        ParameterRow row = Assert.Single(dialog.Parameters);
         Assert.Equal("serviceName", row.Key);
         Assert.Equal("MashuraDispenseController", row.Value);
 

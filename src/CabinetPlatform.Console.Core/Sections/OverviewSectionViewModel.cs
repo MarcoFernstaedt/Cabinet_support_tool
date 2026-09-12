@@ -25,6 +25,8 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
     [ObservableProperty] private string _client = Format.NotReported;
     [ObservableProperty] private string _site = Format.NotReported;
     [ObservableProperty] private string _department = Format.NotReported;
+    [ObservableProperty] private string _role = Format.NotReported;
+    [ObservableProperty] private string _syncCabinet = Format.NotReported;
     [ObservableProperty] private string _model = Format.NotReported;
     [ObservableProperty] private string _serialNumber = Format.NotReported;
     [ObservableProperty] private string _osVersion = Format.NotReported;
@@ -74,6 +76,7 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
         Client = Format.Text(cabinet.ClientName);
         Site = Format.Text(cabinet.SiteName);
         Department = Format.Text(cabinet.DepartmentName);
+        ApplyTopology(latest, nowUtc);
         Model = Format.Text(cabinet.Model);
         SerialNumber = Format.Text(cabinet.SerialNumber);
         AgentVersion = Format.Text(cabinet.AgentVersion);
@@ -117,6 +120,98 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
             check.AnyUserLoggedOn, "A user is logged on", "Nobody is logged on");
     }
 
+    /// <summary>
+    /// Where this cabinet sits in its site, and how it is currently reaching
+    /// the cabinet that syncs the site.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A whole site misbehaving usually means one satellite has lost its sync
+    /// cabinet, and that is a fact nobody can read off the fleet view: the sync
+    /// cabinet can be perfectly reachable from the server and unreachable from
+    /// the satellite standing next to it. The two are different questions, and
+    /// only the second one explains the site.
+    /// </para>
+    /// <para>
+    /// So this is never inferred from the sync cabinet being online. It is the
+    /// result of a probe run from this cabinet, or it says that none has been
+    /// run.
+    /// </para>
+    /// </remarks>
+    private void ApplyTopology(CabinetDetailDto latest, DateTimeOffset nowUtc)
+    {
+        Role = latest.Cabinet.Role switch
+        {
+            CabinetRole.Sync => "Sync cabinet — this site's data lives here",
+            CabinetRole.Satellite => "Satellite — syncs against another cabinet at this site",
+            CabinetRole.Standalone => "Standalone — this site has no sync cabinet",
+            _ => Format.NotReported,
+        };
+
+        if (latest.Cabinet.Role == CabinetRole.Sync)
+        {
+            SyncCabinet = "This cabinet is its site's sync cabinet.";
+            SyncLink = StatusPresentation.Unknown;
+            SyncLinkDetail = "A sync cabinet does not probe itself.";
+            CanTestSyncLink = false;
+            return;
+        }
+
+        if (latest.SyncCabinetLink is not { } link)
+        {
+            SyncCabinet = latest.Site.SyncCabinetId is null
+                ? "This site has no sync cabinet."
+                : Format.NotReported;
+
+            SyncLink = StatusPresentation.Unknown;
+            SyncLinkDetail = latest.Site.SyncCabinetId is null
+                ? "A standalone site has no link to test."
+                : "The site's sync cabinet could not be resolved.";
+            CanTestSyncLink = false;
+            return;
+        }
+
+        SyncCabinet = $"{link.SyncCabinetHostname} " +
+                      $"({StatusPresentation.ForCabinet(link.SyncCabinetHealth).Label})";
+
+        CanTestSyncLink = true;
+
+        (SyncLink, SyncLinkDetail) = link.LastProbeReachable switch
+        {
+            true => (
+                new StatusPresentation("Reachable", "✔", StatusSeverity.Good),
+                $"Reached {Format.Age(link.LastProbeUtc, nowUtc)}" +
+                (link.LastProbeLatencyMs is { } ms ? $", {ms:F0} ms round trip." : ".")),
+
+            false => (
+                new StatusPresentation("Unreachable", "✖", StatusSeverity.Critical),
+                $"This cabinet could not reach its sync cabinet {Format.Age(link.LastProbeUtc, nowUtc)}. " +
+                "That is a different fact from the sync cabinet being offline, and it is the one " +
+                "that explains a site out of step."),
+
+            null => (
+                StatusPresentation.Unknown,
+                "No probe has been run from this cabinet. Whether the sync cabinet is reachable " +
+                "from here is not known, and is not implied by it being online."),
+        };
+    }
+
+    /// <summary>How this cabinet is currently reaching its site's sync cabinet.</summary>
+    [ObservableProperty]
+    private StatusPresentation _syncLink = StatusPresentation.Unknown;
+
+    /// <summary>The probe result in words, including when it was taken.</summary>
+    [ObservableProperty]
+    private string _syncLinkDetail =
+        "No probe has been run from this cabinet.";
+
+    /// <summary>
+    /// Whether the one-click link test is worth offering: there is a sync
+    /// cabinet, and it is not this one.
+    /// </summary>
+    [ObservableProperty]
+    private bool _canTestSyncLink;
+
     /// <summary>The cabinet's own local time, labelled with its zone.</summary>
     public string CabinetLocalTime { get; private set; } = Format.NotReported;
 
@@ -125,7 +220,8 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
 
     public override string Summarise() =>
         Availability.HasData
-            ? $"{Hostname} at {Client}, {Site}. Health {Health.Label}. " +
-              $"Last check-in {LastCheckInAge}. {LoggedOn.Label}."
+            ? $"{Hostname} at {Client}, {Site}. {Role}. Health {Health.Label}. " +
+              $"Last check-in {LastCheckInAge}. {LoggedOn.Label}. " +
+              $"Sync cabinet {SyncCabinet}: {SyncLink.Label}."
             : $"Overview: {Availability.Reason}";
 }

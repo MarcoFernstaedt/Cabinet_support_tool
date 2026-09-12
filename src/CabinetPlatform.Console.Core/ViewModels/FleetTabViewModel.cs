@@ -85,6 +85,23 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
     /// <summary>Counts by rolled-up cabinet health, straight from the server.</summary>
     public ObservableCollection<FleetCountRow> CabinetHealthCounts { get; } = new();
 
+    /// <summary>
+    /// The fleet grouped by site, each site's sync cabinet listed first.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A site is the unit a problem usually belongs to: one clinic's whole set
+    /// of cabinets goes quiet together, because the thing they share went away.
+    /// A flat list of four hundred hostnames hides that completely.
+    /// </para>
+    /// <para>
+    /// The sync cabinet leads each group because it is the one whose failure
+    /// explains the others. A satellite that cannot reach it is a satellite
+    /// with stale data, whatever its own health says.
+    /// </para>
+    /// </remarks>
+    public ObservableCollection<SiteGroupRow> Sites { get; } = new();
+
     [ObservableProperty]
     private bool _worklistsTruncated;
 
@@ -135,6 +152,7 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
             Summary = summary;
             ApplyCounts(summary, cabinets);
             ApplyWorklists(cabinets);
+            ApplySites(cabinets);
         });
 
         if (!loaded)
@@ -189,6 +207,29 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
         CabinetsExamined = all.Count;
 
         return all;
+    }
+
+    /// <summary>Groups the walked cabinets by site, sync cabinet first.</summary>
+    private void ApplySites(IReadOnlyList<CabinetSummary> cabinets)
+    {
+        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+
+        Sites.Clear();
+
+        IEnumerable<SiteGroupRow> groups = cabinets
+            .GroupBy(c => c.SiteId)
+            .Select(g => new SiteGroupRow(g.ToList(), nowUtc))
+            // Sites missing their sync cabinet first: that is the group where
+            // something is wrong with the site rather than with one machine.
+            .OrderByDescending(g => g.SyncCabinetIsOffline)
+            .ThenByDescending(g => g.NeedsAttentionCount)
+            .ThenBy(g => g.ClientName, StringComparer.CurrentCultureIgnoreCase)
+            .ThenBy(g => g.SiteName, StringComparer.CurrentCultureIgnoreCase);
+
+        foreach (SiteGroupRow group in groups)
+        {
+            Sites.Add(group);
+        }
     }
 
     private void ApplyCounts(FleetHealthSummary summary, IReadOnlyList<CabinetSummary> cabinets)
@@ -303,6 +344,85 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
 /// One count in a fleet breakdown: label, shape and number together, so the
 /// figure is never carried by a colour on its own.
 /// </summary>
+/// <summary>
+/// One site's cabinets, its sync cabinet first.
+/// </summary>
+/// <remarks>
+/// Built from the cabinet list the fleet view already walked rather than from a
+/// second endpoint, so the grouping cannot disagree with the counts beside it.
+/// </remarks>
+public sealed class SiteGroupRow
+{
+    /// <summary>Creates the group.</summary>
+    /// <param name="cabinets">Every cabinet at one site.</param>
+    /// <param name="nowUtc">The current instant, for check-in ages.</param>
+    public SiteGroupRow(IReadOnlyList<CabinetSummary> cabinets, DateTimeOffset nowUtc)
+    {
+        CabinetSummary first = cabinets[0];
+
+        SiteId = first.SiteId;
+        SiteName = first.SiteName;
+        ClientName = first.ClientName;
+
+        Cabinets = cabinets
+            // The sync cabinet leads. Everything else in the group is read
+            // against it, so a reader who scans only the first row of each site
+            // has still read the row that matters.
+            .OrderByDescending(c => c.Role == CabinetRole.Sync)
+            .ThenBy(c => c.Hostname, StringComparer.CurrentCultureIgnoreCase)
+            .Select(c => new CabinetRow(c, nowUtc))
+            .ToList();
+
+        SyncCabinet = Cabinets.FirstOrDefault(c => c.Summary.Role == CabinetRole.Sync);
+    }
+
+    /// <summary>Identifier of the site.</summary>
+    public Guid SiteId { get; }
+
+    /// <summary>Site name.</summary>
+    public string SiteName { get; }
+
+    /// <summary>Client the site belongs to.</summary>
+    public string ClientName { get; }
+
+    /// <summary>Every cabinet at the site, sync cabinet first.</summary>
+    public IReadOnlyList<CabinetRow> Cabinets { get; }
+
+    /// <summary>
+    /// The site's sync cabinet, or null when the site is standalone.
+    /// </summary>
+    public CabinetRow? SyncCabinet { get; }
+
+    /// <summary>How many cabinets sit at this site.</summary>
+    public int CabinetCount => Cabinets.Count;
+
+    /// <summary>
+    /// Whether this site's sync cabinet is itself in trouble, which is the
+    /// condition that explains a whole site rather than one machine.
+    /// </summary>
+    public bool SyncCabinetIsOffline =>
+        SyncCabinet is { } sync &&
+        sync.Summary.Health is CabinetHealthStatus.Offline or CabinetHealthStatus.Critical;
+
+    /// <summary>How many cabinets here are anything other than healthy.</summary>
+    public int NeedsAttentionCount =>
+        Cabinets.Count(c => c.Summary.Health != CabinetHealthStatus.Healthy);
+
+    /// <summary>How the site reads at a glance.</summary>
+    public string Headline => SyncCabinet is null
+        ? $"{ClientName} — {SiteName}: {CabinetCount} standalone cabinet(s)"
+        : $"{ClientName} — {SiteName}: {CabinetCount} cabinet(s), synced by {SyncCabinet.Hostname}";
+
+    /// <summary>One sentence a screen reader announces for this group.</summary>
+    public string AccessibleSummary =>
+        Headline +
+        (SyncCabinetIsOffline
+            ? ". The sync cabinet is not healthy, so every cabinet at this site may be out of step."
+            : NeedsAttentionCount > 0
+                ? $". {NeedsAttentionCount} need attention."
+                : ". All healthy.");
+}
+
 public sealed record FleetCountRow(StatusPresentation Status, int Count)
 {
     public string Label => Status.Label;

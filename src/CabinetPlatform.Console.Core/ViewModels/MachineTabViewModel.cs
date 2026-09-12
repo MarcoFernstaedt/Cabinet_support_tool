@@ -170,6 +170,61 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         await PendingHistoryLoad;
     }
 
+    /// <summary>
+    /// Runs the one-click test of this cabinet's link to its site's sync
+    /// cabinet.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The rep selects nothing and types nothing. The server resolves the
+    /// target cabinet from this one's site and the address from that cabinet's
+    /// last reported adapter — which is the whole point: a rep names a cabinet,
+    /// never an address, and so cannot name the wrong one or reach outside the
+    /// client the cabinet belongs to.
+    /// </para>
+    /// <para>
+    /// It needs no approval. A ping is an observation, and making a rep wait
+    /// for a second pair of eyes to find out whether a site can talk to itself
+    /// would mean nobody ever runs it.
+    /// </para>
+    /// </remarks>
+    [RelayCommand(CanExecute = nameof(CanTestSyncLink))]
+    private async Task TestSyncLinkAsync()
+    {
+        if (CabinetId is not { } id)
+        {
+            return;
+        }
+
+        bool requested = await RunAsync(async ct =>
+        {
+            await _api.TestSyncLinkAsync(
+                id,
+                new TestSyncLinkRequest
+                {
+                    Reason = $"Checking whether {CabinetHostname} can reach its site's sync cabinet.",
+                },
+                ct);
+
+            return true;
+        });
+
+        if (!requested)
+        {
+            return;
+        }
+
+        // The probe runs on the cabinet, so the answer arrives with a later
+        // check-in rather than with this response. Saying so is better than a
+        // spinner that stops with nothing visibly changed.
+        Announcer.AnnounceImportant(
+            $"A link test has been queued for {CabinetHostname}. The result arrives when the " +
+            "cabinet next collects its actions; refresh this tab to see it.");
+    }
+
+    /// <summary>Whether there is a sync cabinet to test the link to.</summary>
+    public bool CanTestSyncLink => Overview.CanTestSyncLink;
+
     /// <summary>Re-reads the same cabinet, for the Refresh button.</summary>
     [RelayCommand]
     private async Task RefreshAsync()
@@ -211,6 +266,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         OnPropertyChanged(nameof(OnDemandSectionCount));
         OnPropertyChanged(nameof(OnDemandSectionNote));
+        OnPropertyChanged(nameof(CanTestSyncLink));
+        TestSyncLinkCommand.NotifyCanExecuteChanged();
     }
 
     private void ClearSections()
