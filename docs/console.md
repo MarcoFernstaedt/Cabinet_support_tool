@@ -131,39 +131,51 @@ reads the Machine tab in a sensible order. That pass is still owed.
 
 ## Honest gaps
 
-The Machine tab has all eight sections the design calls for. Three of
-them cannot be filled by the current server build, and they say so
-rather than rendering empty:
+The Machine tab has all eight sections the design calls for. Every one of
+them is filled from real data, with two exceptions that are deliberate
+rather than missing:
 
-| Section | State |
+| Section | Source |
 | --- | --- |
-| Overview, Performance, Services, Disk, Windows Update | Real data |
-| Event Logs | Not carried by the server's check-in contract |
-| Network | Data not carried; both actions work |
-| System | Data not carried; reboot action works |
+| Overview, Performance, Disk | The latest heartbeat, plus the inventory in force |
+| Services, Network, System, Windows Update | The inventory tier |
+| Event Logs | On request, via the "View event logs" action |
+| The per-process list, inside Performance | On request, via the "View process list" action |
 
-The agent collects all three. The server's `CheckInRequest` has no field
-for any of them, so nothing reaches the console. Within the served
-sections there are narrower gaps, each named on screen: no per-process
-list, no OS build separate from the version string, no update install
-history or active hours, and no clock drift.
+Event logs and process lists are large, change constantly, and are read
+for one cabinet at a time by somebody already looking at it. Sending them
+from seven thousand cabinets every five minutes would dominate storage
+while being read for a handful. So they travel on an action rather than
+on a check-in, and the section says which action fetches it rather than
+drawing an empty panel.
 
-Three ways to handle this were available, and two of them are worse:
+That distinction is the whole reason `SectionAvailability` exists, and
+its kinds name the several different reasons a panel can be empty:
 
-- Omitting the sections would teach support staff that the platform does
-  not do event logs, which is a worse outcome than a panel explaining
-  that the gap is in the server's contract and will close when it does.
-- Filling them with plausible values would look better for the length of
-  a demo and cost far more afterwards. Somebody screenshots it into a
+| Kind | Meaning |
+| --- | --- |
+| `Available` | Data is present |
+| `NoCheckIn` | The cabinet has never reported. A newly approved cabinet sits here |
+| `NoInventoryYet` | It has heartbeated but its slower inventory tier has not run |
+| `CollectorFailed` | The agent tried and said why it could not |
+| `Empty` | Collected, and the machine genuinely has none of that thing |
+| `OnDemandOnly` | Fetched by an explicit action, not by routine telemetry |
+
+Three ways to handle an empty panel were available, and two of them are
+worse:
+
+- Omitting the section would teach support staff that the platform does
+  not do event logs, which is a worse outcome than a panel saying which
+  action fetches them.
+- Filling it with plausible values would look better for the length of a
+  demo and cost far more afterwards. Somebody screenshots it into a
   design review, somebody else builds a threshold on it, and the first
   real reading has to fight the fake one for credibility.
-- Saying which component the gap is in, on screen, costs nothing and
-  sends nobody to check a cabinet for a fault that is not there.
+- Saying why the panel is empty costs nothing and sends nobody to check a
+  cabinet for a fault that is not there.
 
-The same reasoning governs the Cabinet tab, which is empty because
-sensor and drawer discovery is unfinished, and `SectionAvailability`,
-which makes "no data, and here is why" the only way to render an empty
-section.
+The same reasoning governs the Cabinet tab, which is empty because sensor
+and drawer discovery is unfinished.
 
 Two distinctions the code is careful about, because conflating them is
 how a tool like this misleads:

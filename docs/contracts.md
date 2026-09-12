@@ -37,11 +37,29 @@ the kind is written by whoever creates the record rather than inferred at read
 time.
 
 **Unknown is the zero value.** Where an enum models something that may be
-unreadable — `DiskHealthStatus`, `ServiceState`, `BitLockerStatus` — `Unknown`
-is `0`, so a default-initialised value can never read as `Healthy` or
-`Running`. Enums that model a decision instead — `ActionName`, `AuditEventKind`,
-`AuditResult`, `ActionStatus`, `Role`, `RegistrationStatus` — start at `1`, so
-a defaulted value is not a valid member of the set.
+unreadable — `DiskHealthStatus`, `ServiceState`, `BitLockerStatus`,
+`SmartSource`, `CabinetRole`, `CabinetHealthStatus` — `Unknown` (or
+`Unavailable`) is `0`, so a default-initialised value can never read as
+`Healthy` or `Running`. Enums that model a decision instead — `ActionName`,
+`AuditEvent`, `AuditEventKind`, `AuditResult`, `ActionStatus`, `Role`,
+`RegistrationStatus` — start at `1`, so a defaulted value is not a valid member
+of the set. A test asserts this across every persisted enum.
+
+**Timestamps are `DateTimeOffset` and always UTC.** There is no `DateTime` in
+any contract. Local time exists only at the two edges described in
+[time-zones.md](time-zones.md): the maintenance-window comparison, made in the
+cabinet's zone, and the console's display, made in the reader's. The single
+exception is `scheduledForLocal`, the parameter by which an update install is
+specified in the cabinet's own local time — and that exception is what makes
+the daylight-saving check possible at all.
+
+**Operand names are spelled once.** `ActionParameterKeys` holds every named
+operand an action can carry, and both the server's catalog and the agent's
+executors read from it. They previously spelled them separately and had
+drifted: four of the nine original actions were broken end to end, each
+invisibly — the request arrived, the agent declined it as carrying a parameter
+it does not define, and the only evidence was work that never happened. Tests
+on both sides now assert that neither uses a literal.
 
 **No hardware actuation.** Nothing here opens a drawer, releases a lock or
 opens a cubie. That absence is by design.
@@ -58,9 +76,16 @@ is a name rather than an ordinal: it stays readable in an audit trail, it
 survives members being added, and an unrecognised name fails to deserialise
 instead of silently becoming a number.
 
-Both the library defaults and ASP.NET Core's web defaults (camelCase) are
-covered by the round-trip tests in
-`tests/CabinetPlatform.Server.Tests/Contracts`.
+`ContractJson` is the one options instance every component uses — the agent's
+`AgentJson.SerializerOptions` *is* this instance, not a copy of its settings,
+because a second set that merely looked equivalent is how two components drift
+into private dialects while both keep returning 200.
+
+`tests/CabinetPlatform.Server.Tests/CheckInRoundTripTests.cs` takes a fully
+populated payload through the agent's serializer and the server's reader and
+asserts nothing is lost, takes a sparse one through and asserts every absence
+is still absent, and then does both again end to end over the real ingest
+endpoint, reading back what the server actually persisted.
 
 ## Reserved
 
