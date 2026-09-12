@@ -12,6 +12,7 @@ using CabinetPlatform.Server.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace CabinetPlatform.Server.Controllers;
 
@@ -178,11 +179,6 @@ public sealed class RegistrationsController : SupportControllerBase
 
         _db.Cabinets.Add(cabinet);
 
-        if (request.Role is CabinetRole.Sync)
-        {
-            site.SyncCabinetId = cabinet.Id;
-        }
-
         registration.Status = RegistrationStatus.Approved;
         registration.DecidedByUserId = actor.UserId;
         registration.DecidedUtc = nowUtc;
@@ -214,7 +210,23 @@ public sealed class RegistrationsController : SupportControllerBase
             }
         });
 
+        // A site points at its sync cabinet and that cabinet points back at its
+        // site. Writing a brand-new pair of rows in one statement batch is
+        // therefore a circular foreign-key dependency, which no ordering of the
+        // two inserts satisfies. The cabinet goes in first and the site's
+        // pointer follows, both inside one transaction so a site is never left
+        // pointing at nothing.
+        await using IDbContextTransaction transaction = await _db.Database.BeginTransactionAsync(ct);
+
         await _db.SaveChangesAsync(ct);
+
+        if (request.Role is CabinetRole.Sync)
+        {
+            site.SyncCabinetId = cabinet.Id;
+            await _db.SaveChangesAsync(ct);
+        }
+
+        await transaction.CommitAsync(ct);
 
         return Ok(new PendingRegistrationDto
         {

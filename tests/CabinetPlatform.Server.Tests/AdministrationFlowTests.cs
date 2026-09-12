@@ -27,7 +27,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
         string machineId = Unique("newmachine");
         HttpClient agent = TestClient.CreateAgentClient(_factory, machineId);
 
-        await agent.PostJsonAsync("/api/agent/register", new AgentRegistrationRequest
+        await agent.PostJsonAsync("/api/agent/register", new RegistrationRequest
         {
             MachineId = machineId,
             // The agent names itself. It does not get to name its clinic.
@@ -48,6 +48,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
                 ClientName = "Riverside Veterinary",
                 SiteName = "Riverside Main",
                 DepartmentName = "Surgery",
+                Role = CabinetRole.Sync,
                 Model = "CUBEX MiniStation",
                 SerialNumber = "SN-99887",
                 TicketReference = "SUP-5001"
@@ -55,31 +56,52 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
 
-        Cabinet cabinet = await _factory.WithDbAsync(db =>
-            db.Cabinets.AsNoTracking().FirstAsync(c => c.MachineId == machineId));
+        Cabinet cabinet = await _factory.WithDbAsync(db => db.Cabinets
+            .AsNoTracking()
+            .Include(c => c.Site)!
+            .ThenInclude(s => s!.Client)
+            .FirstAsync(c => c.MachineId == machineId));
 
-        // Client, site and department came from the Supervisor's request body,
-        // never from anything the agent asserted about itself.
-        Assert.Equal("Riverside Veterinary", cabinet.ClientName);
-        Assert.Equal("Riverside Main", cabinet.SiteName);
+        // Client, site, department and role came from the Supervisor's request
+        // body, never from anything the agent asserted about itself.
+        Assert.Equal("Riverside Veterinary", cabinet.Site!.Client!.Name);
+        Assert.Equal("Riverside Main", cabinet.Site.Name);
         Assert.Equal("Surgery", cabinet.DepartmentName);
+        Assert.Equal(CabinetRole.Sync, cabinet.Role);
         Assert.Equal(supervisorUser.Id, cabinet.ApprovedByUserId);
 
+        // A site holds exactly one sync cabinet, and this is now it.
+        Guid? syncCabinetId = await _factory.WithDbAsync(db => db.Sites
+            .AsNoTracking()
+            .Where(s => s.Id == cabinet.SiteId)
+            .Select(s => s.SyncCabinetId)
+            .FirstAsync());
+
+        Assert.Equal(cabinet.Id, syncCabinetId);
+
         // And now, and only now, its check-ins are accepted.
-        HttpResponseMessage checkIn = await agent.PostJsonAsync("/api/agent/checkin", new CheckInRequest
-        {
-            MachineId = machineId,
-            CollectedAtUtc = DateTime.UtcNow,
-            CpuPercent = 10,
-            RamUsedPercent = 40,
-            AnyUserLoggedOn = false
-        });
+        HttpResponseMessage checkIn = await agent.PostJsonAsync(
+            "/api/agent/checkin",
+            new CheckInPayload
+            {
+                AgentVersion = "1.4.2",
+                MachineId = machineId,
+                CabinetId = cabinet.Id,
+                CollectedAtUtc = DateTimeOffset.UtcNow,
+                Performance = new PerformanceInfo { CpuTotalPercent = 10, RamUsedPercent = 40 },
+                System = new SystemInfo
+                {
+                    Hostname = "VET-CAB-07",
+                    OsVersion = "Windows 11 23H2",
+                    AnyUserLoggedOn = false
+                }
+            });
 
         Assert.Equal(HttpStatusCode.OK, checkIn.StatusCode);
 
         Domain.AuditEntry record = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.ApproveRegistration && a.CabinetId == cabinet.Id)
+            .Where(a => a.Event == AuditEvent.ApproveRegistration && a.CabinetId == cabinet.Id)
             .FirstAsync());
 
         Assert.Equal(AuditEventKind.Caused, record.EventKind);
@@ -95,10 +117,12 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
         string machineId = Unique("rejected");
         HttpClient agent = TestClient.CreateAgentClient(_factory, machineId);
 
-        await agent.PostJsonAsync("/api/agent/register", new AgentRegistrationRequest
+        await agent.PostJsonAsync("/api/agent/register", new RegistrationRequest
         {
             MachineId = machineId,
-            Hostname = "UNKNOWN-PC"
+            Hostname = "UNKNOWN-PC",
+            OsVersion = "Windows 11 23H2",
+            AgentVersion = "1.4.2"
         });
 
         PendingRegistration registration = await _factory.WithDbAsync(db =>
@@ -113,9 +137,15 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
         // Asking again must not reset the decision back into the queue.
         HttpResponseMessage retried = await agent.PostJsonAsync(
             "/api/agent/register",
-            new AgentRegistrationRequest { MachineId = machineId, Hostname = "UNKNOWN-PC" });
+            new RegistrationRequest
+            {
+                MachineId = machineId,
+                Hostname = "UNKNOWN-PC",
+                OsVersion = "Windows 11 23H2",
+                AgentVersion = "1.4.2"
+            });
 
-        AgentRegistrationResponse? body = await retried.ReadAsync<AgentRegistrationResponse>();
+        RegistrationResponse? body = await retried.ReadAsync<RegistrationResponse>();
 
         Assert.Equal(RegistrationStatus.Rejected, body!.Status);
 
@@ -192,7 +222,7 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
 
         Domain.AuditEntry record = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.GrantElevatedSql)
+            .Where(a => a.Event == AuditEvent.GrantElevatedSql)
             .OrderByDescending(a => a.TimestampUtc)
             .FirstAsync());
 
@@ -233,20 +263,15 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
 
         const string clientName = "Offline Test Client";
 
+        Cabinet stale = await TestClient.CreateApprovedCabinetAsync(
+            _factory, Unique("stale"), user.Id, clientName: clientName, siteName: "Site A");
+
         await _factory.WithDbAsync(async db =>
         {
-            db.Cabinets.Add(new Cabinet
-            {
-                MachineId = Unique("stale"),
-                Hostname = "STALE-PC",
-                ClientName = clientName,
-                SiteName = "Site A",
-                ApprovedUtc = DateTime.UtcNow,
-                ApprovedByUserId = user.Id,
-                IsActive = true,
-                // Long past the configured offline threshold.
-                LastCheckInUtc = DateTime.UtcNow.AddHours(-6)
-            });
+            Cabinet tracked = await db.Cabinets.FirstAsync(c => c.Id == stale.Id);
+
+            // Long past the configured offline threshold.
+            tracked.LastCheckInUtc = DateTimeOffset.UtcNow.AddHours(-6);
 
             await db.SaveChangesAsync();
         });
@@ -288,17 +313,17 @@ public sealed class AdministrationFlowTests : IClassFixture<SupportApiFactory>
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("range"), user.Id);
 
-        string from = Uri.EscapeDataString(DateTime.UtcNow.AddYears(-3).ToString("O"));
-        string to = Uri.EscapeDataString(DateTime.UtcNow.ToString("O"));
+        string from = Uri.EscapeDataString(DateTimeOffset.UtcNow.AddYears(-3).ToString("O"));
+        string to = Uri.EscapeDataString(DateTimeOffset.UtcNow.ToString("O"));
 
         HttpResponseMessage response = await client.GetAsync(
-            $"/api/cabinets/{cabinet.Id}/history?fromUtc={from}&toUtc={to}");
+            $"/api/cabinets/{cabinet.Id}/heartbeats?fromUtc={from}&toUtc={to}");
 
         // Silently clamping would hand back a partial answer that looks whole.
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
         Assert.True(await TestClient.CountAuditAsync(
-            _factory, AuditActions.ViewCabinetHistory, AuditResult.Denied) > 0);
+            _factory, AuditEvent.ViewCabinetHistory, AuditResult.Denied) > 0);
     }
 
     [Fact]

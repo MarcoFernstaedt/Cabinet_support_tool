@@ -1,11 +1,7 @@
-using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
-using CabinetPlatform.Contracts.Auth;
-using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.BackgroundServices;
 using CabinetPlatform.Server.Configuration;
-using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,29 +21,37 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
     public RetentionServiceTests(SupportApiFactory factory) => _factory = factory;
 
     [Fact]
-    public async Task Old_checkins_are_deleted_recent_ones_are_kept_and_audit_is_untouched()
+    public async Task Aged_heartbeats_are_folded_hourly_then_deleted_and_audit_is_untouched()
     {
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("retain"), Guid.NewGuid());
 
-        DateTime nowUtc = DateTime.UtcNow;
+        DateTimeOffset nowUtc = DateTimeOffset.UtcNow;
+        string correlationId = Unique("ancient-audit");
+
+        // Two samples inside one hour 45 days ago — old enough to fold, young
+        // enough to keep — one sample 200 days ago, past even the aggregate
+        // window, and one from this morning that must not be touched at all.
+        DateTimeOffset foldable = nowUtc.AddDays(-45);
 
         await _factory.WithDbAsync(async db =>
         {
-            db.CheckIns.Add(NewCheckIn(cabinet.Id, nowUtc.AddDays(-60)));
-            db.CheckIns.Add(NewCheckIn(cabinet.Id, nowUtc.AddDays(-45)));
-            db.CheckIns.Add(NewCheckIn(cabinet.Id, nowUtc.AddDays(-2)));
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, foldable, cpu: 12, ramUsed: 30));
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, foldable.AddMinutes(5), cpu: 98, ramUsed: 41));
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, nowUtc.AddDays(-200), cpu: 5, ramUsed: 10));
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, nowUtc.AddHours(-2), cpu: 7, ramUsed: 22));
 
             db.AuditEntries.Add(new Domain.AuditEntry
             {
                 // Far older than any retention window, and still not the
                 // retention service's business.
                 TimestampUtc = nowUtc.AddYears(-5),
-                ActorType = "System",
-                Action = "test.ancient-audit",
+                ActorType = ActorType.System,
+                Event = AuditEvent.RetentionSweep,
                 EventKind = AuditEventKind.Caused,
                 Result = AuditResult.Success,
-                CabinetId = cabinet.Id
+                CabinetId = cabinet.Id,
+                CorrelationId = correlationId
             });
 
             await db.SaveChangesAsync();
@@ -56,22 +60,69 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         await CreateService(new RetentionOptions
         {
             Enabled = true,
-            CheckInRetentionDays = 30,
+            HeartbeatFullResolutionDays = 7,
+            HeartbeatAggregateRetentionDays = 90,
             SmartFullResolutionDays = 90,
             SmartAggregateRetentionDays = 730,
             BatchSize = 100
         }).SweepAsync(CancellationToken.None);
 
-        List<CheckIn> remaining = await _factory.WithDbAsync(db => db.CheckIns
-            .AsNoTracking().Where(c => c.CabinetId == cabinet.Id).ToListAsync());
+        List<Heartbeat> remaining = await _factory.WithDbAsync(db => db.Heartbeats
+            .AsNoTracking()
+            .Where(h => h.CabinetId == cabinet.Id)
+            .OrderBy(h => h.ReceivedUtc)
+            .ToListAsync());
 
-        Assert.Single(remaining);
-        Assert.True(remaining[0].ReceivedUtc > nowUtc.AddDays(-30));
+        // The 200-day row is gone; the two 45-day samples became one hourly
+        // row; this morning's sample is untouched.
+        Assert.Equal(2, remaining.Count);
+
+        Heartbeat aggregate = Assert.Single(remaining, h => h.IsAggregated);
+        Assert.Equal(2, aggregate.SampleCount);
+
+        // The worst value of the hour survives, not the mean. A cabinet that
+        // spent five minutes pinned at 98% CPU had a problem; averaging it with
+        // a quiet hour erases exactly the evidence somebody would go looking
+        // for.
+        Assert.Equal(98, aggregate.CpuPercent);
+        Assert.Equal(41, aggregate.RamUsedPercent);
+
+        Heartbeat live = Assert.Single(remaining, h => !h.IsAggregated);
+        Assert.Equal(7, live.CpuPercent);
 
         bool auditSurvived = await _factory.WithDbAsync(db => db.AuditEntries
-            .AsNoTracking().AnyAsync(a => a.Action == "test.ancient-audit"));
+            .AsNoTracking().AnyAsync(a => a.CorrelationId == correlationId));
 
         Assert.True(auditSurvived, "Retention must never delete an audit record.");
+    }
+
+    [Fact]
+    public async Task An_unreadable_logged_on_flag_survives_aggregation_as_unknown()
+    {
+        // The one counter where folding to a default is dangerous rather than
+        // merely lossy. An hour holding one sample the collector could not read
+        // aggregates to unknown, never to "nobody was logged on" — the server
+        // gates reboots on this value.
+        Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
+            _factory, Unique("loggedon"), Guid.NewGuid());
+
+        DateTimeOffset hour = DateTimeOffset.UtcNow.AddDays(-45);
+
+        await _factory.WithDbAsync(async db =>
+        {
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, hour, loggedOn: false));
+            db.Heartbeats.Add(NewHeartbeat(cabinet.Id, hour.AddMinutes(5), loggedOn: null));
+
+            await db.SaveChangesAsync();
+        });
+
+        await CreateService(new RetentionOptions { Enabled = true, BatchSize = 100 })
+            .SweepAsync(CancellationToken.None);
+
+        Heartbeat aggregate = await _factory.WithDbAsync(db => db.Heartbeats
+            .AsNoTracking().FirstAsync(h => h.CabinetId == cabinet.Id && h.IsAggregated));
+
+        Assert.Null(aggregate.AnyUserLoggedOn);
     }
 
     [Fact]
@@ -80,16 +131,16 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("smart"), Guid.NewGuid());
 
-        DateTime day = DateTime.UtcNow.Date.AddDays(-200);
+        DateTimeOffset day = TruncateToDay(DateTimeOffset.UtcNow.AddDays(-200));
 
         await _factory.WithDbAsync(async db =>
         {
             db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(2),
-                reallocated: 5, spare: 90, health: DiskHealthStatus.Healthy));
+                reallocated: 5, wear: 70, health: DiskHealthStatus.Healthy));
             db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(10),
-                reallocated: 41, spare: 72, health: DiskHealthStatus.Warning));
+                reallocated: 41, wear: 90, health: DiskHealthStatus.Watch));
             db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(18),
-                reallocated: 38, spare: 74, health: DiskHealthStatus.Healthy));
+                reallocated: 38, wear: 72, health: DiskHealthStatus.Healthy));
 
             await db.SaveChangesAsync();
         });
@@ -97,7 +148,6 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         await CreateService(new RetentionOptions
         {
             Enabled = true,
-            CheckInRetentionDays = 30,
             SmartFullResolutionDays = 90,
             SmartAggregateRetentionDays = 730,
             BatchSize = 100
@@ -111,17 +161,23 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         SmartReading aggregate = Assert.Single(rows);
 
         Assert.True(aggregate.IsAggregated);
-        Assert.Equal(3, aggregate.SampleCount);
         Assert.Equal(day, aggregate.TimestampUtc);
 
         // The worst value of the day survives: an error count that spiked and
         // settled back is exactly what failure prediction needs to see, and an
         // average would erase it.
         Assert.Equal(41, aggregate.ReallocatedSectorCount);
-        Assert.Equal(DiskHealthStatus.Warning, aggregate.PredictedHealth);
+        Assert.Equal(DiskHealthStatus.Watch, aggregate.Health);
 
-        // Spare capacity falls as a drive wears, so its worst case is the low.
-        Assert.Equal(72, aggregate.AvailableSparePercent);
+        // Wear is endurance consumed, so its worst case is the high.
+        Assert.Equal(90, aggregate.Wear);
+
+        // A counter no reading carried stays absent rather than becoming zero.
+        Assert.Null(aggregate.PendingSectorCount);
+        Assert.Null(aggregate.PowerOnHours);
+
+        // And the aggregate says where its numbers came from.
+        Assert.Equal(SmartSource.StorageReliabilityCounter, aggregate.Source);
     }
 
     [Fact]
@@ -130,7 +186,7 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("fresh"), Guid.NewGuid());
 
-        DateTime today = DateTime.UtcNow.Date;
+        DateTimeOffset today = TruncateToDay(DateTimeOffset.UtcNow);
 
         await _factory.WithDbAsync(async db =>
         {
@@ -155,30 +211,42 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
             TimeProvider.System,
             NullLogger<RetentionService>.Instance);
 
-    private static CheckIn NewCheckIn(Guid cabinetId, DateTime whenUtc) => new()
+    private static DateTimeOffset TruncateToDay(DateTimeOffset value) =>
+        new(value.Year, value.Month, value.Day, 0, 0, 0, TimeSpan.Zero);
+
+    private static Heartbeat NewHeartbeat(
+        Guid cabinetId,
+        DateTimeOffset whenUtc,
+        double? cpu = null,
+        double? ramUsed = null,
+        bool? loggedOn = false) => new()
     {
         CabinetId = cabinetId,
         ReceivedUtc = whenUtc,
         CollectedAtUtc = whenUtc,
-        PayloadJson = "{}",
+        SectionErrorsJson = "{}",
         WorstDiskHealth = DiskHealthStatus.Healthy,
-        MinFreeDiskPercent = 50
+        CpuPercent = cpu,
+        RamUsedPercent = ramUsed,
+        AnyUserLoggedOn = loggedOn,
+        MinFreeDiskPercent = 50,
     };
 
     private static SmartReading NewReading(
         Guid cabinetId,
         string serial,
-        DateTime whenUtc,
-        long reallocated,
-        int spare,
+        DateTimeOffset whenUtc,
+        int reallocated,
+        int wear,
         DiskHealthStatus health = DiskHealthStatus.Healthy) => new()
     {
         CabinetId = cabinetId,
         DriveSerial = serial,
         TimestampUtc = whenUtc,
+        Source = SmartSource.StorageReliabilityCounter,
         ReallocatedSectorCount = reallocated,
-        AvailableSparePercent = spare,
-        PredictedHealth = health
+        Wear = wear,
+        Health = health,
     };
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];

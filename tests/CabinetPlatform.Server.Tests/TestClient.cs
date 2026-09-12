@@ -51,7 +51,7 @@ public static class TestClient
             IsActive = isActive,
             HasElevatedSql = hasElevatedSql,
             MustChangePassword = mustChangePassword,
-            CreatedUtc = DateTime.UtcNow
+            CreatedUtc = DateTimeOffset.UtcNow
         };
 
         db.Users.Add(user);
@@ -76,43 +76,95 @@ public static class TestClient
         return client;
     }
 
+    /// <summary>
+    /// Creates an approved cabinet, together with the client and site it hangs
+    /// off.
+    /// </summary>
+    /// <remarks>
+    /// The client is a row rather than a string on the cabinet because it is a
+    /// security boundary: a cabinet-to-cabinet probe may not cross it. Tests
+    /// that want two cabinets on one network therefore have to pass the same
+    /// <paramref name="clientName"/> and <paramref name="siteName"/>, exactly as
+    /// a Supervisor filing them would.
+    /// </remarks>
     public static async Task<Cabinet> CreateApprovedCabinetAsync(
         SupportApiFactory factory,
         string machineId,
         Guid approvedBy,
-        bool isActive = true)
+        bool isActive = true,
+        string clientName = "Test Veterinary Group",
+        string siteName = "Main Clinic",
+        CabinetRole role = CabinetRole.Standalone,
+        string? timeZoneId = null,
+        string? ipAddress = null)
     {
         return await factory.WithDbAsync(async db =>
         {
+            Site site = await ResolveSiteAsync(db, clientName, siteName);
+
             var cabinet = new Cabinet
             {
                 MachineId = machineId,
                 Hostname = $"host-{machineId}",
-                ClientName = "Test Veterinary Group",
-                SiteName = "Main Clinic",
+                SiteId = site.Id,
                 DepartmentName = "Pharmacy",
-                ApprovedUtc = DateTime.UtcNow,
+                Role = role,
+                TimeZoneId = timeZoneId,
+                LastKnownIpAddress = ipAddress,
+                ApprovedUtc = DateTimeOffset.UtcNow,
                 ApprovedByUserId = approvedBy,
                 IsActive = isActive
             };
 
             db.Cabinets.Add(cabinet);
+
+            if (role == CabinetRole.Sync && site.SyncCabinetId is null)
+            {
+                site.SyncCabinetId = cabinet.Id;
+            }
+
             await db.SaveChangesAsync();
             return cabinet;
         });
     }
 
+    /// <summary>Finds or creates the client and site a test cabinet belongs to.</summary>
+    private static async Task<Site> ResolveSiteAsync(
+        SupportDbContext db, string clientName, string siteName)
+    {
+        Client? client = await db.Clients.FirstOrDefaultAsync(c => c.Name == clientName);
+
+        if (client is null)
+        {
+            client = new Client { Name = clientName };
+            db.Clients.Add(client);
+            await db.SaveChangesAsync();
+        }
+
+        Site? site = await db.Sites
+            .FirstOrDefaultAsync(s => s.ClientId == client.Id && s.Name == siteName);
+
+        if (site is null)
+        {
+            site = new Site { ClientId = client.Id, Name = siteName };
+            db.Sites.Add(site);
+            await db.SaveChangesAsync();
+        }
+
+        return site;
+    }
+
     public static Task<int> CountAuditAsync(
-        SupportApiFactory factory, string action, AuditResult result) =>
+        SupportApiFactory factory, AuditEvent auditEvent, AuditResult result) =>
         factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .CountAsync(a => a.Action == action && a.Result == result));
+            .CountAsync(a => a.Event == auditEvent && a.Result == result));
 
     public static Task<List<Domain.AuditEntry>> AuditEntriesAsync(
-        SupportApiFactory factory, string action) =>
+        SupportApiFactory factory, AuditEvent auditEvent) =>
         factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == action)
+            .Where(a => a.Event == auditEvent)
             .ToListAsync());
 
     public static Task<HttpResponseMessage> PostJsonAsync<T>(

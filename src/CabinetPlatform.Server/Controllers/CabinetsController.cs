@@ -222,6 +222,13 @@ public sealed class CabinetsController : SupportControllerBase
 
         if (!window.Succeeded)
         {
+            // A refused request is still a request. Silently 400-ing a range
+            // that policy would not serve leaves no trace that somebody asked
+            // for three years of one cabinet's history.
+            await _audit.WriteDenialAsync(
+                AuditEvent.ViewCabinetHistory, window.Reason!, id,
+                new { query.FromUtc, query.ToUtc }, null, ct);
+
             return Problem(window);
         }
 
@@ -325,6 +332,13 @@ public sealed class CabinetsController : SupportControllerBase
 
         if (!window.Succeeded)
         {
+            // A refused request is still a request. Silently 400-ing a range
+            // that policy would not serve leaves no trace that somebody asked
+            // for three years of one cabinet's history.
+            await _audit.WriteDenialAsync(
+                AuditEvent.ViewSmartHistory, window.Reason!, id,
+                new { query.FromUtc, query.ToUtc }, null, ct);
+
             return Problem(window);
         }
 

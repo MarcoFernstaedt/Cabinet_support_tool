@@ -62,7 +62,9 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
+            services.RemoveAll<DbContextOptions<SqliteSupportDbContext>>();
             services.RemoveAll<DbContextOptions<SupportDbContext>>();
+            services.RemoveAll<SupportDbContext>();
             services.RemoveAll<DbConnection>();
 
             // One connection held open for the fixture's lifetime: an in-memory
@@ -71,8 +73,9 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
             _connection.Open();
 
             services.AddSingleton(_connection);
-            services.AddDbContext<SupportDbContext>((sp, options) =>
+            services.AddDbContext<SqliteSupportDbContext>((sp, options) =>
                 options.UseSqlite(sp.GetRequiredService<DbConnection>()));
+            services.AddScoped<SupportDbContext>(sp => sp.GetRequiredService<SqliteSupportDbContext>());
 
             // Background sweeps are driven by hand in the tests that cover
             // them, so they are not left running underneath every other test.

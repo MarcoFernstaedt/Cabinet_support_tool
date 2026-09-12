@@ -1,4 +1,6 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace CabinetPlatform.Server.Data;
 
@@ -30,8 +32,61 @@ public sealed class SqliteSupportDbContext : SupportDbContext
     {
     }
 
+    /// <summary>
+    /// Maps every <see cref="DateTimeOffset"/> to sortable UTC text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// SQLite has no date type, so its EF provider refuses to translate
+    /// <c>&lt;</c>, <c>&lt;=</c>, <c>&gt;</c> and <c>&gt;=</c> on a
+    /// <see cref="DateTimeOffset"/> — a "could not be translated" exception at
+    /// runtime, not a compile error. Every range query in this server is over a
+    /// timestamp, so without this every one of them throws.
+    /// </para>
+    /// <para>
+    /// The stored form is fixed-width UTC text, so a string comparison in
+    /// SQLite orders identically to a chronological one. That is the whole
+    /// reason for the fixed width: with a trimmed fractional part, two values a
+    /// tick apart can sort the wrong way round.
+    /// </para>
+    /// <para>
+    /// This is provider configuration, not a provider-specific query: the
+    /// queries stay LINQ and are byte-for-byte the same against PostgreSQL,
+    /// which has a real <c>timestamptz</c> and needs none of this.
+    /// </para>
+    /// </remarks>
+    /// <param name="builder">The convention builder.</param>
+    protected override void ConfigureConventions(ModelConfigurationBuilder builder)
+    {
+        base.ConfigureConventions(builder);
+
+        builder.Properties<DateTimeOffset>().HaveConversion<SortableUtcTextConverter>();
+    }
+
     private static DbContextOptions<SupportDbContext> Rebuild(DbContextOptions<SqliteSupportDbContext> options) =>
         ProviderContextOptions.Rebase(options);
+
+    /// <summary>
+    /// Round-trips a <see cref="DateTimeOffset"/> through fixed-width UTC text.
+    /// </summary>
+    /// <remarks>
+    /// Normalising to UTC on the way in is safe because every timestamp in this
+    /// system is UTC by rule; a cabinet's local time is derived for display from
+    /// its own zone, never stored. Anything that did arrive with an offset is
+    /// converted rather than truncated, so no instant is altered.
+    /// </remarks>
+    private sealed class SortableUtcTextConverter : ValueConverter<DateTimeOffset, string>
+    {
+        private const string Format = "yyyy-MM-dd HH:mm:ss.fffffff+00:00";
+
+        public SortableUtcTextConverter()
+            : base(
+                value => value.ToUniversalTime().ToString(Format, CultureInfo.InvariantCulture),
+                text => DateTimeOffset.Parse(
+                    text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal).ToUniversalTime())
+        {
+        }
+    }
 }
 
 /// <summary>

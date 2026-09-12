@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Auth;
@@ -6,6 +7,7 @@ using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Server.Domain;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 namespace CabinetPlatform.Server.Tests;
@@ -34,7 +36,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.RequestAction &&
+            .Where(a => a.Event == AuditEvent.RequestAction &&
                         a.Result == AuditResult.Denied &&
                         a.CabinetId == cabinet.Id)
             .ToListAsync());
@@ -60,6 +62,57 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
     }
 
     [Fact]
+    public async Task Reboot_is_blocked_when_the_last_check_in_could_not_read_the_logged_on_state()
+    {
+        // Ruling 4. The cabinet checked in; the collector that answers "is
+        // anyone standing at this machine?" failed, so the column is null.
+        //
+        // A null here used to be written as false — "nobody is logged on" —
+        // which is the most dangerous possible reading of a failed collector:
+        // it is indistinguishable from a genuinely idle cabinet and it lets a
+        // reboot proceed on a controlled-substance cabinet mid-dispense.
+        // Null means not collected, and not collected is unsafe.
+        (HttpClient client, User user) =
+            await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Unique("t2"));
+
+        Cabinet unknown = await CabinetWithCheckInAsync(user.Id, anyUserLoggedOn: null);
+        Cabinet occupied = await CabinetWithCheckInAsync(user.Id, anyUserLoggedOn: true);
+
+        HttpResponseMessage unknownResponse = await client.PostJsonAsync(
+            "/api/actions", RebootRequest(unknown.Id));
+
+        HttpResponseMessage occupiedResponse = await client.PostJsonAsync(
+            "/api/actions", RebootRequest(occupied.Id));
+
+        // Identical handling, asserted against the logged-on case rather than
+        // against a hard-coded status, so the two cannot drift apart later.
+        Assert.Equal(HttpStatusCode.Conflict, unknownResponse.StatusCode);
+        Assert.Equal(occupiedResponse.StatusCode, unknownResponse.StatusCode);
+
+        // Same refusal, word for word: the two cases are one code path, not two
+        // that happen to agree today.
+        Assert.Equal(await Detail(occupiedResponse), await Detail(unknownResponse));
+
+        // Nothing was queued for either cabinet.
+        int queued = await _factory.WithDbAsync(db => db.ActionRequests
+            .AsNoTracking()
+            .CountAsync(a => a.CabinetId == unknown.Id || a.CabinetId == occupied.Id));
+
+        Assert.Equal(0, queued);
+
+        // And the refusal is on the record for both, as a denial always is.
+        List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
+            .AsNoTracking()
+            .Where(a => a.Event == AuditEvent.RequestAction &&
+                        a.Result == AuditResult.Denied &&
+                        (a.CabinetId == unknown.Id || a.CabinetId == occupied.Id))
+            .ToListAsync());
+
+        Assert.Contains(denials, d => d.CabinetId == unknown.Id);
+        Assert.Contains(denials, d => d.CabinetId == occupied.Id);
+    }
+
+    [Fact]
     public async Task A_Tier2_cannot_override_the_safety_checks()
     {
         (HttpClient client, User user) =
@@ -67,9 +120,11 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         Cabinet cabinet = await CabinetWithCheckInAsync(user.Id, anyUserLoggedOn: true);
 
-        CreateActionRequest request = RebootRequest(cabinet.Id);
-        request.OverrideSafetyChecks = true;
-        request.OverrideReason = "The clinic says it is fine.";
+        CreateActionRequest request = RebootRequest(cabinet.Id) with
+        {
+            OverrideSafetyChecks = true,
+            OverrideReason = "The clinic says it is fine."
+        };
 
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", request);
 
@@ -84,9 +139,11 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         Cabinet cabinet = await CabinetWithCheckInAsync(supervisor.Id, anyUserLoggedOn: true);
 
-        CreateActionRequest request = RebootRequest(cabinet.Id);
-        request.OverrideSafetyChecks = true;
-        request.OverrideReason = null;
+        CreateActionRequest request = RebootRequest(cabinet.Id) with
+        {
+            OverrideSafetyChecks = true,
+            OverrideReason = null
+        };
 
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", request);
 
@@ -103,15 +160,17 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         const string reason = "Cabinet unresponsive; site manager confirmed the floor is clear.";
 
-        CreateActionRequest request = RebootRequest(cabinet.Id);
-        request.OverrideSafetyChecks = true;
-        request.OverrideReason = reason;
+        CreateActionRequest request = RebootRequest(cabinet.Id) with
+        {
+            OverrideSafetyChecks = true,
+            OverrideReason = reason
+        };
 
         HttpResponseMessage response = await client.PostJsonAsync("/api/actions", request);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        ActionRequestDto? dto = await response.ReadAsync<ActionRequestDto>();
+        ActionRequestView? dto = await response.ReadAsync<ActionRequestView>();
 
         Assert.NotNull(dto);
         Assert.True(dto!.SafetyChecksOverridden);
@@ -123,7 +182,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         Domain.AuditEntry record = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.RequestAction &&
+            .Where(a => a.Event == AuditEvent.RequestAction &&
                         a.Result == AuditResult.Success &&
                         a.CabinetId == cabinet.Id)
             .OrderByDescending(a => a.TimestampUtc)
@@ -154,19 +213,22 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
 
-    private async Task<Cabinet> CabinetWithCheckInAsync(Guid approvedBy, bool anyUserLoggedOn)
+    /// <summary>The human-readable reason out of a problem response.</summary>
+    private static async Task<string?> Detail(HttpResponseMessage response) =>
+        (await response.Content.ReadFromJsonAsync<ProblemDetails>(TestClient.Json))?.Detail;
+
+    private async Task<Cabinet> CabinetWithCheckInAsync(Guid approvedBy, bool? anyUserLoggedOn)
     {
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
             _factory, Unique("gated"), approvedBy);
 
         await _factory.WithDbAsync(async db =>
         {
-            db.CheckIns.Add(new CheckIn
+            db.Heartbeats.Add(new Heartbeat
             {
                 CabinetId = cabinet.Id,
-                ReceivedUtc = DateTime.UtcNow,
-                CollectedAtUtc = DateTime.UtcNow,
-                PayloadJson = "{}",
+                ReceivedUtc = DateTimeOffset.UtcNow,
+                CollectedAtUtc = DateTimeOffset.UtcNow,
                 AnyUserLoggedOn = anyUserLoggedOn,
                 WorstDiskHealth = DiskHealthStatus.Healthy,
                 MinFreeDiskPercent = 55

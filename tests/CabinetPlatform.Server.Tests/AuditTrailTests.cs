@@ -27,7 +27,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     public async Task An_unauthenticated_request_is_refused_and_audited()
     {
         int before = await TestClient.CountAuditAsync(
-            _factory, AuditActions.AuthorizationDenied, AuditResult.Denied);
+            _factory, AuditEvent.AuthorizationDenied, AuditResult.Denied);
 
         HttpClient client = _factory.CreateClient();
         HttpResponseMessage response = await client.GetAsync("/api/cabinets");
@@ -35,7 +35,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
 
         int after = await TestClient.CountAuditAsync(
-            _factory, AuditActions.AuthorizationDenied, AuditResult.Denied);
+            _factory, AuditEvent.AuthorizationDenied, AuditResult.Denied);
 
         Assert.True(after > before, "A refused request must leave an audit record.");
     }
@@ -52,7 +52,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
 
         List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.AuthorizationDenied &&
+            .Where(a => a.Event == AuditEvent.AuthorizationDenied &&
                         a.Result == AuditResult.Denied &&
                         a.ActorId == user.Id.ToString())
             .ToListAsync());
@@ -62,7 +62,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
         // A refusal changed nothing on any cabinet, so it belongs to the
         // Observed stream with a Denied result — never to Caused.
         Assert.All(denials, d => Assert.Equal(AuditEventKind.Observed, d.EventKind));
-        Assert.All(denials, d => Assert.Equal(ActorTypes.User, d.ActorType));
+        Assert.All(denials, d => Assert.Equal(ActorType.User, d.ActorType));
     }
 
     [Fact]
@@ -83,7 +83,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
 
         List<Domain.AuditEntry> entries = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.Login && a.Result == AuditResult.Denied)
+            .Where(a => a.Event == AuditEvent.Login && a.Result == AuditResult.Denied)
             .ToListAsync());
 
         Assert.NotEmpty(entries);
@@ -112,11 +112,11 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
                 new LoginRequest { Username = user.Username, Password = $"Wrong!Password{i}" });
         }
 
-        DateTime? lockedUntil = await _factory.WithDbAsync(db => db.Users
+        DateTimeOffset? lockedUntil = await _factory.WithDbAsync(db => db.Users
             .AsNoTracking().Where(u => u.Id == user.Id).Select(u => u.LockedUntilUtc).FirstAsync());
 
         Assert.NotNull(lockedUntil);
-        Assert.True(lockedUntil > DateTime.UtcNow);
+        Assert.True(lockedUntil > DateTimeOffset.UtcNow);
 
         // And the correct password now fails too, for as long as the lock holds.
         HttpResponseMessage locked = await client.PostJsonAsync(
@@ -137,7 +137,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
 
         Domain.AuditEntry entry = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.ListCabinets && a.ActorId == user.Id.ToString())
+            .Where(a => a.Event == AuditEvent.ListCabinets && a.ActorId == user.Id.ToString())
             .OrderByDescending(a => a.TimestampUtc)
             .FirstAsync());
 
@@ -149,15 +149,18 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     [Fact]
     public async Task An_audit_entry_cannot_be_modified()
     {
+        string correlationId = Unique("immutable");
+
         await _factory.WithDbAsync(async db =>
         {
             db.AuditEntries.Add(new Domain.AuditEntry
             {
-                TimestampUtc = DateTime.UtcNow,
-                ActorType = ActorTypes.System,
-                Action = "test.immutability",
+                TimestampUtc = DateTimeOffset.UtcNow,
+                ActorType = ActorType.System,
+                Event = AuditEvent.RetentionSweep,
                 EventKind = AuditEventKind.Observed,
-                Result = AuditResult.Success
+                Result = AuditResult.Success,
+                CorrelationId = correlationId
             });
 
             await db.SaveChangesAsync();
@@ -167,7 +170,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
         var context = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
 
         Domain.AuditEntry tracked = await context.AuditEntries
-            .FirstAsync(a => a.Action == "test.immutability");
+            .FirstAsync(a => a.CorrelationId == correlationId);
 
         tracked.Reason = "Rewriting history.";
 
@@ -177,15 +180,18 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
     [Fact]
     public async Task An_audit_entry_cannot_be_deleted()
     {
+        string correlationId = Unique("no-delete");
+
         await _factory.WithDbAsync(async db =>
         {
             db.AuditEntries.Add(new Domain.AuditEntry
             {
-                TimestampUtc = DateTime.UtcNow,
-                ActorType = ActorTypes.System,
-                Action = "test.no-delete",
+                TimestampUtc = DateTimeOffset.UtcNow,
+                ActorType = ActorType.System,
+                Event = AuditEvent.RetentionSweep,
                 EventKind = AuditEventKind.Caused,
-                Result = AuditResult.Success
+                Result = AuditResult.Success,
+                CorrelationId = correlationId
             });
 
             await db.SaveChangesAsync();
@@ -195,7 +201,7 @@ public sealed class AuditTrailTests : IClassFixture<SupportApiFactory>
         var context = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
 
         Domain.AuditEntry tracked = await context.AuditEntries
-            .FirstAsync(a => a.Action == "test.no-delete");
+            .FirstAsync(a => a.CorrelationId == correlationId);
 
         context.AuditEntries.Remove(tracked);
 

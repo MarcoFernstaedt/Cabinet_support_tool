@@ -25,7 +25,14 @@ public sealed class EndpointPolicyCoverageTests
     {
         // Login must be reachable by definition; it is rate-limited per IP and
         // backed by per-account lockout instead.
-        $"{nameof(AuthController)}.{nameof(AuthController.Login)}"
+        $"{nameof(AuthController)}.{nameof(AuthController.Login)}",
+
+        // Refresh is reached precisely when the access token has expired, so
+        // requiring one would make it unusable. The refresh token is itself the
+        // credential: it is stored server-side, hashed, single-use, revalidated
+        // against the user's current role, elevated-SQL grant and active flag on
+        // every exchange, and presenting a consumed one revokes the whole chain.
+        $"{nameof(AuthController)}.{nameof(AuthController.Refresh)}"
     };
 
     public static TheoryData<string> AllActions()

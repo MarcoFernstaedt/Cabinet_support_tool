@@ -89,25 +89,151 @@ public sealed class ActionCatalogTests
         }
     }
 
-    [Fact]
-    public void No_contract_type_carries_a_free_form_command_field()
+    /// <summary>
+    /// The contract types this platform can reach on the way to acting on a
+    /// cabinet: what a rep asks for, what the agent is handed, and what comes
+    /// back.
+    /// </summary>
+    /// <remarks>
+    /// Closed over their property types, so a command field smuggled in three
+    /// levels down a nested record is found just as readily as one on the
+    /// request itself.
+    /// </remarks>
+    private static readonly Type[] ActionPathRoots =
     {
-        // Belt and braces for the rule that matters most: if a DTO ever grows
-        // a command or script property, this fails before it can be wired up.
-        string[] forbidden = { "command", "script", "sql", "powershell", "shellcommand" };
+        typeof(CreateActionRequest),
+        typeof(CreateBatchActionRequest),
+        typeof(ActionRequestDto),
+        typeof(ActionRequestView),
+        typeof(ActionResultDto),
+        typeof(ActionCatalogEntryDto),
+        typeof(TestSyncLinkRequest),
+    };
 
-        IEnumerable<Type> contractTypes = typeof(Contracts.Enums.ActionName).Assembly
-            .GetTypes()
-            .Where(t => t is { IsClass: true, IsAbstract: false });
+    [Fact]
+    public void Nothing_on_the_action_path_carries_a_command_script_or_query_field()
+    {
+        // The rule that matters most, stated over the graph it actually has to
+        // hold for: if any type a request, dispatch or result can reach ever
+        // grows a command or script property, this fails before it can be
+        // wired up to anything.
+        string[] forbidden =
+        {
+            "command", "commandline", "script", "scriptblock", "sql", "query",
+            "statement", "powershell", "shell", "shellcommand", "executable",
+            "arguments", "args"
+        };
 
-        foreach (Type type in contractTypes)
+        var offenders = new List<string>();
+
+        foreach (Type type in Close(ActionPathRoots))
         {
             foreach (PropertyInfo property in type.GetProperties(
                          BindingFlags.Public | BindingFlags.Instance))
             {
-                Assert.DoesNotContain(forbidden, f =>
-                    string.Equals(property.Name, f, StringComparison.OrdinalIgnoreCase));
+                if (forbidden.Contains(property.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    offenders.Add($"{type.Name}.{property.Name}");
+                }
             }
+        }
+
+        Assert.True(offenders.Count == 0,
+            "Command-shaped fields reachable from the action path: " + string.Join(", ", offenders));
+    }
+
+    /// <summary>
+    /// The only contract property in the product whose name reads as a command,
+    /// and why it is allowed to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>StartupProgramInfo.Command</c> is inbound observation: the string
+    /// Windows already holds for a startup entry, reported so a support rep can
+    /// read what a machine launches at logon. Ruling 8 requires startup programs
+    /// be stored, and a startup entry without its command line tells nobody
+    /// anything.
+    /// </para>
+    /// <para>
+    /// It is safe because of the direction it travels, and this test pins that
+    /// direction: nothing on the action path can reach it, so there is no route
+    /// from a value read off a cabinet back to a value executed on one. If a
+    /// second such property ever appears, this fails and somebody has to make
+    /// the same argument about it in review.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void The_only_command_shaped_contract_field_is_inbound_observation()
+    {
+        string[] forbidden = { "command", "commandline", "script", "sql", "powershell", "shellcommand" };
+
+        HashSet<string> found = typeof(ActionName).Assembly
+            .GetTypes()
+            .Where(t => t is { IsClass: true, IsAbstract: false })
+            .SelectMany(t => t
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => forbidden.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
+                .Select(p => $"{t.Name}.{p.Name}"))
+            .ToHashSet();
+
+        Assert.Equal(new[] { $"{nameof(StartupProgramInfo)}.Command" }, found.OrderBy(x => x));
+
+        // And it is unreachable from anything that acts.
+        Assert.DoesNotContain(typeof(StartupProgramInfo), Close(ActionPathRoots));
+    }
+
+    /// <summary>
+    /// Every contract type reachable from the given roots through public
+    /// properties, collections included.
+    /// </summary>
+    private static HashSet<Type> Close(IEnumerable<Type> roots)
+    {
+        var seen = new HashSet<Type>();
+        var pending = new Stack<Type>(roots);
+
+        while (pending.Count > 0)
+        {
+            Type type = Unwrap(pending.Pop());
+
+            if (type.Assembly != typeof(ActionName).Assembly || !seen.Add(type))
+            {
+                continue;
+            }
+
+            foreach (PropertyInfo property in type.GetProperties(
+                         BindingFlags.Public | BindingFlags.Instance))
+            {
+                pending.Push(property.PropertyType);
+            }
+        }
+
+        return seen;
+    }
+
+    /// <summary>Reduces a nullable, array or generic collection type to its element type.</summary>
+    private static Type Unwrap(Type type)
+    {
+        while (true)
+        {
+            if (Nullable.GetUnderlyingType(type) is { } underlying)
+            {
+                type = underlying;
+                continue;
+            }
+
+            if (type.IsArray && type.GetElementType() is { } element)
+            {
+                type = element;
+                continue;
+            }
+
+            if (type.IsGenericType && type.GetGenericArguments().Length == 1)
+            {
+                type = type.GetGenericArguments()[0];
+                continue;
+            }
+
+            return type;
         }
     }
 
@@ -123,7 +249,8 @@ public sealed class ActionCatalogTests
             {
                 ["serviceName"] = "Spooler",
                 ["command"] = "shutdown /r /t 0"
-            });
+            },
+            DateTimeOffset.UtcNow);
 
         Assert.False(result.Succeeded);
         Assert.Equal(OperationFailure.Invalid, result.Failure);
@@ -137,7 +264,9 @@ public sealed class ActionCatalogTests
         ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RestartService);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
-            entry, new Dictionary<string, string> { ["serviceName"] = "NotAnAllowedService" });
+            entry,
+            new Dictionary<string, string> { ["serviceName"] = "NotAnAllowedService" },
+            DateTimeOffset.UtcNow);
 
         Assert.False(result.Succeeded);
         Assert.Contains("allow-list", result.Reason!, StringComparison.OrdinalIgnoreCase);
@@ -150,7 +279,9 @@ public sealed class ActionCatalogTests
         ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RestartService);
 
         OperationResult<IReadOnlyDictionary<string, string>> result = validator.Validate(
-            entry, new Dictionary<string, string> { ["serviceName"] = "spooler" });
+            entry,
+            new Dictionary<string, string> { ["serviceName"] = "spooler" },
+            DateTimeOffset.UtcNow);
 
         Assert.True(result.Succeeded);
         Assert.Equal("spooler", result.Value!["serviceName"]);
@@ -166,8 +297,9 @@ public sealed class ActionCatalogTests
             entry,
             new Dictionary<string, string>
             {
-                ["scheduledForUtc"] = DateTime.UtcNow.AddDays(-1).ToString("O")
-            });
+                ["scheduledForUtc"] = DateTimeOffset.UtcNow.AddDays(-1).ToString("O")
+            },
+            DateTimeOffset.UtcNow);
 
         Assert.False(result.Succeeded);
     }
@@ -179,13 +311,19 @@ public sealed class ActionCatalogTests
         ActionCatalogEntry entry = ActionCatalog.Get(ActionName.RebootMachine);
 
         Assert.False(validator.Validate(
-            entry, new Dictionary<string, string> { ["delaySeconds"] = "99999" }).Succeeded);
+            entry,
+            new Dictionary<string, string> { ["delaySeconds"] = "99999" },
+            DateTimeOffset.UtcNow).Succeeded);
 
         Assert.False(validator.Validate(
-            entry, new Dictionary<string, string> { ["delaySeconds"] = "not-a-number" }).Succeeded);
+            entry,
+            new Dictionary<string, string> { ["delaySeconds"] = "not-a-number" },
+            DateTimeOffset.UtcNow).Succeeded);
 
         Assert.True(validator.Validate(
-            entry, new Dictionary<string, string> { ["delaySeconds"] = "60" }).Succeeded);
+            entry,
+            new Dictionary<string, string> { ["delaySeconds"] = "60" },
+            DateTimeOffset.UtcNow).Succeeded);
     }
 
     private static IActionParameterValidator CreateValidator() =>

@@ -28,7 +28,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         // Counted before and after rather than against zero: the fixture is
         // shared with the other tests in this class, and an assertion about
         // the whole table would be measuring them instead of this one.
-        int checkInsBefore = await _factory.WithDbAsync(db => db.CheckIns.AsNoTracking().CountAsync());
+        int checkInsBefore = await _factory.WithDbAsync(db => db.Heartbeats.AsNoTracking().CountAsync());
         int smartBefore = await _factory.WithDbAsync(db => db.SmartReadings.AsNoTracking().CountAsync());
 
         HttpResponseMessage response = await agent.PostJsonAsync(
@@ -37,7 +37,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
 
         // Nothing from an unapproved machine reaches the fleet data.
-        int checkInsAfter = await _factory.WithDbAsync(db => db.CheckIns.AsNoTracking().CountAsync());
+        int checkInsAfter = await _factory.WithDbAsync(db => db.Heartbeats.AsNoTracking().CountAsync());
         int smartAfter = await _factory.WithDbAsync(db => db.SmartReadings.AsNoTracking().CountAsync());
 
         Assert.Equal(checkInsBefore, checkInsAfter);
@@ -51,13 +51,13 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         // But the attempt itself is recorded.
         List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.AgentCheckIn &&
+            .Where(a => a.Event == AuditEvent.AgentCheckIn &&
                         a.Result == AuditResult.Denied &&
                         a.ActorId == machineId)
             .ToListAsync());
 
         Assert.NotEmpty(denials);
-        Assert.All(denials, d => Assert.Equal(ActorTypes.Agent, d.ActorType));
+        Assert.All(denials, d => Assert.Equal(ActorType.Agent, d.ActorType));
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         // Even a request that never reached a controller leaves a trace.
         int denials = await TestClient.CountAuditAsync(
-            _factory, AuditActions.AuthorizationDenied, AuditResult.Denied);
+            _factory, AuditEvent.AuthorizationDenied, AuditResult.Denied);
 
         Assert.True(denials > 0);
     }
@@ -86,7 +86,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         HttpResponseMessage response = await agent.PostJsonAsync(
             "/api/agent/register",
-            new AgentRegistrationRequest
+            new RegistrationRequest
             {
                 MachineId = machineId,
                 Hostname = "CLINIC-PC-01",
@@ -96,7 +96,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        AgentRegistrationResponse? body = await response.ReadAsync<AgentRegistrationResponse>();
+        RegistrationResponse? body = await response.ReadAsync<RegistrationResponse>();
         Assert.NotNull(body);
         Assert.Equal(RegistrationStatus.Pending, body!.Status);
 
@@ -122,10 +122,11 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         {
             HttpResponseMessage response = await agent.PostJsonAsync(
                 "/api/agent/register",
-                new AgentRegistrationRequest
+                new RegistrationRequest
                 {
                     MachineId = machineId,
                     Hostname = "CLINIC-PC-02",
+                    OsVersion = "Windows 11 23H2",
                     AgentVersion = $"1.4.{i}"
                 });
 
@@ -155,28 +156,31 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        CheckIn stored = await _factory.WithDbAsync(db =>
-            db.CheckIns.AsNoTracking().FirstAsync(c => c.CabinetId == cabinet.Id));
+        Heartbeat stored = await _factory.WithDbAsync(db =>
+            db.Heartbeats.AsNoTracking().FirstAsync(c => c.CabinetId == cabinet.Id));
 
         // The projection columns are what the fleet grid reads; the payload is
         // kept beside them for forensics.
         Assert.Equal(2, stored.PendingUpdateCount);
         Assert.True(stored.AnyUserLoggedOn);
-        Assert.Equal(DiskHealthStatus.Warning, stored.WorstDiskHealth);
-        Assert.InRange(stored.MinFreeDiskPercent, 7.9, 8.1);
-        Assert.False(string.IsNullOrWhiteSpace(stored.PayloadJson));
+        Assert.Equal(DiskHealthStatus.Watch, stored.WorstDiskHealth);
+        Assert.NotNull(stored.MinFreeDiskPercent);
+        Assert.InRange(stored.MinFreeDiskPercent!.Value, 7.9, 8.1);
 
-        SmartReading reading = await _factory.WithDbAsync(db =>
-            db.SmartReadings.AsNoTracking().FirstAsync(s => s.CabinetId == cabinet.Id));
+        // A heartbeat carries typed columns and no payload document. Seven
+        // thousand cabinets at a five-minute cadence is two million rows a day;
+        // a stored blob per row reaches terabytes within weeks and is never
+        // read, because every list and aggregate reads these columns.
+        InventoryVersion? inventory = await _factory.WithDbAsync(db => db.InventoryVersions
+            .AsNoTracking().FirstOrDefaultAsync(v => v.CabinetId == cabinet.Id));
 
-        Assert.Equal("DRIVE-SERIAL-1", reading.DriveSerial);
-        Assert.Equal(12, reading.ReallocatedSectorCount);
+        Assert.Null(inventory);
 
-        // A counter the drive did not report stays null. It must never be
-        // stored as a zero, which would read as good news.
-        Assert.Null(reading.AvailableSparePercent);
+        // SMART belongs to the full tier and is not collected on a heartbeat.
+        Assert.False(await _factory.WithDbAsync(db => db.SmartReadings
+            .AsNoTracking().AnyAsync(s => s.CabinetId == cabinet.Id)));
 
-        DateTime? lastCheckIn = await _factory.WithDbAsync(db => db.Cabinets
+        DateTimeOffset? lastCheckIn = await _factory.WithDbAsync(db => db.Cabinets
             .AsNoTracking().Where(c => c.Id == cabinet.Id).Select(c => c.LastCheckInUtc).FirstAsync());
 
         Assert.NotNull(lastCheckIn);
@@ -192,7 +196,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(_factory, machineId, supervisor.Id);
 
         HttpClient agent = TestClient.CreateAgentClient(_factory, machineId);
-        CheckInRequest payload = SampleCheckIn(machineId);
+        CheckInPayload payload = SampleCheckIn(machineId);
 
         HttpResponseMessage first = await agent.PostJsonAsync("/api/agent/checkin", payload);
         HttpResponseMessage second = await agent.PostJsonAsync("/api/agent/checkin", payload);
@@ -204,7 +208,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         Assert.True(secondBody!.WasDuplicate);
 
         int rows = await _factory.WithDbAsync(db =>
-            db.CheckIns.AsNoTracking().CountAsync(c => c.CabinetId == cabinet.Id));
+            db.Heartbeats.AsNoTracking().CountAsync(c => c.CabinetId == cabinet.Id));
 
         Assert.Equal(1, rows);
     }
@@ -225,7 +229,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         HttpResponseMessage created = await requesterClient.PostJsonAsync(
             "/api/actions",
-            new Contracts.Actions.CreateActionRequest
+            new CreateActionRequest
             {
                 Action = ActionName.StopService,
                 CabinetId = owner.Id,
@@ -233,17 +237,22 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
                 Reason = "Service is hung."
             });
 
-        Contracts.Actions.ActionRequestDto? dto =
-            await created.ReadAsync<Contracts.Actions.ActionRequestDto>();
+        ActionRequestView? dto = await created.ReadAsync<ActionRequestView>();
 
         await approverClient.PostJsonAsync(
-            $"/api/actions/{dto!.Id}/approve", new Contracts.Actions.ApproveActionRequest());
+            $"/api/actions/{dto!.Id}/approve", new ApproveActionRequest());
 
         HttpClient intruder = TestClient.CreateAgentClient(_factory, intruderMachine);
 
         HttpResponseMessage response = await intruder.PostJsonAsync(
-            $"/api/agent/actions/{dto.Id}/result",
-            new AgentActionResultRequest { Status = ActionStatus.Succeeded, Output = "done" });
+            "/api/agent/actions/result",
+            new ActionResultDto
+            {
+                RequestId = dto.Id,
+                Status = ActionStatus.Succeeded,
+                Output = "done",
+                CompletedAtUtc = DateTimeOffset.UtcNow
+            });
 
         // 404 rather than 403: one cabinet should not learn that another
         // cabinet's work exists.
@@ -256,7 +265,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.AgentReportResult &&
+            .Where(a => a.Event == AuditEvent.AgentReportResult &&
                         a.Result == AuditResult.Denied &&
                         a.ActorId == intruderMachine)
             .ToListAsync());
@@ -286,12 +295,17 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         HttpResponseMessage response = await agent.GetAsync("/api/agent/actions");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        List<AgentActionDispatch>? dispatches = await response.ReadAsync<List<AgentActionDispatch>>();
+        List<ActionRequestDto>? dispatches = await response.ReadAsync<List<ActionRequestDto>>();
 
         Assert.NotNull(dispatches);
         Assert.Single(dispatches!);
-        Assert.Equal(mineAction, dispatches![0].ActionRequestId);
+        Assert.Equal(mineAction, dispatches![0].Id);
         Assert.Equal("Spooler", dispatches[0].Parameters["serviceName"]);
+
+        // The envelope the agent receives carries an expiry, so an action that
+        // sat in a queue while a cabinet was offline cannot be executed days
+        // later against a machine whose state has moved on.
+        Assert.NotNull(dispatches[0].ExpiresUtc);
 
         ActionRequest collected = await _factory.WithDbAsync(db =>
             db.ActionRequests.AsNoTracking().FirstAsync(a => a.Id == mineAction));
@@ -303,8 +317,8 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
         Assert.Equal(ActionRequestStatus.Approved, untouched.Status);
 
         // A second poll must not hand the same action over again.
-        List<AgentActionDispatch>? second =
-            await (await agent.GetAsync("/api/agent/actions")).ReadAsync<List<AgentActionDispatch>>();
+        List<ActionRequestDto>? second =
+            await (await agent.GetAsync("/api/agent/actions")).ReadAsync<List<ActionRequestDto>>();
 
         Assert.Empty(second!);
     }
@@ -314,7 +328,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     {
         HttpResponseMessage created = await requester.PostJsonAsync(
             "/api/actions",
-            new Contracts.Actions.CreateActionRequest
+            new CreateActionRequest
             {
                 Action = ActionName.StopService,
                 CabinetId = cabinetId,
@@ -322,51 +336,94 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
                 Reason = "Service is hung."
             });
 
-        Contracts.Actions.ActionRequestDto? dto =
-            await created.ReadAsync<Contracts.Actions.ActionRequestDto>();
+        ActionRequestView? dto = await created.ReadAsync<ActionRequestView>();
 
         HttpResponseMessage approved = await approver.PostJsonAsync(
-            $"/api/actions/{dto!.Id}/approve", new Contracts.Actions.ApproveActionRequest());
+            $"/api/actions/{dto!.Id}/approve", new ApproveActionRequest());
 
         Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
 
         return dto.Id;
     }
 
-    private static CheckInRequest SampleCheckIn(string machineId) => new()
+    /// <summary>
+    /// A representative full-tier payload, in session 1's sectioned shape.
+    /// </summary>
+    /// <remarks>
+    /// Every counter that a real cabinet might fail to read is left null here
+    /// on purpose, so that any code path that turns a missing reading into a
+    /// zero shows up as a failing assertion rather than as a plausible number.
+    /// </remarks>
+    private static CheckInPayload SampleCheckIn(string machineId) => new()
     {
         MachineId = machineId,
-        CollectedAtUtc = new DateTime(2026, 3, 1, 12, 0, 0, DateTimeKind.Utc),
-        Hostname = "CLINIC-PC-01",
         AgentVersion = "1.4.2",
-        OsVersion = "Windows 11 23H2",
-        CpuPercent = 22.5,
-        RamUsedPercent = 61.2,
-        RamTotalBytes = 17_179_869_184,
-        AnyUserLoggedOn = true,
-        Volumes =
+        CollectedAtUtc = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero),
+        System = new SystemInfo
         {
-            new VolumeSnapshot { VolumeId = "C:", TotalBytes = 1000, FreeBytes = 400 },
-            new VolumeSnapshot { VolumeId = "D:", TotalBytes = 1000, FreeBytes = 80 }
+            Hostname = "CLINIC-PC-01",
+            OsVersion = "Windows 11 23H2",
+            AnyUserLoggedOn = true,
+            TimeZoneId = "UTC",
+            SystemTimeUtc = new DateTimeOffset(2026, 3, 1, 12, 0, 0, TimeSpan.Zero),
         },
-        PendingUpdates =
+        Performance = new PerformanceInfo
         {
-            new PendingUpdateSnapshot { UpdateId = "KB1", Title = "Security update", IsSecurityUpdate = true },
-            new PendingUpdateSnapshot { UpdateId = "KB2", Title = "Driver update" }
+            CpuTotalPercent = 22.5,
+            RamUsedPercent = 61.2,
+            RamTotalBytes = 17_179_869_184,
         },
-        SmartReadings =
+        Disks = new[]
         {
-            new SmartSnapshot
+            new DiskInfo
             {
-                DriveSerial = "DRIVE-SERIAL-1",
-                DriveModel = "Contoso SSD 500G",
-                TimestampUtc = new DateTime(2026, 3, 1, 12, 0, 0, DateTimeKind.Utc),
-                PredictedHealth = DiskHealthStatus.Warning,
-                ReallocatedSectorCount = 12,
-                PowerOnHours = 14_500,
-                TemperatureCelsius = 41
-            }
-        }
+                DriveLetter = "C",
+                TotalBytes = 1000,
+                FreeBytes = 400,
+                FreePercent = 40,
+                BitLockerStatus = BitLockerStatus.EncryptedUnlocked,
+                HealthStatus = DiskHealthStatus.Watch,
+                Smart = new SmartInfo
+                {
+                    Source = SmartSource.StorageReliabilityCounter,
+                    SerialNumber = "DRIVE-SERIAL-1",
+                    Model = "Contoso SSD 500G",
+                    ReallocatedSectorCount = 12,
+                    PowerOnHours = 14_500,
+                    TemperatureCelsius = 41,
+                },
+            },
+            new DiskInfo
+            {
+                DriveLetter = "D",
+                TotalBytes = 1000,
+                FreeBytes = 80,
+                FreePercent = 8,
+                BitLockerStatus = BitLockerStatus.NotEncrypted,
+                HealthStatus = DiskHealthStatus.Unknown,
+            },
+        },
+        WindowsUpdate = new WindowsUpdateInfo
+        {
+            PendingUpdateCount = 2,
+            RebootPending = false,
+            PendingUpdates = new[]
+            {
+                new PendingUpdateInfo
+                {
+                    UpdateId = "KB1",
+                    Title = "Security update",
+                    Classification = UpdateClassification.SecurityUpdate,
+                    IsSecurity = true,
+                },
+                new PendingUpdateInfo
+                {
+                    UpdateId = "KB2",
+                    Title = "Driver update",
+                    Classification = UpdateClassification.Driver,
+                },
+            },
+        },
     };
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];

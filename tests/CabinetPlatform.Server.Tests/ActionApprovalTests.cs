@@ -47,7 +47,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
         List<Domain.AuditEntry> denials = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.ApproveAction &&
+            .Where(a => a.Event == AuditEvent.ApproveAction &&
                         a.Result == AuditResult.Denied &&
                         a.ActorId == requester.Id.ToString())
             .ToListAsync());
@@ -87,7 +87,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
         // happen on a cabinet.
         Domain.AuditEntry approval = await _factory.WithDbAsync(db => db.AuditEntries
             .AsNoTracking()
-            .Where(a => a.Action == AuditActions.ApproveAction &&
+            .Where(a => a.Event == AuditEvent.ApproveAction &&
                         a.Result == AuditResult.Success &&
                         a.ApprovedByUserId == approver.Id)
             .FirstAsync());
@@ -96,7 +96,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
         Assert.Equal(cabinet.Id, approval.CabinetId);
 
         Assert.NotNull(stored.ExpiresUtc);
-        Assert.True(stored.ExpiresUtc > DateTime.UtcNow);
+        Assert.True(stored.ExpiresUtc > DateTimeOffset.UtcNow);
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
         Guid actionId = await RequestStopServiceAsync(requesterClient, cabinet.Id);
 
         var page = await (await requesterClient.GetAsync("/api/actions/pending-approval?pageSize=200"))
-            .ReadAsync<Contracts.Common.PagedResult<ActionRequestDto>>();
+            .ReadAsync<Contracts.Common.PagedResult<ActionRequestView>>();
 
         Assert.NotNull(page);
         Assert.DoesNotContain(page!.Items, i => i.Id == actionId);
@@ -135,7 +135,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        ActionRequestDto? dto = await response.ReadAsync<ActionRequestDto>();
+        ActionRequestView? dto = await response.ReadAsync<ActionRequestView>();
         Assert.NotNull(dto);
         Assert.Equal(ActionRequestStatus.Approved, dto!.Status);
 
@@ -163,7 +163,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
         Assert.True(await TestClient.CountAuditAsync(
-            _factory, AuditActions.RequestAction, AuditResult.Denied) > 0);
+            _factory, AuditEvent.RequestAction, AuditResult.Denied) > 0);
     }
 
     private static async Task<Guid> RequestStopServiceAsync(HttpClient client, Guid cabinetId)
@@ -179,7 +179,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
 
-        ActionRequestDto? dto = await response.ReadAsync<ActionRequestDto>();
+        ActionRequestView? dto = await response.ReadAsync<ActionRequestView>();
         Assert.NotNull(dto);
         Assert.Equal(ActionRequestStatus.PendingApproval, dto!.Status);
 
