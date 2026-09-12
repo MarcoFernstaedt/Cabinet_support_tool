@@ -34,7 +34,10 @@ public sealed class SystemCollector : ICollector
 
     public string SectionName => CollectorSections.System;
 
-    public Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => true;
+
+    public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var operatingSystem = _wmi.Query(
                 WmiScopes.CimV2,

@@ -257,7 +257,7 @@ public sealed class ActionDispatcher
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(request.RequestedByUserId))
+        if (request.RequestedByUserId == Guid.Empty)
         {
             failureReason = "The request names no requesting user.";
             return false;

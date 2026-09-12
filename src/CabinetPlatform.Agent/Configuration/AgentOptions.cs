@@ -15,8 +15,25 @@ public sealed class AgentOptions
     /// <summary>Base address of the support server. Outbound only.</summary>
     public string ServerBaseUrl { get; set; } = string.Empty;
 
-    /// <summary>Nominal seconds between check-ins, before jitter.</summary>
+    /// <summary>Nominal seconds between heartbeats, before jitter.</summary>
     public int CheckInIntervalSeconds { get; set; } = 300;
+
+    /// <summary>
+    /// Nominal seconds between full check-ins — inventory and SMART — before
+    /// jitter. Six hours by default: often enough that a change is noticed the
+    /// same working day, rare enough that the inventory history stays a history
+    /// rather than a log.
+    /// </summary>
+    public int FullCheckInIntervalSeconds { get; set; } = 21_600;
+
+    /// <summary>
+    /// Header the server expects the agent key in. Matched to the server's own
+    /// configuration; the value itself never lives here.
+    /// </summary>
+    public string AgentKeyHeaderName { get; set; } = "X-Mashura-Agent-Key";
+
+    /// <summary>Header the server expects the machine identity in.</summary>
+    public string MachineIdHeaderName { get; set; } = "X-Mashura-Machine-Id";
 
     /// <summary>
     /// Percentage by which each individual check-in interval is randomly

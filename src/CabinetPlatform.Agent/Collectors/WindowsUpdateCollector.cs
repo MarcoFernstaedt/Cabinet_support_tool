@@ -52,7 +52,10 @@ public sealed class WindowsUpdateCollector : ICollector
 
     public string SectionName => CollectorSections.WindowsUpdate;
 
-    public async Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => false;
+
+    public async Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var timeout = TimeSpan.FromSeconds(_options.WindowsUpdateTimeoutSeconds);
 

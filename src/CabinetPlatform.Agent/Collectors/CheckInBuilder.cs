@@ -25,6 +25,14 @@ public sealed class CheckInBuilder
     private readonly IClock _clock;
     private readonly ILogger<CheckInBuilder> _logger;
 
+    private CarriedForward _carried = new(null, null);
+
+    /// <summary>Creates the builder.</summary>
+    /// <param name="collectors">Every routine collector.</param>
+    /// <param name="identity">Supplies the machine id.</param>
+    /// <param name="stateStore">Supplies the cabinet id once approved.</param>
+    /// <param name="clock">Clock.</param>
+    /// <param name="logger">Diagnostic log.</param>
     public CheckInBuilder(
         IEnumerable<ICollector> collectors,
         IMachineIdentityProvider identity,
@@ -59,14 +67,38 @@ public sealed class CheckInBuilder
         };
     }
 
-    /// <summary>Runs every collector and assembles a full payload.</summary>
-    public async Task<CheckInPayload> BuildAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Runs the collectors for one tier and assembles a payload.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A heartbeat runs only the cheap collectors. The fields it still has to
+    /// carry that come from the slow ones — worst disk health, pending updates,
+    /// whether a reboot is waiting — are carried forward from the last full
+    /// check-in rather than re-measured, because measuring them is what makes
+    /// those collectors slow.
+    /// </para>
+    /// <para>
+    /// Carried-forward values start null and stay null until a full check-in
+    /// has actually produced them. A restarted agent reports "not known yet",
+    /// which is true, rather than a zero that would read as a clean bill of
+    /// health.
+    /// </para>
+    /// </remarks>
+    /// <param name="tier">Which tier to collect.</param>
+    /// <param name="cancellationToken">Cancels the collection.</param>
+    public async Task<CheckInPayload> BuildAsync(CheckInTier tier, CancellationToken cancellationToken)
     {
         var draft = new CheckInDraft();
         var sectionErrors = new Dictionary<string, string>(StringComparer.Ordinal);
 
         foreach (var collector in _collectors)
         {
+            if (tier == CheckInTier.Heartbeat && !collector.RunsOnHeartbeat)
+            {
+                continue;
+            }
+
             // The whole check-in being cancelled is a shutdown, not a section
             // failure, and is allowed to propagate.
             cancellationToken.ThrowIfCancellationRequested();
@@ -74,7 +106,7 @@ public sealed class CheckInBuilder
             var stopwatch = Stopwatch.StartNew();
             try
             {
-                await collector.CollectAsync(draft, cancellationToken).ConfigureAwait(false);
+                await collector.CollectAsync(draft, tier, cancellationToken).ConfigureAwait(false);
 
                 _logger.LogDebug(
                     "Collector {Section} completed in {ElapsedMs} ms.",
@@ -97,6 +129,18 @@ public sealed class CheckInBuilder
             }
         }
 
+        if (tier == CheckInTier.Full)
+        {
+            // Remember what the slow collectors found, so the next few
+            // heartbeats can still say something about it.
+            _carried = new CarriedForward(draft.WindowsUpdate?.PendingUpdateCount,
+                draft.WindowsUpdate?.RebootPending);
+        }
+        else
+        {
+            draft.WindowsUpdate = _carried.AsWindowsUpdateInfo();
+        }
+
         return new CheckInPayload
         {
             AgentVersion = AgentVersion,
@@ -112,6 +156,26 @@ public sealed class CheckInBuilder
             Network = draft.Network,
             SectionErrors = sectionErrors,
         };
+    }
+
+    /// <summary>
+    /// The handful of heartbeat fields that come from the slow tier.
+    /// </summary>
+    /// <remarks>
+    /// Only the summary counts are carried, never the pending update list or
+    /// the policy: a heartbeat that echoed those would be storing a full
+    /// inventory every five minutes by the back door.
+    /// </remarks>
+    private sealed record CarriedForward(int? PendingUpdateCount, bool? RebootPending)
+    {
+        public WindowsUpdateInfo? AsWindowsUpdateInfo() =>
+            PendingUpdateCount is null && RebootPending is null
+                ? null
+                : new WindowsUpdateInfo
+                {
+                    PendingUpdateCount = PendingUpdateCount,
+                    RebootPending = RebootPending,
+                };
     }
 
     /// <summary>

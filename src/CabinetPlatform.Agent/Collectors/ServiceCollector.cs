@@ -20,7 +20,10 @@ public sealed class ServiceCollector : ICollector
 
     public string SectionName => CollectorSections.Services;
 
-    public Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => false;
+
+    public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var rows = _wmi.Query(
             WmiScopes.CimV2,

@@ -49,6 +49,7 @@ public static class AgentServiceRegistration
     {
         services.AddSingleton<IClock, SystemClock>();
         services.AddSingleton<IWmiRepository, WmiRepository>();
+        services.AddSingleton<SmartReader>();
         services.AddSingleton<IRegistryReader, RegistryReader>();
         services.AddSingleton<IProcessProvider, ProcessProvider>();
         services.AddSingleton<IEventLogReader, Platform.EventLogReader>();
@@ -89,6 +90,9 @@ public static class AgentServiceRegistration
             ? uri
             : null;
 
+        services.AddSingleton<IAgentCredentialProvider, EnvironmentAgentCredentialProvider>();
+        services.AddTransient<AgentAuthenticationHandler>();
+
         services.AddHttpClient(AgentHttpClients.Server, client =>
         {
             if (baseAddress is not null)
@@ -101,7 +105,7 @@ public static class AgentServiceRegistration
             client.Timeout = TimeSpan.FromSeconds(100);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 $"CabinetPlatform.Agent/{CheckInBuilder.AgentVersion}");
-        });
+        }).AddHttpMessageHandler<AgentAuthenticationHandler>();
 
         services.AddHttpClient(AgentHttpClients.Probe, client =>
         {

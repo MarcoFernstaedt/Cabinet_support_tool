@@ -49,7 +49,10 @@ public sealed class NetworkCollector : ICollector
 
     public string SectionName => CollectorSections.Network;
 
-    public async Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => false;
+
+    public async Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var firewall = ReadFirewallProfiles();
         var (proxyConfigured, proxyAddress) = ReadProxy();

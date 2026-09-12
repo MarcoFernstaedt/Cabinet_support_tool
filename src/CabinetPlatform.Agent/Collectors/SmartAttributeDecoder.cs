@@ -112,29 +112,21 @@ public static class SmartAttributeDecoder
     /// attribute the drive did not report as null.
     /// </summary>
     /// <param name="attributes">Attributes decoded from the vendor buffer.</param>
-    /// <param name="overallPredictFailure">
-    /// The drive's own failure prediction from
-    /// <c>MSStorageDriver_FailurePredictStatus</c>, or null when that class was
-    /// unreadable.
+    /// <param name="source">
+    /// The source to stamp on the reading. The caller decides: these attributes
+    /// may be the whole reading, or may be filling gaps left by a structured
+    /// source that answered for most of it.
     /// </param>
-    /// <param name="model">Drive model, when known.</param>
-    /// <param name="serialNumber">Drive serial, when known.</param>
-    public static SmartInfo ToSmartInfo(
-        IReadOnlyList<SmartAttribute> attributes,
-        bool? overallPredictFailure,
-        string? model = null,
-        string? serialNumber = null)
+    public static SmartInfo ToSmartInfo(IReadOnlyList<SmartAttribute> attributes, SmartSource source)
     {
         return new SmartInfo
         {
+            Source = source,
             ReallocatedSectorCount = RawAsInt(attributes, SmartAttributeIds.ReallocatedSectorCount),
             PendingSectorCount = RawAsInt(attributes, SmartAttributeIds.CurrentPendingSectorCount),
             UncorrectableErrorCount = RawAsInt(attributes, SmartAttributeIds.UncorrectableSectorCount),
             PowerOnHours = RawAsInt(attributes, SmartAttributeIds.PowerOnHours),
             TemperatureCelsius = ReadTemperature(attributes),
-            OverallPredictFailure = overallPredictFailure,
-            Model = model,
-            SerialNumber = serialNumber,
         };
     }
 

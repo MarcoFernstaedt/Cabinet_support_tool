@@ -40,7 +40,10 @@ public sealed class EventLogCollector : ICollector
 
     public string SectionName => CollectorSections.EventLogs;
 
-    public Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => false;
+
+    public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var window = TimeSpan.FromHours(_options.EventLogWindowHours);
 

@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Telemetry;
 using System.Text.Json;
 using CabinetPlatform.Agent;
 using CabinetPlatform.Agent.Collectors;
@@ -43,7 +44,7 @@ static async Task RunCollectOnceAsync(HostApplicationBuilder builder)
     logger.LogInformation("Running a single collection pass. Nothing will be sent to the server.");
 
     using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-    var payload = await checkInBuilder.BuildAsync(cancellation.Token).ConfigureAwait(false);
+    var payload = await checkInBuilder.BuildAsync(CheckInTier.Full, cancellation.Token).ConfigureAwait(false);
 
     var json = JsonSerializer.Serialize(
         payload,

@@ -17,29 +17,72 @@ namespace CabinetPlatform.Agent.Collectors;
 /// </remarks>
 public sealed class DiskCollector : ICollector
 {
+    private static readonly IReadOnlyDictionary<string, SmartInfo> EmptySmart =
+        new Dictionary<string, SmartInfo>(StringComparer.OrdinalIgnoreCase);
+
     private readonly IWmiRepository _wmi;
+    private readonly SmartReader _smart;
     private readonly ILogger<DiskCollector> _logger;
 
-    public DiskCollector(IWmiRepository wmi, ILogger<DiskCollector> logger)
+    private IReadOnlyDictionary<string, DiskHealthStatus> _lastKnownHealth =
+        new Dictionary<string, DiskHealthStatus>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Creates the collector.</summary>
+    /// <param name="wmi">The agent's view of WMI.</param>
+    /// <param name="smart">Reads SMART from the best source that answers.</param>
+    /// <param name="logger">Diagnostic log.</param>
+    public DiskCollector(IWmiRepository wmi, SmartReader smart, ILogger<DiskCollector> logger)
     {
         _wmi = wmi;
+        _smart = smart;
         _logger = logger;
     }
 
     public string SectionName => CollectorSections.Disks;
 
-    public Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => true;
+
+    /// <inheritdoc />
+    public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
-        var volumes = ReadVolumes();
-        var bitLocker = ReadBitLockerStatuses();
-        var (smartByDrive, physicalDisks) = ReadSmart();
+        IReadOnlyList<VolumeReading> volumes = ReadVolumes();
+        IReadOnlyDictionary<string, BitLockerStatus> bitLocker = ReadBitLockerStatuses();
+
+        // SMART is read on the slow tier only. Interrogating every drive's
+        // firmware every five minutes across seven thousand cabinets costs far
+        // more than the readings change.
+        IReadOnlyDictionary<string, SmartInfo> smartByDrive =
+            tier == CheckInTier.Full ? ReadSmart().ByDriveLetter : EmptySmart;
+
+        if (tier == CheckInTier.Full)
+        {
+            // Remember each volume's health so the heartbeats in between can
+            // still report it without re-reading anything.
+            var health = new Dictionary<string, DiskHealthStatus>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (VolumeReading volume in volumes)
+            {
+                smartByDrive.TryGetValue(volume.DriveLetter, out SmartInfo? smart);
+                health[volume.DriveLetter] = DiskHealthEvaluator.Evaluate(smart);
+            }
+
+            _lastKnownHealth = health;
+        }
 
         var disks = new List<DiskInfo>(volumes.Count);
 
-        foreach (var volume in volumes)
+        foreach (VolumeReading volume in volumes)
         {
-            smartByDrive.TryGetValue(volume.DriveLetter, out var smart);
-            var health = DiskHealthEvaluator.Evaluate(smart);
+            smartByDrive.TryGetValue(volume.DriveLetter, out SmartInfo? smart);
+
+            // On a heartbeat the health is the last one actually measured, and
+            // Unknown until something has been. A freshly restarted agent
+            // reports "not known yet" rather than a clean bill of health it has
+            // no basis for.
+            DiskHealthStatus health = tier == CheckInTier.Full
+                ? DiskHealthEvaluator.Evaluate(smart)
+                : _lastKnownHealth.GetValueOrDefault(volume.DriveLetter, DiskHealthStatus.Unknown);
 
             disks.Add(new DiskInfo
             {
@@ -51,18 +94,17 @@ public sealed class DiskCollector : ICollector
                 FreePercent = volume.TotalBytes is > 0 && volume.FreeBytes is not null
                     ? Math.Round(volume.FreeBytes.Value / (double)volume.TotalBytes.Value * 100.0, 2)
                     : null,
-                BitLockerStatus = bitLocker.TryGetValue(volume.DriveLetter, out var status)
+                BitLockerStatus = bitLocker.TryGetValue(volume.DriveLetter, out BitLockerStatus status)
                     ? status
                     : BitLockerStatus.Unknown,
+                // Null on a heartbeat, so the server writes no SMART row for a
+                // reading that was never taken.
                 Smart = smart,
                 HealthStatus = health,
             });
         }
 
-        _logger.LogDebug(
-            "Collected {VolumeCount} volumes across {DiskCount} physical disks.",
-            disks.Count,
-            physicalDisks.Count);
+        _logger.LogDebug("Collected {VolumeCount} volumes on the {Tier} tier.", disks.Count, tier);
 
         draft.Disks = disks
             .OrderBy(disk => disk.DriveLetter, StringComparer.OrdinalIgnoreCase)
@@ -267,36 +309,33 @@ public sealed class DiskCollector : ICollector
     }
 
     /// <summary>
-    /// Reads SMART status and attribute data and attaches it to drive letters.
+    /// Reads SMART for every physical drive and attaches it to drive letters.
     /// </summary>
+    /// <remarks>
+    /// Correlation runs through the physical drive number throughout: from the
+    /// SMART classes' instance names to <c>Win32_DiskDrive.Index</c>, and from
+    /// there down the partition associations to a letter. Nothing is paired by
+    /// the order rows arrive in, because the classes do not agree on one.
+    /// </remarks>
     private (IReadOnlyDictionary<string, SmartInfo> ByDriveLetter, IReadOnlyList<PhysicalDisk> Disks) ReadSmart()
     {
         var byDriveLetter = new Dictionary<string, SmartInfo>(StringComparer.OrdinalIgnoreCase);
 
         IReadOnlyDictionary<string, PhysicalDisk> disksByLetter;
-        List<PhysicalDisk> physicalDisks;
+        IReadOnlyList<PhysicalDisk> physicalDisks;
 
         try
         {
-            var diskDrives = _wmi.Query(
+            IReadOnlyList<WmiRecord> diskDrives = _wmi.Query(
                 WmiScopes.CimV2,
-                "SELECT DeviceID, PNPDeviceID, Model, SerialNumber FROM Win32_DiskDrive");
+                "SELECT DeviceID, Index, PNPDeviceID, Model, SerialNumber FROM Win32_DiskDrive");
 
             disksByLetter = DiskTopology.MapDriveLetters(
                 diskDrives,
                 _wmi.Query(WmiScopes.CimV2, "SELECT Antecedent, Dependent FROM Win32_DiskDriveToDiskPartition"),
                 _wmi.Query(WmiScopes.CimV2, "SELECT Antecedent, Dependent FROM Win32_LogicalDiskToPartition"));
 
-            physicalDisks = diskDrives
-                .Select(row => new PhysicalDisk
-                {
-                    DeviceId = row.GetString("DeviceID") ?? string.Empty,
-                    PnpDeviceId = row.GetString("PNPDeviceID"),
-                    Model = row.GetString("Model"),
-                    SerialNumber = row.GetString("SerialNumber"),
-                })
-                .Where(disk => disk.DeviceId.Length > 0)
-                .ToList();
+            physicalDisks = DiskTopology.ReadDisks(diskDrives);
         }
         catch (Exception e)
         {
@@ -304,86 +343,19 @@ public sealed class DiskCollector : ICollector
             return (byDriveLetter, Array.Empty<PhysicalDisk>());
         }
 
-        var predictFailureByDisk = ReadPredictFailure(physicalDisks);
-        var attributesByDisk = ReadPredictData(physicalDisks);
+        IReadOnlyDictionary<int, SmartInfo> smartByDrive = _smart.Read(physicalDisks);
 
-        foreach (var (letter, disk) in disksByLetter)
+        foreach ((string letter, PhysicalDisk disk) in disksByLetter)
         {
-            predictFailureByDisk.TryGetValue(disk.DeviceId, out var predictFailure);
-            attributesByDisk.TryGetValue(disk.DeviceId, out var attributes);
-
-            // Nothing was readable for this drive. A null SmartInfo is what
-            // makes the health status Unknown rather than Healthy.
-            if (predictFailure is null && attributes is null)
+            // A drive with no entry had nothing readable from any of the three
+            // sources. It gets no SmartInfo at all, which is what makes its
+            // health Unknown rather than Healthy.
+            if (smartByDrive.TryGetValue(disk.Index, out SmartInfo? smart))
             {
-                continue;
+                byDriveLetter[letter] = smart;
             }
-
-            byDriveLetter[letter] = SmartAttributeDecoder.ToSmartInfo(
-                attributes ?? Array.Empty<SmartAttribute>(),
-                predictFailure,
-                disk.Model,
-                disk.SerialNumber);
         }
 
         return (byDriveLetter, physicalDisks);
-    }
-
-    private Dictionary<string, bool?> ReadPredictFailure(IReadOnlyList<PhysicalDisk> disks)
-    {
-        var result = new Dictionary<string, bool?>(StringComparer.OrdinalIgnoreCase);
-
-        try
-        {
-            foreach (var row in _wmi.Query(
-                         WmiScopes.Wmi,
-                         "SELECT InstanceName, PredictFailure FROM MSStorageDriver_FailurePredictStatus"))
-            {
-                var disk = DiskTopology.MatchSmartInstance(row.GetString("InstanceName"), disks);
-                if (disk is not null)
-                {
-                    result[disk.DeviceId] = row.GetBoolean("PredictFailure");
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            // Common on virtual machines, RAID controllers and USB bridges,
-            // where the driver does not expose SMART at all.
-            _logger.LogInformation(e, "SMART failure prediction is not available on this machine.");
-        }
-
-        return result;
-    }
-
-    private Dictionary<string, IReadOnlyList<SmartAttribute>> ReadPredictData(IReadOnlyList<PhysicalDisk> disks)
-    {
-        var result = new Dictionary<string, IReadOnlyList<SmartAttribute>>(StringComparer.OrdinalIgnoreCase);
-
-        try
-        {
-            foreach (var row in _wmi.Query(
-                         WmiScopes.Wmi,
-                         "SELECT InstanceName, VendorSpecific FROM MSStorageDriver_FailurePredictData"))
-            {
-                var disk = DiskTopology.MatchSmartInstance(row.GetString("InstanceName"), disks);
-                if (disk is null)
-                {
-                    continue;
-                }
-
-                var attributes = SmartAttributeDecoder.Decode(row.GetBytes("VendorSpecific"));
-                if (attributes.Count > 0)
-                {
-                    result[disk.DeviceId] = attributes;
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            _logger.LogInformation(e, "SMART attribute data is not available on this machine.");
-        }
-
-        return result;
     }
 }

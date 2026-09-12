@@ -21,6 +21,7 @@ public sealed class ServerClient : IServerClient
 {
     private const string RegisterPath = "api/agent/register";
     private const string CheckInPath = "api/agent/checkin";
+    private const string FullCheckInPath = "api/agent/checkin/full";
     private const string ActionsPath = "api/agent/actions";
     private const string ActionResultPath = "api/agent/actions/result";
 
@@ -68,14 +69,19 @@ public sealed class ServerClient : IServerClient
         }
     }
 
-    public async Task<CheckInResult> CheckInAsync(CheckInPayload payload, CancellationToken cancellationToken)
+    public async Task<CheckInResult> CheckInAsync(
+        CheckInPayload payload, CheckInTier tier, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient(AgentHttpClients.Server);
+
+        // The tier is the route, never a field in the body. An agent cannot
+        // talk the server into storing its heavy sections by claiming a tier.
+        string path = tier == CheckInTier.Full ? FullCheckInPath : CheckInPath;
 
         try
         {
             using var response = await client
-                .PostAsJsonAsync(CheckInPath, payload, AgentJson.SerializerOptions, cancellationToken)
+                .PostAsJsonAsync(path, payload, AgentJson.SerializerOptions, cancellationToken)
                 .ConfigureAwait(false);
 
             return await InterpretCheckInResponseAsync(response, cancellationToken).ConfigureAwait(false);
@@ -113,14 +119,15 @@ public sealed class ServerClient : IServerClient
         {
             Guid? cabinetId = null;
 
-            // The server returns the cabinet id on the check-in that follows
-            // approval, which is how an agent learns it has been approved.
+            // The server issues the cabinet id on every accepted check-in,
+            // which is how an agent approved while it was offline learns its
+            // own identity without a separate round trip.
             if (response.Content.Headers.ContentLength is > 0)
             {
                 try
                 {
                     var body = await response.Content
-                        .ReadFromJsonAsync<RegistrationResponse>(AgentJson.SerializerOptions, cancellationToken)
+                        .ReadFromJsonAsync<CheckInResponse>(AgentJson.SerializerOptions, cancellationToken)
                         .ConfigureAwait(false);
 
                     cabinetId = body?.CabinetId;
@@ -168,11 +175,14 @@ public sealed class ServerClient : IServerClient
 
         try
         {
+            // The cabinet is resolved server-side from the authenticated
+            // machine identity. Sending an id here would be the agent naming
+            // whose work it wants, which is not its decision to make.
+            _ = cabinetId;
+
             var actions = await client
                 .GetFromJsonAsync<IReadOnlyList<ActionRequestDto>>(
-                    $"{ActionsPath}?cabinetId={cabinetId:D}",
-                    AgentJson.SerializerOptions,
-                    cancellationToken)
+                    ActionsPath, AgentJson.SerializerOptions, cancellationToken)
                 .ConfigureAwait(false);
 
             return actions ?? Array.Empty<ActionRequestDto>();

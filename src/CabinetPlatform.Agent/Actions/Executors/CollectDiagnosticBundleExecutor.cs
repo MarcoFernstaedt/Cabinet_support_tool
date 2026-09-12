@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Telemetry;
 using System.IO.Compression;
 using System.Text.Json;
 using CabinetPlatform.Agent.Collectors;
@@ -73,7 +74,7 @@ public sealed class CollectDiagnosticBundleExecutor : IActionExecutor
 
         try
         {
-            var payload = await _checkInBuilder.BuildAsync(cancellationToken).ConfigureAwait(false);
+            var payload = await _checkInBuilder.BuildAsync(CheckInTier.Full, cancellationToken).ConfigureAwait(false);
 
             using (var archive = ZipFile.Open(bundlePath, ZipArchiveMode.Create))
             {

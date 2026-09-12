@@ -62,7 +62,8 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
         }
     }
 
-    public bool Enqueue(CheckInPayload payload)
+    /// <inheritdoc />
+    public bool Enqueue(CheckInPayload payload, CheckInTier tier)
     {
         lock (_gate)
         {
@@ -71,7 +72,7 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
             // collected in.
             var fileName = string.Create(
                 CultureInfo.InvariantCulture,
-                $"{_clock.UtcNow:yyyyMMddTHHmmssfff}-{Interlocked.Increment(ref _sequence):D6}{FileExtension}");
+                $"{_clock.UtcNow:yyyyMMddTHHmmssfff}-{Interlocked.Increment(ref _sequence):D6}-{tier}{FileExtension}");
 
             var path = Path.Combine(_directory, fileName);
 
@@ -95,6 +96,30 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
         }
     }
 
+    /// <summary>
+    /// Recovers the tier from the spooled file's name.
+    /// </summary>
+    /// <remarks>
+    /// Carried in the name rather than inside the document, so the payload
+    /// contract stays exactly what goes on the wire. A file written before the
+    /// tiers existed, or one whose name has been mangled, replays as a
+    /// heartbeat: the conservative choice, since a heartbeat stores strictly
+    /// less than a full check-in.
+    /// </remarks>
+    /// <param name="fileName">The spooled file's name.</param>
+    internal static CheckInTier ParseTier(string fileName)
+    {
+        string stem = Path.GetFileNameWithoutExtension(fileName);
+        int separator = stem.LastIndexOf('-');
+
+        return separator >= 0 &&
+               Enum.TryParse(stem.AsSpan(separator + 1), ignoreCase: true, out CheckInTier tier) &&
+               Enum.IsDefined(tier)
+            ? tier
+            : CheckInTier.Heartbeat;
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<BufferedPayload> PeekOldest(int maximumCount)
     {
         if (maximumCount <= 0)
@@ -128,6 +153,7 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
                     {
                         Id = Path.GetFileNameWithoutExtension(file.Name),
                         Payload = payload,
+                        Tier = ParseTier(file.Name),
                     });
                 }
                 catch (JsonException e)

@@ -1,3 +1,4 @@
+using System.Globalization;
 using CabinetPlatform.Agent.Platform.Wmi;
 
 namespace CabinetPlatform.Agent.Collectors;
@@ -5,13 +6,27 @@ namespace CabinetPlatform.Agent.Collectors;
 /// <summary>A physical drive as Win32_DiskDrive describes it.</summary>
 public sealed record PhysicalDisk
 {
+    /// <summary>The <c>\\.\PHYSICALDRIVE<em>n</em></c> device path.</summary>
     public required string DeviceId { get; init; }
 
-    /// <summary>The PnP path, which is what SMART instance names are built from.</summary>
+    /// <summary>
+    /// The drive's physical drive number, from <c>Win32_DiskDrive.Index</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is the correlation key for everything else about the drive. Both
+    /// SMART classes name their instance by this number, and the storage
+    /// namespace keys on it too, so it is the one identifier every source
+    /// agrees on.
+    /// </remarks>
+    public required int Index { get; init; }
+
+    /// <summary>The PnP path.</summary>
     public string? PnpDeviceId { get; init; }
 
+    /// <summary>Drive model string.</summary>
     public string? Model { get; init; }
 
+    /// <summary>Drive serial number.</summary>
     public string? SerialNumber { get; init; }
 }
 
@@ -33,6 +48,9 @@ public static class DiskTopology
     /// Builds a drive-letter to physical-disk map from the disk drive rows and
     /// the two association classes.
     /// </summary>
+    /// <param name="diskDrives">Rows from <c>Win32_DiskDrive</c>.</param>
+    /// <param name="diskDriveToPartition">Rows from <c>Win32_DiskDriveToDiskPartition</c>.</param>
+    /// <param name="logicalDiskToPartition">Rows from <c>Win32_LogicalDiskToPartition</c>.</param>
     /// <returns>Keys are normalised drive letters such as <c>C</c>.</returns>
     public static IReadOnlyDictionary<string, PhysicalDisk> MapDriveLetters(
         IReadOnlyList<WmiRecord> diskDrives,
@@ -40,36 +58,25 @@ public static class DiskTopology
         IReadOnlyList<WmiRecord> logicalDiskToPartition)
     {
         var disksByDeviceId = new Dictionary<string, PhysicalDisk>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in diskDrives)
-        {
-            var deviceId = row.GetString("DeviceID");
-            if (deviceId is null)
-            {
-                continue;
-            }
 
-            disksByDeviceId[deviceId] = new PhysicalDisk
-            {
-                DeviceId = deviceId,
-                PnpDeviceId = row.GetString("PNPDeviceID"),
-                Model = row.GetString("Model"),
-                SerialNumber = row.GetString("SerialNumber"),
-            };
+        foreach (PhysicalDisk disk in ReadDisks(diskDrives))
+        {
+            disksByDeviceId[disk.DeviceId] = disk;
         }
 
         // Partition device id -> physical disk.
         var diskByPartition = new Dictionary<string, PhysicalDisk>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in diskDriveToPartition)
+        foreach (WmiRecord row in diskDriveToPartition)
         {
-            var diskDeviceId = WmiReference.GetKeyValue(row.GetString("Antecedent"), "DeviceID");
-            var partitionId = WmiReference.GetKeyValue(row.GetString("Dependent"), "DeviceID");
+            string? diskDeviceId = WmiReference.GetKeyValue(row.GetString("Antecedent"), "DeviceID");
+            string? partitionId = WmiReference.GetKeyValue(row.GetString("Dependent"), "DeviceID");
 
             if (diskDeviceId is null || partitionId is null)
             {
                 continue;
             }
 
-            if (disksByDeviceId.TryGetValue(diskDeviceId, out var disk))
+            if (disksByDeviceId.TryGetValue(diskDeviceId, out PhysicalDisk? disk))
             {
                 diskByPartition[partitionId] = disk;
             }
@@ -77,23 +84,59 @@ public static class DiskTopology
 
         // Drive letter -> partition -> physical disk.
         var diskByDriveLetter = new Dictionary<string, PhysicalDisk>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in logicalDiskToPartition)
+        foreach (WmiRecord row in logicalDiskToPartition)
         {
-            var partitionId = WmiReference.GetKeyValue(row.GetString("Antecedent"), "DeviceID");
-            var logicalDiskId = WmiReference.GetKeyValue(row.GetString("Dependent"), "DeviceID");
+            string? partitionId = WmiReference.GetKeyValue(row.GetString("Antecedent"), "DeviceID");
+            string? logicalDiskId = WmiReference.GetKeyValue(row.GetString("Dependent"), "DeviceID");
 
             if (partitionId is null || logicalDiskId is null)
             {
                 continue;
             }
 
-            if (diskByPartition.TryGetValue(partitionId, out var disk))
+            if (diskByPartition.TryGetValue(partitionId, out PhysicalDisk? disk))
             {
                 diskByDriveLetter[NormaliseDriveLetter(logicalDiskId)] = disk;
             }
         }
 
         return diskByDriveLetter;
+    }
+
+    /// <summary>
+    /// Materialises the physical drives, keeping only those that report an
+    /// index.
+    /// </summary>
+    /// <remarks>
+    /// A drive with no index cannot be correlated to any SMART source, so it is
+    /// better dropped than carried forward to be matched by position later.
+    /// </remarks>
+    /// <param name="diskDrives">Rows from <c>Win32_DiskDrive</c>.</param>
+    public static IReadOnlyList<PhysicalDisk> ReadDisks(IReadOnlyList<WmiRecord> diskDrives)
+    {
+        var disks = new List<PhysicalDisk>(diskDrives.Count);
+
+        foreach (WmiRecord row in diskDrives)
+        {
+            string? deviceId = row.GetString("DeviceID");
+            int? index = row.GetInt32("Index");
+
+            if (deviceId is null || index is null)
+            {
+                continue;
+            }
+
+            disks.Add(new PhysicalDisk
+            {
+                DeviceId = deviceId,
+                Index = index.Value,
+                PnpDeviceId = row.GetString("PNPDeviceID"),
+                Model = row.GetString("Model"),
+                SerialNumber = Clean(row.GetString("SerialNumber")),
+            });
+        }
+
+        return disks;
     }
 
     /// <summary>
@@ -105,6 +148,7 @@ public static class DiskTopology
     /// Comparing those unnormalised means BitLocker status quietly never
     /// matches a volume.
     /// </remarks>
+    /// <param name="value">The raw value.</param>
     public static string NormaliseDriveLetter(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -112,64 +156,94 @@ public static class DiskTopology
             return string.Empty;
         }
 
-        var trimmed = value.Trim().TrimEnd('\\').TrimEnd(':');
+        string trimmed = value.Trim().TrimEnd('\\').TrimEnd(':');
         return trimmed.Length == 0 ? string.Empty : trimmed.ToUpperInvariant();
     }
 
     /// <summary>
-    /// Matches a SMART instance name to a physical disk's PnP device id.
+    /// Reads the physical drive number out of a SMART class's
+    /// <c>InstanceName</c>.
     /// </summary>
     /// <remarks>
-    /// The two are the same path in different dress: the SMART class appends an
-    /// instance ordinal such as <c>_0</c> and the two classes disagree about
-    /// case. Comparing them as-is never matches, which presents as a fleet
-    /// where no drive has readable SMART data.
+    /// <para>
+    /// The WMI storage driver classes name each instance by appending the
+    /// physical drive number to the device's PnP path, as
+    /// <c>SCSI\Disk&amp;Ven_...\4&amp;2d33d0c9&amp;0&amp;000000_0</c>. The
+    /// trailing <c>_0</c> is drive 0 — it is not a decorative suffix, and it is
+    /// the only part of the string that reliably identifies which drive the row
+    /// describes.
+    /// </para>
+    /// <para>
+    /// This is the correlation that matters.
+    /// <c>Win32_DiskDrive</c> and <c>MSStorageDriver_FailurePredictData</c> do
+    /// not return their rows in a guaranteed order, and they do not
+    /// necessarily return the same number of rows, so pairing them by position
+    /// attributes one drive's SMART data to another. On a cabinet with a
+    /// healthy system disk and a failing data disk, that is the difference
+    /// between replacing the right drive and replacing the wrong one.
+    /// </para>
     /// </remarks>
-    public static PhysicalDisk? MatchSmartInstance(
-        string? instanceName,
-        IReadOnlyCollection<PhysicalDisk> disks)
+    /// <param name="instanceName">The instance name from the SMART class.</param>
+    /// <returns>The drive number, or null when the name does not carry one.</returns>
+    public static int? ParsePhysicalDriveNumber(string? instanceName)
     {
-        var normalisedInstance = NormaliseDeviceIdentity(instanceName);
-        if (normalisedInstance.Length == 0)
+        if (string.IsNullOrWhiteSpace(instanceName))
         {
             return null;
         }
 
-        foreach (var disk in disks)
-        {
-            var normalisedPnp = NormaliseDeviceIdentity(disk.PnpDeviceId);
-            if (normalisedPnp.Length == 0)
-            {
-                continue;
-            }
+        string text = instanceName.Trim();
+        int separator = text.LastIndexOf('_');
 
-            if (normalisedInstance.Equals(normalisedPnp, StringComparison.Ordinal) ||
-                normalisedInstance.StartsWith(normalisedPnp, StringComparison.Ordinal) ||
-                normalisedPnp.StartsWith(normalisedInstance, StringComparison.Ordinal))
+        if (separator < 0 || separator == text.Length - 1)
+        {
+            return null;
+        }
+
+        ReadOnlySpan<char> tail = text.AsSpan(separator + 1);
+
+        foreach (char c in tail)
+        {
+            if (!char.IsDigit(c))
+            {
+                return null;
+            }
+        }
+
+        return int.TryParse(tail, NumberStyles.None, CultureInfo.InvariantCulture, out int number)
+            ? number
+            : null;
+    }
+
+    /// <summary>
+    /// Matches a SMART instance name to a physical disk by drive number.
+    /// </summary>
+    /// <param name="instanceName">The instance name from the SMART class.</param>
+    /// <param name="disks">The physical disks, as Win32_DiskDrive described them.</param>
+    /// <returns>The disk, or null when the name names a drive that is not present.</returns>
+    public static PhysicalDisk? MatchSmartInstance(
+        string? instanceName, IReadOnlyCollection<PhysicalDisk> disks)
+    {
+        int? driveNumber = ParsePhysicalDriveNumber(instanceName);
+
+        if (driveNumber is null)
+        {
+            return null;
+        }
+
+        foreach (PhysicalDisk disk in disks)
+        {
+            if (disk.Index == driveNumber)
             {
                 return disk;
             }
         }
 
+        // A row naming a drive this machine does not report is dropped rather
+        // than attached to whatever happened to be nearby.
         return null;
     }
 
-    private static string NormaliseDeviceIdentity(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return string.Empty;
-        }
-
-        var text = value.Trim().ToUpperInvariant();
-
-        // Strip the trailing instance ordinal the SMART classes append.
-        var lastUnderscore = text.LastIndexOf('_');
-        if (lastUnderscore > 0 && lastUnderscore == text.Length - 2 && char.IsDigit(text[^1]))
-        {
-            text = text[..lastUnderscore];
-        }
-
-        return text;
-    }
+    private static string? Clean(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

@@ -4,6 +4,7 @@ using CabinetPlatform.Agent.Configuration;
 using CabinetPlatform.Agent.Identity;
 using CabinetPlatform.Agent.Transport;
 using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Telemetry;
 using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Agent;
@@ -43,6 +44,7 @@ public sealed class Worker : BackgroundService
     private readonly Random _random = new();
 
     private int _consecutiveFailures;
+    private DateTimeOffset? _lastFullCheckInUtc;
 
     public Worker(
         CheckInBuilder checkInBuilder,
@@ -122,10 +124,20 @@ public sealed class Worker : BackgroundService
             return;
         }
 
+        // The slow tier is due on its own schedule, and on the first tick after
+        // a start: a cabinet that has just rebooted is exactly the one whose
+        // inventory is most likely to have changed.
+        CheckInTier tier = IsFullCheckInDue() ? CheckInTier.Full : CheckInTier.Heartbeat;
+
         // The current payload goes first: the freshest picture of the cabinet
         // is the most useful thing the server can have.
-        var payload = await _checkInBuilder.BuildAsync(cancellationToken).ConfigureAwait(false);
-        var result = await _client.CheckInAsync(payload, cancellationToken).ConfigureAwait(false);
+        var payload = await _checkInBuilder.BuildAsync(tier, cancellationToken).ConfigureAwait(false);
+        var result = await _client.CheckInAsync(payload, tier, cancellationToken).ConfigureAwait(false);
+
+        if (result.Outcome == CheckInOutcome.Accepted && tier == CheckInTier.Full)
+        {
+            _lastFullCheckInUtc = DateTimeOffset.UtcNow;
+        }
 
         switch (result.Outcome)
         {
@@ -177,7 +189,7 @@ public sealed class Worker : BackgroundService
                     _consecutiveFailures,
                     result.Detail);
 
-                _buffer.Enqueue(payload);
+                _buffer.Enqueue(payload, tier);
                 break;
         }
     }
@@ -193,7 +205,9 @@ public sealed class Worker : BackgroundService
     private async Task SendIdentityOnlyAsync(CancellationToken cancellationToken)
     {
         var payload = _checkInBuilder.BuildIdentityOnly();
-        var result = await _client.CheckInAsync(payload, cancellationToken).ConfigureAwait(false);
+        var result = await _client
+            .CheckInAsync(payload, CheckInTier.Heartbeat, cancellationToken)
+            .ConfigureAwait(false);
 
         if (result.Outcome == CheckInOutcome.Accepted && result.CabinetId is { } cabinetId)
         {
@@ -232,7 +246,11 @@ public sealed class Worker : BackgroundService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var result = await _client.CheckInAsync(item.Payload, cancellationToken).ConfigureAwait(false);
+            // A spooled payload is replayed on the tier it was collected for,
+            // so an inventory sample delivered late is still stored as one.
+            var result = await _client
+                .CheckInAsync(item.Payload, item.Tier, cancellationToken)
+                .ConfigureAwait(false);
 
             switch (result.Outcome)
             {
@@ -318,6 +336,27 @@ public sealed class Worker : BackgroundService
                 result.Status,
                 result.Output);
         }
+    }
+
+    /// <summary>
+    /// Whether the slow tier is due.
+    /// </summary>
+    /// <remarks>
+    /// Inventory and SMART are collected every few hours, not every few
+    /// minutes. SMART is always stored when it is collected — it is the
+    /// failure-prediction series and a gap in it is a gap in the prediction —
+    /// while inventory is stored only when it has actually changed, so a full
+    /// check-in on an untouched cabinet costs one timestamp.
+    /// </remarks>
+    private bool IsFullCheckInDue()
+    {
+        if (_lastFullCheckInUtc is not { } last)
+        {
+            return true;
+        }
+
+        return DateTimeOffset.UtcNow - last >=
+               TimeSpan.FromSeconds(Math.Max(60, _options.Value.FullCheckInIntervalSeconds));
     }
 
     private TimeSpan NextDelay()

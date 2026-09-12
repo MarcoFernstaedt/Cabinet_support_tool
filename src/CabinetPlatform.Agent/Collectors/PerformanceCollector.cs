@@ -43,7 +43,10 @@ public sealed class PerformanceCollector : ICollector
 
     public string SectionName => CollectorSections.Performance;
 
-    public async Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public bool RunsOnHeartbeat => true;
+
+    public async Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
     {
         var sampleInterval = TimeSpan.FromMilliseconds(_options.CpuSampleIntervalMilliseconds);
 

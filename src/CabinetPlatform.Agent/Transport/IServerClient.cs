@@ -56,7 +56,11 @@ public interface IServerClient
 {
     Task<RegistrationResponse?> RegisterAsync(RegistrationRequest request, CancellationToken cancellationToken);
 
-    Task<CheckInResult> CheckInAsync(CheckInPayload payload, CancellationToken cancellationToken);
+    /// <param name="payload">The sample.</param>
+    /// <param name="tier">Which tier it belongs to; the server routes on it.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    Task<CheckInResult> CheckInAsync(
+        CheckInPayload payload, CheckInTier tier, CancellationToken cancellationToken);
 
     /// <summary>
     /// Polls for actions the server has approved and not yet dispatched.

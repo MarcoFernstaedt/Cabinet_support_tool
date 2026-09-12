@@ -16,10 +16,24 @@ public interface ICollector
     string SectionName { get; }
 
     /// <summary>
+    /// Whether this collector runs on the five-minute heartbeat.
+    /// </summary>
+    /// <remarks>
+    /// Most do not. A heartbeat is a small fixed sample by design: seven
+    /// thousand cabinets at five minutes is about two million samples a day,
+    /// and a service inventory or a Windows Update scan at that cadence would
+    /// cost far more than it tells anyone. Those run on the slow tier.
+    /// </remarks>
+    bool RunsOnHeartbeat { get; }
+
+    /// <summary>
     /// Fills this collector's section of the draft. Implementations may throw:
     /// the builder records the failure against this section and continues.
     /// </summary>
-    Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken);
+    /// <param name="draft">The payload being assembled.</param>
+    /// <param name="tier">Which tier is being collected.</param>
+    /// <param name="cancellationToken">Cancels the collection.</param>
+    Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken);
 }
 
 /// <summary>
