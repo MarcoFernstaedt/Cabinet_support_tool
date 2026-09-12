@@ -116,6 +116,22 @@ Heartbeats and SMART readings are indexed on `(CabinetId, ReceivedUtc)` and
 `(CabinetId, TimestampUtc)` respectively, both descending, with the
 time-based partitioning those tables will need on PostgreSQL in mind.
 
+### Running against PostgreSQL
+
+```
+Database__Provider=PostgreSql
+ConnectionStrings__SupportDatabase=Host=…;Database=cabinetplatform;Username=…;Password=…
+```
+
+An unrecognised provider is a startup failure, not a silent fallback to the
+development database.
+
+Each provider's migrations are maintained through its own design-time factory,
+so `dotnet ef … --context PostgresSupportDbContext` works without a running
+server. Both sets have been verified in sync with the model, and the server has
+been run end to end against PostgreSQL: migrations applied, fifteen tables
+created, a login served, and an unauthenticated request refused.
+
 ## What the server tells the agent
 
 A check-in response carries the cabinet identity the server issued, whether the
