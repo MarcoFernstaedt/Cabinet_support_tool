@@ -39,7 +39,7 @@ public sealed class PayloadBufferTests : IDisposable
         var buffer = CreateBuffer();
         var payload = Payload("cabinet-a");
 
-        Assert.True(buffer.Enqueue(payload));
+        Assert.True(buffer.Enqueue(payload, CheckInTier.Heartbeat));
         Assert.Equal(1, buffer.Count);
 
         var buffered = Assert.Single(buffer.PeekOldest(10));
@@ -54,7 +54,7 @@ public sealed class PayloadBufferTests : IDisposable
 
         for (var index = 0; index < 5; index++)
         {
-            buffer.Enqueue(Payload($"payload-{index}"));
+            buffer.Enqueue(Payload($"payload-{index}"), CheckInTier.Heartbeat);
             _clock.Advance(TimeSpan.FromMinutes(5));
         }
 
@@ -74,7 +74,7 @@ public sealed class PayloadBufferTests : IDisposable
 
         for (var index = 0; index < 4; index++)
         {
-            buffer.Enqueue(Payload($"same-tick-{index}"));
+            buffer.Enqueue(Payload($"same-tick-{index}"), CheckInTier.Heartbeat);
         }
 
         var buffered = buffer.PeekOldest(4);
@@ -91,7 +91,7 @@ public sealed class PayloadBufferTests : IDisposable
 
         for (var index = 0; index < 10; index++)
         {
-            buffer.Enqueue(Payload($"payload-{index}"));
+            buffer.Enqueue(Payload($"payload-{index}"), CheckInTier.Heartbeat);
             _clock.Advance(TimeSpan.FromMinutes(5));
         }
 
@@ -112,7 +112,7 @@ public sealed class PayloadBufferTests : IDisposable
 
         for (var index = 0; index < 12; index++)
         {
-            buffer.Enqueue(LargePayload($"payload-{index}"));
+            buffer.Enqueue(LargePayload($"payload-{index}"), CheckInTier.Heartbeat);
             _clock.Advance(TimeSpan.FromMinutes(5));
         }
 
@@ -131,7 +131,7 @@ public sealed class PayloadBufferTests : IDisposable
 
         for (var index = 0; index < 864; index++)
         {
-            buffer.Enqueue(Payload($"payload-{index}"));
+            buffer.Enqueue(Payload($"payload-{index}"), CheckInTier.Heartbeat);
             _clock.Advance(TimeSpan.FromMinutes(5));
         }
 
@@ -145,7 +145,7 @@ public sealed class PayloadBufferTests : IDisposable
     public void Remove_DeletesADeliveredPayload()
     {
         var buffer = CreateBuffer();
-        buffer.Enqueue(Payload("delivered"));
+        buffer.Enqueue(Payload("delivered"), CheckInTier.Heartbeat);
 
         var buffered = Assert.Single(buffer.PeekOldest(10));
         buffer.Remove(buffered.Id);
@@ -169,7 +169,7 @@ public sealed class PayloadBufferTests : IDisposable
     public void PeekOldest_DiscardsAPayloadTruncatedByAPowerLoss()
     {
         var buffer = CreateBuffer();
-        buffer.Enqueue(Payload("good"));
+        buffer.Enqueue(Payload("good"), CheckInTier.Heartbeat);
 
         // A file cut short mid-write can never be delivered. Left in place it
         // would block everything behind it in the queue forever.
@@ -185,7 +185,7 @@ public sealed class PayloadBufferTests : IDisposable
     public void PeekOldest_ReturnsNothingWhenAskedForNone()
     {
         var buffer = CreateBuffer();
-        buffer.Enqueue(Payload("one"));
+        buffer.Enqueue(Payload("one"), CheckInTier.Heartbeat);
 
         Assert.Empty(buffer.PeekOldest(0));
     }

@@ -156,7 +156,7 @@ public class RebootMachineExecutorTests
         Action = ActionName.RebootMachine,
         CabinetId = Guid.NewGuid(),
         Reason = "Applying pending updates outside clinic hours.",
-        RequestedByUserId = "support.jrivera",
+        RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = DateTimeOffset.UtcNow,
         Parameters = parameters ?? new Dictionary<string, string>(),
     };
@@ -342,7 +342,7 @@ public class ServiceExecutorTests
         Action = action,
         CabinetId = Guid.NewGuid(),
         Reason = "The print queue is stuck.",
-        RequestedByUserId = "support.jrivera",
+        RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = DateTimeOffset.UtcNow,
         Parameters = serviceName is null
             ? new Dictionary<string, string>()
@@ -430,7 +430,7 @@ public class ScanForUpdatesExecutorTests
         Action = ActionName.ScanForUpdates,
         CabinetId = Guid.NewGuid(),
         Reason = "Checking patch level before a compliance review.",
-        RequestedByUserId = "support.jrivera",
+        RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = DateTimeOffset.UtcNow,
     };
 
@@ -536,7 +536,7 @@ public class ScheduleUpdatesExecutorTests
         Action = ActionName.ScheduleUpdates,
         CabinetId = Guid.NewGuid(),
         Reason = "Applying the September cumulative update.",
-        RequestedByUserId = "support.jrivera",
+        RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = Now,
         Parameters = new Dictionary<string, string> { [ActionParameters.ScheduledUtc] = scheduledUtc },
     };

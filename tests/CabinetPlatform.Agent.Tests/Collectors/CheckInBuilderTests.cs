@@ -17,7 +17,7 @@ public class CheckInBuilderTests
             new StubCollector(CollectorSections.System, draft => draft.System = new SystemInfo { Hostname = "CABINET-07" }),
             new StubCollector(CollectorSections.Services, draft => draft.Services = Array.Empty<ServiceInfo>()));
 
-        var payload = await builder.BuildAsync(CancellationToken.None);
+        var payload = await builder.BuildAsync(CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal("machine-hash", payload.MachineId);
         Assert.Equal(Now, payload.CollectedAtUtc);
@@ -45,7 +45,7 @@ public class CheckInBuilderTests
                 },
             }));
 
-        var payload = await builder.BuildAsync(CancellationToken.None);
+        var payload = await builder.BuildAsync(CheckInTier.Full, CancellationToken.None);
 
         Assert.NotNull(payload.Disks);
         Assert.Single(payload.Disks!);
@@ -69,7 +69,7 @@ public class CheckInBuilderTests
             new StubCollector(CollectorSections.System, _ => throw new InvalidOperationException("no wmi")),
             new StubCollector(CollectorSections.Network, _ => throw new InvalidOperationException("no network")));
 
-        var payload = await builder.BuildAsync(CancellationToken.None);
+        var payload = await builder.BuildAsync(CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal(2, payload.SectionErrors.Count);
         Assert.Equal("machine-hash", payload.MachineId);
@@ -89,7 +89,7 @@ public class CheckInBuilderTests
             new StubCollector(CollectorSections.Network, _ => secondCollectorRan = true));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => builder.BuildAsync(cancellation.Token));
+            () => builder.BuildAsync(CheckInTier.Full, cancellation.Token));
 
         Assert.False(secondCollectorRan);
     }
@@ -107,7 +107,7 @@ public class CheckInBuilderTests
             }));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => builder.BuildAsync(cancellation.Token));
+            () => builder.BuildAsync(CheckInTier.Full, cancellation.Token));
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public class CheckInBuilderTests
             new FixedClock(Now),
             NullLogger<CheckInBuilder>.Instance);
 
-        var payload = await builder.BuildAsync(CancellationToken.None);
+        var payload = await builder.BuildAsync(CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal(cabinetId, payload.CabinetId);
     }
@@ -175,7 +175,9 @@ public class CheckInBuilderTests
 
         public string SectionName { get; }
 
-        public Task CollectAsync(CheckInDraft draft, CancellationToken cancellationToken)
+        public bool RunsOnHeartbeat => true;
+
+        public Task CollectAsync(CheckInDraft draft, CheckInTier tier, CancellationToken cancellationToken)
         {
             _collect(draft);
             return Task.CompletedTask;

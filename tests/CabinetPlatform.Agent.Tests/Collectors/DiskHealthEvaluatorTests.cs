@@ -15,7 +15,9 @@ public class DiskHealthEvaluatorTests
     public void Evaluate_ReturnsUnknownWhenNoCounterWasReadable()
     {
         // A SmartInfo whose every field is null carries no evidence of health.
-        var smart = new SmartInfo { PowerOnHours = 900 };
+        var smart = new SmartInfo
+        {
+            Source = SmartSource.FailurePredictData, PowerOnHours = 900 };
 
         Assert.Equal(DiskHealthStatus.Unknown, DiskHealthEvaluator.Evaluate(smart));
     }
@@ -25,6 +27,7 @@ public class DiskHealthEvaluatorTests
     {
         var smart = new SmartInfo
         {
+            Source = SmartSource.FailurePredictData,
             OverallPredictFailure = true,
             ReallocatedSectorCount = 0,
             PendingSectorCount = 0,
@@ -38,6 +41,7 @@ public class DiskHealthEvaluatorTests
     {
         var smart = new SmartInfo
         {
+            Source = SmartSource.FailurePredictData,
             OverallPredictFailure = true,
             ReallocatedSectorCount = 40,
         };
@@ -56,6 +60,7 @@ public class DiskHealthEvaluatorTests
     {
         var smart = new SmartInfo
         {
+            Source = SmartSource.FailurePredictData,
             OverallPredictFailure = false,
             ReallocatedSectorCount = reallocated,
             PendingSectorCount = pending,
@@ -70,6 +75,7 @@ public class DiskHealthEvaluatorTests
     {
         var smart = new SmartInfo
         {
+            Source = SmartSource.FailurePredictData,
             OverallPredictFailure = false,
             ReallocatedSectorCount = 0,
             PendingSectorCount = 0,
@@ -87,7 +93,9 @@ public class DiskHealthEvaluatorTests
         // Prediction was readable and clean, the sector counters were not.
         // That is enough to say Healthy, and importantly is not the same as
         // having read zeroes.
-        var smart = new SmartInfo { OverallPredictFailure = false };
+        var smart = new SmartInfo
+        {
+            Source = SmartSource.FailurePredictData, OverallPredictFailure = false };
 
         Assert.Equal(DiskHealthStatus.Healthy, DiskHealthEvaluator.Evaluate(smart));
     }

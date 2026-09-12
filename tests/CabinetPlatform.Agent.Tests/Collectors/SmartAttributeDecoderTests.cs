@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Agent.Collectors;
 
 namespace CabinetPlatform.Agent.Tests.Collectors;
@@ -169,20 +170,21 @@ public class SmartAttributeDecoderTests
             .WithAttribute(SmartAttributeIds.UncorrectableSectorCount, raw: 1)
             .Build();
 
-        var smart = SmartAttributeDecoder.ToSmartInfo(
-            SmartAttributeDecoder.Decode(buffer),
-            overallPredictFailure: false,
-            model: "SAMSUNG MZ7LH256",
-            serialNumber: "S4EVNF0M123456");
+        var smart = SmartAttributeDecoder.ToSmartInfo(SmartAttributeDecoder.Decode(buffer), SmartSource.FailurePredictData);
 
         Assert.Equal(12, smart.ReallocatedSectorCount);
         Assert.Equal(41_000, smart.PowerOnHours);
         Assert.Equal(38, smart.TemperatureCelsius);
         Assert.Equal(3, smart.PendingSectorCount);
         Assert.Equal(1, smart.UncorrectableErrorCount);
-        Assert.False(smart.OverallPredictFailure);
-        Assert.Equal("SAMSUNG MZ7LH256", smart.Model);
-        Assert.Equal("S4EVNF0M123456", smart.SerialNumber);
+        // The decoder reports what the vendor bytes carried and nothing else.
+        // The drive's own verdict comes from FailurePredictStatus and the model
+        // and serial from Win32_DiskDrive, so the reader — not the decoder —
+        // merges them.
+        Assert.Null(smart.OverallPredictFailure);
+        Assert.Null(smart.Model);
+        Assert.Null(smart.SerialNumber);
+        Assert.Equal(SmartSource.FailurePredictData, smart.Source);
     }
 
     [Fact]
@@ -196,8 +198,7 @@ public class SmartAttributeDecoderTests
             .Build();
 
         var smart = SmartAttributeDecoder.ToSmartInfo(
-            SmartAttributeDecoder.Decode(buffer),
-            overallPredictFailure: null);
+            SmartAttributeDecoder.Decode(buffer), SmartSource.FailurePredictData);
 
         Assert.Null(smart.ReallocatedSectorCount);
         Assert.Null(smart.PendingSectorCount);
@@ -220,8 +221,7 @@ public class SmartAttributeDecoderTests
             .Build();
 
         var smart = SmartAttributeDecoder.ToSmartInfo(
-            SmartAttributeDecoder.Decode(buffer),
-            overallPredictFailure: false);
+            SmartAttributeDecoder.Decode(buffer), SmartSource.FailurePredictData);
 
         Assert.Equal(34, smart.TemperatureCelsius);
     }
@@ -236,8 +236,7 @@ public class SmartAttributeDecoderTests
             .Build();
 
         var smart = SmartAttributeDecoder.ToSmartInfo(
-            SmartAttributeDecoder.Decode(buffer),
-            overallPredictFailure: false);
+            SmartAttributeDecoder.Decode(buffer), SmartSource.FailurePredictData);
 
         Assert.Null(smart.TemperatureCelsius);
     }
@@ -252,8 +251,7 @@ public class SmartAttributeDecoderTests
             .Build();
 
         var smart = SmartAttributeDecoder.ToSmartInfo(
-            SmartAttributeDecoder.Decode(buffer),
-            overallPredictFailure: false);
+            SmartAttributeDecoder.Decode(buffer), SmartSource.FailurePredictData);
 
         Assert.Equal(int.MaxValue, smart.ReallocatedSectorCount);
     }
@@ -274,7 +272,7 @@ public class SmartAttributeDecoderTests
             .Build();
 
         var attributes = SmartAttributeDecoder.Decode(buffer);
-        var smart = SmartAttributeDecoder.ToSmartInfo(attributes, overallPredictFailure: false);
+        var smart = SmartAttributeDecoder.ToSmartInfo(attributes, SmartSource.FailurePredictData);
 
         Assert.Equal(8, attributes.Count);
         Assert.Equal(0, smart.ReallocatedSectorCount);

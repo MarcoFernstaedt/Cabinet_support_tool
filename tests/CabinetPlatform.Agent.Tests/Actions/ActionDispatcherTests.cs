@@ -110,7 +110,10 @@ public class ActionDispatcherTests
     {
         var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.FlushDnsCache));
 
-        var request = Request(ActionName.FlushDnsCache) with { RequestedByUserId = "" };
+        // Guid.Empty is what an unset requester deserialises to. An action on a
+        // DEA-regulated machine that cannot say who asked for it cannot be
+        // justified after the fact, which is reason enough to refuse it.
+        var request = Request(ActionName.FlushDnsCache) with { RequestedByUserId = Guid.Empty };
         var result = await dispatcher.DispatchAsync(request, CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
@@ -254,7 +257,7 @@ public class ActionDispatcherTests
         Action = action,
         CabinetId = CabinetId,
         Reason = "Investigating a reported name resolution fault.",
-        RequestedByUserId = "support.jrivera",
+        RequestedByUserId = Guid.NewGuid(),
         RequestedUtc = Now,
     };
 

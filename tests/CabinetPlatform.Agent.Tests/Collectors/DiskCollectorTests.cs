@@ -30,11 +30,13 @@ public class DiskTopologyTests
         {
             FakeWmiRepository.Row(
                 ("DeviceID", @"\\.\PHYSICALDRIVE0"),
+                ("Index", 0),
                 ("PNPDeviceID", @"SCSI\DISK&VEN_SAMSUNG&PROD_MZ7LH256\4&1E59B6B1&0&000000"),
                 ("Model", "SAMSUNG MZ7LH256"),
                 ("SerialNumber", "S4EVNF0M123456")),
             FakeWmiRepository.Row(
                 ("DeviceID", @"\\.\PHYSICALDRIVE1"),
+                ("Index", 1),
                 ("PNPDeviceID", @"SCSI\DISK&VEN_ST&PROD_ST1000DM003\5&2AB3EC2A&0&000000"),
                 ("Model", "ST1000DM003"),
                 ("SerialNumber", "W1D2ABCD")),
@@ -79,13 +81,14 @@ public class DiskTopologyTests
     }
 
     [Fact]
-    public void MatchSmartInstance_MatchesDespiteCaseAndTheInstanceSuffix()
+    public void MatchSmartInstance_CorrelatesByThePhysicalDriveNumber()
     {
-        // The SMART class appends "_0" and uses different casing from
-        // Win32_DiskDrive. Compared literally these never match, which presents
-        // as a whole fleet whose drives have no readable SMART data.
+        // The trailing "_0" is the physical drive number, not a decorative
+        // suffix, and it is the only part of the instance name that reliably
+        // says which drive the row describes.
         var disk = new PhysicalDisk
         {
+            Index = 0,
             DeviceId = @"\\.\PHYSICALDRIVE0",
             PnpDeviceId = @"SCSI\DISK&VEN_SAMSUNG&PROD_MZ7LH256\4&1E59B6B1&0&000000",
         };
@@ -97,6 +100,51 @@ public class DiskTopologyTests
         Assert.Same(disk, matched);
     }
 
+    [Fact]
+    public void MatchSmartInstance_DoesNotDependOnTheOrderRowsArriveIn()
+    {
+        // Win32_DiskDrive and the SMART classes do not return drives in the
+        // same order, and nothing obliges them to. Code that paired them by
+        // position would attribute drive 1's SMART data to drive 0 — on a
+        // cabinet with a healthy system disk and a failing data disk, the
+        // difference between replacing the right drive and the wrong one.
+        var driveZero = new PhysicalDisk
+        {
+            Index = 0,
+            DeviceId = @"\\.\PHYSICALDRIVE0",
+            PnpDeviceId = @"SCSI\DISK&VEN_SAMSUNG\4&1E59B6B1&0&000000",
+        };
+
+        var driveOne = new PhysicalDisk
+        {
+            Index = 1,
+            DeviceId = @"\\.\PHYSICALDRIVE1",
+            PnpDeviceId = @"SCSI\DISK&VEN_ST\5&2AB3EC2A&0&000000",
+        };
+
+        // Deliberately reversed relative to the drive numbers.
+        var disks = new[] { driveOne, driveZero };
+
+        Assert.Same(driveZero, DiskTopology.MatchSmartInstance(@"SCSI\Disk&Ven_SAMSUNG\anything_0", disks));
+        Assert.Same(driveOne, DiskTopology.MatchSmartInstance(@"SCSI\Disk&Ven_ST\anything_1", disks));
+    }
+
+    [Theory]
+    [InlineData(@"SCSI\Disk&Ven_X\4&1e59b6b1&0&000000_0", 0)]
+    [InlineData(@"SCSI\Disk&Ven_X\4&1e59b6b1&0&000000_11", 11)]
+    [InlineData(@"IDE\Disk_Other\1&2&3_2", 2)]
+    public void ParsePhysicalDriveNumber_ReadsTheTrailingDriveNumber(string instanceName, int expected) =>
+        Assert.Equal(expected, DiskTopology.ParsePhysicalDriveNumber(instanceName));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(@"SCSI\Disk&Ven_X\4&1e59b6b1&0&000000")]
+    [InlineData(@"SCSI\Disk&Ven_X\4&1e59b6b1&0&000000_")]
+    [InlineData(@"SCSI\Disk&Ven_X\4&1e59b6b1&0&000000_abc")]
+    public void ParsePhysicalDriveNumber_ReturnsNullWhenThereIsNoDriveNumber(string? instanceName) =>
+        Assert.Null(DiskTopology.ParsePhysicalDriveNumber(instanceName));
+
     private static WmiRecord Association(string antecedent, string dependent)
         => FakeWmiRepository.Row(
             ("Antecedent", $@"\\CABINET-07\root\cimv2:{antecedent}"),
@@ -107,11 +155,17 @@ public class DiskTopologyTests
     {
         var disk = new PhysicalDisk
         {
+            Index = 0,
             DeviceId = @"\\.\PHYSICALDRIVE0",
             PnpDeviceId = @"SCSI\DISK&VEN_SAMSUNG&PROD_MZ7LH256\4&1E59B6B1&0&000000",
         };
 
-        Assert.Null(DiskTopology.MatchSmartInstance(@"IDE\DISK_OTHER\1&2&3_0", new[] { disk }));
+        // Drive 3 is not present on this machine. The row is dropped rather
+        // than attached to whatever happened to be nearby.
+        Assert.Null(DiskTopology.MatchSmartInstance(@"IDE\DISK_OTHER\1&2&3_3", new[] { disk }));
+
+        // An instance name with no drive number correlates to nothing.
+        Assert.Null(DiskTopology.MatchSmartInstance(@"IDE\DISK_OTHER\1&2&3", new[] { disk }));
         Assert.Null(DiskTopology.MatchSmartInstance(null, new[] { disk }));
     }
 }
@@ -204,6 +258,7 @@ public class DiskCollectorTests
                 "Win32_DiskDrive",
                 FakeWmiRepository.Row(
                     ("DeviceID", @"\\.\PHYSICALDRIVE0"),
+                    ("Index", 0),
                     ("PNPDeviceID", @"SCSI\DISK&VEN_SAMSUNG&PROD_MZ7LH256\4&1E59B6B1&0&000000"),
                     ("Model", "SAMSUNG MZ7LH256"),
                     ("SerialNumber", "S4EVNF0M123456")))
@@ -231,8 +286,8 @@ public class DiskCollectorTests
                     ("ProtectionStatus", 1)));
 
         var draft = new CheckInDraft();
-        await new DiskCollector(wmi, NullLogger<DiskCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+        await new DiskCollector(wmi, new SmartReader(wmi, NullLogger<SmartReader>.Instance), NullLogger<DiskCollector>.Instance)
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         var disk = Assert.Single(draft.Disks!);
         Assert.Equal("C", disk.DriveLetter);
@@ -266,8 +321,8 @@ public class DiskCollectorTests
             .Throws("MSStorageDriver_FailurePredictStatus", new InvalidOperationException("Not supported"));
 
         var draft = new CheckInDraft();
-        await new DiskCollector(wmi, NullLogger<DiskCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+        await new DiskCollector(wmi, new SmartReader(wmi, NullLogger<SmartReader>.Instance), NullLogger<DiskCollector>.Instance)
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         var disk = Assert.Single(draft.Disks!);
         Assert.Null(disk.Smart);
@@ -287,7 +342,11 @@ public class DiskCollectorTests
             .Returns("MSFT_Volume", FakeWmiRepository.Row(("DriveLetter", "C"), ("Size", 1L), ("SizeRemaining", 1L)))
             .Returns(
                 "Win32_DiskDrive",
-                FakeWmiRepository.Row(("DeviceID", @"\\.\PHYSICALDRIVE0"), ("PNPDeviceID", @"SCSI\DISK\X")))
+                FakeWmiRepository.Row(
+                    ("DeviceID", @"\\.\PHYSICALDRIVE0"),
+                    ("Index", 0),
+                    ("SerialNumber", "S4EVNF0M123456"),
+                    ("PNPDeviceID", @"SCSI\DISK\X")))
             .Returns(
                 "Win32_DiskDriveToDiskPartition",
                 Association(@"Win32_DiskDrive.DeviceID=""\\\\.\\PHYSICALDRIVE0""", @"Win32_DiskPartition.DeviceID=""Disk #0, Partition #1"""))
@@ -302,8 +361,8 @@ public class DiskCollectorTests
                 FakeWmiRepository.Row(("InstanceName", @"SCSI\Disk\X_0"), ("VendorSpecific", vendorSpecific)));
 
         var draft = new CheckInDraft();
-        await new DiskCollector(wmi, NullLogger<DiskCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+        await new DiskCollector(wmi, new SmartReader(wmi, NullLogger<SmartReader>.Instance), NullLogger<DiskCollector>.Instance)
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         var disk = Assert.Single(draft.Disks!);
         Assert.Equal(24, disk.Smart!.ReallocatedSectorCount);

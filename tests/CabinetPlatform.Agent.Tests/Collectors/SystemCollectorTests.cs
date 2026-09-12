@@ -1,3 +1,4 @@
+using CabinetPlatform.Contracts.Telemetry;
 using CabinetPlatform.Agent.Collectors;
 using CabinetPlatform.Agent.Configuration;
 using CabinetPlatform.Agent.Platform;
@@ -184,7 +185,7 @@ public class SystemCollectorTests
             TestOptions.Create(new AgentOptions()));
 
         var draft = new CheckInDraft();
-        await collector.CollectAsync(draft, CancellationToken.None);
+        await collector.CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
         return draft;
     }
 }

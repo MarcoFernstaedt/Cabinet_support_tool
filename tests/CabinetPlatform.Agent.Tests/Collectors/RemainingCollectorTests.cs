@@ -30,7 +30,7 @@ public class ServiceCollectorTests
                     ("ProcessId", 0)));
 
         var draft = new CheckInDraft();
-        await new ServiceCollector(wmi).CollectAsync(draft, CancellationToken.None);
+        await new ServiceCollector(wmi).CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal(2, draft.Services!.Count);
 
@@ -150,7 +150,7 @@ public class PerformanceCollectorTests
 
         var draft = new CheckInDraft();
         await new PerformanceCollector(wmi, processes, TestOptions.Create(options))
-            .CollectAsync(draft, CancellationToken.None);
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         return draft;
     }
@@ -279,7 +279,7 @@ public class EventLogCollectorTests
 
         var draft = new CheckInDraft();
         await new EventLogCollector(reader, TestOptions.Create(options), NullLogger<EventLogCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal(
             new[] { EventLogName.Application, EventLogName.System, EventLogName.Security },
@@ -301,7 +301,7 @@ public class EventLogCollectorTests
 
         var draft = new CheckInDraft();
         await new EventLogCollector(reader, TestOptions.Create(options), NullLogger<EventLogCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         var entries = draft.EventLogs!;
         Assert.Equal(3, entries.Count);
@@ -324,7 +324,7 @@ public class EventLogCollectorTests
                 reader,
                 TestOptions.Create(new AgentOptions()),
                 NullLogger<EventLogCollector>.Instance)
-            .CollectAsync(draft, CancellationToken.None);
+            .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         Assert.Equal(10, draft.EventLogs!.Count);
         Assert.DoesNotContain(draft.EventLogs!, entry => entry.LogName == EventLogName.Security);
@@ -341,7 +341,7 @@ public class EventLogCollectorTests
             NullLogger<EventLogCollector>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => collector.CollectAsync(new CheckInDraft(), CancellationToken.None));
+            () => collector.CollectAsync(new CheckInDraft(), CheckInTier.Full, CancellationToken.None));
     }
 
     [Fact]
@@ -524,7 +524,7 @@ public class WindowsUpdateCollectorTests
                 ("DeferQualityUpdatesPeriodInDays", 7));
 
         var draft = new CheckInDraft();
-        await Collector(gateway, registry).CollectAsync(draft, CancellationToken.None);
+        await Collector(gateway, registry).CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         var update = draft.WindowsUpdate!;
         Assert.Equal(1, update.PendingUpdateCount);
@@ -549,7 +549,7 @@ public class WindowsUpdateCollectorTests
         var gateway = new StubWindowsUpdateGateway();
 
         await Collector(gateway, new FakeRegistryReader())
-            .CollectAsync(new CheckInDraft(), CancellationToken.None);
+            .CollectAsync(new CheckInDraft(), CheckInTier.Full, CancellationToken.None);
 
         Assert.False(gateway.SearchedOnline);
     }
@@ -569,7 +569,7 @@ public class WindowsUpdateCollectorTests
         {
             var draft = new CheckInDraft();
             await Collector(new StubWindowsUpdateGateway(), registry)
-                .CollectAsync(draft, CancellationToken.None);
+                .CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
             Assert.True(draft.WindowsUpdate!.RebootPending);
         }
@@ -591,7 +591,7 @@ public class WindowsUpdateCollectorTests
             RegistryViewScope.Registry64);
 
         var draft = new CheckInDraft();
-        await Collector(gateway, registry).CollectAsync(draft, CancellationToken.None);
+        await Collector(gateway, registry).CollectAsync(draft, CheckInTier.Full, CancellationToken.None);
 
         Assert.True(draft.WindowsUpdate!.RebootPending);
 
