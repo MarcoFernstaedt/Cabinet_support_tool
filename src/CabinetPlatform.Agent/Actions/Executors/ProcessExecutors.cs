@@ -107,6 +107,15 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
     /// <inheritdoc />
     public override ActionName Action => ActionName.KillProcess;
 
+    private static bool TryGetIdentityOperand(ActionRequestDto request, string key, out string value, out string failure)
+    {
+        var matches = request.Parameters.Where(p => string.Equals(p.Key, key, StringComparison.OrdinalIgnoreCase)).ToArray();
+        value = matches.Length == 1 ? matches[0].Value : string.Empty;
+        failure = $"The '{key}' parameter is required exactly once and must not be empty.";
+        // No Trim: an observed image path must reach the comparison unchanged.
+        return matches.Length == 1 && !string.IsNullOrWhiteSpace(value);
+    }
+
     /// <inheritdoc />
     public override Task<ActionOutcome> ExecuteAsync(
         ActionRequestDto request, CancellationToken cancellationToken)
@@ -117,19 +126,19 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             return Task.FromResult(ActionOutcome.Denied(unknownFailure));
         }
 
-        if (!ActionParameters.TryGetRequiredString(
+        if (!TryGetIdentityOperand(
                 request, ActionParameterKeys.ProcessId, out string rawPid, out string pidFailure))
         {
             return Task.FromResult(ActionOutcome.Denied(pidFailure));
         }
 
-        if (!int.TryParse(rawPid, NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid))
+        if (!int.TryParse(rawPid, NumberStyles.None, CultureInfo.InvariantCulture, out int pid))
         {
             return Task.FromResult(ActionOutcome.Denied(
                 $"'{rawPid}' is not a process id."));
         }
 
-        if (!ActionParameters.TryGetRequiredString(
+        if (!TryGetIdentityOperand(
                 request,
                 ActionParameterKeys.ExpectedProcessName,
                 out string expected,
@@ -138,9 +147,9 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             return Task.FromResult(ActionOutcome.Denied(nameFailure));
         }
 
-        if (!ActionParameters.TryGetRequiredString(request,
+        if (!TryGetIdentityOperand(request,
                 ActionParameterKeys.ExpectedCreationTimeFileTime, out string rawCreation, out string identityFailure) ||
-            !ActionParameters.TryGetRequiredString(request,
+            !TryGetIdentityOperand(request,
                 ActionParameterKeys.ExpectedExecutablePath, out string expectedPath, out identityFailure))
         {
             return Task.FromResult(ActionOutcome.Denied(identityFailure +
@@ -184,6 +193,8 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             var result = new ProcessActionResultDto
             {
                 ProcessName = observed,
+                TerminationRequested = true,
+                ExitConfirmed = exited,
                 EndedProcessIds = exited ? new[] { pid } : Array.Empty<int>(),
                 Refused = exited
                     ? Array.Empty<ProcessActionRefusal>()
@@ -210,6 +221,18 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             Logger.LogInformation("Ended process {ProcessId} ('{Observed}').", pid, observed);
 
             return Task.FromResult(Collected(result, $"Ended process {pid} ('{observed}')."));
+        }
+        catch (ProcessExitUnconfirmedException e)
+        {
+            Logger.LogWarning(e, "Termination requested for process {ProcessId}; exit is unconfirmed.", pid);
+            return Task.FromResult(Collected(new ProcessActionResultDto
+            {
+                ProcessName = observed, TerminationRequested = true, ExitConfirmed = false,
+                Refused = new[] { new ProcessActionRefusal
+                {
+                    ProcessId = pid, ObservedName = observed, Reason = e.Message,
+                } },
+            }, e.Message) with { Status = ActionStatus.Failed });
         }
         catch (ProcessIdentityMismatchException e)
         {

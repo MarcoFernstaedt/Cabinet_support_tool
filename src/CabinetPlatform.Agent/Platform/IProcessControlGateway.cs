@@ -93,7 +93,7 @@ public sealed class ProcessControlGateway : IProcessControlGateway
         }
         if (expected.ProcessId <= 0 || expected.ProcessId == 4 || expected.ProcessId == CurrentProcessId ||
             expected.CreationTimeFileTime <= 0 || string.IsNullOrWhiteSpace(expected.ProcessName) ||
-            string.IsNullOrWhiteSpace(expected.ExecutablePath))
+            !ProcessSelectionIdentity.IsValidExecutablePath(expected.ExecutablePath))
         {
             throw new ArgumentException("A complete, non-protected selected process identity is required.", nameof(expected));
         }
@@ -115,7 +115,16 @@ public sealed class ProcessControlGateway : IProcessControlGateway
 
         cancellationToken.ThrowIfCancellationRequested();
         handle.Terminate();
-        return handle.WaitForExit(timeout);
+        try
+        {
+            return handle.WaitForExit(timeout);
+        }
+        catch (Exception e)
+        {
+            // TerminateProcess has already succeeded. Even cancellation or a
+            // native wait failure cannot honestly be described as no effect.
+            throw new ProcessExitUnconfirmedException(e);
+        }
     }
 
     /// <inheritdoc />

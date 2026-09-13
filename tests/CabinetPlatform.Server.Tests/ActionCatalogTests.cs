@@ -179,6 +179,10 @@ public sealed class ActionCatalogTests
         {
             foreach (string key in entry.AllowedParameterKeys)
             {
+                // The selected identity's path is comparison-only. No launch or
+                // other action accepts this exception to the spelling invariant.
+                if (entry.Action == ActionName.KillProcess && key == ActionParameterKeys.ExpectedExecutablePath)
+                    continue;
                 Assert.DoesNotContain(forbidden, f =>
                     key.Contains(f, StringComparison.OrdinalIgnoreCase));
             }

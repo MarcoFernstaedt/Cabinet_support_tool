@@ -38,6 +38,7 @@ public static class ProcessCpuCalculator
             {
                 Name = current.Name,
                 Pid = current.Pid,
+                SelectionIdentity = current.SelectionIdentity,
                 WorkingSetBytes = current.WorkingSetBytes,
                 ThreadCount = current.ThreadCount,
                 HandleCount = current.HandleCount,

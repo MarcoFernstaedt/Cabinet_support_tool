@@ -5,9 +5,9 @@ namespace CabinetPlatform.Console.Core.Rows;
 
 /// <summary>One running process, as the last on-demand fetch saw it.</summary>
 /// <remarks>
-/// The process id is displayed prominently beside the name, and both travel
-/// together into any action taken on the row. Ids are reused within minutes, so
-/// the pair is the identification and either half alone is not.
+/// PID and name are displayed diagnostics, not sufficient authorization. Selected
+/// termination also requires the exact creation FILETIME and full image path
+/// observed through one retained handle; inaccessible identities remain nullable.
 /// </remarks>
 public sealed class ProcessRow
 {
@@ -24,6 +24,16 @@ public sealed class ProcessRow
     /// <summary>Operating system process identifier.</summary>
     public int Pid => Info.Pid;
 
+    /// <summary>The nullable identity observed through one process handle.</summary>
+    public CabinetPlatform.Contracts.Actions.ProcessSelectionIdentity? SelectionIdentity => Info.SelectionIdentity;
+
+    /// <summary>Only a complete identity consistent with the displayed row can be submitted.</summary>
+    public bool HasCompleteSelectionIdentity => SelectionIdentity is { } identity &&
+        identity.ProcessId > 0 && identity.ProcessId != 4 && identity.ProcessId == Pid &&
+        identity.CreationTimeFileTime > 0 && !string.IsNullOrWhiteSpace(identity.ProcessName) &&
+        string.Equals(identity.ProcessName, Name, StringComparison.OrdinalIgnoreCase) &&
+        CabinetPlatform.Contracts.Actions.ProcessSelectionIdentity.IsValidExecutablePath(identity.ExecutablePath);
+
     /// <summary>CPU attributed to this process, or a dash if it could not be read.</summary>
     public string Cpu => Format.Percent(Info.CpuPercent);
 
@@ -38,5 +48,8 @@ public sealed class ProcessRow
 
     /// <summary>One sentence a screen reader announces for this row.</summary>
     public string AccessibleSummary =>
-        $"{Name}, process id {Pid}. CPU {Cpu}. Memory {Memory}. Threads {Threads}.";
+        $"{Name}, process id {Pid}. CPU {Cpu}. Memory {Memory}. Threads {Threads}. " +
+        (HasCompleteSelectionIdentity
+            ? "Observed identity available. Selected termination still requires server and agent permission."
+            : "Process identity unavailable. Selected termination is disabled; refresh the process list.");
 }

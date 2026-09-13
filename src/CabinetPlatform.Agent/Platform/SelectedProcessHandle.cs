@@ -22,6 +22,14 @@ public interface ISelectedProcessHandleFactory
     ISelectedProcessHandle Open(int processId);
 }
 
+/// <summary>Termination was requested but the subsequent exit observation failed.</summary>
+public sealed class ProcessExitUnconfirmedException : InvalidOperationException
+{
+    /// <summary>Preserves the wait error without claiming that termination failed.</summary>
+    public ProcessExitUnconfirmedException(Exception inner)
+        : base("Termination was requested, but exit was not confirmed. Refresh the process list before any further action.", inner) { }
+}
+
 /// <summary>Identity could not be verified, so no termination was attempted.</summary>
 public sealed class ProcessIdentityMismatchException : InvalidOperationException
 {

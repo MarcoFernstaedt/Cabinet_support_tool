@@ -7,17 +7,21 @@ using Microsoft.Win32.SafeHandles;
 namespace CabinetPlatform.Agent.Platform;
 
 /// <summary>Windows process-object binding. No PID lookup occurs after OpenProcess.</summary>
-internal sealed class WindowsSelectedProcessHandleFactory : ISelectedProcessHandleFactory
+internal sealed class WindowsSelectedProcessHandleFactory : ISelectedProcessHandleFactory, IProcessObservationHandleFactory
 {
-    public ISelectedProcessHandle Open(int processId)
+    // Read-only discovery must not require termination rights on a diagnostic target.
+    public IProcessObservationHandle OpenRead(int processId) => OpenHandle(processId, 0x00001000);
+
+    public ISelectedProcessHandle Open(int processId) => OpenHandle(processId, 0x00101001);
+
+    private static BoundHandle OpenHandle(int processId, uint access)
     {
         if (!OperatingSystem.IsWindows())
         {
-            throw new PlatformNotSupportedException("Selected-process termination requires Windows.");
+            throw new PlatformNotSupportedException("Process handle inspection requires Windows.");
         }
 
-        // PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE.
-        SafeProcessHandle handle = Native.OpenProcess(0x00101001, false, processId);
+        SafeProcessHandle handle = Native.OpenProcess(access, false, processId);
         if (handle.IsInvalid)
         {
             int error = Marshal.GetLastWin32Error();
@@ -27,7 +31,7 @@ internal sealed class WindowsSelectedProcessHandleFactory : ISelectedProcessHand
         return new BoundHandle(processId, handle);
     }
 
-    private sealed class BoundHandle(int processId, SafeProcessHandle handle) : ISelectedProcessHandle
+    private sealed class BoundHandle(int processId, SafeProcessHandle handle) : ISelectedProcessHandle, IProcessObservationHandle
     {
         public ProcessSelectionIdentity Identity
         {

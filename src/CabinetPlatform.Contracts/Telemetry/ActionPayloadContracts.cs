@@ -101,13 +101,19 @@ public sealed record UpdateInstallResult
 /// </remarks>
 public sealed record ProcessActionResultDto
 {
+    /// <summary>Selected termination was accepted by Windows; null for legacy actions.</summary>
+    public bool? TerminationRequested { get; init; }
+
+    /// <summary>Exit was confirmed on the retained selected handle; false means reconcile, not retry.</summary>
+    public bool? ExitConfirmed { get; init; }
+
     /// <summary>Image name the action operated on.</summary>
     public required string ProcessName { get; init; }
 
     /// <summary>Process ids the action ended.</summary>
     public IReadOnlyList<int> EndedProcessIds { get; init; } = Array.Empty<int>();
 
-    /// <summary>Process ids the agent refused to end, with the reason for each.</summary>
+    /// <summary>Processes not confirmed ended, with reasons. Consult TerminationRequested for ambiguous effects.</summary>
     public IReadOnlyList<ProcessActionRefusal> Refused { get; init; } = Array.Empty<ProcessActionRefusal>();
 
     /// <summary>
@@ -117,7 +123,7 @@ public sealed record ProcessActionResultDto
     public int? RelaunchedProcessId { get; init; }
 }
 
-/// <summary>One process the agent declined to act on, and why.</summary>
+/// <summary>One process refused or not confirmed exited, and why.</summary>
 public sealed record ProcessActionRefusal
 {
     /// <summary>The process id.</summary>
@@ -126,7 +132,7 @@ public sealed record ProcessActionRefusal
     /// <summary>The image name the agent actually found for it.</summary>
     public string? ObservedName { get; init; }
 
-    /// <summary>Why the agent left it alone.</summary>
+    /// <summary>Why termination was refused or exit could not be confirmed.</summary>
     public required string Reason { get; init; }
 }
 
