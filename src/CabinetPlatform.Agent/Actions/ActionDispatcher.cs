@@ -72,9 +72,7 @@ public sealed class ActionDispatcher
             inFlight.Action,
             inFlight.StartedUtc);
 
-        _stateStore.Update(current => current with { InFlightAction = null });
-
-        return new ActionResultDto
+        var result = new ActionResultDto
         {
             RequestId = inFlight.RequestId,
             Status = ActionStatus.UnknownResult,
@@ -84,6 +82,8 @@ public sealed class ActionDispatcher
                 "It was not resumed or retried. The cabinet's current state should be confirmed before " +
                 "the action is requested again.",
         };
+        PersistResult(inFlight.Action, result);
+        return result;
     }
 
     /// <summary>
@@ -210,6 +210,12 @@ public sealed class ActionDispatcher
     {
         ActionResultDto result = Result(request, outcome);
 
+        PersistResult(request.Action, result);
+        return result;
+    }
+
+    private void PersistResult(ActionName action, ActionResultDto result)
+    {
         _stateStore.Update(current =>
         {
             var completed = new List<CompletedAction>(current.CompletedActions.Count + 1)
@@ -217,7 +223,7 @@ public sealed class ActionDispatcher
                 new()
                 {
                     RequestId = result.RequestId,
-                    Action = request.Action,
+                    Action = action,
                     Status = result.Status,
                     CompletedAtUtc = result.CompletedAtUtc,
                     Output = result.Output,
@@ -231,11 +237,9 @@ public sealed class ActionDispatcher
             return current with
             {
                 CompletedActions = completed,
-                InFlightAction = current.InFlightAction?.RequestId == request.Id ? null : current.InFlightAction,
+                InFlightAction = current.InFlightAction?.RequestId == result.RequestId ? null : current.InFlightAction,
             };
         });
-
-        return result;
     }
 
     private async Task<ActionOutcome> RunWithTimeoutAsync(

@@ -258,6 +258,24 @@ public class ActionDispatcherTests
         if (failedWrite == 2) Assert.Equal(request.Id, store.Load().InFlightAction?.RequestId);
     }
 
+    [Fact]
+    public async Task InterruptedRequestSurvivesTwoRestartsAndRedelivery()
+    {
+        var request = Request(ActionName.RebootMachine);
+        var store = new InMemoryAgentStateStore(ApprovedState() with
+        {
+            InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
+        });
+        var executor = new RecordingExecutor(request.Action);
+        var first = Dispatcher(store, new AgentOptions(), executor).TakeInterruptedActionResult();
+        var restarted = Dispatcher(store, new AgentOptions(), executor);
+        restarted.TakeInterruptedActionResult();
+        var replay = await restarted.DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(ActionStatus.UnknownResult, replay.Status);
+        Assert.Equal(first, replay);
+        Assert.Equal(0, executor.CallCount);
+    }
+
     private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
     {
         private AgentState _state = state;
