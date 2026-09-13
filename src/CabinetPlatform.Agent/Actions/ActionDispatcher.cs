@@ -72,9 +72,7 @@ public sealed class ActionDispatcher
             inFlight.Action,
             inFlight.StartedUtc);
 
-        _stateStore.Update(current => current with { InFlightAction = null });
-
-        return new ActionResultDto
+        var result = new ActionResultDto
         {
             RequestId = inFlight.RequestId,
             Status = ActionStatus.UnknownResult,
@@ -84,6 +82,8 @@ public sealed class ActionDispatcher
                 "It was not resumed or retried. The cabinet's current state should be confirmed before " +
                 "the action is requested again.",
         };
+        PersistResult(inFlight.Action, result);
+        return result;
     }
 
     /// <summary>
@@ -124,9 +124,15 @@ public sealed class ActionDispatcher
                 RequestId = already.RequestId,
                 Status = already.Status,
                 Output = already.Output,
+                CollectedData = already.CollectedData,
                 CompletedAtUtc = already.CompletedAtUtc,
             };
         }
+
+        // A prior completion write may have failed in this process. Startup
+        // recovery, not a subsequent dispatch, must resolve that journal.
+        if (_stateStore.Load().InFlightAction is not null)
+            throw new InvalidOperationException("An unresolved action journal blocks further execution.");
 
         // An action that expired while it sat in a queue must not fire late.
         if (request.ExpiresUtc is { } expiry && expiry <= _clock.UtcNow)
@@ -190,25 +196,12 @@ public sealed class ActionDispatcher
             },
         });
 
-        try
-        {
-            var outcome = await RunWithTimeoutAsync(executor, request, timeout, cancellationToken)
-                .ConfigureAwait(false);
+        var outcome = await RunWithTimeoutAsync(executor, request, timeout, cancellationToken)
+            .ConfigureAwait(false);
 
-            _logger.LogInformation(
-                "Action {RequestId} ({Action}) finished as {Status}.",
-                request.Id,
-                request.Action,
-                outcome.Status);
-
-            return Remember(request, outcome);
-        }
-        finally
-        {
-            // Cleared whatever the outcome, including a cancelled shutdown: the
-            // result has been decided, so this is no longer an unknown.
-            _stateStore.Update(current => current with { InFlightAction = null });
-        }
+        // Completion and journal removal are one durable transition. A failed
+        // write must leave the in-flight evidence intact.
+        return Remember(request, outcome);
     }
 
     /// <summary>
@@ -223,6 +216,12 @@ public sealed class ActionDispatcher
     {
         ActionResultDto result = Result(request, outcome);
 
+        PersistResult(request.Action, result);
+        return result;
+    }
+
+    private void PersistResult(ActionName action, ActionResultDto result)
+    {
         _stateStore.Update(current =>
         {
             var completed = new List<CompletedAction>(current.CompletedActions.Count + 1)
@@ -230,21 +229,28 @@ public sealed class ActionDispatcher
                 new()
                 {
                     RequestId = result.RequestId,
-                    Action = request.Action,
+                    Action = action,
                     Status = result.Status,
                     CompletedAtUtc = result.CompletedAtUtc,
                     Output = result.Output,
+                    CollectedData = result.CollectedData,
                 },
             };
 
+            // Unknown outcomes have no safe automatic expiry. Keep their
+            // tombstones until a coordinated reconciliation policy exists.
             completed.AddRange(current.CompletedActions
-                .Where(c => c.RequestId != result.RequestId)
+                .Where(c => c.RequestId != result.RequestId && c.Status == ActionStatus.UnknownResult));
+            completed.AddRange(current.CompletedActions
+                .Where(c => c.RequestId != result.RequestId && c.Status != ActionStatus.UnknownResult)
                 .Take(RememberedActionCount - 1));
 
-            return current with { CompletedActions = completed };
+            return current with
+            {
+                CompletedActions = completed,
+                InFlightAction = current.InFlightAction?.RequestId == result.RequestId ? null : current.InFlightAction,
+            };
         });
-
-        return result;
     }
 
     private async Task<ActionOutcome> RunWithTimeoutAsync(

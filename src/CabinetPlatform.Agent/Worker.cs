@@ -186,6 +186,7 @@ public sealed class Worker : BackgroundService
                 // Approval was revoked, or a race with the server's own state.
                 // Nothing diagnostic is sent until it is approved again.
                 _consecutiveFailures = 0;
+                _registration.RecordNotRegistered();
                 _logger.LogWarning("The server reports this cabinet is not approved. Reporting identity only.");
                 break;
 
@@ -282,6 +283,11 @@ public sealed class Worker : BackgroundService
                     // should not be retried.
                     _buffer.Remove(item.Id);
                     break;
+
+                case CheckInOutcome.NotApproved:
+                case CheckInOutcome.NotRegistered:
+                    _registration.RecordNotRegistered();
+                    return;
 
                 default:
                     // The server went away again mid-flush. Everything still

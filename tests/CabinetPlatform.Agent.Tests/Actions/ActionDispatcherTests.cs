@@ -244,6 +244,93 @@ public class ActionDispatcherTests
         Assert.Null(dispatcher.TakeInterruptedActionResult());
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PersistenceFailureStopsExecutionOrRetainsInFlight(int failedWrite)
+    {
+        var store = new FailingStore(ApprovedState(), failedWrite);
+        var executor = new RecordingExecutor(ActionName.RebootMachine);
+        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        var request = Request(ActionName.RebootMachine);
+        await Assert.ThrowsAsync<IOException>(() => dispatcher.DispatchAsync(request, CancellationToken.None));
+        Assert.Equal(failedWrite == 1 ? 0 : 1, executor.CallCount);
+        if (failedWrite == 2) Assert.Equal(request.Id, store.Load().InFlightAction?.RequestId);
+    }
+
+    [Fact]
+    public async Task InterruptedRequestSurvivesTwoRestartsAndRedelivery()
+    {
+        var request = Request(ActionName.RebootMachine);
+        var store = new InMemoryAgentStateStore(ApprovedState() with
+        {
+            InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
+        });
+        var executor = new RecordingExecutor(request.Action);
+        var first = Dispatcher(store, new AgentOptions(), executor).TakeInterruptedActionResult();
+        var restarted = Dispatcher(store, new AgentOptions(), executor);
+        restarted.TakeInterruptedActionResult();
+        var replay = await restarted.DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(ActionStatus.UnknownResult, replay.Status);
+        Assert.Equal(first, replay);
+        Assert.Equal(0, executor.CallCount);
+    }
+
+    [Fact]
+    public async Task StructuredResultSurvivesRestartReplay()
+    {
+        var request = Request(ActionName.FlushDnsCache);
+        var store = new InMemoryAgentStateStore(ApprovedState());
+        var executor = new RecordingExecutor(request.Action) { Data = "{\"synthetic\":true}" };
+        var original = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        var replay = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(original.CollectedData, replay.CollectedData);
+        Assert.Equal(1, executor.CallCount);
+    }
+
+    [Fact]
+    public async Task UnresolvedJournalBlocksAnotherActionWithoutOverwritingEvidence()
+    {
+        var pending = new InFlightAction { RequestId = Guid.NewGuid(), Action = ActionName.RebootMachine, StartedUtc = Now };
+        var store = new InMemoryAgentStateStore(ApprovedState() with { InFlightAction = pending });
+        var executor = new RecordingExecutor(ActionName.RebootMachine);
+        var error = await Record.ExceptionAsync(() => Dispatcher(store, new AgentOptions(), executor).DispatchAsync(Request(executor.Action), CancellationToken.None));
+        Assert.NotNull(error);
+        Assert.Equal(0, executor.CallCount);
+        Assert.Same(pending, store.Load().InFlightAction);
+    }
+
+    [Fact]
+    public async Task UnknownTombstoneIsNotEvictedByLaterCompletions()
+    {
+        var request = Request(ActionName.RebootMachine);
+        var store = new InMemoryAgentStateStore(ApprovedState() with
+        {
+            InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
+        });
+        var executor = new RecordingExecutor(request.Action);
+        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        dispatcher.TakeInterruptedActionResult();
+        for (var i = 0; i < ActionDispatcher.RememberedActionCount; i++)
+            await dispatcher.DispatchAsync(Request(request.Action), CancellationToken.None);
+        var before = executor.CallCount;
+        var replay = await dispatcher.DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(ActionStatus.UnknownResult, replay.Status);
+        Assert.Equal(before, executor.CallCount);
+    }
+
+    private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
+    {
+        private AgentState _state = state;
+        private int _writes;
+        public AgentState Load() => _state;
+        public AgentState Update(Func<AgentState, AgentState> mutate)
+        {
+            if (++_writes == failedWrite) throw new IOException("injected disk failure");
+            return _state = mutate(_state);
+        }
+    }
+
     private static AgentState ApprovedState() => new()
     {
         MachineId = "machine-hash",
@@ -290,12 +377,13 @@ public class ActionDispatcherTests
         public int CallCount { get; private set; }
 
         public Action? OnExecute { get; set; }
+        public string? Data { get; set; }
 
         public Task<ActionOutcome> ExecuteAsync(ActionRequestDto request, CancellationToken cancellationToken)
         {
             CallCount++;
             OnExecute?.Invoke();
-            return Task.FromResult(ActionOutcome.Succeeded("done"));
+            return Task.FromResult(ActionOutcome.Succeeded("done") with { CollectedData = Data });
         }
     }
 

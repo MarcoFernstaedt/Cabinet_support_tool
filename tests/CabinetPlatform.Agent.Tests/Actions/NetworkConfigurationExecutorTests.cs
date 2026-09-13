@@ -105,18 +105,13 @@ public class NetworkConfigurationExecutorTests
     }
 
     [Fact]
-    public async Task A_change_that_cannot_be_applied_clears_the_rollback_rather_than_leaving_it()
+    public async Task A_partial_apply_failure_restores_before_clearing_rollback()
     {
-        // Nothing was applied, so there is nothing to revert — and a stale
-        // rollback left behind would have the next restart undo a configuration
-        // nobody changed.
         var network = new StubNetworkGateway(Current()) { FailApply = true };
         var rollback = new StubRollbackStore();
-
-        ActionOutcome outcome = await DnsExecutor(network, Reachable(), rollback)
+        await DnsExecutor(network, Reachable(), rollback)
             .ExecuteAsync(DnsRequest("10.20.30.9"), CancellationToken.None);
-
-        Assert.Equal(ActionStatus.Failed, outcome.Status);
+        Assert.True(network.Restored);
         Assert.Null(rollback.Pending);
     }
 
@@ -171,6 +166,58 @@ public class NetworkConfigurationExecutorTests
 
         Assert.Equal(ActionStatus.Succeeded, outcome.Status);
         Assert.True(network.DhcpEnabled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationOrProbeFailureAfterMutationRestores(bool cancel)
+    {
+        var network = new StubNetworkGateway(Current());
+        var rollback = new StubRollbackStore();
+        try
+        {
+            await DnsExecutor(network, new FailingProbe(cancel), rollback)
+                .ExecuteAsync(DnsRequest("10.20.30.9"), CancellationToken.None);
+        }
+        catch (Exception) { /* The safety assertion is independent of result classification. */ }
+        Assert.True(network.Restored);
+        Assert.Null(rollback.Pending);
+    }
+
+    [Fact]
+    public async Task PendingRollbackBlocksAnotherMutation()
+    {
+        var original = new NetworkRollback { ActionRequestId = Guid.NewGuid(), Previous = Current(), AppliedUtc = DateTimeOffset.UtcNow };
+        var rollback = new StubRollbackStore();
+        rollback.Write(original);
+        var network = new StubNetworkGateway(Current());
+        var outcome = await DnsExecutor(network, Reachable(), rollback)
+            .ExecuteAsync(DnsRequest("10.20.30.9"), CancellationToken.None);
+        Assert.Equal(ActionStatus.Denied, outcome.Status);
+        Assert.False(network.ApplyWasCalled);
+        Assert.Same(original, rollback.Pending);
+    }
+
+    [Fact]
+    public async Task CancellationDuringPartialApplyAttemptsRestoreAndRetainsFailedRollback()
+    {
+        var rollback = new StubRollbackStore();
+        var network = new StubNetworkGateway(Current())
+        {
+            OnApply = () => throw new OperationCanceledException(),
+            FailRestore = true,
+        };
+        var outcome = await DnsExecutor(network, Reachable(), rollback)
+            .ExecuteAsync(DnsRequest("10.20.30.9"), CancellationToken.None);
+        Assert.Contains("RevertFailed", outcome.CollectedData!);
+        Assert.NotNull(rollback.Pending);
+    }
+
+    private sealed class FailingProbe(bool cancel) : IServerReachabilityProbe
+    {
+        public Task<ServerReachability> ProbeAsync(CancellationToken token) =>
+            throw (cancel ? new OperationCanceledException() : new IOException("probe failure"));
     }
 
     private static SetDnsServersExecutor DnsExecutor(

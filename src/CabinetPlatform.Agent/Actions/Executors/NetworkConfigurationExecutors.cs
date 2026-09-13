@@ -98,6 +98,12 @@ public abstract class NetworkConfigurationExecutorBase : IActionExecutor
             return ActionOutcome.Denied(missing);
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
+        if (_rollback.Read() is not null)
+        {
+            return ActionOutcome.Denied("An unresolved network rollback blocks further network changes.");
+        }
+
         AdapterConfiguration? previous;
 
         try
@@ -138,16 +144,13 @@ public abstract class NetworkConfigurationExecutorBase : IActionExecutor
                 return ActionOutcome.Denied(applyFailure);
             }
         }
-        catch (Exception e) when (e is not OperationCanceledException)
+        catch (Exception e)
         {
             Logger.LogWarning(e, "The change to adapter '{AdapterId}' could not be applied.", adapterId);
 
-            // Nothing was applied, so there is nothing to revert — but the
-            // rollback is cleared anyway, so a later restart does not find a
-            // stale one and undo a configuration nobody changed.
-            _rollback.Clear();
-
-            return Failed(previous, timeout, $"The change could not be applied. {e.Message}");
+            // A gateway may have completed an earlier WMI mutation before
+            // throwing. Never interpret an exception as proof of no effect.
+            return Revert(previous, $"Apply did not complete: {e.Message}", timeout, adapterId);
         }
 
         Logger.LogInformation(
@@ -156,7 +159,18 @@ public abstract class NetworkConfigurationExecutorBase : IActionExecutor
             adapterId,
             timeout.TotalSeconds);
 
-        bool reachable = await WaitForServerAsync(timeout, cancellationToken).ConfigureAwait(false);
+        bool reachable;
+        try
+        {
+            reachable = await WaitForServerAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception e)
+        {
+            // Restore does not receive the cancelled action token. Do not
+            // abandon a mutating restore task and start another operation.
+            Logger.LogWarning(e, "Network confirmation did not complete; reverting.");
+            return Revert(previous, applied, timeout, adapterId);
+        }
 
         if (reachable)
         {
@@ -275,10 +289,6 @@ public abstract class NetworkConfigurationExecutorBase : IActionExecutor
 
         return false;
     }
-
-    private static ActionOutcome Failed(
-        AdapterConfiguration previous, TimeSpan timeout, string message) =>
-        ActionOutcome.Failed(message);
 
     private static ActionOutcome Collected(NetworkChangeResultDto result, string summary) =>
         ActionOutcome.Collected(summary, JsonSerializer.Serialize(result, AgentJson.SerializerOptions));
