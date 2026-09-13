@@ -488,7 +488,8 @@ public sealed class ApiClient : IApiClient
 
         try
         {
-            T? value = await response.Content.ReadFromJsonAsync<T>(Json, ct);
+            T? value = await ReadResponseBodyAsync(
+                () => response.Content.ReadFromJsonAsync<T>(Json, ct), ct);
 
             if (value is null)
             {
@@ -510,6 +511,34 @@ public sealed class ApiClient : IApiClient
         }
     }
 
+    // ResponseHeadersRead completes SendAsync before any body is consumed.
+    // Normalize faults at this separate boundary without retrying a possible write.
+    private static async Task<T> ReadResponseBodyAsync<T>(Func<Task<T>> read, CancellationToken ct)
+    {
+        try
+        {
+            T value = await read();
+            ct.ThrowIfCancellationRequested();
+            return value;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new ApiException(ApiFailure.Unreachable,
+                "The server response did not arrive in time. The operation may already have completed.", inner: ex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            ct.ThrowIfCancellationRequested();
+            throw new ApiException(ApiFailure.Unreachable,
+                "The connection was lost while reading the server response. The operation may already have completed.",
+                inner: ex);
+        }
+    }
+
     /// <summary>
     /// Maps a failure response to an <see cref="ApiException"/>, preferring the
     /// server's own <c>ProblemDetails.detail</c> as the message.
@@ -518,7 +547,7 @@ public sealed class ApiClient : IApiClient
         HttpResponseMessage response, bool isLogin, CancellationToken ct)
     {
         int status = (int)response.StatusCode;
-        string? detail = await TryReadProblemDetailAsync(response, ct);
+        string? detail = await ReadResponseBodyAsync(() => TryReadProblemDetailAsync(response, ct), ct);
 
         ApiFailure failure = status switch
         {
@@ -628,7 +657,7 @@ public sealed class ApiClient : IApiClient
 
             return null;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or IOException)
+        catch (JsonException)
         {
             // A body that is not ProblemDetails — an HTML error page from a
             // proxy, most likely. The status code still classifies the failure.
