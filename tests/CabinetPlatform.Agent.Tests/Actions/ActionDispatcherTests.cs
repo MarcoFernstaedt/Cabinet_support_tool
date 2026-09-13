@@ -276,6 +276,18 @@ public class ActionDispatcherTests
         Assert.Equal(0, executor.CallCount);
     }
 
+    [Fact]
+    public async Task StructuredResultSurvivesRestartReplay()
+    {
+        var request = Request(ActionName.FlushDnsCache);
+        var store = new InMemoryAgentStateStore(ApprovedState());
+        var executor = new RecordingExecutor(request.Action) { Data = "{\"synthetic\":true}" };
+        var original = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        var replay = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(original.CollectedData, replay.CollectedData);
+        Assert.Equal(1, executor.CallCount);
+    }
+
     private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
     {
         private AgentState _state = state;
@@ -334,12 +346,13 @@ public class ActionDispatcherTests
         public int CallCount { get; private set; }
 
         public Action? OnExecute { get; set; }
+        public string? Data { get; set; }
 
         public Task<ActionOutcome> ExecuteAsync(ActionRequestDto request, CancellationToken cancellationToken)
         {
             CallCount++;
             OnExecute?.Invoke();
-            return Task.FromResult(ActionOutcome.Succeeded("done"));
+            return Task.FromResult(ActionOutcome.Succeeded("done") with { CollectedData = Data });
         }
     }
 

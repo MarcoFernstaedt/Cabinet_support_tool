@@ -124,6 +124,7 @@ public sealed class ActionDispatcher
                 RequestId = already.RequestId,
                 Status = already.Status,
                 Output = already.Output,
+                CollectedData = already.CollectedData,
                 CompletedAtUtc = already.CompletedAtUtc,
             };
         }
@@ -227,6 +228,7 @@ public sealed class ActionDispatcher
                     Status = result.Status,
                     CompletedAtUtc = result.CompletedAtUtc,
                     Output = result.Output,
+                    CollectedData = result.CollectedData,
                 },
             };
 
