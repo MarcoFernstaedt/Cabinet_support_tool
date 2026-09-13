@@ -293,7 +293,11 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     private async Task ShowAuditForSelectedCabinetAsync()
     {
-        if (Cabinets.SelectedCabinet is not { } row)
+        // The loaded Machine header is the viewed identity. Finder can open a
+        // cabinet outside the list's filters, leaving its row selection behind.
+        // Path is cleared during loading, on failure and at sign-out, unlike
+        // CabinetId which also holds an attempted (not yet loaded) selection.
+        if (Machine.Path is not { } path)
         {
             return;
         }
@@ -303,7 +307,7 @@ public sealed partial class ShellViewModel : ObservableObject
         CurrentView = ShellView.Cabinets;
         SelectedTabIndex = 2;
 
-        await Audit.ShowForCabinetAsync(row.Id);
+        await Audit.ShowForCabinetAsync(path.CabinetId);
     }
 
     [RelayCommand]
