@@ -288,6 +288,18 @@ public class ActionDispatcherTests
         Assert.Equal(1, executor.CallCount);
     }
 
+    [Fact]
+    public async Task UnresolvedJournalBlocksAnotherActionWithoutOverwritingEvidence()
+    {
+        var pending = new InFlightAction { RequestId = Guid.NewGuid(), Action = ActionName.RebootMachine, StartedUtc = Now };
+        var store = new InMemoryAgentStateStore(ApprovedState() with { InFlightAction = pending });
+        var executor = new RecordingExecutor(ActionName.RebootMachine);
+        var error = await Record.ExceptionAsync(() => Dispatcher(store, new AgentOptions(), executor).DispatchAsync(Request(executor.Action), CancellationToken.None));
+        Assert.NotNull(error);
+        Assert.Equal(0, executor.CallCount);
+        Assert.Same(pending, store.Load().InFlightAction);
+    }
+
     private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
     {
         private AgentState _state = state;

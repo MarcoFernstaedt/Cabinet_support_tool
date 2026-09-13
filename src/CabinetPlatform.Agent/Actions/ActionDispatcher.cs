@@ -129,6 +129,11 @@ public sealed class ActionDispatcher
             };
         }
 
+        // A prior completion write may have failed in this process. Startup
+        // recovery, not a subsequent dispatch, must resolve that journal.
+        if (_stateStore.Load().InFlightAction is not null)
+            throw new InvalidOperationException("An unresolved action journal blocks further execution.");
+
         // An action that expired while it sat in a queue must not fire late.
         if (request.ExpiresUtc is { } expiry && expiry <= _clock.UtcNow)
         {
