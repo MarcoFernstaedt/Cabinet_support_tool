@@ -49,7 +49,7 @@ public sealed class RegistrationService
     {
         var state = _stateStore.Load();
 
-        if (state.IsApproved)
+        if (state.IsApproved && state.CabinetId != Guid.Empty)
         {
             return true;
         }
@@ -76,7 +76,10 @@ public sealed class RegistrationService
         var updated = _stateStore.Update(current => current with
         {
             RegistrationStatus = response.Status,
-            CabinetId = response.CabinetId ?? current.CabinetId,
+            // A registration response is authoritative only for its own identity.
+            // Never combine a fresh approval with an id retained from older state.
+            CabinetId = response.Status == RegistrationStatus.Approved &&
+                        response.CabinetId is { } id && id != Guid.Empty ? id : null,
             LastRegistrationAttemptUtc = _clock.UtcNow,
         });
 
@@ -99,7 +102,7 @@ public sealed class RegistrationService
             case RegistrationStatus.Rejected:
                 _logger.LogWarning(
                     "The server rejected this cabinet's registration. " +
-                    "It will keep asking; a human must approve it on the server.");
+                    "It will keep asking, but retries cannot overturn this decision.");
                 return false;
 
             default:
@@ -113,6 +116,13 @@ public sealed class RegistrationService
     /// </summary>
     public void RecordApproval(Guid cabinetId)
     {
+        if (cabinetId == Guid.Empty)
+        {
+            _logger.LogWarning("The server returned an empty cabinet identity. Approval was not recorded.");
+            RecordNotRegistered();
+            return;
+        }
+
         var state = _stateStore.Load();
         if (state.CabinetId == cabinetId && state.RegistrationStatus == RegistrationStatus.Approved)
         {

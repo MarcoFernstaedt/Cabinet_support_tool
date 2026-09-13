@@ -85,6 +85,19 @@ public sealed class AgentController : SupportControllerBase
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.MachineId == machineId, ct);
 
+        if (cabinet is { IsActive: false })
+        {
+            await _audit.WriteDenialAsync(AuditEvent.AgentRegister,
+                "A deactivated cabinet cannot regain approval by registering again.",
+                cabinet.Id, new { MachineId = machineId }, cancellationToken: ct);
+            return Ok(new RegistrationResponse
+            {
+                Status = RegistrationStatus.Rejected,
+                CabinetId = null,
+                RetryAfterSeconds = _options.RegistrationRetrySeconds,
+            });
+        }
+
         if (cabinet is not null)
         {
             // Already admitted. Say so, and hand back the identity, without
