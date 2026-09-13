@@ -680,6 +680,18 @@
                                   SelectionMode="Single" IsReadOnly="True"
                                   AutomationProperties.Name="Discovered native event channels"
                                   AutomationProperties.HelpText="Select a channel to fill the Supervisor's new shared view form. Selection alone does not request records.">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+                                    <Setter Property="AutomationProperties.Name">
+                                        <Setter.Value>
+                                            <MultiBinding StringFormat="Channel {0}, observed access {1}">
+                                                <Binding Path="Name" />
+                                                <Binding Path="Access" />
+                                            </MultiBinding>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Exact channel" Binding="{Binding Name}" Width="*" />
                                 <DataGridTextColumn Header="Observed access" Binding="{Binding Access}" Width="Auto" />
@@ -749,6 +761,20 @@
                         <DataGrid ItemsSource="{Binding ChannelReads}" Style="{StaticResource AccessibleDataGrid}"
                                   MaxHeight="140" IsReadOnly="True" Margin="0,0,0,6"
                                   AutomationProperties.Name="Actual per-channel event record read outcomes">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+                                    <Setter Property="AutomationProperties.Name">
+                                        <Setter.Value>
+                                            <MultiBinding StringFormat="Channel {0}, read outcome {1}, records read {2}, channel capped {3}">
+                                                <Binding Path="Name" />
+                                                <Binding Path="Access" />
+                                                <Binding Path="RecordsRead" />
+                                                <Binding Path="Truncated" />
+                                            </MultiBinding>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Requested channel" Binding="{Binding Name}" Width="*" />
                                 <DataGridTextColumn Header="Read outcome" Binding="{Binding Access}" Width="Auto" />
@@ -761,6 +787,20 @@
                                   Style="{StaticResource AccessibleDataGrid}"
                                   MaxHeight="320"
                                   AutomationProperties.Name="Event log records the view matched, newest first">
+                            <DataGrid.RowStyle>
+                                <Style TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+                                    <Setter Property="AutomationProperties.Name">
+                                        <Setter.Value>
+                                            <MultiBinding StringFormat="Channel {0}, event {1}, level {2}, time {3}">
+                                                <Binding Path="DisplayChannelName" />
+                                                <Binding Path="EventId" />
+                                                <Binding Path="Level" />
+                                                <Binding Path="TimeCreatedUtc" />
+                                            </MultiBinding>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </DataGrid.RowStyle>
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Time" Binding="{Binding TimeCreatedUtc}" Width="Auto" />
                                 <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="Auto" />
