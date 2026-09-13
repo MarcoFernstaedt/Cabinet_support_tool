@@ -309,9 +309,9 @@ asserting something unknown into a DEA audit trail. A person decides.
 CabinetPlatform.Agent.exe --collect-once > payload.json
 ```
 
-Runs every collector, prints the payload it would send, and exits. No network
-call, no change to the machine. Log output goes to stderr so stdout is valid
-JSON on its own.
+Runs the full collection composition, prints its payload, and exits. The
+command can contact the configured server and create local state and logs.
+Use it only in an authorized lab. Log output goes to stderr so stdout is JSON.
 
 This is how the collectors are checked against a specific cabinet's hardware —
 particularly SMART, which depends entirely on the storage stack in front of it.
