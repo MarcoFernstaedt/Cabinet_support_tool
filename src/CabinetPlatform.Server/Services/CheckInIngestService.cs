@@ -681,7 +681,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
             return DiskHealthStatus.Unknown;
         }
 
-        DiskHealthStatus worst = DiskHealthStatus.Unknown;
+        DiskHealthStatus worst = payload.Disks.FirstOrDefault()?.HealthStatus ?? DiskHealthStatus.Unknown;
 
         foreach (DiskInfo disk in payload.Disks)
         {

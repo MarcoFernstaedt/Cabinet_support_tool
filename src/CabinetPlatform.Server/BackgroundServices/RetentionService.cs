@@ -209,7 +209,7 @@ public sealed class RetentionService : BackgroundService
                     IsAggregated = true,
                     SampleCount = 0,
                     SectionErrorsJson = "{}",
-                    WorstDiskHealth = DiskHealthStatus.Unknown,
+                    WorstDiskHealth = rows[0].WorstDiskHealth,
                 };
 
                 db.Heartbeats.Add(existing);
@@ -300,7 +300,7 @@ public sealed class RetentionService : BackgroundService
                     DriveSerial = group.Key.Serial,
                     TimestampUtc = group.Key.Day,
                     IsAggregated = true,
-                    Health = DiskHealthStatus.Unknown,
+                    Health = rows[0].Health,
                     Source = SmartSource.Unavailable,
                 };
 
