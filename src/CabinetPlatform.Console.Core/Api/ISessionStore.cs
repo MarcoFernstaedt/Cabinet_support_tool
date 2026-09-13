@@ -80,6 +80,9 @@ public interface ISessionStore
     /// <param name="refreshToken">Its replacement refresh token.</param>
     /// <param name="role">The role as the server re-read it just now.</param>
     /// <param name="mustChangePassword">Whether a password change is still outstanding.</param>
+    long Generation { get; }
+    bool TryRefreshed(long generation, string expectedRefreshToken, RefreshResponse response);
+
     void Refreshed(
         string accessToken,
         DateTimeOffset expiresUtc,
