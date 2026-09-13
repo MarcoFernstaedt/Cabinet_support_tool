@@ -66,15 +66,14 @@ public abstract class ProcessExecutorBase : IActionExecutor
 }
 
 /// <summary>
-/// Ends one process, named by id and by the name that id is expected to hold.
+/// Ends one selected process after verifying its creation time, executable path and name.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The name check is the point of this executor. Windows reuses process ids
-/// within minutes on a busy machine, so between a rep reading a process list
-/// and this code running, the id may name something else entirely — plausibly
-/// something no allow-list would have permitted. The agent reads the live
-/// process table, compares, and refuses the pair if the machine disagrees.
+/// A PID and name cannot identify a particular instance. The gateway checks
+/// the complete selection against one retained Windows handle and terminates
+/// only that process object, never a later PID holder or unapproved descendants.
+/// Clients that do not supply the complete identity are refused.
 /// </para>
 /// <para>
 /// It refuses to end its own process under any circumstance, checked by id as
@@ -87,6 +86,8 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
     {
         ActionParameterKeys.ProcessId,
         ActionParameterKeys.ExpectedProcessName,
+        ActionParameterKeys.ExpectedCreationTimeFileTime,
+        ActionParameterKeys.ExpectedExecutablePath,
     };
 
     /// <summary>Creates the executor.</summary>
@@ -137,38 +138,25 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             return Task.FromResult(ActionOutcome.Denied(nameFailure));
         }
 
-        // Read now, immediately before acting. Anything read earlier is a
-        // belief about a machine that has moved on.
-        string? observed = Processes.GetProcessName(pid);
-
-        if (observed is null)
+        if (!ActionParameters.TryGetRequiredString(request,
+                ActionParameterKeys.ExpectedCreationTimeFileTime, out string rawCreation, out string identityFailure) ||
+            !ActionParameters.TryGetRequiredString(request,
+                ActionParameterKeys.ExpectedExecutablePath, out string expectedPath, out identityFailure))
         {
-            return Task.FromResult(ActionOutcome.Failed(
-                $"No process is running with id {pid}. It has already exited, or the id was stale " +
-                "by the time this action reached the cabinet."));
+            return Task.FromResult(ActionOutcome.Denied(identityFailure +
+                " Refresh using a client that supplies the selected process identity. Nothing was ended."));
         }
 
-        if (!string.Equals(
-                ProcessTargetPolicy.Normalise(observed),
-                ProcessTargetPolicy.Normalise(expected),
-                StringComparison.OrdinalIgnoreCase))
+        if (!long.TryParse(rawCreation, NumberStyles.None, CultureInfo.InvariantCulture, out long creationTime) ||
+            creationTime <= 0)
         {
-            // Refused, not retried against the name. The rep chose a row in a
-            // list; that row no longer describes anything, and guessing which
-            // process they meant is how the wrong one gets ended.
-            Logger.LogWarning(
-                "Action {RequestId} asked to end process {ProcessId}, expecting '{Expected}', but " +
-                "that id now belongs to '{Observed}'. Refused.",
-                request.Id,
-                pid,
-                expected,
-                observed);
-
-            return Task.FromResult(ActionOutcome.Denied(
-                $"Process {pid} is '{observed}', not '{expected}'. Process ids are reused, so this " +
-                "id no longer names what was chosen. Nothing was ended. Refresh the process list " +
-                "and try again."));
+            return Task.FromResult(ActionOutcome.Denied("The selected process creation FILETIME must be a positive decimal integer."));
         }
+
+        // Authorize the expected name before opening a native handle. The
+        // gateway then verifies this name, creation time and full image path
+        // against the same process object that it will terminate.
+        string observed = expected;
 
         if (!Policy.IsProcessIdAllowed(pid, observed, out string policyFailure))
         {
@@ -185,7 +173,13 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
 
         try
         {
-            bool exited = Processes.Kill(pid, ExitTimeout);
+            bool exited = Processes.KillSelected(new ProcessSelectionIdentity
+            {
+                ProcessId = pid,
+                ProcessName = expected,
+                CreationTimeFileTime = creationTime,
+                ExecutablePath = expectedPath,
+            }, ExitTimeout, cancellationToken);
 
             var result = new ProcessActionResultDto
             {
@@ -208,13 +202,18 @@ public sealed class KillProcessExecutor : ProcessExecutorBase
             {
                 return Task.FromResult(Collected(
                     result,
-                    $"Process {pid} ('{observed}') was asked to end but had not exited after " +
-                    $"{ExitTimeout.TotalSeconds:F0} seconds. It may still be closing."));
+                    $"Termination of process {pid} ('{observed}') was requested, but exit was not confirmed after " +
+                    $"{ExitTimeout.TotalSeconds:F0} seconds. Refresh the process list before any further action.")
+                    with { Status = ActionStatus.Failed });
             }
 
             Logger.LogInformation("Ended process {ProcessId} ('{Observed}').", pid, observed);
 
             return Task.FromResult(Collected(result, $"Ended process {pid} ('{observed}')."));
+        }
+        catch (ProcessIdentityMismatchException e)
+        {
+            return Task.FromResult(ActionOutcome.Denied(e.Message));
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
