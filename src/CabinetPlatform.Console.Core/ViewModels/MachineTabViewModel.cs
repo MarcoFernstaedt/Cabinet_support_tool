@@ -44,6 +44,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     private IReadOnlyList<ActionCatalogEntryDto> _catalogue = Array.Empty<ActionCatalogEntryDto>();
     private CabinetDetailDto? _latest;
     private int _generation;
+    private Guid? _appliedProcessActionId;
     public ObservableCollection<ActionRow> ActionHistory { get; } = new();
     [ObservableProperty] private ActionRow? _selectedAction;
     [ObservableProperty] private string _actionHistoryNote = "Refresh to retrieve action status and results.";
@@ -62,11 +63,20 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         ActionHistoryNote = page.HasMore
             ? "Showing the latest 100 requests. Older requests are not shown. Refresh to check completion."
             : "Refresh to check completion. Accepted or dispatched does not mean executed.";
-        foreach (var action in page.Items.Where(a => a.CompletedUtc is not null)
-                     .OrderByDescending(a => a.CompletedUtc).GroupBy(a => a.Action).Select(g => g.First()))
+        foreach (var group in page.Items.Where(a => a.CompletedUtc is not null &&
+                         a.ResultStatus == ActionStatus.Succeeded &&
+                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView)
+                     .OrderByDescending(a => a.RequestedUtc).GroupBy(a => a.Action))
         {
-            if (generation != _generation) return;
-            await TryApplyActionResultAsync(action.Id);
+            foreach (var action in group)
+            {
+                if (generation != _generation) return;
+                if (!await TryApplyActionResultAsync(action.Id)) continue;
+                if (generation != _generation) return;
+                ActionHistoryNote += $" Last successful {action.Action} snapshot: {action.Id}, " +
+                    $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
+                break;
+            }
         }
     }
 
@@ -354,29 +364,39 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                         JsonSerializer.Deserialize<IReadOnlyList<ProcessInfo>>(
                             collected, ContractJson.Default);
 
-                    if (processes is not null)
+                    // JSON permits null array elements even when the CLR element
+                    // type is non-nullable. Reject the whole snapshot before any
+                    // section state is changed, rather than rendering partial data.
+                    if (processes is not null && processes.All(p => p is not null))
                     {
+                        // A status-only refresh of the same immutable result must
+                        // not clear the operator's row selection. A full load clears
+                        // CollectedUtc, and a new result has a new action identity.
+                        if (_appliedProcessActionId == action.Id && Processes.CollectedUtc == action.CompletedUtc)
+                            return true;
                         Processes.ApplyProcesses(
                             processes, action.CompletedUtc ?? _timeProvider.GetUtcNow());
+                        _appliedProcessActionId = action.Id;
                         Announcer.Announce(Processes.Summarise());
                         return true;
                     }
 
-                    return false;
+                    return UnreadableResult(action.Id);
 
                 case ActionName.RunEventLogView:
                     EventLogViewResultDto? result =
                         JsonSerializer.Deserialize<EventLogViewResultDto>(
                             collected, ContractJson.Default);
 
-                    if (result is not null)
+                    if (result is not null && result.Entries is not null &&
+                        result.Entries.All(entry => entry is not null))
                     {
                         EventLogs.ApplyResult(result);
                         Announcer.Announce(EventLogs.Summarise());
                         return true;
                     }
 
-                    return false;
+                    return UnreadableResult(action.Id);
 
                 default:
                     return false;
@@ -387,8 +407,16 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             // A payload this build cannot read leaves the section saying it has
             // nothing, which is honest. Rendering half a grid from a document
             // we do not understand would be worse than rendering none.
-            return false;
+            return UnreadableResult(action.Id);
         }
+    }
+
+    private bool UnreadableResult(Guid actionId)
+    {
+        string message = $" Result {actionId} is unreadable; no measurements from it were applied.";
+        if (!ActionHistoryNote.Contains(message, StringComparison.Ordinal)) ActionHistoryNote += message;
+        Announcer.AnnounceImportant(message.Trim());
+        return false;
     }
 
     /// <summary>Re-reads the same cabinet, for the Refresh button.</summary>
