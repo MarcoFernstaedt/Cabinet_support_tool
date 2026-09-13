@@ -47,7 +47,9 @@ public sealed class ActionsController : SupportControllerBase
     [ProducesResponseType(typeof(IReadOnlyList<ActionCatalogEntryDto>), StatusCodes.Status200OK)]
     public async Task<ActionResult<IReadOnlyList<ActionCatalogEntryDto>>> Catalog(CancellationToken ct)
     {
-        List<ActionCatalogEntryDto> entries = ActionCatalog.All
+        List<ActionCatalogEntryDto> entries = ActionCatalog.Available(
+                HttpContext.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<
+                    Configuration.ActionOptions>>().Value)
             .OrderBy(e => e.Action)
             .Select(e => new ActionCatalogEntryDto
             {

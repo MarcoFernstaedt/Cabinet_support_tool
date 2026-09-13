@@ -119,7 +119,7 @@ public sealed class ActionRequestService : IActionRequestService
 
         // An integer outside the enum can arrive in any JSON body, so the
         // catalog lookup is the gate, not the deserialiser.
-        if (!ActionCatalog.TryGet(request.Action, out ActionCatalogEntry entry))
+        if (!ActionCatalog.TryGet(request.Action, _options, out ActionCatalogEntry entry))
         {
             return await DeniedAsync(
                 AuditEvent.RequestAction, actor, null,
@@ -236,7 +236,7 @@ public sealed class ActionRequestService : IActionRequestService
             return OperationResult<ActionRequest>.NotFound("Action request not found.");
         }
 
-        if (!ActionCatalog.TryGet(action.Action, out ActionCatalogEntry entry))
+        if (!ActionCatalog.TryGet(action.Action, _options, out ActionCatalogEntry entry))
         {
             return await DeniedAsync(
                 AuditEvent.ApproveAction, actor, action.Cabinet,
@@ -436,7 +436,7 @@ public sealed class ActionRequestService : IActionRequestService
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
-        if (!ActionCatalog.TryGet(request.Action, out ActionCatalogEntry entry))
+        if (!ActionCatalog.TryGet(request.Action, _options, out ActionCatalogEntry entry))
         {
             return await DeniedBatchAsync(
                 AuditEvent.RequestBatchAction, actor,
@@ -592,7 +592,7 @@ public sealed class ActionRequestService : IActionRequestService
             return OperationResult<BatchActionRequest>.NotFound("Batch not found.");
         }
 
-        if (!ActionCatalog.TryGet(batch.Action, out ActionCatalogEntry entry))
+        if (!ActionCatalog.TryGet(batch.Action, _options, out ActionCatalogEntry entry))
         {
             return await DeniedBatchAsync(
                 AuditEvent.ApproveBatchAction, actor, "Stored action is no longer in the catalog.",
