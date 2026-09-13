@@ -224,6 +224,9 @@ public sealed record EventLogViewDefinition
 /// </remarks>
 public sealed record EventLogViewResultDto
 {
+    /// <summary>Local channels observed during this request; null on older agent results.</summary>
+    public EventChannelDiscoveryResult? ChannelDiscovery { get; init; }
+
     /// <summary>The view that was run.</summary>
     public required Guid ViewId { get; init; }
 

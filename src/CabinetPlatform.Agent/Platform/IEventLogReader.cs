@@ -8,6 +8,11 @@ namespace CabinetPlatform.Agent.Platform;
 /// </summary>
 public interface IEventLogReader
 {
+    /// <summary>Discovers local event channels without changing their configuration.</summary>
+    /// <remarks>Older implementations explicitly report discovery as unavailable.</remarks>
+    EventChannelDiscoveryResult DiscoverChannels(CancellationToken cancellationToken)
+        => new();
+
     /// <summary>
     /// Reads up to <paramref name="maximumEntries"/> records from one log,
     /// newest first, restricted to the given levels and time window.

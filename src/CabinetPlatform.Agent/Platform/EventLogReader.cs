@@ -19,8 +19,82 @@ namespace CabinetPlatform.Agent.Platform;
 public sealed class EventLogReader : IEventLogReader
 {
     private readonly ILogger<EventLogReader> _logger;
+    private readonly IEventChannelGateway _channels;
+    private readonly TimeProvider _clock;
 
-    public EventLogReader(ILogger<EventLogReader> logger) => _logger = logger;
+    public EventLogReader(ILogger<EventLogReader> logger) : this(logger, new WindowsEventChannelGateway()) { }
+
+    public EventLogReader(ILogger<EventLogReader> logger, IEventChannelGateway channels, TimeProvider? clock = null)
+    {
+        _logger = logger;
+        _channels = channels;
+        _clock = clock ?? TimeProvider.System;
+    }
+
+    /// <inheritdoc />
+    public EventChannelDiscoveryResult DiscoverChannels(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        const int maximumNamesExamined = 1024;
+        int examined = 0;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var channels = new List<EventChannelInfo>();
+        bool truncated = false;
+        long started = _clock.GetTimestamp();
+        var status = EventChannelDiscoveryStatus.Available;
+        try
+        {
+            using var names = _channels.GetChannelNames(cancellationToken).GetEnumerator();
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                // Cooperative budget: synchronous Windows calls cannot be forcibly interrupted.
+                if (_clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(2))
+                {
+                    truncated = true;
+                    break;
+                }
+                if (!names.MoveNext()) break;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (examined++ == maximumNamesExamined || _clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(2))
+                {
+                    truncated = true;
+                    break;
+                }
+                string name = names.Current;
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 512 || name.Any(char.IsControl))
+                {
+                    status = EventChannelDiscoveryStatus.Unavailable;
+                    continue;
+                }
+                if (!seen.Add(name)) continue;
+                EventChannelAccess access;
+                try
+                {
+                    access = _channels.Probe(name, cancellationToken);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    access = IsAccessDenied(e) ? EventChannelAccess.AccessDenied : EventChannelAccess.Unavailable;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                channels.Add(new EventChannelInfo { Name = name, Access = access });
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            status = IsAccessDenied(e) ? EventChannelDiscoveryStatus.AccessDenied : EventChannelDiscoveryStatus.Unavailable;
+        }
+        return new EventChannelDiscoveryResult
+        {
+            Status = status,
+            Channels = channels,
+            Truncated = truncated,
+        };
+    }
+
+    private static bool IsAccessDenied(Exception exception)
+        => exception is UnauthorizedAccessException or System.Security.SecurityException;
 
     public IReadOnlyList<EventLogEntry> Read(
         EventLogName log,

@@ -60,6 +60,9 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
     /// <summary>The views this rep may run.</summary>
     public ObservableCollection<EventLogViewDto> Views { get; } = new();
 
+    /// <summary>Discovered native channels. Record browsing still uses the saved view contract.</summary>
+    public ObservableCollection<EventChannelInfo> Channels { get; } = new();
+
     /// <summary>The records the last run returned.</summary>
     public ObservableCollection<EventLogEntry> Entries { get; } = new();
 
@@ -110,8 +113,13 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
         return parameters;
     }
 
+    /// <summary>Availability of native channel discovery on the last view result.</summary>
+    public string ChannelDiscoverySummary { get; private set; } = string.Empty;
+
     /// <summary>One line describing what is on screen.</summary>
-    public string ResultSummary => Entries.Count == 0
+    public string ResultSummary => RecordSummary + (ChannelDiscoverySummary.Length == 0 ? string.Empty : " " + ChannelDiscoverySummary);
+
+    private string RecordSummary => Entries.Count == 0
         ? Availability.Reason ?? "No records have been fetched for this cabinet yet."
         : ResultTruncated
             ? $"'{ResultViewName}' matched at least {Entries.Count} record(s) over " +
@@ -139,6 +147,32 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
     /// <param name="result">The records and what produced them.</param>
     public void ApplyResult(EventLogViewResultDto result)
     {
+        Channels.Clear();
+        EventChannelDiscoveryResult? discovery = result.ChannelDiscovery;
+        if (discovery is not null && (discovery.Channels is null || discovery.Channels.Any(c => c is null)))
+        {
+            discovery = new EventChannelDiscoveryResult();
+        }
+        if (discovery is not null)
+        {
+            foreach (EventChannelInfo channel in discovery.Channels)
+            {
+                Channels.Add(channel);
+            }
+        }
+        ChannelDiscoverySummary = discovery?.Status switch
+        {
+            EventChannelDiscoveryStatus.AccessDenied => "Channel discovery: access denied for the agent identity.",
+            EventChannelDiscoveryStatus.Unavailable => "Channel discovery unavailable; this is not a complete channel inventory.",
+            EventChannelDiscoveryStatus.Available =>
+                $"Channels: {Channels.Count(c => c.Access == EventChannelAccess.Readable)} readable, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.AccessDenied)} access denied, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.Disabled)} disabled, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.Unavailable)} unavailable." +
+                (discovery.Truncated ? " Discovery limit reached; inventory is incomplete." : string.Empty),
+            _ => string.Empty,
+        };
+        OnPropertyChanged(nameof(ChannelDiscoverySummary));
         Entries.Clear();
 
         foreach (EventLogEntry entry in result.Entries)
@@ -167,6 +201,9 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
         // Deliberately ignores the telemetry: nothing in it belongs to this
         // section, and a check-in arriving must not make the panel look filled
         // or leave another cabinet's records on screen.
+        Channels.Clear();
+        ChannelDiscoverySummary = string.Empty;
+        OnPropertyChanged(nameof(ChannelDiscoverySummary));
         Entries.Clear();
         ResultViewName = null;
         ResultTruncated = false;

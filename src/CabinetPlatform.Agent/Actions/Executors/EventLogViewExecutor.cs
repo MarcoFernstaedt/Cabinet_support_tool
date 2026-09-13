@@ -99,6 +99,7 @@ public sealed class RunEventLogViewExecutor : IActionExecutor
                 ViewDisplayName = definition.DisplayName,
                 WindowHours = definition.WindowHours,
                 Entries = entries,
+                ChannelDiscovery = _reader.DiscoverChannels(cancellationToken),
                 // Said plainly, so the operator knows they are looking at the
                 // newest n rather than at everything there was.
                 Truncated = entries.Count >= definition.MaximumEntries,
