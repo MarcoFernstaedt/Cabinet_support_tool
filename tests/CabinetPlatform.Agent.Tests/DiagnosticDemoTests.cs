@@ -27,10 +27,15 @@ namespace CabinetPlatform.Agent.Tests;
 /// refresh is real. No action/status/collected-data rows are seeded in the DB.
 /// Kept here because the agent targets net8.0-windows; this suite runs on Linux.
 /// </summary>
-public sealed class DiagnosticDemoTests : IClassFixture<ConsoleTestHost>
+public sealed class DiagnosticConsoleTestHost : ConsoleTestHost
+{
+    protected override bool EnableMaintenanceActions => false;
+}
+
+public sealed class DiagnosticDemoTests : IClassFixture<DiagnosticConsoleTestHost>
 {
     private readonly ConsoleTestHost _host;
-    public DiagnosticDemoTests(ConsoleTestHost host) => _host = host;
+    public DiagnosticDemoTests(DiagnosticConsoleTestHost host) => _host = host;
 
     private async Task<(MachineTabViewModel Tab, ApiClient Api, HttpClient Agent, Cabinet Cabinet)> OpenAsync()
     {

@@ -38,9 +38,12 @@ namespace CabinetPlatform.Console.Core.Tests;
 /// here by the server itself rather than simulated.
 /// </para>
 /// </remarks>
-public sealed class ConsoleTestHost : WebApplicationFactory<Server.Controllers.AgentController>
+public class ConsoleTestHost : WebApplicationFactory<Server.Controllers.AgentController>
 {
     public const string KnownPassword = "Str0ng!TestPassword";
+
+    // Legacy console tests exercise maintenance actions intentionally.
+    protected virtual bool EnableMaintenanceActions => true;
 
     private DbConnection? _connection;
 
@@ -49,6 +52,7 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Server.Controllers.A
         builder.UseEnvironment("Testing");
 
         builder.ConfigureAppConfiguration(configuration =>
+        {
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Jwt:SigningKey"] = "console-integration-test-signing-key-at-least-32-bytes",
@@ -63,7 +67,15 @@ public sealed class ConsoleTestHost : WebApplicationFactory<Server.Controllers.A
                 // The console's tests sign in repeatedly; the limiter is the
                 // server's own test subject, not this suite's.
                 ["LoginSecurity:RateLimitPermitPerWindow"] = "1000"
-            }));
+            });
+            if (EnableMaintenanceActions)
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Actions:ExecutionMode"] = "Maintenance"
+                });
+            }
+        });
 
         builder.ConfigureServices(services =>
         {
