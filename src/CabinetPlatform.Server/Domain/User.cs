@@ -6,6 +6,9 @@ public class User
 {
     public Guid Id { get; set; } = Guid.NewGuid();
 
+    /// <summary>Durable epoch for immediate access-token containment.</summary>
+    public Guid SecurityStamp { get; set; } = Guid.NewGuid();
+
     public string Username { get; set; } = string.Empty;
 
     /// <summary>PBKDF2-derived key. Never logged, never returned by any endpoint.</summary>

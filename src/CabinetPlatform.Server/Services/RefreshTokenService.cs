@@ -41,24 +41,8 @@ public interface IRefreshTokenService
 }
 
 /// <summary>
-/// The one piece of server-side session state, and the reason the rest of the
-/// request path can stay stateless.
+/// Durable refresh sessions with single-use rotation and live access-token containment.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Access tokens are short-lived and are never checked against the database, so
-/// any instance can serve any request. Refresh is where the user's
-/// <em>current</em> role, elevated grant and active flag are re-read. That is
-/// what makes a revocation take effect: when a Supervisor withdraws a grant or
-/// disables an offboarded rep, effective access ends within one access-token
-/// lifetime rather than whenever a long-lived token happens to expire.
-/// </para>
-/// <para>
-/// Tokens rotate on use, and reuse of a consumed token revokes the whole chain.
-/// A replayed refresh is either a client bug or a stolen token, and both are
-/// worth ending the session over.
-/// </para>
-/// </remarks>
 public sealed class RefreshTokenService : IRefreshTokenService
 {
     private const int TokenBytes = 32;
@@ -180,6 +164,10 @@ public sealed class RefreshTokenService : IRefreshTokenService
             return OperationResult<RefreshResponse>.Forbidden("The session has ended. Sign in again.");
         }
 
+        // Serialize issuance with account revocation and permission changes.
+        // EF updates this version in the same transaction as consuming the
+        // predecessor and inserting its successor; a stale decision rolls back.
+        _db.Entry(user).Property(u => u.RowVersion).IsModified = true;
         IssuedRefreshToken replacement = Mint(user.Id, stored.ChainId, stored);
         IssuedToken access = _tokens.Issue(user);
 
@@ -194,7 +182,17 @@ public sealed class RefreshTokenService : IRefreshTokenService
             Details = new { stored.ChainId, user.Role, user.HasElevatedSql },
         });
 
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Never save the losing successor or its success audit on a denial.
+            _db.ChangeTracker.Clear();
+            await RevokeChainAsync(stored.ChainId, "Concurrent refresh or account change.", nowUtc, ct);
+            return OperationResult<RefreshResponse>.Forbidden("The session has ended. Sign in again.");
+        }
 
         return OperationResult<RefreshResponse>.Ok(new RefreshResponse
         {
@@ -215,6 +213,9 @@ public sealed class RefreshTokenService : IRefreshTokenService
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
+        User user = await _db.Users.SingleAsync(u => u.Id == userId, ct);
+        user.SecurityStamp = Guid.NewGuid();
+
         List<RefreshToken> live = await _db.RefreshTokens
             .Where(t => t.UserId == userId && t.RevokedUtc == null && t.ConsumedUtc == null)
             .ToListAsync(ct);
@@ -231,6 +232,13 @@ public sealed class RefreshTokenService : IRefreshTokenService
     private async Task<int> RevokeChainAsync(
         Guid chainId, string reason, DateTimeOffset nowUtc, CancellationToken ct)
     {
+        User? owner = await _db.Users.FirstOrDefaultAsync(
+            u => u.RefreshTokens.Any(t => t.ChainId == chainId), ct);
+        if (owner is not null)
+        {
+            owner.SecurityStamp = Guid.NewGuid();
+        }
+
         List<RefreshToken> chain = await _db.RefreshTokens
             .Where(t => t.ChainId == chainId && t.RevokedUtc == null)
             .ToListAsync(ct);
@@ -263,7 +271,7 @@ public sealed class RefreshTokenService : IRefreshTokenService
             ChainId = chainId,
             TokenHash = Hash(value),
             IssuedUtc = nowUtc,
-            ExpiresUtc = nowUtc.AddMinutes(_options.RefreshTokenLifetimeMinutes),
+            ExpiresUtc = predecessor?.ExpiresUtc ?? nowUtc.AddMinutes(_options.RefreshTokenLifetimeMinutes),
         };
 
         _db.RefreshTokens.Add(token);

@@ -198,6 +198,31 @@ builder.Services
     {
         options.TokenValidationParameters = tokens.BuildValidationParameters();
         options.MapInboundClaims = false;
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var principal = context.Principal;
+                if (!Guid.TryParse(principal?.FindFirst(SupportClaims.UserId)?.Value, out var userId) ||
+                    !Guid.TryParse(principal?.FindFirst("security_stamp")?.Value, out var stamp))
+                {
+                    context.Fail("The session has ended.");
+                    return;
+                }
+
+                var db = context.HttpContext.RequestServices.GetRequiredService<SupportDbContext>();
+                var user = await db.Users.AsNoTracking().SingleOrDefaultAsync(u => u.Id == userId,
+                    context.HttpContext.RequestAborted);
+                if (user is null || !user.IsActive || user.SecurityStamp != stamp ||
+                    principal?.FindFirst(SupportClaims.Role)?.Value != user.Role.ToString() ||
+                    principal?.FindFirst(SupportClaims.ElevatedSql)?.Value != (user.HasElevatedSql ? "true" : "false") ||
+                    principal?.FindFirst(SupportClaims.HardwareActuation)?.Value != (user.HasHardwareActuation ? "true" : "false") ||
+                    principal?.FindFirst(SupportClaims.MustChangePassword)?.Value != (user.MustChangePassword ? "true" : "false"))
+                {
+                    context.Fail("The session has ended.");
+                }
+            }
+        };
     });
 
 // --- Resilience ----------------------------------------------------------
