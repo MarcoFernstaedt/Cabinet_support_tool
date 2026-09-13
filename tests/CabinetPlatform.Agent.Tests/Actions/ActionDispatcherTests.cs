@@ -300,6 +300,25 @@ public class ActionDispatcherTests
         Assert.Same(pending, store.Load().InFlightAction);
     }
 
+    [Fact]
+    public async Task UnknownTombstoneIsNotEvictedByLaterCompletions()
+    {
+        var request = Request(ActionName.RebootMachine);
+        var store = new InMemoryAgentStateStore(ApprovedState() with
+        {
+            InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
+        });
+        var executor = new RecordingExecutor(request.Action);
+        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        dispatcher.TakeInterruptedActionResult();
+        for (var i = 0; i < ActionDispatcher.RememberedActionCount; i++)
+            await dispatcher.DispatchAsync(Request(request.Action), CancellationToken.None);
+        var before = executor.CallCount;
+        var replay = await dispatcher.DispatchAsync(request, CancellationToken.None);
+        Assert.Equal(ActionStatus.UnknownResult, replay.Status);
+        Assert.Equal(before, executor.CallCount);
+    }
+
     private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
     {
         private AgentState _state = state;

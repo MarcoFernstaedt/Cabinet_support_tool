@@ -237,8 +237,12 @@ public sealed class ActionDispatcher
                 },
             };
 
+            // Unknown outcomes have no safe automatic expiry. Keep their
+            // tombstones until a coordinated reconciliation policy exists.
             completed.AddRange(current.CompletedActions
-                .Where(c => c.RequestId != result.RequestId)
+                .Where(c => c.RequestId != result.RequestId && c.Status == ActionStatus.UnknownResult));
+            completed.AddRange(current.CompletedActions
+                .Where(c => c.RequestId != result.RequestId && c.Status != ActionStatus.UnknownResult)
                 .Take(RememberedActionCount - 1));
 
             return current with
