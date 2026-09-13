@@ -1,0 +1,31 @@
+using CabinetPlatform.Contracts.Actions;
+
+namespace CabinetPlatform.Agent.Platform;
+
+/// <summary>A single opened process object, retained through inspection and termination.</summary>
+public interface ISelectedProcessHandle : IDisposable
+{
+    /// <summary>Identity read from this handle, not a second lookup by PID.</summary>
+    ProcessSelectionIdentity Identity { get; }
+    /// <summary>Whether Windows marks this process critical. Unknown must throw.</summary>
+    bool IsCritical { get; }
+    /// <summary>Terminates only this process, never its descendants.</summary>
+    void Terminate();
+    /// <summary>Waits a bounded time for this same process object to exit.</summary>
+    bool WaitForExit(TimeSpan timeout);
+}
+
+/// <summary>Opens a process once. Implementations must not reacquire the PID after opening.</summary>
+public interface ISelectedProcessHandleFactory
+{
+    /// <summary>Opens query, terminate and synchronize access or fails without effects.</summary>
+    ISelectedProcessHandle Open(int processId);
+}
+
+/// <summary>Identity could not be verified, so no termination was attempted.</summary>
+public sealed class ProcessIdentityMismatchException : InvalidOperationException
+{
+    /// <summary>Creates a refusal suitable for an action result.</summary>
+    public ProcessIdentityMismatchException()
+        : base("The selected process identity no longer matches. Refresh the process list. Nothing was ended.") { }
+}
