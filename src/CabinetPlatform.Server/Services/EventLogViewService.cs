@@ -383,8 +383,12 @@ public sealed class EventLogViewService : IEventLogViewService
         {
             ViewId = view.Id,
             DisplayName = view.DisplayName,
-            LogNames = stored.LogNames,
-            ChannelNames = stored.ChannelNames,
+            // A native view must fail closed on older agents, not run only its legacy subset.
+            // Preserve the saved DTO, but carry the complete union in the new field on dispatch.
+            LogNames = stored.ChannelNames.Count == 0 ? stored.LogNames : Array.Empty<EventLogName>(),
+            ChannelNames = stored.ChannelNames.Count == 0 ? Array.Empty<string>()
+                : stored.ChannelNames.Concat(stored.LogNames.Select(n => n.ToString()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Sources = Deserialise<string>(view.SourcesJson),
             EventIds = Deserialise<int>(view.EventIdsJson),
             MinimumLevel = view.MinimumLevel,

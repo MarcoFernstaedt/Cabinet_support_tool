@@ -38,6 +38,31 @@ public sealed class NativeEventChannelViewTests(SupportApiFactory factory) : ICl
         Assert.Equal("Vendor/Product Admin", updated.GetProperty("channelNames")[0].GetString());
     }
 
+    [Fact]
+    public async Task Native_and_legacy_union_expands_without_a_silently_readable_subset_on_old_agents()
+    {
+        var (supervisor, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, Unique());
+        var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, Unique(), user.Id, clientName: Unique());
+        var created = await supervisor.PostJsonAsync("/api/event-log-views", new CreateEventLogViewRequest
+        {
+            DisplayName = Unique(), LogNames = new[] { EventLogName.System }, ChannelNames = new[] { "Vendor/Operational" },
+            Reason = "Native and classic union"
+        });
+        var view = await created.ReadAsync<EventLogViewDto>();
+        var submitted = await supervisor.PostJsonAsync("/api/actions", new CreateActionRequest
+        {
+            CabinetId = cabinet.Id, Action = ActionName.RunEventLogView, Reason = "Synthetic mixed view",
+            Parameters = new Dictionary<string, string> { [ActionParameterKeys.EventLogViewId] = view!.Id.ToString() }
+        });
+        Assert.Equal(HttpStatusCode.Created, submitted.StatusCode);
+        var request = await submitted.ReadAsync<ActionRequestView>();
+        var expanded = JsonSerializer.Deserialize<EventLogViewDefinition>(request!.Parameters[ActionParameterKeys.EventLogViewDefinition], TestClient.Json)!;
+        // Old agents reject an empty legacy list instead of silently reading just System.
+        Assert.Empty(expanded.LogNames);
+        Assert.Equal(new[] { "Vendor/Operational", "System" }, expanded.ChannelNames);
+        Assert.Equal(new[] { EventLogName.System }, view.LogNames);
+    }
+
     [Theory]
     [InlineData("C:/logs/sample.evtx")]
     [InlineData("//server/Application")]
