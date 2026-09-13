@@ -232,25 +232,52 @@ public sealed class RefreshTokenService : IRefreshTokenService
     private async Task<int> RevokeChainAsync(
         Guid chainId, string reason, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        User? owner = await _db.Users.FirstOrDefaultAsync(
-            u => u.RefreshTokens.Any(t => t.ChainId == chainId), ct);
-        if (owner is not null)
+        // RevokedUtc on every member is the durable family-containment marker.
+        // Read the owner first: every rotation writes its RowVersion, so a
+        // successor committed after our read makes this entire save lose.
+        // Retry from fresh state, never from the losing tracked successor.
+        const int maxAttempts = 3;
+        for (int attempt = 1; ; attempt++)
         {
-            owner.SecurityStamp = Guid.NewGuid();
+            _db.ChangeTracker.Clear();
+            User? owner = await _db.Users.FirstOrDefaultAsync(
+                u => u.RefreshTokens.Any(t => t.ChainId == chainId), ct);
+            List<RefreshToken> chain = await _db.RefreshTokens
+                .Where(t => t.ChainId == chainId && t.RevokedUtc == null)
+                .ToListAsync(ct);
+
+            if (chain.Count == 0)
+                return 0;
+
+            if (owner is not null)
+            {
+                // Password/account revocation already killed the live leaf and
+                // access epoch. Expired families also cannot issue successors.
+                // Historical consumed rows must not reset a recovered session.
+                if (chain.Any(t => t.IsUsable(nowUtc)))
+                    owner.SecurityStamp = Guid.NewGuid();
+                _db.Entry(owner).Property(u => u.RowVersion).IsModified = true;
+            }
+
+            foreach (RefreshToken token in chain)
+            {
+                token.RevokedUtc = nowUtc;
+                token.RevokedReason = reason;
+            }
+
+            try
+            {
+                // Stamp, revocation markers and successor invalidation commit
+                // together. The marker also makes subsequent replays no-ops.
+                await _db.SaveChangesAsync(ct);
+                return chain.Count;
+            }
+            catch (DbUpdateConcurrencyException) when (attempt < maxAttempts)
+            {
+                // A competing rotation, containment or account change won.
+                // Re-evaluate whether any live successor still needs containment.
+            }
         }
-
-        List<RefreshToken> chain = await _db.RefreshTokens
-            .Where(t => t.ChainId == chainId && t.RevokedUtc == null)
-            .ToListAsync(ct);
-
-        foreach (RefreshToken token in chain)
-        {
-            token.RevokedUtc = nowUtc;
-            token.RevokedReason = reason;
-        }
-
-        await _db.SaveChangesAsync(ct);
-        return chain.Count;
     }
 
     /// <summary>
