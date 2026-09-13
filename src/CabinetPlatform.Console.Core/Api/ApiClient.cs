@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Registrations;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
@@ -67,6 +68,18 @@ public sealed class ApiClient : IApiClient
 
     public Task<UserDto> GetCurrentUserAsync(CancellationToken ct) =>
         GetAsync<UserDto>("api/auth/me", ct);
+
+    // --- Enrollment ------------------------------------------------------
+
+    public Task<PagedResult<PendingRegistrationDto>> GetRegistrationsAsync(RegistrationQuery query, CancellationToken ct) =>
+        GetAsync<PagedResult<PendingRegistrationDto>>("api/registrations/pending" + new QueryString()
+            .Add("status", query.Status).Add("page", query.Page).Add("pageSize", query.PageSize), ct);
+
+    public Task<PendingRegistrationDto> ApproveRegistrationAsync(Guid id, ApproveRegistrationRequest request, CancellationToken ct) =>
+        PostAsync<ApproveRegistrationRequest, PendingRegistrationDto>($"api/registrations/{id:D}/approve", request, isLogin: false, ct);
+
+    public Task RejectRegistrationAsync(Guid id, RejectRegistrationRequest request, CancellationToken ct) =>
+        PostAsync($"api/registrations/{id:D}/reject", request, ct);
 
     // --- Cabinets --------------------------------------------------------
 

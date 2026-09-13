@@ -44,6 +44,15 @@ public interface IApiClient
     /// <summary>The caller's identity, as the server resolves it.</summary>
     Task<UserDto> GetCurrentUserAsync(CancellationToken ct);
 
+    // --- Enrollment ------------------------------------------------------
+
+    Task<PagedResult<CabinetPlatform.Contracts.Registrations.PendingRegistrationDto>> GetRegistrationsAsync(
+        CabinetPlatform.Contracts.Registrations.RegistrationQuery query, CancellationToken ct);
+    Task<CabinetPlatform.Contracts.Registrations.PendingRegistrationDto> ApproveRegistrationAsync(
+        Guid id, CabinetPlatform.Contracts.Registrations.ApproveRegistrationRequest request, CancellationToken ct);
+    Task RejectRegistrationAsync(
+        Guid id, CabinetPlatform.Contracts.Registrations.RejectRegistrationRequest request, CancellationToken ct);
+
     // --- Cabinets --------------------------------------------------------
 
     Task<PagedResult<CabinetSummary>> GetCabinetsAsync(CabinetQuery query, CancellationToken ct);

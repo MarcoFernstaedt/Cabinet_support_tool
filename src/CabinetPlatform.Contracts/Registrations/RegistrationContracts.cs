@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
@@ -56,9 +57,11 @@ public sealed record RegistrationQuery : PagedQuery
 public sealed record ApproveRegistrationRequest
 {
     /// <summary>Client this cabinet belongs to.</summary>
+    [Required, MaxLength(255)]
     public required string ClientName { get; init; }
 
     /// <summary>Site within that client.</summary>
+    [Required, MaxLength(255)]
     public required string SiteName { get; init; }
 
     /// <summary>Department within that site, when the client uses them.</summary>
@@ -69,6 +72,7 @@ public sealed record ApproveRegistrationRequest
     /// <see cref="CabinetRole.Sync"/> cabinet; approving a second as Sync is
     /// refused rather than silently demoting the first.
     /// </summary>
+    [EnumDataType(typeof(CabinetRole))]
     public required CabinetRole Role { get; init; }
 
     /// <summary>Cabinet model, when known.</summary>
@@ -85,6 +89,7 @@ public sealed record ApproveRegistrationRequest
 public sealed record RejectRegistrationRequest
 {
     /// <summary>Why it was refused. Required, and audited.</summary>
+    [Required, MaxLength(2000)]
     public required string Reason { get; init; }
 
     /// <summary>Support ticket the refusal is associated with, if any.</summary>

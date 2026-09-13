@@ -161,6 +161,7 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
             new AuditTabViewModel(api, announcer, time),
             new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
+            new RegistrationsViewModel(api, session, announcer),
             session, announcer);
     }
 

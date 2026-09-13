@@ -218,6 +218,12 @@ public sealed class RegistrationsController : SupportControllerBase
         // pointing at nothing.
         await using IDbContextTransaction transaction = await _db.Database.BeginTransactionAsync(ct);
 
+        if (!await ReserveDecisionAsync(registration.Id, RegistrationStatus.Approved, ct))
+        {
+            _db.ChangeTracker.Clear();
+            return DecisionConflict();
+        }
+
         await _db.SaveChangesAsync(ct);
 
         if (request.Role is CabinetRole.Sync)
@@ -294,10 +300,29 @@ public sealed class RegistrationsController : SupportControllerBase
             Details = new { RegistrationId = registration.Id, registration.MachineId }
         });
 
+        await using IDbContextTransaction transaction = await _db.Database.BeginTransactionAsync(ct);
+        if (!await ReserveDecisionAsync(registration.Id, RegistrationStatus.Rejected, ct))
+        {
+            _db.ChangeTracker.Clear();
+            return DecisionConflict();
+        }
         await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return NoContent();
     }
+
+    // Compare and set the existing status column before writing a cabinet or
+    // success audit. Holding this update's lock through commit makes competing
+    // accept/reject requests mutually exclusive, including across server nodes.
+    // No new column or provider-specific advisory lock is required.
+    private async Task<bool> ReserveDecisionAsync(Guid id, RegistrationStatus decision, CancellationToken ct) =>
+        await _db.PendingRegistrations.Where(r => r.Id == id && r.Status == RegistrationStatus.Pending)
+            .ExecuteUpdateAsync(update => update.SetProperty(r => r.Status, decision), ct) == 1;
+
+    private ObjectResult DecisionConflict() => Problem(
+        "Another supervisor already decided this registration. Refresh the queue.",
+        statusCode: StatusCodes.Status409Conflict, title: "Conflict");
 
     /// <summary>
     /// Finds or creates the client and site a Supervisor named at approval.
