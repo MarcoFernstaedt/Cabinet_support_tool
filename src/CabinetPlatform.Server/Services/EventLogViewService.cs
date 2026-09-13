@@ -143,6 +143,7 @@ public sealed class EventLogViewService : IEventLogViewService
         OperationResult validation = Validate(
             request.DisplayName,
             request.LogNames,
+            request.ChannelNames,
             request.Sources,
             request.EventIds,
             request.MinimumLevel,
@@ -173,7 +174,7 @@ public sealed class EventLogViewService : IEventLogViewService
         {
             DisplayName = name,
             Description = Clean(request.Description),
-            LogNamesJson = JsonSerializer.Serialize(request.LogNames.Distinct().ToArray(), Json),
+            LogNamesJson = SerialiseLogs(request.LogNames, request.ChannelNames),
             SourcesJson = JsonSerializer.Serialize(NormaliseSources(request.Sources), Json),
             EventIdsJson = JsonSerializer.Serialize(request.EventIds.Distinct().Order().ToArray(), Json),
             MinimumLevel = request.MinimumLevel,
@@ -193,6 +194,7 @@ public sealed class EventLogViewService : IEventLogViewService
             EventLogViewId = view.Id,
             view.DisplayName,
             LogNames = request.LogNames,
+            ChannelNames = request.ChannelNames,
             Sources = request.Sources,
             EventIds = request.EventIds,
             MinimumLevel = request.MinimumLevel.ToString(),
@@ -223,6 +225,7 @@ public sealed class EventLogViewService : IEventLogViewService
         OperationResult validation = Validate(
             request.DisplayName,
             request.LogNames,
+            request.ChannelNames,
             request.Sources,
             request.EventIds,
             request.MinimumLevel,
@@ -252,7 +255,8 @@ public sealed class EventLogViewService : IEventLogViewService
         var before = new
         {
             view.DisplayName,
-            LogNames = Deserialise<EventLogName>(view.LogNamesJson),
+            LogNames = ReadLogs(view.LogNamesJson).LogNames,
+            ChannelNames = ReadLogs(view.LogNamesJson).ChannelNames,
             Sources = Deserialise<string>(view.SourcesJson),
             EventIds = Deserialise<int>(view.EventIdsJson),
             MinimumLevel = view.MinimumLevel.ToString(),
@@ -262,7 +266,7 @@ public sealed class EventLogViewService : IEventLogViewService
 
         view.DisplayName = name;
         view.Description = Clean(request.Description);
-        view.LogNamesJson = JsonSerializer.Serialize(request.LogNames.Distinct().ToArray(), Json);
+        view.LogNamesJson = SerialiseLogs(request.LogNames, request.ChannelNames);
         view.SourcesJson = JsonSerializer.Serialize(NormaliseSources(request.Sources), Json);
         view.EventIdsJson = JsonSerializer.Serialize(request.EventIds.Distinct().Order().ToArray(), Json);
         view.MinimumLevel = request.MinimumLevel;
@@ -279,6 +283,7 @@ public sealed class EventLogViewService : IEventLogViewService
             {
                 view.DisplayName,
                 LogNames = request.LogNames,
+                ChannelNames = request.ChannelNames,
                 Sources = request.Sources,
                 EventIds = request.EventIds,
                 MinimumLevel = request.MinimumLevel.ToString(),
@@ -368,11 +373,22 @@ public sealed class EventLogViewService : IEventLogViewService
                 $"A view may look back between 1 and {MaximumWindowHours} hours.");
         }
 
+        var stored = ReadLogs(view.LogNamesJson);
+        var validation = Validate(view.DisplayName, stored.LogNames, stored.ChannelNames,
+            Deserialise<string>(view.SourcesJson), Deserialise<int>(view.EventIdsJson),
+            view.MinimumLevel, window, view.MaximumEntries);
+        if (!validation.Succeeded) return OperationResult<EventLogViewDefinition>.Invalid(validation.Reason!);
+
         return OperationResult<EventLogViewDefinition>.Ok(new EventLogViewDefinition
         {
             ViewId = view.Id,
             DisplayName = view.DisplayName,
-            LogNames = Deserialise<EventLogName>(view.LogNamesJson),
+            // A native view must fail closed on older agents, not run only its legacy subset.
+            // Preserve the saved DTO, but carry the complete union in the new field on dispatch.
+            LogNames = stored.ChannelNames.Count == 0 ? stored.LogNames : Array.Empty<EventLogName>(),
+            ChannelNames = stored.ChannelNames.Count == 0 ? Array.Empty<string>()
+                : stored.ChannelNames.Concat(stored.LogNames.Select(n => n.ToString()))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Sources = Deserialise<string>(view.SourcesJson),
             EventIds = Deserialise<int>(view.EventIdsJson),
             MinimumLevel = view.MinimumLevel,
@@ -388,7 +404,8 @@ public sealed class EventLogViewService : IEventLogViewService
         Id = view.Id,
         DisplayName = view.DisplayName,
         Description = view.Description,
-        LogNames = Deserialise<EventLogName>(view.LogNamesJson),
+        LogNames = ReadLogs(view.LogNamesJson).LogNames,
+        ChannelNames = ReadLogs(view.LogNamesJson).ChannelNames,
         Sources = Deserialise<string>(view.SourcesJson),
         EventIds = Deserialise<int>(view.EventIdsJson),
         MinimumLevel = view.MinimumLevel,
@@ -411,6 +428,7 @@ public sealed class EventLogViewService : IEventLogViewService
     private static OperationResult Validate(
         string displayName,
         IReadOnlyList<EventLogName> logNames,
+        IReadOnlyList<string> channelNames,
         IReadOnlyList<string> sources,
         IReadOnlyList<int> eventIds,
         EventLogLevel minimumLevel,
@@ -422,7 +440,13 @@ public sealed class EventLogViewService : IEventLogViewService
             return OperationResult.Invalid("A view needs a name of up to 128 characters.");
         }
 
-        if (logNames.Count == 0)
+        if (logNames is null || channelNames is null || sources is null || eventIds is null)
+            return OperationResult.Invalid("View collections cannot be null.");
+
+        if (logNames.Count + channelNames.Count > 16 || channelNames.Any(n => !EventChannelName.IsValid(n)))
+            return OperationResult.Invalid("A view may name at most 16 valid local Windows channels; paths and query expressions are not accepted.");
+
+        if (logNames.Count + channelNames.Count == 0)
         {
             return OperationResult.Invalid(
                 "A view must name at least one Windows log. A view with none matches nothing, and an " +
@@ -492,6 +516,28 @@ public sealed class EventLogViewService : IEventLogViewService
         }
 
         return OperationResult.Ok();
+    }
+
+    // Retain the existing text column and legacy array format. Native views use a
+    // versioned object; old servers parse that as no logs and refuse execution.
+    private sealed record StoredLogs(int Version, IReadOnlyList<EventLogName> LogNames, IReadOnlyList<string> ChannelNames);
+
+    private static string SerialiseLogs(IReadOnlyList<EventLogName> logs, IReadOnlyList<string> channels)
+        => channels.Count == 0
+            ? JsonSerializer.Serialize(logs.Distinct().ToArray(), Json)
+            : JsonSerializer.Serialize(new StoredLogs(1, logs.Distinct().ToArray(), channels.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()), Json);
+
+    private static StoredLogs ReadLogs(string json)
+    {
+        try
+        {
+            if (json.TrimStart().StartsWith("[", StringComparison.Ordinal))
+                return new(1, Deserialise<EventLogName>(json), Array.Empty<string>());
+            var stored = JsonSerializer.Deserialize<StoredLogs>(json, Json);
+            if (stored is { Version: 1, LogNames: not null, ChannelNames: not null }) return stored;
+        }
+        catch (JsonException) { }
+        return new(1, Array.Empty<EventLogName>(), Array.Empty<string>());
     }
 
     private static string[] NormaliseSources(IReadOnlyList<string> sources) => sources

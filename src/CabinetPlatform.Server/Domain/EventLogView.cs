@@ -32,8 +32,9 @@ public class EventLogView
     public string? Description { get; set; }
 
     /// <summary>
-    /// Which Windows logs to read, as a JSON array of
-    /// <see cref="EventLogName"/> names.
+    /// Which Windows logs to read. Legacy views use an array of
+    /// <see cref="EventLogName"/> names. Native views use a version 1 object
+    /// with LogNames and exact ChannelNames, in the same text column.
     /// </summary>
     /// <remarks>
     /// Held as JSON rather than as a child table because it is read whole,
@@ -41,6 +42,8 @@ public class EventLogView
     /// mention the System log". A join table would buy nothing and cost a
     /// migration every time the shape moved.
     /// </remarks>
+    // Legacy enum array, or version 1 object containing LogNames and ChannelNames.
+    // No schema change. Downgrade must retire native views before using old servers.
     public string LogNamesJson { get; set; } = "[]";
 
     /// <summary>Provider names to restrict to, as a JSON array. Empty means all.</summary>

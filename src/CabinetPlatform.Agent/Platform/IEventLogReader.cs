@@ -13,6 +13,17 @@ public interface IEventLogReader
     EventChannelDiscoveryResult DiscoverChannels(CancellationToken cancellationToken)
         => new();
 
+    /// <summary>Detailed view result. Legacy test/platform adapters retain their record-only implementation.</summary>
+    EventLogViewResultDto RunViewResult(EventLogViewDefinition definition, CancellationToken cancellationToken)
+    {
+        var entries = RunView(definition, cancellationToken);
+        return new EventLogViewResultDto
+        {
+            ViewId = definition.ViewId, ViewDisplayName = definition.DisplayName, WindowHours = definition.WindowHours,
+            Entries = entries, Truncated = entries.Count >= definition.MaximumEntries
+        };
+    }
+
     /// <summary>
     /// Reads up to <paramref name="maximumEntries"/> records from one log,
     /// newest first, restricted to the given levels and time window.

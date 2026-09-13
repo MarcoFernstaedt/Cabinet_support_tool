@@ -229,6 +229,10 @@ public sealed class ApiClient : IApiClient
             "api/search/recent" + new QueryString().Add("limit", limit), ct);
 
     /// <inheritdoc />
+    public Task<EventLogViewDto> CreateEventLogViewAsync(CreateEventLogViewRequest request, CancellationToken ct) =>
+        PostAsync<CreateEventLogViewRequest, EventLogViewDto>("api/event-log-views", request, isLogin: false, ct);
+
+    /// <inheritdoc />
     public Task<PagedResult<EventLogViewDto>> GetEventLogViewsAsync(
         EventLogViewQuery query, CancellationToken ct)
     {

@@ -40,6 +40,9 @@ public sealed record EventLogViewDto
     /// <summary>Which Windows logs to read. At least one.</summary>
     public IReadOnlyList<EventLogName> LogNames { get; init; } = Array.Empty<EventLogName>();
 
+    /// <summary>Exact local native channel names, in addition to the legacy logs. At most 16 combined.</summary>
+    public IReadOnlyList<string> ChannelNames { get; init; } = Array.Empty<string>();
+
     /// <summary>
     /// Provider names to restrict to, or empty for every provider in those
     /// logs.
@@ -91,6 +94,9 @@ public sealed record CreateEventLogViewRequest
     /// <summary>Which logs to read. At least one is required.</summary>
     public IReadOnlyList<EventLogName> LogNames { get; init; } = Array.Empty<EventLogName>();
 
+    /// <summary>Exact local native channel names, in addition to the legacy logs. At most 16 combined.</summary>
+    public IReadOnlyList<string> ChannelNames { get; init; } = Array.Empty<string>();
+
     /// <summary>Provider names to restrict to, or empty for all.</summary>
     public IReadOnlyList<string> Sources { get; init; } = Array.Empty<string>();
 
@@ -129,6 +135,9 @@ public sealed record UpdateEventLogViewRequest
 
     /// <summary>Which logs to read.</summary>
     public IReadOnlyList<EventLogName> LogNames { get; init; } = Array.Empty<EventLogName>();
+
+    /// <summary>Exact local native channel names, in addition to the legacy logs. At most 16 combined.</summary>
+    public IReadOnlyList<string> ChannelNames { get; init; } = Array.Empty<string>();
 
     /// <summary>Provider names to restrict to.</summary>
     public IReadOnlyList<string> Sources { get; init; } = Array.Empty<string>();
@@ -200,6 +209,9 @@ public sealed record EventLogViewDefinition
     /// <summary>Which logs to read.</summary>
     public IReadOnlyList<EventLogName> LogNames { get; init; } = Array.Empty<EventLogName>();
 
+    /// <summary>Exact local native channel names, in addition to the legacy logs. At most 16 combined.</summary>
+    public IReadOnlyList<string> ChannelNames { get; init; } = Array.Empty<string>();
+
     /// <summary>Provider names to restrict to, or empty for all.</summary>
     public IReadOnlyList<string> Sources { get; init; } = Array.Empty<string>();
 
@@ -226,6 +238,9 @@ public sealed record EventLogViewResultDto
 {
     /// <summary>Local channels observed during this request; null on older agent results.</summary>
     public EventChannelDiscoveryResult? ChannelDiscovery { get; init; }
+
+    /// <summary>Read outcomes for every requested channel; null on older readers.</summary>
+    public IReadOnlyList<EventChannelReadResult>? ChannelReads { get; init; }
 
     /// <summary>The view that was run.</summary>
     public required Guid ViewId { get; init; }

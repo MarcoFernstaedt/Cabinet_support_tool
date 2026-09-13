@@ -15,7 +15,14 @@ namespace CabinetPlatform.Contracts.Telemetry;
 public sealed record EventLogEntry
 {
     /// <summary>Which Windows log the record came from.</summary>
-    public required EventLogName LogName { get; init; }
+    public EventLogName? LogName { get; init; }
+
+    /// <summary>Exact native channel identity; absent in old results. Native-only logs have no legacy enum.</summary>
+    public string? ChannelName { get; init; }
+
+    /// <summary>Native identity when available, otherwise the legacy log label.</summary>
+    [JsonIgnore]
+    public string DisplayChannelName => ChannelName ?? LogName?.ToString() ?? "Unknown channel";
 
     /// <summary>Provider or source name that wrote the record.</summary>
     public string? Source { get; init; }
