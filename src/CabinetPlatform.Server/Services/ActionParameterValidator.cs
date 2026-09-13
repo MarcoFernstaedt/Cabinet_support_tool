@@ -80,9 +80,14 @@ public sealed class ActionParameterValidator : IActionParameterValidator
                         $"Parameter '{trimmedKey}' was supplied more than once.");
                 }
 
-                string trimmedValue = value?.Trim() ?? string.Empty;
+                // Selected-process operands are observations, not text to repair.
+                // Keep their exact values; in particular never trim an image path.
+                bool selectedProcess = entry.Action == ActionName.KillProcess;
+                string trimmedValue = selectedProcess ? value ?? string.Empty : value?.Trim() ?? string.Empty;
+                int maxLength = selectedProcess && string.Equals(trimmedKey,
+                    ActionParameterKeys.ExpectedExecutablePath, StringComparison.OrdinalIgnoreCase) ? 32767 : MaxValueLength;
 
-                if (trimmedValue.Length > MaxValueLength)
+                if (trimmedValue.Length > maxLength)
                 {
                     return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
                         $"Parameter '{trimmedKey}' is too long.");
@@ -346,19 +351,15 @@ public sealed class ActionParameterValidator : IActionParameterValidator
     /// Checks a kill by process id.
     /// </summary>
     /// <remarks>
-    /// Both keys are required together, and that is the whole safety property.
-    /// A process id on its own is not an identification: Windows reuses ids
-    /// within minutes on a busy machine, so between a rep reading a list and
-    /// the agent acting, the id may name something else entirely — plausibly
-    /// something the allow-list would never have permitted. The expected name
-    /// travels with it and the agent re-reads the live process table before it
-    /// acts, refusing the pair if the machine disagrees.
+    /// Require all four observed operands without rounding or repairing their
+    /// values. The agent independently validates them against one retained handle.
+    /// This path is for comparison only and does not authorize executable launch.
     /// </remarks>
     private OperationResult<IReadOnlyDictionary<string, string>> ValidateKillProcess(
         Dictionary<string, string> p)
     {
         if (!p.TryGetValue(ActionParameterKeys.ProcessId, out string? rawPid) ||
-            !int.TryParse(rawPid, NumberStyles.Integer, CultureInfo.InvariantCulture, out int pid) ||
+            !int.TryParse(rawPid, NumberStyles.None, CultureInfo.InvariantCulture, out int pid) ||
             pid <= 0)
         {
             return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
@@ -382,6 +383,19 @@ public sealed class ActionParameterValidator : IActionParameterValidator
                 "name it is expected to belong to is not an identification.");
         }
 
+        if (!p.TryGetValue(ActionParameterKeys.ExpectedCreationTimeFileTime, out string? rawCreation) ||
+            !long.TryParse(rawCreation, NumberStyles.None, CultureInfo.InvariantCulture, out long creation) || creation <= 0)
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "The selected process creation FILETIME must be a positive exact decimal Int64.");
+        }
+        if (!p.TryGetValue(ActionParameterKeys.ExpectedExecutablePath, out string? path) ||
+            !ProcessSelectionIdentity.IsValidExecutablePath(path))
+        {
+            return OperationResult<IReadOnlyDictionary<string, string>>.Invalid(
+                "The selected process requires its observed full Windows image path, at most 32767 characters without control characters.");
+        }
+
         OperationResult<IReadOnlyDictionary<string, string>> permitted =
             CheckProcessName(name, ActionParameterKeys.ExpectedProcessName);
 
@@ -389,9 +403,6 @@ public sealed class ActionParameterValidator : IActionParameterValidator
         {
             return permitted;
         }
-
-        p[ActionParameterKeys.ProcessId] = pid.ToString(CultureInfo.InvariantCulture);
-        p[ActionParameterKeys.ExpectedProcessName] = CriticalProcessDenyList.Normalise(name);
 
         return OperationResult<IReadOnlyDictionary<string, string>>.Ok(p);
     }

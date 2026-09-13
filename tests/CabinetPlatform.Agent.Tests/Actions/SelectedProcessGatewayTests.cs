@@ -35,6 +35,8 @@ public class SelectedProcessGatewayTests
     [InlineData("self-pid")]
     [InlineData("missing-name")]
     [InlineData("missing-path")]
+    [InlineData("relative-path")]
+    [InlineData("long-path")]
     [InlineData("zero-creation")]
     public void An_incomplete_or_protected_identity_is_refused_without_opening(string defect)
     {
@@ -45,6 +47,8 @@ public class SelectedProcessGatewayTests
             "self-pid" => Selection with { ProcessId = Environment.ProcessId },
             "missing-name" => Selection with { ProcessName = "" },
             "missing-path" => Selection with { ExecutablePath = "" },
+            "relative-path" => Selection with { ExecutablePath = "LabApp.exe" },
+            "long-path" => Selection with { ExecutablePath = @"C:\" + new string('x', 32765) },
             _ => Selection with { CreationTimeFileTime = 0 },
         };
         var factory = new FakeFactory();
@@ -144,6 +148,18 @@ public class SelectedProcessGatewayTests
     }
 
     [Fact]
+    public void Wait_error_after_termination_reports_an_ambiguous_effect()
+    {
+        var factory = new FakeFactory();
+        factory.Handle.WaitFailure = new System.ComponentModel.Win32Exception(6);
+        Exception error = Assert.ThrowsAny<Exception>(() => new ProcessControlGateway(factory)
+            .KillSelected(Selection, TimeSpan.FromSeconds(1), CancellationToken.None));
+        Assert.Contains("exit was not confirmed", error.Message);
+        Assert.True(factory.Handle.Terminated);
+        Assert.True(factory.Handle.Disposed);
+    }
+
+    [Fact]
     public void Access_denied_while_opening_does_not_terminate()
     {
         var factory = new FakeFactory { OpenFailure = new System.ComponentModel.Win32Exception(5) };
@@ -229,7 +245,8 @@ public class SelectedProcessGatewayTests
         public bool Exits { get; set; } = true;
         public void Terminate() => Terminated = true;
         public int WaitCount { get; private set; }
-        public bool WaitForExit(TimeSpan timeout) { WaitCount++; return Exits; }
+        public Exception? WaitFailure { get; set; }
+        public bool WaitForExit(TimeSpan timeout) { WaitCount++; if (WaitFailure is not null) throw WaitFailure; return Exits; }
         public void Dispose() => Disposed = true;
     }
 }

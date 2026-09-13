@@ -54,7 +54,7 @@ public sealed partial class ProcessSectionViewModel : MachineSectionViewModel
     /// Shown beside the grid, because a process list is only true for the
     /// instant it was taken. A rep acting on a five-minute-old row is acting on
     /// a belief about a machine that has moved on, which is exactly why a kill
-    /// by id carries the name it is expected to hold.
+    /// by id carries its exact observed creation time and image path as well as name.
     /// </remarks>
     [ObservableProperty]
     private DateTimeOffset? _collectedUtc;
@@ -69,22 +69,22 @@ public sealed partial class ProcessSectionViewModel : MachineSectionViewModel
           $"{Format.LocalTime(CollectedUtc)}.";
 
     /// <summary>
-    /// The parameters an end-by-id action takes: the process id together with
-    /// the name that id is expected to hold.
+    /// The exact observed identity operands for selected-process termination.
     /// </summary>
     /// <remarks>
-    /// Both, always. Windows reuses process ids within minutes, so by the time
-    /// the agent acts the id may name something else entirely; it re-reads the
-    /// live process table and refuses the pair if the machine disagrees. An id
-    /// on its own would not give it anything to disagree with.
+    /// PID/name alone cannot detect a same-name replacement. The agent compares
+    /// all four identity components on the same retained handle it terminates.
+    /// No missing or inconsistent identity is repaired or sent as a legacy pair.
     /// </remarks>
     public IReadOnlyDictionary<string, string> CurrentProcessIdParameters() =>
-        SelectedProcess is null
+        SelectedProcess is not { HasCompleteSelectionIdentity: true, SelectionIdentity: { } identity }
             ? new Dictionary<string, string>()
             : new Dictionary<string, string>
             {
-                [ActionParameterKeys.ProcessId] = SelectedProcess.Pid.ToString(),
-                [ActionParameterKeys.ExpectedProcessName] = SelectedProcess.Name,
+                [ActionParameterKeys.ProcessId] = identity.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                [ActionParameterKeys.ExpectedProcessName] = identity.ProcessName,
+                [ActionParameterKeys.ExpectedCreationTimeFileTime] = identity.CreationTimeFileTime.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                [ActionParameterKeys.ExpectedExecutablePath] = identity.ExecutablePath,
             };
 
     /// <summary>The parameters an end-by-name action takes.</summary>
@@ -162,7 +162,9 @@ public sealed partial class ProcessSectionViewModel : MachineSectionViewModel
         // a typed name.
         foreach (SectionActionViewModel action in Actions.Where(a => a.Catalogue.Action != ActionName.GetProcessList))
         {
-            action.IsContextSatisfied = value is not null;
+            action.IsContextSatisfied = action.Catalogue.Action == ActionName.KillProcess
+                ? value?.HasCompleteSelectionIdentity == true
+                : value is not null;
         }
     }
 

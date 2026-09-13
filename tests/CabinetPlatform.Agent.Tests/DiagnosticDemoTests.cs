@@ -127,8 +127,8 @@ public sealed class DiagnosticDemoTests : IClassFixture<DiagnosticConsoleTestHos
             Assert.Equal("Not reported", tab.Processes.Processes[2].Memory);
             Assert.NotNull(tab.Processes.CollectedUtc);
             tab.Processes.SelectedProcess = busy;
-            Assert.Equal("4102", tab.Processes.CurrentProcessIdParameters()[ActionParameterKeys.ProcessId]);
-            Assert.Equal("synthetic-busy", tab.Processes.CurrentProcessIdParameters()[ActionParameterKeys.ExpectedProcessName]);
+            // An older/read-denied snapshot remains diagnostic data, not a termination identity.
+            Assert.Empty(tab.Processes.CurrentProcessIdParameters());
             await tab.RefreshActionsCommand.ExecuteAsync(null);
             Assert.Same(busy, tab.Processes.SelectedProcess);
         }
