@@ -109,8 +109,9 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
     private int _cabinetsExamined;
 
     public string TruncationNote =>
-        $"Only the first {CabinetsExamined:N0} cabinets were examined for the worklists below. " +
-        "Narrow the client or site filter for a complete list.";
+        $"Only the first {CabinetsExamined:N0} cabinets were examined. The site groups, worklists " +
+        "and drive counts below may be incomplete. Narrow the client or site filter for a complete list, " +
+        "or use Find cabinet above to search the full fleet.";
 
     public string GeneratedAt => Summary is null
         ? Format.NotReported
