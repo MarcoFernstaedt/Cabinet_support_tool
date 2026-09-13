@@ -46,10 +46,34 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             new AuditTabViewModel(api, announcer, time),
             new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
+            new RegistrationsViewModel(api, session, announcer),
             session,
             announcer);
 
         return (shell, session, api, announcer);
+    }
+
+    [Theory]
+    [InlineData(Role.Supervisor, true)]
+    [InlineData(Role.Tier1, false)]
+    [InlineData(Role.Tier2, false)]
+    public async Task Registration_navigation_is_supervisor_only_and_signout_clears_the_queue(Role role, bool allowed)
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(role);
+        Assert.Equal(allowed, shell.CanSeeRegistrations);
+        Assert.Equal(allowed, shell.ShowRegistrationsCommand.CanExecute(null));
+        await shell.ShowRegistrationsCommand.ExecuteAsync(null);
+        Assert.Equal(allowed ? ShellView.Registrations : ShellView.Cabinets, shell.CurrentView);
+        shell.Registrations.Queue.Add(new CabinetPlatform.Contracts.Registrations.PendingRegistrationDto
+        {
+            Id = Guid.NewGuid(), MachineId = "synthetic", Hostname = "synthetic",
+            FirstSeenUtc = DateTimeOffset.UtcNow, LastSeenUtc = DateTimeOffset.UtcNow,
+            Status = RegistrationStatus.Pending
+        });
+        shell.SignOutCommand.Execute(null);
+        Assert.Empty(shell.Registrations.Queue);
+        Assert.Null(shell.Registrations.SelectedRegistration);
+        Assert.False(shell.ShowRegistrationsCommand.CanExecute(null));
     }
 
     [Fact]

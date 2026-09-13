@@ -20,7 +20,10 @@ public enum ShellView
     Find,
 
     /// <summary>Actions waiting for a second person.</summary>
-    Approvals
+    Approvals,
+
+    /// <summary>Supervisor enrollment decisions.</summary>
+    Registrations
 }
 
 /// <summary>Why the main window is asking for a sign-in.</summary>
@@ -55,6 +58,7 @@ public sealed partial class ShellViewModel : ObservableObject
         AuditTabViewModel audit,
         FleetTabViewModel fleet,
         ApprovalsViewModel approvals,
+        RegistrationsViewModel registrations,
         ISessionStore session,
         ILiveRegionAnnouncer announcer)
     {
@@ -65,6 +69,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Audit = audit;
         Fleet = fleet;
         Approvals = approvals;
+        Registrations = registrations;
 
         // The finder is reachable from every screen, so choosing a cabinet in
         // it has to land the same way as choosing one in the list: the detail
@@ -93,7 +98,7 @@ public sealed partial class ShellViewModel : ObservableObject
         };
 
         foreach (ObservableViewModelBase screen in
-                 new ObservableViewModelBase[] { Cabinets, Finder, Machine, Audit, Fleet, Approvals })
+                 new ObservableViewModelBase[] { Cabinets, Finder, Machine, Audit, Fleet, Approvals, Registrations })
         {
             WatchForExpiry(screen);
         }
@@ -123,6 +128,8 @@ public sealed partial class ShellViewModel : ObservableObject
     public AuditTabViewModel Audit { get; }
     public FleetTabViewModel Fleet { get; }
     public ApprovalsViewModel Approvals { get; }
+    public RegistrationsViewModel Registrations { get; }
+    public bool CanSeeRegistrations => IsSignedIn && _session.Role == Contracts.Auth.Role.Supervisor;
 
     /// <summary>
     /// Raised when the window needs a sign-in: at start-up, after a sign-out,
@@ -277,6 +284,14 @@ public sealed partial class ShellViewModel : ObservableObject
         _announcer.AnnounceImportant($"Opened {Machine.HeaderPath}.");
     }
 
+    [RelayCommand(CanExecute = nameof(CanSeeRegistrations))]
+    private async Task ShowRegistrationsAsync()
+    {
+        if (!CanSeeRegistrations) return;
+        CurrentView = ShellView.Registrations;
+        await Registrations.LoadAsync();
+    }
+
     [RelayCommand]
     private async Task ShowApprovalsAsync()
     {
@@ -322,6 +337,8 @@ public sealed partial class ShellViewModel : ObservableObject
             OnPropertyChanged(nameof(ApprovalBadge));
         }
 
+        if (CanSeeRegistrations && CurrentView == ShellView.Registrations) await Registrations.LoadAsync();
+
         _announcer.Announce($"Refreshed. {Cabinets.PageSummary}. {Approvals.QueueSummary}");
     }
 
@@ -342,6 +359,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Audit.Deactivate();
         Fleet.Deactivate();
         Approvals.Deactivate();
+        Registrations.Deactivate();
     }
 
     private void EndSession(SignInReason reason)
@@ -353,6 +371,7 @@ public sealed partial class ShellViewModel : ObservableObject
         _session.SignOut();
 
         Machine.Reset();
+        Registrations.Reset();
         Fleet.Summary = null;
         Fleet.Sites.Clear();
         Fleet.StaleCheckIns.Clear();
@@ -466,6 +485,8 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(Role));
         OnPropertyChanged(nameof(CanSeeApprovals));
         OnPropertyChanged(nameof(CanSeeAudit));
+        OnPropertyChanged(nameof(CanSeeRegistrations));
+        ShowRegistrationsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ApprovalBadge));
         OnPropertyChanged(nameof(ApprovalBadgeAccessibleText));
     }
