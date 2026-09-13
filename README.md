@@ -42,6 +42,8 @@ Do not run the agent, network changes, updates or process controls on a producti
 
 ## Documentation
 
+Read the [current capability status](docs/capabilities.md) for implemented behavior, incomplete wiring and verification limits.
+
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
 3. [Release gates](docs/readiness.md), [isolated demo setup](docs/demo.md) and [Windows demo checks](docs/testing.md)

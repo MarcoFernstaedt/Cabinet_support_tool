@@ -4,6 +4,10 @@ Status: production release blocked.
 
 The initial audit covered all 361 tracked files at commit `35f450dde0f3430ad3e3e8119f8b1a782193896b`. Its test run passed 668 tests. The actual WPF application failed its direct build and was absent from the solution. Component repairs are in progress; this baseline is not the final release result.
 
+## Current diagnostic evidence
+
+Reviewed integrated code `6982cdd338d2faa40ec77f3b95be04e208ba625a` passes 813 tests with zero failures or skips. Explicit WPF compilation passes. Independent review confirms the fleet audit identity fix and bounded event discovery/process safety foundations. Selected process control is not operational through the console; native Windows acceptance and production gates remain blocked. See [capability status](capabilities.md). These results supersede the initial build baseline, not the remaining release requirements.
+
 ## Required evidence
 
 1. Build every executable, including WPF, from the final commit. Run all automated suites and retain the commands, exit codes and test results.
