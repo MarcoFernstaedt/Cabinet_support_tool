@@ -124,7 +124,7 @@ public class ActionDispatcherTests
     {
         // A timed-out action may still be running on the cabinet. Reporting it
         // as failed would assert something the agent does not know.
-        var options = new AgentOptions();
+        var options = MaintenanceOptions();
         options.Actions.DefaultTimeoutSeconds = 1;
 
         var executor = new SlowExecutor(ActionName.ScanForUpdates, TimeSpan.FromSeconds(30));
@@ -139,7 +139,7 @@ public class ActionDispatcherTests
     [Fact]
     public async Task DispatchAsync_UsesThePerActionTimeoutWhenOneIsConfigured()
     {
-        var options = new AgentOptions();
+        var options = MaintenanceOptions();
         options.Actions.DefaultTimeoutSeconds = 3600;
         options.Actions.TimeoutSecondsByAction[nameof(ActionName.ScanForUpdates)] = 1;
 
@@ -174,7 +174,7 @@ public class ActionDispatcherTests
             OnExecute = () => stateDuringExecution = stateStore.Load(),
         };
 
-        var dispatcher = Dispatcher(stateStore, new AgentOptions(), executor);
+        var dispatcher = Dispatcher(stateStore, MaintenanceOptions(), executor);
         var request = Request(ActionName.RebootMachine);
 
         await dispatcher.DispatchAsync(request, CancellationToken.None);
@@ -193,7 +193,7 @@ public class ActionDispatcherTests
     {
         var stateStore = new InMemoryAgentStateStore(ApprovedState());
         var executor = new ThrowingExecutor(ActionName.StopService, new InvalidOperationException("boom"));
-        var dispatcher = Dispatcher(stateStore, new AgentOptions(), executor);
+        var dispatcher = Dispatcher(stateStore, MaintenanceOptions(), executor);
 
         await dispatcher.DispatchAsync(Request(ActionName.StopService), CancellationToken.None);
 
@@ -219,7 +219,7 @@ public class ActionDispatcherTests
         });
 
         var executor = new RecordingExecutor(ActionName.RebootMachine);
-        var dispatcher = Dispatcher(stateStore, new AgentOptions(), executor);
+        var dispatcher = Dispatcher(stateStore, MaintenanceOptions(), executor);
 
         var result = dispatcher.TakeInterruptedActionResult();
 
@@ -251,7 +251,7 @@ public class ActionDispatcherTests
     {
         var store = new FailingStore(ApprovedState(), failedWrite);
         var executor = new RecordingExecutor(ActionName.RebootMachine);
-        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        var dispatcher = Dispatcher(store, MaintenanceOptions(), executor);
         var request = Request(ActionName.RebootMachine);
         await Assert.ThrowsAsync<IOException>(() => dispatcher.DispatchAsync(request, CancellationToken.None));
         Assert.Equal(failedWrite == 1 ? 0 : 1, executor.CallCount);
@@ -267,8 +267,8 @@ public class ActionDispatcherTests
             InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
         });
         var executor = new RecordingExecutor(request.Action);
-        var first = Dispatcher(store, new AgentOptions(), executor).TakeInterruptedActionResult();
-        var restarted = Dispatcher(store, new AgentOptions(), executor);
+        var first = Dispatcher(store, MaintenanceOptions(), executor).TakeInterruptedActionResult();
+        var restarted = Dispatcher(store, MaintenanceOptions(), executor);
         restarted.TakeInterruptedActionResult();
         var replay = await restarted.DispatchAsync(request, CancellationToken.None);
         Assert.Equal(ActionStatus.UnknownResult, replay.Status);
@@ -282,8 +282,8 @@ public class ActionDispatcherTests
         var request = Request(ActionName.FlushDnsCache);
         var store = new InMemoryAgentStateStore(ApprovedState());
         var executor = new RecordingExecutor(request.Action) { Data = "{\"synthetic\":true}" };
-        var original = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
-        var replay = await Dispatcher(store, new AgentOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        var original = await Dispatcher(store, MaintenanceOptions(), executor).DispatchAsync(request, CancellationToken.None);
+        var replay = await Dispatcher(store, MaintenanceOptions(), executor).DispatchAsync(request, CancellationToken.None);
         Assert.Equal(original.CollectedData, replay.CollectedData);
         Assert.Equal(1, executor.CallCount);
     }
@@ -294,7 +294,7 @@ public class ActionDispatcherTests
         var pending = new InFlightAction { RequestId = Guid.NewGuid(), Action = ActionName.RebootMachine, StartedUtc = Now };
         var store = new InMemoryAgentStateStore(ApprovedState() with { InFlightAction = pending });
         var executor = new RecordingExecutor(ActionName.RebootMachine);
-        var error = await Record.ExceptionAsync(() => Dispatcher(store, new AgentOptions(), executor).DispatchAsync(Request(executor.Action), CancellationToken.None));
+        var error = await Record.ExceptionAsync(() => Dispatcher(store, MaintenanceOptions(), executor).DispatchAsync(Request(executor.Action), CancellationToken.None));
         Assert.NotNull(error);
         Assert.Equal(0, executor.CallCount);
         Assert.Same(pending, store.Load().InFlightAction);
@@ -309,7 +309,7 @@ public class ActionDispatcherTests
             InFlightAction = new InFlightAction { RequestId = request.Id, Action = request.Action, StartedUtc = Now },
         });
         var executor = new RecordingExecutor(request.Action);
-        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        var dispatcher = Dispatcher(store, MaintenanceOptions(), executor);
         dispatcher.TakeInterruptedActionResult();
         for (var i = 0; i < ActionDispatcher.RememberedActionCount; i++)
             await dispatcher.DispatchAsync(Request(request.Action), CancellationToken.None);
@@ -331,6 +331,39 @@ public class ActionDispatcherTests
         }
     }
 
+    [Fact]
+    public async Task Diagnostic_default_denies_every_unreviewed_action_before_executor()
+    {
+        var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates };
+        foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999))
+        {
+            var executor = new RecordingExecutor(action);
+            var dispatcher = Dispatcher(ApprovedState(), new AgentOptions(), executor);
+            var result = await dispatcher.DispatchAsync(Request(action), CancellationToken.None);
+            Assert.Equal(allowed.Contains(action) ? ActionStatus.Succeeded : ActionStatus.Denied, result.Status);
+            Assert.Equal(allowed.Contains(action) ? 1 : 0, executor.CallCount);
+        }
+    }
+
+    [Theory]
+    [InlineData("DiagnosticOnly", false)]
+    [InlineData("Maintenance", true)]
+    [InlineData("maintenance", false)]
+    [InlineData("", false)]
+    [InlineData("unexpected", false)]
+    public void Only_explicit_local_maintenance_enables_mutations(string mode, bool maintenance)
+    {
+        var options = new ActionOptions { ExecutionMode = mode };
+        Assert.Equal("DiagnosticOnly", new ActionOptions().ExecutionMode);
+        Assert.Equal(maintenance, options.Permits(ActionName.KillProcess));
+        Assert.True(options.Permits(ActionName.GetProcessList));
+        Assert.False(options.Permits((ActionName)9999));
+    }
+
+    private static AgentOptions MaintenanceOptions() => new()
+    { Actions = new ActionOptions { ExecutionMode = "Maintenance" } };
+
     private static AgentState ApprovedState() => new()
     {
         MachineId = "machine-hash",
@@ -349,7 +382,7 @@ public class ActionDispatcherTests
     };
 
     private static ActionDispatcher Dispatcher(AgentState state, params IActionExecutor[] executors)
-        => Dispatcher(new InMemoryAgentStateStore(state), new AgentOptions(), executors);
+        => Dispatcher(new InMemoryAgentStateStore(state), MaintenanceOptions(), executors);
 
     private static ActionDispatcher Dispatcher(
         AgentState state,

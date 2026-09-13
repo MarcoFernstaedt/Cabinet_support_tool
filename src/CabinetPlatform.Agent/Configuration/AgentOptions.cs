@@ -131,6 +131,20 @@ public sealed class CollectionOptions
 /// </summary>
 public sealed class ActionOptions
 {
+    /// <summary>DiagnosticOnly (default) or Maintenance. Unrecognised values fail closed.</summary>
+    public string ExecutionMode { get; set; } = "DiagnosticOnly";
+
+    /// <summary>Only an explicit local configuration opt-in enables maintenance.</summary>
+    public bool MaintenanceEnabled => string.Equals(ExecutionMode, "Maintenance", StringComparison.Ordinal);
+
+    /// <summary>Reviewed, observational actions only; never infer safety from a non-disruptive flag.</summary>
+    public bool Permits(CabinetPlatform.Contracts.Actions.ActionName action) =>
+        Enum.IsDefined(action) && (MaintenanceEnabled || action is
+            CabinetPlatform.Contracts.Actions.ActionName.GetProcessList or
+            CabinetPlatform.Contracts.Actions.ActionName.CollectEventLogs or
+            CabinetPlatform.Contracts.Actions.ActionName.RunEventLogView or
+            CabinetPlatform.Contracts.Actions.ActionName.GetScheduledUpdates);
+
     [Range(1, 3600)]
     public int DefaultTimeoutSeconds { get; set; } = 120;
 

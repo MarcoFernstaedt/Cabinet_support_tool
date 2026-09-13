@@ -1,4 +1,6 @@
 using CabinetPlatform.Agent.Actions.Executors;
+using CabinetPlatform.Agent.Configuration;
+using Microsoft.Extensions.Options;
 using CabinetPlatform.Agent.Identity;
 using CabinetPlatform.Agent.Platform;
 using CabinetPlatform.Contracts.Telemetry;
@@ -26,6 +28,7 @@ namespace CabinetPlatform.Agent.Actions;
 /// </remarks>
 public sealed class ScheduledUpdateRunner
 {
+    private readonly ActionOptions _options;
     private readonly IScheduledUpdateWriter _schedule;
     private readonly IWindowsUpdateGateway _updates;
     private readonly INetworkRollbackStore _rollback;
@@ -49,8 +52,10 @@ public sealed class ScheduledUpdateRunner
         INetworkConfigurationGateway network,
         IAgentStateStore stateStore,
         IClock clock,
-        ILogger<ScheduledUpdateRunner> logger)
+        ILogger<ScheduledUpdateRunner> logger,
+        IOptions<AgentOptions>? options = null)
     {
+        _options = options?.Value.Actions ?? new ActionOptions();
         _schedule = schedule;
         _updates = updates;
         _rollback = rollback;
@@ -79,6 +84,14 @@ public sealed class ScheduledUpdateRunner
     /// </remarks>
     public void RecoverInterruptedNetworkChange()
     {
+        if (!_options.MaintenanceEnabled)
+        {
+            if (_rollback.Read() is not null)
+                _logger.LogWarning("DiagnosticOnly mode suspends an unconfirmed network rollback. " +
+                    "The rollback record is retained; on-site attention is required.");
+            return;
+        }
+
         NetworkRollback? pending = _rollback.Read();
 
         if (pending is null)
@@ -127,6 +140,12 @@ public sealed class ScheduledUpdateRunner
     /// <param name="cancellationToken">Cancels the install.</param>
     public void RunDueInstall(CancellationToken cancellationToken)
     {
+        if (!_options.MaintenanceEnabled)
+        {
+            _logger.LogInformation("DiagnosticOnly mode suspends scheduled installs; persisted schedules are retained.");
+            return;
+        }
+
         ScheduledUpdateInstall? due = _schedule.Read();
 
         if (due is null || due.ScheduledForUtc > _clock.UtcNow)

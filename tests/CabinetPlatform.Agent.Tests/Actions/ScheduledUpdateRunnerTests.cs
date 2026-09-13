@@ -142,6 +142,19 @@ public class ScheduledUpdateRunnerTests
         Assert.NotEmpty(updates.Installed);
     }
 
+    [Fact]
+    public void Diagnostic_default_preserves_old_due_schedule_without_installing()
+    {
+        var schedule = new StubScheduleWriter { Schedule = Due(Now.AddDays(-1)) };
+        var updates = new StubUpdateGateway();
+        var runner = new ScheduledUpdateRunner(schedule, updates, new StubRollbackStore(),
+            new StubNetworkGateway(current: null), new InMemoryAgentStateStore(),
+            new FixedClock(Now), NullLogger<ScheduledUpdateRunner>.Instance);
+        runner.RunDueInstall(CancellationToken.None);
+        Assert.Empty(updates.Installed);
+        Assert.NotNull(schedule.Schedule);
+    }
+
     private static ScheduledUpdateInstall Due(DateTimeOffset at) => new()
     {
         ActionRequestId = Guid.Parse("11111111-2222-4333-8444-555555555555"),
@@ -163,7 +176,9 @@ public class ScheduledUpdateRunnerTests
             new StubNetworkGateway(current: null),
             state ?? new InMemoryAgentStateStore(),
             clock ?? new FixedClock(Now),
-            NullLogger<ScheduledUpdateRunner>.Instance);
+            NullLogger<ScheduledUpdateRunner>.Instance,
+            TestOptions.Create(new CabinetPlatform.Agent.Configuration.AgentOptions
+            { Actions = new() { ExecutionMode = "Maintenance" } }));
 }
 
 /// <summary>A schedule held in memory.</summary>
