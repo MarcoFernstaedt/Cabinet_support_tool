@@ -69,6 +69,8 @@ public sealed partial class ShellViewModel : ObservableObject
         // The finder is reachable from every screen, so choosing a cabinet in
         // it has to land the same way as choosing one in the list: the detail
         // pane loads, and the shell goes back to showing it.
+
+        Finder.SearchStarted += (_, _) => CurrentView = ShellView.Find;
         Finder.CabinetChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
 
         _session = session;
@@ -346,6 +348,32 @@ public sealed partial class ShellViewModel : ObservableObject
 
         _session.SignOut();
 
+        Machine.Reset();
+        Fleet.Summary = null;
+        Fleet.Sites.Clear();
+        Fleet.StaleCheckIns.Clear();
+        Fleet.PendingUpdates.Clear();
+        Fleet.DrivesNeedingAttention.Clear();
+        Fleet.DiskHealthCounts.Clear();
+        Fleet.CabinetHealthCounts.Clear();
+        Fleet.ClientFilter = Fleet.SiteFilter = string.Empty;
+        Fleet.CabinetsExamined = 0;
+        Fleet.WorklistsTruncated = false;
+        Audit.SelectedCabinet = null;
+        Audit.ActionFilter = null;
+        Audit.Page = 1;
+        Audit.TotalCount = Audit.TotalPages = 0;
+        Audit.Cabinets.Clear();
+        Approvals.SelectedRequest = null;
+        Cabinets.SearchText = string.Empty;
+        Cabinets.ClientFilter = Cabinets.SiteFilter = null;
+        Cabinets.HealthFilter = null;
+        Cabinets.ActiveFilter = true;
+        Cabinets.Page = 1;
+        Cabinets.TotalCount = Cabinets.TotalPages = 0;
+        Finder.ClearSearch();
+        Finder.SelectedClient = null;
+        Cabinets.SelectedCabinet = null;
         Cabinets.Cabinets.Clear();
         Approvals.Queue.Clear();
         Audit.Entries.Clear();
@@ -370,6 +398,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         if (cabinetId is not { } id)
         {
+            Machine.Reset();
             return;
         }
 
