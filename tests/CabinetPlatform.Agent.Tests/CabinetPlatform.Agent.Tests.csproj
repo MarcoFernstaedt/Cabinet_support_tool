@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
@@ -26,6 +27,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CabinetPlatform.Contracts\CabinetPlatform.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\CabinetPlatform.Console.Core\CabinetPlatform.Console.Core.csproj" />
+    <ProjectReference Include="..\..\src\CabinetPlatform.Server\CabinetPlatform.Server.csproj" />
+    <!-- Reuse the real API host without retargeting the portable Console tests. -->
+    <Compile Include="..\CabinetPlatform.Console.Core.Tests\ConsoleTestHost.cs" Link="Integration\ConsoleTestHost.cs" />
+    <Compile Include="..\CabinetPlatform.Console.Core.Tests\TestDialogs.cs" Link="Integration\TestDialogs.cs" />
     <ProjectReference Include="..\..\src\CabinetPlatform.Agent\CabinetPlatform.Agent.csproj" />
   </ItemGroup>
 

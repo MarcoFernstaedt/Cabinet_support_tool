@@ -38,7 +38,7 @@ namespace CabinetPlatform.Console.Core.Tests;
 /// here by the server itself rather than simulated.
 /// </para>
 /// </remarks>
-public sealed class ConsoleTestHost : WebApplicationFactory<Program>
+public sealed class ConsoleTestHost : WebApplicationFactory<Server.Controllers.AgentController>
 {
     public const string KnownPassword = "Str0ng!TestPassword";
 
