@@ -16,7 +16,7 @@ namespace CabinetPlatform.Console.Core.Sections;
 /// say whether anyone is. It sits here, in the section it belongs to, with all
 /// of those facts on the button.
 /// </remarks>
-public sealed class SystemSectionViewModel : MachineSectionViewModel
+public sealed partial class SystemSectionViewModel : MachineSectionViewModel
 {
     /// <summary>Creates the section.</summary>
     public SystemSectionViewModel()
@@ -28,22 +28,28 @@ public sealed class SystemSectionViewModel : MachineSectionViewModel
     }
 
     /// <summary>Operating system product name.</summary>
-    public string OsVersion { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _osVersion = Format.NotReported;
 
     /// <summary>Operating system build number.</summary>
-    public string OsBuild { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _osBuild = Format.NotReported;
 
     /// <summary>When the operating system was installed.</summary>
-    public string InstallDate { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _installDate = Format.NotReported;
 
     /// <summary>Domain or workgroup the machine belongs to.</summary>
-    public string Domain { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _domain = Format.NotReported;
 
     /// <summary>The cabinet's own time zone.</summary>
-    public string TimeZone { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _timeZone = Format.NotReported;
 
     /// <summary>The cabinet's current local time, labelled with its zone.</summary>
-    public string CabinetLocalTime { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _cabinetLocalTime = Format.NotReported;
 
     /// <summary>
     /// How far the cabinet's clock sits from the server's.
@@ -53,10 +59,12 @@ public sealed class SystemSectionViewModel : MachineSectionViewModel
     /// audit records against a dispensing system's own log, and neither failure
     /// announces itself at the time.
     /// </remarks>
-    public string ClockDrift { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _clockDrift = Format.NotReported;
 
     /// <summary>Whether the drift is far enough to matter.</summary>
-    public StatusPresentation ClockDriftStatus { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _clockDriftStatus = StatusPresentation.Unknown;
 
     /// <summary>Installed software, as the last inventory reported it.</summary>
     public ObservableCollection<InstalledSoftwareInfo> InstalledSoftware { get; } = new();
@@ -65,6 +73,8 @@ public sealed class SystemSectionViewModel : MachineSectionViewModel
     public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)
     {
         InstalledSoftware.Clear();
+        OsVersion = OsBuild = InstallDate = Domain = TimeZone = CabinetLocalTime = ClockDrift = Format.NotReported;
+        ClockDriftStatus = StatusPresentation.Unknown;
 
         if (latest is null)
         {

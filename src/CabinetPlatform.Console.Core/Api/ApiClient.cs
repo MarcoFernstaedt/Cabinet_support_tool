@@ -19,6 +19,7 @@ public sealed class ApiClient : IApiClient
 
     private readonly HttpClient _http;
     private readonly ISessionStore _session;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ISessionStore, SemaphoreSlim> RefreshGates = new();
 
     public ApiClient(HttpClient http, ISessionStore session)
     {
@@ -333,27 +334,29 @@ public sealed class ApiClient : IApiClient
     private async Task<HttpResponseMessage> SendWithRefreshAsync(
         Func<HttpRequestMessage> requestFactory, CancellationToken ct)
     {
+        long generation = _session.Generation;
+        string? access = _session.AccessToken;
         HttpResponseMessage response = await SendAsync(requestFactory, ct);
+        if (response.StatusCode != HttpStatusCode.Unauthorized) return response;
 
-        if (response.StatusCode != HttpStatusCode.Unauthorized || _session.RefreshToken is not { } refresh)
+        var gate = RefreshGates.GetValue(_session, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            return response;
-        }
-
-        response.Dispose();
-
-        if (!await TryRefreshAsync(refresh, ct))
-        {
-            // The session is over. Clearing it is what makes the shell show the
-            // sign-in screen rather than a wall of refusals.
-            _session.SignOut();
+            if (generation != _session.Generation) return response;
+            if (access == _session.AccessToken)
+            {
+                if (_session.RefreshToken is not { } refresh ||
+                    !await TryRefreshAsync(generation, refresh, ct)) return response;
+            }
+            if (generation != _session.Generation) return response;
+            response.Dispose();
             return await SendAsync(requestFactory, ct);
         }
-
-        return await SendAsync(requestFactory, ct);
+        finally { gate.Release(); }
     }
 
-    private async Task<bool> TryRefreshAsync(string refreshToken, CancellationToken ct)
+    private async Task<bool> TryRefreshAsync(long generation, string refreshToken, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(
             () => new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh")
@@ -374,14 +377,7 @@ public sealed class ApiClient : IApiClient
             return false;
         }
 
-        _session.Refreshed(
-            refreshed.AccessToken,
-            refreshed.ExpiresAtUtc,
-            refreshed.RefreshToken,
-            refreshed.Role,
-            refreshed.MustChangePassword);
-
-        return true;
+        return _session.TryRefreshed(generation, refreshToken, refreshed);
     }
 
     private async Task<TResponse> PostAsync<TRequest, TResponse>(

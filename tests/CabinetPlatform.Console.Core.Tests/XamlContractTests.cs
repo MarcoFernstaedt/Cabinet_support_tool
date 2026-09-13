@@ -27,6 +27,16 @@ namespace CabinetPlatform.Console.Core.Tests;
 /// </remarks>
 public sealed class XamlContractTests
 {
+    [Fact]
+    public void Finder_routes_have_native_keyboard_and_mouse_open_buttons()
+    {
+        var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/CabinetFinderView.xaml"));
+        var buttons = xaml.Descendants().Where(e => e.Name.LocalName == "Button" &&
+            ((string?)e.Attribute("Command"))?.Contains("ChooseCommand") == true).ToList();
+        Assert.Equal(3, buttons.Count);
+        Assert.All(buttons, button => Assert.NotNull(button.Attribute("CommandParameter")));
+    }
+
     private static readonly Regex BindingPath = new(
         @"\{Binding\s+(?:Path=)?(?<path>[A-Za-z_][A-Za-z0-9_.\[\]]*)",
         RegexOptions.Compiled);

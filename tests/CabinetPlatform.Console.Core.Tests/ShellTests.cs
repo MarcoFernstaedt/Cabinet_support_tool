@@ -53,6 +53,16 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
     }
 
     [Fact]
+    public async Task Persistent_search_opens_the_results_view()
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
+        shell.CurrentView = ShellView.Cabinets;
+        shell.Finder.Term = "console-search-test";
+        await shell.Finder.SearchCommand.ExecuteAsync(null);
+        Assert.Equal(ShellView.Find, shell.CurrentView);
+    }
+
+    [Fact]
     public async Task Starting_a_session_loads_the_list_and_the_fleet_and_announces_the_result()
     {
         await _host.CreateCabinetAsync($"SHELL-{Unique("a")[..6]}");
@@ -131,7 +141,12 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             await SignedInShellAsync(Role.Supervisor);
 
         await shell.StartSessionAsync();
+        await shell.PendingSelectionLoad;
         Assert.NotEmpty(shell.Cabinets.Cabinets);
+        Assert.NotNull(shell.Machine.Path);
+        shell.Audit.SelectedCabinet = shell.Audit.Cabinets.First();
+        shell.Cabinets.SearchText = "prior operator search";
+        shell.Machine.Processes.FilterText = "prior process filter";
 
         List<SignInReason> asked = new();
         shell.SignInRequired += (_, reason) => asked.Add(reason);
@@ -141,6 +156,16 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         Assert.False(session.IsSignedIn);
         Assert.Null(session.AccessToken);
         Assert.Empty(shell.Cabinets.Cabinets);
+        Assert.Null(shell.Machine.Path);
+        Assert.Null(shell.Machine.CabinetId);
+        Assert.Empty(shell.Machine.ActionHistory);
+        Assert.All(shell.Machine.Sections, s => Assert.Empty(s.Actions));
+        Assert.Null(shell.Fleet.Summary);
+        Assert.Empty(shell.Fleet.Sites);
+        Assert.Empty(shell.Audit.Cabinets);
+        Assert.Null(shell.Audit.SelectedCabinet);
+        Assert.Empty(shell.Cabinets.SearchText);
+        Assert.Empty(shell.Machine.Processes.FilterText);
         Assert.Equal(SignInReason.SignedOut, Assert.Single(asked));
         Assert.True(announcer.Any("token has been discarded"));
     }

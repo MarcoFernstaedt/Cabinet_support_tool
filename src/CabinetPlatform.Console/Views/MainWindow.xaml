@@ -81,7 +81,7 @@
                                 <TextBlock Text="{Binding ApprovalBadge}"
                                            Foreground="White"
                                            FontWeight="SemiBold"
-                                           AutomationProperties.AccessibilityView="Raw" />
+                                           AutomationProperties.Name="{Binding ApprovalBadge}" />
                             </Border>
                         </StackPanel>
                     </Button>

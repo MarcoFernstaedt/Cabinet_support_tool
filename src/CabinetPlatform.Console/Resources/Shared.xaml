@@ -147,9 +147,9 @@
                     AutomationProperties.Name="{Binding AccessibleText}">
             <TextBlock Text="{Binding Glyph}"
                        Style="{StaticResource SeverityGlyph}"
-                       AutomationProperties.AccessibilityView="Raw" />
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
             <TextBlock Text="{Binding Label}"
-                       AutomationProperties.AccessibilityView="Raw"
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                        Foreground="{DynamicResource Text.Brush}" />
         </StackPanel>
     </DataTemplate>

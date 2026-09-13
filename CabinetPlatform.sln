@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CabinetPlatform.Server.Test
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CabinetPlatform.Console.Core.Tests", "tests\CabinetPlatform.Console.Core.Tests\CabinetPlatform.Console.Core.Tests.csproj", "{5D74FBF7-4D1D-460F-B572-2CBFB42554C7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CabinetPlatform.Console", "src\CabinetPlatform.Console\CabinetPlatform.Console.csproj", "{9C87B890-422C-4DF2-BDD0-A6F2E36154C4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -58,6 +60,10 @@ Global
 		{5D74FBF7-4D1D-460F-B572-2CBFB42554C7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5D74FBF7-4D1D-460F-B572-2CBFB42554C7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5D74FBF7-4D1D-460F-B572-2CBFB42554C7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9C87B890-422C-4DF2-BDD0-A6F2E36154C4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C87B890-422C-4DF2-BDD0-A6F2E36154C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C87B890-422C-4DF2-BDD0-A6F2E36154C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C87B890-422C-4DF2-BDD0-A6F2E36154C4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{9282818C-289B-4635-B3F6-19B8747DF7FB} = {E6933D35-B236-4A4A-828F-7286567DC62F}
@@ -67,5 +73,6 @@ Global
 		{E4988774-514E-4144-AFF3-A7F01A3FB155} = {DDD0C8EB-8AFA-4D80-BC63-3FAA3E31509A}
 		{7A4F9EA7-6705-458B-9479-4364914CF0E0} = {DDD0C8EB-8AFA-4D80-BC63-3FAA3E31509A}
 		{5D74FBF7-4D1D-460F-B572-2CBFB42554C7} = {DDD0C8EB-8AFA-4D80-BC63-3FAA3E31509A}
+		{9C87B890-422C-4DF2-BDD0-A6F2E36154C4} = {E6933D35-B236-4A4A-828F-7286567DC62F}
 	EndGlobalSection
 EndGlobal

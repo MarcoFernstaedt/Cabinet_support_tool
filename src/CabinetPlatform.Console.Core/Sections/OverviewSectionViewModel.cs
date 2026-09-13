@@ -63,6 +63,12 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
     {
         if (latest is null)
         {
+            Hostname = MachineId = Client = Site = Department = Role = SyncCabinet = Model =
+                SerialNumber = OsVersion = AgentVersion = Uptime = LastCheckInExact = CollectedAt =
+                CabinetLocalTime = ClockDrift = SyncLinkDetail = Format.NotReported;
+            LastCheckInAge = "Never";
+            Health = Active = LoggedOn = SyncLink = StatusPresentation.Unknown;
+            CanTestSyncLink = false;
             Availability = SectionAvailability.NoCheckIn;
             return;
         }

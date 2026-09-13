@@ -43,6 +43,8 @@
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <StackPanel AutomationProperties.Name="{Binding AccessibleSummary}">
+                            <Button Content="Open cabinet" Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding Id}" AutomationProperties.Name="{Binding AccessibleSummary}" />
                             <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding ViewedAge}"
                                        FontSize="11"
@@ -155,6 +157,12 @@
                         </Style>
                     </DataGrid.RowStyle>
                     <DataGrid.Columns>
+                        <DataGridTemplateColumn Header="Open">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate><Button Content="Open cabinet" Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                    CommandParameter="{Binding Id}" AutomationProperties.Name="{Binding AccessibleSummary}" /></DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Client" Binding="{Binding ClientName}" Width="1.4*" />
                         <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="1.2*" />
                         <DataGridTextColumn Header="Department" Binding="{Binding Department}" Width="*" />
@@ -203,9 +211,10 @@
                             </TextBlock>
                             <HierarchicalDataTemplate.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Display}"
-                                               TextWrapping="Wrap"
-                                               AutomationProperties.Name="{Binding Spoken}" />
+                                    <Button Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding CabinetId}" AutomationProperties.Name="{Binding Spoken}">
+                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
+                                    </Button>
                                 </DataTemplate>
                             </HierarchicalDataTemplate.ItemTemplate>
                         </HierarchicalDataTemplate>

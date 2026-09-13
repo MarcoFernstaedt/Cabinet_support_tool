@@ -17,7 +17,7 @@ namespace CabinetPlatform.Console.Core.Sections;
 /// engineer reaches for on a cabinet that has stopped resolving the platform
 /// host, so they sit here beside the readings they would change.
 /// </remarks>
-public sealed class NetworkSectionViewModel : MachineSectionViewModel
+public sealed partial class NetworkSectionViewModel : MachineSectionViewModel
 {
     /// <summary>Creates the section.</summary>
     public NetworkSectionViewModel()
@@ -32,22 +32,28 @@ public sealed class NetworkSectionViewModel : MachineSectionViewModel
     public ObservableCollection<NetworkAdapterInfo> Adapters { get; } = new();
 
     /// <summary>Whether a proxy is configured for outbound traffic.</summary>
-    public StatusPresentation Proxy { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _proxy = StatusPresentation.Unknown;
 
     /// <summary>Configured proxy address, when there is one.</summary>
-    public string ProxyAddress { get; private set; } = Format.NotReported;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private string _proxyAddress = Format.NotReported;
 
     /// <summary>Windows Firewall domain profile.</summary>
-    public StatusPresentation FirewallDomain { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _firewallDomain = StatusPresentation.Unknown;
 
     /// <summary>Windows Firewall private profile.</summary>
-    public StatusPresentation FirewallPrivate { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _firewallPrivate = StatusPresentation.Unknown;
 
     /// <summary>Windows Firewall public profile.</summary>
-    public StatusPresentation FirewallPublic { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _firewallPublic = StatusPresentation.Unknown;
 
     /// <summary>Whether the cabinet could reach the platform server.</summary>
-    public StatusPresentation ServerReachable { get; private set; } = StatusPresentation.Unknown;
+    [CommunityToolkit.Mvvm.ComponentModel.ObservableProperty]
+    private StatusPresentation _serverReachable = StatusPresentation.Unknown;
 
     /// <inheritdoc />
     public override void Apply(CabinetDetailDto? latest, DateTimeOffset nowUtc)

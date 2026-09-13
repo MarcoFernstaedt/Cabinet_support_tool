@@ -92,6 +92,31 @@
                       Focusable="False">
             <StackPanel>
 
+                <Expander Header="Action status and results" IsExpanded="True" Margin="0,0,0,8">
+                    <StackPanel>
+                        <Button Content="Refresh action results" Command="{Binding RefreshActionsCommand}"
+                                AutomationProperties.Name="Refresh action status and results" />
+                        <TextBlock Text="{Binding ActionHistoryNote}" TextWrapping="Wrap"
+                                   AutomationProperties.Name="{Binding ActionHistoryNote}" />
+                        <DataGrid Style="{StaticResource AccessibleDataGrid}" ItemsSource="{Binding ActionHistory}" SelectedItem="{Binding SelectedAction}"
+                                  AutoGenerateColumns="False" IsReadOnly="True" Height="160"
+                                  AutomationProperties.Name="Cabinet action history">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Requested" Binding="{Binding RequestedAt}" />
+                                <DataGridTextColumn Header="Action" Binding="{Binding ActionName}" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status.Label}" />
+                                <DataGridTextColumn Header="Result" Binding="{Binding Result.Label}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBox Text="{Binding SelectedAction.ResultOutput, Mode=OneWay}" IsReadOnly="True"
+                                 TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
+                                 AutomationProperties.Name="Selected action result output" />
+                        <TextBox Text="{Binding SelectedAction.Request.CollectedData, Mode=OneWay}" IsReadOnly="True"
+                                 TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
+                                 AutomationProperties.Name="Selected action collected data" />
+                    </StackPanel>
+                </Expander>
+
                 <!-- Overview -->
                 <Expander IsExpanded="{Binding Overview.IsExpanded}"
                           Margin="0,0,0,6"
