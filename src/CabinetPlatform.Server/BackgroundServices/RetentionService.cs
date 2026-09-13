@@ -117,13 +117,33 @@ public sealed class RetentionService : BackgroundService
 
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
-        (int hourlyWritten, int heartbeatsFolded) = await AggregateHeartbeatsAsync(db, nowUtc, ct);
-        int heartbeatsDeleted = await DeleteAgedHeartbeatsAsync(db, nowUtc, ct);
-        (int dailyWritten, int readingsFolded) = await AggregateSmartAsync(db, nowUtc, ct);
-        int smartDeleted = await DeleteAgedSmartAggregatesAsync(db, nowUtc, ct);
-        int inventoriesTrimmed = await TrimInventoryVersionsAsync(db, ct);
+        int hourlyWritten = 0, heartbeatsFolded = 0, heartbeatsDeleted = 0;
+        int dailyWritten = 0, readingsFolded = 0, smartDeleted = 0, inventoriesTrimmed = 0;
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        // Round-robin categories so a heartbeat backlog cannot starve SMART or
+        // inventory. Transactions and tracked rows remain bounded per batch.
+        // The time budget is checked between rounds, not inside a transaction.
+        do
+        {
+            ct.ThrowIfCancellationRequested();
+            var hourly = await AggregateHeartbeatsAsync(db, nowUtc, ct);
+            int deletedHeartbeats = await DeleteAgedHeartbeatsAsync(db, nowUtc, ct);
+            var daily = await AggregateSmartAsync(db, nowUtc, ct);
+            int deletedSmart = await DeleteAgedSmartAggregatesAsync(db, nowUtc, ct);
+            int trimmed = await TrimInventoryVersionsAsync(db, ct);
+            hourlyWritten += hourly.Written;
+            heartbeatsFolded += hourly.Folded;
+            heartbeatsDeleted += deletedHeartbeats;
+            dailyWritten += daily.Written;
+            readingsFolded += daily.Folded;
+            smartDeleted += deletedSmart;
+            inventoriesTrimmed += trimmed;
+            db.ChangeTracker.Clear();
+            if (hourly.Folded + deletedHeartbeats + daily.Folded + deletedSmart + trimmed == 0)
+                break;
+        } while (elapsed.Elapsed < TimeSpan.FromMinutes(5));
 
-        int touched = hourlyWritten + heartbeatsDeleted + dailyWritten + smartDeleted + inventoriesTrimmed;
+        int touched = heartbeatsFolded + heartbeatsDeleted + readingsFolded + smartDeleted + inventoriesTrimmed;
 
         if (touched == 0)
         {
