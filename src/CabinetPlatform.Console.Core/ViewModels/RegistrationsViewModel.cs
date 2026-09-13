@@ -94,17 +94,24 @@ public sealed partial class RegistrationsViewModel : ObservableViewModelBase
     private async Task DecideAsync(PendingRegistrationDto selected, bool accepted, Func<CancellationToken, Task> decide)
     {
         Outcome = string.Empty;
-        bool success = await RunAsync(decide);
-        IdentityConfirmed = false;
-        if (!success)
+        bool success = false;
+        try
         {
-            // A lost response is not proof that a write failed. Never silently
-            // resubmit; a fresh read is required before another decision.
-            SelectedRegistration = null;
-            Queue.Clear();
-            Outcome = "Decision not confirmed. Refresh the queue before trying again; the server may already have recorded it.";
-            return;
+            success = await RunAsync(decide);
         }
+        finally
+        {
+            IdentityConfirmed = false;
+            if (!success)
+            {
+                // A lost response is not proof that a write failed. Quarantine
+                // even if an unexpected exception propagates; never replay it.
+                SelectedRegistration = null;
+                Queue.Clear();
+                Outcome = "Decision not confirmed. Refresh the queue before trying again; the server may already have recorded it.";
+            }
+        }
+        if (!success) return;
         Outcome = accepted
             ? $"Accepted {selected.Hostname} ({selected.MachineId}). The agent learns its cabinet identity on its next retry."
             : $"Rejected {selected.Hostname} ({selected.MachineId}). Retries remain rejected; this screen does not undo rejection.";

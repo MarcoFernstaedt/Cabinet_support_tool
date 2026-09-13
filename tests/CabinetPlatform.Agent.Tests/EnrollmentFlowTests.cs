@@ -236,6 +236,197 @@ public sealed class EnrollmentFlowTests : IClassFixture<ConsoleTestHost>
         Assert.False(await Db(db => db.Cabinets.AnyAsync(c => c.MachineId == second)));
     }
 
+    [Fact]
+    public async Task Reviewer_lost_rejection_response_cannot_resubmit_and_preserves_rejection()
+    {
+        var (_, session, _) = await ConsoleAsync(Role.Supervisor);
+        var drop = new ReviewerLoseRejectionResponse { InnerHandler = _host.Server.CreateHandler() };
+        using var http = new HttpClient(drop) { BaseAddress = new Uri("https://localhost/") };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var vm = new RegistrationsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        string machine = Unique();
+        using var agent = Agent(machine);
+        await Register(agent, machine);
+        await vm.LoadAsync();
+        vm.SelectedRegistration = Assert.Single(vm.Queue, r => r.MachineId == machine);
+        vm.Reason = "Reviewer synthetic rejection";
+        vm.IdentityConfirmed = true;
+        await vm.RejectCommand.ExecuteAsync(null);
+        Assert.Equal(ApiFailure.Unreachable, vm.LastFailure);
+        Assert.Equal(1, drop.Rejections);
+        Assert.Empty(vm.Queue);
+        Assert.Null(vm.SelectedRegistration);
+        Assert.False(vm.IdentityConfirmed);
+        Assert.False(vm.RejectCommand.CanExecute(null));
+        Assert.Equal(RegistrationStatus.Rejected, (await Register(agent, machine)).Status);
+        await vm.RejectCommand.ExecuteAsync(null);
+        Assert.Equal(1, drop.Rejections);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.DoesNotContain(vm.Queue, r => r.MachineId == machine);
+        Assert.Equal(1, drop.Rejections);
+        await AssertUnapproved(agent, machine);
+    }
+
+    [Fact]
+    public async Task Reviewer_lost_approval_body_after_headers_requires_fresh_queue()
+    {
+        var (_, session, _) = await ConsoleAsync(Role.Supervisor);
+        var drop = new ReviewerLoseApprovalBody { InnerHandler = _host.Server.CreateHandler() };
+        using var http = new HttpClient(drop) { BaseAddress = new Uri("https://localhost/") };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var vm = new RegistrationsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        string machine = Unique();
+        using var agent = Agent(machine);
+        await Register(agent, machine);
+        await vm.LoadAsync();
+        vm.SelectedRegistration = Assert.Single(vm.Queue, r => r.MachineId == machine);
+        vm.ClientName = "Reviewer body drop";
+        vm.SiteName = machine;
+        vm.CabinetRole = CabinetRole.Standalone;
+        vm.IdentityConfirmed = true;
+        var exception = await Record.ExceptionAsync(() => vm.AcceptCommand.ExecuteAsync(null));
+        Assert.Equal(1, await Db(db => db.Cabinets.CountAsync(c => c.MachineId == machine)));
+        Assert.True(exception is null, $"Escaped {exception?.GetType().Name}; selected={vm.SelectedRegistration != null}; confirmed={vm.IdentityConfirmed}; acceptEnabled={vm.AcceptCommand.CanExecute(null)}");
+        Assert.Null(vm.SelectedRegistration);
+        Assert.Empty(vm.Queue);
+        Assert.False(vm.IdentityConfirmed);
+        Assert.False(vm.AcceptCommand.CanExecute(null));
+        Assert.Contains("Refresh", vm.Outcome);
+    }
+
+    [Theory]
+    [InlineData(true, "http", ApiFailure.Unreachable)]
+    [InlineData(true, "io", ApiFailure.Unreachable)]
+    [InlineData(true, "timeout", ApiFailure.Unreachable)]
+    [InlineData(true, "cancel", null)]
+    [InlineData(true, "malformed", ApiFailure.ServerError)]
+    [InlineData(true, "null", ApiFailure.ServerError)]
+    [InlineData(true, "programmer", null)]
+    [InlineData(false, "http", ApiFailure.Unreachable)]
+    [InlineData(false, "io", ApiFailure.Unreachable)]
+    [InlineData(false, "timeout", ApiFailure.Unreachable)]
+    [InlineData(false, "cancel", null)]
+    [InlineData(false, "programmer", null)]
+    public async Task Committed_decision_with_unreadable_body_requires_refresh_without_replay(
+        bool approve, string fault, ApiFailure? failure)
+    {
+        var (_, session, _) = await ConsoleAsync(Role.Supervisor);
+        var drop = new DecisionBodyFault(approve, fault) { InnerHandler = _host.Server.CreateHandler() };
+        using var http = new HttpClient(drop) { BaseAddress = new Uri("https://localhost/") };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", session.AccessToken);
+        var vm = new RegistrationsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        drop.Cancel = vm.Deactivate;
+        string machine = Unique();
+        using var agent = Agent(machine);
+        await Register(agent, machine);
+        await vm.LoadAsync();
+        vm.SelectedRegistration = Assert.Single(vm.Queue, r => r.MachineId == machine);
+        vm.ClientName = "Body fault client";
+        vm.SiteName = machine;
+        vm.CabinetRole = CabinetRole.Standalone;
+        vm.Reason = "Synthetic rejection";
+        vm.IdentityConfirmed = true;
+        var command = approve ? vm.AcceptCommand : vm.RejectCommand;
+        var exception = await Record.ExceptionAsync(() => command.ExecuteAsync(null));
+        Assert.Equal(approve ? RegistrationStatus.Approved : RegistrationStatus.Rejected,
+            await Db(db => db.PendingRegistrations.Where(r => r.MachineId == machine).Select(r => r.Status).SingleAsync()));
+        Assert.Equal(approve ? 1 : 0, await Db(db => db.Cabinets.CountAsync(c => c.MachineId == machine)));
+        if (fault == "programmer") Assert.IsType<InvalidOperationException>(exception);
+        else Assert.Null(exception);
+        Assert.Equal(failure, vm.LastFailure);
+        Assert.Null(vm.SelectedRegistration);
+        Assert.Empty(vm.Queue);
+        Assert.False(vm.IdentityConfirmed);
+        Assert.False(vm.AcceptCommand.CanExecute(null));
+        Assert.False(vm.RejectCommand.CanExecute(null));
+        Assert.Contains("Refresh", vm.Outcome);
+        await command.ExecuteAsync(null);
+        Assert.Equal(1, drop.Decisions);
+        await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.DoesNotContain(vm.Queue, r => r.MachineId == machine);
+        Assert.Equal(1, drop.Decisions);
+    }
+
+    private sealed class DecisionBodyFault(bool approve, string fault) : DelegatingHandler
+    {
+        public Action Cancel { get; set; } = () => { };
+        public int Decisions { get; private set; }
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = await base.SendAsync(request, ct);
+            if (!request.RequestUri!.AbsolutePath.EndsWith(approve ? "/approve" : "/reject", StringComparison.Ordinal)) return response;
+            Assert.Equal(approve ? HttpStatusCode.OK : HttpStatusCode.NoContent, response.StatusCode);
+            Decisions++;
+            // Rejection has no success body. Model a proxy's error response after
+            // the real commit, whose ProblemDetails body is then lost in transit.
+            if (!approve) response.StatusCode = HttpStatusCode.BadGateway;
+            response.Content.Dispose();
+            response.Content = fault switch
+            {
+                "malformed" => new StringContent("{truncated"),
+                "null" => new StringContent("null"),
+                _ => new StreamContent(new FaultingBodyStream(() =>
+                {
+                    if (fault == "cancel") Cancel();
+                    return fault switch
+                    {
+                        "http" => new HttpRequestException("Synthetic body connection loss"),
+                        "io" => new IOException("Synthetic stream read loss"),
+                        "timeout" or "cancel" => new OperationCanceledException("Synthetic body cancellation"),
+                        _ => new InvalidOperationException("Synthetic programmer error")
+                    };
+                }))
+            };
+            return response;
+        }
+    }
+
+    private sealed class FaultingBodyStream(Func<Exception> fault) : MemoryStream
+    {
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken ct = default) =>
+            ValueTask.FromException<int>(fault());
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken ct) =>
+            Task.FromException<int>(fault());
+    }
+
+    private sealed class ReviewerLoseApprovalBody : DelegatingHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = await base.SendAsync(request, ct);
+            if (request.RequestUri!.AbsolutePath.EndsWith("/approve", StringComparison.Ordinal))
+            {
+                Assert.True(response.IsSuccessStatusCode);
+                response.Content.Dispose();
+                response.Content = new ReviewerBrokenContent();
+            }
+            return response;
+        }
+    }
+    private sealed class ReviewerBrokenContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            Task.FromException(new IOException("Synthetic connection lost during approval body after committed 200 headers"));
+        protected override bool TryComputeLength(out long length) { length = 0; return false; }
+    }
+
+    private sealed class ReviewerLoseRejectionResponse : DelegatingHandler
+    {
+        public int Rejections;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = await base.SendAsync(request, ct);
+            if (request.RequestUri!.AbsolutePath.EndsWith("/reject", StringComparison.Ordinal))
+            {
+                Rejections++;
+                Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+                response.Dispose();
+                throw new HttpRequestException("Reviewer synthetic rejection response lost after commit");
+            }
+            return response;
+        }
+    }
+
     private sealed class LoseApprovalResponse : DelegatingHandler
     {
         public int Approvals;
