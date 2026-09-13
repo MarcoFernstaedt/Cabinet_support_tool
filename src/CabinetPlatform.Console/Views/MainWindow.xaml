@@ -81,10 +81,10 @@
                             <Border Margin="6,0,0,0"
                                     Padding="6,0"
                                     CornerRadius="8"
-                                    Background="{DynamicResource Severity.Warning.Brush}"
+                                    Background="{DynamicResource Badge.Background.Brush}"
                                     Visibility="{Binding ApprovalBadge, Converter={StaticResource NullToVisibility}}">
                                 <TextBlock Text="{Binding ApprovalBadge}"
-                                           Foreground="White"
+                                           Foreground="{DynamicResource Badge.Text.Brush}"
                                            FontWeight="SemiBold"
                                            AutomationProperties.Name="{Binding ApprovalBadge}" />
                             </Border>
