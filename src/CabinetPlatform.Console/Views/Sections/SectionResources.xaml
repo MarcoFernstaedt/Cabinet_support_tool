@@ -52,22 +52,22 @@
                 <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
                             Visibility="{Binding IsDisruptive, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock Text="▲" FontFamily="Segoe UI Symbol" Margin="0,0,6,0"
-                               AutomationProperties.AccessibilityView="Raw"
+                               AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                Foreground="{DynamicResource Severity.Warning.Brush}" />
                     <TextBlock Text="Disruptive — interrupts work on the cabinet"
                                TextWrapping="Wrap"
-                               AutomationProperties.AccessibilityView="Raw"
+                               AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                Foreground="{DynamicResource Severity.Warning.Brush}" />
                 </StackPanel>
 
                 <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
                             Visibility="{Binding RequiresApproval, Converter={StaticResource BoolToVisibility}}">
                     <TextBlock Text="⏸" FontFamily="Segoe UI Symbol" Margin="0,0,6,0"
-                               AutomationProperties.AccessibilityView="Raw"
+                               AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                Foreground="{DynamicResource Severity.Warning.Brush}" />
                     <TextBlock Text="A second person must approve this before it runs"
                                TextWrapping="Wrap"
-                               AutomationProperties.AccessibilityView="Raw"
+                               AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                Foreground="{DynamicResource Severity.Warning.Brush}" />
                 </StackPanel>
 
