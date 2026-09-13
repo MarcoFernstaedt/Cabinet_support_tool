@@ -36,6 +36,6 @@ Production acceptance also needs device credential rotation and revocation, supp
 
 ## Decisions still needed
 
-Mashura must confirm supported Windows versions, identity provider and MFA requirements, permitted role differences, approved application paths and service names, maintenance policy, data retention and hosting jurisdiction. Lightweight resource budgets and the required monitoring refresh interval also need an agreed target and measurements.
+Mashura must confirm the supported Windows 10 and Windows 11 editions and builds, identity provider and MFA requirements, permitted role differences, approved application paths and service names, maintenance policy, data retention and hosting jurisdiction. Lightweight resource budgets and the required monitoring refresh interval also need an agreed target and measurements.
 
 The display example does not authorize touch input remapping or changing an unknown device driver. Those need their own requirements if Windows display rotation is insufficient.
