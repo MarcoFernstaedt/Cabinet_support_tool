@@ -11,9 +11,9 @@ namespace CabinetPlatform.Agent.Identity;
 /// </summary>
 /// <remarks>
 /// Writes go to a temporary file that is then moved over the target, so a
-/// machine losing power mid-write leaves either the old state or the new one
-/// and never a truncated file. State that fails to parse is treated as absent
-/// and the file is kept aside for inspection rather than silently deleted.
+/// temporary file is flushed before replacement. Filesystem/power-loss guarantees
+/// still require platform validation. Unreadable state stops operation and stays
+/// in place for operator recovery; it is never mistaken for empty state.
 /// </remarks>
 public sealed class FileAgentStateStore : IAgentStateStore
 {
@@ -66,18 +66,19 @@ public sealed class FileAgentStateStore : IAgentStateStore
         try
         {
             var json = File.ReadAllText(_statePath);
-            return JsonSerializer.Deserialize<AgentState>(json, SerializerOptions) ?? new AgentState();
+            return JsonSerializer.Deserialize<AgentState>(json, SerializerOptions)
+                ?? throw new JsonException("Agent state cannot be null.");
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
         {
             _logger.LogError(
                 e,
-                "Agent state at {StatePath} was unreadable. Starting from empty state; " +
-                "the cabinet will re-register and wait for approval again.",
+                "Agent state at {StatePath} was unreadable. Refusing to operate.",
                 _statePath);
 
-            TryQuarantine();
-            return new AgentState();
+            // Keep the original in place: moving it would make the next restart
+            // mistake a lost journal for first registration.
+            throw;
         }
     }
 
@@ -87,7 +88,11 @@ public sealed class FileAgentStateStore : IAgentStateStore
 
         try
         {
-            File.WriteAllText(temporaryPath, JsonSerializer.Serialize(state, SerializerOptions));
+            using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                JsonSerializer.Serialize(stream, state, SerializerOptions);
+                stream.Flush(flushToDisk: true);
+            }
             File.Move(temporaryPath, _statePath, overwrite: true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
@@ -101,24 +106,13 @@ public sealed class FileAgentStateStore : IAgentStateStore
                     File.Delete(temporaryPath);
                 }
             }
-            catch (IOException)
+            catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException)
             {
-                // Nothing further to do; the next write will overwrite it.
+                // Preserve the original persistence error.
             }
+
+            throw;
         }
     }
 
-    private void TryQuarantine()
-    {
-        try
-        {
-            var quarantinePath = $"{_statePath}.corrupt-{DateTime.UtcNow:yyyyMMddHHmmss}";
-            File.Move(_statePath, quarantinePath, overwrite: false);
-            _logger.LogWarning("Unreadable state file preserved at {QuarantinePath}.", quarantinePath);
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(e, "Could not preserve the unreadable state file.");
-        }
-    }
 }

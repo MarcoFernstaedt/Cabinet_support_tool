@@ -244,6 +244,32 @@ public class ActionDispatcherTests
         Assert.Null(dispatcher.TakeInterruptedActionResult());
     }
 
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task PersistenceFailureStopsExecutionOrRetainsInFlight(int failedWrite)
+    {
+        var store = new FailingStore(ApprovedState(), failedWrite);
+        var executor = new RecordingExecutor(ActionName.RebootMachine);
+        var dispatcher = Dispatcher(store, new AgentOptions(), executor);
+        var request = Request(ActionName.RebootMachine);
+        await Assert.ThrowsAsync<IOException>(() => dispatcher.DispatchAsync(request, CancellationToken.None));
+        Assert.Equal(failedWrite == 1 ? 0 : 1, executor.CallCount);
+        if (failedWrite == 2) Assert.Equal(request.Id, store.Load().InFlightAction?.RequestId);
+    }
+
+    private sealed class FailingStore(AgentState state, int failedWrite) : IAgentStateStore
+    {
+        private AgentState _state = state;
+        private int _writes;
+        public AgentState Load() => _state;
+        public AgentState Update(Func<AgentState, AgentState> mutate)
+        {
+            if (++_writes == failedWrite) throw new IOException("injected disk failure");
+            return _state = mutate(_state);
+        }
+    }
+
     private static AgentState ApprovedState() => new()
     {
         MachineId = "machine-hash",

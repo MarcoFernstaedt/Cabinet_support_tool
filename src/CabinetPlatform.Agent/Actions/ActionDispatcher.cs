@@ -190,25 +190,12 @@ public sealed class ActionDispatcher
             },
         });
 
-        try
-        {
-            var outcome = await RunWithTimeoutAsync(executor, request, timeout, cancellationToken)
-                .ConfigureAwait(false);
+        var outcome = await RunWithTimeoutAsync(executor, request, timeout, cancellationToken)
+            .ConfigureAwait(false);
 
-            _logger.LogInformation(
-                "Action {RequestId} ({Action}) finished as {Status}.",
-                request.Id,
-                request.Action,
-                outcome.Status);
-
-            return Remember(request, outcome);
-        }
-        finally
-        {
-            // Cleared whatever the outcome, including a cancelled shutdown: the
-            // result has been decided, so this is no longer an unknown.
-            _stateStore.Update(current => current with { InFlightAction = null });
-        }
+        // Completion and journal removal are one durable transition. A failed
+        // write must leave the in-flight evidence intact.
+        return Remember(request, outcome);
     }
 
     /// <summary>
@@ -241,7 +228,11 @@ public sealed class ActionDispatcher
                 .Where(c => c.RequestId != result.RequestId)
                 .Take(RememberedActionCount - 1));
 
-            return current with { CompletedActions = completed };
+            return current with
+            {
+                CompletedActions = completed,
+                InFlightAction = current.InFlightAction?.RequestId == request.Id ? null : current.InFlightAction,
+            };
         });
 
         return result;
