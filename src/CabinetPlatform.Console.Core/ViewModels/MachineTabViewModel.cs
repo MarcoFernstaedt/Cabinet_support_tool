@@ -106,6 +106,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         _invoker = invoker;
         _session = session;
         _timeProvider = timeProvider;
+        EventLogs.ConfigureViewCreation(api, session);
 
         Sections = new ObservableCollection<MachineSectionViewModel>
         {

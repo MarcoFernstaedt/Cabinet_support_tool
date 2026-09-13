@@ -664,14 +664,42 @@
                                         Visibility="{Binding Availability.ShowsReason,
                                                      Converter={StaticResource BoolToVisibility}}" />
 
-                        <!--
-                            A view and a window, not a log picker and a filter
-                            box. The views are written once by a Supervisor who
-                            knew which four event ids answer the question, and
-                            shared with everyone. Nothing here accepts a query
-                            expression: the server expands the view's stored
-                            fields and the agent builds its own query from them.
-                        -->
+                        <TextBlock Text="Run a saved view to discover local channels. Discovery is bounded and does not guarantee later read access. Disabled channels stay disabled."
+                                   TextWrapping="Wrap" Margin="0,0,0,6" />
+                        <DataGrid ItemsSource="{Binding Channels}" SelectedItem="{Binding SelectedChannel}"
+                                  Style="{StaticResource AccessibleDataGrid}" MaxHeight="160"
+                                  SelectionMode="Single" IsReadOnly="True"
+                                  AutomationProperties.Name="Discovered native event channels"
+                                  AutomationProperties.HelpText="Select a channel to fill the Supervisor's new shared view form. Selection alone does not request records.">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Exact channel" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="Observed access" Binding="{Binding Access}" Width="Auto" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Expander Header="Define a shared channel view (Supervisor)" Margin="0,6,0,8">
+                            <StackPanel>
+                                <TextBlock Text="Save a new shared view, then explicitly run it below. All levels, last 24h by default, at most 500 records. Local channel names only; no files, remote hosts, query expressions or channel configuration changes."
+                                           TextWrapping="Wrap" Margin="0,4,0,6" />
+                                <StackPanel IsEnabled="{Binding CanDefineViews}">
+                                    <Label Content="Native channel" Target="{Binding ElementName=NativeEventChannelName}" />
+                                    <TextBox x:Name="NativeEventChannelName" Text="{Binding NewChannelName, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="512" AutomationProperties.Name="Exact local native channel name" />
+                                    <Label Content="Shared view name" Target="{Binding ElementName=NativeEventViewName}" />
+                                    <TextBox x:Name="NativeEventViewName" Text="{Binding NewViewName, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="128" AutomationProperties.Name="Name for the shared native channel view" />
+                                    <Label Content="Reason for creating this shared view" Target="{Binding ElementName=NativeEventViewReason}" />
+                                    <TextBox x:Name="NativeEventViewReason" Text="{Binding NewViewReason, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="2000" AutomationProperties.Name="Audited reason for the shared event view" />
+                                    <Button Content="Save shared channel view" Command="{Binding SaveChannelViewCommand}"
+                                            HorizontalAlignment="Left" Margin="0,6,0,4"
+                                            AutomationProperties.Name="Save and select shared native channel view" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding ViewCreationStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                                           AutomationProperties.Name="Shared event view save status" />
+                            </StackPanel>
+                        </Expander>
+                        <TextBlock Text="Saved views (first 100 plus views created here). Every rep can run a saved view; only Supervisors can define one."
+                                   TextWrapping="Wrap" Margin="0,0,0,6" />
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                             <Label Content="View"
                                    VerticalAlignment="Center"
@@ -709,6 +737,17 @@
                                    Foreground="{DynamicResource Text.Subtle.Brush}"
                                    Margin="0,0,0,6" />
 
+                        <DataGrid ItemsSource="{Binding ChannelReads}" Style="{StaticResource AccessibleDataGrid}"
+                                  MaxHeight="140" IsReadOnly="True" Margin="0,0,0,6"
+                                  AutomationProperties.Name="Actual per-channel event record read outcomes">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Requested channel" Binding="{Binding Name}" Width="*" />
+                                <DataGridTextColumn Header="Read outcome" Binding="{Binding Access}" Width="Auto" />
+                                <DataGridTextColumn Header="Read before merge" Binding="{Binding RecordsRead}" Width="Auto" />
+                                <DataGridCheckBoxColumn Header="Channel capped" Binding="{Binding Truncated}" Width="Auto" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
                         <DataGrid ItemsSource="{Binding Entries}"
                                   Style="{StaticResource AccessibleDataGrid}"
                                   MaxHeight="320"
@@ -716,7 +755,7 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="Time" Binding="{Binding TimeCreatedUtc}" Width="Auto" />
                                 <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="Auto" />
-                                <DataGridTextColumn Header="Log" Binding="{Binding LogName}" Width="Auto" />
+                                <DataGridTextColumn Header="Channel" Binding="{Binding DisplayChannelName}" Width="Auto" />
                                 <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="*" />
                                 <DataGridTextColumn Header="Event" Binding="{Binding EventId}" Width="Auto" />
                                 <DataGridTextColumn Header="Message" Binding="{Binding Message}" Width="2*" />

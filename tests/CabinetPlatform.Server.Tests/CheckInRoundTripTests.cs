@@ -394,6 +394,7 @@ public sealed class CheckInRoundTripTests : IClassFixture<SupportApiFactory>
             new EventLogEntry
             {
                 LogName = EventLogName.System,
+                ChannelName = "System",
                 Source = "Service Control Manager",
                 EventId = 7034,
                 Level = EventLogLevel.Error,

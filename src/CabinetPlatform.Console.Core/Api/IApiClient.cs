@@ -102,6 +102,10 @@ public interface IApiClient
     Task<PagedResult<EventLogViewDto>> GetEventLogViewsAsync(
         EventLogViewQuery query, CancellationToken ct);
 
+    /// <summary>Creates an audited shared view. The server requires a Supervisor.</summary>
+    Task<EventLogViewDto> CreateEventLogViewAsync(CreateEventLogViewRequest request, CancellationToken ct)
+        => throw new NotSupportedException("This client cannot create event views.");
+
     // --- Actions ---------------------------------------------------------
 
     /// <summary>
