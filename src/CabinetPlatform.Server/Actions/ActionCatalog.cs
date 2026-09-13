@@ -120,6 +120,17 @@ public sealed record ActionCatalogEntry
 /// </remarks>
 public static class ActionCatalog
 {
+    /// <summary>Apply execution policy independently of user role and safety overrides.</summary>
+    public static bool TryGet(ActionName action, Configuration.ActionOptions options, out ActionCatalogEntry entry)
+    {
+        entry = null!;
+        return options.Permits(action) && TryGet(action, out entry);
+    }
+
+    /// <summary>The visible catalog is not itself an authorization boundary.</summary>
+    public static IEnumerable<ActionCatalogEntry> Available(Configuration.ActionOptions options) =>
+        All.Where(e => options.Permits(e.Action));
+
     /// <summary>Parameter key naming the cabinet a diagnostic probe targets.</summary>
     /// <remarks>
     /// These four are aliases of <see cref="ActionParameterKeys"/>, which is

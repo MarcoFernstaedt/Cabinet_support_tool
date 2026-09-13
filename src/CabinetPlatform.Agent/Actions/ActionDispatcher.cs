@@ -148,6 +148,10 @@ public sealed class ActionDispatcher
                 "approval nobody collected in time is no longer an approval for what is there now."));
         }
 
+        if (!_options.Permits(request.Action))
+            return Remember(request, ActionOutcome.Denied(
+                "DiagnosticOnly execution mode refuses this action. No executor was invoked."));
+
         // The catalog check comes first. An action with no compiled-in executor
         // is refused before anything else about the request is considered.
         var executor = _registry.Resolve(request.Action);

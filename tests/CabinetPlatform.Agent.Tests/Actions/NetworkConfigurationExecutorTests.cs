@@ -285,6 +285,22 @@ public class NetworkConfigurationExecutorTests
 public class InterruptedNetworkChangeTests
 {
     [Fact]
+    public void Diagnostic_default_preserves_pending_rollback_without_changing_network()
+    {
+        var previous = new AdapterConfiguration { AdapterId = "{ADAPTER}", DhcpEnabled = true };
+        var rollback = new StubRollbackStore();
+        rollback.Write(new NetworkRollback { ActionRequestId = Guid.NewGuid(),
+            Previous = previous, AppliedUtc = DateTimeOffset.UtcNow.AddMinutes(-3) });
+        var network = new StubNetworkGateway(previous);
+        var runner = new ScheduledUpdateRunner(new StubScheduleWriter(), new StubUpdateGateway(),
+            rollback, network, new InMemoryAgentStateStore(), new FixedClock(DateTimeOffset.UtcNow),
+            NullLogger<ScheduledUpdateRunner>.Instance);
+        runner.RecoverInterruptedNetworkChange();
+        Assert.False(network.Restored);
+        Assert.NotNull(rollback.Pending);
+    }
+
+    [Fact]
     public void An_unconfirmed_change_found_at_startup_is_reverted()
     {
         // The agent restarting between applying and confirming is exactly the
@@ -353,7 +369,8 @@ public class InterruptedNetworkChangeTests
             network,
             new InMemoryAgentStateStore(),
             new FixedClock(DateTimeOffset.UtcNow),
-            NullLogger<ScheduledUpdateRunner>.Instance);
+            NullLogger<ScheduledUpdateRunner>.Instance,
+            TestOptions.Create(new AgentOptions { Actions = new() { ExecutionMode = "Maintenance" } }));
 }
 
 /// <summary>An adapter configuration a test controls.</summary>

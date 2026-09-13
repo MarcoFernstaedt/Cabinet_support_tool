@@ -242,12 +242,22 @@ public sealed class AgentController : SupportControllerBase
 
         foreach (ActionRequest action in due)
         {
-            if (!ActionCatalog.TryGet(action.Action, out ActionCatalogEntry entry))
+            if (!ActionCatalog.TryGet(action.Action,
+                    HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value,
+                    out ActionCatalogEntry entry))
             {
                 // An action whose catalog entry has been withdrawn since it was
                 // approved is cancelled rather than sent.
                 action.Status = ActionRequestStatus.Cancelled;
                 action.CompletedUtc = nowUtc;
+                action.ResultOutput = "Cancelled before dispatch: action is unavailable under the current execution policy.";
+                _audit.Enqueue(new AuditRecord
+                {
+                    Event = AuditEvent.AgentCollectActions, Action = action.Action,
+                    EventKind = AuditEventKind.Caused, Result = AuditResult.Denied,
+                    ActorType = ActorType.Agent, ActorId = machineId, CabinetId = cabinet.Id,
+                    Details = new { ActionRequestId = action.Id, Reason = action.ResultOutput },
+                });
                 continue;
             }
 
