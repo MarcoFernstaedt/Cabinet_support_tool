@@ -110,6 +110,11 @@ public sealed class CabinetsController : SupportControllerBase
                 EF.Functions.Like(c.Site!.Name, $"%{term}%"));
         }
 
+        if (query.Health is { } health)
+        {
+            cabinets = _projection.FilterByHealth(cabinets, health, nowUtc);
+        }
+
         int total = await cabinets.CountAsync(ct);
 
         // Sync cabinets lead their site: when a whole site misbehaves, the
@@ -120,15 +125,11 @@ public sealed class CabinetsController : SupportControllerBase
             .ThenBy(c => c.Site!.Name)
             .ThenBy(c => c.Role == Contracts.Cabinets.CabinetRole.Sync ? 0 : 1)
             .ThenBy(c => c.Hostname)
+            .ThenBy(c => c.Id)
             .Skip(query.Skip)
             .Take(query.PageSize);
 
         List<CabinetSummary> items = await _projection.ProjectAsync(page, nowUtc, ct);
-
-        if (query.Health is { } health)
-        {
-            items = items.Where(s => s.Health == health).ToList();
-        }
 
         await _audit.WriteAsync(Observed(AuditEvent.ListCabinets, new
         {

@@ -21,10 +21,8 @@ public sealed class JwtOptions
     public string? SigningKey { get; set; }
 
     /// <summary>
-    /// Access-token lifetime. Deliberately short: the token is stateless, so it
-    /// cannot be revoked, and its lifetime is therefore the upper bound on how
-    /// long a withdrawn permission can still be used. Fifteen minutes is the
-    /// window a Supervisor's revocation has to wait out.
+    /// Access-token lifetime. Requests also validate the durable account stamp
+    /// and current permissions, so security changes need not wait for expiry.
     /// </summary>
     public int TokenLifetimeMinutes { get; set; } = 15;
 
@@ -94,6 +92,7 @@ public sealed class JwtTokenService : IJwtTokenService
             new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
             new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
             new(SupportClaims.UserId, user.Id.ToString()),
+            new("security_stamp", user.SecurityStamp.ToString()),
             new(SupportClaims.Role, user.Role.ToString()),
             new(SupportClaims.ElevatedSql, user.HasElevatedSql ? "true" : "false"),
             new(SupportClaims.HardwareActuation, user.HasHardwareActuation ? "true" : "false"),

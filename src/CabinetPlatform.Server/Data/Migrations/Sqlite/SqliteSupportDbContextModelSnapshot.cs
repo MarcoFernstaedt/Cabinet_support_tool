@@ -733,6 +733,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ConsumedUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("ExpiresUtc")
@@ -751,6 +752,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasColumnType("TEXT");
 
                     b.Property<string>("RevokedUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("TEXT");
 
                     b.Property<byte[]>("TokenHash")
@@ -929,6 +931,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<byte[]>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("BLOB");
+
+                    b.Property<Guid>("SecurityStamp")
+                        .HasColumnType("TEXT");
 
                     b.Property<int>("PasswordIterations")
                         .HasColumnType("INTEGER");
