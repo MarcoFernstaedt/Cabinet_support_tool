@@ -160,7 +160,7 @@ public sealed partial class ProcessSectionViewModel : MachineSectionViewModel
     {
         // All three process actions act on the selected row. Nothing here takes
         // a typed name.
-        foreach (SectionActionViewModel action in Actions)
+        foreach (SectionActionViewModel action in Actions.Where(a => a.Catalogue.Action != ActionName.GetProcessList))
         {
             action.IsContextSatisfied = value is not null;
         }
