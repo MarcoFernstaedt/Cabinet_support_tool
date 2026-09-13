@@ -61,11 +61,11 @@
                 <WrapPanel>
                     <StackPanel Width="210" Margin="0,0,8,0">
                         <Label Content="_Client (required to accept)" Target="{Binding ElementName=Client}" />
-                        <TextBox x:Name="Client" Text="{Binding ClientName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.Name="Client name" />
+                        <TextBox x:Name="Client" Text="{Binding ClientName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.Name="Client name" AutomationProperties.HelpText="Client is required to accept this registration." />
                     </StackPanel>
                     <StackPanel Width="210" Margin="0,0,8,0">
                         <Label Content="_Site (required to accept)" Target="{Binding ElementName=Site}" />
-                        <TextBox x:Name="Site" Text="{Binding SiteName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.Name="Site name" />
+                        <TextBox x:Name="Site" Text="{Binding SiteName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.Name="Site name" AutomationProperties.HelpText="Site is required to accept this registration." />
                     </StackPanel>
                     <StackPanel Width="160" Margin="0,0,8,0">
                         <Label Content="Cabinet _role" Target="{Binding ElementName=Role}" />
@@ -81,7 +81,7 @@
                     </StackPanel>
                 </WrapPanel>
                 <Label Content="Rejection reason (required to reject)" Target="{Binding ElementName=Reason}" />
-                <TextBox x:Name="Reason" Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" AutomationProperties.Name="Rejection reason" />
+                <TextBox x:Name="Reason" Text="{Binding Reason, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" AutomationProperties.Name="Rejection reason" AutomationProperties.HelpText="A reason is required to reject this registration." />
                 <CheckBox Content="I independently verified the selected machine identity and intend this decision."
                           IsChecked="{Binding IdentityConfirmed}" Margin="0,8" AutomationProperties.Name="Confirm selected machine identity before accepting or rejecting" />
                 <StackPanel Orientation="Horizontal">

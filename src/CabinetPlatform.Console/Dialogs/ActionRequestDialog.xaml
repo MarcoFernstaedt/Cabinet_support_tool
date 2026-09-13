@@ -9,7 +9,8 @@
         WindowStartupLocation="CenterOwner"
         ResizeMode="NoResize"
         ShowInTaskbar="False"
-        Background="{DynamicResource Surface.Brush}">
+        Background="{DynamicResource Surface.Brush}"
+             Foreground="{DynamicResource Text.Brush}">
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
         <StackPanel Margin="20">

@@ -9,6 +9,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="True"
         Background="{DynamicResource Surface.Brush}"
+        Foreground="{DynamicResource Text.Brush}"
         FocusManager.FocusedElement="{Binding ElementName=UsernameBox}">
 
     <!--

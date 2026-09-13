@@ -1,7 +1,8 @@
 <UserControl x:Class="CabinetPlatform.Console.Views.MachineTabView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{DynamicResource Surface.Brush}">
+             Background="{DynamicResource Surface.Brush}"
+             Foreground="{DynamicResource Text.Brush}">
 
     <UserControl.Resources>
         <ResourceDictionary>
@@ -380,7 +381,8 @@
                                         Visibility="{Binding Availability.ShowsReason,
                                                      Converter={StaticResource BoolToVisibility}}" />
 
-                        <TextBox Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                        <Label Content="_Filter processes" Target="{Binding ElementName=ProcessFilter}" />
+                        <TextBox x:Name="ProcessFilter" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
                                  MinWidth="220"
                                  HorizontalAlignment="Left"
                                  Margin="0,0,0,6"
@@ -388,7 +390,7 @@
 
                         <TextBlock Text="{Binding FilterSummary}"
                                    AutomationProperties.LiveSetting="Polite"
-                                   AutomationProperties.Name="Process list result"
+                                   AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                    Foreground="{DynamicResource Text.Subtle.Brush}"
                                    Margin="0,0,0,6" />
 
@@ -398,7 +400,7 @@
                         <TextBlock Text="{Binding SelectedProcess.AccessibleSummary}"
                                    TextWrapping="Wrap" Margin="0,0,0,6"
                                    AutomationProperties.LiveSetting="Polite"
-                                   AutomationProperties.Name="Selected process identity status" />
+                                   AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
 
                         <DataGrid ItemsSource="{Binding Processes}"
                                   SelectedItem="{Binding SelectedProcess}"
@@ -702,7 +704,7 @@
                                             AutomationProperties.Name="Save and select shared native channel view" />
                                 </StackPanel>
                                 <TextBlock Text="{Binding ViewCreationStatus}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
-                                           AutomationProperties.Name="Shared event view save status" />
+                                           AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
                             </StackPanel>
                         </Expander>
                         <TextBlock Text="Saved views (first 100 plus views created here). Every rep can run a saved view; only Supervisors can define one."
@@ -740,7 +742,7 @@
                         <TextBlock Text="{Binding ResultSummary}"
                                    TextWrapping="Wrap"
                                    AutomationProperties.LiveSetting="Polite"
-                                   AutomationProperties.Name="Event log result"
+                                   AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                                    Foreground="{DynamicResource Text.Subtle.Brush}"
                                    Margin="0,0,0,6" />
 
