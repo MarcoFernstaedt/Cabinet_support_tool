@@ -178,12 +178,14 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
     }
 
     [Fact]
-    public async Task Changing_the_password_completes_the_first_login()
+    public async Task Changing_the_password_requires_fresh_sign_in_before_opening_console()
     {
         string username = Unique("change");
         await _host.CreateUserAsync(Role.Supervisor, username, mustChangePassword: true);
 
-        (LoginViewModel login, SessionStore session, _) = CreateLogin();
+        (ApiClient api, SessionStore session) = _host.CreateConsole();
+        var announcer = new RecordingLiveRegionAnnouncer();
+        var login = new LoginViewModel(api, session, announcer);
 
         login.Username = username;
         login.Password = ConsoleTestHost.KnownPassword;
@@ -205,7 +207,27 @@ public sealed class SignInTests : IClassFixture<ConsoleTestHost>
         Assert.Null(login.ErrorMessage);
         Assert.False(login.MustChangePassword);
         Assert.False(session.MustChangePassword);
+        Assert.False(session.IsSignedIn);
+        Assert.Null(session.AccessToken);
+        Assert.Null(session.RefreshToken);
+        Assert.Null(session.UserId);
+        Assert.False(signalledReady);
+        Assert.Equal(string.Empty, login.Username);
+        Assert.Equal(string.Empty, login.Password);
+        Assert.Equal(string.Empty, login.NewPassword);
+        Assert.Equal(string.Empty, login.ConfirmNewPassword);
+        Assert.True(announcer.Any("sign in with your new password"));
+
+        login.Username = username;
+        login.Password = "An0ther!Strong-Password";
+        await login.SignInCommand.ExecuteAsync(null);
+
+        Assert.Null(login.ErrorMessage);
         Assert.True(signalledReady);
+        Assert.True(session.IsSignedIn);
+        Assert.False(session.MustChangePassword);
+        Assert.Equal(session.UserId, (await api.GetCurrentUserAsync(default)).Id);
+        Assert.NotEmpty(await api.GetActionCatalogAsync(default));
     }
 
     [Fact]
