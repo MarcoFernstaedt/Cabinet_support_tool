@@ -1,87 +1,60 @@
 # Cabinet Support Tool
 
-An internal support tool for Mashura CUBEX/ZIMBIS smart inventory cabinets in
-veterinary and dental clinics. It lets support staff diagnose, monitor and
-perform routine IT actions on client cabinet PCs without taking a remote
-desktop session.
+An internal Windows support tool for Mashura cabinet PCs. Support staff use a desktop console to inspect a machine and request approved IT operations without taking over its desktop.
 
-The cabinets are DEA-compliant controlled-substance dispensing systems with
-biometric access and chain-of-custody records. The audit trail this server
-writes may be read in a compliance context, and the code is built accordingly.
+Production release is blocked while the audited defects are repaired and Windows lab testing is completed. See the [release gates](docs/readiness.md). Passing automated tests does not establish that a cabinet is safe to deploy.
 
-## Components
+## Where it runs
 
-| Project | What it is |
-| --- | --- |
-| `src/CabinetPlatform.Contracts` | Shared types crossing every process boundary. References nothing. |
-| `src/CabinetPlatform.Agent` | .NET Worker Service on each cabinet PC. Reads data, reports it, performs only named actions. |
-| `src/CabinetPlatform.Server` | ASP.NET Core Web API. The only component that makes authorization decisions. |
-| `src/CabinetPlatform.Console.Core` | The console's logic layer: API client and ViewModels. No WPF reference, so it is testable on any platform. |
-| `src/CabinetPlatform.Console` | WPF desktop shell. Views and code-behind only. |
+Mashura hosts the support API and its support database. The console runs on a support workstation. Each customer cabinet runs a lightweight Windows agent that initiates outbound connections to the API.
 
-Agent, server and console each reference contracts. Nothing references the
-agent or the console.
+Clients can have multiple locations and several cabinets at each location. Typically one cabinet holds the location's application database and acts as the sync cabinet. Other cabinets communicate with it locally. The Mashura support server does not replace or read that application database.
 
-The console is split so that its ViewModels cannot reach a `Window`, a
-`Dispatcher` or a `MessageBox`: those types are not on the compile path of
-`Console.Core`. That makes "no business logic in code-behind" a property of the
-build.
+![Component placement](docs/diagrams/architecture.svg)
 
-The WPF project needs the Windows Desktop SDK. Some distribution-packaged .NET
-SDKs are source-built with it stripped out, and on those the Console project
-cannot be evaluated — everything else still builds and tests. See
-[docs/console.md](docs/console.md).
+## Scope
 
-## Ground rules
+The product supports the development of Windows diagnostics and controlled operations: process and service management, network inspection and configuration, Windows updates, event logs, storage health and display recovery. Individual workflows must pass their release gates before being enabled in production.
 
-- Actions come from a fixed catalog (`ActionName`). No command lines, script
-  bodies or SQL text travel anywhere in this system.
-- The server decides every permission. The agent and console never enforce
-  their own rules.
-- Any signed-in rep may reach any cabinet at any time. There is no case
-  scoping, no open-ticket requirement to look, and no per-rep cabinet
-  assignment — a rep taking a call cannot know in advance which cabinet it will
-  be about. Viewing needs no reason; every *action* requires a reason and a
-  ticket reference, and the audit trail is what replaces scoping.
-- Tier1, Tier2 and Supervisor all exist, on users and in the audit trail. In
-  this build they grant the same cabinet and Windows permissions: every
-  catalog entry's `MinimumRole` is `Tier1`, so the mechanism stays exercised
-  and can be tightened later by changing catalog values rather than rewriting
-  authorization. Supervisor is genuinely distinct for administration only —
-  users, cabinet registration and roles, site topology, event log view
-  definitions, and the reserved `HardwareActuation` grant.
-- Agent connections are outbound-only. Nothing is exposed for inbound access
-  into a cabinet.
-- A new agent lands in a pending queue and reports nothing usable until a
-  Supervisor approves and assigns it.
-- Cabinets are identified by a stable hardware-derived id, never by hostname,
-  and are shown to people as a full path — client, site, department, cabinet,
-  role — never as a bare hostname.
-- Every action writes an audit record, denials included, and says whether the
-  platform observed something or caused it.
-- Disruptive actions require a second person's approval, and the approver is
-  never the requester.
-- No hardware actuation: no drawer open, no lock release, no cubie open. The
-  three names are reserved and permanently refused, with nothing registered to
-  run them.
-- A critical Windows process is never a kill target, enforced on the server and
-  independently again on the agent, which also refuses to kill itself.
-- A network change that cannot be confirmed reverts itself, and survives a
-  restart mid-change.
-- Biometric data is never stored or transmitted — only that an auth event
-  occurred, who it matched and how it resolved.
-- No secrets in source, no plaintext passwords anywhere.
-- A value that could not be read is `null`, never `0`. Zero for missing poisons
-  every trend built on top of it.
+Physical cabinet sensors, drawer opening, lock release and cubie opening remain excluded. The Windows support scope does not permit arbitrary shell commands, scripts or access to patient records.
+
+## Projects
+
+1. `CabinetPlatform.Contracts` defines the messages shared across processes.
+2. `CabinetPlatform.Agent` collects machine information and performs named Windows actions through typed gateways.
+3. `CabinetPlatform.Server` owns support authorization, device registration, topology, approvals and result storage.
+4. `CabinetPlatform.Console.Core` contains the API client and ViewModels without a WPF dependency.
+5. `CabinetPlatform.Console` contains the actual Windows desktop interface. Build it explicitly as well as building the solution.
+
+## Build and test
+
+Use an official .NET 8 SDK. WPF runtime testing requires Windows. Cross compilation on Linux does not verify the desktop interface or native Windows operations.
+
+```text
+dotnet build CabinetPlatform.sln --configuration Release
+dotnet build src/CabinetPlatform.Console/CabinetPlatform.Console.csproj --configuration Release
+dotnet test CabinetPlatform.sln --configuration Release
+```
+
+The explicit console build is intentional. The initial audit found that the solution omitted the WPF project while its tests still passed. Release checks must enumerate all deliverable applications.
+
+Do not run the agent, network changes, updates or process controls on a production cabinet while developing. Use an authorized Windows lab machine with an independent recovery console and snapshots. Keep all credentials outside source and test evidence.
 
 ## Documentation
 
-- [Shared contracts](docs/contracts.md)
-- [Security invariants](docs/security-invariants.md)
-- [Check-in tiers and retention](docs/check-in-tiers.md)
-- [Site topology and the sync cabinet](docs/topology.md)
-- [Time zones](docs/time-zones.md)
-- [Data residency — open question](docs/data-residency.md)
-- [Agent](docs/agent.md) and [agent installation](docs/agent-install.md)
-- [Console](docs/console.md)
-- [Building](docs/building.md)
+Read the [current capability status](docs/capabilities.md) for implemented behavior, incomplete wiring and verification limits.
+
+1. [Product requirements](docs/requirements.md)
+2. [Architecture and data flow](docs/architecture.md)
+3. [Release gates](docs/readiness.md), [isolated demo setup](docs/demo.md) and [Windows demo checks](docs/testing.md)
+4. [Display recovery requirement](docs/display.md)
+5. [Build notes](docs/building.md)
+6. [Agent behavior](docs/agent.md) and [installation](docs/agent-install.md)
+7. [Support console](docs/console.md)
+8. [Shared contracts](docs/contracts.md)
+9. [Security invariants](docs/security-invariants.md)
+10. [Location topology](docs/topology.md)
+11. [Telemetry and retention](docs/check-in-tiers.md)
+12. [Data residency](docs/data-residency.md) and [time zones](docs/time-zones.md)
+
+The component documents are being reconciled with the audit. Treat an unverified safety claim in those documents as a requirement to test, not deployment approval. The release gates take precedence over historical claims of readiness.

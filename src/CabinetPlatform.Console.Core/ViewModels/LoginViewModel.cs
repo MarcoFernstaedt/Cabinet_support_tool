@@ -206,11 +206,12 @@ public sealed partial class LoginViewModel : ObservableViewModelBase
             return;
         }
 
-        _session.MarkPasswordChanged();
-        MustChangePassword = false;
-
-        Announcer.AnnounceImportant("Password changed. Opening the console.");
-        SignedIn?.Invoke(this, EventArgs.Empty);
+        // Password changes revoke both credentials on the server. A local flag
+        // change cannot make that session usable; require an explicit new login.
+        _session.SignOut();
+        Reset();
+        OnPropertyChanged(nameof(DisplayName));
+        Announcer.AnnounceImportant("Password changed; sign in with your new password.");
     }
 
     /// <summary>

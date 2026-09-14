@@ -222,6 +222,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         user.PasswordSalt = hashed.Salt;
         user.PasswordIterations = hashed.Iterations;
         user.MustChangePassword = false;
+        await _refreshTokens.RevokeAllAsync(user.Id, "Password changed.", ct);
 
         _audit.Enqueue(new AuditRecord
         {

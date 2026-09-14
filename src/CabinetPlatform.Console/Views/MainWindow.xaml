@@ -56,6 +56,11 @@
                             AutomationProperties.Name="Show cabinets. Keyboard shortcut Control L."
                             AutomationProperties.AcceleratorKey="Ctrl+L" />
 
+                    <Button Content="_Registrations"
+                            Command="{Binding ShowRegistrationsCommand}"
+                            Visibility="{Binding CanSeeRegistrations, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.Name="Supervisor cabinet registrations" />
+
                     <Button Content="Find"
                             Command="{Binding ShowFinderCommand}"
                             AutomationProperties.Name="Find a cabinet by search, by client hierarchy, or from the ones you looked at recently. Keyboard shortcut Control F."
@@ -76,12 +81,12 @@
                             <Border Margin="6,0,0,0"
                                     Padding="6,0"
                                     CornerRadius="8"
-                                    Background="{DynamicResource Severity.Warning.Brush}"
+                                    Background="{DynamicResource Badge.Background.Brush}"
                                     Visibility="{Binding ApprovalBadge, Converter={StaticResource NullToVisibility}}">
                                 <TextBlock Text="{Binding ApprovalBadge}"
-                                           Foreground="White"
+                                           Foreground="{DynamicResource Badge.Text.Brush}"
                                            FontWeight="SemiBold"
-                                           AutomationProperties.AccessibilityView="Raw" />
+                                           AutomationProperties.Name="{Binding ApprovalBadge}" />
                             </Border>
                         </StackPanel>
                     </Button>
@@ -252,6 +257,19 @@
                     </Style>
                 </views:CabinetFinderView.Style>
             </views:CabinetFinderView>
+
+            <views:RegistrationsView DataContext="{Binding Registrations}">
+                <views:RegistrationsView.Style>
+                    <Style TargetType="views:RegistrationsView">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}}" Value="Registrations">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </views:RegistrationsView.Style>
+            </views:RegistrationsView>
 
             <!-- Approvals -->
             <views:ApprovalsView DataContext="{Binding Approvals}">

@@ -120,6 +120,17 @@ public sealed record ActionCatalogEntry
 /// </remarks>
 public static class ActionCatalog
 {
+    /// <summary>Apply execution policy independently of user role and safety overrides.</summary>
+    public static bool TryGet(ActionName action, Configuration.ActionOptions options, out ActionCatalogEntry entry)
+    {
+        entry = null!;
+        return options.Permits(action) && TryGet(action, out entry);
+    }
+
+    /// <summary>The visible catalog is not itself an authorization boundary.</summary>
+    public static IEnumerable<ActionCatalogEntry> Available(Configuration.ActionOptions options) =>
+        All.Where(e => options.Permits(e.Action));
+
     /// <summary>Parameter key naming the cabinet a diagnostic probe targets.</summary>
     /// <remarks>
     /// These four are aliases of <see cref="ActionParameterKeys"/>, which is
@@ -363,18 +374,19 @@ public static class ActionCatalog
                 Action = ActionName.KillProcess,
                 DisplayName = "End a process",
                 Description =
-                    "Ends one process, checked against the name the console believes its id belongs to.",
+                    "Ends only the selected process after matching its observed PID, name, exact creation time and image path.",
                 MinimumRole = EveryRep,
                 RequiresApproval = true,
                 IsDisruptive = false,
                 TimeoutSeconds = 120,
-                // Both keys are required together. A process id alone is not an
-                // identification: ids are reused within minutes, and by the
-                // time the agent acts the id may name something else entirely.
+                // All four operands are mandatory. Image path is comparison-only,
+                // never a launch target. The agent retains one handle through the effect.
                 AllowedParameterKeys = ImmutableHashSet.Create(
                     StringComparer.OrdinalIgnoreCase,
                     ActionParameterKeys.ProcessId,
-                    ActionParameterKeys.ExpectedProcessName),
+                    ActionParameterKeys.ExpectedProcessName,
+                    ActionParameterKeys.ExpectedCreationTimeFileTime,
+                    ActionParameterKeys.ExpectedExecutablePath),
                 MaintenanceWindowOnly = false,
                 BlockedIfUserLoggedOn = false,
                 Batchable = false,

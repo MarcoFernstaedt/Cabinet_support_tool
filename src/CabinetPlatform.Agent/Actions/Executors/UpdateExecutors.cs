@@ -1,4 +1,5 @@
 using System.Text.Json;
+using CabinetPlatform.Agent.Collectors;
 using CabinetPlatform.Agent.Configuration;
 using CabinetPlatform.Agent.Identity;
 using CabinetPlatform.Agent.Platform;
@@ -227,6 +228,7 @@ public sealed class InstallUpdatesNowExecutor : IActionExecutor
     private readonly IAgentStateStore _stateStore;
     private readonly IClock _clock;
     private readonly ILogger<InstallUpdatesNowExecutor> _logger;
+    private readonly LogonSessionReader _sessions;
 
     /// <summary>Creates the executor.</summary>
     /// <param name="gateway">The Windows Update Agent.</param>
@@ -237,8 +239,10 @@ public sealed class InstallUpdatesNowExecutor : IActionExecutor
         IWindowsUpdateGateway gateway,
         IAgentStateStore stateStore,
         IClock clock,
-        ILogger<InstallUpdatesNowExecutor> logger)
+        ILogger<InstallUpdatesNowExecutor> logger,
+        LogonSessionReader sessions)
     {
+        _sessions = sessions;
         _gateway = gateway;
         _stateStore = stateStore;
         _clock = clock;
@@ -261,6 +265,18 @@ public sealed class InstallUpdatesNowExecutor : IActionExecutor
             return Task.FromResult(ActionOutcome.Denied(idFailure));
         }
 
+        try
+        {
+            if (_sessions.GetInteractiveUsers().Count > 0)
+                return Task.FromResult(ActionOutcome.Denied("Interactive users are signed in; installation is unsafe."));
+        }
+        catch (Exception e)
+        {
+            _logger.LogWarning(e, "Live occupancy could not be established.");
+            return Task.FromResult(ActionOutcome.Denied("Live occupancy is unknown; installation is refused."));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             UpdateInstallOutcome outcome = _gateway.InstallUpdates(updateIds, cancellationToken);

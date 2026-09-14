@@ -20,7 +20,10 @@ public enum ShellView
     Find,
 
     /// <summary>Actions waiting for a second person.</summary>
-    Approvals
+    Approvals,
+
+    /// <summary>Supervisor enrollment decisions.</summary>
+    Registrations
 }
 
 /// <summary>Why the main window is asking for a sign-in.</summary>
@@ -55,6 +58,7 @@ public sealed partial class ShellViewModel : ObservableObject
         AuditTabViewModel audit,
         FleetTabViewModel fleet,
         ApprovalsViewModel approvals,
+        RegistrationsViewModel registrations,
         ISessionStore session,
         ILiveRegionAnnouncer announcer)
     {
@@ -65,10 +69,13 @@ public sealed partial class ShellViewModel : ObservableObject
         Audit = audit;
         Fleet = fleet;
         Approvals = approvals;
+        Registrations = registrations;
 
         // The finder is reachable from every screen, so choosing a cabinet in
         // it has to land the same way as choosing one in the list: the detail
         // pane loads, and the shell goes back to showing it.
+
+        Finder.SearchStarted += (_, _) => CurrentView = ShellView.Find;
         Finder.CabinetChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
 
         _session = session;
@@ -91,7 +98,7 @@ public sealed partial class ShellViewModel : ObservableObject
         };
 
         foreach (ObservableViewModelBase screen in
-                 new ObservableViewModelBase[] { Cabinets, Finder, Machine, Audit, Fleet, Approvals })
+                 new ObservableViewModelBase[] { Cabinets, Finder, Machine, Audit, Fleet, Approvals, Registrations })
         {
             WatchForExpiry(screen);
         }
@@ -121,6 +128,8 @@ public sealed partial class ShellViewModel : ObservableObject
     public AuditTabViewModel Audit { get; }
     public FleetTabViewModel Fleet { get; }
     public ApprovalsViewModel Approvals { get; }
+    public RegistrationsViewModel Registrations { get; }
+    public bool CanSeeRegistrations => IsSignedIn && _session.Role == Contracts.Auth.Role.Supervisor;
 
     /// <summary>
     /// Raised when the window needs a sign-in: at start-up, after a sign-out,
@@ -275,6 +284,14 @@ public sealed partial class ShellViewModel : ObservableObject
         _announcer.AnnounceImportant($"Opened {Machine.HeaderPath}.");
     }
 
+    [RelayCommand(CanExecute = nameof(CanSeeRegistrations))]
+    private async Task ShowRegistrationsAsync()
+    {
+        if (!CanSeeRegistrations) return;
+        CurrentView = ShellView.Registrations;
+        await Registrations.LoadAsync();
+    }
+
     [RelayCommand]
     private async Task ShowApprovalsAsync()
     {
@@ -291,7 +308,11 @@ public sealed partial class ShellViewModel : ObservableObject
     [RelayCommand]
     private async Task ShowAuditForSelectedCabinetAsync()
     {
-        if (Cabinets.SelectedCabinet is not { } row)
+        // The loaded Machine header is the viewed identity. Finder can open a
+        // cabinet outside the list's filters, leaving its row selection behind.
+        // Path is cleared during loading, on failure and at sign-out, unlike
+        // CabinetId which also holds an attempted (not yet loaded) selection.
+        if (Machine.Path is not { } path)
         {
             return;
         }
@@ -301,7 +322,7 @@ public sealed partial class ShellViewModel : ObservableObject
         CurrentView = ShellView.Cabinets;
         SelectedTabIndex = 2;
 
-        await Audit.ShowForCabinetAsync(row.Id);
+        await Audit.ShowForCabinetAsync(path.CabinetId);
     }
 
     [RelayCommand]
@@ -315,6 +336,8 @@ public sealed partial class ShellViewModel : ObservableObject
             await Approvals.LoadAsync();
             OnPropertyChanged(nameof(ApprovalBadge));
         }
+
+        if (CanSeeRegistrations && CurrentView == ShellView.Registrations) await Registrations.LoadAsync();
 
         _announcer.Announce($"Refreshed. {Cabinets.PageSummary}. {Approvals.QueueSummary}");
     }
@@ -336,6 +359,7 @@ public sealed partial class ShellViewModel : ObservableObject
         Audit.Deactivate();
         Fleet.Deactivate();
         Approvals.Deactivate();
+        Registrations.Deactivate();
     }
 
     private void EndSession(SignInReason reason)
@@ -346,6 +370,33 @@ public sealed partial class ShellViewModel : ObservableObject
 
         _session.SignOut();
 
+        Machine.Reset();
+        Registrations.Reset();
+        Fleet.Summary = null;
+        Fleet.Sites.Clear();
+        Fleet.StaleCheckIns.Clear();
+        Fleet.PendingUpdates.Clear();
+        Fleet.DrivesNeedingAttention.Clear();
+        Fleet.DiskHealthCounts.Clear();
+        Fleet.CabinetHealthCounts.Clear();
+        Fleet.ClientFilter = Fleet.SiteFilter = string.Empty;
+        Fleet.CabinetsExamined = 0;
+        Fleet.WorklistsTruncated = false;
+        Audit.SelectedCabinet = null;
+        Audit.ActionFilter = null;
+        Audit.Page = 1;
+        Audit.TotalCount = Audit.TotalPages = 0;
+        Audit.Cabinets.Clear();
+        Approvals.SelectedRequest = null;
+        Cabinets.SearchText = string.Empty;
+        Cabinets.ClientFilter = Cabinets.SiteFilter = null;
+        Cabinets.HealthFilter = null;
+        Cabinets.ActiveFilter = true;
+        Cabinets.Page = 1;
+        Cabinets.TotalCount = Cabinets.TotalPages = 0;
+        Finder.ClearSearch();
+        Finder.SelectedClient = null;
+        Cabinets.SelectedCabinet = null;
         Cabinets.Cabinets.Clear();
         Approvals.Queue.Clear();
         Audit.Entries.Clear();
@@ -370,6 +421,7 @@ public sealed partial class ShellViewModel : ObservableObject
     {
         if (cabinetId is not { } id)
         {
+            Machine.Reset();
             return;
         }
 
@@ -433,6 +485,8 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(Role));
         OnPropertyChanged(nameof(CanSeeApprovals));
         OnPropertyChanged(nameof(CanSeeAudit));
+        OnPropertyChanged(nameof(CanSeeRegistrations));
+        ShowRegistrationsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ApprovalBadge));
         OnPropertyChanged(nameof(ApprovalBadgeAccessibleText));
     }

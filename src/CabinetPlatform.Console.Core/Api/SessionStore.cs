@@ -23,6 +23,19 @@ namespace CabinetPlatform.Console.Core.Api;
 public sealed class SessionStore : ISessionStore
 {
     private readonly object _gate = new();
+    private long _generation;
+    public long Generation { get { lock (_gate) { return _generation; } } }
+
+    public bool TryRefreshed(long generation, string expectedRefreshToken, RefreshResponse response)
+    {
+        lock (_gate)
+        {
+            if (_generation != generation || _refreshToken != expectedRefreshToken) return false;
+            Refreshed(response.AccessToken, response.ExpiresAtUtc, response.RefreshToken, response.Role, response.MustChangePassword);
+        }
+        Changed?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
 
     private string? _accessToken;
     private DateTimeOffset? _expiresUtc;
@@ -62,6 +75,7 @@ public sealed class SessionStore : ISessionStore
 
         lock (_gate)
         {
+            _generation++;
             _accessToken = accessToken;
             _expiresUtc = expiresUtc;
             _refreshToken = refreshToken;
@@ -100,6 +114,7 @@ public sealed class SessionStore : ISessionStore
     {
         lock (_gate)
         {
+            _generation++;
             _accessToken = null;
             _expiresUtc = null;
             _refreshToken = null;

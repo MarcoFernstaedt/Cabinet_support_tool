@@ -1,7 +1,8 @@
 <UserControl x:Class="CabinetPlatform.Console.Views.FleetTabView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="{DynamicResource Surface.Brush}">
+             Background="{DynamicResource Surface.Brush}"
+             Foreground="{DynamicResource Text.Brush}">
 
     <UserControl.Resources>
         <!--
@@ -110,6 +111,57 @@
                         </TextBlock>
                     </StackPanel>
                 </Border>
+
+                <TextBlock Text="All cabinets by site"
+                           Style="{StaticResource SectionHeading}"
+                           Margin="0,12,0,4"
+                           AutomationProperties.HeadingLevel="Level3" />
+                <TextBlock Text="Active and inactive cabinets under the applied client and site filters. Expand a site to open a cabinet. Use Find cabinet above to look up any cabinet by name, serial number or cabinet id."
+                           Style="{StaticResource ExplanationText}"
+                           Foreground="{DynamicResource Text.Subtle.Brush}"
+                           Margin="0,0,0,6" />
+                <ItemsControl ItemsSource="{Binding Sites}"
+                              AutomationProperties.Name="Fleet cabinets grouped by client and site">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Expander Margin="0,0,0,6"
+                                      AutomationProperties.Name="{Binding AccessibleSummary}">
+                                <Expander.Header>
+                                    <TextBlock Text="{Binding Headline}" TextWrapping="Wrap" />
+                                </Expander.Header>
+                                <DataGrid ItemsSource="{Binding Cabinets}"
+                                          Style="{StaticResource WorklistGrid}"
+                                          AutomationProperties.Name="{Binding AccessibleSummary}">
+                                    <DataGrid.Columns>
+                                        <DataGridTemplateColumn Header="Open" Width="Auto">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <Button Content="Open cabinet"
+                                                            Command="{Binding DataContext.Finder.ChooseCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                            CommandParameter="{Binding Id}"
+                                                            AutomationProperties.Name="{Binding AccessibleSummary}" />
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                        <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="*" />
+                                        <DataGridTextColumn Header="Role" Binding="{Binding RoleLabel}" Width="Auto" />
+                                        <DataGridTextColumn Header="Active" Binding="{Binding ActiveLabel}" Width="Auto" />
+                                        <DataGridTemplateColumn Header="Health" Width="Auto" SortMemberPath="Summary.Health">
+                                            <DataGridTemplateColumn.CellTemplate>
+                                                <DataTemplate>
+                                                    <ContentPresenter Content="{Binding Health}"
+                                                                      ContentTemplate="{StaticResource StatusTemplate}" />
+                                                </DataTemplate>
+                                            </DataGridTemplateColumn.CellTemplate>
+                                        </DataGridTemplateColumn>
+                                        <DataGridTextColumn Header="Last check-in" Binding="{Binding LastCheckInAge}"
+                                                            SortMemberPath="Summary.LastCheckInUtc" Width="Auto" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Expander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
 
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>

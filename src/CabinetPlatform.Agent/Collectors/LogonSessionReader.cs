@@ -47,10 +47,9 @@ public sealed class LogonSessionReader
         foreach (var session in sessions)
         {
             var logonId = session.GetString("LogonId");
-            if (!string.IsNullOrWhiteSpace(logonId))
-            {
-                interactiveLogonIds.Add(logonId);
-            }
+            if (string.IsNullOrWhiteSpace(logonId))
+                throw new InvalidOperationException("An interactive logon session has no readable identity.");
+            interactiveLogonIds.Add(logonId);
         }
 
         if (interactiveLogonIds.Count == 0)

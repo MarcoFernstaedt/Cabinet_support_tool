@@ -8,6 +8,22 @@ namespace CabinetPlatform.Agent.Platform;
 /// </summary>
 public interface IEventLogReader
 {
+    /// <summary>Discovers local event channels without changing their configuration.</summary>
+    /// <remarks>Older implementations explicitly report discovery as unavailable.</remarks>
+    EventChannelDiscoveryResult DiscoverChannels(CancellationToken cancellationToken)
+        => new();
+
+    /// <summary>Detailed view result. Legacy test/platform adapters retain their record-only implementation.</summary>
+    EventLogViewResultDto RunViewResult(EventLogViewDefinition definition, CancellationToken cancellationToken)
+    {
+        var entries = RunView(definition, cancellationToken);
+        return new EventLogViewResultDto
+        {
+            ViewId = definition.ViewId, ViewDisplayName = definition.DisplayName, WindowHours = definition.WindowHours,
+            Entries = entries, Truncated = entries.Count >= definition.MaximumEntries
+        };
+    }
+
     /// <summary>
     /// Reads up to <paramref name="maximumEntries"/> records from one log,
     /// newest first, restricted to the given levels and time window.

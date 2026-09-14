@@ -122,9 +122,12 @@ public sealed partial class CabinetFinderViewModel : ObservableViewModelBase
     public event EventHandler<Guid>? CabinetChosen;
 
     /// <summary>Runs the search for the current term.</summary>
+    public event EventHandler? SearchStarted;
+
     [RelayCommand]
     public async Task SearchAsync()
     {
+        SearchStarted?.Invoke(this, EventArgs.Empty);
         Page = 1;
         await LoadResultsAsync();
     }

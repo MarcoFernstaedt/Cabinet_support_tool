@@ -210,6 +210,7 @@ public partial class App : Application
         services.AddSingleton<AuditTabViewModel>();
         services.AddSingleton<FleetTabViewModel>();
         services.AddSingleton<ApprovalsViewModel>();
+        services.AddSingleton<RegistrationsViewModel>();
         services.AddSingleton<ShellViewModel>();
     }
 

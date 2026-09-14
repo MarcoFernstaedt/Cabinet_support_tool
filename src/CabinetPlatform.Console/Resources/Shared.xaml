@@ -8,12 +8,29 @@
     <conv:NullToVisibilityConverter x:Key="NullToVisibility" />
     <conv:StatusToTextConverter x:Key="StatusToText" />
 
+    <!-- Only the focus adorner is templated. Native controls and UIA peers stay intact.
+         Two strokes remain visible on both the navy canvas and native light chrome. -->
+    <Style x:Key="KeyboardFocusVisual" TargetType="Control">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Control">
+                    <Border BorderBrush="{DynamicResource Surface.Brush}" BorderThickness="1" Margin="-3" IsHitTestVisible="False">
+                        <Border BorderBrush="{DynamicResource Focus.Brush}" BorderThickness="2" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!--
         Every column header gets its text as its automation name. Done once here
         rather than column by column, because the column the one person forgets
         is the column a screen reader announces as "column 7".
     -->
     <Style x:Key="AccessibleColumnHeader" TargetType="DataGridColumnHeader">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
         <Setter Property="AutomationProperties.Name"
                 Value="{Binding Content, RelativeSource={RelativeSource Self}}" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -28,6 +45,33 @@
     -->
     <Style x:Key="AccessibleRow" TargetType="DataGridRow">
         <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleSummary}" />
+        <Setter Property="Background" Value="{DynamicResource Surface.Brush}" />
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Style.Triggers>
+            <!-- An outline, not only a fill color, identifies selected rows. -->
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Focus.Brush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="DataGridCell">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+        <Style.Triggers>
+            <!-- Keep status-template text readable too; native highlight fills
+                 would otherwise sit behind locally colored status text. -->
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Surface.Alt.Brush}" />
+                <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Surface.Alt.Brush}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                <Setter Property="BorderBrush" Value="{DynamicResource Focus.Brush}" />
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <Style x:Key="AccessibleDataGrid" TargetType="DataGrid">
@@ -89,6 +133,10 @@
     </Style>
 
     <Style TargetType="Button">
+        <!-- Preserve paired system colors for native hover/pressed chrome. -->
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
         <Setter Property="Padding" Value="12,6" />
         <Setter Property="Margin" Value="0,0,8,0" />
         <Setter Property="MinWidth" Value="96" />
@@ -96,13 +144,49 @@
     </Style>
 
     <Style TargetType="TextBox">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Surface.Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Border.Brush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
         <Setter Property="Padding" Value="6,4" />
         <Setter Property="MinHeight" Value="28" />
     </Style>
 
     <Style TargetType="ComboBox">
+        <!-- Preserve paired system colors for native hover/pressed chrome. -->
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
         <Setter Property="Padding" Value="6,4" />
         <Setter Property="MinHeight" Value="28" />
+    </Style>
+
+    <!-- Native navigation/selection templates remain in charge of their chrome. -->
+    <Style TargetType="TabItem">
+        <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+        <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+    </Style>
+    <Style TargetType="PasswordBox">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="Background" Value="{DynamicResource Surface.Brush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Border.Brush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="Padding" Value="6,4" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+    </Style>
+    <Style TargetType="Label">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+    </Style>
+    <Style TargetType="CheckBox">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
+    </Style>
+    <Style TargetType="Expander">
+        <Setter Property="Foreground" Value="{DynamicResource Text.Brush}" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource KeyboardFocusVisual}" />
     </Style>
 
     <!--
@@ -147,9 +231,9 @@
                     AutomationProperties.Name="{Binding AccessibleText}">
             <TextBlock Text="{Binding Glyph}"
                        Style="{StaticResource SeverityGlyph}"
-                       AutomationProperties.AccessibilityView="Raw" />
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
             <TextBlock Text="{Binding Label}"
-                       AutomationProperties.AccessibilityView="Raw"
+                       AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}"
                        Foreground="{DynamicResource Text.Brush}" />
         </StackPanel>
     </DataTemplate>

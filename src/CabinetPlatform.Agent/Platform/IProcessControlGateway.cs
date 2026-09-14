@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using CabinetPlatform.Contracts.Actions;
 
 namespace CabinetPlatform.Agent.Platform;
 
@@ -14,7 +15,7 @@ namespace CabinetPlatform.Agent.Platform;
 /// one sitting.
 /// </para>
 /// <para>
-/// Everything here goes through <see cref="Process"/>. Nothing shells out to
+/// Operations use <see cref="Process"/> or retained Windows process handles. Nothing shells out to
 /// <c>taskkill</c>, and nothing ever will: handing the agent a general
 /// mechanism for launching programs with arguments would undo the property the
 /// whole design rests on, which is that the agent has no such mechanism.
@@ -27,9 +28,8 @@ public interface IProcessControlGateway
     /// process holds that id.
     /// </summary>
     /// <remarks>
-    /// The whole reason a kill-by-id carries an expected name. Ids are reused
-    /// within minutes on a busy machine, so this is read immediately before
-    /// acting and compared with what the request believed.
+    /// Observation only. A separate name read cannot safely authorize a later
+    /// kill by PID. Selected-process termination must use <see cref="KillSelected"/>.
     /// </remarks>
     /// <param name="processId">The process id.</param>
     string? GetProcessName(int processId);
@@ -39,12 +39,16 @@ public interface IProcessControlGateway
     IReadOnlyList<int> GetProcessIds(string processName);
 
     /// <summary>
-    /// Ends one process and waits for it to exit.
+    /// Legacy bulk-action operation. Ends a process tree and waits for exit.
     /// </summary>
+    /// <remarks>Not suitable for a selected process. Use <see cref="KillSelected"/> for identity binding.</remarks>
     /// <param name="processId">The process id.</param>
     /// <param name="timeout">How long to wait for the exit.</param>
     /// <returns>True when the process is gone.</returns>
     bool Kill(int processId, TimeSpan timeout);
+
+    /// <summary>Checks the selected identity and terminates only that process through one retained handle.</summary>
+    bool KillSelected(ProcessSelectionIdentity expected, TimeSpan timeout, CancellationToken cancellationToken);
 
     /// <summary>Starts an executable with no arguments and returns its process id.</summary>
     /// <remarks>
@@ -71,6 +75,58 @@ public interface IProcessControlGateway
 /// </summary>
 public sealed class ProcessControlGateway : IProcessControlGateway
 {
+    private readonly ISelectedProcessHandleFactory _selectedHandles;
+
+    /// <summary>Creates the native Windows gateway.</summary>
+    public ProcessControlGateway() : this(new WindowsSelectedProcessHandleFactory()) { }
+
+    /// <summary>Creates a gateway with an injectable process-object boundary.</summary>
+    public ProcessControlGateway(ISelectedProcessHandleFactory selectedHandles) => _selectedHandles = selectedHandles;
+
+    /// <inheritdoc />
+    public bool KillSelected(ProcessSelectionIdentity expected, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (timeout <= TimeSpan.Zero || timeout > TimeSpan.FromSeconds(30))
+        {
+            throw new ArgumentOutOfRangeException(nameof(timeout), "Exit wait must be greater than zero and at most 30 seconds.");
+        }
+        if (expected.ProcessId <= 0 || expected.ProcessId == 4 || expected.ProcessId == CurrentProcessId ||
+            expected.CreationTimeFileTime <= 0 || string.IsNullOrWhiteSpace(expected.ProcessName) ||
+            !ProcessSelectionIdentity.IsValidExecutablePath(expected.ExecutablePath))
+        {
+            throw new ArgumentException("A complete, non-protected selected process identity is required.", nameof(expected));
+        }
+        using ISelectedProcessHandle handle = _selectedHandles.Open(expected.ProcessId);
+        ProcessSelectionIdentity observed = handle.Identity;
+        if (expected.ProcessId != observed.ProcessId ||
+            expected.CreationTimeFileTime != observed.CreationTimeFileTime ||
+            !string.Equals(expected.ExecutablePath, observed.ExecutablePath, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(Actions.ProcessTargetPolicy.Normalise(expected.ProcessName),
+                Actions.ProcessTargetPolicy.Normalise(observed.ProcessName), StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProcessIdentityMismatchException();
+        }
+
+        if (handle.IsCritical)
+        {
+            throw new InvalidOperationException("Windows marks the selected process critical. Nothing was ended.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        handle.Terminate();
+        try
+        {
+            return handle.WaitForExit(timeout);
+        }
+        catch (Exception e)
+        {
+            // TerminateProcess has already succeeded. Even cancellation or a
+            // native wait failure cannot honestly be described as no effect.
+            throw new ProcessExitUnconfirmedException(e);
+        }
+    }
+
     /// <inheritdoc />
     public int CurrentProcessId => Environment.ProcessId;
 

@@ -1,0 +1,2 @@
+# Treat the standard Windows solution line ending as valid whitespace.
+*.sln text eol=crlf whitespace=cr-at-eol

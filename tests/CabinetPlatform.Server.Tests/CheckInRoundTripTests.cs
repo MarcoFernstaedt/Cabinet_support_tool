@@ -321,6 +321,12 @@ public sealed class CheckInRoundTripTests : IClassFixture<SupportApiFactory>
                 {
                     Name = "CubexDispense.exe",
                     Pid = 4812,
+                    SelectionIdentity = new CabinetPlatform.Contracts.Actions.ProcessSelectionIdentity
+                    {
+                        ProcessId = 4812, ProcessName = "CubexDispense.exe",
+                        CreationTimeFileTime = 133700000000000001,
+                        ExecutablePath = @"C:\Synthetic\CubexDispense.exe",
+                    },
                     CpuPercent = 3.5,
                     WorkingSetBytes = 284_000_000,
                     ThreadCount = 42,
@@ -394,6 +400,7 @@ public sealed class CheckInRoundTripTests : IClassFixture<SupportApiFactory>
             new EventLogEntry
             {
                 LogName = EventLogName.System,
+                ChannelName = "System",
                 Source = "Service Control Manager",
                 EventId = 7034,
                 Level = EventLogLevel.Error,

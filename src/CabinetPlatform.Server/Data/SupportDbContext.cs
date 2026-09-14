@@ -116,6 +116,8 @@ public class SupportDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
             e.Property(x => x.TokenHash).IsRequired();
             e.Property(x => x.RevokedReason).HasMaxLength(256);
+            e.Property(x => x.ConsumedUtc).IsConcurrencyToken();
+            e.Property(x => x.RevokedUtc).IsConcurrencyToken();
 
             // The refresh path looks a token up by its hash and nothing else.
             e.HasIndex(x => x.TokenHash).IsUnique();

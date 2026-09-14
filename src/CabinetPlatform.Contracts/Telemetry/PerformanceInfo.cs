@@ -47,6 +47,9 @@ public sealed record PerformanceInfo
 /// </summary>
 public sealed record ProcessInfo
 {
+    /// <summary>Complete observed process identity, or null when inspection was unavailable.</summary>
+    public Actions.ProcessSelectionIdentity? SelectionIdentity { get; init; }
+
     /// <summary>Process image name, without path.</summary>
     public required string Name { get; init; }
 

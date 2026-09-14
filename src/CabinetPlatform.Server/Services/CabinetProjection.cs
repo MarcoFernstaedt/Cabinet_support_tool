@@ -25,6 +25,8 @@ namespace CabinetPlatform.Server.Services;
 /// </remarks>
 public interface ICabinetProjection
 {
+    IQueryable<Cabinet> FilterByHealth(IQueryable<Cabinet> cabinets, CabinetHealthStatus health, DateTimeOffset nowUtc);
+
     /// <summary>
     /// Projects a page of cabinets, newest heartbeat per cabinet, in one round
     /// trip.
@@ -52,6 +54,35 @@ public sealed class CabinetProjection : ICabinetProjection
     }
 
     /// <inheritdoc />
+    public IQueryable<Cabinet> FilterByHealth(IQueryable<Cabinet> cabinets, CabinetHealthStatus health, DateTimeOffset nowUtc)
+    {
+        var offlineBefore = nowUtc.AddMinutes(-_ingest.OfflineAfterMinutes);
+        double criticalDrift = HealthEvaluator.CriticalClockDrift.TotalSeconds;
+        double warningDrift = HealthEvaluator.WarningClockDrift.TotalSeconds;
+        // Keep the priority order identical to HealthEvaluator: unavailable,
+        // offline, critical, warning, healthy. All operations translate to SQL.
+        return cabinets.Where(c =>
+            (!c.IsActive || c.LastCheckInUtc == null ? CabinetHealthStatus.Unknown :
+             c.LastCheckInUtc < offlineBefore ? CabinetHealthStatus.Offline :
+             _db.Heartbeats.Where(h => h.CabinetId == c.Id)
+                .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
+                .Select(h => (CabinetHealthStatus?)(
+                    h.WorstDiskHealth == DiskHealthStatus.Failing ||
+                    h.MinFreeDiskPercent <= HealthEvaluator.CriticalFreeDiskPercent ||
+                    h.RamUsedPercent >= HealthEvaluator.CriticalRamPercent ||
+                    h.ClockDriftSeconds >= criticalDrift || h.ClockDriftSeconds <= -criticalDrift
+                        ? CabinetHealthStatus.Critical :
+                    h.WorstDiskHealth == DiskHealthStatus.Watch ||
+                    h.MinFreeDiskPercent <= HealthEvaluator.WarningFreeDiskPercent ||
+                    h.RamUsedPercent >= HealthEvaluator.WarningRamPercent ||
+                    h.CpuPercent >= HealthEvaluator.WarningCpuPercent ||
+                    h.PendingUpdateCount >= HealthEvaluator.WarningPendingUpdates ||
+                    h.ClockDriftSeconds >= warningDrift || h.ClockDriftSeconds <= -warningDrift
+                        ? CabinetHealthStatus.Warning : CabinetHealthStatus.Healthy))
+                .FirstOrDefault() ?? CabinetHealthStatus.Healthy) == health);
+    }
+
+    /// <inheritdoc />
     public async Task<List<CabinetSummary>> ProjectAsync(
         IQueryable<Cabinet> cabinets, DateTimeOffset nowUtc, CancellationToken ct)
     {
@@ -65,7 +96,7 @@ public sealed class CabinetProjection : ICabinetProjection
                 ClientName = c.Site!.Client!.Name,
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
-                    .OrderByDescending(h => h.ReceivedUtc)
+                    .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
                     .Select(h => new
                     {
                         h.CpuPercent,

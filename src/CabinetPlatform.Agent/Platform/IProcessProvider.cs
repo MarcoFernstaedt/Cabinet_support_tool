@@ -7,6 +7,9 @@ public sealed record ProcessSnapshot
 
     public required string Name { get; init; }
 
+    /// <summary>Identity from one retained read-only handle, or null when unavailable.</summary>
+    public CabinetPlatform.Contracts.Actions.ProcessSelectionIdentity? SelectionIdentity { get; init; }
+
     public long? WorkingSetBytes { get; init; }
 
     public int? ThreadCount { get; init; }

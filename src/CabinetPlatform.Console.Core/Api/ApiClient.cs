@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CabinetPlatform.Contracts.Actions;
+using CabinetPlatform.Contracts.Registrations;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
@@ -19,6 +20,7 @@ public sealed class ApiClient : IApiClient
 
     private readonly HttpClient _http;
     private readonly ISessionStore _session;
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ISessionStore, SemaphoreSlim> RefreshGates = new();
 
     public ApiClient(HttpClient http, ISessionStore session)
     {
@@ -66,6 +68,18 @@ public sealed class ApiClient : IApiClient
 
     public Task<UserDto> GetCurrentUserAsync(CancellationToken ct) =>
         GetAsync<UserDto>("api/auth/me", ct);
+
+    // --- Enrollment ------------------------------------------------------
+
+    public Task<PagedResult<PendingRegistrationDto>> GetRegistrationsAsync(RegistrationQuery query, CancellationToken ct) =>
+        GetAsync<PagedResult<PendingRegistrationDto>>("api/registrations/pending" + new QueryString()
+            .Add("status", query.Status).Add("page", query.Page).Add("pageSize", query.PageSize), ct);
+
+    public Task<PendingRegistrationDto> ApproveRegistrationAsync(Guid id, ApproveRegistrationRequest request, CancellationToken ct) =>
+        PostAsync<ApproveRegistrationRequest, PendingRegistrationDto>($"api/registrations/{id:D}/approve", request, isLogin: false, ct);
+
+    public Task RejectRegistrationAsync(Guid id, RejectRegistrationRequest request, CancellationToken ct) =>
+        PostAsync($"api/registrations/{id:D}/reject", request, ct);
 
     // --- Cabinets --------------------------------------------------------
 
@@ -215,6 +229,10 @@ public sealed class ApiClient : IApiClient
             "api/search/recent" + new QueryString().Add("limit", limit), ct);
 
     /// <inheritdoc />
+    public Task<EventLogViewDto> CreateEventLogViewAsync(CreateEventLogViewRequest request, CancellationToken ct) =>
+        PostAsync<CreateEventLogViewRequest, EventLogViewDto>("api/event-log-views", request, isLogin: false, ct);
+
+    /// <inheritdoc />
     public Task<PagedResult<EventLogViewDto>> GetEventLogViewsAsync(
         EventLogViewQuery query, CancellationToken ct)
     {
@@ -333,27 +351,29 @@ public sealed class ApiClient : IApiClient
     private async Task<HttpResponseMessage> SendWithRefreshAsync(
         Func<HttpRequestMessage> requestFactory, CancellationToken ct)
     {
+        long generation = _session.Generation;
+        string? access = _session.AccessToken;
         HttpResponseMessage response = await SendAsync(requestFactory, ct);
+        if (response.StatusCode != HttpStatusCode.Unauthorized) return response;
 
-        if (response.StatusCode != HttpStatusCode.Unauthorized || _session.RefreshToken is not { } refresh)
+        var gate = RefreshGates.GetValue(_session, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try
         {
-            return response;
-        }
-
-        response.Dispose();
-
-        if (!await TryRefreshAsync(refresh, ct))
-        {
-            // The session is over. Clearing it is what makes the shell show the
-            // sign-in screen rather than a wall of refusals.
-            _session.SignOut();
+            if (generation != _session.Generation) return response;
+            if (access == _session.AccessToken)
+            {
+                if (_session.RefreshToken is not { } refresh ||
+                    !await TryRefreshAsync(generation, refresh, ct)) return response;
+            }
+            if (generation != _session.Generation) return response;
+            response.Dispose();
             return await SendAsync(requestFactory, ct);
         }
-
-        return await SendAsync(requestFactory, ct);
+        finally { gate.Release(); }
     }
 
-    private async Task<bool> TryRefreshAsync(string refreshToken, CancellationToken ct)
+    private async Task<bool> TryRefreshAsync(long generation, string refreshToken, CancellationToken ct)
     {
         using HttpResponseMessage response = await SendAsync(
             () => new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh")
@@ -374,14 +394,7 @@ public sealed class ApiClient : IApiClient
             return false;
         }
 
-        _session.Refreshed(
-            refreshed.AccessToken,
-            refreshed.ExpiresAtUtc,
-            refreshed.RefreshToken,
-            refreshed.Role,
-            refreshed.MustChangePassword);
-
-        return true;
+        return _session.TryRefreshed(generation, refreshToken, refreshed);
     }
 
     private async Task<TResponse> PostAsync<TRequest, TResponse>(
@@ -475,7 +488,8 @@ public sealed class ApiClient : IApiClient
 
         try
         {
-            T? value = await response.Content.ReadFromJsonAsync<T>(Json, ct);
+            T? value = await ReadResponseBodyAsync(
+                () => response.Content.ReadFromJsonAsync<T>(Json, ct), ct);
 
             if (value is null)
             {
@@ -497,6 +511,34 @@ public sealed class ApiClient : IApiClient
         }
     }
 
+    // ResponseHeadersRead completes SendAsync before any body is consumed.
+    // Normalize faults at this separate boundary without retrying a possible write.
+    private static async Task<T> ReadResponseBodyAsync<T>(Func<Task<T>> read, CancellationToken ct)
+    {
+        try
+        {
+            T value = await read();
+            ct.ThrowIfCancellationRequested();
+            return value;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new ApiException(ApiFailure.Unreachable,
+                "The server response did not arrive in time. The operation may already have completed.", inner: ex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or IOException)
+        {
+            ct.ThrowIfCancellationRequested();
+            throw new ApiException(ApiFailure.Unreachable,
+                "The connection was lost while reading the server response. The operation may already have completed.",
+                inner: ex);
+        }
+    }
+
     /// <summary>
     /// Maps a failure response to an <see cref="ApiException"/>, preferring the
     /// server's own <c>ProblemDetails.detail</c> as the message.
@@ -505,7 +547,7 @@ public sealed class ApiClient : IApiClient
         HttpResponseMessage response, bool isLogin, CancellationToken ct)
     {
         int status = (int)response.StatusCode;
-        string? detail = await TryReadProblemDetailAsync(response, ct);
+        string? detail = await ReadResponseBodyAsync(() => TryReadProblemDetailAsync(response, ct), ct);
 
         ApiFailure failure = status switch
         {
@@ -615,7 +657,7 @@ public sealed class ApiClient : IApiClient
 
             return null;
         }
-        catch (Exception ex) when (ex is JsonException or NotSupportedException or IOException)
+        catch (JsonException)
         {
             // A body that is not ProblemDetails — an HTML error page from a
             // proxy, most likely. The status code still classifies the failure.

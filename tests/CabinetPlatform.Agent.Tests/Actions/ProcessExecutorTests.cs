@@ -159,6 +159,77 @@ public class ProcessTargetPolicyTests
 public class ProcessExecutorTests
 {
     [Fact]
+    public async Task A_name_only_selection_is_denied_without_ending_any_process()
+    {
+        var processes = new StubProcessControlGateway();
+        processes.Names[902] = "notepad";
+
+        ActionOutcome outcome = await KillExecutor(processes)
+            .ExecuteAsync(Request(ActionName.KillProcess, new Dictionary<string, string>
+            {
+                [ActionParameterKeys.ProcessId] = "902",
+                [ActionParameterKeys.ExpectedProcessName] = "notepad",
+            }), CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Denied, outcome.Status);
+        Assert.Empty(processes.Killed);
+    }
+
+    [Theory]
+    [InlineData("not-a-time")]
+    [InlineData("0")]
+    [InlineData("-1")]
+    [InlineData("9223372036854775808")]
+    public async Task A_malformed_creation_time_is_denied(string creation)
+    {
+        var processes = new StubProcessControlGateway();
+        processes.Names[902] = "notepad";
+        var parameters = KillRequest(902, "notepad").Parameters.ToDictionary(p => p.Key, p => p.Value);
+        parameters[ActionParameterKeys.ExpectedCreationTimeFileTime] = creation;
+
+        ActionOutcome outcome = await KillExecutor(processes)
+            .ExecuteAsync(Request(ActionName.KillProcess, parameters), CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Denied, outcome.Status);
+        Assert.Empty(processes.Killed);
+    }
+
+    [Fact]
+    public async Task Selected_termination_does_not_make_an_unbound_pid_lookup()
+    {
+        var processes = new StubProcessControlGateway { ThrowOnNameRead = true };
+        processes.Names[902] = "notepad";
+        ActionOutcome outcome = await KillExecutor(processes)
+            .ExecuteAsync(KillRequest(902, "notepad"), CancellationToken.None);
+        Assert.Equal(ActionStatus.Succeeded, outcome.Status);
+        Assert.Equal(new[] { 902 }, processes.Killed);
+    }
+
+    [Fact]
+    public async Task A_selected_process_timeout_is_not_reported_as_success()
+    {
+        var processes = new StubProcessControlGateway { RefuseToDie = true };
+        processes.Names[902] = "notepad";
+        ActionOutcome outcome = await KillExecutor(processes)
+            .ExecuteAsync(KillRequest(902, "notepad"), CancellationToken.None);
+        Assert.Equal(ActionStatus.Failed, outcome.Status);
+        Assert.Contains("not confirmed", outcome.Output!, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_reused_id_with_the_same_name_must_not_end_the_replacement()
+    {
+        var processes = new StubProcessControlGateway { CreationTimeFileTime = 133700000000000001 };
+        processes.Names[902] = "notepad";
+
+        ActionOutcome outcome = await KillExecutor(processes)
+            .ExecuteAsync(KillRequest(902, "notepad"), CancellationToken.None);
+
+        Assert.Equal(ActionStatus.Denied, outcome.Status);
+        Assert.Empty(processes.Killed);
+    }
+
+    [Fact]
     public async Task A_kill_by_id_is_refused_when_the_id_now_belongs_to_something_else()
     {
         // The whole reason a kill carries an expected name. Windows reuses
@@ -172,7 +243,7 @@ public class ProcessExecutorTests
             .ExecuteAsync(KillRequest(900, "notepad"), CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, outcome.Status);
-        Assert.Contains("not 'notepad'", outcome.Output!, StringComparison.Ordinal);
+        Assert.Contains("identity no longer matches", outcome.Output!, StringComparison.Ordinal);
         Assert.Empty(processes.Killed);
     }
 
@@ -351,6 +422,8 @@ public class ProcessExecutorTests
         {
             [ActionParameterKeys.ProcessId] = pid.ToString(),
             [ActionParameterKeys.ExpectedProcessName] = expectedName,
+            [ActionParameterKeys.ExpectedCreationTimeFileTime] = "133700000000000000",
+            [ActionParameterKeys.ExpectedExecutablePath] = @"C:\Apps\notepad.exe",
         });
 
     private static ActionRequestDto NameRequest(string name) => Request(
@@ -377,6 +450,23 @@ public class ProcessExecutorTests
 /// <summary>A process table a test controls.</summary>
 internal sealed class StubProcessControlGateway : IProcessControlGateway
 {
+    public long CreationTimeFileTime { get; set; } = 133700000000000000;
+    public bool ThrowOnNameRead { get; set; }
+    public string ExecutablePath { get; set; } = @"C:\Apps\notepad.exe";
+    public bool KillSelected(ProcessSelectionIdentity expected, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Names.TryGetValue(expected.ProcessId, out string? name))
+        {
+            throw new InvalidOperationException("The process has already exited.");
+        }
+        if (expected.CreationTimeFileTime != CreationTimeFileTime || expected.ExecutablePath != ExecutablePath ||
+            !string.Equals(expected.ProcessName, name, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ProcessIdentityMismatchException();
+        }
+        return Kill(expected.ProcessId, timeout);
+    }
     /// <summary>Process id to image name.</summary>
     public Dictionary<int, string> Names { get; } = new();
 
@@ -399,7 +489,9 @@ internal sealed class StubProcessControlGateway : IProcessControlGateway
     public string CurrentProcessName { get; set; } = "CabinetPlatform.Agent";
 
     /// <inheritdoc />
-    public string? GetProcessName(int processId) => Names.GetValueOrDefault(processId);
+    public string? GetProcessName(int processId) => ThrowOnNameRead
+        ? throw new InvalidOperationException("Unbound PID lookup is forbidden in this test.")
+        : Names.GetValueOrDefault(processId);
 
     /// <inheritdoc />
     public IReadOnlyList<int> GetProcessIds(string processName) => Names

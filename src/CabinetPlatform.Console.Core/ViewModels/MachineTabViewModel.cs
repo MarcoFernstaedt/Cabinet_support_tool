@@ -43,6 +43,49 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private IReadOnlyList<ActionCatalogEntryDto> _catalogue = Array.Empty<ActionCatalogEntryDto>();
     private CabinetDetailDto? _latest;
+    private int _generation;
+    private Guid? _appliedProcessActionId;
+    public ObservableCollection<ActionRow> ActionHistory { get; } = new();
+    [ObservableProperty] private ActionRow? _selectedAction;
+    [ObservableProperty] private string _actionHistoryNote = "Refresh to retrieve action status and results.";
+
+    [RelayCommand]
+    private async Task RefreshActionsAsync()
+    {
+        if (CabinetId is not { } cabinetId || _latest is null) return;
+        var generation = _generation;
+        var page = await RunAsync(ct => _api.GetActionsAsync(new ActionQuery { CabinetId = cabinetId, PageSize = 100 }, ct));
+        if (generation != _generation || page is null) return;
+        ActionHistory.Clear();
+        foreach (var action in page.Items.OrderByDescending(a => a.RequestedUtc))
+            ActionHistory.Add(new ActionRow(action, _session.UserId, _timeProvider.GetUtcNow()));
+        SelectedAction = ActionHistory.FirstOrDefault();
+        ActionHistoryNote = page.HasMore
+            ? "Showing the latest 100 requests. Older requests are not shown. Refresh to check completion."
+            : "Refresh to check completion. Accepted or dispatched does not mean executed.";
+        foreach (var group in page.Items.Where(a => a.CompletedUtc is not null &&
+                         a.ResultStatus == ActionStatus.Succeeded &&
+                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView)
+                     .OrderByDescending(a => a.RequestedUtc).GroupBy(a => a.Action))
+        {
+            foreach (var action in group)
+            {
+                if (generation != _generation) return;
+                if (!await TryApplyActionResultAsync(action.Id)) continue;
+                if (generation != _generation) return;
+                ActionHistoryNote += $" Last successful {action.Action} snapshot: {action.Id}, " +
+                    $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
+                break;
+            }
+        }
+    }
+
+    public bool CanAct => !IsLoading && _latest is not null && Path is not null;
+
+    protected override void OnLoadingChanged(bool isLoading)
+    {
+        foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();
+    }
 
     /// <summary>
     /// Set while sections are being rebuilt, so selecting the first drive during
@@ -63,6 +106,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         _invoker = invoker;
         _session = session;
         _timeProvider = timeProvider;
+        EventLogs.ConfigureViewCreation(api, session);
 
         Sections = new ObservableCollection<MachineSectionViewModel>
         {
@@ -175,7 +219,11 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// </remarks>
     public async Task LoadAsync(Guid cabinetId)
     {
+        var generation = ++_generation;
+        _latest = null;
+        ClearSections();
         CabinetId = cabinetId;
+        CabinetDetailDto? latest = null;
 
         bool loaded = await RunAsync(async ct =>
         {
@@ -195,8 +243,11 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                     .Items);
             }
 
-            _latest = await _api.GetCabinetLatestAsync(cabinetId, ct);
+            latest = await _api.GetCabinetLatestAsync(cabinetId, ct);
         });
+
+        if (generation != _generation) return;
+        _latest = latest;
 
         if (!loaded)
         {
@@ -217,6 +268,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         // after the rest of the cabinet had rendered.
         PendingHistoryLoad = LoadSmartHistoryAsync();
         await PendingHistoryLoad;
+        if (generation == _generation) await RefreshActionsAsync();
     }
 
     /// <summary>
@@ -272,7 +324,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     }
 
     /// <summary>Whether there is a sync cabinet to test the link to.</summary>
-    public bool CanTestSyncLink => Overview.CanTestSyncLink;
+    public bool CanTestSyncLink => CanAct && Overview.CanTestSyncLink;
 
     /// <summary>
     /// Re-reads one action and, if it has finished and collected something,
@@ -295,9 +347,11 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// <param name="actionId">The action to re-read.</param>
     public async Task<bool> TryApplyActionResultAsync(Guid actionId)
     {
+        var generation = _generation;
         ActionRequestView? action = await RunAsync(ct => _api.GetActionAsync(actionId, ct));
 
-        if (action?.CollectedData is not { Length: > 0 } collected)
+        if (generation != _generation || action?.CabinetId != CabinetId ||
+            action?.CompletedUtc is null || action?.CollectedData is not { Length: > 0 } collected)
         {
             return false;
         }
@@ -311,29 +365,39 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                         JsonSerializer.Deserialize<IReadOnlyList<ProcessInfo>>(
                             collected, ContractJson.Default);
 
-                    if (processes is not null)
+                    // JSON permits null array elements even when the CLR element
+                    // type is non-nullable. Reject the whole snapshot before any
+                    // section state is changed, rather than rendering partial data.
+                    if (processes is not null && processes.All(p => p is not null))
                     {
+                        // A status-only refresh of the same immutable result must
+                        // not clear the operator's row selection. A full load clears
+                        // CollectedUtc, and a new result has a new action identity.
+                        if (_appliedProcessActionId == action.Id && Processes.CollectedUtc == action.CompletedUtc)
+                            return true;
                         Processes.ApplyProcesses(
                             processes, action.CompletedUtc ?? _timeProvider.GetUtcNow());
+                        _appliedProcessActionId = action.Id;
                         Announcer.Announce(Processes.Summarise());
                         return true;
                     }
 
-                    return false;
+                    return UnreadableResult(action.Id);
 
                 case ActionName.RunEventLogView:
                     EventLogViewResultDto? result =
                         JsonSerializer.Deserialize<EventLogViewResultDto>(
                             collected, ContractJson.Default);
 
-                    if (result is not null)
+                    if (result is not null && result.Entries is not null &&
+                        result.Entries.All(entry => entry is not null))
                     {
                         EventLogs.ApplyResult(result);
                         Announcer.Announce(EventLogs.Summarise());
                         return true;
                     }
 
-                    return false;
+                    return UnreadableResult(action.Id);
 
                 default:
                     return false;
@@ -344,8 +408,16 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             // A payload this build cannot read leaves the section saying it has
             // nothing, which is honest. Rendering half a grid from a document
             // we do not understand would be worse than rendering none.
-            return false;
+            return UnreadableResult(action.Id);
         }
+    }
+
+    private bool UnreadableResult(Guid actionId)
+    {
+        string message = $" Result {actionId} is unreadable; no measurements from it were applied.";
+        if (!ActionHistoryNote.Contains(message, StringComparison.Ordinal)) ActionHistoryNote += message;
+        Announcer.AnnounceImportant(message.Trim());
+        return false;
     }
 
     /// <summary>Re-reads the same cabinet, for the Refresh button.</summary>
@@ -392,8 +464,37 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         TestSyncLinkCommand.NotifyCanExecuteChanged();
     }
 
+    public override void Deactivate()
+    {
+        ++_generation;
+        base.Deactivate();
+    }
+
+    public void Reset()
+    {
+        Deactivate();
+        CabinetId = null;
+        _latest = null;
+        _catalogue = Array.Empty<ActionCatalogEntryDto>();
+        ClearSections();
+        EventLogs.Views.Clear();
+        Processes.FilterText = string.Empty;
+        foreach (var section in Sections)
+        {
+            section.Actions.Clear();
+            section.NotifyActionsChanged();
+        }
+        ClearError();
+    }
+
     private void ClearSections()
     {
+        ActionHistory.Clear();
+        SelectedAction = null;
+        Path = null;
+        CabinetHostname = string.Empty;
+        ClientAndSite = string.Empty;
+        foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();
         _suppressHistoryRequests = true;
 
         try
@@ -427,6 +528,9 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             return;
         }
 
+        var generation = _generation;
+        var drive = Disk.SelectedDrive;
+        var days = Disk.HistoryDays;
         Disk.IsHistoryLoading = true;
 
         try
@@ -443,15 +547,16 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
             var readings = await _api.GetSmartHistoryAsync(cabinetId, query, CancellationToken.None);
 
+            if (generation != _generation || drive != Disk.SelectedDrive || days != Disk.HistoryDays) return;
             Disk.ApplyHistory(readings.Items.Select(r => new SmartRow(r)).ToList());
         }
         catch (ApiException ex)
         {
-            Disk.FailHistory(ex.Message);
+            if (generation == _generation && drive == Disk.SelectedDrive && days == Disk.HistoryDays) Disk.FailHistory(ex.Message);
         }
         finally
         {
-            Disk.IsHistoryLoading = false;
+            if (generation == _generation && drive == Disk.SelectedDrive && days == Disk.HistoryDays) Disk.IsHistoryLoading = false;
         }
     }
 
@@ -542,12 +647,12 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             entry,
             () => _session.Role,
             (button, ct) => InvokeAsync(button, ct),
-            parameters));
+            parameters) { TargetAvailable = () => CanAct });
     }
 
     private async Task InvokeAsync(SectionActionViewModel button, CancellationToken ct)
     {
-        if (Path is not { } path)
+        if (!CanAct || Path is not { } path)
         {
             return;
         }
@@ -569,6 +674,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         }
 
         ActionSubmitted?.Invoke(this, result);
+        if (result.Submitted && Path == path) await RefreshActionsAsync();
     }
 
     /// <summary>

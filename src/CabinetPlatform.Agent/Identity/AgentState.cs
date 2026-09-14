@@ -118,6 +118,9 @@ public sealed record CompletedAction
 
     /// <summary>The outcome detail reported at the time.</summary>
     public string? Output { get; init; }
+
+    /// <summary>Structured diagnostic data, preserved on replay.</summary>
+    public string? CollectedData { get; init; }
 }
 
 /// <summary>

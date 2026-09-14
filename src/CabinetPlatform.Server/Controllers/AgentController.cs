@@ -85,6 +85,19 @@ public sealed class AgentController : SupportControllerBase
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.MachineId == machineId, ct);
 
+        if (cabinet is { IsActive: false })
+        {
+            await _audit.WriteDenialAsync(AuditEvent.AgentRegister,
+                "A deactivated cabinet cannot regain approval by registering again.",
+                cabinet.Id, new { MachineId = machineId }, cancellationToken: ct);
+            return Ok(new RegistrationResponse
+            {
+                Status = RegistrationStatus.Rejected,
+                CabinetId = null,
+                RetryAfterSeconds = _options.RegistrationRetrySeconds,
+            });
+        }
+
         if (cabinet is not null)
         {
             // Already admitted. Say so, and hand back the identity, without
@@ -242,12 +255,22 @@ public sealed class AgentController : SupportControllerBase
 
         foreach (ActionRequest action in due)
         {
-            if (!ActionCatalog.TryGet(action.Action, out ActionCatalogEntry entry))
+            if (!ActionCatalog.TryGet(action.Action,
+                    HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value,
+                    out ActionCatalogEntry entry))
             {
                 // An action whose catalog entry has been withdrawn since it was
                 // approved is cancelled rather than sent.
                 action.Status = ActionRequestStatus.Cancelled;
                 action.CompletedUtc = nowUtc;
+                action.ResultOutput = "Cancelled before dispatch: action is unavailable under the current execution policy.";
+                _audit.Enqueue(new AuditRecord
+                {
+                    Event = AuditEvent.AgentCollectActions, Action = action.Action,
+                    EventKind = AuditEventKind.Caused, Result = AuditResult.Denied,
+                    ActorType = ActorType.Agent, ActorId = machineId, CabinetId = cabinet.Id,
+                    Details = new { ActionRequestId = action.Id, Reason = action.ResultOutput },
+                });
                 continue;
             }
 

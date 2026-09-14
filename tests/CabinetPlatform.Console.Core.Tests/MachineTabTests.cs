@@ -56,6 +56,76 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     }
 
     [Fact]
+    public async Task Scalar_bindings_are_notified_on_load_and_cleared_when_data_is_unavailable()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        await _host.AddFullCheckInAsync(cabinet.Id, TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow);
+        var network = new List<string?>();
+        var system = new List<string?>();
+        tab.Network.PropertyChanged += (_, e) => network.Add(e.PropertyName);
+        tab.System.PropertyChanged += (_, e) => system.Add(e.PropertyName);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.Contains(nameof(tab.System.OsVersion), system);
+        Assert.Contains(nameof(tab.Network.Proxy), network);
+        await tab.LoadAsync(Guid.NewGuid());
+        Assert.Equal(Format.NotReported, tab.System.OsVersion);
+        Assert.Equal(Format.NotReported, tab.System.Domain);
+        Assert.Equal(Format.NotReported, tab.System.TimeZone);
+    }
+
+    [Fact]
+    public async Task Reboot_indicator_uses_heartbeat_not_security_classification()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        var payload = TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow);
+        payload = payload with { WindowsUpdate = payload.WindowsUpdate! with { RebootPending = false } };
+        await _host.AddFullCheckInAsync(cabinet.Id, payload, DateTimeOffset.UtcNow);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.Equal("No reboot pending", tab.WindowsUpdate.RebootPending.Label);
+        Assert.Contains("security", tab.WindowsUpdate.SecurityPending.Label);
+    }
+
+    [Fact]
+    public async Task Refresh_recovers_completed_process_results_from_action_history()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        await _host.AddFullCheckInAsync(cabinet.Id, TestData.Payload(cabinet.MachineId, DateTimeOffset.UtcNow), DateTimeOffset.UtcNow);
+        await tab.LoadAsync(cabinet.Id);
+        await tab.Processes.Actions.Single(a => a.Catalogue.Action == ActionName.GetProcessList).InvokeCommand.ExecuteAsync(null);
+        await _host.WithDbAsync(async db =>
+        {
+            var action = db.ActionRequests.Single(a => a.CabinetId == cabinet.Id);
+            action.Status = ActionRequestStatus.Completed;
+            action.ResultStatus = ActionStatus.Succeeded;
+            action.CompletedUtc = DateTimeOffset.UtcNow;
+            action.ResultOutput = "Process snapshot collected";
+            action.CollectedDataJson = "[{\"pid\":123,\"name\":\"test.exe\"}]";
+            return await db.SaveChangesAsync();
+        });
+        await tab.RefreshCommand.ExecuteAsync(null);
+        Assert.Single(tab.Processes.Processes);
+        Assert.Equal("Process snapshot collected", Assert.Single(tab.ActionHistory).ResultOutput);
+        tab.Processes.SelectedProcess = tab.Processes.Processes.Single();
+        tab.Processes.SelectedProcess = null;
+        Assert.True(tab.Processes.Actions.Single(a => a.Catalogue.Action == ActionName.GetProcessList).InvokeCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Loading_another_cabinet_clears_identity_and_disables_actions_immediately()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        await tab.LoadAsync(cabinet.Id);
+        var load = tab.LoadAsync(Guid.NewGuid());
+        Assert.Null(tab.Path);
+        Assert.Empty(tab.CabinetHostname);
+        Assert.All(tab.Sections.SelectMany(s => s.Actions), a => Assert.False(a.InvokeCommand.CanExecute(null)));
+        await load;
+        Assert.Null(tab.Path);
+        Assert.Equal(Format.NotReported, tab.Overview.Hostname);
+        Assert.All(tab.Sections.SelectMany(s => s.Actions), a => Assert.False(a.InvokeCommand.CanExecute(null)));
+    }
+
+    [Fact]
     public async Task A_cabinet_with_a_check_in_renders_real_data_in_every_served_section()
     {
         (MachineTabViewModel tab, Cabinet cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
@@ -105,7 +175,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         // Windows Update.
         Assert.True(tab.WindowsUpdate.Availability.HasData);
         Assert.Equal("3", tab.WindowsUpdate.PendingCount);
-        Assert.Equal("A pending update requires a reboot", tab.WindowsUpdate.RebootPending.Label);
+        Assert.Equal("Reboot pending", tab.WindowsUpdate.RebootPending.Label);
         Assert.Contains("2 pending security updates", tab.WindowsUpdate.SecurityPending.Label);
     }
 

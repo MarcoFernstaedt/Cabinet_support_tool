@@ -46,10 +46,169 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             new AuditTabViewModel(api, announcer, time),
             new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
+            new RegistrationsViewModel(api, session, announcer),
             session,
             announcer);
 
         return (shell, session, api, announcer);
+    }
+
+    [Theory]
+    [InlineData(Role.Supervisor, true)]
+    [InlineData(Role.Tier1, false)]
+    [InlineData(Role.Tier2, false)]
+    public async Task Registration_navigation_is_supervisor_only_and_signout_clears_the_queue(Role role, bool allowed)
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(role);
+        Assert.Equal(allowed, shell.CanSeeRegistrations);
+        Assert.Equal(allowed, shell.ShowRegistrationsCommand.CanExecute(null));
+        await shell.ShowRegistrationsCommand.ExecuteAsync(null);
+        Assert.Equal(allowed ? ShellView.Registrations : ShellView.Cabinets, shell.CurrentView);
+        shell.Registrations.Queue.Add(new CabinetPlatform.Contracts.Registrations.PendingRegistrationDto
+        {
+            Id = Guid.NewGuid(), MachineId = "synthetic", Hostname = "synthetic",
+            FirstSeenUtc = DateTimeOffset.UtcNow, LastSeenUtc = DateTimeOffset.UtcNow,
+            Status = RegistrationStatus.Pending
+        });
+        shell.SignOutCommand.Execute(null);
+        Assert.Empty(shell.Registrations.Queue);
+        Assert.Null(shell.Registrations.SelectedRegistration);
+        Assert.False(shell.ShowRegistrationsCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Finder_audit_targets_the_viewed_guid_not_a_stale_same_hostname_list_selection()
+    {
+        string client = Unique("AuditClient");
+        string hostname = Unique("SAME");
+        Cabinet previous = await _host.CreateCabinetAsync(hostname, client, "Visible site");
+        Cabinet target = await _host.CreateCabinetAsync(hostname, client, "Outside site", isActive: false);
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
+
+        shell.Cabinets.ClientFilter = client;
+        shell.Cabinets.SiteFilter = "Visible site";
+        await shell.Cabinets.LoadAsync();
+        await shell.PendingSelectionLoad;
+        Assert.Equal(previous.Id, shell.Cabinets.SelectedCabinet?.Id);
+        shell.Fleet.ClientFilter = client;
+        shell.Fleet.SiteFilter = "Visible site";
+        await shell.Fleet.LoadAsync();
+
+        // The persistent global lookup is not limited by either list's filters.
+        shell.Finder.Term = target.Id.ToString();
+        await shell.Finder.SearchCommand.ExecuteAsync(null);
+        var hit = Assert.Single(shell.Finder.Results);
+        Assert.Equal(target.Id, hit.Id);
+        shell.Finder.ChooseCommand.Execute(hit.Id);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(target.Id, shell.Machine.Path?.CabinetId);
+        Assert.Equal(hostname, shell.Machine.HeaderCabinetName);
+        Assert.DoesNotContain(shell.Cabinets.Cabinets, row => row.Id == target.Id);
+        Assert.Equal("Visible site", shell.Cabinets.SiteFilter);
+        Assert.Equal("Visible site", shell.Fleet.SiteFilter);
+        Assert.True(shell.Cabinets.ActiveFilter);
+
+        shell.Audit.ToLocal = DateTimeOffset.Now.AddMinutes(1);
+        await shell.ShowAuditForSelectedCabinetCommand.ExecuteAsync(null);
+
+        Assert.Equal(target.Id, shell.Audit.SelectedCabinet?.Id);
+        Assert.Equal(ShellView.Cabinets, shell.CurrentView);
+        Assert.Equal(2, shell.SelectedTabIndex);
+        Assert.Null(shell.Audit.ErrorMessage);
+        Assert.NotEmpty(shell.Audit.Entries);
+        Assert.All(shell.Audit.Entries, row => Assert.Equal(target.Id, row.Entry.CabinetId));
+    }
+
+    [Fact]
+    public async Task Finder_audit_works_without_a_cabinet_list_selection()
+    {
+        Cabinet target = await _host.CreateCabinetAsync(Unique("Direct"));
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Tier1);
+        Assert.Null(shell.Cabinets.SelectedCabinet);
+
+        // Fleet, recent and hierarchy buttons pass the same Guid command,
+        // without requiring the global search results or home list to be loaded.
+        shell.Finder.ChooseCommand.Execute(target.Id);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(target.Id, shell.Machine.Path?.CabinetId);
+        Assert.Empty(shell.Cabinets.Cabinets);
+        shell.Audit.ToLocal = DateTimeOffset.Now.AddMinutes(1);
+        await shell.ShowAuditForSelectedCabinetCommand.ExecuteAsync(null);
+
+        Assert.Equal(target.Id, shell.Audit.SelectedCabinet?.Id);
+        Assert.Equal(2, shell.SelectedTabIndex);
+        Assert.NotEmpty(shell.Audit.Entries);
+        Assert.All(shell.Audit.Entries, row => Assert.Equal(target.Id, row.Entry.CabinetId));
+    }
+
+    [Fact]
+    public async Task Failed_finder_open_does_not_audit_the_previous_list_selection()
+    {
+        string client = Unique("FailedOpen");
+        Cabinet previous = await _host.CreateCabinetAsync(Unique("Previous"), client);
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
+        shell.Cabinets.ClientFilter = client;
+        await shell.Cabinets.LoadAsync();
+        await shell.PendingSelectionLoad;
+        Assert.Equal(previous.Id, shell.Machine.Path?.CabinetId);
+
+        Guid missing = Guid.NewGuid();
+        shell.Finder.ChooseCommand.Execute(missing);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(ApiFailure.NotFound, shell.Machine.LastFailure);
+        Assert.Null(shell.Machine.Path);
+        Assert.Equal(missing, shell.Machine.CabinetId);
+        Assert.Equal(previous.Id, shell.Cabinets.SelectedCabinet?.Id);
+
+        await shell.ShowAuditForSelectedCabinetCommand.ExecuteAsync(null);
+
+        Assert.Null(shell.Audit.SelectedCabinet);
+        Assert.Empty(shell.Audit.Entries);
+        Assert.Equal(0, shell.SelectedTabIndex);
+    }
+
+    [Fact]
+    public async Task Returning_to_a_list_row_audits_that_rows_loaded_identity()
+    {
+        string client = Unique("ReturnList");
+        Cabinet first = await _host.CreateCabinetAsync(Unique("First"), client);
+        Cabinet second = await _host.CreateCabinetAsync(Unique("Second"), client);
+        Cabinet found = await _host.CreateCabinetAsync(Unique("Found"), Unique("Outside"));
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Supervisor);
+        shell.Cabinets.ClientFilter = client;
+        await shell.Cabinets.LoadAsync();
+        await shell.PendingSelectionLoad;
+        shell.Cabinets.SelectedCabinet = shell.Cabinets.Cabinets.Single(row => row.Id == first.Id);
+        await shell.PendingSelectionLoad;
+        shell.Finder.ChooseCommand.Execute(found.Id);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(found.Id, shell.Machine.Path?.CabinetId);
+
+        shell.Cabinets.SelectedCabinet = shell.Cabinets.Cabinets.Single(row => row.Id == second.Id);
+        await shell.PendingSelectionLoad;
+        shell.Audit.ToLocal = DateTimeOffset.Now.AddMinutes(1);
+        await shell.ShowAuditForSelectedCabinetCommand.ExecuteAsync(null);
+
+        Assert.Equal(second.Id, shell.Machine.Path?.CabinetId);
+        Assert.Equal(second.Id, shell.Audit.SelectedCabinet?.Id);
+        Assert.NotEmpty(shell.Audit.Entries);
+        Assert.All(shell.Audit.Entries, row => Assert.Equal(second.Id, row.Entry.CabinetId));
+
+        shell.SignOutCommand.Execute(null);
+        await shell.ShowAuditForSelectedCabinetCommand.ExecuteAsync(null);
+        Assert.Null(shell.Machine.Path);
+        Assert.Null(shell.Audit.SelectedCabinet);
+        Assert.Empty(shell.Audit.Entries);
+    }
+
+    [Fact]
+    public async Task Persistent_search_opens_the_results_view()
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Tier2);
+        shell.CurrentView = ShellView.Cabinets;
+        shell.Finder.Term = "console-search-test";
+        await shell.Finder.SearchCommand.ExecuteAsync(null);
+        Assert.Equal(ShellView.Find, shell.CurrentView);
     }
 
     [Fact]
@@ -131,7 +290,12 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             await SignedInShellAsync(Role.Supervisor);
 
         await shell.StartSessionAsync();
+        await shell.PendingSelectionLoad;
         Assert.NotEmpty(shell.Cabinets.Cabinets);
+        Assert.NotNull(shell.Machine.Path);
+        shell.Audit.SelectedCabinet = shell.Audit.Cabinets.First();
+        shell.Cabinets.SearchText = "prior operator search";
+        shell.Machine.Processes.FilterText = "prior process filter";
 
         List<SignInReason> asked = new();
         shell.SignInRequired += (_, reason) => asked.Add(reason);
@@ -141,6 +305,16 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         Assert.False(session.IsSignedIn);
         Assert.Null(session.AccessToken);
         Assert.Empty(shell.Cabinets.Cabinets);
+        Assert.Null(shell.Machine.Path);
+        Assert.Null(shell.Machine.CabinetId);
+        Assert.Empty(shell.Machine.ActionHistory);
+        Assert.All(shell.Machine.Sections, s => Assert.Empty(s.Actions));
+        Assert.Null(shell.Fleet.Summary);
+        Assert.Empty(shell.Fleet.Sites);
+        Assert.Empty(shell.Audit.Cabinets);
+        Assert.Null(shell.Audit.SelectedCabinet);
+        Assert.Empty(shell.Cabinets.SearchText);
+        Assert.Empty(shell.Machine.Processes.FilterText);
         Assert.Equal(SignInReason.SignedOut, Assert.Single(asked));
         Assert.True(announcer.Any("token has been discarded"));
     }

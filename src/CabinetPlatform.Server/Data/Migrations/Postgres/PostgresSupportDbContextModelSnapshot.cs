@@ -725,6 +725,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .HasColumnType("uuid");
 
                     b.Property<DateTimeOffset?>("ConsumedUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<DateTimeOffset>("ExpiresUtc")
@@ -741,6 +742,7 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .HasColumnType("character varying(256)");
 
                     b.Property<DateTimeOffset?>("RevokedUtc")
+                        .IsConcurrencyToken()
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<byte[]>("TokenHash")
@@ -917,6 +919,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<byte[]>("PasswordHash")
                         .IsRequired()
                         .HasColumnType("bytea");
+
+                    b.Property<Guid>("SecurityStamp")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("PasswordIterations")
                         .HasColumnType("integer");

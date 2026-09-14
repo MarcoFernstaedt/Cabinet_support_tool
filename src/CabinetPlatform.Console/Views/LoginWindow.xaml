@@ -9,6 +9,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="True"
         Background="{DynamicResource Surface.Brush}"
+        Foreground="{DynamicResource Text.Brush}"
         FocusManager.FocusedElement="{Binding ElementName=UsernameBox}">
 
     <!--
@@ -136,7 +137,7 @@
             <ProgressBar IsIndeterminate="True"
                          Width="140"
                          Height="6"
-                         AutomationProperties.AccessibilityView="Raw" />
+                         AutomationProperties.Name="Contacting the server" />
             <TextBlock Text="Contacting the server…"
                        Margin="10,0,0,0"
                        AutomationProperties.LiveSetting="Polite"

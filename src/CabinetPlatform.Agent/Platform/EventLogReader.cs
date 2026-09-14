@@ -19,8 +19,84 @@ namespace CabinetPlatform.Agent.Platform;
 public sealed class EventLogReader : IEventLogReader
 {
     private readonly ILogger<EventLogReader> _logger;
+    private readonly IEventChannelGateway _channels;
+    private readonly TimeProvider _clock;
+    private readonly IEventRecordGateway _records;
 
-    public EventLogReader(ILogger<EventLogReader> logger) => _logger = logger;
+    public EventLogReader(ILogger<EventLogReader> logger) : this(logger, new WindowsEventChannelGateway()) { }
+
+    public EventLogReader(ILogger<EventLogReader> logger, IEventChannelGateway channels, TimeProvider? clock = null, IEventRecordGateway? records = null)
+    {
+        _logger = logger;
+        _channels = channels;
+        _clock = clock ?? TimeProvider.System;
+        _records = records ?? new WindowsEventRecordGateway();
+    }
+
+    /// <inheritdoc />
+    public EventChannelDiscoveryResult DiscoverChannels(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        const int maximumNamesExamined = 1024;
+        int examined = 0;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var channels = new List<EventChannelInfo>();
+        bool truncated = false;
+        long started = _clock.GetTimestamp();
+        var status = EventChannelDiscoveryStatus.Available;
+        try
+        {
+            using var names = _channels.GetChannelNames(cancellationToken).GetEnumerator();
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                // Cooperative budget: synchronous Windows calls cannot be forcibly interrupted.
+                if (_clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(2))
+                {
+                    truncated = true;
+                    break;
+                }
+                if (!names.MoveNext()) break;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (examined++ == maximumNamesExamined || _clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(2))
+                {
+                    truncated = true;
+                    break;
+                }
+                string name = names.Current;
+                if (string.IsNullOrWhiteSpace(name) || name.Length > 512 || name.Any(char.IsControl))
+                {
+                    status = EventChannelDiscoveryStatus.Unavailable;
+                    continue;
+                }
+                if (!seen.Add(name)) continue;
+                EventChannelAccess access;
+                try
+                {
+                    access = _channels.Probe(name, cancellationToken);
+                }
+                catch (Exception e) when (e is not OperationCanceledException)
+                {
+                    access = IsAccessDenied(e) ? EventChannelAccess.AccessDenied : EventChannelAccess.Unavailable;
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                channels.Add(new EventChannelInfo { Name = name, Access = access });
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            status = IsAccessDenied(e) ? EventChannelDiscoveryStatus.AccessDenied : EventChannelDiscoveryStatus.Unavailable;
+        }
+        return new EventChannelDiscoveryResult
+        {
+            Status = status,
+            Channels = channels,
+            Truncated = truncated,
+        };
+    }
+
+    private static bool IsAccessDenied(Exception exception)
+        => exception is UnauthorizedAccessException or System.Security.SecurityException;
 
     public IReadOnlyList<EventLogEntry> Read(
         EventLogName log,
@@ -77,108 +153,72 @@ public sealed class EventLogReader : IEventLogReader
         return entries;
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<EventLogEntry> RunView(
-        EventLogViewDefinition definition, CancellationToken cancellationToken)
+    /// <summary>Reads every selected channel with bounded newest-first merging and explicit failures.</summary>
+    public EventLogViewResultDto RunViewResult(EventLogViewDefinition definition, CancellationToken token)
     {
-        var window = TimeSpan.FromHours(Math.Max(definition.WindowHours, 1));
-        var entries = new List<EventLogEntry>(Math.Min(definition.MaximumEntries, 256));
-
-        // A view may name several logs. Each is read under its own query and
-        // the results are merged newest-first afterwards, because the event log
-        // service has no cross-channel query and interleaving by hand would
-        // mean reading all of every log first.
-        foreach (EventLogName log in definition.LogNames.Distinct())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (entries.Count >= definition.MaximumEntries)
-            {
-                break;
-            }
-
-            entries.AddRange(ReadView(log, definition, window, definition.MaximumEntries, cancellationToken));
-        }
-
-        return entries
-            .OrderByDescending(e => e.TimeCreatedUtc)
-            .Take(definition.MaximumEntries)
-            .ToArray();
-    }
-
-    private IReadOnlyList<EventLogEntry> ReadView(
-        EventLogName log,
-        EventLogViewDefinition definition,
-        TimeSpan window,
-        int maximumEntries,
-        CancellationToken cancellationToken)
-    {
-        var query = new EventLogQuery(
-            ToChannelName(log),
-            PathType.LogName,
-            EventLogViewQueryBuilder.Build(definition, window))
-        {
-            ReverseDirection = true,
-        };
-
+        ValidateDefinition(definition);
         var entries = new List<EventLogEntry>();
-
-        System.Diagnostics.Eventing.Reader.EventLogReader reader;
-
-        try
+        var outcomes = new List<EventChannelReadResult>();
+        bool truncated = false;
+        long started = _clock.GetTimestamp();
+        var channels = definition.ChannelNames.Concat(definition.LogNames.Select(ToChannelName))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (string channel in channels)
         {
-            reader = new System.Diagnostics.Eventing.Reader.EventLogReader(query);
-        }
-        catch (EventLogException e)
-        {
-            // A log this machine does not have, or one the agent cannot open.
-            // One unavailable channel must not cost the view its other logs.
-            _logger.LogWarning(
-                e, "The {Log} log could not be opened for view '{View}'.", log, definition.DisplayName);
-
-            return entries;
-        }
-
-        using (reader)
-        {
-            while (entries.Count < maximumEntries)
+            token.ThrowIfCancellationRequested();
+            int count = 0;
+            bool capped = false;
+            EventChannelAccess access = EventChannelAccess.Readable;
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                EventRecord? record;
-
-                try
+                if (_clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(10))
+                    throw new TimeoutException();
+                using var records = _records.Read(channel, definition, token).GetEnumerator();
+                while (true)
                 {
-                    record = reader.ReadEvent();
-                }
-                catch (EventLogException e)
-                {
-                    _logger.LogWarning(
-                        e, "Reading the {Log} log for view '{View}' stopped early.",
-                        log, definition.DisplayName);
-
-                    break;
-                }
-
-                if (record is null)
-                {
-                    break;
-                }
-
-                using (record)
-                {
-                    EventLogEntry? entry = ToEntry(log, record);
-
-                    if (entry is not null)
-                    {
-                        entries.Add(entry);
-                    }
+                    token.ThrowIfCancellationRequested();
+                    if (_clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(10))
+                        throw new TimeoutException();
+                    if (!records.MoveNext()) break;
+                    if (count == definition.MaximumEntries) { capped = true; break; }
+                    entries.Add(records.Current);
+                    count++;
                 }
             }
+            catch (EventChannelDisabledException) { access = EventChannelAccess.Disabled; }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                access = IsAccessDenied(e) ? EventChannelAccess.AccessDenied : EventChannelAccess.Unavailable;
+                _logger.LogWarning("Record read for {Channel} ended with {Access}.", channel, access);
+            }
+            token.ThrowIfCancellationRequested();
+            outcomes.Add(new EventChannelReadResult { Name = channel, Access = access, RecordsRead = count, Truncated = capped });
+            truncated |= capped || entries.Count > definition.MaximumEntries;
+            // Keep at most two channels' worth resident, then merge to the global ceiling.
+            entries = entries.OrderByDescending(e => e.TimeCreatedUtc).Take(definition.MaximumEntries).ToList();
         }
-
-        return entries;
+        return new EventLogViewResultDto
+        {
+            ViewId = definition.ViewId, ViewDisplayName = definition.DisplayName,
+            WindowHours = definition.WindowHours, Entries = entries, ChannelReads = outcomes, Truncated = truncated
+        };
     }
+
+    internal static void ValidateDefinition(EventLogViewDefinition definition)
+    {
+        if (definition.LogNames is null || definition.ChannelNames is null || definition.Sources is null || definition.EventIds is null ||
+            definition.LogNames.Count + definition.ChannelNames.Count is < 1 or > 16 ||
+            definition.LogNames.Any(n => !Enum.IsDefined(n)) || definition.ChannelNames.Any(n => !EventChannelName.IsValid(n)) ||
+            definition.WindowHours is < 1 or > 168 || definition.MaximumEntries is < 1 or > 5000 ||
+            definition.Sources.Count > 50 || definition.Sources.Any(s => !EventLogViewQueryBuilder.IsSafeProviderName(s)) ||
+            definition.EventIds.Count > 200 || definition.EventIds.Any(i => i is < 0 or > 65535) ||
+            !Enum.IsDefined(definition.MinimumLevel) || definition.MinimumLevel == EventLogLevel.Unknown)
+            throw new ArgumentException("The saved view contains invalid or unbounded fields.");
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<EventLogEntry> RunView(EventLogViewDefinition definition, CancellationToken cancellationToken)
+        => RunViewResult(definition, cancellationToken).Entries;
 
     /// <summary>
     /// Builds the XPath filter for critical, error and warning records inside

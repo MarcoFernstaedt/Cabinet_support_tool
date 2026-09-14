@@ -646,14 +646,15 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
 
             migrationBuilder.Sql(
                 "INSERT INTO Clients (Id, Name) " +
-                "SELECT DISTINCT lower(hex(randomblob(16))), ClientName FROM Cabinets " +
-                "WHERE ClientName IS NOT NULL AND ClientName <> '';");
+                "SELECT lower(hex(randomblob(16))), ClientName FROM " +
+                "(SELECT DISTINCT ClientName FROM Cabinets WHERE ClientName IS NOT NULL AND ClientName <> '');");
 
             migrationBuilder.Sql(
                 "INSERT INTO Sites (Id, ClientId, Name, SyncCabinetId) " +
-                "SELECT DISTINCT lower(hex(randomblob(16))), c.Id, cab.SiteName, NULL " +
+                "SELECT lower(hex(randomblob(16))), ClientId, SiteName, NULL FROM (" +
+                "SELECT DISTINCT c.Id AS ClientId, cab.SiteName " +
                 "FROM Cabinets cab JOIN Clients c ON c.Name = cab.ClientName " +
-                "WHERE cab.SiteName IS NOT NULL AND cab.SiteName <> '';");
+                "WHERE cab.SiteName IS NOT NULL AND cab.SiteName <> '');");
 
             migrationBuilder.Sql(
                 "UPDATE Cabinets SET SiteId = (" +

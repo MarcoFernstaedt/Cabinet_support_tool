@@ -94,8 +94,8 @@ public static class ActionParameterKeys
     /// <summary>Which process a kill names, by operating system process id.</summary>
     /// <remarks>
     /// Never sufficient on its own. Process ids are reused within minutes on a
-    /// busy machine, so <see cref="ExpectedProcessName"/> travels with it and
-    /// the agent refuses the pair if the machine disagrees.
+    /// busy machine. The name, exact creation FILETIME and full executable path
+    /// must travel with it; the agent verifies all of them on one retained handle.
     /// </remarks>
     public const string ProcessId = "processId";
 
@@ -105,6 +105,12 @@ public static class ActionParameterKeys
     /// anything is ended.
     /// </summary>
     public const string ExpectedProcessName = "expectedProcessName";
+
+    /// <summary>Exact decimal Windows creation FILETIME captured when the process was selected.</summary>
+    public const string ExpectedCreationTimeFileTime = "expectedCreationTimeFileTime";
+
+    /// <summary>Full observed executable path, used only for identity comparison and never for launching.</summary>
+    public const string ExpectedExecutablePath = "expectedExecutablePath";
 
     /// <summary>
     /// An image name from the server's process allow-list, without path or

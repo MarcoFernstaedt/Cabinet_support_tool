@@ -12,7 +12,8 @@ namespace CabinetPlatform.Console.Core.Sections;
 /// </summary>
 /// <remarks>
 /// <para>
-/// A view rather than a log picker. Support does not want one error firehose:
+/// Records use an authorized saved view, including views over discovered native channels.
+/// Support does not want one error firehose:
 /// the question is nearly always about a specific subsystem — the CUBEX
 /// application, Windows Update, the disk stack, the service control manager —
 /// and the records that answer it are a few dozen among tens of thousands. The
@@ -20,7 +21,7 @@ namespace CabinetPlatform.Console.Core.Sections;
 /// everyone.
 /// </para>
 /// <para>
-/// Fetched on request, never with routine telemetry, and never stored. Seven
+/// Fetched on request and retained on the action result, not in routine telemetry. Seven
 /// thousand cabinets sending a day of records every few minutes would dominate
 /// storage while being read for a handful of them.
 /// </para>
@@ -52,7 +53,7 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
         : base("Event Logs",
             "Windows event log records, read through a named view. Pick a view and a time " +
             "window, then run it. Views are defined by Supervisors and shared across every rep; " +
-            "the records are fetched on request and are never stored.")
+            "records are fetched on request and retained in action history, not routine telemetry.")
     {
         Availability = SectionAvailability.OnDemandOnly("Event log records", "Run an event log view");
     }
@@ -60,8 +61,16 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
     /// <summary>The views this rep may run.</summary>
     public ObservableCollection<EventLogViewDto> Views { get; } = new();
 
+    /// <summary>Discovered local native channels, selectable into a new authorized saved view.</summary>
+    public ObservableCollection<EventChannelInfo> Channels { get; } = new();
+
     /// <summary>The records the last run returned.</summary>
     public ObservableCollection<EventLogEntry> Entries { get; } = new();
+
+    /// <summary>Per-channel record outcomes, distinct from discovery.</summary>
+    public ObservableCollection<EventChannelReadResult> ChannelReads { get; } = new();
+
+    public string ChannelReadSummary { get; private set; } = string.Empty;
 
     [ObservableProperty]
     private EventLogViewDto? _selectedView;
@@ -110,8 +119,13 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
         return parameters;
     }
 
+    /// <summary>Availability of native channel discovery on the last view result.</summary>
+    public string ChannelDiscoverySummary { get; private set; } = string.Empty;
+
     /// <summary>One line describing what is on screen.</summary>
-    public string ResultSummary => Entries.Count == 0
+    public string ResultSummary => RecordSummary + ChannelReadSummary + (ChannelDiscoverySummary.Length == 0 ? string.Empty : " " + ChannelDiscoverySummary);
+
+    private string RecordSummary => Entries.Count == 0
         ? Availability.Reason ?? "No records have been fetched for this cabinet yet."
         : ResultTruncated
             ? $"'{ResultViewName}' matched at least {Entries.Count} record(s) over " +
@@ -139,6 +153,44 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
     /// <param name="result">The records and what produced them.</param>
     public void ApplyResult(EventLogViewResultDto result)
     {
+        ChannelReads.Clear();
+        bool malformed = result.ChannelReads?.Any(c => c is null || !EventChannelName.IsValid(c.Name) || !Enum.IsDefined(c.Access)) == true;
+        if (!malformed && result.ChannelReads is not null)
+            foreach (var read in result.ChannelReads) ChannelReads.Add(read);
+        ChannelReadSummary = malformed
+            ? " Record read outcomes unavailable; results are incomplete."
+            : ChannelReads.Any(c => c.Access != EventChannelAccess.Readable)
+                ? $" Record read incomplete: {ChannelReads.Count(c => c.Access == EventChannelAccess.AccessDenied)} access denied, " +
+                  $"{ChannelReads.Count(c => c.Access == EventChannelAccess.Disabled)} disabled, " +
+                  $"{ChannelReads.Count(c => c.Access == EventChannelAccess.Unavailable)} unavailable."
+                : string.Empty;
+        OnPropertyChanged(nameof(ChannelReadSummary));
+        Channels.Clear();
+        EventChannelDiscoveryResult? discovery = result.ChannelDiscovery;
+        if (discovery is not null && (discovery.Channels is null || discovery.Channels.Any(c => c is null)))
+        {
+            discovery = new EventChannelDiscoveryResult();
+        }
+        if (discovery is not null)
+        {
+            foreach (EventChannelInfo channel in discovery.Channels)
+            {
+                Channels.Add(channel);
+            }
+        }
+        ChannelDiscoverySummary = discovery?.Status switch
+        {
+            EventChannelDiscoveryStatus.AccessDenied => "Channel discovery: access denied for the agent identity.",
+            EventChannelDiscoveryStatus.Unavailable => "Channel discovery unavailable; this is not a complete channel inventory.",
+            EventChannelDiscoveryStatus.Available =>
+                $"Channels: {Channels.Count(c => c.Access == EventChannelAccess.Readable)} readable, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.AccessDenied)} access denied, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.Disabled)} disabled, " +
+                $"{Channels.Count(c => c.Access == EventChannelAccess.Unavailable)} unavailable." +
+                (discovery.Truncated ? " Discovery limit reached; inventory is incomplete." : string.Empty),
+            _ => string.Empty,
+        };
+        OnPropertyChanged(nameof(ChannelDiscoverySummary));
         Entries.Clear();
 
         foreach (EventLogEntry entry in result.Entries)
@@ -167,6 +219,13 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
         // Deliberately ignores the telemetry: nothing in it belongs to this
         // section, and a check-in arriving must not make the panel look filled
         // or leave another cabinet's records on screen.
+        ResetChannelDraft();
+        Channels.Clear();
+        ChannelReads.Clear();
+        ChannelReadSummary = string.Empty;
+        OnPropertyChanged(nameof(ChannelReadSummary));
+        ChannelDiscoverySummary = string.Empty;
+        OnPropertyChanged(nameof(ChannelDiscoverySummary));
         Entries.Clear();
         ResultViewName = null;
         ResultTruncated = false;
@@ -182,9 +241,7 @@ public sealed partial class EventLogSectionViewModel : MachineSectionViewModel
     }
 
     /// <inheritdoc />
-    public override string Summarise() => Entries.Count == 0
-        ? $"{Title}: {Availability.Reason}"
-        : $"{Title}: {ResultSummary}";
+    public override string Summarise() => $"{Title}: {ResultSummary}";
 
     partial void OnSelectedViewChanged(EventLogViewDto? value)
     {

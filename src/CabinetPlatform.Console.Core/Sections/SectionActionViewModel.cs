@@ -133,7 +133,9 @@ public sealed partial class SectionActionViewModel : ObservableObject
         }
     }
 
-    private bool CanInvoke => !IsBusy && IsContextSatisfied && RoleAllows;
+    public Func<bool> TargetAvailable { get; init; } = () => true;
+
+    private bool CanInvoke => TargetAvailable() && !IsBusy && IsContextSatisfied && RoleAllows;
 
     [RelayCommand(CanExecute = nameof(CanInvoke))]
     private async Task InvokeAsync(CancellationToken ct)

@@ -3,8 +3,9 @@
 The agent is a .NET Worker Service that runs on each cabinet PC as a Windows
 Service under `LocalSystem`, with no interactive session required.
 
-Everything below is meant to be run verbatim on the next cabinet. Where a value
-differs per site it is called out.
+Use an authorized disposable Windows lab machine first. Do not install this
+revision on a production cabinet. Verify every path, service identity and
+configuration value before running an installation command.
 
 ## What the agent is allowed to do
 
@@ -78,8 +79,9 @@ store; `appsettings.Local.json` and `secrets.json` are git-ignored.
 
 ## Verifying the collectors before installing the service
 
-Run one collection pass and print the payload the agent would send. It makes no
-network call and changes nothing on the machine:
+Run one collection pass only in the lab. This command can probe the configured
+server and create local state and log files. It is not an offline or stateless
+inspection command:
 
 ```
 CabinetPlatform.Agent.exe --collect-once > payload.json

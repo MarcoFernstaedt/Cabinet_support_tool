@@ -26,6 +26,8 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
     public const string SeedSupervisorUsername = "supervisor";
     public const string SeedSupervisorPassword = "Seeded!Supervisor1";
 
+    // Legacy maintenance scenarios opt in here, never in product code.
+    public string? ExecutionMode { get; set; } = "Maintenance";
     private DbConnection? _connection;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -51,6 +53,7 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
                 // Sweeps are driven explicitly in the tests that want them.
                 ["Retention:Enabled"] = "false",
                 ["Actions:ExpirySweepIntervalSeconds"] = "3600",
+                ["Actions:ExecutionMode"] = ExecutionMode,
 
                 // Wide enough that ordinary tests never trip the limiter; the
                 // limiter itself is exercised deliberately where it matters.

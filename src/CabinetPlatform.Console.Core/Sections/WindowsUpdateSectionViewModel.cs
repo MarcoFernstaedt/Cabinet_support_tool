@@ -83,20 +83,16 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
             ? SectionAvailability.Empty("pending updates")
             : SectionAvailability.Available;
 
-        // Derived from the updates themselves, which is the only reboot signal
-        // this contract carries. Said plainly in RebootPendingNote so nobody
-        // reads it as Windows' own reboot-required flag.
-        bool anyRequiresReboot = updates.Any(u => u.IsSecurity == true);
-
-        RebootPending = updates.Count == 0
-            ? new StatusPresentation("No pending updates require a reboot", "✔", StatusSeverity.Good)
-            : anyRequiresReboot
-                ? new StatusPresentation("A pending update requires a reboot", "▲", StatusSeverity.Warning)
-                : new StatusPresentation("No pending update requires a reboot", "✔", StatusSeverity.Good);
+        RebootPending = check.RebootPending switch
+        {
+            true => new StatusPresentation("Reboot pending", "▲", StatusSeverity.Warning),
+            false => new StatusPresentation("No reboot pending", "✔", StatusSeverity.Good),
+            null => StatusPresentation.Unknown
+        };
 
         int securityCount = updates.Count(u => u.IsSecurity == true);
 
-        SecurityPending = securityCount == 0
+        SecurityPending = update?.PendingUpdates is null ? StatusPresentation.Unknown : securityCount == 0
             ? new StatusPresentation("No pending security updates", "✔", StatusSeverity.Good)
             : new StatusPresentation(
                 $"{securityCount} pending security {(securityCount == 1 ? "update" : "updates")}",
@@ -108,9 +104,7 @@ public sealed partial class WindowsUpdateSectionViewModel : MachineSectionViewMo
     /// matters when deciding whether to schedule a disruptive reboot.
     /// </summary>
     public string RebootPendingNote =>
-        "Derived from the pending updates themselves. This server's contract does not carry " +
-        "Windows' own reboot-required flag, so a reboot pending from something other than an " +
-        "update would not appear here.";
+        "Windows reboot-required state reported in the latest heartbeat. Not inferred from update classification.";
 
     public override string Summarise() =>
         Availability.HasData

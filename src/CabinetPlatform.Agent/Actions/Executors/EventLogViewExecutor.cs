@@ -18,7 +18,7 @@ namespace CabinetPlatform.Agent.Actions.Executors;
 /// filter a filter rather than a remote query channel.
 /// </para>
 /// <para>
-/// Nothing is stored. Event logs are on demand only: the records come back on
+/// Event logs are on demand only: the records come back on
 /// this action's result, are shown to the operator who asked, and never reach a
 /// telemetry table.
 /// </para>
@@ -80,7 +80,8 @@ public sealed class RunEventLogViewExecutor : IActionExecutor
                 "The view definition on this request could not be read."));
         }
 
-        if (definition is null || definition.LogNames.Count == 0)
+        if (definition is null || definition.LogNames is null || definition.ChannelNames is null ||
+            definition.LogNames.Count + definition.ChannelNames.Count == 0)
         {
             // A view naming no logs matches nothing, and an empty grid looks
             // exactly like a healthy cabinet. Refusing is the only answer that
@@ -91,18 +92,20 @@ public sealed class RunEventLogViewExecutor : IActionExecutor
 
         try
         {
-            IReadOnlyList<EventLogEntry> entries = _reader.RunView(definition, cancellationToken);
+            EventLogReader.ValidateDefinition(definition);
+        }
+        catch (ArgumentException)
+        {
+            return Task.FromResult(ActionOutcome.Denied("The saved view contains invalid or unbounded fields."));
+        }
 
-            var result = new EventLogViewResultDto
+        try
+        {
+            var result = _reader.RunViewResult(definition, cancellationToken) with
             {
-                ViewId = definition.ViewId,
-                ViewDisplayName = definition.DisplayName,
-                WindowHours = definition.WindowHours,
-                Entries = entries,
-                // Said plainly, so the operator knows they are looking at the
-                // newest n rather than at everything there was.
-                Truncated = entries.Count >= definition.MaximumEntries,
+                ChannelDiscovery = _reader.DiscoverChannels(cancellationToken)
             };
+            var entries = result.Entries;
 
             _logger.LogInformation(
                 "View '{View}' returned {Count} record(s) over {WindowHours}h.",
@@ -115,6 +118,9 @@ public sealed class RunEventLogViewExecutor : IActionExecutor
                   $"{definition.WindowHours}h; the newest {entries.Count} are shown."
                 : $"'{definition.DisplayName}' matched {entries.Count} record(s) in the last " +
                   $"{definition.WindowHours}h.";
+
+            if (result.ChannelReads?.Any(c => c.Access != EventChannelAccess.Readable) == true)
+                summary += " Record read incomplete; some channels were denied, disabled or unavailable. See channel outcomes.";
 
             return Task.FromResult(ActionOutcome.Collected(
                 summary, JsonSerializer.Serialize(result, AgentJson.SerializerOptions)));
