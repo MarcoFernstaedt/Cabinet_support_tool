@@ -252,15 +252,20 @@ public sealed class AgentController : SupportControllerBase
             .ToListAsync(ct);
 
         var dispatches = new List<ActionRequestDto>(due.Count);
+        var executionPolicy = HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value;
 
         foreach (ActionRequest action in due)
         {
-            if (!ActionCatalog.TryGet(action.Action,
-                    HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value,
-                    out ActionCatalogEntry entry))
+            IReadOnlyDictionary<string, string>? parameters = DeserialiseParameters(action.ParametersJson);
+            if (!ActionCatalog.TryGet(action.Action, executionPolicy, out ActionCatalogEntry entry) ||
+                parameters is null ||
+                (executionPolicy.DemoEnabled && action.Action == ActionName.KillProcess &&
+                 !HttpContext.RequestServices.GetRequiredService<IActionParameterValidator>()
+                     .Validate(entry, parameters, nowUtc, cabinet).Succeeded))
             {
                 // An action whose catalog entry has been withdrawn since it was
-                // approved is cancelled rather than sent.
+                // approved is cancelled rather than sent. Demo also revalidates
+                // persisted selected-process operands so legacy PID-only work cannot dispatch.
                 action.Status = ActionRequestStatus.Cancelled;
                 action.CompletedUtc = nowUtc;
                 action.ResultOutput = "Cancelled before dispatch: action is unavailable under the current execution policy.";
@@ -282,7 +287,7 @@ public sealed class AgentController : SupportControllerBase
                 Id = action.Id,
                 Action = action.Action,
                 CabinetId = cabinet.Id,
-                Parameters = DeserialiseParameters(action.ParametersJson),
+                Parameters = parameters,
                 Reason = action.Reason,
                 TicketReference = action.TicketReference,
                 RequestedByUserId = action.RequestedByUserId,
@@ -635,17 +640,28 @@ public sealed class AgentController : SupportControllerBase
         return authenticated;
     }
 
-    private static IReadOnlyDictionary<string, string> DeserialiseParameters(string json)
+    // Null means ambiguous keys: never substitute empty operands, which could
+    // authorize an action with optional parameters. Other parse failures retain
+    // the legacy empty-operand fallback and Demo's selected-identity validation.
+    private static IReadOnlyDictionary<string, string>? DeserialiseParameters(string json)
     {
         try
         {
-            Dictionary<string, string>? read =
-                JsonSerializer.Deserialize<Dictionary<string, string>>(json, ContractJson.Default);
+            using JsonDocument document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                var keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (JsonProperty property in document.RootElement.EnumerateObject())
+                {
+                    // Check before dictionary deserialization loses exact duplicates.
+                    if (!keys.Add(property.Name))
+                        return null;
+                }
+            }
 
-            // Rebuilt case-insensitively. Stored parameter names are the
-            // catalog's, but a dictionary that compares ordinally turns any
-            // future difference in case into an action the agent silently
-            // declines, for a reason visible from neither side.
+            Dictionary<string, string>? read =
+                document.RootElement.Deserialize<Dictionary<string, string>>(ContractJson.Default);
+
             return read is null
                 ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 : new Dictionary<string, string>(read, StringComparer.OrdinalIgnoreCase);
