@@ -22,10 +22,10 @@ using Microsoft.Extensions.Options;
 namespace CabinetPlatform.Agent.Tests.Actions;
 
 /// <summary>Real authenticated request/approval/dispatch/result/Console path; all process effects are inert.</summary>
-public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHost>
+public sealed class SelectedProcessAcceptanceTests : IClassFixture<SelectedProcessAcceptanceTests.DemoProcessTestHost>
 {
-    private readonly ConsoleTestHost _host;
-    public SelectedProcessAcceptanceTests(ConsoleTestHost host) => _host = host;
+    private readonly DemoProcessTestHost _host;
+    public SelectedProcessAcceptanceTests(DemoProcessTestHost host) => _host = host;
 
     [Fact]
     public async Task Complete_selected_identity_does_not_bypass_authentication_or_default_diagnostic_mode()
@@ -63,6 +63,9 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHo
     [InlineData("wait-error", ActionStatus.Failed)]
     [InlineData("timeout", ActionStatus.Failed)]
     [InlineData("diagnostic-agent", ActionStatus.Denied)]
+    [InlineData("local-allowlist", ActionStatus.Denied)]
+    [InlineData("critical", ActionStatus.Failed)] // Existing native-critical refusal classification.
+    [InlineData("path-mismatch", ActionStatus.Denied)]
     public async Task Selected_row_reaches_real_executor_and_persisted_visible_result(string scenario, ActionStatus expected)
     {
         string name = $"process-{Guid.NewGuid():N}";
@@ -107,8 +110,8 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHo
         var command = tab.Processes.Actions.Single(a => a.Catalogue.Action == ActionName.KillProcess).InvokeCommand;
         var factory = new SelectedProcessGatewayTests.FakeFactory();
         factory.Handle.Identity = identity;
-        var options = new AgentOptions { Actions = new ActionOptions { ExecutionMode = scenario == "diagnostic-agent" ? "DiagnosticOnly" : "Maintenance" } };
-        var executor = new KillProcessExecutor(new ProcessControlGateway(factory), ProcessTargetPolicyTests.Policy(["notepad"]),
+        var options = new AgentOptions { Actions = new ActionOptions { ExecutionMode = scenario == "diagnostic-agent" ? "DiagnosticOnly" : "Demo" } };
+        var executor = new KillProcessExecutor(new ProcessControlGateway(factory), ProcessTargetPolicyTests.Policy(scenario == "local-allowlist" ? [] : ["notepad"]),
             Options.Create(options), NullLogger<KillProcessExecutor>.Instance);
         var store = new InMemoryAgentStateStore(new AgentState
         {
@@ -153,12 +156,15 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHo
         Assert.Equal("133700000000000001", request.Parameters[ActionParameterKeys.ExpectedCreationTimeFileTime]);
         Assert.Equal(identity.ExecutablePath, request.Parameters[ActionParameterKeys.ExpectedExecutablePath]);
         if (scenario == "same-name-replacement") factory.Handle.Identity = identity with { CreationTimeFileTime = identity.CreationTimeFileTime + 1 };
+        if (scenario == "critical") factory.Handle.IsCritical = true;
+        if (scenario == "path-mismatch") factory.Handle.Identity = identity with { ExecutablePath = @"C:\Other\notepad.exe" };
         if (scenario == "wait-error") factory.Handle.WaitFailure = new System.ComponentModel.Win32Exception(6);
         if (scenario == "timeout") factory.Handle.Exits = false;
         var result = await dispatcher.DispatchAsync(request, default);
         Assert.Equal(expected, result.Status);
+        if (scenario == "critical") Assert.Contains("critical", result.Output, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(scenario is "matched" or "exact-path" or "wait-error" or "timeout", factory.Handle.Terminated);
-        Assert.Equal(scenario == "diagnostic-agent" ? 0 : 1, factory.OpenCount);
+        Assert.Equal(scenario is "diagnostic-agent" or "local-allowlist" ? 0 : 1, factory.OpenCount);
         if (scenario is "wait-error" or "timeout")
         {
             Assert.Contains("exit was not confirmed", result.Output);
@@ -173,7 +179,7 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHo
         await ReportAsync(result.RequestId, result.Status, result.Output, result.CollectedData);
         // Same approved request replays the durable result, not a second native operation.
         Assert.Equal(result, await dispatcher.DispatchAsync(request, default));
-        Assert.Equal(scenario == "diagnostic-agent" ? 0 : 1, factory.OpenCount);
+        Assert.Equal(scenario is "diagnostic-agent" or "local-allowlist" ? 0 : 1, factory.OpenCount);
 
         async Task ReportAsync(Guid id, ActionStatus status, string? output, string? data)
         {
@@ -189,6 +195,16 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<ConsoleTestHo
             await tab.RefreshCommand.ExecuteAsync(null);
             Assert.Null(tab.ErrorMessage);
             Assert.Equal(output, tab.ActionHistory.Single(a => a.Request.Id == id).ResultOutput);
+        }
+    }
+
+    public sealed class DemoProcessTestHost : ConsoleTestHost
+    {
+        protected override void ConfigureWebHost(Microsoft.AspNetCore.Hosting.IWebHostBuilder builder)
+        {
+            base.ConfigureWebHost(builder);
+            builder.ConfigureServices(services => Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions.Configure<CabinetPlatform.Server.Configuration.ActionOptions>(
+                services, options => options.ExecutionMode = "Demo"));
         }
     }
 

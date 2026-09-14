@@ -150,7 +150,7 @@ public sealed class ActionDispatcher
 
         if (!_options.Permits(request.Action))
             return Remember(request, ActionOutcome.Denied(
-                "DiagnosticOnly execution mode refuses this action. No executor was invoked."));
+                "The local execution mode refuses this action. No executor was invoked."));
 
         // The catalog check comes first. An action with no compiled-in executor
         // is refused before anything else about the request is considered.

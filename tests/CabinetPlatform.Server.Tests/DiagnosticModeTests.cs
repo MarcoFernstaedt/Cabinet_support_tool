@@ -10,25 +10,32 @@ public class DiagnosticModeTests
     [Theory]
     [InlineData("DiagnosticOnly", false)]
     [InlineData("Maintenance", true)]
+    [InlineData("Demo", true)]
+    [InlineData("demo", false)]
     [InlineData("maintenance", false)]
     [InlineData("", false)]
     [InlineData("unexpected", false)]
-    public void Only_explicit_maintenance_configuration_enables_mutations(string mode, bool maintenance)
+    public void Only_explicit_modes_enable_selected_termination(string mode, bool maintenance)
     {
         var options = new CabinetPlatform.Server.Configuration.ActionOptions { ExecutionMode = mode };
         Assert.Equal("DiagnosticOnly", new CabinetPlatform.Server.Configuration.ActionOptions().ExecutionMode);
         Assert.Equal(maintenance, options.Permits(ActionName.KillProcess));
+        Assert.Equal(mode == "Maintenance", options.MaintenanceEnabled);
+        Assert.Equal(mode == "Maintenance", options.Permits(ActionName.RestartApplication));
         Assert.True(options.Permits(ActionName.GetProcessList));
         Assert.False(options.Permits((ActionName)9999));
     }
 
-    [Fact]
-    public async Task Default_dispatch_cancels_stale_mutation_but_dispatches_observation()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Demo")]
+    public async Task Restricted_dispatch_cancels_stale_mutation_but_dispatches_observation(string? mode)
     {
-        using var factory = new SupportApiFactory { ExecutionMode = null };
+        using var factory = new SupportApiFactory { ExecutionMode = mode };
         var (_, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "stale");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "stale", user.Id);
-        var actions = new[] { ActionName.KillProcess, ActionName.GetProcessList, (ActionName)9999 };
+        var actions = Enum.GetValues<ActionName>().Append((ActionName)9999)
+            .Except(new[] { ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates });
         await factory.WithDbAsync(async db =>
         {
             foreach (var action in actions)
@@ -42,8 +49,11 @@ public class DiagnosticModeTests
             await db.SaveChangesAsync();
         });
         using var agent = TestClient.CreateAgentClient(factory, cabinet.MachineId);
-        var dispatched = await agent.GetFromJsonAsync<List<ActionRequestDto>>("/api/agent/actions", TestClient.Json);
-        Assert.Equal(ActionName.GetProcessList, Assert.Single(dispatched!).Action);
+        var dispatched = new List<ActionRequestDto>();
+        // The endpoint deliberately takes at most twenty queue rows per poll.
+        for (int poll = 0; poll < actions.Count(); poll++)
+            dispatched.AddRange((await agent.GetFromJsonAsync<List<ActionRequestDto>>("/api/agent/actions", TestClient.Json))!);
+        Assert.Equal(ActionName.GetProcessList, Assert.Single(dispatched).Action);
         await factory.WithDbAsync(async db =>
         {
             var rows = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(db.ActionRequests);
@@ -53,15 +63,47 @@ public class DiagnosticModeTests
     }
 
     [Fact]
-    public async Task Default_catalog_and_request_path_allow_only_reviewed_observations()
+    public async Task Demo_rejects_approval_of_queued_legacy_mutations()
     {
-        using var factory = new SupportApiFactory { ExecutionMode = null };
+        using var factory = new SupportApiFactory { ExecutionMode = "Demo" };
+        var (_, requester) = await TestClient.CreateUserClientAsync(factory, Role.Tier2, "old-requester");
+        var (approver, _) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "demo-approver");
+        var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "approval", requester.Id);
+        var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.KillProcess };
+        foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
+        {
+            var id = Guid.NewGuid();
+            await factory.WithDbAsync(async db =>
+            {
+                db.ActionRequests.Add(new CabinetPlatform.Server.Domain.ActionRequest
+                {
+                    Id = id, CabinetId = cabinet.Id, Action = action, RequestedByUserId = requester.Id,
+                    Reason = "Legacy pending request", ParametersJson = "{}",
+                    Status = ActionRequestStatus.PendingApproval, RequestedUtc = DateTimeOffset.UtcNow,
+                });
+                await db.SaveChangesAsync();
+            });
+            using var response = await approver.PostAsJsonAsync($"/api/actions/{id}/approve", new ApproveActionRequest());
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            await factory.WithDbAsync(async db =>
+                Assert.Equal(ActionRequestStatus.PendingApproval, (await db.ActionRequests.FindAsync(id))!.Status));
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Demo")]
+    public async Task Restricted_catalog_and_request_path_allow_only_reviewed_actions(string? mode)
+    {
+        using var factory = new SupportApiFactory { ExecutionMode = mode };
         var (client, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "diagnostic");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "diagnostic", user.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
             ActionName.RunEventLogView, ActionName.GetScheduledUpdates };
         var catalog = await client.GetFromJsonAsync<List<ActionCatalogEntryDto>>("/api/actions/catalog", TestClient.Json);
-        Assert.Equal(allowed.Order(), catalog!.Select(x => x.Action).Order());
+        Assert.Equal((mode == "Demo" ? allowed.Append(ActionName.KillProcess) : allowed).Order(),
+            catalog!.Select(x => x.Action).Order());
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
         {
             var response = await client.PostAsJsonAsync("/api/actions", new CreateActionRequest

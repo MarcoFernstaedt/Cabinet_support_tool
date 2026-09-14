@@ -252,15 +252,18 @@ public sealed class AgentController : SupportControllerBase
             .ToListAsync(ct);
 
         var dispatches = new List<ActionRequestDto>(due.Count);
+        var executionPolicy = HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value;
 
         foreach (ActionRequest action in due)
         {
-            if (!ActionCatalog.TryGet(action.Action,
-                    HttpContext.RequestServices.GetRequiredService<IOptions<ActionOptions>>().Value,
-                    out ActionCatalogEntry entry))
+            if (!ActionCatalog.TryGet(action.Action, executionPolicy, out ActionCatalogEntry entry) ||
+                (executionPolicy.DemoEnabled && action.Action == ActionName.KillProcess &&
+                 !HttpContext.RequestServices.GetRequiredService<IActionParameterValidator>()
+                     .Validate(entry, DeserialiseParameters(action.ParametersJson), nowUtc, cabinet).Succeeded))
             {
                 // An action whose catalog entry has been withdrawn since it was
-                // approved is cancelled rather than sent.
+                // approved is cancelled rather than sent. Demo also revalidates
+                // persisted selected-process operands so legacy PID-only work cannot dispatch.
                 action.Status = ActionRequestStatus.Cancelled;
                 action.CompletedUtc = nowUtc;
                 action.ResultOutput = "Cancelled before dispatch: action is unavailable under the current execution policy.";
