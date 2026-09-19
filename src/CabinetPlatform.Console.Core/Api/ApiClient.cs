@@ -91,6 +91,7 @@ public sealed class ApiClient : IApiClient
         string url = "api/cabinets" + new QueryString()
             .Add("clientName", query.ClientName)
             .Add("siteName", query.SiteName)
+            .Add("siteId", query.SiteId)
             .Add("search", query.Search)
             .Add("isActive", query.IsActive)
             .Add("health", query.Health)

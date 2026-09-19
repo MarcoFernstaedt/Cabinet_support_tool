@@ -141,6 +141,9 @@ public sealed partial class TwoSiteOfficeDemoTests(ITestOutputHelper output)
                 var expected = specs.Where(d => d.Site == site).Select(d => d.Id).Order().ToArray();
                 Assert.Equal(expected, list.Items.Select(d => d.Id).Order());
                 Assert.Equal(expected.Length, list.TotalCount);
+                var byIdentity = await api.GetCabinetsAsync(new CabinetQuery { SiteId = list.Items[0].SiteId, PageSize = 50 }, default);
+                Assert.Equal(expected, byIdentity.Items.Select(d => d.Id).Order());
+                Assert.Equal(expected.Length, byIdentity.TotalCount);
                 steps.Add(new { stage = "Approved site filter", site, count = list.TotalCount, cabinets = list.Items.Select(c => new { c.Id, c.Hostname, c.Role, c.Health }) });
             }
             for (int i = 0; i < specs.Length; i++)
