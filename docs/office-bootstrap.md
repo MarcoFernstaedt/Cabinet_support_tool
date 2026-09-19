@@ -72,7 +72,7 @@ Both enrollment and authenticated Agent requests reject another origin and disab
 
 ## Revocation and rollback
 
-Remove the device's token-hash entry from the office manifest and perform a separately authorized test-service restart to revoke its device credential. Preserve the consumed journal entry. Deactivate the cabinet through the existing supported administration path as well; credential revocation and cabinet retirement are different operations. Revocation is **not instantaneous without restart** in this bounded implementation. The time limit remains enforced on every authenticated request.
+Remove the device's token-hash entry from the office manifest and perform a separately authorized test-service restart to revoke its device credential. Preserve the consumed journal entry. Credential revocation and cabinet retirement are different operations: this change does not add a retirement/deactivation administration workflow, and operators must not delete historical records to simulate one. Revocation is **not instantaneous without restart** in this bounded implementation. The time limit remains enforced on every authenticated request.
 
 For an unused staging bundle, remove its private directory after the operator confirms it was never activated. For a used lab, preserve the journal and audit evidence and revoke before deleting device credentials. Do not copy a confirmed key journal to a replacement drive. Do not restore an empty or earlier journal, extend expired tokens by changing their issue time, or fall back to the shared fleet key. A code rollback must keep access closed until an explicitly reviewed identity-compatible server is available. The old shared-key server is not a safe automatic rollback target for this mode.
 
