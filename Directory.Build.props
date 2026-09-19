@@ -24,7 +24,7 @@
     <DefineConstants>$(DefineConstants);LEGACY_MAINTENANCE_TESTS</DefineConstants>
   </PropertyGroup>
 
-  <Target Name="RefuseLegacyMaintenanceDistribution" BeforeTargets="Publish;Pack;PrepareForPublish"
+  <Target Name="RefuseLegacyMaintenanceDistribution" BeforeTargets="Publish;Pack;PrepareForPublish;GenerateNuspec;_IntermediatePack"
           Condition="'$(Configuration)' == 'LegacyMaintenanceTests'">
     <Error Text="LegacyMaintenanceTests is a historical test composition and must not be published or packed. Build Release for monitoring." />
   </Target>
