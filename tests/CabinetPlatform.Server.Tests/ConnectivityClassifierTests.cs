@@ -87,6 +87,19 @@ public sealed class ConnectivityClassifierTests
         Assert.Equal(recovered, ConnectivityClassifier.Apply(recovered, next, now.AddMinutes(10)));
     }
 
+    [Fact]
+    public void Threshold_at_unrecorded_middle_sample_is_unknown_not_last_failure_or_invented_midpoint()
+    {
+        var first = DateTimeOffset.UtcNow.AddMinutes(-5);
+        var previous = ConnectivityClassifier.Apply(new ConnectivityLinkState(), Summary("SSF", first), first.AddMinutes(2));
+        var summary = Summary("FFF", first.AddMinutes(3));
+        var actual = ConnectivityClassifier.Apply(previous, summary, first.AddMinutes(6));
+        Assert.True(actual.IncidentOpen);
+        Assert.Null(actual.IncidentObservedUtc);
+        Assert.Equal(first.AddMinutes(6), actual.IncidentReceivedUtc);
+        Assert.Equal(first.AddMinutes(5), summary.LastFailureUtc);
+    }
+
     internal static ConnectivitySummary Summary(string values, DateTimeOffset first)
     {
         int leading = values.TakeWhile(c => c == 'F').Count(), trailing = values.Reverse().TakeWhile(c => c == 'F').Count();

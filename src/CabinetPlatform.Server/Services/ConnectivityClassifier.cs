@@ -72,7 +72,14 @@ public static class ConnectivityClassifier
         var recovered = previous.RecoveredObservedUtc;
         if (triggered && !previous.IncidentOpen)
         {
-            incidentObserved = s.LastFailureUtc;
+            // A prefix of two failures reaches threshold at the first sample.
+            // LastFailureUtc may instead describe a new run after a reply.
+            incidentObserved = prefix >= 2 && s.LeadingFailures > 0
+                ? s.FirstObservedUtc
+                // With one prior failure and three new failures the threshold is
+                // the middle sample. Its timestamp is absent from this aggregate.
+                // Do not substitute a later sample or assume exact timer cadence.
+                : prefix == 1 && s.LeadingFailures == 3 ? null : s.LastFailureUtc;
             incidentReceived = received;
             recovered = null;
         }

@@ -54,7 +54,7 @@ public sealed record ConnectivityLinkState
     public int ConsecutiveFailures { get; init; }
     /// <summary>Whether a repeated-failure incident remains unresolved.</summary>
     public bool IncidentOpen { get; init; }
-    /// <summary>Last failure observation in the interval establishing the most recent incident; not exact outage onset.</summary>
+    /// <summary>Threshold-crossing failure time when retained by the aggregate; null when its exact time is unknown. Not outage onset.</summary>
     public DateTimeOffset? IncidentObservedUtc { get; init; }
     /// <summary>Server time when the most recent incident was detected.</summary>
     public DateTimeOffset? IncidentReceivedUtc { get; init; }
