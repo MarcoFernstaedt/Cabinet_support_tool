@@ -130,6 +130,23 @@
                     </StackPanel>
                 </Expander>
 
+                <Expander Header="Same-site connectivity monitoring" IsExpanded="True" Margin="0,0,0,8"
+                          AutomationProperties.Name="Same-site connectivity monitoring">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ConnectivityNote}" TextWrapping="Wrap" Focusable="True"
+                                   AutomationProperties.Name="{Binding ConnectivityNote}" />
+                        <ItemsControl ItemsSource="{Binding ConnectivityRows}"
+                                      AutomationProperties.Name="Registered connectivity observations">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,4,0,4" Focusable="True"
+                                               AutomationProperties.Name="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Expander>
+
                 <!-- Overview -->
                 <Expander IsExpanded="{Binding Overview.IsExpanded}"
                           Margin="0,0,0,6"

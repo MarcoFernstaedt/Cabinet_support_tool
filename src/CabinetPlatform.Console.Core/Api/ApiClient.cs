@@ -81,6 +81,9 @@ public sealed class ApiClient : IApiClient
     public Task RejectRegistrationAsync(Guid id, RejectRegistrationRequest request, CancellationToken ct) =>
         PostAsync($"api/registrations/{id:D}/reject", request, ct);
 
+    public Task<ConnectivityStatusDto> GetConnectivityAsync(Guid cabinetId, CancellationToken ct) =>
+        GetAsync<ConnectivityStatusDto>($"api/connectivity/cabinets/{cabinetId:D}", ct);
+
     // --- Cabinets --------------------------------------------------------
 
     public Task<PagedResult<CabinetSummary>> GetCabinetsAsync(CabinetQuery query, CancellationToken ct)

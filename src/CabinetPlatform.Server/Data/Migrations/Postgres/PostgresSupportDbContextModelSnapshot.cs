@@ -459,6 +459,69 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>
+                {
+                    b.Property<Guid>("SourceCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConfigurationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StatesJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TargetsJson")
+                        .IsRequired()
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTimeOffset>("UpdatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("SourceCabinetId");
+
+                    b.ToTable("ConnectivityConfigurations");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityEvidence", b =>
+                {
+                    b.Property<Guid>("SourceCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConfigurationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("FirstObservedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ObservedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SummaryJson")
+                        .IsRequired()
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)");
+
+                    b.Property<Guid>("TargetCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("SourceCabinetId", "Id");
+
+                    b.HasIndex("SourceCabinetId", "TargetCabinetId", "ObservedUtc");
+
+                    b.ToTable("ConnectivityEvidence");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.EventLogView", b =>
                 {
                     b.Property<Guid>("Id")
@@ -920,9 +983,6 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .IsRequired()
                         .HasColumnType("bytea");
 
-                    b.Property<Guid>("SecurityStamp")
-                        .HasColumnType("uuid");
-
                     b.Property<int>("PasswordIterations")
                         .HasColumnType("integer");
 
@@ -936,6 +996,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<byte[]>("RowVersion")
                         .IsConcurrencyToken()
                         .HasColumnType("bytea");
+
+                    b.Property<Guid>("SecurityStamp")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Username")
                         .IsRequired()
@@ -991,6 +1054,24 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .IsRequired();
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", null)
+                        .WithMany()
+                        .HasForeignKey("SourceCabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityEvidence", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", null)
+                        .WithMany()
+                        .HasForeignKey("SourceCabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.Heartbeat", b =>

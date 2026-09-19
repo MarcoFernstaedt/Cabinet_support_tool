@@ -224,6 +224,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         ClearSections();
         CabinetId = cabinetId;
         CabinetDetailDto? latest = null;
+        ConnectivityStatusDto? connectivity = null;
+        string? connectivityError = null;
 
         bool loaded = await RunAsync(async ct =>
         {
@@ -244,6 +246,17 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             }
 
             latest = await _api.GetCabinetLatestAsync(cabinetId, ct);
+            try
+            {
+                connectivity = await _api.GetConnectivityAsync(cabinetId, ct);
+                if (connectivity.SourceCabinetId != cabinetId)
+                {
+                    connectivity = null;
+                    connectivityError = "The response identity did not match the selected cabinet.";
+                }
+            }
+            catch (ApiException ex) { connectivityError = ex.Message; }
+            catch (NotSupportedException ex) { connectivityError = ex.Message; }
         });
 
         if (generation != _generation) return;
@@ -260,6 +273,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             return;
         }
 
+        _connectivity = connectivity;
+        _connectivityError = connectivityError;
         ApplyLatest();
 
         // Awaited rather than left running, so that a caller who has awaited
@@ -444,6 +459,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     /// <summary>Re-evaluate only presentation age; no network requests or cabinet actions.</summary>
     public void RefreshFreshness()
     {
+        NotifyConnectivity();
         var previous = Overview.Health;
         Overview.Apply(_latest, _timeProvider.GetUtcNow());
         OnPropertyChanged(nameof(MonitoringNote));
@@ -509,6 +525,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private void ClearSections()
     {
+        ClearConnectivity();
         ActionHistory.Clear();
         SelectedAction = null;
         Path = null;

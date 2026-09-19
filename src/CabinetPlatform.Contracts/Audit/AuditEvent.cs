@@ -234,4 +234,9 @@ public enum AuditEvent
     /// reading denial text.
     /// </remarks>
     HardwareActuationRefused = 132,
+
+    /// <summary>A supervisor changed approved connectivity targets.</summary>
+    ConfigureConnectivity = 140,
+    /// <summary>A support user read connectivity evidence.</summary>
+    ViewConnectivity = 141,
 }

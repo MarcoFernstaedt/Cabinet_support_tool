@@ -57,6 +57,10 @@ public interface IApiClient
 
     Task<PagedResult<CabinetSummary>> GetCabinetsAsync(CabinetQuery query, CancellationToken ct);
 
+    /// <summary>Reads the bounded independent connectivity evidence surface.</summary>
+    Task<ConnectivityStatusDto> GetConnectivityAsync(Guid cabinetId, CancellationToken ct) =>
+        throw new NotSupportedException("Connectivity monitoring is unavailable in this client.");
+
     Task<CabinetDetailDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct);
 
     Task<PagedResult<HeartbeatDto>> GetCheckInHistoryAsync(

@@ -37,6 +37,8 @@ public static class AgentServiceRegistration
         AddCollectors(services);
         AddTransport(services, configuration);
         AddActions(services);
+        services.AddSingleton<Connectivity.IConnectivityProbe, Connectivity.ConnectivityProbe>();
+        services.AddHostedService<Connectivity.ConnectivityWorker>();
 
         return services;
     }
