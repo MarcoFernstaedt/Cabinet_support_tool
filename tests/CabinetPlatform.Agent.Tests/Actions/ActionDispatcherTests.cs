@@ -337,7 +337,7 @@ public class ActionDispatcherTests
     public async Task Restricted_mode_denies_every_unreviewed_action_before_executor(string mode)
     {
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999))
         {
             if (mode == "Demo" && action == ActionName.KillProcess) continue;

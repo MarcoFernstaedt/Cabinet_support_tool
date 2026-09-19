@@ -924,6 +924,54 @@
                     </StackPanel>
                 </Expander>
 
+                <!-- Windows firewall: explicitly read only -->
+                <Expander IsExpanded="{Binding Firewall.IsExpanded}" Margin="0,0,0,6"
+                          AutomationProperties.Name="{Binding Firewall.Title}"
+                          AutomationProperties.HelpText="{Binding Firewall.AccessibleDescription}">
+                    <Expander.Header>
+                        <TextBlock Text="{Binding Firewall.Title}" Style="{StaticResource SectionHeading}"
+                                   AutomationProperties.HeadingLevel="Level3" />
+                    </Expander.Header>
+                    <StackPanel Margin="12,8,0,8" DataContext="{Binding Firewall}">
+                        <TextBlock Text="{Binding ResultSummary}" TextWrapping="Wrap" Focusable="True"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="{Binding ResultSummary}" />
+                        <TextBlock Text="{Binding PolicyCaveat}" TextWrapping="Wrap" Margin="0,6,0,6"
+                                   AutomationProperties.Name="{Binding PolicyCaveat}" />
+                        <TextBlock Text="{Binding RepairStatus}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   AutomationProperties.Name="{Binding RepairStatus}" />
+                        <DataGrid ItemsSource="{Binding Profiles}" Style="{StaticResource AccessibleDataGrid}"
+                                  IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="150"
+                                  AutomationProperties.Name="Historical firewall profile observations">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Profile" Binding="{Binding Name}" />
+                                <DataGridTextColumn Header="Read outcome" Binding="{Binding Status}" />
+                                <DataGridTextColumn Header="Enabled" Binding="{Binding Enabled}" />
+                                <DataGridTextColumn Header="Block all inbound" Binding="{Binding BlockAllInbound}" />
+                                <DataGridTextColumn Header="Default inbound" Binding="{Binding DefaultInbound}" />
+                                <DataGridTextColumn Header="Default outbound" Binding="{Binding DefaultOutbound}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid ItemsSource="{Binding Rules}" Style="{StaticResource AccessibleDataGrid}"
+                                  IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="260" Margin="0,6,0,0"
+                                  AutomationProperties.Name="Bounded configured firewall rules, not effective permission">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Rule display name" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Configured state" Binding="{Binding Enabled}" />
+                                <DataGridTextColumn Header="Direction" Binding="{Binding Direction}" />
+                                <DataGridTextColumn Header="Action" Binding="{Binding Action}" />
+                                <DataGridTextColumn Header="Protocol" Binding="{Binding Protocol}" />
+                                <DataGridTextColumn Header="Profile mask" Binding="{Binding Observation.Profiles}" />
+                                <DataGridTextColumn Header="Local ports" Binding="{Binding Observation.LocalPorts}" />
+                                <DataGridTextColumn Header="Remote ports" Binding="{Binding Observation.RemotePorts}" />
+                                <DataGridTextColumn Header="Local addresses" Binding="{Binding Observation.LocalAddresses}" Width="180" />
+                                <DataGridTextColumn Header="Remote addresses" Binding="{Binding Observation.RemoteAddresses}" Width="180" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SectionActionsTemplate}" />
+                    </StackPanel>
+                </Expander>
+
                 <!-- System -->
                 <Expander IsExpanded="{Binding System.IsExpanded}"
                           Margin="0,0,0,6"

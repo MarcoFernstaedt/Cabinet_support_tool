@@ -17,5 +17,5 @@ public static class MonitoringBoundary
     /// <summary>The complete observational action allowlist for the monitoring release.</summary>
     public static bool IsObservation(ActionName action) => action is
         ActionName.GetProcessList or ActionName.CollectEventLogs or
-        ActionName.RunEventLogView or ActionName.GetScheduledUpdates;
+        ActionName.RunEventLogView or ActionName.GetScheduledUpdates or ActionName.InspectFirewall;
 }

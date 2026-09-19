@@ -237,12 +237,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             Assert.False(section.Availability.HasData);
             Assert.NotEmpty(section.Availability.Reason);
 
-            // Event logs and the process list are on-demand whether or not a
+            // Event logs, process list and firewall inspection are on-demand whether or not a
             // cabinet has checked in, so their reason is the action to run
             // rather than the absence of telemetry. Everything else is simply
             // "nothing collected yet".
             Assert.Equal(
-                section == tab.EventLogs || section == tab.Processes
+                section == tab.EventLogs || section == tab.Processes || section == tab.Firewall
                     ? SectionAvailabilityKind.OnDemandOnly
                     : SectionAvailabilityKind.NoCheckIn,
                 section.Availability.Kind);
@@ -294,9 +294,11 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
         Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Performance.ProcessListAvailability.Kind);
 
-        // Both say so up front. An empty panel and a healthy cabinet look the
+        // All on-demand sections say so up front. An empty panel and a healthy cabinet look the
         // same, and only one of them is good news.
-        Assert.Equal(2, tab.OnDemandSectionCount);
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Firewall.Availability.Kind);
+        Assert.Contains("Inspect Windows firewall", tab.Firewall.Availability.Reason);
+        Assert.Equal(3, tab.OnDemandSectionCount);
         Assert.NotNull(tab.OnDemandSectionNote);
     }
 
@@ -342,7 +344,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     /// over the phone.
     /// </remarks>
     [Fact]
-    public async Task All_nine_sections_are_present_in_the_order_the_brief_sets()
+    public async Task All_sections_include_firewall_inspection_beside_network()
     {
         (MachineTabViewModel tab, _, _, _) = await SignedInTabAsync(Role.Tier1);
 
@@ -350,7 +352,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             new[]
             {
                 "Overview", "Performance", "Processes", "Services", "Disk",
-                "Windows Update", "Event Logs", "Network", "System"
+                "Windows Update", "Event Logs", "Network", "Windows firewall", "System"
             },
             tab.Sections.Select(s => s.Title).ToArray());
     }

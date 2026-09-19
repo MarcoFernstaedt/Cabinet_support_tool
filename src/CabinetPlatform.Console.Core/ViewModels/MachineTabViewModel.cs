@@ -65,7 +65,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             : "Refresh to check completion. Accepted or dispatched does not mean executed.";
         foreach (var group in page.Items.Where(a => a.CompletedUtc is not null &&
                          a.ResultStatus == ActionStatus.Succeeded &&
-                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView)
+                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView or ActionName.InspectFirewall)
                      .OrderByDescending(a => a.RequestedUtc).GroupBy(a => a.Action))
         {
             foreach (var action in group)
@@ -73,8 +73,11 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                 if (generation != _generation) return;
                 if (!await TryApplyActionResultAsync(action.Id)) continue;
                 if (generation != _generation) return;
-                ActionHistoryNote += $" Last successful {action.Action} snapshot: {action.Id}, " +
-                    $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
+                ActionHistoryNote += action.Action == ActionName.InspectFirewall
+                    ? $" Last completed firewall inspection envelope: {action.Id}, completed {action.CompletedUtc:O}. " +
+                      "Read the native outcome in Windows firewall; successful delivery does not mean a readable or healthy firewall."
+                    : $" Last successful {action.Action} snapshot: {action.Id}, " +
+                      $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
                 break;
             }
         }
@@ -110,7 +113,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         Sections = new ObservableCollection<MachineSectionViewModel>
         {
-            Overview, Performance, Processes, Services, Disk, WindowsUpdate, EventLogs, Network, System
+            Overview, Performance, Processes, Services, Disk, WindowsUpdate, EventLogs, Network, Firewall, System
         };
 
         // The user changing drive or window starts a fetch that nothing is in a
@@ -139,6 +142,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     public WindowsUpdateSectionViewModel WindowsUpdate { get; } = new();
     public EventLogSectionViewModel EventLogs { get; } = new();
     public NetworkSectionViewModel Network { get; } = new();
+    public FirewallSectionViewModel Firewall { get; } = new();
     public SystemSectionViewModel System { get; } = new();
 
     public ObservableCollection<MachineSectionViewModel> Sections { get; }
@@ -375,6 +379,15 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         {
             switch (action.Action)
             {
+                case ActionName.InspectFirewall:
+                    var inspection = JsonSerializer.Deserialize<FirewallInspection>(collected, ContractJson.Default);
+                    if (action.ResultStatus == ActionStatus.Succeeded && inspection is not null && Firewall.TryApply(inspection))
+                    {
+                        Announcer.Announce(Firewall.Summarise());
+                        return true;
+                    }
+                    return UnreadableResult(action.Id);
+
                 case ActionName.GetProcessList:
                     IReadOnlyList<ProcessInfo>? processes =
                         JsonSerializer.Deserialize<IReadOnlyList<ProcessInfo>>(
@@ -630,6 +643,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         Add(EventLogs, ActionName.RunEventLogView, EventLogs.CurrentViewParameters);
         Add(EventLogs, ActionName.CollectEventLogs);
+
+        Add(Firewall, ActionName.InspectFirewall);
 
         Add(Network, ActionName.FlushDnsCache);
         Add(Network, ActionName.RenewDhcpLease);

@@ -35,7 +35,7 @@ public class DiagnosticModeTests
         var (_, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "stale");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "stale", user.Id);
         var actions = Enum.GetValues<ActionName>().Append((ActionName)9999)
-            .Except(new[] { ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates });
+            .Except(new[] { ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall });
         await factory.WithDbAsync(async db =>
         {
             foreach (var action in actions)
@@ -70,7 +70,7 @@ public class DiagnosticModeTests
         var (approver, _) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "demo-approver");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "approval", requester.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.KillProcess };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.KillProcess };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
         {
             var id = Guid.NewGuid();
@@ -100,7 +100,7 @@ public class DiagnosticModeTests
         var (client, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "diagnostic");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "diagnostic", user.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall };
         var catalog = await client.GetFromJsonAsync<List<ActionCatalogEntryDto>>("/api/actions/catalog", TestClient.Json);
         Assert.Equal((mode == "Demo" ? allowed.Append(ActionName.KillProcess) : allowed).Order(),
             catalog!.Select(x => x.Action).Order());
