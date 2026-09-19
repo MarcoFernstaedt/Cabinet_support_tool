@@ -26,7 +26,7 @@ public interface IPayloadBuffer
 {
     /// <summary>
     /// Spools a payload, then prunes the spool back within its configured
-    /// bounds. Returns false when the payload could not be written at all.
+    /// bounds. Returns false when the new payload was not retained for retry.
     /// </summary>
     /// <param name="payload">The payload to spool.</param>
     /// <param name="tier">The tier it was collected for.</param>
