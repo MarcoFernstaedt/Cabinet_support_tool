@@ -98,7 +98,20 @@ public static class AgentServiceRegistration
             ? uri
             : null;
 
-        services.AddSingleton<IAgentCredentialProvider, EnvironmentAgentCredentialProvider>();
+        if (options.OfficeEnrollmentFile is not null)
+        {
+            services.AddSingleton<IAgentCredentialProvider, OfficeAgentCredentialProvider>();
+            services.AddHttpClient(OfficeAgentCredentialProvider.HttpClientName, client =>
+            {
+                client.BaseAddress = baseAddress;
+                client.Timeout = TimeSpan.FromSeconds(20);
+            }).RedactLoggedHeaders(_ => true)
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        }
+        else
+        {
+            services.AddSingleton<IAgentCredentialProvider, EnvironmentAgentCredentialProvider>();
+        }
         services.AddTransient<AgentAuthenticationHandler>();
 
         services.AddHttpClient(AgentHttpClients.Server, client =>
@@ -113,7 +126,9 @@ public static class AgentServiceRegistration
             client.Timeout = TimeSpan.FromSeconds(100);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 $"CabinetPlatform.Agent/{CheckInBuilder.AgentVersion}");
-        }).AddHttpMessageHandler<AgentAuthenticationHandler>();
+        }).RedactLoggedHeaders(_ => true)
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .AddHttpMessageHandler<AgentAuthenticationHandler>();
 
         services.AddHttpClient(AgentHttpClients.Probe, client =>
         {

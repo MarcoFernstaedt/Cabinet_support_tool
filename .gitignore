@@ -24,6 +24,11 @@ artifacts/
 appsettings.Local.json
 appsettings.*.local.json
 secrets.json
+# Office enrollment material is generated outside the repository, never committed.
+office-enrollment.json*
+*.device
+__pycache__/
+*.pyc
 *.pfx
 *.snk
 *.p12

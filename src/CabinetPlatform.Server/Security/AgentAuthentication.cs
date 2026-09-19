@@ -14,9 +14,9 @@ public sealed class AgentAuthOptions
     public string HeaderName { get; set; } = "X-Mashura-Agent-Key";
 
     /// <summary>
-    /// Never hard-coded and never committed. Supplied per deployment through
-    /// configuration — an environment variable or the platform's secret store.
-    /// The server refuses to start without it.
+    /// Legacy mode only: supplied per deployment through configuration, never
+    /// hard-coded or committed. Office enrollment uses unique device credentials
+    /// instead and never falls back to this key.
     /// </summary>
     public string? SharedSecret { get; set; }
 
@@ -36,10 +36,10 @@ public sealed record AgentIdentity(bool IsAuthenticated, string? MachineId, stri
 /// <summary>
 /// The single seam where agent identity is established.
 ///
-/// This build proves an agent by a shared secret in a header. Mutual TLS with
-/// a per-cabinet client certificate is the planned upgrade, and this interface
-/// exists so that upgrade touches exactly one implementation: no controller,
-/// no policy and no audit path reads the header directly.
+/// Legacy mode proves only possession of a fleet-wide shared key. The opt-in
+/// office mode binds a unique key to one machine through expiring enrollment.
+/// Neither implements the production mutual-TLS requirement. Controllers and
+/// policies consume only this established identity, never raw credentials.
 /// </summary>
 public interface IAgentAuthenticator
 {

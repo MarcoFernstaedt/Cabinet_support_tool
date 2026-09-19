@@ -19,4 +19,17 @@ public sealed class ApiClientOptions
     /// indistinguishable from a hung application to a screen reader user.
     /// </summary>
     public int TimeoutSeconds { get; set; } = 30;
+
+    /// <summary>Rejects cleartext and ambiguous endpoints before a login can send credentials.</summary>
+    public Uri GetHttpsOrigin()
+    {
+        if (!Uri.TryCreate(BaseAddress, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps ||
+            !string.IsNullOrEmpty(uri.UserInfo) || !string.IsNullOrEmpty(uri.Query) ||
+            !string.IsNullOrEmpty(uri.Fragment) || uri.AbsolutePath != "/")
+            throw new InvalidOperationException("The console server must be an HTTPS origin without credentials, path, query or fragment.");
+        return uri;
+    }
+
+    /// <summary>Normal OS certificate validation, with no credential-carrying redirects.</summary>
+    public static HttpClientHandler CreateTransportHandler() => new() { AllowAutoRedirect = false };
 }

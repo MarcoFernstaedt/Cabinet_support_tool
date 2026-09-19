@@ -102,10 +102,19 @@ public sealed class AgentAuthenticationHandler : DelegatingHandler
     }
 
     /// <inheritdoc />
-    protected override Task<HttpResponseMessage> SendAsync(
+    protected override async Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        string? key = _credentials.GetAgentKey();
+        string? key;
+        if (_credentials is OfficeAgentCredentialProvider office)
+        {
+            office.ValidateDestination(request.RequestUri);
+            key = await office.EnsureKeyAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            key = _credentials.GetAgentKey();
+        }
 
         if (key is not null)
         {
@@ -116,6 +125,6 @@ public sealed class AgentAuthenticationHandler : DelegatingHandler
         request.Headers.Remove(_options.MachineIdHeaderName);
         request.Headers.Add(_options.MachineIdHeaderName, _identity.GetMachineId());
 
-        return base.SendAsync(request, cancellationToken);
+        return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
     }
 }

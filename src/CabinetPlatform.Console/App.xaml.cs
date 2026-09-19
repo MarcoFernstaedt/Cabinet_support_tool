@@ -180,11 +180,13 @@ public partial class App : Application
             {
                 ApiClientOptions options = sp.GetRequiredService<IOptions<ApiClientOptions>>().Value;
 
-                http.BaseAddress = new Uri(options.BaseAddress);
+                http.BaseAddress = options.GetHttpsOrigin();
                 http.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
                 http.DefaultRequestHeaders.Accept.Add(
                     new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
             })
+            .RedactLoggedHeaders(_ => true)
+            .ConfigurePrimaryHttpMessageHandler(ApiClientOptions.CreateTransportHandler)
             .AddHttpMessageHandler<BearerTokenHandler>();
 
         // AddHttpClient registers its typed client as transient, and every

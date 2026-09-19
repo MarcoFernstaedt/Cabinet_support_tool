@@ -9,6 +9,22 @@ dotnet test tests/CabinetPlatform.Server.Tests -c Release --filter FullyQualifie
 dotnet test tests/CabinetPlatform.Agent.Tests -c Release --filter "FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
 ```
 
+## Office bootstrap tests and staging
+
+The office enrollment and origin checks run against the shipping composition:
+
+```sh
+dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1 --filter "FullyQualifiedName~OfficeEnrollment|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~EndpointPolicyCoverageTests"
+dotnet test tests/CabinetPlatform.Agent.Tests -c Release -m:1 --filter "FullyQualifiedName~Office|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
+dotnet test tests/CabinetPlatform.Console.Core.Tests -c Release -m:1 --filter FullyQualifiedName~OfficeConsoleTransportTests
+python3 -m unittest discover -s tests/office-bootstrap -v
+```
+
+`tools/prepare_office_demo.py` publishes the actual Windows Agent and WPF Console
+in Release and generates matching configuration without distributing a shared
+key. See [office bootstrap](office-bootstrap.md) for the private output layout,
+short-lived tokens and blocked distribution/native Windows gates.
+
 ## Platform requirements
 
 `CabinetPlatform.Console` is a WPF application and targets `net8.0-windows`.

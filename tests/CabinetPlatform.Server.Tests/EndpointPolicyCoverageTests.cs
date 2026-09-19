@@ -32,7 +32,12 @@ public sealed class EndpointPolicyCoverageTests
         // credential: it is stored server-side, hashed, single-use, revalidated
         // against the user's current role, elevated-SQL grant and active flag on
         // every exchange, and presenting a consumed one revokes the whole chain.
-        $"{nameof(AuthController)}.{nameof(AuthController.Refresh)}"
+        $"{nameof(AuthController)}.{nameof(AuthController.Refresh)}",
+
+        // Explicit office-only token exchange: 256-bit unique expiring token,
+        // durable one-machine/key binding, global rate cap and bounded body.
+        // Disabled unless the office enrollment journal is configured.
+        $"{nameof(OfficeEnrollmentController)}.{nameof(OfficeEnrollmentController.Enroll)}"
     };
 
     public static TheoryData<string> AllActions()

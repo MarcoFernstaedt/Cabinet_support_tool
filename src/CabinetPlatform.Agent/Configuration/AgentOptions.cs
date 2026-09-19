@@ -15,6 +15,9 @@ public sealed class AgentOptions
     /// <summary>Base address of the support server. Outbound only.</summary>
     public string ServerBaseUrl { get; set; } = string.Empty;
 
+    /// <summary>Opt-in office token file. When set, never uses the shared fleet environment key.</summary>
+    public string? OfficeEnrollmentFile { get; set; }
+
     /// <summary>Nominal seconds between heartbeats, before jitter.</summary>
     public int CheckInIntervalSeconds { get; set; } = 300;
 
