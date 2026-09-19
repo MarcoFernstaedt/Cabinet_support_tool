@@ -87,7 +87,7 @@ public sealed class ExtensionConnectivityHttpChronologyTests(ITestOutputHelper o
     Assert.Equal(link.IncidentObservedUtc,persisted.IncidentObservedUtc);
     Assert.Equal(link.RecoveredObservedUtc,persisted.RecoveredObservedUtc);
    }
-   output.WriteLine($"enroll={(int)enrolled.StatusCode}; prior={(int)firstResponse.StatusCode}; next={(int)nextResponse.StatusCode}; evidence={status.RecentEvidence.Count}; durableMatches=True; incidentAfterRecovery={link.IncidentObservedUtc>link.RecoveredObservedUtc}; expectedIncident={first.AddMinutes(3):O}; actualIncident={link.IncidentObservedUtc:O}; recovered={link.RecoveredObservedUtc:O}");
+   output.WriteLine($"enroll={(int)enrolled.StatusCode}; prior={(int)firstResponse.StatusCode}; next={(int)nextResponse.StatusCode}; evidence={status.RecentEvidence.Count}; committedFreshContextMatches=True; incidentAfterRecovery={link.IncidentObservedUtc>link.RecoveredObservedUtc}; expectedIncident={first.AddMinutes(3):O}; actualIncident={link.IncidentObservedUtc:O}; recovered={link.RecoveredObservedUtc:O}");
    Assert.Equal(first.AddMinutes(3),link.IncidentObservedUtc);
   }
   finally {Directory.Delete(root,true);}
