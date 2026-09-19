@@ -86,4 +86,4 @@ For an unused staging bundle, remove its private directory after the operator co
 - Power-loss and filesystem rollback testing. `Flush(true)` plus atomic replacement and a retained journal prove process/retry behavior in tests, not directory-entry durability through every power loss or restoration of an old disk snapshot.
 - Staff MFA, tenant-isolation and the wider production specification. Existing platform limitations are not fixed by unique enrollment.
 
-No client database access, scripts or sensor integrations are added. The shipping Release allowlist remains the existing four observation actions.
+No client database access, scripts or sensor integrations are added. The integrated shipping Release allowlist contains five observation actions: GetScheduledUpdates, CollectEventLogs, RunEventLogView, GetProcessList and InspectFirewall. The bounded connectivity sampler is a separate opt-in monitoring worker, not an additional action or repair capability.
