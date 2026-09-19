@@ -96,7 +96,7 @@ public sealed class FleetController : SupportControllerBase
                 IsSyncCabinet = c.Site!.SyncCabinetId == c.Id,
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
-                    .OrderByDescending(h => h.ReceivedUtc)
+                    .OrderByDescending(h => h.CollectedAtUtc)
                     .Select(h => new
                     {
                         h.CpuPercent,

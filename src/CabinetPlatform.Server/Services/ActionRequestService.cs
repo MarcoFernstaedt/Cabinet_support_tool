@@ -1284,7 +1284,7 @@ public sealed class ActionRequestService : IActionRequestService
             {
                 CabinetId = g.Key,
                 AnyUserLoggedOn = g
-                    .OrderByDescending(h => h.ReceivedUtc)
+                    .OrderByDescending(h => h.CollectedAtUtc)
                     .Select(h => h.AnyUserLoggedOn)
                     .FirstOrDefault(),
                 Latest = g.Max(h => h.ReceivedUtc),

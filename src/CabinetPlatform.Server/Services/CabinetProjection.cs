@@ -65,7 +65,7 @@ public sealed class CabinetProjection : ICabinetProjection
             (!c.IsActive || c.LastCheckInUtc == null ? CabinetHealthStatus.Unknown :
              c.LastCheckInUtc < offlineBefore ? CabinetHealthStatus.Offline :
              _db.Heartbeats.Where(h => h.CabinetId == c.Id)
-                .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
+                .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
                 .Select(h => (CabinetHealthStatus?)(
                     h.WorstDiskHealth == DiskHealthStatus.Failing ||
                     h.MinFreeDiskPercent <= HealthEvaluator.CriticalFreeDiskPercent ||
@@ -86,8 +86,8 @@ public sealed class CabinetProjection : ICabinetProjection
     public async Task<List<CabinetSummary>> ProjectAsync(
         IQueryable<Cabinet> cabinets, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        // The correlated sub-query rides the (CabinetId, ReceivedUtc desc)
-        // index, so this stays one indexed seek per row rather than a scan.
+        // Collection order uses the unique (CabinetId, CollectedAtUtc) index.
+        // Receipt order would promote a buffered replay above a newer sample.
         var rows = await cabinets
             .Select(c => new
             {
@@ -96,7 +96,7 @@ public sealed class CabinetProjection : ICabinetProjection
                 ClientName = c.Site!.Client!.Name,
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
-                    .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
+                    .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
                     .Select(h => new
                     {
                         h.CpuPercent,
