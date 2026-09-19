@@ -728,12 +728,21 @@
                         </DataGrid>
                         <Expander Header="Define a shared channel view (Supervisor)" Margin="0,6,0,8">
                             <StackPanel>
-                                <TextBlock Text="Save a new shared view, then explicitly run it below. All levels, last 24h by default, at most 500 records. Local channel names only; no files, remote hosts, query expressions or channel configuration changes."
+                                <TextBlock Text="Save a new shared view, then explicitly run it below. Choose Error for errors and critical events; Verbose includes all levels and unclassified events. Optional provider and event ID further restrict results. Last 24h by default, at most 500 records. Local channel names only; no files, remote hosts, query expressions or channel configuration changes."
                                            TextWrapping="Wrap" Margin="0,4,0,6" />
                                 <StackPanel IsEnabled="{Binding CanDefineViews}">
                                     <Label Content="Native channel" Target="{Binding ElementName=NativeEventChannelName}" />
                                     <TextBox x:Name="NativeEventChannelName" Text="{Binding NewChannelName, UpdateSourceTrigger=PropertyChanged}"
                                              MaxLength="512" AutomationProperties.Name="Exact local native channel name" />
+                                    <Label Content="Minimum severity (includes more severe events)" Target="{Binding ElementName=NativeEventLevel}" />
+                                    <ComboBox x:Name="NativeEventLevel" ItemsSource="{Binding LevelChoices}" SelectedItem="{Binding NewMinimumLevel}"
+                                              AutomationProperties.Name="Minimum event severity" />
+                                    <Label Content="Exact provider (blank means any)" Target="{Binding ElementName=NativeEventProvider}" />
+                                    <TextBox x:Name="NativeEventProvider" Text="{Binding NewProviderName, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="256" AutomationProperties.Name="Optional exact event provider" />
+                                    <Label Content="Event ID (blank means any, 0 through 65535)" Target="{Binding ElementName=NativeEventId}" />
+                                    <TextBox x:Name="NativeEventId" Text="{Binding NewEventId, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="5" AutomationProperties.Name="Optional numeric event ID" />
                                     <Label Content="Shared view name" Target="{Binding ElementName=NativeEventViewName}" />
                                     <TextBox x:Name="NativeEventViewName" Text="{Binding NewViewName, UpdateSourceTrigger=PropertyChanged}"
                                              MaxLength="128" AutomationProperties.Name="Name for the shared native channel view" />

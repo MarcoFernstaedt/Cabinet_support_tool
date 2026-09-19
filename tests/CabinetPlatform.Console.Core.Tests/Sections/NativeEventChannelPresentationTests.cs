@@ -7,6 +7,37 @@ namespace CabinetPlatform.Console.Core.Tests.Sections;
 
 public sealed class NativeEventChannelPresentationTests
 {
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("65536")]
+    [InlineData("1,2")]
+    [InlineData("+1")]
+    [InlineData(" ")]
+    [InlineData("*[System]")]
+    public void Filter_draft_rejects_nonliteral_or_out_of_range_event_ids(string id)
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddMinutes(10), "synthetic-refresh", "test", Role.Supervisor, false);
+        using var http = new HttpClient();
+        var section = new EventLogSectionViewModel();
+        section.ConfigureViewCreation(new ApiClient(http, session), session);
+        section.NewChannelName = "Vendor/Operational";
+        section.NewViewName = "Filtered errors";
+        section.NewViewReason = "Synthetic validation";
+        section.NewMinimumLevel = EventLogLevel.Error;
+        section.NewProviderName = "SyntheticProvider";
+        section.NewEventId = id;
+        Assert.False(section.SaveChannelViewCommand.CanExecute(null));
+        section.NewEventId = "65535";
+        Assert.True(section.SaveChannelViewCommand.CanExecute(null));
+        section.NewMinimumLevel = EventLogLevel.Unknown;
+        Assert.False(section.SaveChannelViewCommand.CanExecute(null));
+        session.SignOut();
+        Assert.Equal(EventLogLevel.Verbose, section.NewMinimumLevel);
+        Assert.Empty(section.NewProviderName);
+        Assert.Empty(section.NewEventId);
+    }
+
     [Fact]
     public void Token_refresh_preserves_channel_draft_but_signout_clears_it()
     {

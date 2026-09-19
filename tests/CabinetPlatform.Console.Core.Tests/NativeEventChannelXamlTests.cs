@@ -17,7 +17,10 @@ public sealed class NativeEventChannelXamlTests
         Assert.Contains(section.Descendants(), e => (string?)e.Attribute("Command") == "{Binding SaveChannelViewCommand}");
         Assert.Contains(section.Descendants(), e => (string?)e.Attribute("ItemsSource") == "{Binding ChannelReads}");
         Assert.Contains(section.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding DisplayChannelName}");
-        foreach (string field in new[] { "NewChannelName", "NewViewName", "NewViewReason" })
+        Assert.Contains(section.Descendants(), e => e.Name.LocalName == "ComboBox" &&
+            (string?)e.Attribute("ItemsSource") == "{Binding LevelChoices}" &&
+            (string?)e.Attribute("SelectedItem") == "{Binding NewMinimumLevel}");
+        foreach (string field in new[] { "NewChannelName", "NewViewName", "NewViewReason", "NewProviderName", "NewEventId" })
             Assert.Contains(section.Descendants(), e => e.Name.LocalName == "TextBox" && ((string?)e.Attribute("Text"))?.Contains(field, StringComparison.Ordinal) == true);
     }
 }

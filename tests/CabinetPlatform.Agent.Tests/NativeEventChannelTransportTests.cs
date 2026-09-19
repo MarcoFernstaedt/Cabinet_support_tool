@@ -89,6 +89,32 @@ public sealed class NativeEventChannelTransportTests(DiagnosticConsoleTestHost h
 
 
     [Fact]
+    public async Task Supervisor_filter_editor_carries_error_provider_and_event_identity_to_executor()
+    {
+        var (tab, api, agent, _) = await OpenAsync();
+        using (agent)
+        {
+            var section = tab.EventLogs;
+            section.NewChannelName = "Synthetic/Application";
+            section.NewViewName = "Synthetic exact errors";
+            section.NewViewReason = "Synthetic operator-selected error filter";
+            section.NewMinimumLevel = EventLogLevel.Error;
+            section.NewProviderName = "SyntheticProvider";
+            section.NewEventId = "9001";
+            Assert.True(section.SaveChannelViewCommand.CanExecute(null));
+            await section.SaveChannelViewCommand.ExecuteAsync(null);
+            Assert.Equal(EventLogLevel.Error, section.SelectedView!.MinimumLevel);
+            Assert.Equal(new[] { "SyntheticProvider" }, section.SelectedView.Sources);
+            Assert.Equal(new[] { 9001 }, section.SelectedView.EventIds);
+            var request = await DispatchAsync(tab, api, agent, ActionName.RunEventLogView);
+            var definition = JsonSerializer.Deserialize<EventLogViewDefinition>(request.Parameters[ActionParameterKeys.EventLogViewDefinition], AgentJson.SerializerOptions)!;
+            Assert.Equal(EventLogLevel.Error, definition.MinimumLevel);
+            Assert.Equal(new[] { "SyntheticProvider" }, definition.Sources);
+            Assert.Equal(new[] { 9001 }, definition.EventIds);
+        }
+    }
+
+    [Fact]
     public async Task Supervisor_channel_picker_saves_selects_and_really_submits_exact_channel()
     {
         var (tab, api, agent, _) = await OpenAsync();

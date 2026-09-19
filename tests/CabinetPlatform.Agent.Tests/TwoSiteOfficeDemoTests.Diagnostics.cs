@@ -66,14 +66,15 @@ public sealed partial class TwoSiteOfficeDemoTests
         steps.Add(new { stage = "Active process diagnostic", cabinet = source.Name,
             rows = tab.Processes.Processes.Select(p => new { p.Pid, p.Name, p.Cpu, p.Memory }).ToArray(),
             control = "Not enabled by this scenario; no native process was started, stopped or restarted" });
-        var view = await api.CreateEventLogViewAsync(new CreateEventLogViewRequest
-        {
-            DisplayName = "SIM application errors", ChannelNames = new[] { "Synthetic/Application" },
-            Sources = new[] { "SyntheticProvider" }, EventIds = new[] { 9001 }, MinimumLevel = EventLogLevel.Error,
-            MaximumEntries = 20, Reason = "SIMULATION: error filtering through an authorized saved view"
-        }, default);
-        tab.EventLogs.ApplyViews((await api.GetEventLogViewsAsync(new EventLogViewQuery { PageSize = 100 }, default)).Items);
-        tab.EventLogs.SelectedView = Assert.Single(tab.EventLogs.Views, v => v.Id == view.Id);
+        tab.EventLogs.NewChannelName = "Synthetic/Application";
+        tab.EventLogs.NewViewName = "SIM application errors";
+        tab.EventLogs.NewProviderName = "SyntheticProvider";
+        tab.EventLogs.NewEventId = "9001";
+        tab.EventLogs.NewMinimumLevel = EventLogLevel.Error;
+        tab.EventLogs.NewViewReason = "SIMULATION: error filtering through an authorized saved view";
+        Assert.True(tab.EventLogs.SaveChannelViewCommand.CanExecute(null));
+        await tab.EventLogs.SaveChannelViewCommand.ExecuteAsync(null);
+        Assert.Equal("SIM application errors", tab.EventLogs.SelectedView!.DisplayName);
         tab.EventLogs.SelectedWindow = tab.EventLogs.WindowChoices.Single(w => w.Hours == 1);
         var records = new LabRecords();
         var eventExecutor = new RunEventLogViewExecutor(new EventLogReader(NullLogger<EventLogReader>.Instance,
