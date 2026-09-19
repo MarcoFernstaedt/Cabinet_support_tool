@@ -138,6 +138,21 @@ public sealed partial class OfficeBootstrapTests
             using var deniedActions = await shared.GetAsync("/api/agent/actions");
             Assert.Equal(HttpStatusCode.Unauthorized, deniedActions.StatusCode);
         }
+        using (var oversized = await http.PostAsJsonAsync("/api/agent/actions/result", new ActionResultDto
+        {
+            RequestId = request.Id, Status = ActionStatus.Succeeded, CompletedAtUtc = DateTimeOffset.UtcNow,
+            CollectedData = System.Text.Json.JsonSerializer.Serialize(new FirewallInspection
+            {
+                ObservedUtc = DateTimeOffset.UtcNow, Status = FirewallReadStatus.Read,
+                Rules = new[] { new FirewallRuleObservation { Name = new string('X', 2 * 1024 * 1024) } }
+            }, AgentJson.SerializerOptions)
+        }, AgentJson.SerializerOptions))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, oversized.StatusCode);
+            var unchanged = await api.GetActionAsync(request.Id, default);
+            Assert.Equal(ActionRequestStatus.Dispatched, unchanged.Status);
+            Assert.Null(unchanged.CollectedData);
+        }
         await Complete(request, new FirewallReaderTests.Native());
         Assert.Equal(128, tab.Firewall.Rules.Count);
         Assert.Equal(3, tab.Firewall.Profiles.Count);

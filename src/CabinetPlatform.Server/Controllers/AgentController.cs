@@ -338,6 +338,8 @@ public sealed class AgentController : SupportControllerBase
     /// <param name="result">The outcome the agent reports.</param>
     /// <param name="ct">Cancels the request.</param>
     [HttpPost("actions/result")]
+    [BoundedActionResultBody]
+    [RequestSizeLimit(BoundedActionResultBodyAttribute.MaximumBytes)]
     [Authorize(AuthenticationSchemes = AgentAuthenticationHandler.SchemeName,
         Policy = AuthorizationPolicies.RequireAgent)]
     [EnableRateLimiting(RateLimitPolicies.AgentCheckIn)]
@@ -387,6 +389,13 @@ public sealed class AgentController : SupportControllerBase
 
             return Problem("Action request not found.", statusCode: StatusCodes.Status404NotFound,
                 title: "Not found");
+        }
+
+        if (action.Action == ActionName.InspectFirewall &&
+            !FirewallResultValidator.IsValid(result, _timeProvider.GetUtcNow()))
+        {
+            return Problem("Invalid or oversized firewall inspection result.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
         }
 
         if (action.Status is ActionRequestStatus.Completed)

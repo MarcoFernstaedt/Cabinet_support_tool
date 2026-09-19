@@ -21,7 +21,7 @@ using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Agent.Tests;
 
-public sealed class FirewallTransportTests(DiagnosticConsoleTestHost host) : IClassFixture<DiagnosticConsoleTestHost>
+public sealed partial class FirewallTransportTests(DiagnosticConsoleTestHost host) : IClassFixture<DiagnosticConsoleTestHost>
 {
     private readonly ConsoleTestHost _host = host;
     private async Task<(MachineTabViewModel Tab, ApiClient Api, HttpClient Agent, Cabinet Cabinet)> OpenAsync()
@@ -159,11 +159,19 @@ public sealed class FirewallTransportTests(DiagnosticConsoleTestHost host) : ICl
         using (agent)
         {
             var request = await DispatchAsync(tab, api, agent, ActionName.InspectFirewall);
-            await CompleteAsync(tab, api, agent, request, ActionOutcome.Collected("Synthetic malformed payload", malformed));
+            using var response = await agent.PostAsJsonAsync("/api/agent/actions/result", new ActionResultDto
+            {
+                RequestId = request.Id, Status = ActionStatus.Succeeded, Output = "Synthetic malformed payload",
+                CollectedData = malformed, CompletedAtUtc = DateTimeOffset.UtcNow
+            }, AgentJson.SerializerOptions);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            var stored = await api.GetActionAsync(request.Id, default);
+            Assert.Equal(ActionRequestStatus.Dispatched, stored.Status);
+            Assert.Null(stored.CollectedData);
+            await tab.RefreshCommand.ExecuteAsync(null);
             Assert.Empty(tab.Firewall.Rules);
             Assert.Empty(tab.Firewall.Profiles);
             Assert.Contains("Unknown", tab.Firewall.ResultSummary);
-            Assert.Contains("unreadable", tab.ActionHistoryNote);
         }
     }
 
