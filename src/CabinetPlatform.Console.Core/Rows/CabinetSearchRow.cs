@@ -20,7 +20,7 @@ public sealed class CabinetSearchRow
     public CabinetSearchRow(CabinetSearchHit hit, DateTimeOffset nowUtc)
     {
         Hit = hit;
-        Health = StatusPresentation.ForCabinet(hit.Cabinet.Health);
+        Health = MonitoringFreshness.ForCabinet(hit.Cabinet.Health, hit.Cabinet.LastCheckInUtc, nowUtc);
         LastCheckInAge = Format.Age(hit.Cabinet.LastCheckInUtc, nowUtc);
     }
 
@@ -59,6 +59,7 @@ public sealed class CabinetSearchRow
 
     /// <summary>How long ago the cabinet last checked in.</summary>
     public string LastCheckInAge { get; }
+    public string LastCheckInExact => MonitoringFreshness.LastSeen(Hit.Cabinet.LastCheckInUtc);
 
     /// <summary>Whether another cabinet in this result set carries the same name.</summary>
     public bool HasDuplicateName => Hit.Path.HostnameIsAmbiguous;
@@ -94,7 +95,7 @@ public sealed class CabinetSearchRow
 
     /// <summary>The whole row as one sentence, for a screen reader.</summary>
     public string AccessibleSummary =>
-        $"{Hit.Path.Spoken} Health {Health.Label}. Last check-in {LastCheckInAge}." +
+        $"{Hit.Path.Spoken} Health {Health.Label}. {LastCheckInExact}. Check-in age at load: {LastCheckInAge}." +
         (MatchedOn.Length > 0 ? $" Matched on {MatchedOn}." : string.Empty);
 }
 
@@ -107,7 +108,7 @@ public sealed class RecentCabinetRow
     public RecentCabinetRow(RecentCabinetDto recent, DateTimeOffset nowUtc)
     {
         Recent = recent;
-        Health = StatusPresentation.ForCabinet(recent.Health);
+        Health = MonitoringFreshness.Historical(StatusPresentation.ForCabinet(recent.Health));
         ViewedAge = Format.Age(recent.LastViewedUtc, nowUtc);
     }
 
@@ -128,8 +129,9 @@ public sealed class RecentCabinetRow
 
     /// <summary>How long ago this rep last opened it.</summary>
     public string ViewedAge { get; }
+    public string LastCheckInExact => "Last seen: Unknown (not supplied by recent-cabinet endpoint)";
 
     /// <summary>The whole row as one sentence, for a screen reader.</summary>
     public string AccessibleSummary =>
-        $"{Recent.Path.Spoken} Health {Health.Label}. Opened {ViewedAge}.";
+        $"{Recent.Path.Spoken} Health {Health.Label}. {LastCheckInExact}. Opened {ViewedAge}.";
 }

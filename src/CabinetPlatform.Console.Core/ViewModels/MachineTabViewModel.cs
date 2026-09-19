@@ -431,6 +431,25 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         }
     }
 
+    /// <summary>Snapshot provenance, never a claim that every metric was checked.</summary>
+    public string MonitoringNote => _latest is null
+        ? "Unknown: no cabinet snapshot loaded. A console request failure does not prove the cabinet is offline."
+        : $"{Overview.Health.Label}. {MonitoringFreshness.LastSeen(_latest.Cabinet.LastCheckInUtc)}. " +
+          $"Heartbeat collected: {Format.LocalTime(_latest.LatestHeartbeat?.CollectedAtUtc)}; " +
+          $"received: {Format.LocalTime(_latest.LatestHeartbeat?.ReceivedUtc)}. " +
+          $"Inventory last observed: {Format.LocalTime(_latest.CurrentInventory?.LastObservedUtc)}. " +
+          "Historical observations below, not live health. Check-in time is not a per-metric successful check. " +
+          "The console warns at 30 minutes; this is not an outage detection rule. Refresh to request new data.";
+
+    /// <summary>Re-evaluate only presentation age; no network requests or cabinet actions.</summary>
+    public void RefreshFreshness()
+    {
+        var previous = Overview.Health;
+        Overview.Apply(_latest, _timeProvider.GetUtcNow());
+        OnPropertyChanged(nameof(MonitoringNote));
+        if (previous != Overview.Health) Announcer.AnnounceImportant(MonitoringNote);
+    }
+
     private void ApplyLatest()
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
@@ -458,6 +477,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             action.RefreshAvailability();
         }
 
+        RefreshFreshness();
         OnPropertyChanged(nameof(OnDemandSectionCount));
         OnPropertyChanged(nameof(OnDemandSectionNote));
         OnPropertyChanged(nameof(CanTestSyncLink));
@@ -510,6 +530,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         }
 
         Disk.ApplyHistory(Array.Empty<SmartRow>());
+        OnPropertyChanged(nameof(MonitoringNote));
     }
 
     /// <summary>

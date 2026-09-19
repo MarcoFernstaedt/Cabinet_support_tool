@@ -25,7 +25,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
     private async Task<(MachineTabViewModel Tab, Cabinet Cabinet, RecordingLiveRegionAnnouncer Announcer,
         ScriptedActionDialog Dialog)>
-        SignedInTabAsync(Role role, ScriptedActionDialog? dialog = null)
+        SignedInTabAsync(Role role, ScriptedActionDialog? dialog = null, TimeProvider? timeProvider = null)
     {
         string username = Unique("m");
         await _host.CreateUserAsync(role, username);
@@ -48,7 +48,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             new ActionInvoker(api, dialog, announcer, session),
             session,
             announcer,
-            TimeProvider.System);
+            timeProvider ?? TimeProvider.System);
 
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("h")[..8]}");
 
@@ -71,6 +71,46 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.Equal(Format.NotReported, tab.System.OsVersion);
         Assert.Equal(Format.NotReported, tab.System.Domain);
         Assert.Equal(Format.NotReported, tab.System.TimeZone);
+    }
+
+    [Fact]
+    public async Task Buffered_old_heartbeat_does_not_make_overview_healthy_on_recent_delivery()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        var now = DateTimeOffset.UtcNow;
+        await _host.AddFullCheckInAsync(cabinet.Id,
+            TestData.Payload(cabinet.MachineId, now.AddHours(-2)), now);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.Contains("Stale", tab.Overview.Health.Label);
+        Assert.Contains("heartbeat collected", tab.Overview.Health.Label);
+        Assert.Contains("Last seen", tab.Overview.LastCheckInExact);
+    }
+
+    private sealed class MonitoringClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public async Task Snapshot_ages_without_network_and_failed_refresh_clears_provenance()
+    {
+        var clock = new MonitoringClock(DateTimeOffset.UtcNow);
+        var (tab, cabinet, announcer, _) = await SignedInTabAsync(Role.Tier2, timeProvider: clock);
+        await _host.AddFullCheckInAsync(cabinet.Id,
+            TestData.Payload(cabinet.MachineId, clock.Now), clock.Now);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.DoesNotContain("Stale", tab.MonitoringNote);
+        Assert.Contains("received:", tab.MonitoringNote);
+        var changes = new List<string?>();
+        tab.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        clock.Now = clock.Now.AddMinutes(31);
+        tab.RefreshFreshness();
+        Assert.Contains("Stale", tab.MonitoringNote);
+        Assert.Contains(nameof(tab.MonitoringNote), changes);
+        await tab.LoadAsync(Guid.NewGuid());
+        Assert.Contains("Unknown", tab.MonitoringNote);
+        Assert.DoesNotContain(cabinet.Hostname, tab.MonitoringNote);
     }
 
     [Fact]

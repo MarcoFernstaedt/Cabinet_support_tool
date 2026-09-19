@@ -87,11 +87,14 @@ public sealed partial class OverviewSectionViewModel : MachineSectionViewModel
         SerialNumber = Format.Text(cabinet.SerialNumber);
         AgentVersion = Format.Text(cabinet.AgentVersion);
 
-        Health = StatusPresentation.ForCabinet(cabinet.Health);
+        Health = MonitoringFreshness.ForCabinet(cabinet.Health, cabinet.LastCheckInUtc, nowUtc);
+        var sampleState = MonitoringFreshness.ForLastSeen(latest.LatestHeartbeat?.CollectedAtUtc, nowUtc, "heartbeat collected");
+        if (cabinet.Health != CabinetHealthStatus.Offline && sampleState.Severity != StatusSeverity.Neutral)
+            Health = MonitoringFreshness.PreserveProblem(sampleState, cabinet.Health);
         Active = StatusPresentation.ForBoolean(cabinet.IsActive, "Active", "Inactive");
 
         LastCheckInAge = Format.Age(cabinet.LastCheckInUtc, nowUtc);
-        LastCheckInExact = Format.LocalTime(cabinet.LastCheckInUtc);
+        LastCheckInExact = MonitoringFreshness.LastSeen(cabinet.LastCheckInUtc);
 
         HeartbeatDto? check = latest.LatestHeartbeat;
 

@@ -164,8 +164,8 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="Last check-in"
-                                    Binding="{Binding LastCheckInAge}"
+                <DataGridTextColumn Header="Last seen (tech local time)"
+                                    Binding="{Binding LastCheckInExact}"
                                     SortMemberPath="Summary.LastCheckInUtc"
                                     Width="Auto" />
                 <DataGridTextColumn Header="Pending updates"

@@ -329,7 +329,8 @@ public sealed partial class FleetTabViewModel : ObservableViewModelBase
         };
 
         return
-            $"Fleet health for {scope}. {summary.TotalCabinets:N0} cabinets: " +
+            $"Fleet health snapshot for {scope}, generated {GeneratedAt}; current metric freshness unknown. " +
+            $"Last reported classifications for {summary.TotalCabinets:N0} cabinets: " +
             $"{summary.Healthy} healthy, {summary.Warning} warning, {summary.Critical} critical, " +
             $"{summary.Offline} offline, {summary.Unknown} unknown, {summary.Inactive} inactive. " +
             $"{StaleCheckIns.Count} have not checked in for {StaleCheckInMinutes} minutes. " +
@@ -407,7 +408,8 @@ public sealed class SiteGroupRow
 
     /// <summary>How many cabinets here are anything other than healthy.</summary>
     public int NeedsAttentionCount =>
-        Cabinets.Count(c => c.Summary.Health != CabinetHealthStatus.Healthy);
+        Cabinets.Count(c => c.Summary.Health != CabinetHealthStatus.Healthy ||
+            c.Health.Severity is StatusSeverity.Warning or StatusSeverity.Unknown or StatusSeverity.Critical);
 
     /// <summary>How the site reads at a glance.</summary>
     public string Headline => SyncCabinet is null
@@ -421,14 +423,15 @@ public sealed class SiteGroupRow
             ? ". The sync cabinet is not healthy, so every cabinet at this site may be out of step."
             : NeedsAttentionCount > 0
                 ? $". {NeedsAttentionCount} need attention."
-                : ". All healthy.");
+                : ". No problems reported in this snapshot; current metric health is unverified.");
 }
 
 public sealed record FleetCountRow(StatusPresentation Status, int Count)
 {
+    public StatusPresentation DisplayStatus => MonitoringFreshness.Historical(Status);
     public string Label => Status.Label;
     public string Glyph => Status.Glyph;
-    public StatusSeverity Severity => Status.Severity;
+    public StatusSeverity Severity => Status.Severity == StatusSeverity.Good ? StatusSeverity.Neutral : Status.Severity;
 
-    public string AccessibleSummary => $"{Status.Label}: {Count:N0}";
+    public string AccessibleSummary => $"Last reported {Status.Label}: {Count:N0}; current metric freshness unknown";
 }

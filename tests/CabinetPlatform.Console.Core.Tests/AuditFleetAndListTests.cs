@@ -121,11 +121,11 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         // colour the user may not be able to see.
         Assert.NotEmpty(row.Health.Label);
         Assert.NotEmpty(row.Health.Glyph);
-        Assert.Equal("Watch", row.DiskHealth.Label);
+        Assert.Equal("Last reported: Watch; current state unverified", row.DiskHealth.Label);
         Assert.NotEmpty(row.DiskHealth.Glyph);
 
         Assert.Contains(row.Hostname, row.AccessibleSummary);
-        Assert.Contains("Disk Watch", row.AccessibleSummary);
+        Assert.Contains("Disk Last reported: Watch", row.AccessibleSummary);
         Assert.Contains("Health", row.AccessibleSummary);
     }
 
@@ -319,6 +319,8 @@ public sealed class AuditFleetAndListTests : IClassFixture<ConsoleTestHost>
         Assert.False(fleet.WorklistsTruncated);
         Assert.True(announcer.Any("Fleet health"));
         Assert.Contains(client, fleet.Summarise());
+        Assert.Contains("snapshot", fleet.Summarise());
+        Assert.Contains("current metric freshness unknown", fleet.Summarise());
     }
 
     [Fact]
