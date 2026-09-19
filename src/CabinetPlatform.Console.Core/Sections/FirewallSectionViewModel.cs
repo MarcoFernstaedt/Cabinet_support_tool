@@ -36,7 +36,7 @@ public sealed class FirewallSectionViewModel() : MachineSectionViewModel(
         foreach (var profile in result.Profiles) Profiles.Add(new(profile));
         Rules.Clear();
         foreach (var rule in result.Rules) Rules.Add(new(rule));
-        ResultSummary = $"{result.Status}. Historical observation {result.ObservedUtc:O} (UTC); current state unverified. " +
+        ResultSummary = $"{result.Status}. Historical observation {Format.LocalTime(result.ObservedUtc)}; current state unverified. " +
             $"Active profile mask: {result.ActiveProfiles?.ToString() ?? "unknown"}. " +
             $"Local policy modify state: {ModifyState(result.LocalPolicyModifyState)}. " +
             $"{Rules.Count} rule rows; {(result.RulesTruncated ? "truncated or incomplete" : "enumeration completed")}; " +

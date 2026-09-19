@@ -5,6 +5,15 @@ using CabinetPlatform.Console.Core.Presentation;
 
 namespace CabinetPlatform.Console.Converters;
 
+/// <summary>Uses the tested fixed-MST support formatter for raw contract instants.</summary>
+public sealed class SupportTimeConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture) =>
+        Format.LocalTime(value is DateTimeOffset instant ? instant : null);
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
+}
+
 /// <summary>Collapses an element when the bound boolean is false.</summary>
 public sealed class BoolToVisibilityConverter : IValueConverter
 {

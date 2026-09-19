@@ -48,8 +48,8 @@
                 <DataGridTextColumn Header="Machine identity" Binding="{Binding MachineId}" Width="*" />
                 <DataGridTextColumn Header="OS" Binding="{Binding OsVersion}" Width="160" />
                 <DataGridTextColumn Header="Agent" Binding="{Binding AgentVersion}" Width="70" />
-                <DataGridTextColumn Header="First seen (UTC)" Binding="{Binding FirstSeenUtc}" Width="160" />
-                <DataGridTextColumn Header="Last seen (UTC)" Binding="{Binding LastSeenUtc}" Width="160" />
+                <DataGridTextColumn Header="First seen (MST)" Binding="{Binding FirstSeenUtc, Converter={StaticResource SupportTime}}" Width="160" />
+                <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastSeenUtc, Converter={StaticResource SupportTime}}" Width="160" />
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90" />
             </DataGrid.Columns>
         </DataGrid>

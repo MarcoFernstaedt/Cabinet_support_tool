@@ -17,11 +17,17 @@ public sealed class MonitoringFreshnessTests
         Health = CabinetHealthStatus.Healthy, WorstDiskHealth = DiskHealthStatus.Healthy
     };
 
-    [Fact]
-    public void Last_seen_local_time_names_zone_and_numeric_offset()
+    [Theory]
+    [InlineData("2026-01-19T18:00:00Z")]
+    [InlineData("2026-07-19T18:00:00Z")]
+    public void Support_timestamps_use_fixed_MST_in_winter_and_summer(string timestamp)
     {
-        Assert.Contains(Now.ToLocalTime().ToString("zzz"), Format.LocalTime(Now));
-        Assert.Contains(TimeZoneInfo.Local.Id, Format.LocalTime(Now));
+        var instant = DateTimeOffset.Parse(timestamp);
+        var rendered = Format.LocalTime(instant);
+        Assert.Contains(instant.ToOffset(TimeSpan.FromHours(-7)).ToString("yyyy-MM-dd HH:mm:ss"), rendered);
+        Assert.Contains("-07:00", rendered);
+        Assert.Contains("MST", rendered);
+        Assert.DoesNotContain("MDT", rendered);
     }
 
     [Theory]

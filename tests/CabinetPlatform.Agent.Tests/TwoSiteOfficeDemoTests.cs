@@ -199,6 +199,8 @@ public sealed partial class TwoSiteOfficeDemoTests(ITestOutputHelper output)
                 await tab.LoadAsync(source.Id);
                 Assert.Equal(source.Name, tab.CabinetHostname);
                 Assert.Contains("Reachable", Assert.Single(tab.ConnectivityRows));
+                Assert.Contains("MST", tab.ConnectivityRows[0]);
+                Assert.Contains("threshold observed", tab.ConnectivityRows[0]);
                 if (i == 1) await DemonstrateDiagnostics(tab, api, providers[i].GetRequiredService<IServerClient>(), source, steps);
                 clock.Now = clock.Now.AddMinutes(10);
                 tab.RefreshFreshness();

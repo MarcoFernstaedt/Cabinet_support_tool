@@ -57,9 +57,9 @@ public static class Format
         string.IsNullOrWhiteSpace(value) ? NotReported : value.Trim();
 
     /// <summary>
-    /// A UTC instant shown in the reader's own time zone, labelled so nobody has
-    /// to guess which zone they are looking at. Chain-of-custody arguments have
-    /// been lost over exactly that ambiguity.
+    /// A UTC instant shown in the internal support desk's fixed MST (UTC−7).
+    /// Never follows the workstation zone or daylight saving. The legacy method
+    /// name is retained for existing bindings; transport and storage remain UTC.
     /// </summary>
     public static string LocalTime(DateTimeOffset? instant)
     {
@@ -68,10 +68,9 @@ public static class Format
             return NotReported;
         }
 
-        DateTimeOffset local = instant.Value.ToLocalTime();
+        DateTimeOffset local = instant.Value.ToOffset(TimeSpan.FromHours(-7));
 
-        return local.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.CurrentCulture) +
-               $" ({TimeZoneInfo.Local.Id}, tech local time)";
+        return local.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture) + " (MST)";
     }
 
     /// <summary>

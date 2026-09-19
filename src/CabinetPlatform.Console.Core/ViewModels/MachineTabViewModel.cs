@@ -74,10 +74,10 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                 if (!await TryApplyActionResultAsync(action.Id)) continue;
                 if (generation != _generation) return;
                 ActionHistoryNote += action.Action == ActionName.InspectFirewall
-                    ? $" Last completed firewall inspection envelope: {action.Id}, completed {action.CompletedUtc:O}. " +
+                    ? $" Last completed firewall inspection envelope: {action.Id}, completed {Format.LocalTime(action.CompletedUtc)}. " +
                       "Read the native outcome in Windows firewall; successful delivery does not mean a readable or healthy firewall."
                     : $" Last successful {action.Action} snapshot: {action.Id}, " +
-                      $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
+                      $"completed {Format.LocalTime(action.CompletedUtc)}. Newer requests may be pending or failed; see history.";
                 break;
             }
         }

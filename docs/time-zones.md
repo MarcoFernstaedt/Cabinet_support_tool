@@ -12,9 +12,9 @@ There is no `DateTime` in any contract. Local time exists at exactly two edges:
 
 1. the maintenance-window and scheduled-install comparisons on the server,
    which are made in the **cabinet's** zone
-2. the display in the console, which is made in the **reader's** zone and is
-   labelled as such, with the cabinet's own local time shown beside it on the
-   detail view
+2. the display in the internal support console, which uses fixed **MST (UTC−7)**
+   with no daylight-saving adjustment, with the cabinet's own local time shown
+   separately and explicitly labelled on the detail view
 
 Nothing in between converts, and nothing in between needs to.
 
@@ -80,7 +80,8 @@ its detail view, with its own line rather than buried in a diagnostics panel.
 
 ## Display
 
-The console shows timestamps in the reader's local zone, labelled. The cabinet
-detail additionally shows the cabinet's current local time, labelled with its
-zone, because "02:00" means nothing across thirteen countries without saying
-whose.
+The internal support console shows observations, enrollment, events and action
+completion in fixed MST (UTC−7), independent of the workstation's zone. Wire
+contracts and evidence logs retain UTC. The cabinet detail additionally shows
+the cabinet's current local time explicitly labelled with its own zone; that is
+operational context, not a change to the support timestamp convention.

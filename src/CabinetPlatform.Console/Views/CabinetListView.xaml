@@ -164,7 +164,7 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <DataGridTextColumn Header="Last seen (tech local time)"
+                <DataGridTextColumn Header="Last seen (MST)"
                                     Binding="{Binding LastCheckInExact}"
                                     SortMemberPath="Summary.LastCheckInUtc"
                                     Width="Auto" />

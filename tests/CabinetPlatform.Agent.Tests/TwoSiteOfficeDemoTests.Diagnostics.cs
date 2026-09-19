@@ -56,6 +56,7 @@ public sealed partial class TwoSiteOfficeDemoTests
             Assert.Equal(outcome.CollectedData, saved.CollectedData);
             await tab.RefreshCommand.ExecuteAsync(null);
             Assert.Null(tab.ErrorMessage);
+            Assert.Contains("MST", tab.ActionHistoryNote);
         }
         var processes = new GetProcessListExecutor(new PerformanceCollector(new FakeWmiRepository(), new LabProcesses(),
             Options.Create(new AgentOptions { Collection = new CollectionOptions { CpuSampleIntervalMilliseconds = 1 } })), NullLogger<GetProcessListExecutor>.Instance);
@@ -98,6 +99,7 @@ public sealed partial class TwoSiteOfficeDemoTests
         await Complete(await Dispatch(ActionName.InspectFirewall), new InspectFirewallExecutor(new FirewallReader(new FirewallReaderTests.Native())));
         Assert.Equal(3, tab.Firewall.Profiles.Count);
         Assert.Contains("OFF", tab.Firewall.RepairStatus);
+        Assert.Contains("MST", tab.Firewall.ResultSummary);
         steps.Add(new { stage = "Firewall inspection", cabinet = source.Name, profiles = tab.Firewall.Profiles.Count,
             rules = tab.Firewall.Rules.Count, result = tab.Firewall.ResultSummary, repair = tab.Firewall.RepairStatus,
             limitation = "Injected native COM metadata; no firewall change, effective packet permission or GPO provenance claim" });

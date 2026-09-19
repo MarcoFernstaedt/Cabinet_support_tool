@@ -172,7 +172,7 @@
                         <DataGridTextColumn Header="Role" Binding="{Binding RoleLabel}" Width="0.8*" />
                         <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="*" />
                         <DataGridTextColumn Header="Health" Binding="{Binding Health.Label}" Width="0.7*" />
-                        <DataGridTextColumn Header="Last seen (tech local time)" Binding="{Binding LastCheckInExact}" Width="0.8*" />
+                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}" Width="0.8*" />
                         <DataGridTextColumn Header="Matched on" Binding="{Binding MatchedOn}" Width="*" />
                         <!--
                             Text, not a colour or an icon. Two identically-named

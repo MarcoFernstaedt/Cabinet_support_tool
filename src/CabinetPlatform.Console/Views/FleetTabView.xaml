@@ -154,7 +154,7 @@
                                                 </DataTemplate>
                                             </DataGridTemplateColumn.CellTemplate>
                                         </DataGridTemplateColumn>
-                                        <DataGridTextColumn Header="Last seen (tech local time)" Binding="{Binding LastCheckInExact}"
+                                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}"
                                                             SortMemberPath="Summary.LastCheckInUtc" Width="Auto" />
                                     </DataGrid.Columns>
                                 </DataGrid>
@@ -229,7 +229,7 @@
                         <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="*" />
                         <DataGridTextColumn Header="Client" Binding="{Binding ClientName}" Width="*" />
                         <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="Auto" />
-                        <DataGridTextColumn Header="Last seen (tech local time)" Binding="{Binding LastCheckInExact}"
+                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}"
                                             SortMemberPath="Summary.LastCheckInUtc" Width="Auto" />
                     </DataGrid.Columns>
                 </DataGrid>
@@ -247,7 +247,7 @@
                         <DataGridTextColumn Header="Site" Binding="{Binding SiteName}" Width="Auto" />
                         <DataGridTextColumn Header="Pending updates" Binding="{Binding PendingUpdates}"
                                             SortMemberPath="Summary.PendingUpdateCount" Width="Auto" />
-                        <DataGridTextColumn Header="Last seen (tech local time)" Binding="{Binding LastCheckInExact}"
+                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}"
                                             SortMemberPath="Summary.LastCheckInUtc" Width="Auto" />
                     </DataGrid.Columns>
                 </DataGrid>
@@ -276,7 +276,7 @@
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="Last seen (tech local time)" Binding="{Binding LastCheckInExact}" Width="Auto" />
+                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}" Width="Auto" />
                         <DataGridTextColumn Header="Free disk" Binding="{Binding FreeDisk}"
                                             SortMemberPath="Summary.MinFreeDiskPercent" Width="Auto" />
                     </DataGrid.Columns>
