@@ -20,12 +20,12 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace CabinetPlatform.Agent.Tests;
 
-public sealed class OfficeBootstrapTests
+public sealed partial class OfficeBootstrapTests
 {
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Configured_agent_exchanges_unique_token_then_registers_and_restarts_without_shared_key(bool loseFirstResponse)
+    public async Task Unique_office_enrollment_restart_connectivity_and_firewall_share_authenticated_transport(bool loseFirstResponse)
     {
         var root = Path.Combine(Path.GetTempPath(), "office-agent-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -120,6 +120,8 @@ public sealed class OfficeBootstrapTests
                 Assert.Equal(CheckInOutcome.Accepted, checkin.Outcome);
                 var detail = await api.GetCabinetLatestAsync(result.CabinetId!.Value, CancellationToken.None);
                 Assert.Equal("LAB", detail.Cabinet.Hostname);
+                await VerifyOfficeMonitoringAsync(server.Services, restarted, consoleHttp, api, session,
+                    result.CabinetId.Value, root, () => server.CreateClient());
             }
             var stored = await File.ReadAllTextAsync(state);
             Assert.DoesNotContain(token, stored);
