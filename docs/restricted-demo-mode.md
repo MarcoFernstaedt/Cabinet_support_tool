@@ -1,22 +1,35 @@
-# Restricted process demo mode
+# Compiled monitoring boundary
 
-The default remains `DiagnosticOnly`. An explicit, case-sensitive `Demo` value permits the four observational actions (`GetProcessList`, `CollectEventLogs`, `RunEventLogView`, `GetScheduledUpdates`) plus `KillProcess`. It does not enable `MaintenanceEnabled`. Unknown values continue to permit only observations.
+The current monitoring spec supersedes the former process-control demo. Ordinary `Debug` and `Release` builds are observation only. Old `Actions:ExecutionMode` and `Agent:Actions:ExecutionMode` values, including `Demo` and `Maintenance`, cannot restore mutation capabilities. Roles, supervisor overrides, old approvals and persisted schedules cannot expand this compiled ceiling.
 
-For an authorized disposable lab only, configure `Actions__ExecutionMode=Demo` on the server and independently configure `Agent__Actions__ExecutionMode=Demo` on the agent before starting each component. Do not replace either with `Maintenance` to make an unavailable control appear. Default diagnostic setup instructions in `demo.md` remain observational.
+## Allowed surface
 
-## Boundaries
+Only `GetProcessList`, `CollectEventLogs`, `RunEventLogView` and `GetScheduledUpdates` are allowed actions. The last action reads retained schedule evidence; it does not make that schedule eligible to run. Routine inventory collection remains available, including offline update metadata queries. Online update scans, scheduling, cancellation, installation, reboot, process termination/launch, service control, network changes, arbitrary shell/scripts and hardware actuation are not available actions in this release. There is no generic executor fallback.
 
-* The server filters the catalog and checks requests and approvals with its compiled mode allowlist. Queued actions are checked again at agent collection. In Demo, selected termination operands are revalidated before dispatch so old PID-only requests are cancelled rather than forwarded.
-* The agent dispatcher independently uses its local compiled mode allowlist before invoking an executor. Server configuration cannot change that local decision. A Demo server with a DiagnosticOnly agent produces a denied termination result without opening a process handle.
-* The existing selected-process executor requires PID, exact creation FILETIME, observed executable path and expected process name. Local process allowlisting, self/critical-process protection and retained-handle identity checks remain in force. Only the selected process is targeted, not descendants or all processes sharing its name.
-* Existing role, second-person approval, occupancy and durable result controls remain unchanged. Demo is not an approval bypass.
-* Legacy bulk process termination, application restart, service changes, update installation, network changes and reboot actions remain unavailable. Scheduled installs and startup network rollback stay suspended outside Maintenance; their stored records are retained. An outstanding network rollback requires on-site attention, not automatic changes under Demo.
-* `Maintenance` semantics are unchanged. No interactive application launch action or contract is introduced by this change.
+The server applies this boundary to catalog visibility, direct and batch requests, single and batch approvals, and queued dispatch. Previously approved mutations are durably cancelled when polled. Pending mutations cannot be approved. The agent independently refuses disallowed actions even if an executor is injected, and its shipping DI composition registers only the four observational executors.
 
-## Evidence and limits
+The startup recovery and periodic scheduled-install runner remain callable, but maintenance eligibility is compiled off. Due schedules and network rollback records stay intact. An unconfirmed network change needs explicit on-site reconciliation; the monitoring agent does not restore, clear or silently forget it. Existing action-journal interrupted-result reporting remains unchanged and never resumes execution.
 
-`SelectedProcessAcceptanceTests` exercises real authenticated Console API creation, second-person approval, server dispatch, the actual agent dispatcher and selected executor, result ingestion, persistence and Console refresh under Demo. Only native process inputs and handles are synthetic. Tests cover exact identity, PID reuse, path mismatch, inaccessible identity, local allowlist denial, critical processes, default-agent mismatch and unconfirmed exit outcomes. Policy tests exercise queued legacy actions, approval refusal and persisted schedule/recovery suppression.
+## Historical safety regression build
 
-This does not establish native Windows 10/11 process behavior, WPF interaction, or a complete Notepad launch/stop/restore demo. Those remain separate acceptance gates. Do not update or publish a ZIP until the parent integrator has verified the entire demo, including Notepad.
+`LegacyMaintenanceTests` is a separate, explicitly named compile configuration for existing maintenance safety tests. It preserves their original expectations rather than changing assertions to call denied operations successful. Its artifacts live under separate configuration-specific `bin` and `obj` paths. Publishing and packing this configuration fail with a build error. Do not distribute or execute these test artifacts against cabinets. Native gateway implementations and historical executor classes remain in source and assemblies for regression testing; the shipping composition does not register their action executors. This is a composition boundary, not a privileged-process sandbox or a defense against replacement of trusted binaries.
 
-To roll back the configuration, stop the lab components and restore `DiagnosticOnly` on both before restarting. Persisted scheduled work and network rollback records remain present; switching to Maintenance can make those effects eligible again.
+Run from the repository root with the .NET 8 SDK (add `-m:1` on constrained hosts):
+
+```text
+dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1 --filter FullyQualifiedName~MonitoringBoundaryTests
+dotnet test tests/CabinetPlatform.Agent.Tests -c Release -m:1 --filter "FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
+dotnet test tests/CabinetPlatform.Server.Tests -c LegacyMaintenanceTests -m:1
+dotnet test tests/CabinetPlatform.Agent.Tests -c LegacyMaintenanceTests -m:1
+dotnet test tests/CabinetPlatform.Console.Core.Tests -c LegacyMaintenanceTests -m:1
+```
+
+The new boundary tests are compiled only in monitoring configurations. The full historical suites deliberately require `LegacyMaintenanceTests`; an unfiltered run of those old control expectations in `Release` is not a supported regression command. A passing historical suite is not proof of the shipping boundary: run both lanes, and never use `--no-build` to interchange configurations.
+
+## Evidence and remaining gates
+
+`MonitoringBoundaryTests` exercises authenticated requests, batches, approval refusal and persisted mutation cancellation with legacy configuration while a following observation still dispatches. Agent tests inject recording executors for every action and reopen real disk-backed schedule and rollback stores, checking that startup leaves bytes unchanged and invokes no install or restore effect. `DiagnosticDemoTests` exercises observation collection and result transport with synthetic native inputs.
+
+These tests do not establish Windows 10/11 native acceptance, WPF interaction, device authentication, MFA, site authorization, event-data confidentiality, PostgreSQL fleet capacity or production readiness. Only use synthetic authorized lab data until those separate gaps are closed. Future governed updates require a separately reviewed release; restoring the historical configuration is not that release.
+
+Do not roll back to a legacy control-enabled artifact while retained schedules or rollback journals exist. Preserve them and arrange explicit reconciliation first. Rolling back this source change restores the old configuration-sensitive behavior, not a safe monitoring fallback.
