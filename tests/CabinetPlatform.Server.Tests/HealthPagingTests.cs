@@ -26,6 +26,8 @@ public sealed class HealthPagingTests
             db.Heartbeats.Add(new Heartbeat
             {
                 CabinetId = target.Id, CollectedAtUtc = DateTimeOffset.UtcNow, ReceivedUtc = DateTimeOffset.UtcNow,
+                // Healthy requires complete normal measurements, not just normal RAM.
+                CpuPercent = 10, MinFreeDiskPercent = 50, PendingUpdateCount = 0, ClockDriftSeconds = 0,
                 RamUsedPercent = health == CabinetHealthStatus.Critical ? 99 : health == CabinetHealthStatus.Warning ? 90 : 20
             });
             await db.SaveChangesAsync();

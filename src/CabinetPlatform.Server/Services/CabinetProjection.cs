@@ -60,7 +60,8 @@ public sealed class CabinetProjection : ICabinetProjection
         double criticalDrift = HealthEvaluator.CriticalClockDrift.TotalSeconds;
         double warningDrift = HealthEvaluator.WarningClockDrift.TotalSeconds;
         // Keep the priority order identical to HealthEvaluator: unavailable,
-        // offline, critical, warning, healthy. All operations translate to SQL.
+        // offline, critical, warning, incomplete, healthy. SMART is optional.
+        // All operations translate to SQL.
         return cabinets.Where(c =>
             (!c.IsActive || c.LastCheckInUtc == null ? CabinetHealthStatus.Unknown :
              c.LastCheckInUtc < offlineBefore ? CabinetHealthStatus.Offline :
@@ -78,8 +79,11 @@ public sealed class CabinetProjection : ICabinetProjection
                     h.CpuPercent >= HealthEvaluator.WarningCpuPercent ||
                     h.PendingUpdateCount >= HealthEvaluator.WarningPendingUpdates ||
                     h.ClockDriftSeconds >= warningDrift || h.ClockDriftSeconds <= -warningDrift
-                        ? CabinetHealthStatus.Warning : CabinetHealthStatus.Healthy))
-                .FirstOrDefault() ?? CabinetHealthStatus.Healthy) == health);
+                        ? CabinetHealthStatus.Warning :
+                    h.CpuPercent == null || h.RamUsedPercent == null || h.MinFreeDiskPercent == null ||
+                    h.PendingUpdateCount == null || h.ClockDriftSeconds == null
+                        ? CabinetHealthStatus.Unknown : CabinetHealthStatus.Healthy))
+                .FirstOrDefault() ?? CabinetHealthStatus.Unknown) == health);
     }
 
     /// <inheritdoc />
