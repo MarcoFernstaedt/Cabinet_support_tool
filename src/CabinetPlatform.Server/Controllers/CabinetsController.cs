@@ -177,7 +177,7 @@ public sealed class CabinetsController : SupportControllerBase
 
         Domain.Heartbeat? heartbeat = await _db.Heartbeats.AsNoTracking()
             .Where(h => h.CabinetId == id)
-            .OrderByDescending(h => h.ReceivedUtc)
+            .OrderByDescending(h => h.CollectedAtUtc)
             .FirstOrDefaultAsync(ct);
 
         Domain.InventoryVersion? inventory = cabinet.CurrentInventoryVersionId is { } inventoryId
