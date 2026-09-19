@@ -10,6 +10,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <!-- Pin the native engine above the CVE-2025-6965 floor without replacing EF. -->
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="2.1.12" />
     <!-- SQLite is fine for local development. PostgreSQL is required before any
          multi-site deployment: the heartbeat and SMART tables reach volumes
          SQLite cannot serve. Every query is LINQ with no provider-specific SQL,
