@@ -14,7 +14,7 @@ Clients can have multiple locations and several cabinets at each location. Typic
 
 ## Scope
 
-The product supports the development of Windows diagnostics and controlled operations: process and service management, network inspection and configuration, Windows updates, event logs, storage health and display recovery. Individual workflows must pass their release gates before being enabled in production.
+The current release composition is monitoring only: process and event observations, inventory and storage health. Legacy `Demo` and `Maintenance` settings cannot enable cabinet mutations or update scheduling. Historical control implementations remain for safety regression tests in a separate, non-distributable build configuration. See the [compiled monitoring boundary](docs/restricted-demo-mode.md) for the exact allowlist and both test lanes. Future governed updates require a separately reviewed release.
 
 Physical cabinet sensors, drawer opening, lock release and cubie opening remain excluded. The Windows support scope does not permit arbitrary shell commands, scripts or access to patient records.
 

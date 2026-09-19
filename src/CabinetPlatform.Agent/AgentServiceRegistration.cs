@@ -146,18 +146,19 @@ public static class AgentServiceRegistration
         services.AddSingleton<ActionDispatcher>();
         services.AddSingleton<ScheduledUpdateRunner>();
 
-        // Windows Update
+        // Fixed observation executors in the shipping monitoring composition.
+        services.AddSingleton<IActionExecutor, GetScheduledUpdatesExecutor>();
+        services.AddSingleton<IActionExecutor, CollectEventLogsExecutor>();
+        services.AddSingleton<IActionExecutor, RunEventLogViewExecutor>();
+        services.AddSingleton<IActionExecutor, GetProcessListExecutor>();
+
+#if LEGACY_MAINTENANCE_TESTS
+        // Historical safety regression composition. Never enabled by appsettings.
         services.AddSingleton<IActionExecutor, ScanForUpdatesExecutor>();
         services.AddSingleton<IActionExecutor, ScheduleUpdatesExecutor>();
         services.AddSingleton<IActionExecutor, InstallUpdatesNowExecutor>();
         services.AddSingleton<IActionExecutor, CancelScheduledUpdatesExecutor>();
-        services.AddSingleton<IActionExecutor, GetScheduledUpdatesExecutor>();
-
-        // Diagnostics that collect and change nothing
         services.AddSingleton<IActionExecutor, CollectDiagnosticBundleExecutor>();
-        services.AddSingleton<IActionExecutor, CollectEventLogsExecutor>();
-        services.AddSingleton<IActionExecutor, RunEventLogViewExecutor>();
-        services.AddSingleton<IActionExecutor, GetProcessListExecutor>();
 
         // Process management
         services.AddSingleton<IActionExecutor, KillProcessExecutor>();
@@ -187,6 +188,7 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, SetDnsServersExecutor>();
         services.AddSingleton<IActionExecutor, SetStaticIpAddressExecutor>();
         services.AddSingleton<IActionExecutor, SetAdapterToDhcpExecutor>();
+#endif
 
         // Deliberately absent: OpenDrawer, UnlockLock and OpenCubie. There is
         // no executor for any of them, which is the agent's own half of the

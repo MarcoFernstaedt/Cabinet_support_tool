@@ -1,5 +1,11 @@
 # Isolated Windows demo setup
 
+The current build is compiled for monitoring only. Legacy `Demo` and `Maintenance`
+configuration values cannot enable process control, updates or other mutations.
+Use only ordinary `Release` artifacts, never `LegacyMaintenanceTests` outputs.
+See [compiled monitoring boundary](restricted-demo-mode.md) for retained-journal
+handling, regression commands and the historical test composition.
+
 This procedure is for a disposable Windows 10 or Windows 11 x64 lab machine. It runs all components locally to test their behavior. The intended deployment still places the server on Mashura infrastructure. Do not point this setup at customer cabinets or existing company databases.
 
 The walkthrough requires an official .NET 8 SDK for the local HTTPS development certificate and either the source checkout or a published package. Windows execution of these steps remains a manual acceptance gate. Do not disable certificate validation if a connection fails.

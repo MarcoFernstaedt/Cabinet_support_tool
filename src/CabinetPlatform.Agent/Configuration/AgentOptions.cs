@@ -131,23 +131,22 @@ public sealed class CollectionOptions
 /// </summary>
 public sealed class ActionOptions
 {
-    /// <summary>DiagnosticOnly (default), restricted Demo, or Maintenance. Unrecognised values fail closed.</summary>
+    /// <summary>Legacy configuration cannot widen the compiled monitoring capability ceiling.</summary>
     public string ExecutionMode { get; set; } = "DiagnosticOnly";
 
-    /// <summary>Only an explicit local configuration opt-in enables maintenance.</summary>
-    public bool MaintenanceEnabled => string.Equals(ExecutionMode, "Maintenance", StringComparison.Ordinal);
+    /// <summary>Maintenance is available only in the explicit historical test build.</summary>
+    public bool MaintenanceEnabled => CabinetPlatform.Contracts.Actions.MonitoringBoundary.LegacyMaintenanceTestBuild &&
+        string.Equals(ExecutionMode, "Maintenance", StringComparison.Ordinal);
 
-    /// <summary>Demo permits selected identity-bound termination, never general maintenance.</summary>
-    public bool DemoEnabled => string.Equals(ExecutionMode, "Demo", StringComparison.Ordinal);
+    /// <summary>Historical Demo is available only in the maintenance test build.</summary>
+    public bool DemoEnabled => CabinetPlatform.Contracts.Actions.MonitoringBoundary.LegacyMaintenanceTestBuild &&
+        string.Equals(ExecutionMode, "Demo", StringComparison.Ordinal);
 
     /// <summary>Compiled allowlist; never infer safety from a non-disruptive flag.</summary>
     public bool Permits(CabinetPlatform.Contracts.Actions.ActionName action) =>
         Enum.IsDefined(action) && (MaintenanceEnabled ||
-            (DemoEnabled && action == CabinetPlatform.Contracts.Actions.ActionName.KillProcess) || action is
-            CabinetPlatform.Contracts.Actions.ActionName.GetProcessList or
-            CabinetPlatform.Contracts.Actions.ActionName.CollectEventLogs or
-            CabinetPlatform.Contracts.Actions.ActionName.RunEventLogView or
-            CabinetPlatform.Contracts.Actions.ActionName.GetScheduledUpdates);
+            (DemoEnabled && action == CabinetPlatform.Contracts.Actions.ActionName.KillProcess) ||
+            CabinetPlatform.Contracts.Actions.MonitoringBoundary.IsObservation(action));
 
     [Range(1, 3600)]
     public int DefaultTimeoutSeconds { get; set; } = 120;
