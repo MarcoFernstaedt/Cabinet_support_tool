@@ -28,6 +28,50 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class XamlContractTests
 {
     [Fact]
+    public void Monitoring_header_is_persistent_focusable_and_announces_actual_words()
+    {
+        var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml"));
+        var banner = Assert.Single(xaml.Descendants(), e =>
+            (string?)e.Attribute("Text") == "{Binding MonitoringNote}");
+        Assert.Equal("True", (string?)banner.Attribute("Focusable"));
+        Assert.Equal("{Binding MonitoringNote}", (string?)banner.Attribute("AutomationProperties.Name"));
+        Assert.DoesNotContain(banner.Ancestors(), e => e.Name.LocalName == "ScrollViewer");
+    }
+
+    [Fact]
+    public void Machine_snapshot_statuses_cannot_use_live_green_template()
+    {
+        var text = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml"));
+        Assert.DoesNotContain("{StaticResource StatusTemplate}", text);
+        Assert.Contains("HistoricalStatusTemplate", text);
+        Assert.Contains("Last observed: {0}; current state unverified", text);
+    }
+
+    [Fact]
+    public void Machine_age_clock_is_view_lifetime_bound_and_does_not_poll_network()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml.cs"));
+        Assert.Contains("DispatcherTimer", code);
+        Assert.Contains("Unloaded +=", code);
+        Assert.Contains("_freshnessTimer.Stop()", code);
+        Assert.Contains("RefreshFreshness()", code);
+        Assert.DoesNotContain("RefreshCommand", code);
+    }
+
+    [Fact]
+    public void Cabinet_surfaces_show_exact_last_seen_and_fleet_uses_historical_status()
+    {
+        foreach (var file in new[] { "CabinetListView.xaml", "CabinetFinderView.xaml", "FleetTabView.xaml" })
+        {
+            var text = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views", file));
+            Assert.Contains("Binding LastCheckInExact", text);
+        }
+        var fleet = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/FleetTabView.xaml"));
+        Assert.Contains("Binding DisplayStatus", fleet);
+        Assert.DoesNotContain("Content=\"{Binding Status}\"", fleet);
+    }
+
+    [Fact]
     public void Finder_routes_have_native_keyboard_and_mouse_open_buttons()
     {
         var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/CabinetFinderView.xaml"));

@@ -70,8 +70,8 @@ public static class Format
 
         DateTimeOffset local = instant.Value.ToLocalTime();
 
-        return local.ToString("yyyy-MM-dd HH:mm:ss ", CultureInfo.CurrentCulture) +
-               TimeZoneInfo.Local.StandardName;
+        return local.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.CurrentCulture) +
+               $" ({TimeZoneInfo.Local.Id}, tech local time)";
     }
 
     /// <summary>

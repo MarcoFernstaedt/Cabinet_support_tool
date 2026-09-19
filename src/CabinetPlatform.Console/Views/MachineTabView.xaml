@@ -9,6 +9,12 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/CabinetPlatform.Console;component/Views/Sections/SectionResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- No per-metric success timestamps: never paint old observations live green. -->
+            <DataTemplate x:Key="HistoricalStatusTemplate">
+                <TextBlock Text="{Binding Label, StringFormat='Last observed: {0}; current state unverified'}"
+                           TextWrapping="Wrap" Foreground="{DynamicResource Text.Brush}"
+                           AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
+            </DataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -57,6 +63,12 @@
                                AutomationProperties.Name="Full path" />
                 </StackPanel>
             </DockPanel>
+
+            <Border Style="{StaticResource ExplanationPanel}">
+                <TextBlock Text="{Binding MonitoringNote}" TextWrapping="Wrap" Focusable="True"
+                           AutomationProperties.Name="{Binding MonitoringNote}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </Border>
 
             <ProgressBar IsIndeterminate="True"
                          Height="4"
@@ -196,15 +208,15 @@
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="Health" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="9" Grid.Column="1" Content="{Binding Health}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="Logged on" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="10" Grid.Column="1" Content="{Binding LoggedOn}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="Cabinet record" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="11" Grid.Column="1" Content="{Binding Active}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                         </Grid>
                     </StackPanel>
                 </Expander>
@@ -241,7 +253,7 @@
                                            Margin="0,0,10,0"
                                            AutomationProperties.Name="Processor utilisation" />
                                 <ContentPresenter Content="{Binding CpuState}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}" />
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Memory used" Style="{StaticResource FieldLabel}" />
@@ -250,7 +262,7 @@
                                            Margin="0,0,10,0"
                                            AutomationProperties.Name="Memory utilisation" />
                                 <ContentPresenter Content="{Binding RamState}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}" />
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Memory" Style="{StaticResource FieldLabel}" />
@@ -318,7 +330,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding State}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -472,7 +484,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Space}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -500,7 +512,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Health}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -614,11 +626,11 @@
                                        Margin="0,0,16,0"
                                        AutomationProperties.Name="Pending update count" />
                             <ContentPresenter Content="{Binding SecurityPending}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                         </StackPanel>
 
                         <ContentPresenter Content="{Binding RebootPending}"
-                                          ContentTemplate="{StaticResource StatusTemplate}"
+                                          ContentTemplate="{StaticResource HistoricalStatusTemplate}"
                                           Margin="0,0,0,2" />
 
                         <TextBlock Text="{Binding RebootPendingNote}"
@@ -639,7 +651,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Classification}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -847,23 +859,23 @@
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Reaches this server" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="0" Grid.Column="1" Content="{Binding ServerReachable}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Firewall, domain" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="1" Grid.Column="1" Content="{Binding FirewallDomain}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Firewall, private" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="2" Grid.Column="1" Content="{Binding FirewallPrivate}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="Firewall, public" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="3" Grid.Column="1" Content="{Binding FirewallPublic}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="Proxy" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="4" Grid.Column="1" Content="{Binding Proxy}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="Proxy address" Style="{StaticResource FieldLabel}" />
                             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ProxyAddress}" Style="{StaticResource FieldValue}"
@@ -965,7 +977,7 @@
                                 <TextBlock Text="{Binding ClockDrift}" Style="{StaticResource FieldValue}"
                                            AutomationProperties.Name="Clock drift from the server" />
                                 <ContentPresenter Content="{Binding ClockDriftStatus}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}"
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}"
                                                   Margin="8,0,0,0" />
                             </StackPanel>
                         </Grid>

@@ -20,12 +20,12 @@ public sealed class CabinetRow
     {
         Summary = summary;
         Path = CabinetPath.From(summary, hostnameIsAmbiguous);
-        Health = StatusPresentation.ForCabinet(summary.Health);
+        Health = MonitoringFreshness.ForCabinet(summary.Health, summary.LastCheckInUtc, nowUtc);
         DiskHealth = summary.WorstDiskHealth is { } disk
-            ? StatusPresentation.ForDisk(disk)
+            ? MonitoringFreshness.Historical(StatusPresentation.ForDisk(disk))
             : StatusPresentation.Unknown;
         LastCheckInAge = Format.Age(summary.LastCheckInUtc, nowUtc);
-        LastCheckInExact = Format.LocalTime(summary.LastCheckInUtc);
+        LastCheckInExact = MonitoringFreshness.LastSeen(summary.LastCheckInUtc);
     }
 
     /// <summary>The cabinet as the server projected it.</summary>
@@ -94,7 +94,7 @@ public sealed class CabinetRow
     /// a cabinet on arrow-down without having to traverse nine columns.
     /// </summary>
     public string AccessibleSummary =>
-        $"{Path.Spoken} Health {Health.Label}. Last check-in {LastCheckInAge}. " +
+        $"{Path.Spoken} Health {Health.Label}. {LastCheckInExact}. Check-in age at load: {LastCheckInAge}. " +
         $"Disk {DiskHealth.Label}. {PendingUpdates} pending updates. " +
         (Summary.IsActive ? "Active." : "Inactive.");
 }
