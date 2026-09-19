@@ -123,6 +123,19 @@ public sealed class PayloadBufferTests : IDisposable
     }
 
     [Fact]
+    public void Enqueue_RejectsOversizedSampleWithoutEvictingQueuedReports()
+    {
+        var buffer = CreateBuffer(maxTotalMegabytes: 1);
+        Assert.True(buffer.Enqueue(Payload("pending-report"), CheckInTier.Full));
+        _clock.Advance(TimeSpan.FromMinutes(1));
+        var oversized = Payload(new string('x', 1024 * 1024 + 1));
+
+        Assert.False(buffer.Enqueue(oversized, CheckInTier.Heartbeat));
+
+        Assert.Equal("pending-report", Assert.Single(buffer.PeekOldest(10)).Payload.MachineId);
+    }
+
+    [Fact]
     public void ALongOutageCannotGrowTheSpoolWithoutBound()
     {
         // Three days of five-minute check-ins is what a bank-holiday weekend

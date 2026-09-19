@@ -78,8 +78,21 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
 
             try
             {
-                using var stream = File.Create(path);
-                JsonSerializer.Serialize(stream, payload, AgentJson.SerializerOptions);
+                long writtenBytes;
+                using (var stream = File.Create(path))
+                {
+                    JsonSerializer.Serialize(stream, payload, AgentJson.SerializerOptions);
+                    writtenBytes = stream.Length;
+                }
+
+                // A sample larger than the entire cap can never be retained.
+                // Do not evict every older report merely to delete this one too.
+                if (writtenBytes > (long)_options.MaxTotalMegabytes * 1024L * 1024L)
+                {
+                    File.Delete(path);
+                    _logger.LogWarning("A check-in exceeded the entire spool size cap and was not retained for retry.");
+                    return false;
+                }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException)
             {
@@ -92,7 +105,7 @@ public sealed class FilePayloadBuffer : IPayloadBuffer
             }
 
             Prune();
-            return true;
+            return File.Exists(path);
         }
     }
 
