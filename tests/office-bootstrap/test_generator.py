@@ -1,12 +1,11 @@
 """Black-box tests for the staging generator; never contacts a server."""
 import hashlib
 import json
-import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "tools" / "prepare_office_demo.py"
 ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
@@ -16,7 +15,7 @@ class OfficeGeneratorTests(unittest.TestCase):
     def test_runtime_paths_stay_inside_fixed_protected_installation(self):
         with tempfile.TemporaryDirectory() as root:
             out = Path(root) / "new"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out)], capture_output=True, text=True, check=False)
             self.assertEqual(0, result.returncode, result.stderr)
             settings = json.loads((out / "agent/appsettings.json").read_text())
             base = "C:/Program Files/Mashura/CabinetAgent/"
@@ -30,7 +29,7 @@ class OfficeGeneratorTests(unittest.TestCase):
     def test_configs_share_endpoint_and_each_token_is_unique_and_server_hashed(self):
         with tempfile.TemporaryDirectory() as root:
             out = Path(root) / "new"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--devices", "2"], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--devices", "2"], capture_output=True, text=True, check=False)
             self.assertEqual(0, result.returncode, result.stderr)
             agent = json.loads((out / "agent/appsettings.json").read_text())
             console = json.loads((out / "console/appsettings.json").read_text())
@@ -52,7 +51,7 @@ class OfficeGeneratorTests(unittest.TestCase):
             self.assertFalse(manifest["binariesBuilt"])
             self.assertEqual(0o700, out.stat().st_mode & 0o777)
             self.assertTrue(all(p.stat().st_mode & 0o077 == 0 for p in out.rglob("*") if p.is_file()))
-            repeated = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out)], capture_output=True, text=True)
+            repeated = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out)], capture_output=True, text=True, check=False)
             self.assertNotEqual(0, repeated.returncode)
             self.assertEqual(tokens, [json.loads(p.read_text())["Token"] for p in sorted((out / "enrollment").glob("*.json"))])
 
@@ -62,11 +61,11 @@ class OfficeGeneratorTests(unittest.TestCase):
             bad = ["http://srv1522777.tail72f980.ts.net/", "https://evil.example/", "https://user@srv1522777.tail72f980.ts.net/", ENDPOINT + "api", ENDPOINT + "?query=1", ENDPOINT + "#fragment"]
             for endpoint in bad:
                 with self.subTest(endpoint=endpoint):
-                    result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--endpoint", endpoint], capture_output=True, text=True)
+                    result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--endpoint", endpoint], capture_output=True, text=True, check=False)
                     self.assertNotEqual(0, result.returncode)
                     self.assertFalse(out.exists())
             for count in ["0", "-1", "11"]:
-                result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--devices", count], capture_output=True, text=True)
+                result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--devices", count], capture_output=True, text=True, check=False)
                 self.assertNotEqual(0, result.returncode)
                 self.assertFalse(out.exists())
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Append one short-lived office grant without resetting enrollment history.
 
 Run on the test server as its owner. Transfer the output privately to exactly
@@ -6,15 +5,15 @@ one device, then restart only the reviewed test service to load the new hash.
 This tool never restarts a service or prints a credential.
 """
 import argparse
-from datetime import datetime, timedelta, timezone
 import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
-import secrets
 import re
+import secrets
 import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
 

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Prepare unsigned, non-distributable office staging, never install or contact a server.
 
 Generate on Linux under the authorized operator account. Token files are secrets;
@@ -6,14 +5,13 @@ all output is private, new-only and outside the source checkout. No shared key,
 operator password, identity image or TLS bypass is generated.
 """
 import argparse
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
-from pathlib import Path
 import secrets
 import subprocess
-import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 TRUSTED_ENDPOINT = "https://srv1522777.tail72f980.ts.net/"

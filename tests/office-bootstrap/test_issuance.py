@@ -1,11 +1,11 @@
 """Exercise additive office enrollment provisioning without a running server."""
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[2] / "tools/issue_office_enrollment.py"
 ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
@@ -23,7 +23,7 @@ class IssueEnrollmentTests(unittest.TestCase):
             manifest.chmod(0o600)
             before = manifest.read_bytes()
             output = Path(destination) / "new.json"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
             self.assertNotEqual(0, result.returncode)
             self.assertFalse(output.exists())
             self.assertEqual(before, manifest.read_bytes())
@@ -39,7 +39,7 @@ class IssueEnrollmentTests(unittest.TestCase):
             manifest.chmod(0o600)
             before = manifest.read_bytes()
             output = root / "new.json"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
             self.assertNotEqual(0, result.returncode)
             self.assertEqual(before, manifest.read_bytes())
             self.assertFalse(output.exists())
@@ -60,7 +60,7 @@ class IssueEnrollmentTests(unittest.TestCase):
                 manifest.chmod(0o600)
                 before = manifest.read_bytes()
                 output = root / "new.json"
-                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
                 self.assertNotEqual(0, result.returncode)
                 self.assertFalse(output.exists())
                 self.assertEqual(before, manifest.read_bytes())
@@ -88,7 +88,7 @@ class IssueEnrollmentTests(unittest.TestCase):
                     original.symlink_to(backing)
                 if target == "output-link": output.symlink_to(root / "missing.json")
                 before = manifest.read_bytes()
-                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+                result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
                 self.assertNotEqual(0, result.returncode)
                 self.assertEqual(before, manifest.read_bytes())
                 self.assertFalse(output.exists())
@@ -104,7 +104,7 @@ class IssueEnrollmentTests(unittest.TestCase):
             manifest.chmod(0o600)
             before = manifest.read_bytes()
             output = root / "new.json"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
             self.assertNotEqual(0, result.returncode)
             self.assertFalse(output.exists())
             self.assertEqual(before, manifest.read_bytes())
@@ -122,7 +122,7 @@ class IssueEnrollmentTests(unittest.TestCase):
             manifest.chmod(0o600)
             before = state.read_bytes()
             output = root / "device-new.json"
-            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True)
+            result = subprocess.run([sys.executable, str(SCRIPT), "--manifest", str(manifest), "--output", str(output)], capture_output=True, text=True, check=False)
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(before, state.read_bytes())
             tokens = json.loads(manifest.read_text())["OfficeEnrollment"]["Tokens"]
