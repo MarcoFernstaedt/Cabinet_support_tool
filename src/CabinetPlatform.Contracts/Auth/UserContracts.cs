@@ -102,6 +102,9 @@ public sealed record CreateUserRequest
 /// <summary>A Supervisor amending a support account. Every member is optional.</summary>
 public sealed record UpdateUserRequest
 {
+    /// <summary>Require a currently active support-tier target at the write boundary.</summary>
+    public bool SupportAccountsOnly { get; init; }
+
     /// <summary>New role, or <see langword="null"/> to leave it alone.</summary>
     public Role? Role { get; init; }
 

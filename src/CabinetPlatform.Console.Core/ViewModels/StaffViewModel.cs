@@ -37,6 +37,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
 
     public async Task LoadAsync()
     {
+        OnPropertyChanged(nameof(IsSupervisor));
         if (!CanLoad()) return;
         Users.Clear(); SelectedUser = null;
         await RunAsync(async ct =>
@@ -91,7 +92,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         var selected = SelectedUser!;
         int generation = _generation;
         UserDto? result = null;
-        try { result = await RunAsync(ct => _api.UpdateUserAsync(selected.Id, request, ct)); }
+        try { result = await RunAsync(ct => _api.UpdateUserAsync(selected.Id, request with { SupportAccountsOnly = true }, ct)); }
         finally
         {
             if (generation == _generation) { SelectedUser = null; DisableConfirmed = false; }

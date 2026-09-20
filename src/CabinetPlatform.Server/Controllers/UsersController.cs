@@ -242,12 +242,33 @@ public sealed class UsersController : SupportControllerBase
         CurrentUser actor = CurrentUser;
         DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
+        await using var supportTransaction = request.SupportAccountsOnly
+            ? await _db.Database.BeginTransactionAsync(ct) : null;
+        if (request.SupportAccountsOnly)
+        {
+            // Reserve the current support row until its update and audit commit.
+            // A preflight GET would leave a promotion race before SaveChanges.
+            int reserved = await _db.Users.Where(u => u.Id == id && u.IsActive &&
+                (u.Role == CabinetPlatform.Contracts.Auth.Role.Tier1 || u.Role == CabinetPlatform.Contracts.Auth.Role.Tier2))
+                .ExecuteUpdateAsync(set => set.SetProperty(u => u.IsActive, u => u.IsActive), ct);
+            if (reserved != 1)
+            {
+                await _audit.WriteDenialAsync(AuditEvent.UpdateUser,
+                    "The account is no longer an active support account.", null,
+                    new { UserId = id }, cancellationToken: ct);
+                await supportTransaction!.CommitAsync(ct);
+                return Problem("The account is no longer an active support account. Refresh staff before deciding again.",
+                    statusCode: StatusCodes.Status409Conflict, title: "Staff target changed");
+            }
+        }
+
         User? user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
 
         if (user is null)
         {
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "User not found.", null, new { UserId = id }, cancellationToken: ct);
+            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
             return Problem("User not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -257,6 +278,7 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Role is not a defined value.", null,
                 new { UserId = id }, cancellationToken: ct);
+            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
             return Problem("Role is not valid.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -268,6 +290,7 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Supervisor attempted to change their own role.", null,
                 new { UserId = id }, cancellationToken: ct);
+            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
             return Problem("You cannot change your own role.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -277,6 +300,7 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Supervisor attempted to deactivate themselves.", null,
                 new { UserId = id }, cancellationToken: ct);
+            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
             return Problem("You cannot deactivate your own account.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -341,6 +365,7 @@ public sealed class UsersController : SupportControllerBase
             await _db.SaveChangesAsync(ct);
         }
 
+        if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
         return Ok(ToDto(user, nowUtc));
     }
 
