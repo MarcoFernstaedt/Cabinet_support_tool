@@ -62,6 +62,8 @@ public interface IApiClient
         throw new NotSupportedException("Connectivity monitoring is unavailable in this client.");
 
     Task<CabinetDetailDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct);
+    Task<CabinetSummary> RenameCabinetAsync(Guid cabinetId, RenameCabinetRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
 
     Task<PagedResult<HeartbeatDto>> GetCheckInHistoryAsync(
         Guid cabinetId, HistoryQuery query, CancellationToken ct);

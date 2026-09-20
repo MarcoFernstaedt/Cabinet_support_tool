@@ -313,6 +313,16 @@ public sealed class ApiClient : IApiClient
 
     // --- Transport -------------------------------------------------------
 
+    public Task<CabinetSummary> RenameCabinetAsync(Guid cabinetId, RenameCabinetRequest request, CancellationToken ct) =>
+        PatchAsync<RenameCabinetRequest, CabinetSummary>($"api/cabinets/{cabinetId:D}/name", request, ct);
+
+    private async Task<TResponse> PatchAsync<TRequest, TResponse>(string url, TRequest body, CancellationToken ct)
+    {
+        using var response = await SendWithRefreshAsync(() => new HttpRequestMessage(HttpMethod.Patch, url)
+        { Content = JsonContent.Create(body, options: Json) }, ct);
+        return await ReadAsync<TResponse>(response, isLogin: false, ct);
+    }
+
     private async Task<TResponse> PutAsync<TRequest, TResponse>(
         string url, TRequest body, CancellationToken ct)
     {

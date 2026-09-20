@@ -87,6 +87,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     protected override void OnLoadingChanged(bool isLoading)
     {
+        RenameCommand.NotifyCanExecuteChanged();
         foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();
     }
 
@@ -484,6 +485,9 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         Path = _latest?.Path;
+        FriendlyName = _latest?.Cabinet.FriendlyName ?? string.Empty;
+        OnPropertyChanged(nameof(CanRename));
+        RenameCommand.NotifyCanExecuteChanged();
         CabinetHostname = _latest?.Cabinet.Hostname ?? string.Empty;
         ClientAndSite = CabinetIdentity.ClientAndSite(_latest?.Path);
 
@@ -542,6 +546,9 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         ActionHistory.Clear();
         SelectedAction = null;
         Path = null;
+        FriendlyName = RenameReason = RenameOutcome = string.Empty;
+        OnPropertyChanged(nameof(CanRename));
+        RenameCommand.NotifyCanExecuteChanged();
         CabinetHostname = string.Empty;
         ClientAndSite = string.Empty;
         foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();

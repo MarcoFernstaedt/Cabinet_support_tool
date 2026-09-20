@@ -112,7 +112,7 @@ public sealed record CabinetPath
         SiteName = summary.SiteName,
         SiteId = summary.SiteId,
         DepartmentName = summary.DepartmentName,
-        CabinetName = summary.Hostname,
+        CabinetName = summary.DisplayName,
         Role = summary.Role,
         SerialNumber = summary.SerialNumber,
         HostnameIsAmbiguous = hostnameIsAmbiguous,

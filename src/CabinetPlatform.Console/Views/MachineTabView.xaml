@@ -65,6 +65,17 @@
             </DockPanel>
 
             <Border Style="{StaticResource ExplanationPanel}">
+                <StackPanel Visibility="{Binding CanRename, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="Supervisor: edit friendly name. Device identity and hostname stay unchanged." TextWrapping="Wrap" />
+                    <WrapPanel>
+                        <TextBox Text="{Binding FriendlyName, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" Width="200" AutomationProperties.Name="Friendly cabinet name" />
+                        <TextBox Text="{Binding RenameReason, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" Width="240" AutomationProperties.Name="Reason for cabinet rename" />
+                        <Button Content="Save cabinet name" Command="{Binding RenameCommand}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding RenameOutcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource ExplanationPanel}">
                 <TextBlock Text="{Binding MonitoringNote}" TextWrapping="Wrap" Focusable="True"
                            AutomationProperties.Name="{Binding MonitoringNote}"
                            AutomationProperties.LiveSetting="Polite" />

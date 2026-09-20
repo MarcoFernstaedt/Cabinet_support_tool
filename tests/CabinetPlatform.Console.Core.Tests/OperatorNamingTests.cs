@@ -15,6 +15,33 @@ public sealed class OperatorNamingTests : IClassFixture<ConsoleTestHost>
     public OperatorNamingTests(ConsoleTestHost host) => _host = host;
 
     [Fact]
+    public async Task Rename_command_uses_loaded_identity_and_refreshes_the_friendly_header()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Supervisor, username);
+        var (api, session) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        var cabinet = await _host.CreateCabinetAsync("REPEATED-NAME");
+        var announcer = new RecordingLiveRegionAnnouncer();
+        var vm = new MachineTabViewModel(api, new ActionInvoker(api, ScriptedActionDialog.Accepting(), announcer, session), session, announcer, TimeProvider.System);
+        await vm.LoadAsync(cabinet.Id);
+        var name = typeof(MachineTabViewModel).GetProperty("FriendlyName");
+        Assert.NotNull(name);
+        name.SetValue(vm, "West cabinet");
+        typeof(MachineTabViewModel).GetProperty("RenameReason")!.SetValue(vm, "Clarify location");
+        var command = (CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)typeof(MachineTabViewModel).GetProperty("RenameCommand")!.GetValue(vm)!;
+        Assert.True(command.CanExecute(null));
+        await command.ExecuteAsync(null);
+        Assert.False(vm.HasError, vm.ErrorMessage);
+        Assert.Equal(cabinet.Id, vm.Path!.CabinetId);
+        Assert.Equal("West cabinet", vm.HeaderCabinetName);
+        Assert.Equal("West cabinet", (await api.GetCabinetLatestAsync(cabinet.Id, default)).Cabinet.FriendlyName);
+        vm.Reset();
+        Assert.False(command.CanExecute(null));
+        Assert.Equal(string.Empty, name.GetValue(vm));
+    }
+
+    [Fact]
     public async Task Registration_command_sends_the_chosen_friendly_name()
     {
         string username = Guid.NewGuid().ToString();
