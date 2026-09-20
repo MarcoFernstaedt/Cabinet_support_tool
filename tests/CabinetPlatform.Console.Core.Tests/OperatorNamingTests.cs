@@ -15,6 +15,26 @@ public sealed class OperatorNamingTests : IClassFixture<ConsoleTestHost>
     public OperatorNamingTests(ConsoleTestHost host) => _host = host;
 
     [Fact]
+    public async Task Cabinet_list_marks_duplicate_friendly_names_and_keeps_both_ids()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Supervisor, username);
+        var (api, _) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        string client = "labels-" + Guid.NewGuid().ToString("N");
+        var first = await _host.CreateCabinetAsync("HOST-A", client);
+        var second = await _host.CreateCabinetAsync("HOST-B", client);
+        foreach (var cabinet in new[] { first, second })
+            await api.RenameCabinetAsync(cabinet.Id, new RenameCabinetRequest { FriendlyName = "Pharmacy", Reason = "Lab label" }, default);
+        var vm = new CabinetListViewModel(api, new RecordingLiveRegionAnnouncer(), TimeProvider.System) { ClientFilter = client };
+        await vm.LoadAsync();
+        Assert.True(vm.HasDuplicateNamesOnPage);
+        Assert.Equal(2, vm.Cabinets.Count);
+        Assert.All(vm.Cabinets, c => { Assert.True(c.HasDuplicateName); Assert.Equal("Pharmacy", c.Summary.DisplayName); });
+        Assert.Equal(new[] { first.Id, second.Id }.Order(), vm.Cabinets.Select(c => c.Id).Order());
+    }
+
+    [Fact]
     public async Task Rename_command_uses_loaded_identity_and_refreshes_the_friendly_header()
     {
         string username = Guid.NewGuid().ToString();
