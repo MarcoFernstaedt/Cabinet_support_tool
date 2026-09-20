@@ -13,6 +13,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
 {
     private readonly IApiClient _api;
     private readonly ISessionStore _session;
+    private int _generation;
     public StaffViewModel(IApiClient api, ISessionStore session, ILiveRegionAnnouncer announcer) : base(announcer)
     { _api = api; _session = session; }
 
@@ -31,7 +32,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     public string PageSummary => $"{TotalCount} staff accounts. Page {Page}.";
     private bool CanLoad() => IsSupervisor && !IsLoading;
     private bool CanCreate(string? password) => CanLoad() && SupportTiers.Contains(SelectedTier) &&
-        !string.IsNullOrWhiteSpace(Username) && Username.Length <= 128 &&
+        !string.IsNullOrWhiteSpace(Username) && Username.Length <= 64 &&
         !string.IsNullOrWhiteSpace(DisplayName) && DisplayName.Length <= 128 && !string.IsNullOrEmpty(password);
 
     public async Task LoadAsync()
@@ -52,9 +53,11 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     private async Task CreateAsync(string? password)
     {
         if (!CanCreate(password)) return;
+        int generation = _generation;
         var request = new CreateUserRequest { Username = Username.Trim(), DisplayName = DisplayName.Trim(),
             Role = SelectedTier, InitialPassword = password! };
         var result = await RunAsync(ct => _api.CreateUserAsync(request, ct));
+        if (generation != _generation) return;
         Outcome = result is null ? "Creation not confirmed. Refresh the staff list before retrying; the account may already exist."
             : $"Created {result.Username} ({result.Role}). The user must change the temporary password at sign-in.";
         if (result is null) return;
@@ -86,9 +89,14 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     private async Task UpdateAsync(UpdateUserRequest request)
     {
         var selected = SelectedUser!;
+        int generation = _generation;
         UserDto? result = null;
         try { result = await RunAsync(ct => _api.UpdateUserAsync(selected.Id, request, ct)); }
-        finally { SelectedUser = null; DisableConfirmed = false; }
+        finally
+        {
+            if (generation == _generation) { SelectedUser = null; DisableConfirmed = false; }
+        }
+        if (generation != _generation) return;
         Outcome = result is null ? "Change not confirmed. Refresh staff before trying again; the server may have saved it."
             : $"Updated {result.Username}: {result.Role}, {(result.IsActive ? "active" : "disabled")}.";
         if (result is null) { Users.Clear(); return; }
@@ -117,6 +125,11 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         ClearError(); OnPropertyChanged(nameof(PageSummary)); NotifyCommands();
     }
     protected override void OnLoadingChanged(bool isLoading) => NotifyCommands();
+    public override void Deactivate()
+    {
+        ++_generation;
+        base.Deactivate();
+    }
     private void NotifyCommands()
     {
         CreateCommand.NotifyCanExecuteChanged(); RefreshCommand.NotifyCanExecuteChanged();

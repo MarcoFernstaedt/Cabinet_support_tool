@@ -16,7 +16,14 @@
    <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
    <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
   </StackPanel>
-  <DataGrid Grid.Row="1" ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" AutomationProperties.Name="Staff accounts">
+  <DataGrid Grid.Row="1" Style="{StaticResource AccessibleDataGrid}" ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" AutomationProperties.Name="Staff accounts">
+   <DataGrid.RowStyle>
+    <Style TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+     <Setter Property="AutomationProperties.Name"><Setter.Value>
+      <MultiBinding StringFormat="{}{0}, tier {1}, active {2}"><Binding Path="Username"/><Binding Path="Role"/><Binding Path="IsActive"/></MultiBinding>
+     </Setter.Value></Setter>
+    </Style>
+   </DataGrid.RowStyle>
    <DataGrid.Columns>
     <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
     <DataGridTextColumn Header="Display name" Binding="{Binding DisplayName}" Width="*"/>
@@ -29,7 +36,7 @@
    <StackPanel Margin="0,12,0,0">
     <TextBlock Text="Create support account" FontWeight="SemiBold"/>
     <WrapPanel>
-     <StackPanel Width="190" Margin="0,0,8,0"><Label Content="_Username" Target="{Binding ElementName=Username}"/><TextBox x:Name="Username" Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" MaxLength="128" AutomationProperties.Name="New staff username"/></StackPanel>
+     <StackPanel Width="190" Margin="0,0,8,0"><Label Content="_Username" Target="{Binding ElementName=Username}"/><TextBox x:Name="Username" Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" MaxLength="64" AutomationProperties.Name="New staff username"/></StackPanel>
      <StackPanel Width="190" Margin="0,0,8,0"><Label Content="Display _name" Target="{Binding ElementName=DisplayName}"/><TextBox x:Name="DisplayName" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" MaxLength="128" AutomationProperties.Name="New staff display name"/></StackPanel>
      <StackPanel Width="190" Margin="0,0,8,0"><Label Content="Temporary _password" Target="{Binding ElementName=TemporaryPassword}"/><PasswordBox x:Name="TemporaryPassword" MaxLength="256" AutomationProperties.Name="Temporary password, change required at first sign-in"/></StackPanel>
      <StackPanel Width="110"><Label Content="Support _tier" Target="{Binding ElementName=Tier}"/><ComboBox x:Name="Tier" ItemsSource="{Binding SupportTiers}" SelectedItem="{Binding SelectedTier}" AutomationProperties.Name="Support tier for create or selected account"/></StackPanel>

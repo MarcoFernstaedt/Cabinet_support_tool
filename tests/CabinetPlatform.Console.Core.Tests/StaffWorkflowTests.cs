@@ -15,6 +15,71 @@ public sealed class StaffWorkflowTests : IClassFixture<ConsoleTestHost>
     public StaffWorkflowTests(ConsoleTestHost host) => _host = host;
 
     [Fact]
+    public async Task Signout_during_committed_creation_does_not_restore_staff_state()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Supervisor, username);
+        var session = new SessionStore();
+        var gate = new CommittedCreateGate { InnerHandler = _host.Server.CreateHandler() };
+        using var http = new HttpClient(new BearerTokenHandler(session) { InnerHandler = gate }) { BaseAddress = new Uri("http://localhost") };
+        var api = new ApiClient(http, session);
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        var vm = new StaffViewModel(api, session, new RecordingLiveRegionAnnouncer())
+        { Username = "late-" + Guid.NewGuid().ToString("N")[..12], DisplayName = "Late response", SelectedTier = Role.Tier1 };
+        var pending = vm.CreateCommand.ExecuteAsync("Temporary!Password42");
+        await gate.Committed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        session.SignOut();
+        vm.Reset();
+        gate.Release.TrySetResult();
+        await pending;
+        Assert.Empty(vm.Outcome);
+        Assert.Empty(vm.Users);
+        Assert.Empty(vm.Username);
+    }
+
+    private sealed class CommittedCreateGate : DelegatingHandler
+    {
+        public TaskCompletionSource Committed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var response = await base.SendAsync(request, ct);
+            if ((request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath == "/api/users") ||
+                (request.Method == HttpMethod.Patch && request.RequestUri!.AbsolutePath.StartsWith("/api/users/", StringComparison.Ordinal)))
+            {
+                response.EnsureSuccessStatusCode();
+                Committed.TrySetResult();
+                await Release.Task;
+            }
+            return response;
+        }
+    }
+
+    [Fact]
+    public async Task Signout_during_committed_disable_does_not_restore_staff_state()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Supervisor, username);
+        var target = await _host.CreateUserAsync(Role.Tier1, Guid.NewGuid().ToString());
+        var session = new SessionStore();
+        var gate = new CommittedCreateGate { InnerHandler = _host.Server.CreateHandler() };
+        using var http = new HttpClient(new BearerTokenHandler(session) { InnerHandler = gate }) { BaseAddress = new Uri("http://localhost") };
+        var api = new ApiClient(http, session);
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        var vm = new StaffViewModel(api, session, new RecordingLiveRegionAnnouncer());
+        await vm.LoadAsync();
+        vm.SelectedUser = vm.Users.Single(u => u.Id == target.Id);
+        vm.DisableConfirmed = true;
+        var pending = vm.DisableCommand.ExecuteAsync(null);
+        await gate.Committed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        session.SignOut(); vm.Reset(); gate.Release.TrySetResult();
+        await pending;
+        Assert.Empty(vm.Outcome);
+        Assert.Empty(vm.Users);
+        Assert.Null(vm.SelectedUser);
+    }
+
+    [Fact]
     public async Task Supervisor_can_change_support_tier_and_disable_the_exact_selected_account()
     {
         string username = Guid.NewGuid().ToString();

@@ -1,4 +1,5 @@
 using CabinetPlatform.Contracts.Common;
+using System.ComponentModel.DataAnnotations;
 
 namespace CabinetPlatform.Contracts.Auth;
 
@@ -82,6 +83,7 @@ public sealed record UserQuery : PagedQuery
 public sealed record CreateUserRequest
 {
     /// <summary>Sign-in name. Must be unique.</summary>
+    [Required, MaxLength(64)]
     public required string Username { get; init; }
 
     /// <summary>Name shown in the console.</summary>
