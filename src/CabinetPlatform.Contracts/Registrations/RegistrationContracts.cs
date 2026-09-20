@@ -56,6 +56,10 @@ public sealed record RegistrationQuery : PagedQuery
 /// </remarks>
 public sealed record ApproveRegistrationRequest
 {
+    /// <summary>Optional operator label, independent of hostname and immutable identity.</summary>
+    [MaxLength(120)]
+    public string? FriendlyName { get; init; }
+
     /// <summary>Client this cabinet belongs to.</summary>
     [Required, MaxLength(255)]
     public required string ClientName { get; init; }

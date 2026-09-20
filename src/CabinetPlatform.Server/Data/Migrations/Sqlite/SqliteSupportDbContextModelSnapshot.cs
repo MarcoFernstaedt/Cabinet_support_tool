@@ -333,6 +333,10 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .HasMaxLength(255)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(120)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Hostname")
                         .IsRequired()
                         .HasMaxLength(255)

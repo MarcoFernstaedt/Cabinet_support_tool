@@ -73,6 +73,9 @@ public enum AuditEvent
     /// <summary>A site's sync cabinet was assigned or cleared.</summary>
     SetSiteSyncCabinet = 28,
 
+    /// <summary>A supervisor changed a cabinet's friendly label.</summary>
+    RenameCabinet = 29,
+
     /// <summary>The pending registration queue was read.</summary>
     ListPendingRegistrations = 30,
 

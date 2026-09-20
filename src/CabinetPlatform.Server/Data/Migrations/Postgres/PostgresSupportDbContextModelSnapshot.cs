@@ -334,6 +334,10 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
+                    b.Property<string>("FriendlyName")
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
                     b.Property<string>("Hostname")
                         .IsRequired()
                         .HasMaxLength(255)

@@ -24,6 +24,7 @@ public sealed partial class RegistrationsViewModel : ObservableViewModelBase
 
     [ObservableProperty] private PendingRegistrationDto? _selectedRegistration;
     [ObservableProperty] private string _clientName = string.Empty;
+    [ObservableProperty] private string _friendlyName = string.Empty;
     [ObservableProperty] private string _siteName = string.Empty;
     [ObservableProperty] private string _departmentName = string.Empty;
     [ObservableProperty] private CabinetRole _cabinetRole = CabinetRole.Unknown;
@@ -77,6 +78,7 @@ public sealed partial class RegistrationsViewModel : ObservableViewModelBase
         var request = new ApproveRegistrationRequest
         {
             ClientName = ClientName.Trim(), SiteName = SiteName.Trim(), Role = CabinetRole,
+            FriendlyName = FriendlyName.Trim(),
             DepartmentName = DepartmentName.Trim(), TicketReference = TicketReference.Trim()
         };
         await DecideAsync(selected, true, ct => _api.ApproveRegistrationAsync(selected.Id, request, ct));
@@ -124,7 +126,7 @@ public sealed partial class RegistrationsViewModel : ObservableViewModelBase
         Deactivate();
         Queue.Clear();
         SelectedRegistration = null;
-        ClientName = SiteName = DepartmentName = Reason = TicketReference = Outcome = string.Empty;
+        FriendlyName = ClientName = SiteName = DepartmentName = Reason = TicketReference = Outcome = string.Empty;
         CabinetRole = CabinetRole.Unknown;
         StatusFilter = RegistrationStatus.Pending;
         Page = 1;
@@ -138,7 +140,7 @@ public sealed partial class RegistrationsViewModel : ObservableViewModelBase
     partial void OnSelectedRegistrationChanged(PendingRegistrationDto? value)
     {
         IdentityConfirmed = false;
-        ClientName = SiteName = DepartmentName = Reason = TicketReference = string.Empty;
+        FriendlyName = ClientName = SiteName = DepartmentName = Reason = TicketReference = string.Empty;
         CabinetRole = CabinetRole.Unknown;
         NotifyCommands();
     }

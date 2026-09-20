@@ -389,6 +389,29 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
     }
 
+    /// <summary>Changes the friendly label without changing device identity.</summary>
+    [HttpPatch("{id:guid}/name")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<ActionResult<CabinetSummary>> Rename(
+        Guid id, [FromBody] RenameCabinetRequest request, CancellationToken ct)
+    {
+        var cabinet = await _db.Cabinets.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (cabinet is null) return NotFound();
+        string? previous = cabinet.FriendlyName;
+        cabinet.FriendlyName = request.FriendlyName.Trim();
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RenameCabinet, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
+            Reason = request.Reason.Trim(), Details = new { Previous = previous, cabinet.FriendlyName }
+        });
+        await _db.SaveChangesAsync(ct);
+        return Ok((await _projection.ProjectAsync(_db.Cabinets.AsNoTracking().Where(c => c.Id == id),
+            _timeProvider.GetUtcNow(), ct)).Single());
+    }
+
     /// <summary>
     /// Changes a cabinet's part in its site's topology.
     /// </summary>

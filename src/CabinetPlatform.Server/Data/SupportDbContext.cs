@@ -163,6 +163,7 @@ public class SupportDbContext : DbContext
             e.HasIndex(x => x.MachineId).IsUnique();
             e.Property(x => x.Hostname).IsRequired().HasMaxLength(255);
             e.Property(x => x.DepartmentName).HasMaxLength(255);
+            e.Property(x => x.FriendlyName).HasMaxLength(120);
             e.Property(x => x.Model).HasMaxLength(128);
             e.Property(x => x.SerialNumber).HasMaxLength(128);
             e.Property(x => x.AgentVersion).HasMaxLength(64);

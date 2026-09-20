@@ -129,6 +129,7 @@ public sealed class CabinetProjection : ICabinetProjection
                 Id = r.Cabinet.Id,
                 MachineId = r.Cabinet.MachineId,
                 Hostname = r.Cabinet.Hostname,
+                FriendlyName = r.Cabinet.FriendlyName,
                 ClientName = r.ClientName,
                 SiteName = r.SiteName,
                 SiteId = r.Cabinet.SiteId,
