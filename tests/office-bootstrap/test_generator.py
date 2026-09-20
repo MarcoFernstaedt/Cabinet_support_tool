@@ -13,6 +13,20 @@ ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
 
 
 class OfficeGeneratorTests(unittest.TestCase):
+    def test_runtime_paths_stay_inside_fixed_protected_installation(self):
+        with tempfile.TemporaryDirectory() as root:
+            out = Path(root) / "new"
+            result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out)], capture_output=True, text=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            settings = json.loads((out / "agent/appsettings.json").read_text())
+            base = "C:/Program Files/Mashura/CabinetAgent/"
+            self.assertEqual(base + "state", settings["Agent"]["StateDirectory"])
+            self.assertEqual(base + "logs", settings["Agent"]["LogDirectory"])
+            self.assertEqual(base + "buffer", settings["Agent"]["Buffer"]["Directory"])
+            self.assertEqual(base + "bundles", settings["Agent"]["Actions"]["DiagnosticBundleDirectory"])
+            file_sink = next(s for s in settings["Serilog"]["WriteTo"] if s["Name"] == "File")
+            self.assertEqual(base + "logs/agent-.log", file_sink["Args"]["path"])
+
     def test_configs_share_endpoint_and_each_token_is_unique_and_server_hashed(self):
         with tempfile.TemporaryDirectory() as root:
             out = Path(root) / "new"

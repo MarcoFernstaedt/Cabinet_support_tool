@@ -67,6 +67,16 @@ def prepare(output, devices, endpoint, dotnet, config_only):
         agent["Agent"]["ServerBaseUrl"] = endpoint
         agent["Agent"]["OfficeEnrollmentFile"] = "office-enrollment.json"
         agent["Agent"]["Actions"]["ExecutionMode"] = "DiagnosticOnly"
+        # Windows Service Control Manager does not promise the executable's CWD.
+        # The manual lab package therefore has one fixed protected install path.
+        install = "C:/Program Files/Mashura/CabinetAgent/"
+        agent["Agent"]["StateDirectory"] = install + "state"
+        agent["Agent"]["LogDirectory"] = install + "logs"
+        agent["Agent"]["Buffer"]["Directory"] = install + "buffer"
+        agent["Agent"]["Actions"]["DiagnosticBundleDirectory"] = install + "bundles"
+        for sink in agent["Serilog"]["WriteTo"]:
+            if sink["Name"] == "File":
+                sink["Args"]["path"] = install + "logs/agent-.log"
         private_json(output / "agent/appsettings.json", agent)
         private_json(output / "console/appsettings.json", {"Api": {"BaseAddress": endpoint, "TimeoutSeconds": 30}})
         now = datetime.now(timezone.utc)
