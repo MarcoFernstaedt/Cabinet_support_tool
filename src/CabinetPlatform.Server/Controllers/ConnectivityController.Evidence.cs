@@ -67,10 +67,29 @@ public sealed partial class ConnectivityController
                 TargetCabinetId = summary.TargetCabinetId,
                 IsSync = targets.Single(t => t.CabinetId == summary.TargetCabinetId).IsSync
             };
-            states[summary.TargetCabinetId] = ConnectivityClassifier.Apply(previous, summary, now);
+            var current = ConnectivityClassifier.Apply(previous, summary, now);
+            states[summary.TargetCabinetId] = current;
+            if (current.IncidentReceivedUtc is not null &&
+                (current.IncidentReceivedUtc != previous.IncidentReceivedUtc ||
+                 current.IncidentObservedUtc != previous.IncidentObservedUtc ||
+                 (previous.RecoveredObservedUtc is not null && current.RecoveredObservedUtc is null)))
+            {
+                db.ConnectivityAlerts.Add(new ConnectivityAlert
+                {
+                    SourceCabinetId = source.Id, TargetCabinetId = summary.TargetCabinetId,
+                    EvidenceId = summary.Id, ObservedUtc = current.IncidentObservedUtc,
+                    ReceivedUtc = current.IncidentReceivedUtc.Value
+                });
+            }
         }
         config.StatesJson = JsonSerializer.Serialize(states.Values, Json);
         await db.SaveChangesAsync(ct);
+        // Queue annotations are retained for 30 days and at most 200 per source,
+        // including unresolved rows. This is not a permanent incident archive.
+        await db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id && a.ReceivedUtc < now.AddDays(-30)).ExecuteDeleteAsync(ct);
+        var alertOverflow = db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id)
+            .OrderByDescending(a => a.ReceivedUtc).ThenBy(a => a.Id).Skip(200).Select(a => a.Id);
+        await db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id && alertOverflow.Contains(a.Id)).ExecuteDeleteAsync(ct);
         // Fixed per-source retention, not an unbounded successful-ping event history.
         await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && e.ObservedUtc < now.AddDays(-14)).ExecuteDeleteAsync(ct);
         var overflow = db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id)

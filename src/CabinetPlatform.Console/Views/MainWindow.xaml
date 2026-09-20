@@ -61,6 +61,10 @@
                             Visibility="{Binding CanSeeRegistrations, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.Name="Supervisor cabinet registrations" />
 
+                    <Button Content="A_lerts" Command="{Binding ShowAlertsCommand}"
+                            Visibility="{Binding CanSeeAlerts, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.Name="Connectivity incident queue" />
+
                     <Button Content="_Staff"
                             Command="{Binding ShowStaffCommand}"
                             Visibility="{Binding CanSeeStaff, Converter={StaticResource BoolToVisibility}}"
@@ -290,6 +294,19 @@
                     </Style>
                 </views:StaffView.Style>
             </views:StaffView>
+
+            <views:ConnectivityAlertsView DataContext="{Binding Alerts}">
+                <views:ConnectivityAlertsView.Style>
+                    <Style TargetType="views:ConnectivityAlertsView">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}}" Value="Alerts">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </views:ConnectivityAlertsView.Style>
+            </views:ConnectivityAlertsView>
 
             <views:ApprovalsView DataContext="{Binding Approvals}">
                 <views:ApprovalsView.Style>

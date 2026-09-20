@@ -69,6 +69,7 @@ public class SupportDbContext : DbContext
     public DbSet<CabinetLinkProbe> CabinetLinkProbes => Set<CabinetLinkProbe>();
 
     public DbSet<ConnectivityEvidence> ConnectivityEvidence => Set<ConnectivityEvidence>();
+    public DbSet<ConnectivityAlert> ConnectivityAlerts => Set<ConnectivityAlert>();
 
     public DbSet<ConnectivityConfiguration> ConnectivityConfigurations => Set<ConnectivityConfiguration>();
 
@@ -315,6 +316,16 @@ public class SupportDbContext : DbContext
                 .HasDatabaseName("IX_SmartReadings_CabinetId_TimestampUtc_Desc");
 
             e.HasIndex(x => x.TimestampUtc);
+        });
+
+        b.Entity<ConnectivityAlert>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.SourceCabinet).WithMany().HasForeignKey(x => x.SourceCabinetId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.SourceCabinetId, x.EvidenceId }).IsUnique();
+            e.HasIndex(x => new { x.SourceCabinetId, x.ReceivedUtc });
+            e.Property(x => x.Status).IsRequired().HasMaxLength(20);
+            e.Property(x => x.Note).HasMaxLength(1000);
         });
 
         b.Entity<ConnectivityEvidence>(e =>

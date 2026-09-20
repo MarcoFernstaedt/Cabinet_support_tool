@@ -70,6 +70,14 @@ public sealed class ApiClient : IApiClient
         GetAsync<UserDto>("api/auth/me", ct);
 
     // --- Enrollment ------------------------------------------------------
+    public Task<PagedResult<ConnectivityAlertDto>> GetConnectivityAlertsAsync(ConnectivityAlertQuery query, CancellationToken ct) =>
+        GetAsync<PagedResult<ConnectivityAlertDto>>("api/connectivity-alerts" + new QueryString()
+            .Add("sourceCabinetId", query.SourceCabinetId).Add("includeResolved", query.IncludeResolved)
+            .Add("page", query.Page).Add("pageSize", query.PageSize), ct);
+    public Task AcknowledgeConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>
+        PostAsync($"api/connectivity-alerts/{id:D}/acknowledge", request, ct);
+    public Task ResolveConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>
+        PostAsync($"api/connectivity-alerts/{id:D}/resolve", request, ct);
     public Task<PagedResult<UserDto>> GetUsersAsync(PagedQuery query, CancellationToken ct) =>
         GetAsync<PagedResult<UserDto>>("api/users" + new QueryString().Add("page", query.Page).Add("pageSize", query.PageSize), ct);
     public Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct) =>

@@ -463,6 +463,52 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityAlert", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("EvidenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTimeOffset?>("ObservedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SourceCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TargetCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("UpdatedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceCabinetId", "EvidenceId")
+                        .IsUnique();
+
+                    b.HasIndex("SourceCabinetId", "ReceivedUtc");
+
+                    b.ToTable("ConnectivityAlerts");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>
                 {
                     b.Property<Guid>("SourceCabinetId")
@@ -1058,6 +1104,17 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .IsRequired();
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityAlert", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "SourceCabinet")
+                        .WithMany()
+                        .HasForeignKey("SourceCabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SourceCabinet");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>

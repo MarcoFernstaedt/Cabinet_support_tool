@@ -463,6 +463,53 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityAlert", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("EvidenceId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ObservedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReceivedUtc")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SourceCabinetId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TargetCabinetId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("UpdatedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SourceCabinetId", "EvidenceId")
+                        .IsUnique();
+
+                    b.HasIndex("SourceCabinetId", "ReceivedUtc");
+
+                    b.ToTable("ConnectivityAlerts");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>
                 {
                     b.Property<Guid>("SourceCabinetId")
@@ -1074,6 +1121,17 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .IsRequired();
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityAlert", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "SourceCabinet")
+                        .WithMany()
+                        .HasForeignKey("SourceCabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("SourceCabinet");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityConfiguration", b =>

@@ -242,4 +242,8 @@ public enum AuditEvent
     ConfigureConnectivity = 140,
     /// <summary>A support user read connectivity evidence.</summary>
     ViewConnectivity = 141,
+    /// <summary>A support user acknowledged a connectivity incident.</summary>
+    AcknowledgeConnectivityAlert = 142,
+    /// <summary>A support user resolved a connectivity workflow annotation.</summary>
+    ResolveConnectivityAlert = 143,
 }

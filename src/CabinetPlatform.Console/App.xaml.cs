@@ -214,6 +214,7 @@ public partial class App : Application
         services.AddSingleton<ApprovalsViewModel>();
         services.AddSingleton<RegistrationsViewModel>();
         services.AddSingleton<StaffViewModel>();
+        services.AddSingleton<ConnectivityAlertsViewModel>();
         services.AddSingleton<ShellViewModel>();
     }
 

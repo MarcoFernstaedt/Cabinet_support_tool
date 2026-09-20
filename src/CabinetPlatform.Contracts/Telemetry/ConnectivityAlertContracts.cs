@@ -1,0 +1,52 @@
+using System.ComponentModel.DataAnnotations;
+using CabinetPlatform.Contracts.Common;
+
+namespace CabinetPlatform.Contracts.Telemetry;
+
+/// <summary>Operator annotation for an accepted connectivity incident, not current health.</summary>
+public sealed record ConnectivityAlertDto
+{
+    /// <summary>Alert identifier.</summary>
+    public Guid Id { get; init; }
+    /// <summary>Immutable source cabinet identity.</summary>
+    public Guid SourceCabinetId { get; init; }
+    /// <summary>Measured destination cabinet identity.</summary>
+    public Guid TargetCabinetId { get; init; }
+    /// <summary>Accepted summary that established this incident.</summary>
+    public Guid EvidenceId { get; init; }
+    /// <summary>Current source client label.</summary>
+    public string ClientName { get; init; } = string.Empty;
+    /// <summary>Current source site label.</summary>
+    public string SiteName { get; init; } = string.Empty;
+    /// <summary>Current source friendly label or hostname.</summary>
+    public string SourceName { get; init; } = string.Empty;
+    /// <summary>Incident time, unknown when the aggregate cannot establish it.</summary>
+    public DateTimeOffset? ObservedUtc { get; init; }
+    /// <summary>Server reception of incident evidence.</summary>
+    public DateTimeOffset ReceivedUtc { get; init; }
+    /// <summary>Open, Acknowledged or Resolved. Independent of measured reachability.</summary>
+    public string Status { get; init; } = "Open";
+    /// <summary>Most recent operator note.</summary>
+    public string? Note { get; init; }
+    /// <summary>Most recent operator annotation time.</summary>
+    public DateTimeOffset? UpdatedUtc { get; init; }
+}
+
+/// <summary>Bounded connectivity incident queue query.</summary>
+public sealed record ConnectivityAlertQuery : PagedQuery
+{
+    /// <summary>Optional immutable source filter.</summary>
+    public Guid? SourceCabinetId { get; init; }
+    /// <summary>Include resolved annotations.</summary>
+    public bool IncludeResolved { get; init; }
+}
+
+/// <summary>Support annotation with an explicit source identity check.</summary>
+public sealed record AnnotateConnectivityAlertRequest
+{
+    /// <summary>Source cabinet the operator intends to annotate.</summary>
+    public Guid SourceCabinetId { get; init; }
+    /// <summary>Required reason, not a measured health result.</summary>
+    [Required, MaxLength(1000)]
+    public required string Note { get; init; }
+}
