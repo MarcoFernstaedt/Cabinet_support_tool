@@ -70,6 +70,12 @@ public sealed class ApiClient : IApiClient
         GetAsync<UserDto>("api/auth/me", ct);
 
     // --- Enrollment ------------------------------------------------------
+    public Task<PagedResult<UserDto>> GetUsersAsync(PagedQuery query, CancellationToken ct) =>
+        GetAsync<PagedResult<UserDto>>("api/users" + new QueryString().Add("page", query.Page).Add("pageSize", query.PageSize), ct);
+    public Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct) =>
+        PostAsync<CreateUserRequest, UserDto>("api/users", request, isLogin: false, ct);
+    public Task<UserDto> UpdateUserAsync(Guid id, UpdateUserRequest request, CancellationToken ct) =>
+        PatchAsync<UpdateUserRequest, UserDto>($"api/users/{id:D}", request, ct);
 
     public Task<PagedResult<PendingRegistrationDto>> GetRegistrationsAsync(RegistrationQuery query, CancellationToken ct) =>
         GetAsync<PagedResult<PendingRegistrationDto>>("api/registrations/pending" + new QueryString()

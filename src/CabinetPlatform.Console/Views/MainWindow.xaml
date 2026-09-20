@@ -61,6 +61,12 @@
                             Visibility="{Binding CanSeeRegistrations, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.Name="Supervisor cabinet registrations" />
 
+                    <Button Content="_Staff"
+                            Command="{Binding ShowStaffCommand}"
+                            Visibility="{Binding CanSeeStaff, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.Name="Supervisor staff administration" />
+
+
                     <Button Content="Find"
                             Command="{Binding ShowFinderCommand}"
                             AutomationProperties.Name="Find a cabinet by search, by client hierarchy, or from the ones you looked at recently. Keyboard shortcut Control F."
@@ -272,6 +278,19 @@
             </views:RegistrationsView>
 
             <!-- Approvals -->
+            <views:StaffView DataContext="{Binding Staff}">
+                <views:StaffView.Style>
+                    <Style TargetType="views:StaffView">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding DataContext.CurrentView, RelativeSource={RelativeSource AncestorType=Window}}" Value="Staff">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </views:StaffView.Style>
+            </views:StaffView>
+
             <views:ApprovalsView DataContext="{Binding Approvals}">
                 <views:ApprovalsView.Style>
                     <Style TargetType="views:ApprovalsView">

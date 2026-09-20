@@ -1,0 +1,49 @@
+<UserControl x:Class="CabinetPlatform.Console.Views.StaffView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Background="{DynamicResource Surface.Brush}" Foreground="{DynamicResource Text.Brush}">
+ <Grid Margin="16">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel>
+   <TextBlock Text="Support staff" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/>
+   <TextBlock Text="Tier 1 and Tier 2 have the same support capabilities. Only supervisors administer accounts. This screen cannot create or change supervisors." TextWrapping="Wrap" Margin="0,8"/>
+   <WrapPanel>
+    <Button Content="Refresh staff" Command="{Binding RefreshCommand}"/>
+    <Button Content="Previous" Command="{Binding PreviousCommand}"/>
+    <Button Content="Next" Command="{Binding NextCommand}"/>
+    <TextBlock Text="{Binding PageSummary}" VerticalAlignment="Center" Margin="8"/>
+   </WrapPanel>
+   <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
+   <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+  </StackPanel>
+  <DataGrid Grid.Row="1" ItemsSource="{Binding Users}" SelectedItem="{Binding SelectedUser}" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" AutomationProperties.Name="Staff accounts">
+   <DataGrid.Columns>
+    <DataGridTextColumn Header="Username" Binding="{Binding Username}" Width="*"/>
+    <DataGridTextColumn Header="Display name" Binding="{Binding DisplayName}" Width="*"/>
+    <DataGridTextColumn Header="Tier" Binding="{Binding Role}" Width="100"/>
+    <DataGridCheckBoxColumn Header="Active" Binding="{Binding IsActive}"/>
+    <DataGridCheckBoxColumn Header="Password change required" Binding="{Binding MustChangePassword}"/>
+   </DataGrid.Columns>
+  </DataGrid>
+  <ScrollViewer Grid.Row="2" MaxHeight="300" VerticalScrollBarVisibility="Auto">
+   <StackPanel Margin="0,12,0,0">
+    <TextBlock Text="Create support account" FontWeight="SemiBold"/>
+    <WrapPanel>
+     <StackPanel Width="190" Margin="0,0,8,0"><Label Content="_Username" Target="{Binding ElementName=Username}"/><TextBox x:Name="Username" Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" MaxLength="128" AutomationProperties.Name="New staff username"/></StackPanel>
+     <StackPanel Width="190" Margin="0,0,8,0"><Label Content="Display _name" Target="{Binding ElementName=DisplayName}"/><TextBox x:Name="DisplayName" Text="{Binding DisplayName, UpdateSourceTrigger=PropertyChanged}" MaxLength="128" AutomationProperties.Name="New staff display name"/></StackPanel>
+     <StackPanel Width="190" Margin="0,0,8,0"><Label Content="Temporary _password" Target="{Binding ElementName=TemporaryPassword}"/><PasswordBox x:Name="TemporaryPassword" MaxLength="256" AutomationProperties.Name="Temporary password, change required at first sign-in"/></StackPanel>
+     <StackPanel Width="110"><Label Content="Support _tier" Target="{Binding ElementName=Tier}"/><ComboBox x:Name="Tier" ItemsSource="{Binding SupportTiers}" SelectedItem="{Binding SelectedTier}" AutomationProperties.Name="Support tier for create or selected account"/></StackPanel>
+     <Button Content="Create account" Click="CreateAccount" VerticalAlignment="Bottom" IsEnabled="{Binding IsSupervisor}"/>
+    </WrapPanel>
+    <TextBlock Text="Selected account" FontWeight="SemiBold" Margin="0,10,0,0"/>
+    <TextBlock Text="{Binding SelectedUser.Username}"/>
+    <TextBlock Text="{Binding SelectedUser.Id}" AutomationProperties.Name="Selected account identifier"/>
+    <WrapPanel>
+     <Button Content="Save selected tier" Command="{Binding SaveTierCommand}"/>
+     <CheckBox Content="I intend to disable this selected account and revoke its sessions." IsChecked="{Binding DisableConfirmed}" VerticalAlignment="Center"/>
+     <Button Content="Disable selected account" Command="{Binding DisableCommand}"/>
+    </WrapPanel>
+   </StackPanel>
+  </ScrollViewer>
+ </Grid>
+</UserControl>

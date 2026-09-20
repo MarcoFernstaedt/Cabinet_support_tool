@@ -213,6 +213,7 @@ public partial class App : Application
         services.AddSingleton<FleetTabViewModel>();
         services.AddSingleton<ApprovalsViewModel>();
         services.AddSingleton<RegistrationsViewModel>();
+        services.AddSingleton<StaffViewModel>();
         services.AddSingleton<ShellViewModel>();
     }
 

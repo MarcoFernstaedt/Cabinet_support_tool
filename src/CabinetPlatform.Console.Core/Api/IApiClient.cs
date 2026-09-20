@@ -45,6 +45,9 @@ public interface IApiClient
     Task<UserDto> GetCurrentUserAsync(CancellationToken ct);
 
     // --- Enrollment ------------------------------------------------------
+    Task<PagedResult<UserDto>> GetUsersAsync(PagedQuery query, CancellationToken ct) => throw new NotSupportedException();
+    Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct) => throw new NotSupportedException();
+    Task<UserDto> UpdateUserAsync(Guid id, UpdateUserRequest request, CancellationToken ct) => throw new NotSupportedException();
 
     Task<PagedResult<CabinetPlatform.Contracts.Registrations.PendingRegistrationDto>> GetRegistrationsAsync(
         CabinetPlatform.Contracts.Registrations.RegistrationQuery query, CancellationToken ct);

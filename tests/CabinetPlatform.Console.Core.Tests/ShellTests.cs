@@ -19,6 +19,25 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
 
     public ShellTests(ConsoleTestHost host) => _host = host;
 
+    [Fact]
+    public async Task Staff_navigation_is_supervisor_only_and_clears_on_signout()
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Supervisor);
+        var entry = typeof(ShellViewModel).GetProperty("ShowStaffCommand");
+        Assert.NotNull(entry);
+        var command = (CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)entry.GetValue(shell)!;
+        Assert.True(command.CanExecute(null));
+        await command.ExecuteAsync(null);
+        dynamic staff = typeof(ShellViewModel).GetProperty("Staff")!.GetValue(shell)!;
+        Assert.True(staff.Users.Count > 0);
+        Assert.Equal("Staff", shell.CurrentView.ToString());
+        shell.SignOutCommand.Execute(null);
+        Assert.Equal(0, (int)staff.Users.Count);
+        Assert.False(command.CanExecute(null));
+        var (support, _, _, _) = await SignedInShellAsync(Role.Tier1);
+        Assert.False(((CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)entry.GetValue(support)!).CanExecute(null));
+    }
+
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
     private async Task<(ShellViewModel Shell, SessionStore Session, ApiClient Api,
@@ -48,7 +67,8 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
             new RegistrationsViewModel(api, session, announcer),
             session,
-            announcer);
+            announcer,
+            new StaffViewModel(api, session, announcer));
 
         return (shell, session, api, announcer);
     }
