@@ -13,15 +13,16 @@ namespace CabinetPlatform.Contracts.Auth;
 [JsonConverter(typeof(JsonStringEnumConverter))]
 public enum Role
 {
-    /// <summary>First-line support: read telemetry and perform non-disruptive actions.</summary>
+    /// <summary>First-line support label. Shares support capabilities with Tier 2.</summary>
     Tier1 = 1,
 
-    /// <summary>Second-line support: everything Tier 1 may do, plus service-level actions.</summary>
+    /// <summary>Second-line support label. Does not grant additional operations.</summary>
     Tier2 = 2,
 
     /// <summary>
     /// Supervisor: approves pending agents, assigns cabinets, and provides the
-    /// second approval that disruptive actions require.
+    /// account administration unavailable to support tiers. Action safety gates
+    /// remain independent of tier labels.
     /// </summary>
     Supervisor = 3,
 }

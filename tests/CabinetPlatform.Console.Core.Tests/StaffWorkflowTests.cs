@@ -14,6 +14,27 @@ public sealed class StaffWorkflowTests : IClassFixture<ConsoleTestHost>
     private readonly ConsoleTestHost _host;
     public StaffWorkflowTests(ConsoleTestHost host) => _host = host;
 
+    [Theory]
+    [InlineData(Role.Tier1)]
+    [InlineData(Role.Tier2)]
+    public async Task Support_tiers_can_browse_but_cannot_administer_users(Role role)
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(role, username);
+        var (api, session) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        var vm = new StaffViewModel(api, session, new RecordingLiveRegionAnnouncer())
+        { Username = "unauthorized", DisplayName = "Unauthorized" };
+        Assert.False(vm.CreateCommand.CanExecute("Temporary!Password42"));
+        Assert.False(vm.RefreshCommand.CanExecute(null));
+        await api.GetCabinetsAsync(new(), default);
+        await api.GetClientsAsync(new(), default);
+        await Assert.ThrowsAsync<ApiException>(() => api.GetUsersAsync(new(), default));
+        await Assert.ThrowsAsync<ApiException>(() => api.CreateUserAsync(new CreateUserRequest
+        { Username = "unauthorized", DisplayName = "Unauthorized", Role = Role.Tier1, InitialPassword = "Temporary!Password42" }, default));
+        await Assert.ThrowsAsync<ApiException>(() => api.UpdateUserAsync(session.UserId!.Value, new UpdateUserRequest { Role = Role.Supervisor }, default));
+    }
+
     [Fact]
     public async Task Signout_during_committed_creation_does_not_restore_staff_state()
     {
