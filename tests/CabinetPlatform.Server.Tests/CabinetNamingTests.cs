@@ -12,6 +12,26 @@ public sealed class CabinetNamingTests : IClassFixture<SupportApiFactory>
     public CabinetNamingTests(SupportApiFactory factory) => _factory = factory;
 
     [Fact]
+    public async Task Support_can_find_friendly_names_without_losing_client_site_or_guid()
+    {
+        var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());
+        string label = "Label-" + Guid.NewGuid().ToString("N");
+        var cabinet = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id);
+        (await supervisor.PatchJsonAsync($"/api/cabinets/{cabinet.Id}/name", new { FriendlyName = label, Reason = "Find by operator label" })).EnsureSuccessStatusCode();
+        foreach (var role in new[] { Role.Tier1, Role.Tier2 })
+        {
+            var (support, _) = await TestClient.CreateUserClientAsync(_factory, role, Guid.NewGuid().ToString());
+            var list = await (await support.GetAsync($"/api/cabinets?search={label}")).ReadAsync<CabinetPlatform.Contracts.Common.PagedResult<CabinetPlatform.Contracts.Cabinets.CabinetSummary>>();
+            Assert.Equal(cabinet.Id, Assert.Single(list!.Items).Id);
+            var search = await (await support.GetAsync($"/api/search/cabinets?term={label}")).ReadAsync<CabinetPlatform.Contracts.Common.PagedResult<CabinetPlatform.Contracts.Cabinets.CabinetSearchHit>>();
+            var hit = Assert.Single(search!.Items);
+            Assert.Equal(cabinet.Id, hit.Path.CabinetId);
+            Assert.Equal(cabinet.SiteId, hit.Path.SiteId);
+            Assert.Equal(label, hit.Path.CabinetName);
+        }
+    }
+
+    [Fact]
     public async Task Rename_is_supervisor_only_audited_and_preserves_identity()
     {
         var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());

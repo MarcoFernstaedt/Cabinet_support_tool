@@ -105,6 +105,7 @@ public sealed class CabinetsController : SupportControllerBase
             string term = query.Search.Trim();
             cabinets = cabinets.Where(c =>
                 EF.Functions.Like(c.Hostname, $"%{term}%") ||
+                EF.Functions.Like(c.FriendlyName ?? string.Empty, $"%{term}%") ||
                 EF.Functions.Like(c.MachineId, $"%{term}%") ||
                 EF.Functions.Like(c.Site!.Client!.Name, $"%{term}%") ||
                 EF.Functions.Like(c.Site!.Name, $"%{term}%"));

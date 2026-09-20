@@ -17,12 +17,17 @@ public sealed class ConnectivityMigrationTests
         var options = new DbContextOptionsBuilder<SqliteSupportDbContext>().UseSqlite(connection).Options;
         await using var db = new SqliteSupportDbContext(options);
         const string previous = "20260913201000_SessionContainment";
-        await db.GetService<IMigrator>().MigrateAsync(previous);
+        // Seed with the current model, then downgrade before exercising the
+        // historical upgrade. The current entity has additive columns absent
+        // from the historical schema.
+        await db.Database.MigrateAsync();
         var client = new Client { Name = "Migration fixture" };
         var site = new Site { Name = "Office", Client = client };
         var cabinet = new Cabinet { MachineId = "migration-connectivity-fixture", Hostname = "LAB", Site = site, IsActive = true };
         db.Cabinets.Add(cabinet);
         await db.SaveChangesAsync();
+        db.ChangeTracker.Clear();
+        await db.GetService<IMigrator>().MigrateAsync(previous);
         await db.Database.MigrateAsync();
         db.ConnectivityConfigurations.Add(new ConnectivityConfiguration
         {
@@ -37,7 +42,7 @@ public sealed class ConnectivityMigrationTests
         await db.SaveChangesAsync();
         db.ChangeTracker.Clear();
         await db.GetService<IMigrator>().MigrateAsync(previous);
-        Assert.Equal(cabinet.Id, (await db.Cabinets.SingleAsync()).Id);
+        Assert.Equal(cabinet.Id, await db.Cabinets.Select(c => c.Id).SingleAsync());
         await db.Database.MigrateAsync();
         Assert.Empty(await db.ConnectivityConfigurations.ToArrayAsync());
         Assert.Empty(await db.ConnectivityEvidence.ToArrayAsync());
