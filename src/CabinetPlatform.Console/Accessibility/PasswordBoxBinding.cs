@@ -22,6 +22,31 @@ namespace CabinetPlatform.Console.Accessibility;
 /// </remarks>
 public static class PasswordBoxBinding
 {
+    // Opt in independently of Password: an initial empty value does not invoke
+    // its change callback because it equals the dependency property's default.
+    public static readonly DependencyProperty AttachProperty =
+        DependencyProperty.RegisterAttached(
+            "Attach", typeof(bool), typeof(PasswordBoxBinding),
+            new PropertyMetadata(false, OnAttachChanged));
+
+    public static bool GetAttach(DependencyObject element) =>
+        (bool)element.GetValue(AttachProperty);
+
+    public static void SetAttach(DependencyObject element, bool value) =>
+        element.SetValue(AttachProperty, value);
+
+    private static void OnAttachChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not PasswordBox box) return;
+
+        box.PasswordChanged -= HandlePasswordChanged;
+        if ((bool)e.NewValue)
+        {
+            box.Password = GetPassword(box) ?? string.Empty;
+            box.PasswordChanged += HandlePasswordChanged;
+        }
+    }
+
     public static readonly DependencyProperty PasswordProperty =
         DependencyProperty.RegisterAttached(
             "Password",
@@ -59,7 +84,7 @@ public static class PasswordBoxBinding
             box.Password = e.NewValue as string ?? string.Empty;
         }
 
-        box.PasswordChanged += HandlePasswordChanged;
+        if (GetAttach(box)) box.PasswordChanged += HandlePasswordChanged;
     }
 
     private static void HandlePasswordChanged(object sender, RoutedEventArgs e)
@@ -67,7 +92,14 @@ public static class PasswordBoxBinding
         var box = (PasswordBox)sender;
 
         box.SetValue(UpdatingProperty, true);
-        SetPassword(box, box.Password);
-        box.SetValue(UpdatingProperty, false);
+        try
+        {
+            // SetValue would replace the binding and disconnect future VM clears.
+            box.SetCurrentValue(PasswordProperty, box.Password);
+        }
+        finally
+        {
+            box.SetValue(UpdatingProperty, false);
+        }
     }
 }
