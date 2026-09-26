@@ -81,8 +81,12 @@ public sealed class HealthProjectionTests
         var fleetResponse = await client.GetAsync("/api/fleet/health?IncludeInactive=true");
         Assert.Equal(HttpStatusCode.OK, fleetResponse.StatusCode);
         var fleet = (await fleetResponse.ReadAsync<FleetHealthSummary>())!;
-        Assert.Equal(1, fleet.TotalCabinets);
-        Assert.Equal(expected == CabinetHealthStatus.Unknown ? 1 : 0, fleet.Unknown);
+        // Historical detail/list classification remains Unknown for retired rows;
+        // operational fleet partitions now count only active cabinets.
+        int activeCount = scenario == "inactive" ? 0 : 1;
+        Assert.Equal(activeCount, fleet.TotalCabinets);
+        Assert.Equal(scenario == "inactive" ? 1 : 0, fleet.Inactive);
+        Assert.Equal(expected == CabinetHealthStatus.Unknown ? activeCount : 0, fleet.Unknown);
         Assert.Equal(expected == CabinetHealthStatus.Healthy ? 1 : 0, fleet.Healthy);
         Assert.Equal(expected == CabinetHealthStatus.Warning ? 1 : 0, fleet.Warning);
         Assert.Equal(expected == CabinetHealthStatus.Critical ? 1 : 0, fleet.Critical);

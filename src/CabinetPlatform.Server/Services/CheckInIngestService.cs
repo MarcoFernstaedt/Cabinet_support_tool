@@ -128,6 +128,8 @@ public sealed class CheckInIngestService : ICheckInIngestService
         await _db.Cabinets.Where(c => c.Id == cabinet.Id)
             .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.LastCheckInUtc, c => c.LastCheckInUtc), ct);
         await _db.Entry(cabinet).ReloadAsync(ct);
+        if (!cabinet.IsActive)
+            return OperationResult<CheckInIngestOutcome>.Forbidden("Cabinet is no longer active.");
         nowUtc = _timeProvider.GetUtcNow();
 
         bool duplicate = await _db.Heartbeats

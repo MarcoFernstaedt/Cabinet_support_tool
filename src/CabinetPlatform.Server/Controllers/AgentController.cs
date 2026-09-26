@@ -257,8 +257,10 @@ public sealed class AgentController : SupportControllerBase
         foreach (ActionRequest action in due)
         {
             IReadOnlyDictionary<string, string>? parameters = DeserialiseParameters(action.ParametersJson);
+            bool inactiveTarget = action.TargetCabinetId is { } targetId &&
+                !await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == targetId && c.IsActive, ct);
             if (!ActionCatalog.TryGet(action.Action, executionPolicy, out ActionCatalogEntry entry) ||
-                parameters is null ||
+                inactiveTarget || parameters is null ||
                 (executionPolicy.DemoEnabled && action.Action == ActionName.KillProcess &&
                  !HttpContext.RequestServices.GetRequiredService<IActionParameterValidator>()
                      .Validate(entry, parameters, nowUtc, cabinet).Succeeded))
@@ -268,7 +270,9 @@ public sealed class AgentController : SupportControllerBase
                 // persisted selected-process operands so legacy PID-only work cannot dispatch.
                 action.Status = ActionRequestStatus.Cancelled;
                 action.CompletedUtc = nowUtc;
-                action.ResultOutput = "Cancelled before dispatch: action is unavailable under the current execution policy.";
+                action.ResultOutput = inactiveTarget
+                    ? "Cancelled before dispatch: target cabinet is no longer active."
+                    : "Cancelled before dispatch: action is unavailable under the current execution policy.";
                 _audit.Enqueue(new AuditRecord
                 {
                     Event = AuditEvent.AgentCollectActions, Action = action.Action,
@@ -596,6 +600,7 @@ public sealed class AgentController : SupportControllerBase
         string machineId, AuditEvent auditEvent, CancellationToken ct)
     {
         Cabinet? cabinet = await _db.Cabinets.FirstOrDefaultAsync(c => c.MachineId == machineId, ct);
+        if (cabinet is not null) await _db.Entry(cabinet).ReloadAsync(ct);
 
         if (cabinet is { IsActive: true })
         {

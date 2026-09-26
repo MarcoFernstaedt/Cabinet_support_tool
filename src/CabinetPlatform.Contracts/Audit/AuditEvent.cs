@@ -85,6 +85,9 @@ public enum AuditEvent
     /// <summary>A pending agent was refused.</summary>
     RejectRegistration = 32,
 
+    /// <summary>A supervisor withdrew a cabinet from active service.</summary>
+    RetireCabinet = 33,
+
     /// <summary>The user list was read.</summary>
     ListUsers = 40,
 

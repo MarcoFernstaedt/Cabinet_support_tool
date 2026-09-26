@@ -390,6 +390,37 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
     }
 
+    /// <summary>Withdraws service eligibility, retaining identity and historical records.</summary>
+    [HttpPost("{id:guid}/retire")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<IActionResult> Retire(
+        Guid id, [FromBody] RetireCabinetRequest request, CancellationToken ct)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // A conditional write serializes retries and shares ingestion's cabinet lock.
+        int changed = await _db.Cabinets.Where(c => c.Id == id && c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, false), ct);
+        var cabinet = await _db.Cabinets.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
+        if (cabinet is null) return NotFound();
+        if (changed == 0) return NoContent();
+
+        // Clear the operational designation, not the historical cabinet role.
+        await _db.Sites.Where(s => s.SyncCabinetId == id)
+            .ExecuteUpdateAsync(set => set.SetProperty(s => s.SyncCabinetId, (Guid?)null), ct);
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RetireCabinet, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
+            Reason = request.Reason.Trim(), Details = new { cabinet.SiteId, PreviousIsActive = true, IsActive = false }
+        });
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return NoContent();
+    }
+
     /// <summary>Changes the friendly label without changing device identity.</summary>
     [HttpPatch("{id:guid}/name")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
@@ -564,7 +595,7 @@ public sealed class CabinetsController : SupportControllerBase
             .FirstAsync(s => s.Id == siteId, ct);
 
         List<CabinetSummary> members = await _projection.ProjectAsync(
-            _db.Cabinets.AsNoTracking().Where(c => c.SiteId == siteId), nowUtc, ct);
+            _db.Cabinets.AsNoTracking().Where(c => c.IsActive && c.SiteId == siteId), nowUtc, ct);
 
         CabinetSummary? sync = members.FirstOrDefault(c => c.Id == site.SyncCabinetId);
 

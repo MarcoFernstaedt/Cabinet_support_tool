@@ -238,7 +238,7 @@ public enum CabinetHealthStatus
 /// <summary>Aggregate fleet counts for the dashboard's top row.</summary>
 public sealed record FleetHealthSummary
 {
-    /// <summary>Cabinets matching the filter.</summary>
+    /// <summary>Active cabinets matching the filter. Withdrawn rows are counted separately in Inactive.</summary>
     public required int TotalCabinets { get; init; }
 
     /// <summary>How many are healthy.</summary>
