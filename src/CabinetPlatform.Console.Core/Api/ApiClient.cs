@@ -14,8 +14,11 @@ namespace CabinetPlatform.Console.Core.Api;
 /// <summary>
 /// The only place in the console that speaks HTTP.
 /// </summary>
-public sealed class ApiClient : IApiClient
+public sealed class ApiClient : IApiClient, IDisposable
 {
+    private readonly CancellationTokenSource _lifetime = new();
+    private readonly CancellationToken _lifetimeToken;
+    private bool _disposed;
     private static readonly JsonSerializerOptions Json = ContractJson.CreateOptions();
 
     private readonly HttpClient _http;
@@ -24,8 +27,19 @@ public sealed class ApiClient : IApiClient
 
     public ApiClient(HttpClient http, ISessionStore session)
     {
+        _lifetimeToken = _lifetime.Token;
         _http = http;
         _session = session;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _lifetime.Cancel();
+        _session.SignOut();
+        _http.Dispose();
+        _lifetime.Dispose();
     }
 
     // --- Authentication --------------------------------------------------
@@ -415,7 +429,8 @@ public sealed class ApiClient : IApiClient
             return false;
         }
 
-        RefreshResponse? refreshed = await response.Content.ReadFromJsonAsync<RefreshResponse>(Json, ct);
+        RefreshResponse? refreshed = await ReadResponseBodyAsync(
+            token => response.Content.ReadFromJsonAsync<RefreshResponse>(Json, token), ct);
 
         if (refreshed is null)
         {
@@ -472,24 +487,34 @@ public sealed class ApiClient : IApiClient
     private async Task<HttpResponseMessage> SendAsync(
         Func<HttpRequestMessage> requestFactory, CancellationToken ct)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeToken);
+        linked.Token.ThrowIfCancellationRequested();
         using HttpRequestMessage request = requestFactory();
 
         try
         {
             HttpResponseMessage response = await _http.SendAsync(
-                request, HttpCompletionOption.ResponseHeadersRead, ct);
+                request, HttpCompletionOption.ResponseHeadersRead, linked.Token);
 
             // A cancelled call does not get to produce an error message. Whether
             // the cancellation raced the response or the server noticed the
             // disconnect and answered 499, the user navigated away — and telling
             // them the request was refused would be false.
-            ct.ThrowIfCancellationRequested();
+            if (linked.IsCancellationRequested)
+            {
+                response.Dispose();
+                linked.Token.ThrowIfCancellationRequested();
+            }
 
             return response;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            throw new OperationCanceledException(ct);
+        }
+        catch (OperationCanceledException) when (_lifetimeToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(_lifetimeToken);
         }
         catch (OperationCanceledException ex)
         {
@@ -517,7 +542,7 @@ public sealed class ApiClient : IApiClient
         try
         {
             T? value = await ReadResponseBodyAsync(
-                () => response.Content.ReadFromJsonAsync<T>(Json, ct), ct);
+                token => response.Content.ReadFromJsonAsync<T>(Json, token), ct);
 
             if (value is null)
             {
@@ -541,17 +566,23 @@ public sealed class ApiClient : IApiClient
 
     // ResponseHeadersRead completes SendAsync before any body is consumed.
     // Normalize faults at this separate boundary without retrying a possible write.
-    private static async Task<T> ReadResponseBodyAsync<T>(Func<Task<T>> read, CancellationToken ct)
+    private async Task<T> ReadResponseBodyAsync<T>(Func<CancellationToken, Task<T>> read, CancellationToken ct)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetimeToken);
         try
         {
-            T value = await read();
-            ct.ThrowIfCancellationRequested();
+            linked.Token.ThrowIfCancellationRequested();
+            T value = await read(linked.Token);
+            linked.Token.ThrowIfCancellationRequested();
             return value;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            throw;
+            throw new OperationCanceledException(ct);
+        }
+        catch (OperationCanceledException) when (_lifetimeToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(_lifetimeToken);
         }
         catch (OperationCanceledException ex)
         {
@@ -561,6 +592,7 @@ public sealed class ApiClient : IApiClient
         catch (Exception ex) when (ex is HttpRequestException or IOException)
         {
             ct.ThrowIfCancellationRequested();
+            _lifetimeToken.ThrowIfCancellationRequested();
             throw new ApiException(ApiFailure.Unreachable,
                 "The connection was lost while reading the server response. The operation may already have completed.",
                 inner: ex);
@@ -571,11 +603,11 @@ public sealed class ApiClient : IApiClient
     /// Maps a failure response to an <see cref="ApiException"/>, preferring the
     /// server's own <c>ProblemDetails.detail</c> as the message.
     /// </summary>
-    private static async Task<ApiException> ToExceptionAsync(
+    private async Task<ApiException> ToExceptionAsync(
         HttpResponseMessage response, bool isLogin, CancellationToken ct)
     {
         int status = (int)response.StatusCode;
-        string? detail = await ReadResponseBodyAsync(() => TryReadProblemDetailAsync(response, ct), ct);
+        string? detail = await ReadResponseBodyAsync(token => TryReadProblemDetailAsync(response, token), ct);
 
         ApiFailure failure = status switch
         {

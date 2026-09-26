@@ -12,8 +12,9 @@ using CabinetPlatform.Console.Views;
 internal static class Program
 {
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args.SequenceEqual(new[] { "--lifecycle" })) return SessionLifecycle.Run();
         try
         {
             // No App startup, window.Show, command execution, HTTP client or real credentials.

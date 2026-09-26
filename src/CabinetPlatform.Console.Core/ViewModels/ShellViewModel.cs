@@ -48,8 +48,9 @@ public enum SignInReason
 /// and the shell watches for it and asks for a new sign-in — rather than each
 /// screen deciding for itself and one of them forgetting.
 /// </remarks>
-public sealed partial class ShellViewModel : ObservableObject
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
+    private bool _disposed;
     private readonly ISessionStore _session;
     private readonly ILiveRegionAnnouncer _announcer;
 
@@ -241,6 +242,7 @@ public sealed partial class ShellViewModel : ObservableObject
     /// </summary>
     public async Task StartSessionAsync()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _sessionLive = true;
 
         RaiseSessionChanged();
@@ -252,18 +254,22 @@ public sealed partial class ShellViewModel : ObservableObject
 
         // The fleet view is the thing a remote desktop session can never do, so
         // it is loaded up front rather than on first click.
+        if (_disposed) return;
         await Fleet.LoadAsync();
 
         // So the search box and the recent list are usable the moment the
         // window appears, rather than after a rep has clicked into them.
+        if (_disposed) return;
         await Finder.LoadAsync();
 
+        if (_disposed) return;
         if (CanSeeApprovals)
         {
             await Approvals.LoadAsync();
             OnPropertyChanged(nameof(ApprovalBadge));
         }
 
+        if (_disposed) return;
         _announcer.AnnounceImportant(
             $"Signed in as {SignedInAs}. {Cabinets.PageSummary}. " +
             (ApprovalBadge is { } badge
@@ -400,6 +406,18 @@ public sealed partial class ShellViewModel : ObservableObject
 
     private void EndSession(SignInReason reason)
     {
+        if (_disposed) return;
+        Dispose();
+        _announcer.AnnounceImportant(reason == SignInReason.SignedOut
+            ? "Signed out. The access token has been discarded."
+            : "Your session expired and you were signed out.");
+        SignInRequired?.Invoke(this, reason);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
         _sessionLive = false;
 
         DeactivateAll();
@@ -447,12 +465,6 @@ public sealed partial class ShellViewModel : ObservableObject
         Finder.HierarchySites.Clear();
 
         RaiseSessionChanged();
-
-        _announcer.AnnounceImportant(reason == SignInReason.SignedOut
-            ? "Signed out. The access token has been discarded."
-            : "Your session expired and you were signed out.");
-
-        SignInRequired?.Invoke(this, reason);
     }
 
     private async Task OnCabinetSelectedAsync(Guid? cabinetId)

@@ -28,6 +28,18 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class XamlContractTests
 {
     [Fact]
+    public void App_recreates_the_session_graph_and_closes_the_old_window_before_reauthentication()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml.cs"));
+        Assert.DoesNotContain("SignInAsync(window, reason)", code);
+        Assert.Contains("while (true)", code);
+        Assert.Contains("using ServiceProvider provider = services.BuildServiceProvider()", code);
+        Assert.Contains("window.Close();", code);
+        Assert.Contains("window.DataContext = null;", code);
+        Assert.Contains("login.Deactivate();", code);
+    }
+
+    [Fact]
     public void Monitoring_header_is_persistent_focusable_and_announces_actual_words()
     {
         var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml"));

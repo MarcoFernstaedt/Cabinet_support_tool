@@ -88,6 +88,7 @@ public abstract partial class ObservableViewModelBase : ObservableObject
         try
         {
             await work(cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
             return true;
         }
         catch (OperationCanceledException)
@@ -99,7 +100,7 @@ public abstract partial class ObservableViewModelBase : ObservableObject
         }
         catch (ApiException ex)
         {
-            Fail(ex);
+            if (!cts.IsCancellationRequested) Fail(ex);
             return false;
         }
         finally
@@ -118,7 +119,9 @@ public abstract partial class ObservableViewModelBase : ObservableObject
 
         try
         {
-            return await work(cts.Token);
+            T result = await work(cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException)
         {
@@ -126,7 +129,7 @@ public abstract partial class ObservableViewModelBase : ObservableObject
         }
         catch (ApiException ex)
         {
-            Fail(ex);
+            if (!cts.IsCancellationRequested) Fail(ex);
             return default;
         }
         finally

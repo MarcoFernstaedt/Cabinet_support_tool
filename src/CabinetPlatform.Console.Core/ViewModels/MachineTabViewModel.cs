@@ -608,6 +608,10 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             if (generation != _generation || drive != Disk.SelectedDrive || days != Disk.HistoryDays) return;
             Disk.ApplyHistory(readings.Items.Select(r => new SmartRow(r)).ToList());
         }
+        catch (OperationCanceledException)
+        {
+            // Session disposal cancels even history reads made without a view token.
+        }
         catch (ApiException ex)
         {
             if (generation == _generation && drive == Disk.SelectedDrive && days == Disk.HistoryDays) Disk.FailHistory(ex.Message);
