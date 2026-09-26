@@ -402,11 +402,16 @@ public sealed class CabinetsController : SupportControllerBase
             .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, false), ct);
         var cabinet = await _db.Cabinets.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
         if (cabinet is null) return NotFound();
-        if (changed == 0) return NoContent();
 
         // Clear the operational designation, not the historical cabinet role.
         await _db.Sites.Where(s => s.SyncCabinetId == id)
             .ExecuteUpdateAsync(set => set.SetProperty(s => s.SyncCabinetId, (Guid?)null), ct);
+        if (changed == 0)
+        {
+            // Repair old invalid designations without duplicating the original audit.
+            await transaction.CommitAsync(ct);
+            return NoContent();
+        }
 
         _audit.Enqueue(new AuditRecord
         {
@@ -465,6 +470,20 @@ public sealed class CabinetsController : SupportControllerBase
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // Match retirement's cabinet-first write lock and hold it through the
+        // topology and audit commit. A tracked entity is not an activity check.
+        int active = await _db.Cabinets.Where(c => c.Id == id && c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, c => c.IsActive), ct);
+        if (active == 0 && await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.SetCabinetRole, "Cabinet is inactive.", id, null, null, ct);
+            await transaction.CommitAsync(ct);
+            return Problem("Cabinet is inactive.",
+                statusCode: StatusCodes.Status409Conflict, title: "Conflict");
+        }
+
         Domain.Cabinet? cabinet = await _db.Cabinets
             .Include(c => c.Site)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -473,9 +492,17 @@ public sealed class CabinetsController : SupportControllerBase
         {
             await _audit.WriteDenialAsync(
                 AuditEvent.SetCabinetRole, "Cabinet not found.", id, null, null, ct);
+            await transaction.CommitAsync(ct);
             return Problem("Cabinet not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
+
+        // Queries can return pre-lock tracked instances. Refresh both sides of
+        // the topology decision while holding locks in cabinet-then-site order.
+        await _db.Entry(cabinet).ReloadAsync(ct);
+        await _db.Sites.Where(s => s.Id == cabinet.SiteId)
+            .ExecuteUpdateAsync(set => set.SetProperty(s => s.SyncCabinetId, s => s.SyncCabinetId), ct);
+        await _db.Entry(cabinet.Site).ReloadAsync(ct);
 
         if (request.Role == CabinetRole.Unknown)
         {
@@ -498,6 +525,7 @@ public sealed class CabinetsController : SupportControllerBase
                 null,
                 ct);
 
+            await transaction.CommitAsync(ct);
             return Problem(
                 "This site already has a sync cabinet. Demote that one first — a site has exactly one.",
                 statusCode: StatusCodes.Status409Conflict,
@@ -543,6 +571,7 @@ public sealed class CabinetsController : SupportControllerBase
         try
         {
             await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
         catch (DbUpdateConcurrencyException)
         {
