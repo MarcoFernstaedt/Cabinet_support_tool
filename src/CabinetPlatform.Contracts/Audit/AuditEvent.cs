@@ -249,4 +249,6 @@ public enum AuditEvent
     AcknowledgeConnectivityAlert = 142,
     /// <summary>A support user resolved a connectivity workflow annotation.</summary>
     ResolveConnectivityAlert = 143,
+    /// <summary>A Supervisor requested a bounded office device grant renewal.</summary>
+    RenewOfficeDevice = 144,
 }

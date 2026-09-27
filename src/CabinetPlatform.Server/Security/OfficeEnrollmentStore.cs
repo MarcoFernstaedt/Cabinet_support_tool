@@ -49,14 +49,27 @@ public sealed class OfficeEnrollmentStore : IDisposable
         _lockFile = new FileStream(_options.StateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         try
         {
-            if (new FileInfo(_options.StateFile).Length > 128 * 1024)
+            if (new FileInfo(_options.StateFile).Length > 4 * 1024 * 1024)
                 throw new InvalidOperationException("Office enrollment journal exceeds its limit.");
             _grants = JsonSerializer.Deserialize<List<Grant>>(File.ReadAllText(_options.StateFile))
                 ?? throw new InvalidOperationException("Office enrollment journal is invalid.");
-            if (_grants.Count > 100 || _grants.Any(g => g is null || !IsKey(g.TokenHash) || !IsKey(g.KeyHash) || !IsMachineId(g.MachineId)) ||
+            if (_grants.Count > 100 || _grants.Any(g => g is null || !IsKey(g.TokenHash) || !IsKey(g.KeyHash) || !IsMachineId(g.MachineId) ||
+                    g.Renewals is null || g.Renewals.Count > 30 || g.Renewals.Any(r => r is null ||
+                        r.RequestId == Guid.Empty || string.IsNullOrWhiteSpace(r.ActorId) ||
+                        string.IsNullOrWhiteSpace(r.Reason) || r.ExpiresUtc != r.IssuedUtc.AddDays(1))) ||
                 _grants.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _grants.Count ||
-                _grants.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != _grants.Count)
+                _grants.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != _grants.Count ||
+                _grants.SelectMany(g => g.Renewals).Select(r => r.RequestId).Distinct().Count() !=
+                _grants.Sum(g => g.Renewals.Count))
                 throw new InvalidOperationException("Office enrollment journal is invalid.");
+            // Removal is a revocation, not a pause. Persist tombstones before serving requests.
+            var revoked = _grants.Select(g => _options.Tokens.Any(t => EqualsHash(t.TokenHash, g.TokenHash))
+                ? g : g with { Revoked = true }).ToList();
+            if (revoked.Where((g, i) => g.Revoked != _grants[i].Revoked).Any())
+            {
+                Persist(revoked);
+                _grants = revoked;
+            }
         }
         catch { _lockFile.Dispose(); throw; }
     }
@@ -74,12 +87,38 @@ public sealed class OfficeEnrollmentStore : IDisposable
             var prior = _grants.SingleOrDefault(g => EqualsHash(g.TokenHash, tokenHash));
             // Exactly the same retry remains safe even if the initial response was lost.
             // Neither token alone nor a changed machine/key can recover a device credential.
-            if (prior is not null) return prior.MachineId == machineId && EqualsHash(prior.KeyHash, keyHash);
+            if (prior is not null) return !prior.Revoked && prior.MachineId == machineId && EqualsHash(prior.KeyHash, keyHash);
             if (!allowNewIdentity || now >= issued.ExpiresUtc || _grants.Count >= 100 || _grants.Any(g => g.MachineId == machineId)) return false;
             var next = new List<Grant>(_grants) { new(tokenHash, machineId, keyHash) };
             Persist(next); // Commit before making credentials usable or returning success.
             _grants = next;
             return true;
+        }
+    }
+
+    /// <summary>Called only after a Supervisor request has locked and verified an active cabinet.</summary>
+    public DateTimeOffset? Renew(string machineId, Guid requestId, string actorId, string reason)
+    {
+        if (!Enabled || !IsMachineId(machineId) || requestId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(actorId) || actorId.Length > 128 ||
+            string.IsNullOrWhiteSpace(reason) || reason.Length > 500) return null;
+        lock (_gate)
+        {
+            var grant = _grants.SingleOrDefault(g => g.MachineId == machineId);
+            if (grant is null || grant.Revoked || !_options.Tokens.Any(t => EqualsHash(t.TokenHash, grant.TokenHash))) return null;
+            var prior = _grants.SelectMany(g => g.Renewals).SingleOrDefault(r => r.RequestId == requestId);
+            if (prior is not null)
+                return grant.Renewals.Contains(prior) && prior.ActorId == actorId && prior.Reason == reason
+                    ? prior.ExpiresUtc : null;
+            if (grant.Renewals.Count >= 30) return null;
+            var now = _clock.GetUtcNow();
+            if (now < grant.Renewals.LastOrDefault()?.IssuedUtc) return null;
+            var renewal = new Renewal(requestId, actorId, reason, now, now.AddDays(1));
+            var next = _grants.Select(g => g.MachineId == machineId
+                ? g with { Renewals = [.. g.Renewals, renewal] } : g).ToList();
+            Persist(next);
+            _grants = next;
+            return renewal.ExpiresUtc;
         }
     }
 
@@ -93,8 +132,10 @@ public sealed class OfficeEnrollmentStore : IDisposable
         {
             var grant = _grants.SingleOrDefault(g => g.MachineId == machine[0]);
             var token = grant is null ? null : _options.Tokens.SingleOrDefault(t => EqualsHash(t.TokenHash, grant.TokenHash));
-            if (grant is null || token is null || _clock.GetUtcNow() < token.IssuedUtc ||
-                _clock.GetUtcNow() >= token.DeviceExpiresUtc || !EqualsHash(grant.KeyHash, Hash(key[0]!)))
+            var expires = grant?.Renewals.LastOrDefault()?.ExpiresUtc ?? token?.DeviceExpiresUtc;
+            if (grant is null || grant.Revoked || token is null || expires is null ||
+                _clock.GetUtcNow() < token.IssuedUtc || _clock.GetUtcNow() >= expires ||
+                !EqualsHash(grant.KeyHash, Hash(key[0]!)))
                 return AgentIdentity.Fail("Office device credential invalid.");
             return AgentIdentity.Success(grant.MachineId);
         }
@@ -102,6 +143,8 @@ public sealed class OfficeEnrollmentStore : IDisposable
 
     private void Persist(List<Grant> grants)
     {
+        if (!File.Exists(_options.StateFile))
+            throw new IOException("Office enrollment journal is missing; refusing to recreate it.");
         var temporary = _options.StateFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -124,7 +167,12 @@ public sealed class OfficeEnrollmentStore : IDisposable
     private static bool EqualsHash(string a, string b) => CryptographicOperations.FixedTimeEquals(
         Convert.FromHexString(a), Convert.FromHexString(b));
     public void Dispose() => _lockFile?.Dispose();
-    public sealed record Grant(string TokenHash, string MachineId, string KeyHash);
+    public sealed record Renewal(Guid RequestId, string ActorId, string Reason, DateTimeOffset IssuedUtc, DateTimeOffset ExpiresUtc);
+    public sealed record Grant(string TokenHash, string MachineId, string KeyHash)
+    {
+        public bool Revoked { get; init; }
+        public List<Renewal> Renewals { get; init; } = [];
+    }
 }
 
 /// <summary>Office mode never falls back to the legacy shared fleet secret.</summary>
