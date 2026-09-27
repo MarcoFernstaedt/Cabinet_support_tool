@@ -146,7 +146,13 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
                 u.PasswordHash == user.PasswordHash)
             .ExecuteUpdateAsync(set => set.SetProperty(u => u.SecurityStamp, reservedStamp), ct);
         if (reserved != 1)
+        {
+            await loginTransaction.RollbackAsync(ct);
+            await loginTransaction.DisposeAsync();
+            _db.ChangeTracker.Clear();
+            await WriteLoginDenialAsync(username, "Account changed during sign-in.", ct, user);
             return OperationResult<LoginResponse>.Forbidden("Account changed during sign-in. Try again.");
+        }
         await _db.Entry(user).ReloadAsync(ct);
         await _refreshTokens.RevokeAllAsync(user.Id, "New sign-in.", ct);
 

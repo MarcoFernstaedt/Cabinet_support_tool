@@ -155,14 +155,8 @@ public sealed class RefreshTokenService : IRefreshTokenService
             return OperationResult<RefreshResponse>.Forbidden("The session has ended. Sign in again.");
         }
 
-        if (user.IsLockedOut(nowUtc))
-        {
-            await _audit.WriteDenialAsync(
-                AuditEvent.RefreshToken, "Refresh refused: the account is locked out.",
-                cancellationToken: ct);
-
-            return OperationResult<RefreshResponse>.Forbidden("The session has ended. Sign in again.");
-        }
+        // Password-login lockout throttles guesses, not an established family.
+        // Activity, stamp and token revocation remain authoritative here.
 
         // Serialize issuance with account revocation and permission changes.
         // EF updates this version in the same transaction as consuming the

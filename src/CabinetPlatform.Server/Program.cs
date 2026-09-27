@@ -317,9 +317,15 @@ static async Task InitialiseDatabaseAsync(WebApplication app)
     using IServiceScope scope = app.Services.CreateScope();
 
     var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
+    var applied = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
+    // On a new database the user table does not exist yet. On a populated
+    // legacy database, bootstrap settings are irrelevant and must not block it.
+    if (applied.Length == 0 || !await db.Users.AnyAsync())
+        seeder.ValidateBootstrapConfiguration();
     if ((await db.Database.GetPendingMigrationsAsync()).Any(m =>
             m.EndsWith("_CaseInsensitiveUsernames", StringComparison.Ordinal)) &&
-        (await db.Database.GetAppliedMigrationsAsync()).Any())
+        applied.Length != 0)
     {
         var names = await db.Users.AsNoTracking().Select(u => new { u.Id, u.Username }).ToListAsync();
         var collision = names.GroupBy(u => u.Username, StringComparer.OrdinalIgnoreCase)
@@ -329,8 +335,6 @@ static async Task InitialiseDatabaseAsync(WebApplication app)
                 string.Join(", ", collision.Select(u => u.Id)) + ". Resolve them manually before migration.");
     }
     await db.Database.MigrateAsync();
-
-    var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();
     await seeder.SeedAsync();
 }
 

@@ -64,28 +64,10 @@ public sealed class DatabaseSeeder
             return;
         }
 
-        if (_options.SupervisorUsername.Trim().Any(c => c > 127))
-            throw new InvalidOperationException("The configured Supervisor username must use ASCII characters.");
-
-        if (string.IsNullOrWhiteSpace(_options.SupervisorInitialPassword))
-        {
-            // Refuse rather than invent one. A server that silently seeds a
-            // default credential is worse than a server that will not start.
-            throw new InvalidOperationException(
-                $"{SeedOptions.SectionName}:SupervisorInitialPassword must be configured to " +
-                "seed the first Supervisor on an empty database.");
-        }
-
-        string? complaint = _hasher.ValidateComplexity(_options.SupervisorInitialPassword);
-
-        if (complaint is not null)
-        {
-            throw new InvalidOperationException(
-                $"The configured initial Supervisor password does not meet policy: {complaint}");
-        }
+        ValidateBootstrapConfiguration();
 
         DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
-        PasswordHashResult hashed = _hasher.Hash(_options.SupervisorInitialPassword);
+        PasswordHashResult hashed = _hasher.Hash(_options.SupervisorInitialPassword!);
 
         var supervisor = new User
         {
@@ -123,6 +105,27 @@ public sealed class DatabaseSeeder
         _logger.LogWarning(
             "Seeded initial Supervisor '{Username}'. This account must change its password at " +
             "first login.", supervisor.Username);
+    }
+
+    /// <summary>Checks bootstrap inputs without changing schema or data.</summary>
+    public void ValidateBootstrapConfiguration()
+    {
+        if (_options.SupervisorUsername.Trim().Any(c => c > 127))
+            throw new InvalidOperationException("The configured Supervisor username must use ASCII characters.");
+
+        if (string.IsNullOrWhiteSpace(_options.SupervisorInitialPassword))
+        {
+            // Refuse rather than invent one. A server that silently seeds a
+            // default credential is worse than a server that will not start.
+            throw new InvalidOperationException(
+                $"{SeedOptions.SectionName}:SupervisorInitialPassword must be configured to " +
+                "seed the first Supervisor on an empty database.");
+        }
+
+        string? complaint = _hasher.ValidateComplexity(_options.SupervisorInitialPassword);
+        if (complaint is not null)
+            throw new InvalidOperationException(
+                $"The configured initial Supervisor password does not meet policy: {complaint}");
     }
 
     /// <summary>
