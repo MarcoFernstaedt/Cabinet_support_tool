@@ -23,6 +23,63 @@ def assert_manifest_binding(test, source):
 
 
 class FixtureIsolation(unittest.TestCase):
+    def test_owner_group_handle_has_rights_for_actual_set_and_read_path(self):
+        parent = PARENT.read_text()
+        cs = parent.split('public static class ManualFixtureScm {', 1)[1].split("'@", 1)[0]
+        rights = {name: int(value, 16) for name, value in re.findall(
+            r'const uint (\w+)\s*=\s*(0x[0-9a-fA-F]+)\s*;', cs)}
+        match = re.search(r'public static IntPtr Hold\(string name\).*?OpenService\(manager,name,([^)]*)\)', cs)
+        self.assertIsNotNone(match)
+        assert match is not None
+        names = [part.strip() for part in match.group(1).split('|')]
+        self.assertTrue(all(name in rights for name in names), names)
+        actual = 0
+        for name in names:
+            actual |= rights[name]
+        for right in ('READ_CONTROL', 'WRITE_OWNER', 'SERVICE_CHANGE_CONFIG', 'SERVICE_QUERY_CONFIG'):
+            self.assertEqual(rights[right], actual & rights[right], right)
+        for operation in ('Owner', 'Group'):
+            body = cs.split('public static void ' + operation + '(IntPtr service)', 1)[1].split('}', 1)[0]
+            self.assertIn('Read(service,', body)
+            self.assertIn('SetServiceObjectSecurity(service,', body)
+            self.assertIn('::' + operation + '($held)', parent)
+        audit = (ROOT / 'Set-DisposableAuditFixture.ps1').read_text()
+        self.assertIn('OpenProcessToken(GetCurrentProcess(),0x28,out token)', audit)
+        self.assertIn('OpenService(manager,name,0x01000000)', audit)
+        self.assertIn('SetServiceObjectSecurity(service,8,bytes)', audit)
+        self.assertIn('Read(service,8)', audit)
+
+    def test_metadata_refusal_requires_exact_child_evidence_and_independent_state(self):
+        parent, child = PARENT.read_text(), CHILD.read_text()
+        expected = 'Recovery refused: Unsupported original service security metadata.'
+        self.assertIn("$_.Exception.Message -ceq '" + expected + "'", child)
+        self.assertIn("Write-Output 'EXPECTED_METADATA_REFUSAL'", child)
+        self.assertIn('exit 42', child)
+        self.assertIn("$first -ne 42", parent)
+        self.assertIn('$prepareEvidence.Count -ne 1', parent)
+        self.assertIn("$prepareEvidence -cne 'EXPECTED_METADATA_REFUSAL'", parent)
+        self.assertIn('Get-CimInstance Win32_Service', parent)
+        self.assertIn("   throw\n  }\n  throw 'Expected production metadata refusal did not occur.'", child)
+        self.assertIn("$svc.State -cne 'Running'", parent)
+        self.assertIn("$svc.StartMode -cne 'Auto'", parent)
+        # Unrelated child failures, even with unchanged state, cannot pass the oracle.
+        code_match = re.search(r'\$first -ne (\d+)', parent)
+        marker_match = re.search(r"\$prepareEvidence -cne '([^']+)'", parent)
+        self.assertIsNotNone(code_match)
+        self.assertIsNotNone(marker_match)
+        assert code_match is not None and marker_match is not None
+        expected_code = int(code_match.group(1))
+        expected_marker = marker_match.group(1)
+        self.assertEqual('EXPECTED_METADATA_REFUSAL', expected_marker)
+        self.assertEqual(42, expected_code)
+        def accepts(code, evidence, state, start):
+            return (code == expected_code and evidence == expected_marker
+                    and state == 'Running' and start == 'Auto')
+        self.assertFalse(accepts(1, '', 'Running', 'Auto'))
+        self.assertFalse(accepts(42, 'unrelated child failure', 'Running', 'Auto'))
+        self.assertFalse(accepts(42, 'EXPECTED_METADATA_REFUSAL', 'Running', 'Manual'))
+        self.assertTrue(accepts(42, 'EXPECTED_METADATA_REFUSAL', 'Running', 'Auto'))
+
     def test_parent_cannot_dot_source_production_helper_or_cleanup_from_ambient_target(self):
         text = PARENT.read_text()
         self.assertNotIn(". $helper", text)

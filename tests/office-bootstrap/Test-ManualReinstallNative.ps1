@@ -86,6 +86,10 @@ try {
   Add-Type -TypeDefinition @'
 using System;using System.ComponentModel;using System.Runtime.InteropServices;using System.Security.AccessControl;using System.Security.Principal;
 public static class ManualFixtureScm {
+ const uint SERVICE_QUERY_CONFIG=0x0001;
+ const uint SERVICE_CHANGE_CONFIG=0x0002;
+ const uint READ_CONTROL=0x00020000;
+ const uint WRITE_OWNER=0x00080000;
  [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr OpenSCManager(string a,string b,uint c);
  [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr OpenService(IntPtr a,string b,uint c);
  [DllImport("advapi32.dll",SetLastError=true)] static extern bool SetServiceObjectSecurity(IntPtr a,uint b,byte[] c);
@@ -93,7 +97,7 @@ public static class ManualFixtureScm {
  [DllImport("advapi32.dll",SetLastError=true)] static extern bool ChangeServiceConfig2(IntPtr a,uint b,IntPtr c);
  [DllImport("advapi32.dll",SetLastError=true)] static extern bool QueryServiceConfig2(IntPtr a,uint b,IntPtr c,uint d,out uint e);
  [DllImport("advapi32.dll")] public static extern bool CloseServiceHandle(IntPtr a);
- public static IntPtr Hold(string name){IntPtr manager=OpenSCManager(null,null,1);try{IntPtr service=OpenService(manager,name,0x80003);if(service==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error());return service;}finally{CloseServiceHandle(manager);}}
+ public static IntPtr Hold(string name){IntPtr manager=OpenSCManager(null,null,1);try{IntPtr service=OpenService(manager,name,SERVICE_QUERY_CONFIG|SERVICE_CHANGE_CONFIG|READ_CONTROL|WRITE_OWNER);if(service==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error());return service;}finally{CloseServiceHandle(manager);}}
  static RawSecurityDescriptor Read(IntPtr service,uint info){uint needed;QueryServiceObjectSecurity(service,info,new byte[0],0,out needed);if(needed==0||needed>65536)throw new InvalidOperationException("Security descriptor size refused");var bytes=new byte[needed];if(!QueryServiceObjectSecurity(service,info,bytes,needed,out needed))throw new Win32Exception(Marshal.GetLastWin32Error());return new RawSecurityDescriptor(bytes,0);}
  public static void Owner(IntPtr service){var sid=WindowsIdentity.GetCurrent().User;if(Read(service,1).Owner.Equals(sid))throw new InvalidOperationException("Owner fixture is already default; distinct owner required");var sd=new RawSecurityDescriptor("O:"+sid.Value);byte[] bytes=new byte[sd.BinaryLength];sd.GetBinaryForm(bytes,0);if(!SetServiceObjectSecurity(service,1,bytes))throw new Win32Exception(Marshal.GetLastWin32Error());if(!Read(service,1).Owner.Equals(sid))throw new InvalidOperationException("Owner readback mismatch");}
  public static void Group(IntPtr service){var sid=new SecurityIdentifier("S-1-5-32-545");if(Read(service,2).Group.Equals(sid))throw new InvalidOperationException("Group fixture is already default; distinct group required");var sd=new RawSecurityDescriptor("G:"+sid.Value);byte[] bytes=new byte[sd.BinaryLength];sd.GetBinaryForm(bytes,0);if(!SetServiceObjectSecurity(service,2,bytes))throw new Win32Exception(Marshal.GetLastWin32Error());if(!Read(service,2).Group.Equals(sid))throw new InvalidOperationException("Group readback mismatch");}
@@ -114,7 +118,7 @@ public static class ManualFixtureScm {
  }
  & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $fixtureManifestPath -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
  if ($LASTEXITCODE -ne 0) { throw 'Fixture gate failed before child.' }
- & $powershell -NoProfile -NonInteractive -File $child (Join-Path $root 'Kit\Manual-Reinstall-CabinetDemoAgent.ps1') $serviceName $install $backup $zip $digest $commit 'prepare' $Scenario $ApprovedGuestIdentity $ApprovedSnapshot
+ $prepareEvidence=@(& $powershell -NoProfile -NonInteractive -File $child (Join-Path $root 'Kit\Manual-Reinstall-CabinetDemoAgent.ps1') $serviceName $install $backup $zip $digest $commit 'prepare' $Scenario $ApprovedGuestIdentity $ApprovedSnapshot)
  $first=$LASTEXITCODE; Write-Output "PREPARE_EXIT=$first"
  if($Scenario -eq 'pending-deletion'){
   if(!$first -or !(Test-Path (Join-Path $backup 'manual-reinstall-*' ))){throw 'Expected held-handle deletion timeout'}
@@ -125,11 +129,13 @@ public static class ManualFixtureScm {
   $first=0
  }
  if($Scenario -in @('owner','group','audit-sacl')){
-  if(!$first -or !(Get-Service $serviceName -ErrorAction SilentlyContinue) -or !(Test-Path $install)){throw 'Unsupported metadata was not refused before stop'}
-  if((Get-Service $serviceName).Status -ne 'Running'){throw 'Unsupported metadata interrupted original service'}
+  if($first -ne 42 -or $prepareEvidence.Count -ne 1 -or $prepareEvidence -cne 'EXPECTED_METADATA_REFUSAL') {throw 'Expected production metadata refusal evidence missing'}
+  $svc=Get-CimInstance Win32_Service -Filter ("Name='"+$serviceName+"'")
+  if(!$svc -or !(Test-Path $install) -or $svc.State -cne 'Running' -or $svc.StartMode -cne 'Auto'){throw 'Unsupported metadata interrupted original Running Auto service'}
   Write-Output "PASS unsupported $Scenario refused before stop"
   return
  }
+ $prepareEvidence | Write-Output
  if($first){throw 'Prepare child failed'}
  if(Get-Service $serviceName -ErrorAction SilentlyContinue){throw 'Probe not absent between clean processes'}
  Write-Output 'PASS exact service absent between processes'

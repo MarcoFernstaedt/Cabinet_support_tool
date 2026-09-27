@@ -15,6 +15,17 @@ if ($target.Service -cne $ProbeService -or $target.Root -cne (Split-Path $ProbeI
 if($Phase -eq 'prepare'){
  & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
  if ($LASTEXITCODE -ne 0) { throw 'Prepare target gate refused.' }
+ if($Scenario -in @('owner','group','audit-sacl')){
+  try { & $Manual -Prepare -ConfirmSameMachine -BackupRoot $Backup }
+  catch {
+   if($_.Exception.Message -ceq 'Recovery refused: Unsupported original service security metadata.'){
+    Write-Output 'EXPECTED_METADATA_REFUSAL'
+    exit 42
+   }
+   throw
+  }
+  throw 'Expected production metadata refusal did not occur.'
+ }
  & $Manual -Prepare -ConfirmSameMachine -BackupRoot $Backup
  $runs=@(Get-ChildItem -LiteralPath $Backup -Directory -Filter 'manual-reinstall-*')
  if($runs.Count -ne 1 -or (Get-Service $ProbeService -ErrorAction SilentlyContinue) -or (Test-Path $ProbeInstall) -or
