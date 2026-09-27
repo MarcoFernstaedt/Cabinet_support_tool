@@ -22,6 +22,7 @@ class PackageTests(unittest.TestCase):
             publish.mkdir()
             (publish / "CabinetPlatform.Agent.exe").write_bytes(b"lab synthetic executable")
             (publish / "appsettings.json").write_text('{"untrusted":true}')
+            (publish / "appsettings.Development.json").write_text('{"Token":"synthetic"}')
             destination = base / "agent.zip"
             package_component("agent", publish, destination, "a" * 40)
             manifest = verify_package(destination, "agent")

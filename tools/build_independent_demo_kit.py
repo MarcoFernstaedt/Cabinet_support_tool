@@ -142,7 +142,7 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
         if path.is_file():
             name = path.relative_to(publish).as_posix()
             if not _safe_name(name) or _forbidden_content(name) or not _allowed_runtime(name, component):
-                if name.lower() == "appsettings.json":
+                if name in ("appsettings.json", "appsettings.Development.json"):
                     continue
                 raise ValueError(f"Unsafe publish member: {name}")
             if len(name) > 240 or path.stat().st_size > 100 * 1024 * 1024:
