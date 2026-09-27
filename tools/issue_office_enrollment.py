@@ -99,13 +99,17 @@ def issue(manifest, output):
             validate_inventory(options["Tokens"], json.loads(state.read_text(), object_pairs_hook=unique_properties))
             now = datetime.now(timezone.utc)
             token = secrets.token_hex(32).upper()
-            write_private(output, {"ServerBaseUrl": ENDPOINT, "Token": token})
+            issued = now.isoformat()
+            expires = (now + timedelta(minutes=20)).isoformat()
+            device_expires = (now + timedelta(days=1)).isoformat()
+            write_private(output, {"ServerBaseUrl": ENDPOINT, "Token": token,
+                                   "ExpiresUtc": expires, "DeviceExpiresUtc": device_expires})
             suffix = uuid.uuid4().hex
             write_private(manifest.with_name(manifest.name + "." + suffix + ".bak"), document)
             options["Tokens"].append({"TokenHash": hashlib.sha256(token.encode()).hexdigest().upper(),
-                                      "IssuedUtc": now.isoformat(),
-                                      "ExpiresUtc": (now + timedelta(minutes=20)).isoformat(),
-                                      "DeviceExpiresUtc": (now + timedelta(days=1)).isoformat()})
+                                      "IssuedUtc": issued,
+                                      "ExpiresUtc": expires,
+                                      "DeviceExpiresUtc": device_expires})
             temporary = manifest.with_name(manifest.name + "." + suffix + ".tmp")
             write_private(temporary, document)
             os.replace(temporary, manifest)

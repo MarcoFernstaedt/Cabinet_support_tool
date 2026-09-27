@@ -1,5 +1,7 @@
 # Bounded office bootstrap
 
+For a fresh independently operated lab install, see [independent demo kit](independent-demo-kit.md). This original staging generator creates a new server manifest and short-lived tokens, so do not run it against an already active Office server. Use additive issuance instead; it does not renew an existing identity.
+
 This prepares a **private, unsigned staging bundle**, not a customer installer. Distribution is blocked. It does not install a Windows service, contact the server, approve a cabinet, alter the running test service, or change the compiled monitoring boundary. The Agent and WPF Console use the same reviewed endpoint:
 
 `https://srv1522777.tail72f980.ts.net/`
