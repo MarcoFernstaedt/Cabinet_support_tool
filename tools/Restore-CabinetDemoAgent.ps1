@@ -356,6 +356,21 @@ public static class CabinetRecoveryDefinition {
     static extern bool QueryServiceObjectSecurity(IntPtr service, uint info, byte[] buffer, uint size, out uint needed);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern bool SetServiceObjectSecurity(IntPtr service, uint info, byte[] descriptor);
+    static RawSecurityDescriptor ReadSecurity(IntPtr service, uint info) {
+        uint needed;
+        bool initial=QueryServiceObjectSecurity(service,info,new byte[0],0,out needed);
+        int error=Marshal.GetLastWin32Error();
+        if(initial || error!=122) throw new Win32Exception(error, "QueryServiceObjectSecurity size query");
+        if(needed==0 || needed>8192) throw new InvalidOperationException("Unsupported service security descriptor size");
+        byte[] bytes=new byte[needed];
+        uint returned;
+        if(!QueryServiceObjectSecurity(service,info,bytes,needed,out returned))
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceObjectSecurity");
+        if(returned>needed) throw new InvalidOperationException("Service security descriptor grew during read");
+        var descriptor=new RawSecurityDescriptor(bytes,0);
+        if(descriptor.BinaryLength>bytes.Length) throw new InvalidOperationException("Incomplete service security descriptor read");
+        return descriptor;
+    }
     static IntPtr Config2(IntPtr service, uint level) {
         uint needed;
         QueryServiceConfig2(service, level, IntPtr.Zero, 0, out needed);
@@ -529,9 +544,7 @@ public static class CabinetRecoveryDefinition {
                     try { s.LaunchProtected=(uint)Marshal.ReadInt32(protectedLaunch); }
                     finally { Marshal.FreeHGlobal(protectedLaunch); }
                     s.SecurityAudit=ReadAudit(name);
-                    byte[] security=new byte[65536];
-                    if (!QueryServiceObjectSecurity(service, 7, security, (uint)security.Length, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceObjectSecurity");
-                    var descriptor=new RawSecurityDescriptor(security,0);
+                    var descriptor=ReadSecurity(service,7);
                     s.Dacl=descriptor.GetSddlForm(AccessControlSections.Access);
                     s.OwnerGroup=descriptor.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Group);
                     return s;
@@ -565,9 +578,7 @@ public static class CabinetRecoveryDefinition {
             manager=OpenSCManager(null,null,1); if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             service=OpenService(manager,name,0x01000000|0x20000);
             if(service==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-            byte[] security=new byte[65536]; uint needed;
-            if(!QueryServiceObjectSecurity(service,8,security,(uint)security.Length,out needed)) throw new Win32Exception(Marshal.GetLastWin32Error());
-            var descriptor=new RawSecurityDescriptor(security,0);
+            var descriptor=ReadSecurity(service,8);
             return descriptor.SystemAcl==null ? "" : descriptor.GetSddlForm(AccessControlSections.Audit);
         } finally {
             if(service!=IntPtr.Zero) CloseServiceHandle(service);

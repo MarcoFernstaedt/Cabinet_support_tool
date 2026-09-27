@@ -23,6 +23,27 @@ def assert_manifest_binding(test, source):
 
 
 class FixtureIsolation(unittest.TestCase):
+    def test_all_security_queries_are_bounded_and_use_complete_descriptors(self):
+        production = (ROOT.parent.parent / 'tools/Restore-CabinetDemoAgent.ps1').read_text()
+        self.assertIn('ReadSecurity(service,7)', production)
+        self.assertIn('ReadSecurity(service,8)', production)
+        for text in (production, PARENT.read_text(),
+                     (ROOT / 'Set-DisposableAuditFixture.ps1').read_text()):
+            self.assertNotIn('new byte[65536]', text)
+            compact = re.sub(r'\s+', '', text)
+            self.assertIn('needed>8192', compact)
+            self.assertIn('descriptor.BinaryLength>bytes.Length', compact)
+            self.assertIn('QueryServiceObjectSecurity(service,info,bytes,needed,out', compact)
+
+    def test_child_validates_each_nested_guard_before_prepare(self):
+        child = CHILD.read_text()
+        gate = child.split('function Assert-FixtureGate', 1)[1].split('Assert-FixtureGate ', 1)[0]
+        self.assertIn('$evidence=@(& $powershell', gate)
+        self.assertIn('$code=$LASTEXITCODE', gate)
+        self.assertIn('$evidence.Count -ne 1', gate)
+        self.assertIn("$evidence[0] -cne 'EXACT_FIXTURE_GATE_PASS'", gate)
+        self.assertEqual(6, child.count("Assert-FixtureGate '"))
+
     def test_owner_group_handle_has_rights_for_actual_set_and_read_path(self):
         parent = PARENT.read_text()
         cs = parent.split('public static class ManualFixtureScm {', 1)[1].split("'@", 1)[0]
