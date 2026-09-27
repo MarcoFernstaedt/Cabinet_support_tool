@@ -10,6 +10,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+Add-Type -AssemblyName System.ServiceProcess
 $script:recoveryProcessSource = Join-Path $PSScriptRoot 'RecoveryProcess.cs'
 $serviceName = 'CabinetPlatformAgent'
 $install = 'C:\Program Files\Mashura\CabinetAgent'
