@@ -45,9 +45,10 @@ class ManualReinstallContract(unittest.TestCase):
             self.assertIn(marker, text)
         self.assertNotIn('EnrollmentFile', text)
 
-    def test_builder_inventories_operator_entrypoint(self):
+    def test_builder_excludes_experimental_operator_entrypoint(self):
         text = (ROOT / 'tools/build_independent_demo_kit.py').read_text()
-        self.assertIn('Manual-Reinstall-CabinetDemoAgent.ps1', text)
+        self.assertNotIn('Manual-Reinstall-CabinetDemoAgent.ps1', text)
+        self.assertIn('Install-CabinetDemoAgent.ps1', text)
 
 
 if __name__ == '__main__':

@@ -237,9 +237,12 @@ class PackageTests(unittest.TestCase):
             bundle_operator_files(source, output, "a" * 40)
             evidence = json.loads((output / "release-evidence.json").read_text())
             self.assertEqual("a" * 40, evidence["sourceCommit"])
-            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1", "RecoveryProcess.cs",
+            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1",
                               "independent-demo-kit.md", "office_renewal_operator.py", "office_renewal_preflight.py",
                               "issue_office_enrollment.py", "demo-credential-renewal.md", "independent-demo-server.md"}, set(evidence["sha256"]))
+            self.assertEqual(set(evidence["sha256"]) | {"release-evidence.json"}, {p.name for p in output.iterdir()})
+            for name in ("Restore-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1", "RecoveryProcess.cs"):
+                self.assertFalse((output / name).exists(), name)
             for name, digest in evidence["sha256"].items():
                 self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest().upper(), digest)
                 if name.endswith((".py", ".md", ".ps1")):

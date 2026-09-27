@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 
 class RecoveryContracts(unittest.TestCase):
-    def test_kit_includes_distinct_recovery_helper_in_release_inventory(self):
+    def test_minimal_kit_excludes_experimental_recovery_helpers(self):
         from build_independent_demo_kit import bundle_operator_files
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary) / "source"
@@ -28,11 +28,11 @@ class RecoveryContracts(unittest.TestCase):
                 (output / f"cabinet-{name}.zip").write_bytes(name.encode())
             bundle_operator_files(source, output, "a" * 40)
             inventory = json.loads((output / "release-evidence.json").read_text())["sha256"]
-            self.assertEqual(len(inventory), 12)
-            self.assertIn("RecoveryProcess.cs", inventory)
-            name = "Restore-CabinetDemoAgent.ps1"
-            self.assertEqual((source / "tools" / name).read_bytes(), (output / name).read_bytes())
-            self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest().upper(), inventory[name])
+            self.assertEqual(len(inventory), 9)
+            for name in ("Restore-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1", "RecoveryProcess.cs"):
+                self.assertNotIn(name, inventory)
+                self.assertFalse((output / name).exists())
+            self.assertEqual(set(inventory) | {"release-evidence.json"}, {p.name for p in output.iterdir()})
 
     def test_recovery_is_distinct_from_first_install_and_has_no_enrollment_input(self):
         recovery = (ROOT / "tools/Restore-CabinetDemoAgent.ps1").read_text()
