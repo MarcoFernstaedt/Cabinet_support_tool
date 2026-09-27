@@ -34,6 +34,8 @@ if (mode == "synthetic")
     Emit(new { mode, query = EventLogViewQueryBuilder.Build(definition, TimeSpan.FromHours(1)) });
     return 0;
 }
+if (mode is "executor" or "executor-after-discovery" or "diagnostic" or "diagnostic-after-discovery")
+    return await ExecutorProbe.RunAsync(mode, definition);
 if (!OperatingSystem.IsWindows()) { Emit(new { mode, blocked = "Windows required" }); return 2; }
 if (mode == "no-providers") definition = definition with { Sources = Array.Empty<string>() };
 else if (mode == "no-ids") definition = definition with { EventIds = Array.Empty<int>() };

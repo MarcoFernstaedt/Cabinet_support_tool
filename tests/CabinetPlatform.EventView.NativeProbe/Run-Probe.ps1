@@ -1,11 +1,19 @@
-param([string]$ProbeDirectory = $PSScriptRoot)
+param(
+    [string]$ProbeDirectory = $PSScriptRoot,
+    [ValidateSet('queries', 'executor', 'diagnostic')][string]$Suite = 'queries'
+)
 $ErrorActionPreference = 'Stop'
 $exe = Join-Path $ProbeDirectory 'CabinetPlatform.EventView.NativeProbe.exe'
 if (!(Test-Path -LiteralPath $exe)) { throw 'Probe executable missing' }
 $outDir = Join-Path $ProbeDirectory ('evidence-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $outDir | Out-Null
 $results = @()
-foreach ($mode in @('synthetic', 'broad', 'disk', 'no-providers', 'no-ids', 'one-provider', 'empty-control', 'invalid-query')) {
+$modes = if ($Suite -eq 'executor') { @('executor', 'executor-after-discovery') } elseif ($Suite -eq 'diagnostic') {
+    @('diagnostic', 'diagnostic-after-discovery')
+} else {
+    @('synthetic', 'broad', 'disk', 'no-providers', 'no-ids', 'one-provider', 'empty-control', 'invalid-query')
+}
+foreach ($mode in $modes) {
     $start = New-Object System.Diagnostics.ProcessStartInfo
     $start.FileName = $exe
     $start.Arguments = $mode
