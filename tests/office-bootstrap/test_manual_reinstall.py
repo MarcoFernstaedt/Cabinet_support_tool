@@ -6,6 +6,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
 class ManualReinstallContract(unittest.TestCase):
+    def test_scm_config_query_stays_inside_documented_8192_byte_ceiling(self):
+        helper = (ROOT / 'tools/Restore-CabinetDemoAgent.ps1').read_text()
+        self.assertIn('needed > 8192', helper)
+        self.assertNotIn('needed > 65536', helper)
+        self.assertIn('QueryServiceConfig(service, buffer, needed, out needed)', helper)
+        self.assertIn('QueryServiceConfig2(service, level, buffer, needed, out needed)', helper)
+
+    def test_recovery_does_not_reapply_matching_native_audit_sacl(self):
+        helper = (ROOT / 'tools/Restore-CabinetDemoAgent.ps1').read_text()
+        create = helper.split('public static void CreateFromSnapshot', 1)[1].split('public static void ApplyPolicy', 1)[0]
+        self.assertIn('ReadAudit(name)!=value.SecurityAudit', create)
+        self.assertIn('ApplyAudit(name,value.SecurityAudit)', create)
+        self.assertIn('ReadAudit(name)!=value.SecurityAudit', create.split('ApplyAudit(name,value.SecurityAudit)', 1)[1])
+
     def test_private_destination_precedes_each_preserved_byte_and_rechecks_identity(self):
         text = (ROOT / 'tools/Manual-Reinstall-CabinetDemoAgent.ps1').read_text()
         body = text.split('function Restore-Installation', 1)[1]

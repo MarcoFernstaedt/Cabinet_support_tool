@@ -359,7 +359,7 @@ public static class CabinetRecoveryDefinition {
     static IntPtr Config2(IntPtr service, uint level) {
         uint needed;
         QueryServiceConfig2(service, level, IntPtr.Zero, 0, out needed);
-        if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service option size level="+level+" error="+Marshal.GetLastWin32Error());
+        if (needed == 0 || needed > 8192) throw new InvalidOperationException("Unsupported service option size level="+level+" error="+Marshal.GetLastWin32Error());
         IntPtr buffer = Marshal.AllocHGlobal((int)needed);
         if (!QueryServiceConfig2(service, level, buffer, needed, out needed)) {
             int error = Marshal.GetLastWin32Error(); Marshal.FreeHGlobal(buffer); throw new Win32Exception(error, "QueryServiceConfig2 level " + level);
@@ -428,7 +428,11 @@ public static class CabinetRecoveryDefinition {
             } finally { CloseServiceHandle(service); }
         } finally { CloseServiceHandle(manager); }
         ApplyPolicy(name,value);
-        ApplyAudit(name,value.SecurityAudit);
+        // A fresh SCM registration can already have the exact default audit SACL.
+        // Avoid an unnecessary setter; still require native readback either way.
+        if(ReadAudit(name)!=value.SecurityAudit) ApplyAudit(name,value.SecurityAudit);
+        if(ReadAudit(name)!=value.SecurityAudit)
+            throw new InvalidOperationException("Service audit metadata differs after creation");
     }
     static void ApplyAudit(string name,string audit) {
         EnableAudit();
@@ -478,7 +482,7 @@ public static class CabinetRecoveryDefinition {
             try {
                 uint needed;
                 QueryServiceConfig(service, IntPtr.Zero, 0, out needed);
-                if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service configuration size");
+                if (needed == 0 || needed > 8192) throw new InvalidOperationException("Unsupported service configuration size");
                 IntPtr buffer = Marshal.AllocHGlobal((int)needed);
                 try {
                     if (!QueryServiceConfig(service, buffer, needed, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceConfig code=" + Marshal.GetLastWin32Error());
