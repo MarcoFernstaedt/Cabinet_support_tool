@@ -105,6 +105,10 @@ public sealed class RunEventLogViewExecutor : IActionExecutor
             {
                 ChannelDiscovery = _reader.DiscoverChannels(cancellationToken)
             };
+            if (result.ChannelReads is { Count: > 0 } reads &&
+                reads.All(c => c.Access != EventChannelAccess.Readable))
+                return Task.FromResult(ActionOutcome.Failed(
+                    "No selected event channel could be read. See agent channel access before interpreting an empty view."));
             var entries = result.Entries;
 
             _logger.LogInformation(

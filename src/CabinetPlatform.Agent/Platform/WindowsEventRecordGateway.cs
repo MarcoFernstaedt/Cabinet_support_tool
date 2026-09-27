@@ -26,11 +26,13 @@ public sealed class WindowsEventRecordGateway : IEventRecordGateway
             TolerateQueryErrors = false
         };
         using var reader = new System.Diagnostics.Eventing.Reader.EventLogReader(query) { BatchSize = 1 };
+        var clock = TimeProvider.System;
+        long started = clock.GetTimestamp();
         // Caller also caps and disposes the stream. This native boundary has its own cap.
         for (int examined = 0; examined <= definition.MaximumEntries; examined++)
         {
             token.ThrowIfCancellationRequested();
-            using EventRecord? record = reader.ReadEvent(TimeSpan.FromMilliseconds(100));
+            using EventRecord? record = ReadBounded(reader.ReadEvent, clock, started, token);
             if (record is null) yield break;
             if (record.TimeCreated is not { } created) throw new EventLogException("Record timestamp unavailable.");
             string? message = null;
@@ -45,6 +47,27 @@ public sealed class WindowsEventRecordGateway : IEventRecordGateway
                 TimeCreatedUtc = new DateTimeOffset(created.ToUniversalTime(), TimeSpan.Zero),
                 Level = EventLogReader.MapLevel(record.Level), Message = message
             };
+        }
+    }
+
+    // ERROR_TIMEOUT from EvtNext is not an empty result. Retry only this native
+    // timeout, for at most ten one-second calls within the view's read budget.
+    internal static T? ReadBounded<T>(Func<TimeSpan, T?> read, TimeProvider clock, long started, CancellationToken token,
+        Func<Exception, bool>? isTimeout = null)
+        where T : class
+    {
+        isTimeout ??= static e => e is EventLogException eventError && unchecked((uint)eventError.HResult) == 0x800705B4;
+        for (int attempt = 0; ; attempt++)
+        {
+            token.ThrowIfCancellationRequested();
+            if (clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(10))
+                throw new TimeoutException("Event record read budget exhausted.");
+            try { return read(TimeSpan.FromSeconds(1)); }
+            catch (Exception e) when (isTimeout(e))
+            {
+                token.ThrowIfCancellationRequested();
+                if (attempt == 9 || clock.GetElapsedTime(started) >= TimeSpan.FromSeconds(10)) throw;
+            }
         }
     }
 }

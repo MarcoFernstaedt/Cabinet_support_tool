@@ -178,16 +178,27 @@ public sealed class NativeEventChannelTransportTests(DiagnosticConsoleTestHost h
             var gateway = new NativeEventChannelReaderTests.Records();
             var reader = new EventLogReader(NullLogger<EventLogReader>.Instance, new NativeEventChannelReaderTests.Channels(), records: gateway);
             var outcome = await new RunEventLogViewExecutor(reader, NullLogger<RunEventLogViewExecutor>.Instance).ExecuteAsync(request, default);
-            Assert.Equal(ActionStatus.Succeeded, outcome.Status);
-            var result = JsonSerializer.Deserialize<EventLogViewResultDto>(outcome.CollectedData!, AgentJson.SerializerOptions)!;
-            Assert.NotNull(result.ChannelReads);
-            Assert.Equal(allUnavailable ? 2 : 3, result.ChannelReads.Count);
+            Assert.Equal(allUnavailable ? ActionStatus.Failed : ActionStatus.Succeeded, outcome.Status);
+            if (allUnavailable) Assert.Null(outcome.CollectedData);
+            else
+            {
+                var result = JsonSerializer.Deserialize<EventLogViewResultDto>(outcome.CollectedData!, AgentJson.SerializerOptions)!;
+                Assert.Equal(3, result.ChannelReads!.Count);
+            }
             await CompleteAsync(tab, api, agent, request, outcome);
             Assert.Equal(allUnavailable ? Array.Empty<string>() : new[] { "Vendor/Newer", "Vendor/Newer" }, tab.EventLogs.Entries.Select(e => e.DisplayChannelName));
-            Assert.Contains("access denied", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("unavailable", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("incomplete", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("not disclosed", outcome.CollectedData!);
+            if (allUnavailable)
+            {
+                Assert.Contains("No selected event channel could be read", tab.ActionHistory.Single(a => a.Request.Id == request.Id).ResultOutput);
+                Assert.DoesNotContain("Synthetic native", outcome.Output);
+            }
+            else
+            {
+                Assert.Contains("access denied", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("unavailable", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("incomplete", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("not disclosed", outcome.CollectedData!);
+            }
         }
     }
 }

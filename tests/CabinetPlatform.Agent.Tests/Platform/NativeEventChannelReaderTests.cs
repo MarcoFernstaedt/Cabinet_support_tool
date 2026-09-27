@@ -21,6 +21,22 @@ public sealed class NativeEventChannelReaderTests
         Assert.Equal(definition.ChannelNames, reader.Seen!.ChannelNames);
     }
 
+    [Fact]
+    public async Task All_unavailable_channels_do_not_report_a_successful_empty_view()
+    {
+        var reader = new EventLogReader(NullLogger<EventLogReader>.Instance, new Channels(), records: new UnavailableRecords());
+        var outcome = await new RunEventLogViewExecutor(reader, NullLogger<RunEventLogViewExecutor>.Instance)
+            .ExecuteAsync(Request(Definition()), default);
+        Assert.Equal(ActionStatus.Failed, outcome.Status);
+        Assert.Null(outcome.CollectedData);
+    }
+
+    private sealed class UnavailableRecords : IEventRecordGateway
+    {
+        public IEnumerable<EventLogEntry> Read(string channel, EventLogViewDefinition definition, CancellationToken token)
+            => throw new InvalidOperationException("Synthetic native failure");
+    }
+
     [Theory]
     [InlineData("C:\\logs\\sample.evtx")]
     [InlineData("\\\\server\\Application")]
@@ -110,6 +126,59 @@ public sealed class NativeEventChannelReaderTests
         Assert.Equal(2, result.ChannelReads!.Count);
         Assert.All(result.ChannelReads, c => Assert.Equal(EventChannelAccess.Unavailable, c.Access));
     }
+
+    [Fact]
+    public void Native_timeout_is_retried_only_within_budget_and_null_is_a_real_empty_read()
+    {
+        var clock = new ReadClock();
+        int calls = 0;
+        var record = WindowsEventRecordGateway.ReadBounded<object>(timeout =>
+        {
+            Assert.Equal(TimeSpan.FromSeconds(1), timeout);
+            calls++;
+            clock.Timestamp += 1000;
+            if (calls == 1) throw new TimeoutException();
+            return null;
+        }, clock, clock.GetTimestamp(), default, e => e is TimeoutException);
+        Assert.Null(record);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public void Native_timeout_exhaustion_does_not_become_an_empty_read()
+    {
+        var clock = new ReadClock();
+        int calls = 0;
+        Assert.Throws<TimeoutException>(() => WindowsEventRecordGateway.ReadBounded<object>(_ =>
+        {
+            calls++;
+            clock.Timestamp += 1000;
+            throw new TimeoutException();
+        }, clock, clock.GetTimestamp(), default, e => e is TimeoutException));
+        Assert.Equal(10, calls);
+    }
+
+    [Fact]
+    public void Native_non_timeout_failure_and_cancellation_are_not_retried()
+    {
+        var clock = new ReadClock();
+        int calls = 0;
+        Assert.Throws<InvalidOperationException>(() => WindowsEventRecordGateway.ReadBounded<object>(_ =>
+        {
+            calls++;
+            throw new InvalidOperationException();
+        }, clock, clock.GetTimestamp(), default));
+        Assert.Equal(1, calls);
+        using var source = new CancellationTokenSource();
+        source.Cancel();
+        Assert.Throws<OperationCanceledException>(() => WindowsEventRecordGateway.ReadBounded<object>(_ =>
+        {
+            calls++;
+            return null;
+        }, clock, clock.GetTimestamp(), source.Token));
+        Assert.Equal(1, calls);
+    }
+
 
     private sealed class ReadClock : TimeProvider
     {
