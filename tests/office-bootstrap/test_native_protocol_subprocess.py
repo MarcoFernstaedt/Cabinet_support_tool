@@ -32,7 +32,7 @@ class NativeProtocol(unittest.TestCase):
         self.install.mkdir()
         kit = self.root / 'Kit'
         kit.mkdir()
-        self.manual = kit / 'Manual.ps1'
+        self.manual = kit / 'Manual-Reinstall-CabinetDemoAgent.ps1'
         self.guard = self.root / 'DisposableServiceFixture.ps1'
         self.child = self.root / 'Test-ManualReinstallNativeChild.ps1'
         self.child.write_text((ROOT / self.child.name).read_text())
@@ -48,16 +48,21 @@ class NativeProtocol(unittest.TestCase):
                               "Write-Output 'EXACT_FIXTURE_GATE_PASS'\n"
                               "if($env:GUARD_MODE -eq 'extra'){Write-Output 'EXTRA'}\n")
         self.manual.write_text("param([switch]$Prepare,[switch]$ConfirmSameMachine,[string]$BackupRoot)\n"
+                               "[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'manual-invoked'), 'yes')\n"
                                "if($env:MANUAL_MODE -eq 'return'){return}\n"
                                "if($env:MANUAL_MODE -eq 'duplicate'){Write-Output 'EXPECTED_METADATA_REFUSAL'}\n"
                                "if($env:MANUAL_MODE -eq 'unrelated'){throw 'Unrelated failure'}\n"
-                               "if($env:MANUAL_MODE -eq 'wrong-exit'){exit 7}\n"
+                               "if($env:MANUAL_MODE -eq 'wrong-exit'){[Environment]::Exit(7)}\n"
                                "throw 'Recovery refused: Unsupported original service security metadata.'\n")
         source = (ROOT / 'Test-ManualReinstallNative.ps1').read_text()
         # Execute the actual parent child capture, exit assignment, and metadata
         # acceptance block, not a Python reimplementation of its predicate.
-        block = source.split(' $prepareEvidence=@(& $powershell ', 1)[1]
-        block = ' $prepareEvidence=@(& $powershell ' + block.split('  return\n', 1)[0] + '  return\n'
+        begin = ' $prepareEvidence=@(& $powershell '
+        end = ' $prepareEvidence | Write-Output\n'
+        self.assertEqual(1, source.count(begin), 'Parent protocol start is ambiguous')
+        self.assertEqual(1, source.count(end), 'Parent protocol end is ambiguous')
+        block = begin + source.split(begin, 1)[1].split(end, 1)[0]
+        self.assertIn(" Write-Output \"PASS unsupported $Scenario refused before stop\"\n  return\n }\n", block)
         self.parent = self.root / 'ParentProtocol.ps1'
         self.parent.write_text("$ErrorActionPreference='Stop';Set-StrictMode -Version Latest\n"
                                "$powershell='" + str(system / 'powershell.exe').replace("'", "''") + "'\n"
@@ -68,12 +73,37 @@ class NativeProtocol(unittest.TestCase):
                                "$Scenario='owner';$ApprovedGuestIdentity='inert';$ApprovedSnapshot='inert'\n"
                                "function Get-CimInstance { [pscustomobject]@{State=$env:STATE_MODE;StartMode=$env:START_MODE} }\n"
                                + block)
+        self.syntax = self.root / 'Assert-Syntax.ps1'
+        self.syntax.write_text("param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Paths)\n"
+                          "foreach($path in $Paths){\n"
+                          " $tokens=$null;$errors=$null\n"
+                          " $null=[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)\n"
+                          " if($errors.Count){throw \"Invalid PowerShell syntax in $path : $($errors -join '; ')\"}\n"
+                          " Write-Output \"PARSED=$path\"\n"
+                          "}\n")
+        parsed = subprocess.run([self.pwsh, '-NoProfile', '-NonInteractive', '-File',
+                                 str(self.syntax), str(self.parent), str(self.child)],
+                                text=True, capture_output=True, timeout=30)
+        self.assertEqual(0, parsed.returncode, parsed.stderr)
+        self.assertEqual('', parsed.stderr)
+        self.assertEqual([f'PARSED={path}' for path in (self.parent, self.child)],
+                         parsed.stdout.splitlines())
 
     def run_case(self, guard='ok', manual='refuse', state='Running', start='Auto'):
         env = dict(os.environ, SystemRoot=str(self.root), GUARD_MODE=guard,
                    MANUAL_MODE=manual, STATE_MODE=state, START_MODE=start)
         return subprocess.run([self.pwsh, '-NoProfile', '-NonInteractive', '-File', str(self.parent)],
                               env=env, text=True, capture_output=True, timeout=30)
+
+    def test_syntax_gate_rejects_broken_child(self):
+        self.child.write_text(self.child.read_text() + '\nif ($true) {\n')
+        result = subprocess.run([self.pwsh, '-NoProfile', '-NonInteractive', '-File',
+                                 str(self.syntax), str(self.parent), str(self.child)],
+                                text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(0, result.returncode)
+        self.assertEqual([f'PARSED={self.parent}'], result.stdout.splitlines())
+        self.assertIn('Invalid PowerShell syntax', result.stderr)
+        self.assertIn(self.child.name, result.stderr)
 
     def test_two_successful_nested_gates_leave_one_exact_marker(self):
         result = self.run_case()
@@ -85,16 +115,27 @@ class NativeProtocol(unittest.TestCase):
     def test_guard_failure_or_extra_banner_is_fatal(self):
         for mode in ('fail', 'extra', 'missing', 'wrong'):
             with self.subTest(mode=mode):
+                (self.manual.parent / 'manual-invoked').unlink(missing_ok=True)
                 result = self.run_case(guard=mode)
                 self.assertNotEqual(0, result.returncode)
                 self.assertNotIn('PASS unsupported', result.stdout)
+                self.assertIn('Child fixture isolation gate refused.', result.stderr)
+                self.assertFalse((self.manual.parent / 'manual-invoked').exists(), result.stderr)
+                self.assertIn('PREPARE_EXIT=1', result.stdout)
 
     def test_unrelated_return_and_duplicate_marker_are_not_refusal(self):
-        for mode in ('unrelated', 'return', 'duplicate', 'wrong-exit'):
+        diagnostics = {'unrelated': 'Unrelated failure',
+                       'return': 'Expected production metadata refusal did not occur.',
+                       'duplicate': 'Expected production metadata refusal evidence missing',
+                       'wrong-exit': 'Expected production metadata refusal evidence missing'}
+        for mode, diagnostic in diagnostics.items():
             with self.subTest(mode=mode):
                 result = self.run_case(manual=mode)
                 self.assertNotEqual(0, result.returncode)
                 self.assertNotIn('PASS unsupported', result.stdout)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertTrue((self.manual.parent / 'manual-invoked').exists(), result.stderr)
+                self.assertIn('PREPARE_EXIT=' + ('7' if mode == 'wrong-exit' else '42' if mode == 'duplicate' else '1'), result.stdout)
 
     def test_state_and_installation_are_independent(self):
         for state, start in (('Stopped', 'Auto'), ('Running', 'Manual')):
@@ -102,10 +143,12 @@ class NativeProtocol(unittest.TestCase):
                 result = self.run_case(state=state, start=start)
                 self.assertNotEqual(0, result.returncode)
                 self.assertNotIn('PASS unsupported', result.stdout)
+                self.assertIn('Unsupported metadata interrupted original Running Auto service', result.stderr)
         self.install.rmdir()
         result = self.run_case()
         self.assertNotEqual(0, result.returncode)
         self.assertNotIn('PASS unsupported', result.stdout)
+        self.assertIn('Unsupported metadata interrupted original Running Auto service', result.stderr)
 
 
 if __name__ == '__main__':
