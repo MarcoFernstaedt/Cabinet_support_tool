@@ -104,7 +104,8 @@ class PackageTests(unittest.TestCase):
         self.assertIn("Get-FileHash", helper)
         self.assertIn("$PSVersionTable.PSVersion.Major", helper)
         self.assertIn("ExpiresUtc", helper)
-        self.assertIn("UtcNow", helper)
+        self.assertIn("GetProperty('ExpiresUtc').GetString()", helper)
+        self.assertIn("Get-Service -Name $serviceName", helper)
         for forbidden in ("ExecutionPolicy Bypass", "Set-ExecutionPolicy", "DisableRealtimeMonitoring", "Expand-Archive", "Invoke-Expression"):
             self.assertNotIn(forbidden, helper)
 

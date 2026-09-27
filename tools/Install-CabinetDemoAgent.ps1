@@ -109,14 +109,18 @@ try {
     if ($token.ServerBaseUrl -cne $endpoint -or $token.Token -cnotmatch '^[A-Fa-f0-9]{64}$' -or @($token.PSObject.Properties).Count -ne 4) {
         Refuse 'Enrollment file does not match the reviewed endpoint and token shape.'
     }
+    $tokenDocument = [System.Text.Json.JsonDocument]::Parse([ReadOnlyMemory[byte]]::new($tokenBytes))
     try {
-        if ($token.ExpiresUtc -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$' -or
-            $token.DeviceExpiresUtc -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$') {
+        $expiresText = $tokenDocument.RootElement.GetProperty('ExpiresUtc').GetString()
+        $deviceExpiresText = $tokenDocument.RootElement.GetProperty('DeviceExpiresUtc').GetString()
+        if ($expiresText -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$' -or
+            $deviceExpiresText -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$') {
             Refuse 'Enrollment expiry metadata is invalid.'
         }
-        $expires = [DateTimeOffset]::Parse($token.ExpiresUtc, [Globalization.CultureInfo]::InvariantCulture)
-        $deviceExpires = [DateTimeOffset]::Parse($token.DeviceExpiresUtc, [Globalization.CultureInfo]::InvariantCulture)
+        $expires = [DateTimeOffset]::Parse($expiresText, [Globalization.CultureInfo]::InvariantCulture)
+        $deviceExpires = [DateTimeOffset]::Parse($deviceExpiresText, [Globalization.CultureInfo]::InvariantCulture)
     } catch { Refuse 'Enrollment expiry metadata is invalid.' }
+    finally { $tokenDocument.Dispose() }
     if ($expires -le [DateTimeOffset]::UtcNow -or $deviceExpires -le $expires -or $deviceExpires -le [DateTimeOffset]::UtcNow) {
         Refuse 'Enrollment is expired or its time bounds are invalid. Issue a fresh token; do not change the journal.'
     }
@@ -219,7 +223,7 @@ try {
         Write-Output 'Service start requested. Check service, pending enrollment and human approval separately.'
     } finally { $archive.Dispose() }
 } catch {
-    if ($created -and !$registered) {
+    if ($created -and !$registered -and !(Get-Service -Name $serviceName -ErrorAction SilentlyContinue)) {
         # Only this run's fresh directory can be removed. No service was started; no identity was created.
         Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
     }
