@@ -9,8 +9,13 @@ public class DiagnosticModeTests
 {
     [Theory]
     [InlineData("DiagnosticOnly", false)]
+#if LEGACY_MAINTENANCE_TESTS
     [InlineData("Maintenance", true)]
     [InlineData("Demo", true)]
+#else
+    [InlineData("Maintenance", false)]
+    [InlineData("Demo", false)]
+#endif
     [InlineData("demo", false)]
     [InlineData("maintenance", false)]
     [InlineData("", false)]
@@ -20,8 +25,13 @@ public class DiagnosticModeTests
         var options = new CabinetPlatform.Server.Configuration.ActionOptions { ExecutionMode = mode };
         Assert.Equal("DiagnosticOnly", new CabinetPlatform.Server.Configuration.ActionOptions().ExecutionMode);
         Assert.Equal(maintenance, options.Permits(ActionName.KillProcess));
+#if LEGACY_MAINTENANCE_TESTS
         Assert.Equal(mode == "Maintenance", options.MaintenanceEnabled);
         Assert.Equal(mode == "Maintenance", options.Permits(ActionName.RestartApplication));
+#else
+        Assert.False(options.MaintenanceEnabled);
+        Assert.False(options.Permits(ActionName.RestartApplication));
+#endif
         Assert.True(options.Permits(ActionName.GetProcessList));
         Assert.False(options.Permits((ActionName)9999));
     }
@@ -102,7 +112,11 @@ public class DiagnosticModeTests
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
             ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall };
         var catalog = await client.GetFromJsonAsync<List<ActionCatalogEntryDto>>("/api/actions/catalog", TestClient.Json);
+#if LEGACY_MAINTENANCE_TESTS
         Assert.Equal((mode == "Demo" ? allowed.Append(ActionName.KillProcess) : allowed).Order(),
+#else
+        Assert.Equal(allowed.Order(),
+#endif
             catalog!.Select(x => x.Action).Order());
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
         {

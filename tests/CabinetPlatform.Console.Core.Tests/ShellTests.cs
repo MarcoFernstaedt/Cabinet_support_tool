@@ -413,6 +413,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
         Assert.False(session.IsSignedIn);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task The_approval_badge_counts_only_what_this_user_can_act_on()
     {
@@ -465,6 +466,31 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
 
         Assert.True(shell.Approvals.ActionableCount < shell.Approvals.Queue.Count);
     }
+#else
+    [Fact]
+    public async Task The_approval_badge_is_empty_when_shipping_refuses_legacy_work()
+    {
+        Cabinet cabinet = await _host.CreateCabinetAsync($"BDG-{Unique("d")[..6]}");
+        string requesterName = Unique("badgereq");
+        await _host.CreateUserAsync(Role.Tier2, requesterName);
+        (ApiClient requesterApi, _) = _host.CreateConsole();
+        await requesterApi.LoginAsync(
+            new LoginRequest { Username = requesterName, Password = ConsoleTestHost.KnownPassword },
+            CancellationToken.None);
+        var request = new Contracts.Actions.CreateActionRequest
+        {
+            Action = ActionName.StopService, CabinetId = cabinet.Id,
+            Reason = "Refused in monitoring release", TicketReference = "SUP-4001",
+            Parameters = new Dictionary<string, string> { ["serviceName"] = "MashuraDispenseController" }
+        };
+        await Assert.ThrowsAsync<ApiException>(() => requesterApi.CreateActionAsync(request, CancellationToken.None));
+        (ShellViewModel shell, _, _, _) = await SignedInShellAsync(Role.Supervisor);
+        await shell.Approvals.LoadAsync();
+        Assert.Empty(shell.Approvals.Queue);
+        Assert.Equal(0, shell.Approvals.ActionableCount);
+        Assert.Null(shell.ApprovalBadge);
+    }
+#endif
 
     [Fact]
     public async Task Deactivating_cancels_work_in_flight_without_throwing()
