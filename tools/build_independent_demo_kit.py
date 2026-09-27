@@ -169,6 +169,7 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
 def bundle_operator_files(source, output, commit):
     for source_name, target_name in (("tools/Install-CabinetDemoAgent.ps1", "Install-CabinetDemoAgent.ps1"),
                                      ("tools/Restore-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1"),
+                                     ("tools/Manual-Reinstall-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1"),
                                      ("tools/RecoveryProcess.cs", "RecoveryProcess.cs"),
                                      ("docs/independent-demo-kit.md", "independent-demo-kit.md"),
                                      ("tools/office_renewal_operator.py", "office_renewal_operator.py"),
@@ -178,7 +179,7 @@ def bundle_operator_files(source, output, commit):
                                      ("docs/independent-demo-server.md", "independent-demo-server.md")):
         with (output / target_name).open("xb") as target:
             target.write((source / source_name).read_bytes())
-    names = ("cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1", "RecoveryProcess.cs", "independent-demo-kit.md",
+    names = ("cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1", "RecoveryProcess.cs", "independent-demo-kit.md",
              "office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py",
              "demo-credential-renewal.md", "independent-demo-server.md")
     evidence = {"sourceCommit": commit, "sha256": {name: hashlib.sha256((output / name).read_bytes()).hexdigest().upper()

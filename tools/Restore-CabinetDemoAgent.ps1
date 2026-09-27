@@ -316,7 +316,7 @@ function Invoke-Sc([string[]]$arguments) {
     & "$env:SystemRoot\System32\sc.exe" @arguments | Out-Null
     if ($LASTEXITCODE -ne 0) { Refuse 'Service control failed; inspect protected backup.' }
 }
-function Service-Recovery {
+function Service-Recovery([switch]$LoadOnly) {
     if (-not ('CabinetRecoveryDefinition' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -358,7 +358,7 @@ public static class CabinetRecoveryDefinition {
     public sealed class Snapshot {
         public uint Type, Start, Error, Reset, Count, Sid, TriggerCount;
         public bool FailureFlag, Delayed;
-        public string Image, Group, Dependencies, Account, Display, Privileges, Dacl;
+        public string Image, Group, Dependencies, Account, Display, Description, Privileges, Dacl, OwnerGroup;
         public string ActionSequence, Reboot, Command;
         public string Policy { get { return Reset + ":" + Count + ":" + ActionSequence + ":" + FailureFlag + ":" + Reboot + ":" + Command; } }
     }
@@ -376,6 +376,33 @@ public static class CabinetRecoveryDefinition {
     }
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     static extern bool ChangeServiceConfig2(IntPtr service, uint level, IntPtr value);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr CreateService(IntPtr manager, string name, string display, uint access,
+        uint type, uint start, uint error, string image, string group, IntPtr tag,
+        string dependencies, string account, string password);
+    [StructLayout(LayoutKind.Sequential)] struct DescriptionValue { public IntPtr text; }
+    public static void CreateFromSnapshot(string name, Snapshot value) {
+        if (value.Type!=16 || value.Start!=2 || value.Error!=1 || value.Account!="LocalSystem" ||
+            !String.IsNullOrEmpty(value.Group) || !String.IsNullOrEmpty(value.Dependencies) || value.Delayed || value.Sid!=0 ||
+            !String.IsNullOrEmpty(value.Privileges) || value.TriggerCount!=0 || String.IsNullOrWhiteSpace(value.Display) ||
+            String.IsNullOrWhiteSpace(value.Image)) throw new InvalidOperationException("Unsupported original service definition");
+        IntPtr manager=OpenSCManager(null,null,2);
+        if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            IntPtr service=CreateService(manager,name,value.Display,0x0002,16,4,value.Error,
+                value.Image,null,IntPtr.Zero,null,null,null);
+            if(service==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                IntPtr text=Marshal.StringToHGlobalUni(value.Description ?? "");
+                IntPtr buffer=Marshal.AllocHGlobal(IntPtr.Size);
+                try {
+                    Marshal.WriteIntPtr(buffer,text);
+                    if(!ChangeServiceConfig2(service,1,buffer)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                } finally { Marshal.FreeHGlobal(buffer); Marshal.FreeHGlobal(text); }
+            } finally { CloseServiceHandle(service); }
+        } finally { CloseServiceHandle(manager); }
+        ApplyPolicy(name,value);
+    }
     public static void ApplyPolicy(string name, Snapshot value) {
         if(value.Count>16 || value.Reboot!="" && value.Reboot!=null || value.Command!="" && value.Command!=null)
             throw new InvalidOperationException("Unsupported policy");
@@ -422,6 +449,9 @@ public static class CabinetRecoveryDefinition {
                     s.Image=Marshal.PtrToStringUni(config.image); s.Group=Marshal.PtrToStringUni(config.group);
                     s.Account=Marshal.PtrToStringUni(config.account); s.Display=Marshal.PtrToStringUni(config.display);
                     s.Dependencies=Marshal.PtrToStringUni(config.dependencies);
+                    IntPtr description=Config2(service,1);
+                    try { s.Description=Marshal.PtrToStringUni(Marshal.ReadIntPtr(description)); }
+                    finally { Marshal.FreeHGlobal(description); }
                     IntPtr failure = Config2(service, 2);
                     try {
                         Actions a=(Actions)Marshal.PtrToStructure(failure, typeof(Actions));
@@ -446,7 +476,9 @@ public static class CabinetRecoveryDefinition {
                     try { s.TriggerCount=(uint)Marshal.ReadInt32(triggers); } finally { Marshal.FreeHGlobal(triggers); }
                     byte[] security=new byte[65536];
                     if (!QueryServiceObjectSecurity(service, 7, security, (uint)security.Length, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceObjectSecurity");
-                    s.Dacl=new RawSecurityDescriptor(security,0).GetSddlForm(AccessControlSections.Access);
+                    var descriptor=new RawSecurityDescriptor(security,0);
+                    s.Dacl=descriptor.GetSddlForm(AccessControlSections.Access);
+                    s.OwnerGroup=descriptor.GetSddlForm(AccessControlSections.Owner|AccessControlSections.Group);
                     return s;
                 } finally { Marshal.FreeHGlobal(buffer); }
             } finally { CloseServiceHandle(service); }
@@ -455,6 +487,7 @@ public static class CabinetRecoveryDefinition {
 }
 '@
     }
+    if ($LoadOnly) { return }
     return [CabinetRecoveryDefinition]::Read($serviceName)
 }
 function Service-Admission {
