@@ -1,14 +1,20 @@
 # Separate process boundary for disposable native service tests. Never run on a host PC.
 param([ValidateSet('MachineGate','Gate','Cleanup')][string]$Action,
-      [string]$Manifest)
+      [string]$Manifest,
+      [string]$ApprovedGuestIdentity,
+      [string]$ApprovedSnapshot)
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 function Assert-DisposableMachine {
+    if ($ApprovedGuestIdentity -cnotmatch '^[a-fA-F0-9]{8}(-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}$' -or
+        [string]::IsNullOrWhiteSpace($ApprovedSnapshot)) {
+        throw 'Explicit approved guest UUID and recovery snapshot identifier required.'
+    }
     $system=Get-CimInstance Win32_ComputerSystem
     $product=Get-CimInstance Win32_ComputerSystemProduct
     $key=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Cryptography')
     try { $machine=[string]$key.GetValue('MachineGuid') } finally { $key.Dispose() }
     # Both the actual hardware identity and an independent VM authorization are required.
-    if (!$system -or !$product -or !$machine -or
+    if (!$system -or !$product -or !$machine -or $product.UUID -cne $ApprovedGuestIdentity -or
         ($system.Manufacturer+' '+$system.Model) -notmatch '(?i)(VMware|VirtualBox|QEMU|KVM|Hyper-V|Virtual Machine)' -or
         $product.UUID -match '^0{8}-' -or $product.UUID -match '^F{8}-') {
         throw 'Disposable VM isolation required; physical hosts are refused.'
@@ -23,7 +29,7 @@ function Assert-Fixture([string]$path) {
     if ($service -ceq 'CabinetPlatformAgent') { throw 'Production service forbidden.' }
     if ($service -cnotmatch '^CabinetManualProbe-[a-f0-9]{32}$' -or
         $data.Machine -cne $vm.Machine -or $data.UUID -cne $vm.UUID -or
-        $data.Scenario -cnotin @('success','prestart','poststart','tamper','inherited-read','owner-group','preshutdown','pending-deletion','alias','audit-sacl','destination-replacement')) {
+        $data.Scenario -cnotin @('success','prestart','poststart','tamper','inherited-read','owner','group','preshutdown','pending-deletion','alias','audit-sacl','destination-replacement')) {
         throw 'Fixture identity or VM authorization mismatch.'
     }
     $root=[IO.Path]::GetFullPath((Join-Path $env:ProgramData $service)).TrimEnd('\')

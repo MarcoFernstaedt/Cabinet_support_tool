@@ -1,5 +1,6 @@
 # Only a uniquely named, inert ServiceBase probe. No Agent service calls.
 param([switch]$MetadataOnly)
+throw "Native fixture disabled: legacy entrypoint has no exact guest/manifest gate."
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $helper = Join-Path $PSScriptRoot 'Restore-CabinetDemoAgent.ps1'

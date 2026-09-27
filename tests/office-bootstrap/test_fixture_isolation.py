@@ -1,11 +1,23 @@
 """Portable guards for the native fixture's privileged cleanup boundary."""
 import pathlib
+import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent
 PARENT = ROOT / "Test-ManualReinstallNative.ps1"
 CHILD = ROOT / "Test-ManualReinstallNativeChild.ps1"
 GUARD = ROOT / "DisposableServiceFixture.ps1"
+
+
+def assert_manifest_binding(test, source):
+    """Reject any second assignment, including one inserted between two gates."""
+    assignments = list(re.finditer(r"(?im)^\s*\$fixtureManifestPath\s*=", source))
+    test.assertEqual(1, len(assignments), "fixture manifest binding must be unique")
+    test.assertRegex(source, r"(?im)^\s*Set-Variable\s+-Name\s+fixtureManifestPath\s+-Option\s+ReadOnly\b")
+    test.assertNotRegex(source, r"(?im)^\s*\$(?:manifest|fixtureManifestPath)\s*=.*ConvertTo-Json")
+    gates = re.findall(r"-Action\s+(?:Gate|Cleanup)\s+-Manifest\s+\$([\w]+)", source)
+    test.assertTrue(gates)
+    test.assertEqual({"fixtureManifestPath"}, set(gates))
 
 
 class FixtureIsolation(unittest.TestCase):
@@ -39,7 +51,41 @@ class FixtureIsolation(unittest.TestCase):
         self.assertIn("$serviceName='CabinetPlatformAgent'", hostile)
         for name in ('$serviceName', '$root', '$install', '$helper'):
             self.assertNotIn(name, cleanup)
-        self.assertIn('-Manifest $manifest', cleanup)
+        self.assertIn('-Manifest $fixtureManifestPath', cleanup)
+
+    def test_fixture_path_survives_intervening_package_assignment(self):
+        parent = PARENT.read_text()
+        assert_manifest_binding(self, parent)
+        self.assertRegex(parent, r"\$packageManifestJson\s*=.*ConvertTo-Json")
+        with self.assertRaises(AssertionError):
+            assert_manifest_binding(self, parent.replace(
+                " if ($LASTEXITCODE -ne 0) { throw 'Fixture gate failed before child.' }",
+                " $fixtureManifestPath=$packageManifestJson\n if ($LASTEXITCODE -ne 0) { throw 'Fixture gate failed before child.' }"))
+
+    def test_guest_approval_is_independent_of_detected_vm(self):
+        guard = GUARD.read_text()
+        self.assertIn('ApprovedGuestIdentity', guard)
+        self.assertIn('ApprovedSnapshot', guard)
+        self.assertIn('$product.UUID -cne $ApprovedGuestIdentity', guard)
+        self.assertIn('-ApprovedGuestIdentity $ApprovedGuestIdentity', PARENT.read_text())
+
+    def test_legacy_native_entrypoints_refuse_before_effects(self):
+        for name in ('Test-RecoveryScmProbe.ps1', 'Test-RecoveryCleanNative.ps1'):
+            text = (ROOT / name).read_text()
+            self.assertLess(text.index('throw "Native fixture disabled'), text.index('New-Item'))
+
+    def test_audit_readback_and_separate_owner_group_scenarios(self):
+        parent = PARENT.read_text()
+        audit = (ROOT / 'Set-DisposableAuditFixture.ps1').read_text()
+        self.assertIn('Set-DisposableAuditFixture.ps1', parent)
+        self.assertIn('if($LASTEXITCODE -ne 0)', parent)
+        self.assertLess(audit.index('-Action Gate'), audit.index('::Audit($service)'))
+        for marker in ('AdjustTokenPrivileges', 'LookupPrivilegeValue', 'QueryServiceObjectSecurity',
+                       'SeSecurityPrivilege', 'ERROR_NOT_ALL_ASSIGNED', 'RawSecurityDescriptor',
+                       'AuditReadback'):
+            self.assertIn(marker, audit)
+        for marker in ("'owner'", "'group'", '::Owner($held)', '::Group($held)'):
+            self.assertIn(marker, parent)
 
     def test_manifest_is_new_only_and_cleanup_refuses_linked_tree(self):
         parent = PARENT.read_text()

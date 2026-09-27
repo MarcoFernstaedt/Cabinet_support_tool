@@ -1,11 +1,11 @@
 # Fresh Windows PowerShell 5.1 child: imports actual helper and native adapters.
-param([string]$Manual,[string]$ProbeService,[string]$ProbeInstall,[string]$Backup,[string]$Zip,[string]$Digest,[string]$Commit,[string]$Phase,[string]$Scenario)
+param([string]$Manual,[string]$ProbeService,[string]$ProbeInstall,[string]$Backup,[string]$Zip,[string]$Digest,[string]$Commit,[string]$Phase,[string]$Scenario,[string]$ApprovedGuestIdentity,[string]$ApprovedSnapshot)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
 if($Phase -notin @('prepare','restore')){throw 'Unknown phase'}
 $powershell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $manifest=Join-Path (Split-Path (Split-Path $Manual -Parent) -Parent) 'fixture-target.json'
 $guard=Join-Path $PSScriptRoot 'DisposableServiceFixture.ps1'
-& $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+& $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
 if ($LASTEXITCODE -ne 0) { throw 'Child fixture isolation gate refused.' }
 $target=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
 if ($target.Service -cne $ProbeService -or $target.Root -cne (Split-Path $ProbeInstall -Parent)) {
@@ -13,7 +13,7 @@ if ($target.Service -cne $ProbeService -or $target.Root -cne (Split-Path $ProbeI
 }
 # Script entrypoints are run with the exact operator arguments in this child.
 if($Phase -eq 'prepare'){
- & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+ & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
  if ($LASTEXITCODE -ne 0) { throw 'Prepare target gate refused.' }
  & $Manual -Prepare -ConfirmSameMachine -BackupRoot $Backup
  $runs=@(Get-ChildItem -LiteralPath $Backup -Directory -Filter 'manual-reinstall-*')
@@ -26,7 +26,7 @@ if($Phase -eq 'prepare'){
 $runs=@(Get-ChildItem -LiteralPath $Backup -Directory -Filter 'manual-reinstall-*')
 if($runs.Count -ne 1){throw 'Backup handle missing'}
 if($Scenario -eq 'alias'){
- & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+ & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
  if ($LASTEXITCODE -ne 0) { throw 'Alias target gate refused.' }
  New-Item -ItemType Junction -Path $ProbeInstall -Target $runs[0].FullName | Out-Null
  try {
@@ -37,7 +37,7 @@ if($Scenario -eq 'alias'){
   if(!(Test-Path (Join-Path $runs[0].FullName 'original-copy\office-enrollment.json.device'))){throw 'Backup changed after alias refusal'}
   Write-Output 'PASS destination junction refused before identity copy'
  } finally {
-  & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+  & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
   if ($LASTEXITCODE -ne 0) { throw 'Junction cleanup target gate refused.' }
   & "$env:SystemRoot\System32\cmd.exe" /c rmdir $ProbeInstall | Out-Null
   if($LASTEXITCODE){throw 'Exact junction cleanup failed'}
@@ -45,7 +45,7 @@ if($Scenario -eq 'alias'){
  exit 0
 }
 if($Scenario -eq 'tamper'){
- & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+ & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
  if ($LASTEXITCODE -ne 0) { throw 'Tamper target gate refused.' }
  [IO.File]::AppendAllText((Join-Path $runs[0].FullName 'original-copy\state\agent-state.json'),' ')
 }
@@ -75,7 +75,7 @@ if($Scenario -in @('prestart','poststart','destination-replacement')){
  $Manual=$injected
 }
 $failure=''
-& $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest
+& $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest -ApprovedGuestIdentity $ApprovedGuestIdentity -ApprovedSnapshot $ApprovedSnapshot
 if ($LASTEXITCODE -ne 0) { throw 'Restore target gate refused.' }
 try { & $Manual -Restore -ConfirmSameMachine -BackupHandle $runs[0].FullName -AgentZip $Zip -ExpectedSha256 $Digest -ExpectedSourceCommit $Commit }
 catch { $failure=$_.Exception.Message; Write-Output "EXPECTED_FAILURE=$failure STACK=$($_.ScriptStackTrace)" }

@@ -1,6 +1,7 @@
 # Native-only regression. The parent compiles a uniquely named inert service;
 # each transaction runs in a fresh Windows PowerShell 5.1 process.
 param([ValidateSet('success','prestart','poststart')][string]$Scenario='success')
+throw "Native fixture disabled: legacy entrypoint has no exact guest/manifest gate."
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 if ($PSVersionTable.PSVersion.ToString() -notlike '5.1.*') { throw 'Windows PowerShell 5.1 required' }
 $serviceName='CabinetRecoveryClean-' + [guid]::NewGuid().ToString('N')
