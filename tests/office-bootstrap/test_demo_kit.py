@@ -174,7 +174,8 @@ class PackageTests(unittest.TestCase):
                         if kind == "prefix": archive.writestr("appsettings.json/child", b"x")
                         if kind == "control": archive.writestr("unsafe\x01.txt", b"x")
                         if kind == "leading": archive.writestr(" leading.dll", b"x")
-                    with self.assertRaises(ValueError): verify_package(target, "console")
+                    with self.assertRaisesRegex(ValueError, "Unsafe archive member"):
+                        verify_package(target, "console")
 
     def test_archive_size_boundaries_use_actual_zip_member_lengths(self):
         from build_independent_demo_kit import package_component, verify_package
@@ -196,11 +197,22 @@ class PackageTests(unittest.TestCase):
 
             aggregate = base / "aggregate.zip"
             with zipfile.ZipFile(aggregate, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-                for index in range(11):
-                    archive.writestr(f"{index}.dll", exact)
+                with zipfile.ZipFile(target) as valid:
+                    for name in valid.namelist():
+                        if name != "kit-manifest.json":
+                            archive.writestr(name, valid.read(name))
+                    manifest = json.loads(valid.read("kit-manifest.json"))
+                # Recreate the manifest last, so the sole invalid property is size.
+                # The accepted boundary member is already 100 MiB.
+                for index in range(10):
+                    name = f"extra{index}.dll"
+                    archive.writestr(name, exact)
+                    manifest["sha256"][name] = hashlib.sha256(exact).hexdigest().upper()
+                archive.writestr("kit-manifest.json", json.dumps(manifest))
             with zipfile.ZipFile(aggregate) as archive:
-                self.assertEqual(11 * len(exact), sum(item.file_size for item in archive.infolist()))
-            with self.assertRaises(ValueError): verify_package(aggregate, "console")
+                self.assertGreater(sum(item.file_size for item in archive.infolist()), 1024 * 1024 * 1024)
+            with self.assertRaisesRegex(ValueError, "Unsafe archive member"):
+                verify_package(aggregate, "console")
 
     def test_operator_bundle_copies_exact_source_helper_and_guide(self):
         from build_independent_demo_kit import bundle_operator_files
@@ -211,6 +223,10 @@ class PackageTests(unittest.TestCase):
             (source / "docs").mkdir()
             (source / "tools/Install-CabinetDemoAgent.ps1").write_bytes(b"trusted helper")
             (source / "docs/independent-demo-kit.md").write_bytes(b"trusted guide")
+            for name in ("office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py"):
+                (source / "tools" / name).write_bytes(name.encode())
+            for name in ("demo-credential-renewal.md", "independent-demo-server.md"):
+                (source / "docs" / name).write_bytes(name.encode())
             output = base / "kit"
             output.mkdir()
             for name in ("agent", "console"):
@@ -219,9 +235,13 @@ class PackageTests(unittest.TestCase):
             evidence = json.loads((output / "release-evidence.json").read_text())
             self.assertEqual("a" * 40, evidence["sourceCommit"])
             self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1",
-                              "independent-demo-kit.md"}, set(evidence["sha256"]))
+                              "independent-demo-kit.md", "office_renewal_operator.py", "office_renewal_preflight.py",
+                              "issue_office_enrollment.py", "demo-credential-renewal.md", "independent-demo-server.md"}, set(evidence["sha256"]))
             for name, digest in evidence["sha256"].items():
                 self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest().upper(), digest)
+                if name.endswith((".py", ".md", ".ps1")):
+                    folder = "docs" if name.endswith(".md") else "tools"
+                    self.assertEqual((source / folder / name).read_bytes(), (output / name).read_bytes())
             self.assertEqual(b"trusted helper", (output / "Install-CabinetDemoAgent.ps1").read_bytes())
 
     def test_helper_contract_keeps_install_and_enrollment_separate(self):
