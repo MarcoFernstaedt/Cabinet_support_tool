@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
-      - run: dotnet restore CabinetPlatform.sln -p:Configuration=LegacyMaintenanceTests
+      - run: dotnet restore tests/CabinetPlatform.Console.Core.Tests/CabinetPlatform.Console.Core.Tests.csproj -p:Configuration=LegacyMaintenanceTests
+      - run: dotnet restore tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj -p:Configuration=LegacyMaintenanceTests
       - run: dotnet test tests/CabinetPlatform.Console.Core.Tests/CabinetPlatform.Console.Core.Tests.csproj -c LegacyMaintenanceTests --no-restore --filter 'FullyQualifiedName~ShellTests.The_approval_badge_counts_only_what_this_user_can_act_on' -m:1
       - run: dotnet test tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj -c LegacyMaintenanceTests --no-restore --filter 'FullyQualifiedName~DiagnosticModeTests' -m:1
       # This lane is test-only. Directory.Build.props also refuses every publish and pack target.
