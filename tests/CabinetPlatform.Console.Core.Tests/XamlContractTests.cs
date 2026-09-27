@@ -28,6 +28,31 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class XamlContractTests
 {
     [Fact]
+    public void Native_lifecycle_loads_real_resources_without_generated_app_initialization()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        var markup = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml"));
+        XNamespace wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        Assert.DoesNotContain("app.InitializeComponent()", code);
+        Assert.Contains("ShutdownMode = ShutdownMode.OnExplicitShutdown", code);
+        var sources = markup.Descendants(wpf + "ResourceDictionary")
+            .Attributes("Source").Select(a => a.Value).ToArray();
+        Assert.Equal(2, sources.Length);
+        var previous = -1;
+        foreach (var source in sources)
+        {
+            var index = code.IndexOf('"' + source + '"', StringComparison.Ordinal);
+            Assert.True(index > previous, "Load each real dictionary in App.xaml order");
+            previous = index;
+        }
+        var resource = Assert.Single(markup.Descendants(), e => e.Attribute(x + "Key") is not null);
+        Assert.Equal("SupportTime", resource.Attribute(x + "Key")!.Value);
+        Assert.Equal("SupportTimeConverter", resource.Name.LocalName);
+        Assert.Contains("app.Resources.Add(\"SupportTime\", new SupportTimeConverter())", code);
+    }
+
+    [Fact]
     public void Native_lifecycle_suppresses_automatic_startup_before_driving_one_loop()
     {
         var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));

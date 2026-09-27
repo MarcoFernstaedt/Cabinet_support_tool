@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 using CabinetPlatform.Console;
+using CabinetPlatform.Console.Converters;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.ViewModels;
 using CabinetPlatform.Console.Views;
@@ -17,7 +18,19 @@ internal static class SessionLifecycle
     public static int Run(bool forceFailure = false)
     {
         var app = new LifecycleApp();
-        app.InitializeComponent();
+        // Generated App.InitializeComponent loads an Application root into this;
+        // WPF rejects that root for a subclass in the harness assembly. Mirror
+        // App.xaml's resources and shutdown mode without loading its App root.
+        app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/CabinetPlatform.Console;component/Resources/Theme.Default.xaml")
+        });
+        app.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri("pack://application:,,,/CabinetPlatform.Console;component/Resources/Shared.xaml")
+        });
+        app.Resources.Add("SupportTime", new SupportTimeConverter());
         int result = 1;
         int stage = 0;
         int checks = 0;
