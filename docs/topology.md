@@ -1,5 +1,14 @@
 # Site topology and the sync cabinet
 
+## Periodic office monitoring
+
+The opt-in [office connectivity slice](office-connectivity.md) adds registered
+same-site ICMP targets, a nominal 60 second sampling loop, bounded interval
+summaries, server-side repeated-failure classification and a Machine-tab status
+panel. It does not enable the historical on-demand network action executors
+described below; those remain behind the existing compiled maintenance boundary.
+Native Windows acceptance and independent review remain separate release gates.
+
 The hierarchy is client, then site, then cabinet. Both extremes are ordinary
 and neither is a special case: a client with one site and one cabinet, and a
 client with many sites and several cabinets per site.

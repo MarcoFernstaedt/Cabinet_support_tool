@@ -23,6 +23,12 @@ using Serilog;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
+// A generated, operator-owned companion file configures the bounded office lab.
+// Environment and command-line overrides retain their usual higher precedence.
+// No reload: revocation is an explicit, supervised server restart.
+builder.Configuration.AddJsonFile("office-enrollment.json", optional: true, reloadOnChange: false)
+    .AddEnvironmentVariables().AddCommandLine(args);
+
 // Structured logging from the first line, so a failure during startup is as
 // readable as one during a request. Console-only by default: the server keeps
 // no local files on the request path, which is what lets several instances run
@@ -104,7 +110,14 @@ switch (provider.ToLowerInvariant())
 // --- Domain services -----------------------------------------------------
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
-builder.Services.AddSingleton<IAgentAuthenticator, SharedSecretAgentAuthenticator>();
+builder.Services.Configure<OfficeEnrollmentOptions>(builder.Configuration.GetSection("OfficeEnrollment"));
+builder.Services.AddSingleton<OfficeEnrollmentStore>();
+builder.Services.AddSingleton<IAgentAuthenticator>(sp =>
+    sp.GetRequiredService<OfficeEnrollmentStore>().Enabled
+        ? new OfficeAgentAuthenticator(sp.GetRequiredService<OfficeEnrollmentStore>(),
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentAuthOptions>>())
+        : new SharedSecretAgentAuthenticator(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentAuthOptions>>()));
 builder.Services.AddSingleton<IServiceAllowList, ServiceAllowList>();
 builder.Services.AddSingleton<IProcessAllowList, ProcessAllowList>();
 builder.Services.AddSingleton<IHardwareController, NullHardwareAdapter>();
@@ -253,6 +266,10 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 WebApplication app = builder.Build();
+
+// Never advertise a healthy office server if enrollment state is missing,
+// corrupt or already owned by another process. Disabled mode touches no files.
+_ = app.Services.GetRequiredService<OfficeEnrollmentStore>();
 
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();

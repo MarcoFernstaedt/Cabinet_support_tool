@@ -165,6 +165,7 @@ public sealed class RegistrationsController : SupportControllerBase
             MachineId = registration.MachineId,
             Hostname = registration.Hostname,
             SiteId = site.Id,
+            FriendlyName = string.IsNullOrWhiteSpace(request.FriendlyName) ? null : request.FriendlyName.Trim(),
             Role = request.Role,
             DepartmentName = string.IsNullOrWhiteSpace(request.DepartmentName)
                 ? null : request.DepartmentName.Trim(),
@@ -206,7 +207,8 @@ public sealed class RegistrationsController : SupportControllerBase
                 SiteName = site.Name,
                 SiteId = site.Id,
                 Role = cabinet.Role.ToString(),
-                cabinet.DepartmentName
+                cabinet.DepartmentName,
+                cabinet.FriendlyName
             }
         });
 

@@ -65,7 +65,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             : "Refresh to check completion. Accepted or dispatched does not mean executed.";
         foreach (var group in page.Items.Where(a => a.CompletedUtc is not null &&
                          a.ResultStatus == ActionStatus.Succeeded &&
-                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView)
+                         a.Action is ActionName.GetProcessList or ActionName.RunEventLogView or ActionName.InspectFirewall)
                      .OrderByDescending(a => a.RequestedUtc).GroupBy(a => a.Action))
         {
             foreach (var action in group)
@@ -73,8 +73,11 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
                 if (generation != _generation) return;
                 if (!await TryApplyActionResultAsync(action.Id)) continue;
                 if (generation != _generation) return;
-                ActionHistoryNote += $" Last successful {action.Action} snapshot: {action.Id}, " +
-                    $"completed {action.CompletedUtc:O}. Newer requests may be pending or failed; see history.";
+                ActionHistoryNote += action.Action == ActionName.InspectFirewall
+                    ? $" Last completed firewall inspection envelope: {action.Id}, completed {Format.LocalTime(action.CompletedUtc)}. " +
+                      "Read the native outcome in Windows firewall; successful delivery does not mean a readable or healthy firewall."
+                    : $" Last successful {action.Action} snapshot: {action.Id}, " +
+                      $"completed {Format.LocalTime(action.CompletedUtc)}. Newer requests may be pending or failed; see history.";
                 break;
             }
         }
@@ -84,6 +87,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     protected override void OnLoadingChanged(bool isLoading)
     {
+        RenameCommand.NotifyCanExecuteChanged();
         foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();
     }
 
@@ -110,7 +114,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         Sections = new ObservableCollection<MachineSectionViewModel>
         {
-            Overview, Performance, Processes, Services, Disk, WindowsUpdate, EventLogs, Network, System
+            Overview, Performance, Processes, Services, Disk, WindowsUpdate, EventLogs, Network, Firewall, System
         };
 
         // The user changing drive or window starts a fetch that nothing is in a
@@ -139,6 +143,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
     public WindowsUpdateSectionViewModel WindowsUpdate { get; } = new();
     public EventLogSectionViewModel EventLogs { get; } = new();
     public NetworkSectionViewModel Network { get; } = new();
+    public FirewallSectionViewModel Firewall { get; } = new();
     public SystemSectionViewModel System { get; } = new();
 
     public ObservableCollection<MachineSectionViewModel> Sections { get; }
@@ -224,6 +229,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         ClearSections();
         CabinetId = cabinetId;
         CabinetDetailDto? latest = null;
+        ConnectivityStatusDto? connectivity = null;
+        string? connectivityError = null;
 
         bool loaded = await RunAsync(async ct =>
         {
@@ -244,6 +251,17 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             }
 
             latest = await _api.GetCabinetLatestAsync(cabinetId, ct);
+            try
+            {
+                connectivity = await _api.GetConnectivityAsync(cabinetId, ct);
+                if (connectivity.SourceCabinetId != cabinetId)
+                {
+                    connectivity = null;
+                    connectivityError = "The response identity did not match the selected cabinet.";
+                }
+            }
+            catch (ApiException ex) { connectivityError = ex.Message; }
+            catch (NotSupportedException ex) { connectivityError = ex.Message; }
         });
 
         if (generation != _generation) return;
@@ -260,6 +278,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             return;
         }
 
+        _connectivity = connectivity;
+        _connectivityError = connectivityError;
         ApplyLatest();
 
         // Awaited rather than left running, so that a caller who has awaited
@@ -360,6 +380,15 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         {
             switch (action.Action)
             {
+                case ActionName.InspectFirewall:
+                    var inspection = JsonSerializer.Deserialize<FirewallInspection>(collected, ContractJson.Default);
+                    if (action.ResultStatus == ActionStatus.Succeeded && inspection is not null && Firewall.TryApply(inspection))
+                    {
+                        Announcer.Announce(Firewall.Summarise());
+                        return true;
+                    }
+                    return UnreadableResult(action.Id);
+
                 case ActionName.GetProcessList:
                     IReadOnlyList<ProcessInfo>? processes =
                         JsonSerializer.Deserialize<IReadOnlyList<ProcessInfo>>(
@@ -431,11 +460,34 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         }
     }
 
+    /// <summary>Snapshot provenance, never a claim that every metric was checked.</summary>
+    public string MonitoringNote => _latest is null
+        ? "Unknown: no cabinet snapshot loaded. A console request failure does not prove the cabinet is offline."
+        : $"{Overview.Health.Label}. {MonitoringFreshness.LastSeen(_latest.Cabinet.LastCheckInUtc)}. " +
+          $"Heartbeat collected: {Format.LocalTime(_latest.LatestHeartbeat?.CollectedAtUtc)}; " +
+          $"received: {Format.LocalTime(_latest.LatestHeartbeat?.ReceivedUtc)}. " +
+          $"Inventory last observed: {Format.LocalTime(_latest.CurrentInventory?.LastObservedUtc)}. " +
+          "Historical observations below, not live health. Check-in time is not a per-metric successful check. " +
+          "The console warns at 30 minutes; this is not an outage detection rule. Refresh to request new data.";
+
+    /// <summary>Re-evaluate only presentation age; no network requests or cabinet actions.</summary>
+    public void RefreshFreshness()
+    {
+        NotifyConnectivity();
+        var previous = Overview.Health;
+        Overview.Apply(_latest, _timeProvider.GetUtcNow());
+        OnPropertyChanged(nameof(MonitoringNote));
+        if (previous != Overview.Health) Announcer.AnnounceImportant(MonitoringNote);
+    }
+
     private void ApplyLatest()
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
         Path = _latest?.Path;
+        FriendlyName = _latest?.Cabinet.FriendlyName ?? string.Empty;
+        OnPropertyChanged(nameof(CanRename));
+        RenameCommand.NotifyCanExecuteChanged();
         CabinetHostname = _latest?.Cabinet.Hostname ?? string.Empty;
         ClientAndSite = CabinetIdentity.ClientAndSite(_latest?.Path);
 
@@ -458,6 +510,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
             action.RefreshAvailability();
         }
 
+        RefreshFreshness();
         OnPropertyChanged(nameof(OnDemandSectionCount));
         OnPropertyChanged(nameof(OnDemandSectionNote));
         OnPropertyChanged(nameof(CanTestSyncLink));
@@ -489,9 +542,13 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
     private void ClearSections()
     {
+        ClearConnectivity();
         ActionHistory.Clear();
         SelectedAction = null;
         Path = null;
+        FriendlyName = RenameReason = RenameOutcome = string.Empty;
+        OnPropertyChanged(nameof(CanRename));
+        RenameCommand.NotifyCanExecuteChanged();
         CabinetHostname = string.Empty;
         ClientAndSite = string.Empty;
         foreach (var action in Sections.SelectMany(s => s.Actions)) action.RefreshAvailability();
@@ -510,6 +567,7 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
         }
 
         Disk.ApplyHistory(Array.Empty<SmartRow>());
+        OnPropertyChanged(nameof(MonitoringNote));
     }
 
     /// <summary>
@@ -549,6 +607,10 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
             if (generation != _generation || drive != Disk.SelectedDrive || days != Disk.HistoryDays) return;
             Disk.ApplyHistory(readings.Items.Select(r => new SmartRow(r)).ToList());
+        }
+        catch (OperationCanceledException)
+        {
+            // Session disposal cancels even history reads made without a view token.
         }
         catch (ApiException ex)
         {
@@ -592,6 +654,8 @@ public sealed partial class MachineTabViewModel : ObservableViewModelBase
 
         Add(EventLogs, ActionName.RunEventLogView, EventLogs.CurrentViewParameters);
         Add(EventLogs, ActionName.CollectEventLogs);
+
+        Add(Firewall, ActionName.InspectFirewall);
 
         Add(Network, ActionName.FlushDnsCache);
         Add(Network, ActionName.RenewDhcpLease);

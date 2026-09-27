@@ -7,6 +7,12 @@ Use an authorized disposable Windows lab machine first. Do not install this
 revision on a production cabinet. Verify every path, service identity and
 configuration value before running an installation command.
 
+For the bounded office demo, use [office bootstrap](office-bootstrap.md) to generate
+Agent and Console configuration together and issue a unique enrollment token for
+each device. This replaces per-machine JSON editing, not the native installation
+and security gates. The generated artifacts are unsigned staging, not an approved
+installer, and must not use the legacy shared fleet key.
+
 ## What the agent is allowed to do
 
 Worth reading before installing it on a machine that dispenses controlled

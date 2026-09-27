@@ -98,14 +98,13 @@ public enum ActionName
     TraceRouteToCabinet = 14,
 
     /// <summary>
-    /// End one process, named by its process id together with the image name
-    /// the console believes that id belongs to.
+    /// End only one selected process after checking its PID, exact creation FILETIME,
+    /// observed full image path and image name through one retained Windows handle.
     /// </summary>
     /// <remarks>
-    /// Both are required because process ids are reused. A rep reads a list,
-    /// picks a row, and by the time the agent acts the id may name something
-    /// else entirely; the agent re-reads the name for that id and refuses if it
-    /// has changed. Approval required.
+    /// PID and name alone are insufficient because a same-name replacement can reuse
+    /// the PID. A missing or changed identity is refused; descendants are not terminated.
+    /// This historical mutation remains excluded from the monitoring release composition.
     /// </remarks>
     KillProcess = 15,
 
@@ -185,6 +184,9 @@ public enum ActionName
     /// dead host from a blocked port.
     /// </summary>
     TestPortConnectivity = 28,
+
+    /// <summary>Read bounded Windows Defender Firewall profile and rule metadata. Changes nothing.</summary>
+    InspectFirewall = 29,
 
     /// <summary>
     /// Reserved. Opening a drawer is hardware actuation, which this build does

@@ -10,6 +10,7 @@ public static class RateLimitPolicies
     public const string Login = "login";
     public const string AgentRegister = "agent-register";
     public const string AgentCheckIn = "agent-checkin";
+    public const string OfficeEnrollment = "office-enrollment";
 
     /// <summary>
     /// Partition keys are derived server-side. Login partitions by remote IP;
@@ -22,6 +23,16 @@ public static class RateLimitPolicies
         AgentIngestOptions agent)
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+
+        // One bounded partition for the small office enrollment surface. Untrusted
+        // machine/IP headers must not allocate unlimited limiters or bypass this cap.
+        options.AddPolicy(OfficeEnrollment, _ => RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: "office",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20, Window = TimeSpan.FromMinutes(1), QueueLimit = 0,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst
+            }));
 
         options.AddPolicy(Login, context => RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "unknown",

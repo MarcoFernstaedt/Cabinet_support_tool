@@ -68,6 +68,11 @@ public class SupportDbContext : DbContext
     /// <summary>Cabinet-to-cabinet reachability, most recent per pair.</summary>
     public DbSet<CabinetLinkProbe> CabinetLinkProbes => Set<CabinetLinkProbe>();
 
+    public DbSet<ConnectivityEvidence> ConnectivityEvidence => Set<ConnectivityEvidence>();
+    public DbSet<ConnectivityAlert> ConnectivityAlerts => Set<ConnectivityAlert>();
+
+    public DbSet<ConnectivityConfiguration> ConnectivityConfigurations => Set<ConnectivityConfiguration>();
+
     /// <summary>The append-only audit trail.</summary>
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
@@ -159,6 +164,7 @@ public class SupportDbContext : DbContext
             e.HasIndex(x => x.MachineId).IsUnique();
             e.Property(x => x.Hostname).IsRequired().HasMaxLength(255);
             e.Property(x => x.DepartmentName).HasMaxLength(255);
+            e.Property(x => x.FriendlyName).HasMaxLength(120);
             e.Property(x => x.Model).HasMaxLength(128);
             e.Property(x => x.SerialNumber).HasMaxLength(128);
             e.Property(x => x.AgentVersion).HasMaxLength(64);
@@ -310,6 +316,31 @@ public class SupportDbContext : DbContext
                 .HasDatabaseName("IX_SmartReadings_CabinetId_TimestampUtc_Desc");
 
             e.HasIndex(x => x.TimestampUtc);
+        });
+
+        b.Entity<ConnectivityAlert>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasOne(x => x.SourceCabinet).WithMany().HasForeignKey(x => x.SourceCabinetId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.SourceCabinetId, x.EvidenceId }).IsUnique();
+            e.HasIndex(x => new { x.SourceCabinetId, x.ReceivedUtc });
+            e.Property(x => x.Status).IsRequired().HasMaxLength(20);
+            e.Property(x => x.Note).HasMaxLength(1000);
+        });
+
+        b.Entity<ConnectivityEvidence>(e =>
+        {
+            e.HasKey(x => new { x.SourceCabinetId, x.Id });
+            e.Property(x => x.SummaryJson).IsRequired().HasMaxLength(4096);
+            e.HasIndex(x => new { x.SourceCabinetId, x.TargetCabinetId, x.ObservedUtc });
+            e.HasOne<Cabinet>().WithMany().HasForeignKey(x => x.SourceCabinetId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<ConnectivityConfiguration>(e =>
+        {
+            e.HasKey(x => x.SourceCabinetId);
+            e.Property(x => x.TargetsJson).IsRequired().HasMaxLength(2048);
+            e.HasOne<Cabinet>().WithMany().HasForeignKey(x => x.SourceCabinetId).OnDelete(DeleteBehavior.Cascade);
         });
 
         b.Entity<CabinetLinkProbe>(e =>

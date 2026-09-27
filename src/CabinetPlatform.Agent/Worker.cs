@@ -146,7 +146,19 @@ public sealed class Worker : BackgroundService
         // The current payload goes first: the freshest picture of the cabinet
         // is the most useful thing the server can have.
         var payload = await _checkInBuilder.BuildAsync(tier, cancellationToken).ConfigureAwait(false);
-        var result = await _client.CheckInAsync(payload, tier, cancellationToken).ConfigureAwait(false);
+        CheckInResult result;
+        try
+        {
+            result = await _client.CheckInAsync(payload, tier, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Shutdown may race a server commit. Keep the unacknowledged sample
+            // for replay, accepting possible duplicates rather than losing it.
+            // This is best-effort spooling, not a crash-safe write-ahead outbox.
+            SpoolUnacknowledged(payload, tier);
+            throw;
+        }
 
         if (result.Outcome == CheckInOutcome.Accepted && tier == CheckInTier.Full)
         {
@@ -156,15 +168,6 @@ public sealed class Worker : BackgroundService
         switch (result.Outcome)
         {
             case CheckInOutcome.Accepted:
-                if (_consecutiveFailures > 0)
-                {
-                    _logger.LogInformation(
-                        "The server is reachable again after {FailureCount} failed attempt(s).",
-                        _consecutiveFailures);
-                }
-
-                _consecutiveFailures = 0;
-
                 if (result.CabinetId is { } cabinetId)
                 {
                     _registration.RecordApproval(cabinetId);
@@ -178,7 +181,21 @@ public sealed class Worker : BackgroundService
                     _scheduledUpdates.ClearReportedOutcomes(reported);
                 }
 
-                await FlushBufferAsync(cancellationToken).ConfigureAwait(false);
+                if (!await FlushBufferAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                // Recovery means the bounded delivery pass completed, not just
+                // that the first request made it through intermittent Wi-Fi.
+                if (_consecutiveFailures > 0)
+                {
+                    _logger.LogInformation(
+                        "The server is reachable again after {FailureCount} failed attempt(s).",
+                        _consecutiveFailures);
+                }
+
+                _consecutiveFailures = 0;
                 await PollAndRunActionsAsync(cancellationToken).ConfigureAwait(false);
                 break;
 
@@ -208,12 +225,24 @@ public sealed class Worker : BackgroundService
             default:
                 _consecutiveFailures++;
                 _logger.LogWarning(
-                    "Check-in {FailureCount} failed; the payload has been spooled for retry. {Detail}",
+                    "Check-in {FailureCount} failed. {Detail}",
                     _consecutiveFailures,
                     result.Detail);
 
-                _buffer.Enqueue(payload, tier);
+                SpoolUnacknowledged(payload, tier);
                 break;
+        }
+    }
+
+    private void SpoolUnacknowledged(CheckInPayload payload, CheckInTier tier)
+    {
+        if (_buffer.Enqueue(payload, tier))
+        {
+            _logger.LogWarning("The unacknowledged check-in has been spooled for retry, subject to spool retention limits.");
+        }
+        else
+        {
+            _logger.LogError("The unacknowledged check-in could not be spooled. This sample is not retained for retry.");
         }
     }
 
@@ -252,12 +281,12 @@ public sealed class Worker : BackgroundService
     /// <summary>
     /// Delivers spooled payloads, oldest first.
     /// </summary>
-    private async Task FlushBufferAsync(CancellationToken cancellationToken)
+    private async Task<bool> FlushBufferAsync(CancellationToken cancellationToken)
     {
         var buffered = _buffer.PeekOldest(MaximumBufferedPerTick);
         if (buffered.Count == 0)
         {
-            return;
+            return true;
         }
 
         _logger.LogInformation(
@@ -287,15 +316,19 @@ public sealed class Worker : BackgroundService
                 case CheckInOutcome.NotApproved:
                 case CheckInOutcome.NotRegistered:
                     _registration.RecordNotRegistered();
-                    return;
+                    _consecutiveFailures = 0;
+                    return false;
 
                 default:
-                    // The server went away again mid-flush. Everything still
-                    // spooled stays spooled, in order.
-                    _logger.LogDebug("Stopping the flush; the server responded {Outcome}.", result.Outcome);
-                    return;
+                    // Stop all further requests this tick. A fresh check-in
+                    // succeeding must not reset repeated mid-flush failures.
+                    _consecutiveFailures++;
+                    _logger.LogWarning("Stopping the flush; the server responded {Outcome}. Buffered payloads remain queued.", result.Outcome);
+                    return false;
             }
         }
+
+        return true;
     }
 
     /// <summary>

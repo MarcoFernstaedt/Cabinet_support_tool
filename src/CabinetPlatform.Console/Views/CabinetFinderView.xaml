@@ -47,6 +47,7 @@
                             <Button Content="Open cabinet" Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                     CommandParameter="{Binding Id}" AutomationProperties.Name="{Binding AccessibleSummary}" />
                             <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding LastCheckInExact}" TextWrapping="Wrap" />
                             <TextBlock Text="{Binding ViewedAge}"
                                        FontSize="11"
                                        Foreground="{DynamicResource Text.Subtle.Brush}" />
@@ -171,7 +172,7 @@
                         <DataGridTextColumn Header="Role" Binding="{Binding RoleLabel}" Width="0.8*" />
                         <DataGridTextColumn Header="Serial" Binding="{Binding SerialNumber}" Width="*" />
                         <DataGridTextColumn Header="Health" Binding="{Binding Health.Label}" Width="0.7*" />
-                        <DataGridTextColumn Header="Last seen" Binding="{Binding LastCheckInAge}" Width="0.8*" />
+                        <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastCheckInExact}" Width="0.8*" />
                         <DataGridTextColumn Header="Matched on" Binding="{Binding MatchedOn}" Width="*" />
                         <!--
                             Text, not a colour or an icon. Two identically-named
@@ -213,8 +214,12 @@
                             <HierarchicalDataTemplate.ItemTemplate>
                                 <DataTemplate>
                                     <Button Command="{Binding DataContext.ChooseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding CabinetId}" AutomationProperties.Name="{Binding Spoken}">
-                                        <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
+                                            CommandParameter="{Binding CabinetId}" AutomationProperties.Name="{Binding Spoken}"
+                                            AutomationProperties.HelpText="Last seen: Unknown. The hierarchy endpoint supplies identity only; open the cabinet for its latest snapshot.">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Display}" TextWrapping="Wrap" />
+                                            <TextBlock Text="Last seen: Unknown (identity-only hierarchy)" TextWrapping="Wrap" />
+                                        </StackPanel>
                                     </Button>
                                 </DataTemplate>
                             </HierarchicalDataTemplate.ItemTemplate>

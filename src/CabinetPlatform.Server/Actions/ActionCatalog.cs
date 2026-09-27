@@ -180,6 +180,19 @@ public static class ActionCatalog
     private static readonly ImmutableDictionary<ActionName, ActionCatalogEntry> Entries =
         new[]
         {
+            new ActionCatalogEntry
+            {
+                Action = ActionName.InspectFirewall,
+                DisplayName = "Inspect Windows firewall",
+                Description = "Reads bounded profile and rule metadata. Does not diagnose the cause of failed connectivity or change firewall settings.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 30,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+            },
             // ---------------------------------------------------------------
             // Windows Update
             // ---------------------------------------------------------------

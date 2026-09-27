@@ -45,6 +45,12 @@ public interface IApiClient
     Task<UserDto> GetCurrentUserAsync(CancellationToken ct);
 
     // --- Enrollment ------------------------------------------------------
+    Task<PagedResult<ConnectivityAlertDto>> GetConnectivityAlertsAsync(ConnectivityAlertQuery query, CancellationToken ct) => throw new NotSupportedException();
+    Task AcknowledgeConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) => throw new NotSupportedException();
+    Task ResolveConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) => throw new NotSupportedException();
+    Task<PagedResult<UserDto>> GetUsersAsync(PagedQuery query, CancellationToken ct) => throw new NotSupportedException();
+    Task<UserDto> CreateUserAsync(CreateUserRequest request, CancellationToken ct) => throw new NotSupportedException();
+    Task<UserDto> UpdateUserAsync(Guid id, UpdateUserRequest request, CancellationToken ct) => throw new NotSupportedException();
 
     Task<PagedResult<CabinetPlatform.Contracts.Registrations.PendingRegistrationDto>> GetRegistrationsAsync(
         CabinetPlatform.Contracts.Registrations.RegistrationQuery query, CancellationToken ct);
@@ -57,7 +63,13 @@ public interface IApiClient
 
     Task<PagedResult<CabinetSummary>> GetCabinetsAsync(CabinetQuery query, CancellationToken ct);
 
+    /// <summary>Reads the bounded independent connectivity evidence surface.</summary>
+    Task<ConnectivityStatusDto> GetConnectivityAsync(Guid cabinetId, CancellationToken ct) =>
+        throw new NotSupportedException("Connectivity monitoring is unavailable in this client.");
+
     Task<CabinetDetailDto> GetCabinetLatestAsync(Guid cabinetId, CancellationToken ct);
+    Task<CabinetSummary> RenameCabinetAsync(Guid cabinetId, RenameCabinetRequest request, CancellationToken ct) =>
+        throw new NotSupportedException();
 
     Task<PagedResult<HeartbeatDto>> GetCheckInHistoryAsync(
         Guid cabinetId, HistoryQuery query, CancellationToken ct);

@@ -87,7 +87,7 @@ public sealed class ScheduledUpdateRunner
         if (!_options.MaintenanceEnabled)
         {
             if (_rollback.Read() is not null)
-                _logger.LogWarning("DiagnosticOnly mode suspends an unconfirmed network rollback. " +
+                _logger.LogWarning("Non-maintenance mode suspends an unconfirmed network rollback. " +
                     "The rollback record is retained; on-site attention is required.");
             return;
         }
@@ -142,7 +142,7 @@ public sealed class ScheduledUpdateRunner
     {
         if (!_options.MaintenanceEnabled)
         {
-            _logger.LogInformation("DiagnosticOnly mode suspends scheduled installs; persisted schedules are retained.");
+            _logger.LogInformation("Non-maintenance mode suspends scheduled installs; persisted schedules are retained.");
             return;
         }
 

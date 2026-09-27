@@ -5,8 +5,25 @@ every project. No project restates it.
 
 ```
 dotnet build CabinetPlatform.sln
-dotnet test  CabinetPlatform.sln
+dotnet test tests/CabinetPlatform.Server.Tests -c Release --filter FullyQualifiedName~MonitoringBoundaryTests
+dotnet test tests/CabinetPlatform.Agent.Tests -c Release --filter "FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
 ```
+
+## Office bootstrap tests and staging
+
+The office enrollment and origin checks run against the shipping composition:
+
+```sh
+dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1 --filter "FullyQualifiedName~OfficeEnrollment|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~EndpointPolicyCoverageTests"
+dotnet test tests/CabinetPlatform.Agent.Tests -c Release -m:1 --filter "FullyQualifiedName~Office|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
+dotnet test tests/CabinetPlatform.Console.Core.Tests -c Release -m:1 --filter FullyQualifiedName~OfficeConsoleTransportTests
+python3 -m unittest discover -s tests/office-bootstrap -v
+```
+
+`tools/prepare_office_demo.py` publishes the actual Windows Agent and WPF Console
+in Release and generates matching configuration without distributing a shared
+key. See [office bootstrap](office-bootstrap.md) for the private output layout,
+short-lived tokens and blocked distribution/native Windows gates.
 
 ## Platform requirements
 
@@ -32,9 +49,17 @@ Everything except the WPF console builds and tests anywhere:
 dotnet build src/CabinetPlatform.Contracts/CabinetPlatform.Contracts.csproj
 dotnet build src/CabinetPlatform.Agent/CabinetPlatform.Agent.csproj
 dotnet build src/CabinetPlatform.Server/CabinetPlatform.Server.csproj
-dotnet test  tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj
-dotnet test  tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj
+dotnet test tests/CabinetPlatform.Server.Tests -c LegacyMaintenanceTests
+dotnet test tests/CabinetPlatform.Agent.Tests -c LegacyMaintenanceTests
+dotnet test tests/CabinetPlatform.Console.Core.Tests -c LegacyMaintenanceTests
 ```
+
+`Debug` and `Release` compile the monitoring-only boundary. Run the monitoring
+tests above against the actual release composition. The historical full suites
+retain their maintenance expectations and require the explicit
+`LegacyMaintenanceTests` configuration, with separate build outputs and blocked
+publish/pack targets. Do not distribute that test build or mistake its passing
+tests for monitoring-release acceptance. See [compiled monitoring boundary](restricted-demo-mode.md).
 
 The agent's tests run on a non-Windows machine because the code under test
 reaches Windows only through injected interfaces. That is a design property

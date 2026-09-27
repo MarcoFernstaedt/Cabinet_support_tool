@@ -54,6 +54,14 @@ public interface ICheckInIngestService
 /// claiming a tier, and a heartbeat that arrives carrying inventory has that
 /// inventory ignored rather than written.
 /// </para>
+/// <para>
+/// Cabinet LastCheckInUtc is transport contact. Heartbeat CollectedAtUtc,
+/// LastFullCheckInUtc and inventory observation times are sample times. Only a
+/// strictly newer sample can advance current facts; older unique samples retain
+/// heartbeat and SMART history, not a replacement inventory. Timestamp identity
+/// is first-write-wins across tiers, not a device sequence protocol: clock rollback,
+/// equal-time distinct samples and replay after heartbeat retention remain limits.
+/// </para>
 /// </remarks>
 public sealed class CheckInIngestService : ICheckInIngestService
 {
@@ -102,9 +110,49 @@ public sealed class CheckInIngestService : ICheckInIngestService
                 "CollectedAtUtc is implausibly far in the future.");
         }
 
+        // Do not clamp a future timestamp to receipt time: that would make an
+        // untrusted measurement current and poison ordering after clock repair.
+        // Even within the diagnostic skew bound, wait for a corrected/retried
+        // sample. Missing timestamps are not a usable measurement identity.
+        if (collectedUtc == default || collectedUtc > nowUtc)
+        {
+            return OperationResult<CheckInIngestOutcome>.Invalid(
+                "CollectedAtUtc must be present and not later than server time.");
+        }
+
+        // Serialize this cabinet's measurement decision and all its side effects
+        // in the database, not a process-local lock. The controller's tracked
+        // cabinet may predate a competing commit, so reload after taking the
+        // write lock. PostgreSQL locks this row; SQLite serializes writers.
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        await _db.Cabinets.Where(c => c.Id == cabinet.Id)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(c => c.LastCheckInUtc, c => c.LastCheckInUtc), ct);
+        await _db.Entry(cabinet).ReloadAsync(ct);
+        if (!cabinet.IsActive)
+            return OperationResult<CheckInIngestOutcome>.Forbidden("Cabinet is no longer active.");
+        nowUtc = _timeProvider.GetUtcNow();
+
         bool duplicate = await _db.Heartbeats
             .AsNoTracking()
             .AnyAsync(h => h.CabinetId == cabinet.Id && h.CollectedAtUtc == collectedUtc, ct);
+
+        // The existing protocol identifies a sample by cabinet and collection
+        // time, across tiers. Equal timestamps are first-write-wins, including
+        // conflicting content: a retry cannot rewrite any sample side effects.
+        if (duplicate)
+        {
+            cabinet.LastCheckInUtc = nowUtc;
+            await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
+            return OperationResult<CheckInIngestOutcome>.Ok(
+                new CheckInIngestOutcome(true, true, nowUtc));
+        }
+
+        // Contact and measurement recency are separate. An older buffered sample
+        // remains history, but cannot replace current facts or inventory.
+        bool advancesCurrent = !await _db.Heartbeats.AsNoTracking()
+            .AnyAsync(h => h.CabinetId == cabinet.Id && h.CollectedAtUtc >= collectedUtc, ct);
+        cabinet.LastCheckInUtc = nowUtc;
 
         // Drift is the cabinet's own clock against the instant it says it
         // sampled at. Comparing against the server's receive time instead would
@@ -133,26 +181,27 @@ public sealed class CheckInIngestService : ICheckInIngestService
             SampleCount = 1,
         };
 
-        if (!duplicate)
-        {
-            _db.Heartbeats.Add(heartbeat);
-        }
+        _db.Heartbeats.Add(heartbeat);
 
         bool inventoryUnchanged = true;
 
         if (tier == CheckInTier.Full)
         {
-            inventoryUnchanged = await StoreInventoryAsync(cabinet, payload, nowUtc, ct);
+            if (advancesCurrent)
+            {
+                inventoryUnchanged = await StoreInventoryAsync(cabinet, payload, collectedUtc, ct);
+                cabinet.LastFullCheckInUtc = collectedUtc;
+            }
 
-            // SMART is stored every time, duplicate heartbeat or not. Skipping
-            // it because "nothing changed" is exactly how a failure-prediction
-            // series acquires the gap that makes the prediction wrong.
+            // Unique older samples still belong in the historical SMART series;
+            // duplicates have already returned without any sample side effects.
             StoreSmartReadings(cabinet, payload, collectedUtc);
-
-            cabinet.LastFullCheckInUtc = nowUtc;
         }
 
-        UpdateCabinetFacts(cabinet, payload, nowUtc);
+        if (advancesCurrent)
+        {
+            UpdateCabinetFacts(cabinet, payload);
+        }
 
         // What the machine actually did with an install this platform asked
         // for, as opposed to the fact that one was scheduled. Recorded whatever
@@ -204,33 +253,11 @@ public sealed class CheckInIngestService : ICheckInIngestService
             },
         });
 
-        try
-        {
-            await _db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException)
-        {
-            // Two retries of the same sample raced past the check above. The
-            // unique index is the real guarantee; this just turns the race into
-            // the same answer the first request got. Anything that is not that
-            // race is a real failure and is rethrown untouched.
-            _db.ChangeTracker.Clear();
-
-            bool stored = await _db.Heartbeats
-                .AsNoTracking()
-                .AnyAsync(h => h.CabinetId == cabinet.Id && h.CollectedAtUtc == collectedUtc, ct);
-
-            if (!stored)
-            {
-                throw;
-            }
-
-            return OperationResult<CheckInIngestOutcome>.Ok(
-                new CheckInIngestOutcome(true, inventoryUnchanged, nowUtc));
-        }
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
 
         return OperationResult<CheckInIngestOutcome>.Ok(
-            new CheckInIngestOutcome(duplicate, inventoryUnchanged, nowUtc));
+            new CheckInIngestOutcome(false, inventoryUnchanged, nowUtc));
     }
 
     /// <summary>
@@ -246,7 +273,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
     /// </remarks>
     /// <returns>True when nothing was written because nothing changed.</returns>
     private async Task<bool> StoreInventoryAsync(
-        Cabinet cabinet, CheckInPayload payload, DateTimeOffset nowUtc, CancellationToken ct)
+        Cabinet cabinet, CheckInPayload payload, DateTimeOffset observedUtc, CancellationToken ct)
     {
         var stored = new InventorySnapshot
         {
@@ -276,7 +303,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
         {
             // The whole point of the tier: an unchanged inventory writes one
             // timestamp, not a second copy of itself.
-            current.LastObservedUtc = nowUtc;
+            current.LastObservedUtc = observedUtc;
             return true;
         }
 
@@ -284,8 +311,8 @@ public sealed class CheckInIngestService : ICheckInIngestService
         {
             CabinetId = cabinet.Id,
             ContentHash = hash,
-            FirstObservedUtc = nowUtc,
-            LastObservedUtc = nowUtc,
+            FirstObservedUtc = observedUtc,
+            LastObservedUtc = observedUtc,
             PayloadJson = json,
             SectionErrorsJson = JsonSerializer.Serialize(payload.SectionErrors, PayloadJsonOptions),
         };
@@ -469,10 +496,8 @@ public sealed class CheckInIngestService : ICheckInIngestService
         }
     }
 
-    private static void UpdateCabinetFacts(Cabinet cabinet, CheckInPayload payload, DateTimeOffset nowUtc)
+    private static void UpdateCabinetFacts(Cabinet cabinet, CheckInPayload payload)
     {
-        cabinet.LastCheckInUtc = nowUtc;
-
         if (!string.IsNullOrWhiteSpace(payload.AgentVersion))
         {
             cabinet.AgentVersion = payload.AgentVersion.Trim();

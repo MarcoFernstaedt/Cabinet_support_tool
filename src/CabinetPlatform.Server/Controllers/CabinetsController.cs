@@ -105,6 +105,7 @@ public sealed class CabinetsController : SupportControllerBase
             string term = query.Search.Trim();
             cabinets = cabinets.Where(c =>
                 EF.Functions.Like(c.Hostname, $"%{term}%") ||
+                EF.Functions.Like(c.FriendlyName ?? string.Empty, $"%{term}%") ||
                 EF.Functions.Like(c.MachineId, $"%{term}%") ||
                 EF.Functions.Like(c.Site!.Client!.Name, $"%{term}%") ||
                 EF.Functions.Like(c.Site!.Name, $"%{term}%"));
@@ -177,7 +178,7 @@ public sealed class CabinetsController : SupportControllerBase
 
         Domain.Heartbeat? heartbeat = await _db.Heartbeats.AsNoTracking()
             .Where(h => h.CabinetId == id)
-            .OrderByDescending(h => h.ReceivedUtc)
+            .OrderByDescending(h => h.CollectedAtUtc)
             .FirstOrDefaultAsync(ct);
 
         Domain.InventoryVersion? inventory = cabinet.CurrentInventoryVersionId is { } inventoryId
@@ -389,6 +390,65 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
     }
 
+    /// <summary>Withdraws service eligibility, retaining identity and historical records.</summary>
+    [HttpPost("{id:guid}/retire")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<IActionResult> Retire(
+        Guid id, [FromBody] RetireCabinetRequest request, CancellationToken ct)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // A conditional write serializes retries and shares ingestion's cabinet lock.
+        int changed = await _db.Cabinets.Where(c => c.Id == id && c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, false), ct);
+        var cabinet = await _db.Cabinets.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, ct);
+        if (cabinet is null) return NotFound();
+
+        // Clear the operational designation, not the historical cabinet role.
+        await _db.Sites.Where(s => s.SyncCabinetId == id)
+            .ExecuteUpdateAsync(set => set.SetProperty(s => s.SyncCabinetId, (Guid?)null), ct);
+        if (changed == 0)
+        {
+            // Repair old invalid designations without duplicating the original audit.
+            await transaction.CommitAsync(ct);
+            return NoContent();
+        }
+
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RetireCabinet, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
+            Reason = request.Reason.Trim(), Details = new { cabinet.SiteId, PreviousIsActive = true, IsActive = false }
+        });
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return NoContent();
+    }
+
+    /// <summary>Changes the friendly label without changing device identity.</summary>
+    [HttpPatch("{id:guid}/name")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<ActionResult<CabinetSummary>> Rename(
+        Guid id, [FromBody] RenameCabinetRequest request, CancellationToken ct)
+    {
+        var cabinet = await _db.Cabinets.FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (cabinet is null) return NotFound();
+        string? previous = cabinet.FriendlyName;
+        cabinet.FriendlyName = request.FriendlyName.Trim();
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RenameCabinet, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
+            Reason = request.Reason.Trim(), Details = new { Previous = previous, cabinet.FriendlyName }
+        });
+        await _db.SaveChangesAsync(ct);
+        return Ok((await _projection.ProjectAsync(_db.Cabinets.AsNoTracking().Where(c => c.Id == id),
+            _timeProvider.GetUtcNow(), ct)).Single());
+    }
+
     /// <summary>
     /// Changes a cabinet's part in its site's topology.
     /// </summary>
@@ -410,6 +470,20 @@ public sealed class CabinetsController : SupportControllerBase
     {
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
 
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // Match retirement's cabinet-first write lock and hold it through the
+        // topology and audit commit. A tracked entity is not an activity check.
+        int active = await _db.Cabinets.Where(c => c.Id == id && c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, c => c.IsActive), ct);
+        if (active == 0 && await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.SetCabinetRole, "Cabinet is inactive.", id, null, null, ct);
+            await transaction.CommitAsync(ct);
+            return Problem("Cabinet is inactive.",
+                statusCode: StatusCodes.Status409Conflict, title: "Conflict");
+        }
+
         Domain.Cabinet? cabinet = await _db.Cabinets
             .Include(c => c.Site)
             .FirstOrDefaultAsync(c => c.Id == id, ct);
@@ -418,9 +492,17 @@ public sealed class CabinetsController : SupportControllerBase
         {
             await _audit.WriteDenialAsync(
                 AuditEvent.SetCabinetRole, "Cabinet not found.", id, null, null, ct);
+            await transaction.CommitAsync(ct);
             return Problem("Cabinet not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
+
+        // Queries can return pre-lock tracked instances. Refresh both sides of
+        // the topology decision while holding locks in cabinet-then-site order.
+        await _db.Entry(cabinet).ReloadAsync(ct);
+        await _db.Sites.Where(s => s.Id == cabinet.SiteId)
+            .ExecuteUpdateAsync(set => set.SetProperty(s => s.SyncCabinetId, s => s.SyncCabinetId), ct);
+        await _db.Entry(cabinet.Site).ReloadAsync(ct);
 
         if (request.Role == CabinetRole.Unknown)
         {
@@ -443,6 +525,7 @@ public sealed class CabinetsController : SupportControllerBase
                 null,
                 ct);
 
+            await transaction.CommitAsync(ct);
             return Problem(
                 "This site already has a sync cabinet. Demote that one first — a site has exactly one.",
                 statusCode: StatusCodes.Status409Conflict,
@@ -488,6 +571,7 @@ public sealed class CabinetsController : SupportControllerBase
         try
         {
             await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -540,7 +624,7 @@ public sealed class CabinetsController : SupportControllerBase
             .FirstAsync(s => s.Id == siteId, ct);
 
         List<CabinetSummary> members = await _projection.ProjectAsync(
-            _db.Cabinets.AsNoTracking().Where(c => c.SiteId == siteId), nowUtc, ct);
+            _db.Cabinets.AsNoTracking().Where(c => c.IsActive && c.SiteId == siteId), nowUtc, ct);
 
         CabinetSummary? sync = members.FirstOrDefault(c => c.Id == site.SyncCabinetId);
 

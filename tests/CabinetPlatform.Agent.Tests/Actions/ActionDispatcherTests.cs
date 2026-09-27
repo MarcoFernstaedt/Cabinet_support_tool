@@ -331,15 +331,18 @@ public class ActionDispatcherTests
         }
     }
 
-    [Fact]
-    public async Task Diagnostic_default_denies_every_unreviewed_action_before_executor()
+    [Theory]
+    [InlineData("DiagnosticOnly")]
+    [InlineData("Demo")]
+    public async Task Restricted_mode_denies_every_unreviewed_action_before_executor(string mode)
     {
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999))
         {
+            if (mode == "Demo" && action == ActionName.KillProcess) continue;
             var executor = new RecordingExecutor(action);
-            var dispatcher = Dispatcher(ApprovedState(), new AgentOptions(), executor);
+            var dispatcher = Dispatcher(ApprovedState(), new AgentOptions { Actions = new() { ExecutionMode = mode } }, executor);
             var result = await dispatcher.DispatchAsync(Request(action), CancellationToken.None);
             Assert.Equal(allowed.Contains(action) ? ActionStatus.Succeeded : ActionStatus.Denied, result.Status);
             Assert.Equal(allowed.Contains(action) ? 1 : 0, executor.CallCount);
@@ -349,14 +352,18 @@ public class ActionDispatcherTests
     [Theory]
     [InlineData("DiagnosticOnly", false)]
     [InlineData("Maintenance", true)]
+    [InlineData("Demo", true)]
+    [InlineData("demo", false)]
     [InlineData("maintenance", false)]
     [InlineData("", false)]
     [InlineData("unexpected", false)]
-    public void Only_explicit_local_maintenance_enables_mutations(string mode, bool maintenance)
+    public void Only_explicit_modes_enable_selected_termination(string mode, bool maintenance)
     {
         var options = new ActionOptions { ExecutionMode = mode };
         Assert.Equal("DiagnosticOnly", new ActionOptions().ExecutionMode);
         Assert.Equal(maintenance, options.Permits(ActionName.KillProcess));
+        Assert.Equal(mode == "Maintenance", options.MaintenanceEnabled);
+        Assert.Equal(mode == "Maintenance", options.Permits(ActionName.RestartApplication));
         Assert.True(options.Permits(ActionName.GetProcessList));
         Assert.False(options.Permits((ActionName)9999));
     }

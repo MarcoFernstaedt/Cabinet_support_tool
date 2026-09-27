@@ -60,12 +60,13 @@ public sealed class CabinetProjection : ICabinetProjection
         double criticalDrift = HealthEvaluator.CriticalClockDrift.TotalSeconds;
         double warningDrift = HealthEvaluator.WarningClockDrift.TotalSeconds;
         // Keep the priority order identical to HealthEvaluator: unavailable,
-        // offline, critical, warning, healthy. All operations translate to SQL.
+        // offline, critical, warning, incomplete, healthy. SMART is optional.
+        // All operations translate to SQL.
         return cabinets.Where(c =>
             (!c.IsActive || c.LastCheckInUtc == null ? CabinetHealthStatus.Unknown :
              c.LastCheckInUtc < offlineBefore ? CabinetHealthStatus.Offline :
              _db.Heartbeats.Where(h => h.CabinetId == c.Id)
-                .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
+                .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
                 .Select(h => (CabinetHealthStatus?)(
                     h.WorstDiskHealth == DiskHealthStatus.Failing ||
                     h.MinFreeDiskPercent <= HealthEvaluator.CriticalFreeDiskPercent ||
@@ -78,16 +79,19 @@ public sealed class CabinetProjection : ICabinetProjection
                     h.CpuPercent >= HealthEvaluator.WarningCpuPercent ||
                     h.PendingUpdateCount >= HealthEvaluator.WarningPendingUpdates ||
                     h.ClockDriftSeconds >= warningDrift || h.ClockDriftSeconds <= -warningDrift
-                        ? CabinetHealthStatus.Warning : CabinetHealthStatus.Healthy))
-                .FirstOrDefault() ?? CabinetHealthStatus.Healthy) == health);
+                        ? CabinetHealthStatus.Warning :
+                    h.CpuPercent == null || h.RamUsedPercent == null || h.MinFreeDiskPercent == null ||
+                    h.PendingUpdateCount == null || h.ClockDriftSeconds == null
+                        ? CabinetHealthStatus.Unknown : CabinetHealthStatus.Healthy))
+                .FirstOrDefault() ?? CabinetHealthStatus.Unknown) == health);
     }
 
     /// <inheritdoc />
     public async Task<List<CabinetSummary>> ProjectAsync(
         IQueryable<Cabinet> cabinets, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        // The correlated sub-query rides the (CabinetId, ReceivedUtc desc)
-        // index, so this stays one indexed seek per row rather than a scan.
+        // Collection order uses the unique (CabinetId, CollectedAtUtc) index.
+        // Receipt order would promote a buffered replay above a newer sample.
         var rows = await cabinets
             .Select(c => new
             {
@@ -96,7 +100,7 @@ public sealed class CabinetProjection : ICabinetProjection
                 ClientName = c.Site!.Client!.Name,
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
-                    .OrderByDescending(h => h.ReceivedUtc).ThenByDescending(h => h.Id)
+                    .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
                     .Select(h => new
                     {
                         h.CpuPercent,
@@ -125,6 +129,7 @@ public sealed class CabinetProjection : ICabinetProjection
                 Id = r.Cabinet.Id,
                 MachineId = r.Cabinet.MachineId,
                 Hostname = r.Cabinet.Hostname,
+                FriendlyName = r.Cabinet.FriendlyName,
                 ClientName = r.ClientName,
                 SiteName = r.SiteName,
                 SiteId = r.Cabinet.SiteId,

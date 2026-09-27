@@ -48,8 +48,8 @@
                 <DataGridTextColumn Header="Machine identity" Binding="{Binding MachineId}" Width="*" />
                 <DataGridTextColumn Header="OS" Binding="{Binding OsVersion}" Width="160" />
                 <DataGridTextColumn Header="Agent" Binding="{Binding AgentVersion}" Width="70" />
-                <DataGridTextColumn Header="First seen (UTC)" Binding="{Binding FirstSeenUtc}" Width="160" />
-                <DataGridTextColumn Header="Last seen (UTC)" Binding="{Binding LastSeenUtc}" Width="160" />
+                <DataGridTextColumn Header="First seen (MST)" Binding="{Binding FirstSeenUtc, Converter={StaticResource SupportTime}}" Width="160" />
+                <DataGridTextColumn Header="Last seen (MST)" Binding="{Binding LastSeenUtc, Converter={StaticResource SupportTime}}" Width="160" />
                 <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="90" />
             </DataGrid.Columns>
         </DataGrid>
@@ -59,6 +59,10 @@
                 <TextBlock Text="{Binding SelectedRegistration.Hostname}" />
                 <TextBox Text="{Binding SelectedRegistration.MachineId, Mode=OneWay}" IsReadOnly="True" AutomationProperties.Name="Full selected machine identity, copyable for independent verification" />
                 <WrapPanel>
+                    <StackPanel Width="210" Margin="0,0,8,0">
+                        <Label Content="Friendly cabinet _name" Target="{Binding ElementName=FriendlyName}" />
+                        <TextBox x:Name="FriendlyName" Text="{Binding FriendlyName, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" AutomationProperties.Name="Friendly cabinet name, optional. Does not change device identity." />
+                    </StackPanel>
                     <StackPanel Width="210" Margin="0,0,8,0">
                         <Label Content="_Client (required to accept)" Target="{Binding ElementName=Client}" />
                         <TextBox x:Name="Client" Text="{Binding ClientName, UpdateSourceTrigger=PropertyChanged}" MaxLength="200" AutomationProperties.Name="Client name" AutomationProperties.HelpText="Client is required to accept this registration." />

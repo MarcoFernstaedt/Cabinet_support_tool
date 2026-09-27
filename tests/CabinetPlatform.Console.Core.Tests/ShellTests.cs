@@ -19,6 +19,66 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
 
     public ShellTests(ConsoleTestHost host) => _host = host;
 
+    [Fact]
+    public async Task Staff_navigation_is_supervisor_only_and_clears_on_signout()
+    {
+        var (shell, _, _, _) = await SignedInShellAsync(Role.Supervisor);
+        var entry = typeof(ShellViewModel).GetProperty("ShowStaffCommand");
+        Assert.NotNull(entry);
+        var command = (CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)entry.GetValue(shell)!;
+        Assert.True(command.CanExecute(null));
+        await command.ExecuteAsync(null);
+        dynamic staff = typeof(ShellViewModel).GetProperty("Staff")!.GetValue(shell)!;
+        Assert.True(staff.Users.Count > 0);
+        Assert.Equal("Staff", shell.CurrentView.ToString());
+        shell.SignOutCommand.Execute(null);
+        Assert.Equal(0, (int)staff.Users.Count);
+        Assert.False(command.CanExecute(null));
+        var (support, _, _, _) = await SignedInShellAsync(Role.Tier1);
+        Assert.False(((CommunityToolkit.Mvvm.Input.IAsyncRelayCommand)entry.GetValue(support)!).CanExecute(null));
+    }
+
+    [Fact]
+    public async Task A_signed_out_shell_cannot_be_started_for_another_account()
+    {
+        var (shell, session, _, _) = await SignedInShellAsync(Role.Supervisor);
+        await shell.StartSessionAsync();
+        shell.SignOutCommand.Execute(null);
+        session.SignIn("synthetic-new-token", DateTimeOffset.UtcNow.AddMinutes(10),
+            "synthetic-refresh", "Next operator", Role.Tier1, false);
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => shell.StartSessionAsync());
+        Assert.Empty(shell.Cabinets.Cabinets);
+    }
+
+    [Fact]
+    public async Task Next_authorized_session_fetches_fresh_shared_history_without_reusing_old_state()
+    {
+        var cabinet = await _host.CreateCabinetAsync(Unique("history"), Unique("client"), "Synthetic site");
+        var (oldShell, _, oldApi, _) = await SignedInShellAsync(Role.Supervisor);
+        var created = await oldApi.CreateActionAsync(new CreateActionRequest
+        {
+            CabinetId = cabinet.Id, Action = ActionName.GetProcessList,
+            Reason = "Synthetic authorized history regression"
+        }, CancellationToken.None);
+        await oldShell.Machine.LoadAsync(cabinet.Id);
+        Assert.Contains(oldShell.Machine.ActionHistory, item => item.Id == created.Id);
+        oldShell.SignOutCommand.Execute(null);
+        oldApi.Dispose();
+        Assert.Empty(oldShell.Machine.ActionHistory);
+
+        var (nextShell, nextSession, nextApi, _) = await SignedInShellAsync(Role.Tier1);
+        Assert.NotSame(oldShell.Machine, nextShell.Machine);
+        Assert.Empty(nextShell.Machine.ActionHistory);
+        await nextShell.Machine.LoadAsync(cabinet.Id);
+        Assert.Null(nextShell.Machine.ErrorMessage);
+        Assert.Equal(Role.Tier1, nextSession.Role);
+        Assert.Contains(nextShell.Machine.ActionHistory, item => item.Id == created.Id);
+        Assert.Empty(oldShell.Machine.ActionHistory);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => oldApi.GetCurrentUserAsync(default));
+        nextShell.Dispose();
+        nextApi.Dispose();
+    }
+
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 
     private async Task<(ShellViewModel Shell, SessionStore Session, ApiClient Api,
@@ -48,7 +108,8 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
             new RegistrationsViewModel(api, session, announcer),
             session,
-            announcer);
+            announcer,
+            new StaffViewModel(api, session, announcer));
 
         return (shell, session, api, announcer);
     }

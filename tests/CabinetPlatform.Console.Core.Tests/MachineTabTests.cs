@@ -25,7 +25,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
     private async Task<(MachineTabViewModel Tab, Cabinet Cabinet, RecordingLiveRegionAnnouncer Announcer,
         ScriptedActionDialog Dialog)>
-        SignedInTabAsync(Role role, ScriptedActionDialog? dialog = null)
+        SignedInTabAsync(Role role, ScriptedActionDialog? dialog = null, TimeProvider? timeProvider = null)
     {
         string username = Unique("m");
         await _host.CreateUserAsync(role, username);
@@ -48,7 +48,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             new ActionInvoker(api, dialog, announcer, session),
             session,
             announcer,
-            TimeProvider.System);
+            timeProvider ?? TimeProvider.System);
 
         Cabinet cabinet = await _host.CreateCabinetAsync($"CUBEX-{Unique("h")[..8]}");
 
@@ -71,6 +71,46 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
         Assert.Equal(Format.NotReported, tab.System.OsVersion);
         Assert.Equal(Format.NotReported, tab.System.Domain);
         Assert.Equal(Format.NotReported, tab.System.TimeZone);
+    }
+
+    [Fact]
+    public async Task Buffered_old_heartbeat_does_not_make_overview_healthy_on_recent_delivery()
+    {
+        var (tab, cabinet, _, _) = await SignedInTabAsync(Role.Tier2);
+        var now = DateTimeOffset.UtcNow;
+        await _host.AddFullCheckInAsync(cabinet.Id,
+            TestData.Payload(cabinet.MachineId, now.AddHours(-2)), now);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.Contains("Stale", tab.Overview.Health.Label);
+        Assert.Contains("heartbeat collected", tab.Overview.Health.Label);
+        Assert.Contains("Last seen", tab.Overview.LastCheckInExact);
+    }
+
+    private sealed class MonitoringClock(DateTimeOffset now) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = now;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    [Fact]
+    public async Task Snapshot_ages_without_network_and_failed_refresh_clears_provenance()
+    {
+        var clock = new MonitoringClock(DateTimeOffset.UtcNow);
+        var (tab, cabinet, announcer, _) = await SignedInTabAsync(Role.Tier2, timeProvider: clock);
+        await _host.AddFullCheckInAsync(cabinet.Id,
+            TestData.Payload(cabinet.MachineId, clock.Now), clock.Now);
+        await tab.LoadAsync(cabinet.Id);
+        Assert.DoesNotContain("Stale", tab.MonitoringNote);
+        Assert.Contains("received:", tab.MonitoringNote);
+        var changes = new List<string?>();
+        tab.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        clock.Now = clock.Now.AddMinutes(31);
+        tab.RefreshFreshness();
+        Assert.Contains("Stale", tab.MonitoringNote);
+        Assert.Contains(nameof(tab.MonitoringNote), changes);
+        await tab.LoadAsync(Guid.NewGuid());
+        Assert.Contains("Unknown", tab.MonitoringNote);
+        Assert.DoesNotContain(cabinet.Hostname, tab.MonitoringNote);
     }
 
     [Fact]
@@ -197,12 +237,12 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             Assert.False(section.Availability.HasData);
             Assert.NotEmpty(section.Availability.Reason);
 
-            // Event logs and the process list are on-demand whether or not a
+            // Event logs, process list and firewall inspection are on-demand whether or not a
             // cabinet has checked in, so their reason is the action to run
             // rather than the absence of telemetry. Everything else is simply
             // "nothing collected yet".
             Assert.Equal(
-                section == tab.EventLogs || section == tab.Processes
+                section == tab.EventLogs || section == tab.Processes || section == tab.Firewall
                     ? SectionAvailabilityKind.OnDemandOnly
                     : SectionAvailabilityKind.NoCheckIn,
                 section.Availability.Kind);
@@ -254,9 +294,11 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
 
         Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Performance.ProcessListAvailability.Kind);
 
-        // Both say so up front. An empty panel and a healthy cabinet look the
+        // All on-demand sections say so up front. An empty panel and a healthy cabinet look the
         // same, and only one of them is good news.
-        Assert.Equal(2, tab.OnDemandSectionCount);
+        Assert.Equal(SectionAvailabilityKind.OnDemandOnly, tab.Firewall.Availability.Kind);
+        Assert.Contains("Inspect Windows firewall", tab.Firewall.Availability.Reason);
+        Assert.Equal(3, tab.OnDemandSectionCount);
         Assert.NotNull(tab.OnDemandSectionNote);
     }
 
@@ -302,7 +344,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
     /// over the phone.
     /// </remarks>
     [Fact]
-    public async Task All_nine_sections_are_present_in_the_order_the_brief_sets()
+    public async Task All_sections_include_firewall_inspection_beside_network()
     {
         (MachineTabViewModel tab, _, _, _) = await SignedInTabAsync(Role.Tier1);
 
@@ -310,7 +352,7 @@ public sealed class MachineTabTests : IClassFixture<ConsoleTestHost>
             new[]
             {
                 "Overview", "Performance", "Processes", "Services", "Disk",
-                "Windows Update", "Event Logs", "Network", "System"
+                "Windows Update", "Event Logs", "Network", "Windows firewall", "System"
             },
             tab.Sections.Select(s => s.Title).ToArray());
     }

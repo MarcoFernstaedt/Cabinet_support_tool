@@ -44,7 +44,8 @@
                      Margin="0,0,0,12" />
 
             <TextBlock Text="Password" Style="{StaticResource FieldLabel}" />
-            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
+            <PasswordBox a11y:PasswordBoxBinding.Attach="True"
+                         a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
                          AutomationProperties.Name="Password"
                          AutomationProperties.HelpText="Your account password. Five wrong attempts lock the account."
                          TabIndex="1"
@@ -71,7 +72,8 @@
             </Border>
 
             <TextBlock Text="Current password" Style="{StaticResource FieldLabel}" />
-            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
+            <PasswordBox a11y:PasswordBoxBinding.Attach="True"
+                         a11y:PasswordBoxBinding.Password="{Binding Password, Mode=TwoWay}"
                          AutomationProperties.Name="Current password"
                          AutomationProperties.HelpText="The password you just signed in with. Retyping it confirms it is still you at the keyboard."
                          a11y:FocusBehaviour.FocusOnLoad="True"
@@ -81,7 +83,8 @@
                          Margin="0,0,0,12" />
 
             <TextBlock Text="New password" Style="{StaticResource FieldLabel}" />
-            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding NewPassword, Mode=TwoWay}"
+            <PasswordBox a11y:PasswordBoxBinding.Attach="True"
+                         a11y:PasswordBoxBinding.Password="{Binding NewPassword, Mode=TwoWay}"
                          AutomationProperties.Name="New password"
                          AutomationProperties.HelpText="At least twelve characters, mixing upper case, lower case, digits and symbols."
                          TabIndex="11"
@@ -90,7 +93,8 @@
                          Margin="0,0,0,12" />
 
             <TextBlock Text="Confirm new password" Style="{StaticResource FieldLabel}" />
-            <PasswordBox a11y:PasswordBoxBinding.Password="{Binding ConfirmNewPassword, Mode=TwoWay}"
+            <PasswordBox a11y:PasswordBoxBinding.Attach="True"
+                         a11y:PasswordBoxBinding.Password="{Binding ConfirmNewPassword, Mode=TwoWay}"
                          AutomationProperties.Name="Confirm new password"
                          TabIndex="12"
                          MinHeight="28"

@@ -73,6 +73,9 @@ public enum AuditEvent
     /// <summary>A site's sync cabinet was assigned or cleared.</summary>
     SetSiteSyncCabinet = 28,
 
+    /// <summary>A supervisor changed a cabinet's friendly label.</summary>
+    RenameCabinet = 29,
+
     /// <summary>The pending registration queue was read.</summary>
     ListPendingRegistrations = 30,
 
@@ -81,6 +84,9 @@ public enum AuditEvent
 
     /// <summary>A pending agent was refused.</summary>
     RejectRegistration = 32,
+
+    /// <summary>A supervisor withdrew a cabinet from active service.</summary>
+    RetireCabinet = 33,
 
     /// <summary>The user list was read.</summary>
     ListUsers = 40,
@@ -234,4 +240,13 @@ public enum AuditEvent
     /// reading denial text.
     /// </remarks>
     HardwareActuationRefused = 132,
+
+    /// <summary>A supervisor changed approved connectivity targets.</summary>
+    ConfigureConnectivity = 140,
+    /// <summary>A support user read connectivity evidence.</summary>
+    ViewConnectivity = 141,
+    /// <summary>A support user acknowledged a connectivity incident.</summary>
+    AcknowledgeConnectivityAlert = 142,
+    /// <summary>A support user resolved a connectivity workflow annotation.</summary>
+    ResolveConnectivityAlert = 143,
 }

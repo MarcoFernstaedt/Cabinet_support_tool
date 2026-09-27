@@ -40,7 +40,7 @@ public sealed record CabinetPath
     /// <summary>Department within the site, when the client uses them.</summary>
     public string? DepartmentName { get; init; }
 
-    /// <summary>The cabinet's own name, which is its current hostname.</summary>
+    /// <summary>Friendly cabinet label, falling back to the reported hostname.</summary>
     public required string CabinetName { get; init; }
 
     /// <summary>The cabinet's part in its site's topology.</summary>
@@ -112,7 +112,7 @@ public sealed record CabinetPath
         SiteName = summary.SiteName,
         SiteId = summary.SiteId,
         DepartmentName = summary.DepartmentName,
-        CabinetName = summary.Hostname,
+        CabinetName = summary.DisplayName,
         Role = summary.Role,
         SerialNumber = summary.SerialNumber,
         HostnameIsAmbiguous = hostnameIsAmbiguous,

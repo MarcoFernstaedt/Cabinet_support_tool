@@ -8,6 +8,9 @@ namespace CabinetPlatform.Server.Domain;
 /// </summary>
 public class Cabinet
 {
+    /// <summary>Supervisor-chosen label. Agent check-ins never change it.</summary>
+    public string? FriendlyName { get; set; }
+
     /// <summary>Identifier of the cabinet.</summary>
     public Guid Id { get; set; } = Guid.NewGuid();
 

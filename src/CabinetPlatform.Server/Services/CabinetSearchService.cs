@@ -140,6 +140,7 @@ public sealed class CabinetSearchService : ICabinetSearchService
 
             cabinets = cabinets.Where(c =>
                 EF.Functions.Like(c.Hostname, pattern) ||
+                EF.Functions.Like(c.FriendlyName ?? string.Empty, pattern) ||
                 EF.Functions.Like(c.SerialNumber ?? string.Empty, pattern) ||
                 EF.Functions.Like(c.DepartmentName ?? string.Empty, pattern) ||
                 EF.Functions.Like(c.Site!.Name, pattern) ||

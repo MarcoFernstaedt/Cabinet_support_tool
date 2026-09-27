@@ -13,8 +13,9 @@ namespace CabinetPlatform.Server.Services;
 /// stored payload to do it.
 /// </para>
 /// <para>
-/// Every counter is nullable and a null one contributes nothing. A cabinet
-/// whose disk reading failed is not a cabinet with plenty of disk.
+/// Missing required counters make coverage Unknown unless known evidence
+/// already warrants Critical or Warning. SMART health is optional because
+/// not every drive exposes it; known adverse SMART evidence still contributes.
 /// </para>
 /// </remarks>
 public static class HealthEvaluator
@@ -120,6 +121,12 @@ public static class HealthEvaluator
             (clockDrift is { } warnDrift && warnDrift.Duration() >= WarningClockDrift))
         {
             return CabinetHealthStatus.Warning;
+        }
+
+        if (cpuPercent is null || ramUsedPercent is null || minFreeDiskPercent is null ||
+            pendingUpdateCount is null || clockDrift is null)
+        {
+            return CabinetHealthStatus.Unknown;
         }
 
         return CabinetHealthStatus.Healthy;

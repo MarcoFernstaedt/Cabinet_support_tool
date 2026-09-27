@@ -67,6 +67,8 @@ public sealed class FleetController : SupportControllerBase
 
         IQueryable<Domain.Cabinet> cabinets = FilterCabinets(
             query.ClientName, query.SiteName, query.SiteId, query.DepartmentName);
+        int inactive = await cabinets.CountAsync(c => !c.IsActive, ct);
+        cabinets = cabinets.Where(c => c.IsActive);
 
         // Clamped rather than refused: unlike a history window, an over-wide
         // stale window costs nothing to serve and the honest answer to "which
@@ -96,7 +98,7 @@ public sealed class FleetController : SupportControllerBase
                 IsSyncCabinet = c.Site!.SyncCabinetId == c.Id,
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
-                    .OrderByDescending(h => h.ReceivedUtc)
+                    .OrderByDescending(h => h.CollectedAtUtc)
                     .Select(h => new
                     {
                         h.CpuPercent,
@@ -223,7 +225,7 @@ public sealed class FleetController : SupportControllerBase
             Critical = critical,
             Offline = offline,
             Unknown = unknown,
-            Inactive = rows.Count(r => !r.IsActive),
+            Inactive = inactive,
             SitesWithOfflineSyncCabinet = sitesWithOfflineSync,
             PendingRegistrations = await _db.PendingRegistrations
                 .AsNoTracking()
@@ -306,7 +308,7 @@ public sealed class FleetController : SupportControllerBase
 
         // One projection pass over the page's cabinets, not one per site.
         List<CabinetSummary> members = await _projection.ProjectAsync(
-            _db.Cabinets.AsNoTracking().Where(c => siteIds.Contains(c.SiteId)), nowUtc, ct);
+            _db.Cabinets.AsNoTracking().Where(c => c.IsActive && siteIds.Contains(c.SiteId)), nowUtc, ct);
 
         ILookup<Guid, CabinetSummary> bySite = members.ToLookup(c => c.SiteId);
 
@@ -362,7 +364,7 @@ public sealed class FleetController : SupportControllerBase
         }
 
         List<CabinetSummary> members = await _projection.ProjectAsync(
-            _db.Cabinets.AsNoTracking().Where(c => c.SiteId == id), nowUtc, ct);
+            _db.Cabinets.AsNoTracking().Where(c => c.IsActive && c.SiteId == id), nowUtc, ct);
 
         // The sync cabinet leads, then departments, then name. A rep opening a
         // site that is misbehaving as a whole is nearly always looking for the

@@ -198,13 +198,13 @@ public sealed partial class CabinetListViewModel : ObservableViewModelBase
         // in front of you carry one name", not "this name exists twice
         // somewhere among seven thousand cabinets".
         HashSet<string> duplicated = result.Items
-            .GroupBy(c => c.Hostname, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(c => c.DisplayName, StringComparer.OrdinalIgnoreCase)
             .Where(g => g.Count() > 1)
             .Select(g => g.Key)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         foreach (CabinetRow row in result.Items.Select(
-                     c => new CabinetRow(c, nowUtc, duplicated.Contains(c.Hostname))))
+                     c => new CabinetRow(c, nowUtc, duplicated.Contains(c.DisplayName))))
         {
             Cabinets.Add(row);
 

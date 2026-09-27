@@ -89,6 +89,32 @@ public sealed class NativeEventChannelTransportTests(DiagnosticConsoleTestHost h
 
 
     [Fact]
+    public async Task Supervisor_filter_editor_carries_error_provider_and_event_identity_to_executor()
+    {
+        var (tab, api, agent, _) = await OpenAsync();
+        using (agent)
+        {
+            var section = tab.EventLogs;
+            section.NewChannelName = "Synthetic/Application";
+            section.NewViewName = "Synthetic exact errors";
+            section.NewViewReason = "Synthetic operator-selected error filter";
+            section.NewMinimumLevel = EventLogLevel.Error;
+            section.NewProviderName = "SyntheticProvider";
+            section.NewEventId = "9001";
+            Assert.True(section.SaveChannelViewCommand.CanExecute(null));
+            await section.SaveChannelViewCommand.ExecuteAsync(null);
+            Assert.Equal(EventLogLevel.Error, section.SelectedView!.MinimumLevel);
+            Assert.Equal(new[] { "SyntheticProvider" }, section.SelectedView.Sources);
+            Assert.Equal(new[] { 9001 }, section.SelectedView.EventIds);
+            var request = await DispatchAsync(tab, api, agent, ActionName.RunEventLogView);
+            var definition = JsonSerializer.Deserialize<EventLogViewDefinition>(request.Parameters[ActionParameterKeys.EventLogViewDefinition], AgentJson.SerializerOptions)!;
+            Assert.Equal(EventLogLevel.Error, definition.MinimumLevel);
+            Assert.Equal(new[] { "SyntheticProvider" }, definition.Sources);
+            Assert.Equal(new[] { 9001 }, definition.EventIds);
+        }
+    }
+
+    [Fact]
     public async Task Supervisor_channel_picker_saves_selects_and_really_submits_exact_channel()
     {
         var (tab, api, agent, _) = await OpenAsync();
@@ -152,16 +178,27 @@ public sealed class NativeEventChannelTransportTests(DiagnosticConsoleTestHost h
             var gateway = new NativeEventChannelReaderTests.Records();
             var reader = new EventLogReader(NullLogger<EventLogReader>.Instance, new NativeEventChannelReaderTests.Channels(), records: gateway);
             var outcome = await new RunEventLogViewExecutor(reader, NullLogger<RunEventLogViewExecutor>.Instance).ExecuteAsync(request, default);
-            Assert.Equal(ActionStatus.Succeeded, outcome.Status);
-            var result = JsonSerializer.Deserialize<EventLogViewResultDto>(outcome.CollectedData!, AgentJson.SerializerOptions)!;
-            Assert.NotNull(result.ChannelReads);
-            Assert.Equal(allUnavailable ? 2 : 3, result.ChannelReads.Count);
+            Assert.Equal(allUnavailable ? ActionStatus.Failed : ActionStatus.Succeeded, outcome.Status);
+            if (allUnavailable) Assert.Null(outcome.CollectedData);
+            else
+            {
+                var result = JsonSerializer.Deserialize<EventLogViewResultDto>(outcome.CollectedData!, AgentJson.SerializerOptions)!;
+                Assert.Equal(3, result.ChannelReads!.Count);
+            }
             await CompleteAsync(tab, api, agent, request, outcome);
             Assert.Equal(allUnavailable ? Array.Empty<string>() : new[] { "Vendor/Newer", "Vendor/Newer" }, tab.EventLogs.Entries.Select(e => e.DisplayChannelName));
-            Assert.Contains("access denied", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("unavailable", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.Contains("incomplete", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("not disclosed", outcome.CollectedData!);
+            if (allUnavailable)
+            {
+                Assert.Contains("No selected event channel could be read", tab.ActionHistory.Single(a => a.Request.Id == request.Id).ResultOutput);
+                Assert.DoesNotContain("Synthetic native", outcome.Output);
+            }
+            else
+            {
+                Assert.Contains("access denied", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("unavailable", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.Contains("incomplete", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("not disclosed", outcome.CollectedData!);
+            }
         }
     }
 }

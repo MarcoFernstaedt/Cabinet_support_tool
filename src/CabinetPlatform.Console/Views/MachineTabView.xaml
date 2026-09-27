@@ -9,6 +9,12 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="pack://application:,,,/CabinetPlatform.Console;component/Views/Sections/SectionResources.xaml" />
             </ResourceDictionary.MergedDictionaries>
+            <!-- No per-metric success timestamps: never paint old observations live green. -->
+            <DataTemplate x:Key="HistoricalStatusTemplate">
+                <TextBlock Text="{Binding Label, StringFormat='Last observed: {0}; current state unverified'}"
+                           TextWrapping="Wrap" Foreground="{DynamicResource Text.Brush}"
+                           AutomationProperties.Name="{Binding Text, RelativeSource={RelativeSource Self}}" />
+            </DataTemplate>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -57,6 +63,23 @@
                                AutomationProperties.Name="Full path" />
                 </StackPanel>
             </DockPanel>
+
+            <Border Style="{StaticResource ExplanationPanel}">
+                <StackPanel Visibility="{Binding CanRename, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="Supervisor: edit friendly name. Device identity and hostname stay unchanged." TextWrapping="Wrap" />
+                    <WrapPanel>
+                        <TextBox Text="{Binding FriendlyName, UpdateSourceTrigger=PropertyChanged}" MaxLength="120" Width="200" AutomationProperties.Name="Friendly cabinet name" />
+                        <TextBox Text="{Binding RenameReason, UpdateSourceTrigger=PropertyChanged}" MaxLength="2000" Width="240" AutomationProperties.Name="Reason for cabinet rename" />
+                        <Button Content="Save cabinet name" Command="{Binding RenameCommand}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding RenameOutcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" />
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource ExplanationPanel}">
+                <TextBlock Text="{Binding MonitoringNote}" TextWrapping="Wrap" Focusable="True"
+                           AutomationProperties.Name="{Binding MonitoringNote}"
+                           AutomationProperties.LiveSetting="Polite" />
+            </Border>
 
             <ProgressBar IsIndeterminate="True"
                          Height="4"
@@ -115,6 +138,23 @@
                         <TextBox Text="{Binding SelectedAction.Request.CollectedData, Mode=OneWay}" IsReadOnly="True"
                                  TextWrapping="Wrap" MaxHeight="160" VerticalScrollBarVisibility="Auto"
                                  AutomationProperties.Name="Selected action collected data" />
+                    </StackPanel>
+                </Expander>
+
+                <Expander Header="Same-site connectivity monitoring" IsExpanded="True" Margin="0,0,0,8"
+                          AutomationProperties.Name="Same-site connectivity monitoring">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ConnectivityNote}" TextWrapping="Wrap" Focusable="True"
+                                   AutomationProperties.Name="{Binding ConnectivityNote}" />
+                        <ItemsControl ItemsSource="{Binding ConnectivityRows}"
+                                      AutomationProperties.Name="Registered connectivity observations">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,4,0,4" Focusable="True"
+                                               AutomationProperties.Name="{Binding}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </Expander>
 
@@ -196,15 +236,15 @@
 
                             <TextBlock Grid.Row="9" Grid.Column="0" Text="Health" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="9" Grid.Column="1" Content="{Binding Health}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="10" Grid.Column="0" Text="Logged on" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="10" Grid.Column="1" Content="{Binding LoggedOn}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="11" Grid.Column="0" Text="Cabinet record" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="11" Grid.Column="1" Content="{Binding Active}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                         </Grid>
                     </StackPanel>
                 </Expander>
@@ -241,7 +281,7 @@
                                            Margin="0,0,10,0"
                                            AutomationProperties.Name="Processor utilisation" />
                                 <ContentPresenter Content="{Binding CpuState}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}" />
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Memory used" Style="{StaticResource FieldLabel}" />
@@ -250,7 +290,7 @@
                                            Margin="0,0,10,0"
                                            AutomationProperties.Name="Memory utilisation" />
                                 <ContentPresenter Content="{Binding RamState}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}" />
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                             </StackPanel>
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Memory" Style="{StaticResource FieldLabel}" />
@@ -318,7 +358,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding State}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -472,7 +512,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Space}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -500,7 +540,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Health}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -614,11 +654,11 @@
                                        Margin="0,0,16,0"
                                        AutomationProperties.Name="Pending update count" />
                             <ContentPresenter Content="{Binding SecurityPending}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                         </StackPanel>
 
                         <ContentPresenter Content="{Binding RebootPending}"
-                                          ContentTemplate="{StaticResource StatusTemplate}"
+                                          ContentTemplate="{StaticResource HistoricalStatusTemplate}"
                                           Margin="0,0,0,2" />
 
                         <TextBlock Text="{Binding RebootPendingNote}"
@@ -639,7 +679,7 @@
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ContentPresenter Content="{Binding Classification}"
-                                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
@@ -699,12 +739,21 @@
                         </DataGrid>
                         <Expander Header="Define a shared channel view (Supervisor)" Margin="0,6,0,8">
                             <StackPanel>
-                                <TextBlock Text="Save a new shared view, then explicitly run it below. All levels, last 24h by default, at most 500 records. Local channel names only; no files, remote hosts, query expressions or channel configuration changes."
+                                <TextBlock Text="Save a new shared view, then explicitly run it below. Choose Error for errors and critical events; Verbose includes all levels and unclassified events. Optional provider and event ID further restrict results. Last 24h by default, at most 500 records. Local channel names only; no files, remote hosts, query expressions or channel configuration changes."
                                            TextWrapping="Wrap" Margin="0,4,0,6" />
                                 <StackPanel IsEnabled="{Binding CanDefineViews}">
                                     <Label Content="Native channel" Target="{Binding ElementName=NativeEventChannelName}" />
                                     <TextBox x:Name="NativeEventChannelName" Text="{Binding NewChannelName, UpdateSourceTrigger=PropertyChanged}"
                                              MaxLength="512" AutomationProperties.Name="Exact local native channel name" />
+                                    <Label Content="Minimum severity (includes more severe events)" Target="{Binding ElementName=NativeEventLevel}" />
+                                    <ComboBox x:Name="NativeEventLevel" ItemsSource="{Binding LevelChoices}" SelectedItem="{Binding NewMinimumLevel}"
+                                              AutomationProperties.Name="Minimum event severity" />
+                                    <Label Content="Exact provider (blank means any)" Target="{Binding ElementName=NativeEventProvider}" />
+                                    <TextBox x:Name="NativeEventProvider" Text="{Binding NewProviderName, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="256" AutomationProperties.Name="Optional exact event provider" />
+                                    <Label Content="Event ID (blank means any, 0 through 65535)" Target="{Binding ElementName=NativeEventId}" />
+                                    <TextBox x:Name="NativeEventId" Text="{Binding NewEventId, UpdateSourceTrigger=PropertyChanged}"
+                                             MaxLength="5" AutomationProperties.Name="Optional numeric event ID" />
                                     <Label Content="Shared view name" Target="{Binding ElementName=NativeEventViewName}" />
                                     <TextBox x:Name="NativeEventViewName" Text="{Binding NewViewName, UpdateSourceTrigger=PropertyChanged}"
                                              MaxLength="128" AutomationProperties.Name="Name for the shared native channel view" />
@@ -802,7 +851,7 @@
                                 </Style>
                             </DataGrid.RowStyle>
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Time" Binding="{Binding TimeCreatedUtc}" Width="Auto" />
+                                <DataGridTextColumn Header="Time (MST)" Binding="{Binding TimeCreatedUtc, Converter={StaticResource SupportTime}}" Width="Auto" />
                                 <DataGridTextColumn Header="Level" Binding="{Binding Level}" Width="Auto" />
                                 <DataGridTextColumn Header="Channel" Binding="{Binding DisplayChannelName}" Width="Auto" />
                                 <DataGridTextColumn Header="Source" Binding="{Binding Source}" Width="*" />
@@ -847,23 +896,23 @@
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Reaches this server" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="0" Grid.Column="1" Content="{Binding ServerReachable}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Firewall, domain" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="1" Grid.Column="1" Content="{Binding FirewallDomain}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="Firewall, private" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="2" Grid.Column="1" Content="{Binding FirewallPrivate}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="3" Grid.Column="0" Text="Firewall, public" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="3" Grid.Column="1" Content="{Binding FirewallPublic}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="4" Grid.Column="0" Text="Proxy" Style="{StaticResource FieldLabel}" />
                             <ContentPresenter Grid.Row="4" Grid.Column="1" Content="{Binding Proxy}"
-                                              ContentTemplate="{StaticResource StatusTemplate}" />
+                                              ContentTemplate="{StaticResource HistoricalStatusTemplate}" />
 
                             <TextBlock Grid.Row="5" Grid.Column="0" Text="Proxy address" Style="{StaticResource FieldLabel}" />
                             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding ProxyAddress}" Style="{StaticResource FieldValue}"
@@ -892,6 +941,54 @@
 
                         <ContentControl Content="{Binding}"
                                         ContentTemplate="{StaticResource SectionActionsTemplate}" />
+                    </StackPanel>
+                </Expander>
+
+                <!-- Windows firewall: explicitly read only -->
+                <Expander IsExpanded="{Binding Firewall.IsExpanded}" Margin="0,0,0,6"
+                          AutomationProperties.Name="{Binding Firewall.Title}"
+                          AutomationProperties.HelpText="{Binding Firewall.AccessibleDescription}">
+                    <Expander.Header>
+                        <TextBlock Text="{Binding Firewall.Title}" Style="{StaticResource SectionHeading}"
+                                   AutomationProperties.HeadingLevel="Level3" />
+                    </Expander.Header>
+                    <StackPanel Margin="12,8,0,8" DataContext="{Binding Firewall}">
+                        <TextBlock Text="{Binding ResultSummary}" TextWrapping="Wrap" Focusable="True"
+                                   AutomationProperties.LiveSetting="Polite"
+                                   AutomationProperties.Name="{Binding ResultSummary}" />
+                        <TextBlock Text="{Binding PolicyCaveat}" TextWrapping="Wrap" Margin="0,6,0,6"
+                                   AutomationProperties.Name="{Binding PolicyCaveat}" />
+                        <TextBlock Text="{Binding RepairStatus}" TextWrapping="Wrap" Margin="0,0,0,6"
+                                   AutomationProperties.Name="{Binding RepairStatus}" />
+                        <DataGrid ItemsSource="{Binding Profiles}" Style="{StaticResource AccessibleDataGrid}"
+                                  IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="150"
+                                  AutomationProperties.Name="Historical firewall profile observations">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Profile" Binding="{Binding Name}" />
+                                <DataGridTextColumn Header="Read outcome" Binding="{Binding Status}" />
+                                <DataGridTextColumn Header="Enabled" Binding="{Binding Enabled}" />
+                                <DataGridTextColumn Header="Block all inbound" Binding="{Binding BlockAllInbound}" />
+                                <DataGridTextColumn Header="Default inbound" Binding="{Binding DefaultInbound}" />
+                                <DataGridTextColumn Header="Default outbound" Binding="{Binding DefaultOutbound}" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <DataGrid ItemsSource="{Binding Rules}" Style="{StaticResource AccessibleDataGrid}"
+                                  IsReadOnly="True" AutoGenerateColumns="False" MaxHeight="260" Margin="0,6,0,0"
+                                  AutomationProperties.Name="Bounded configured firewall rules, not effective permission">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Rule display name" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Configured state" Binding="{Binding Enabled}" />
+                                <DataGridTextColumn Header="Direction" Binding="{Binding Direction}" />
+                                <DataGridTextColumn Header="Action" Binding="{Binding Action}" />
+                                <DataGridTextColumn Header="Protocol" Binding="{Binding Protocol}" />
+                                <DataGridTextColumn Header="Profile mask" Binding="{Binding Observation.Profiles}" />
+                                <DataGridTextColumn Header="Local ports" Binding="{Binding Observation.LocalPorts}" />
+                                <DataGridTextColumn Header="Remote ports" Binding="{Binding Observation.RemotePorts}" />
+                                <DataGridTextColumn Header="Local addresses" Binding="{Binding Observation.LocalAddresses}" Width="180" />
+                                <DataGridTextColumn Header="Remote addresses" Binding="{Binding Observation.RemoteAddresses}" Width="180" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <ContentControl Content="{Binding}" ContentTemplate="{StaticResource SectionActionsTemplate}" />
                     </StackPanel>
                 </Expander>
 
@@ -965,7 +1062,7 @@
                                 <TextBlock Text="{Binding ClockDrift}" Style="{StaticResource FieldValue}"
                                            AutomationProperties.Name="Clock drift from the server" />
                                 <ContentPresenter Content="{Binding ClockDriftStatus}"
-                                                  ContentTemplate="{StaticResource StatusTemplate}"
+                                                  ContentTemplate="{StaticResource HistoricalStatusTemplate}"
                                                   Margin="8,0,0,0" />
                             </StackPanel>
                         </Grid>

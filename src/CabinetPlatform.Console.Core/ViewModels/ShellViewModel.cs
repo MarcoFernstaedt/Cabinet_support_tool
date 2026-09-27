@@ -23,7 +23,10 @@ public enum ShellView
     Approvals,
 
     /// <summary>Supervisor enrollment decisions.</summary>
-    Registrations
+    Registrations,
+    /// <summary>Supervisor staff accounts.</summary>
+    Staff,
+    Alerts
 }
 
 /// <summary>Why the main window is asking for a sign-in.</summary>
@@ -45,8 +48,9 @@ public enum SignInReason
 /// and the shell watches for it and asks for a new sign-in — rather than each
 /// screen deciding for itself and one of them forgetting.
 /// </remarks>
-public sealed partial class ShellViewModel : ObservableObject
+public sealed partial class ShellViewModel : ObservableObject, IDisposable
 {
+    private bool _disposed;
     private readonly ISessionStore _session;
     private readonly ILiveRegionAnnouncer _announcer;
 
@@ -60,7 +64,9 @@ public sealed partial class ShellViewModel : ObservableObject
         ApprovalsViewModel approvals,
         RegistrationsViewModel registrations,
         ISessionStore session,
-        ILiveRegionAnnouncer announcer)
+        ILiveRegionAnnouncer announcer,
+        StaffViewModel? staff = null,
+        ConnectivityAlertsViewModel? alerts = null)
     {
         Cabinets = cabinets;
         Finder = finder;
@@ -70,6 +76,14 @@ public sealed partial class ShellViewModel : ObservableObject
         Fleet = fleet;
         Approvals = approvals;
         Registrations = registrations;
+        Staff = staff;
+        Alerts = alerts;
+        if (Alerts is not null)
+        {
+            WatchForExpiry(Alerts);
+            Alerts.SourceChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
+        }
+        if (Staff is not null) WatchForExpiry(Staff);
 
         // The finder is reachable from every screen, so choosing a cabinet in
         // it has to land the same way as choosing one in the list: the detail
@@ -129,6 +143,25 @@ public sealed partial class ShellViewModel : ObservableObject
     public FleetTabViewModel Fleet { get; }
     public ApprovalsViewModel Approvals { get; }
     public RegistrationsViewModel Registrations { get; }
+    public StaffViewModel? Staff { get; }
+    public ConnectivityAlertsViewModel? Alerts { get; }
+    public bool CanSeeAlerts => IsSignedIn && Alerts is not null;
+    [RelayCommand(CanExecute = nameof(CanSeeAlerts))]
+    private async Task ShowAlertsAsync()
+    {
+        if (!CanSeeAlerts) return;
+        CurrentView = ShellView.Alerts;
+        await Alerts!.LoadAsync();
+    }
+    public bool CanSeeStaff => CanSeeRegistrations && Staff is not null;
+
+    [RelayCommand(CanExecute = nameof(CanSeeStaff))]
+    private async Task ShowStaffAsync()
+    {
+        if (!CanSeeStaff) return;
+        CurrentView = ShellView.Staff;
+        await Staff!.LoadAsync();
+    }
     public bool CanSeeRegistrations => IsSignedIn && _session.Role == Contracts.Auth.Role.Supervisor;
 
     /// <summary>
@@ -209,6 +242,7 @@ public sealed partial class ShellViewModel : ObservableObject
     /// </summary>
     public async Task StartSessionAsync()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _sessionLive = true;
 
         RaiseSessionChanged();
@@ -220,18 +254,22 @@ public sealed partial class ShellViewModel : ObservableObject
 
         // The fleet view is the thing a remote desktop session can never do, so
         // it is loaded up front rather than on first click.
+        if (_disposed) return;
         await Fleet.LoadAsync();
 
         // So the search box and the recent list are usable the moment the
         // window appears, rather than after a rep has clicked into them.
+        if (_disposed) return;
         await Finder.LoadAsync();
 
+        if (_disposed) return;
         if (CanSeeApprovals)
         {
             await Approvals.LoadAsync();
             OnPropertyChanged(nameof(ApprovalBadge));
         }
 
+        if (_disposed) return;
         _announcer.AnnounceImportant(
             $"Signed in as {SignedInAs}. {Cabinets.PageSummary}. " +
             (ApprovalBadge is { } badge
@@ -338,6 +376,8 @@ public sealed partial class ShellViewModel : ObservableObject
         }
 
         if (CanSeeRegistrations && CurrentView == ShellView.Registrations) await Registrations.LoadAsync();
+        if (CanSeeStaff && CurrentView == ShellView.Staff) await Staff!.LoadAsync();
+        if (CanSeeAlerts && CurrentView == ShellView.Alerts) await Alerts!.LoadAsync();
 
         _announcer.Announce($"Refreshed. {Cabinets.PageSummary}. {Approvals.QueueSummary}");
     }
@@ -360,10 +400,24 @@ public sealed partial class ShellViewModel : ObservableObject
         Fleet.Deactivate();
         Approvals.Deactivate();
         Registrations.Deactivate();
+        Staff?.Deactivate();
+        Alerts?.Deactivate();
     }
 
     private void EndSession(SignInReason reason)
     {
+        if (_disposed) return;
+        Dispose();
+        _announcer.AnnounceImportant(reason == SignInReason.SignedOut
+            ? "Signed out. The access token has been discarded."
+            : "Your session expired and you were signed out.");
+        SignInRequired?.Invoke(this, reason);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
         _sessionLive = false;
 
         DeactivateAll();
@@ -372,6 +426,8 @@ public sealed partial class ShellViewModel : ObservableObject
 
         Machine.Reset();
         Registrations.Reset();
+        Staff?.Reset();
+        Alerts?.Reset();
         Fleet.Summary = null;
         Fleet.Sites.Clear();
         Fleet.StaleCheckIns.Clear();
@@ -409,12 +465,6 @@ public sealed partial class ShellViewModel : ObservableObject
         Finder.HierarchySites.Clear();
 
         RaiseSessionChanged();
-
-        _announcer.AnnounceImportant(reason == SignInReason.SignedOut
-            ? "Signed out. The access token has been discarded."
-            : "Your session expired and you were signed out.");
-
-        SignInRequired?.Invoke(this, reason);
     }
 
     private async Task OnCabinetSelectedAsync(Guid? cabinetId)
@@ -487,6 +537,10 @@ public sealed partial class ShellViewModel : ObservableObject
         OnPropertyChanged(nameof(CanSeeAudit));
         OnPropertyChanged(nameof(CanSeeRegistrations));
         ShowRegistrationsCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSeeStaff));
+        ShowStaffCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSeeAlerts));
+        ShowAlertsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ApprovalBadge));
         OnPropertyChanged(nameof(ApprovalBadgeAccessibleText));
     }

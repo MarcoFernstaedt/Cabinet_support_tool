@@ -28,6 +28,127 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class XamlContractTests
 {
     [Fact]
+    public void Native_lifecycle_loads_real_resources_without_generated_app_initialization()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        var markup = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml"));
+        XNamespace wpf = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+        Assert.DoesNotContain("app.InitializeComponent()", code);
+        Assert.Contains("ShutdownMode = ShutdownMode.OnExplicitShutdown", code);
+        var sources = markup.Descendants(wpf + "ResourceDictionary")
+            .Attributes("Source").Select(a => a.Value).ToArray();
+        Assert.Equal(2, sources.Length);
+        var previous = -1;
+        foreach (var source in sources)
+        {
+            var index = code.IndexOf('"' + source + '"', StringComparison.Ordinal);
+            Assert.True(index > previous, "Load each real dictionary in App.xaml order");
+            previous = index;
+        }
+        var resource = Assert.Single(markup.Descendants(), e => e.Attribute(x + "Key") is not null);
+        Assert.Equal("SupportTime", resource.Attribute(x + "Key")!.Value);
+        Assert.Equal("SupportTimeConverter", resource.Name.LocalName);
+        Assert.Contains("app.Resources.Add(\"SupportTime\", new SupportTimeConverter())", code);
+    }
+
+    [Fact]
+    public void Native_lifecycle_suppresses_automatic_startup_before_driving_one_loop()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("new LifecycleApp()", code);
+        Assert.Contains("protected override void OnStartup(StartupEventArgs e)", code);
+        Assert.DoesNotContain("base.OnStartup(e)", code);
+        Assert.Single(Regex.Matches(code, "GetMethod\\(\\\"StartAsync\\\""));
+        Assert.Contains("app.StartupCount == 1", code);
+    }
+
+    [Fact]
+    public void Native_lifecycle_owns_dispatcher_shutdown_even_on_failure()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("finally { app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background); }", code);
+        Assert.Contains("finally\n            {\n                Stop();\n            }", code);
+        Assert.Contains("DispatcherUnhandledException +=", code);
+        Assert.Contains("if (forceFailure)", code);
+        Assert.DoesNotContain("app.Shutdown(1)", code);
+    }
+
+    [Fact]
+    public void Native_lifecycle_installs_non_network_transport_at_graph_construction()
+    {
+        var app = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml.cs"));
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("protected virtual System.Net.Http.HttpMessageHandler CreateTransportHandler()", app);
+        Assert.Contains(".ConfigurePrimaryHttpMessageHandler(CreateTransportHandler)", app);
+        Assert.Contains("protected override HttpMessageHandler CreateTransportHandler()", code);
+        Assert.Contains("CurrentHandler = new HeldHandler()", code);
+        Assert.DoesNotContain("GetField(\"_http\"", code);
+        Assert.DoesNotContain("field.SetValue", code);
+        Assert.Contains("app.TransportCount == 3", code);
+        Assert.Contains("app.Windows.OfType<LoginWindow>()", code);
+        Assert.Contains("ReferenceEquals(login.DataContext, provider.GetRequiredService<LoginViewModel>())", code);
+        Assert.DoesNotContain("HttpClientHandler", code);
+        Assert.DoesNotContain("SocketsHttpHandler", code);
+    }
+
+    [Fact]
+    public void App_recreates_the_session_graph_and_closes_the_old_window_before_reauthentication()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml.cs"));
+        Assert.DoesNotContain("SignInAsync(window, reason)", code);
+        Assert.Contains("while (true)", code);
+        Assert.Contains("using ServiceProvider provider = services.BuildServiceProvider()", code);
+        Assert.Contains("window.Close();", code);
+        Assert.Contains("window.DataContext = null;", code);
+        Assert.Contains("login.Deactivate();", code);
+    }
+
+    [Fact]
+    public void Monitoring_header_is_persistent_focusable_and_announces_actual_words()
+    {
+        var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml"));
+        var banner = Assert.Single(xaml.Descendants(), e =>
+            (string?)e.Attribute("Text") == "{Binding MonitoringNote}");
+        Assert.Equal("True", (string?)banner.Attribute("Focusable"));
+        Assert.Equal("{Binding MonitoringNote}", (string?)banner.Attribute("AutomationProperties.Name"));
+        Assert.DoesNotContain(banner.Ancestors(), e => e.Name.LocalName == "ScrollViewer");
+    }
+
+    [Fact]
+    public void Machine_snapshot_statuses_cannot_use_live_green_template()
+    {
+        var text = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml"));
+        Assert.DoesNotContain("{StaticResource StatusTemplate}", text);
+        Assert.Contains("HistoricalStatusTemplate", text);
+        Assert.Contains("Last observed: {0}; current state unverified", text);
+    }
+
+    [Fact]
+    public void Machine_age_clock_is_view_lifetime_bound_and_does_not_poll_network()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/MachineTabView.xaml.cs"));
+        Assert.Contains("DispatcherTimer", code);
+        Assert.Contains("Unloaded +=", code);
+        Assert.Contains("_freshnessTimer.Stop()", code);
+        Assert.Contains("RefreshFreshness()", code);
+        Assert.DoesNotContain("RefreshCommand", code);
+    }
+
+    [Fact]
+    public void Cabinet_surfaces_show_exact_last_seen_and_fleet_uses_historical_status()
+    {
+        foreach (var file in new[] { "CabinetListView.xaml", "CabinetFinderView.xaml", "FleetTabView.xaml" })
+        {
+            var text = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views", file));
+            Assert.Contains("Binding LastCheckInExact", text);
+        }
+        var fleet = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/FleetTabView.xaml"));
+        Assert.Contains("Binding DisplayStatus", fleet);
+        Assert.DoesNotContain("Content=\"{Binding Status}\"", fleet);
+    }
+
+    [Fact]
     public void Finder_routes_have_native_keyboard_and_mouse_open_buttons()
     {
         var xaml = XDocument.Load(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/Views/CabinetFinderView.xaml"));

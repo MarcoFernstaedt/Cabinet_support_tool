@@ -1,0 +1,47 @@
+<UserControl x:Class="CabinetPlatform.Console.Views.ConnectivityAlertsView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ Background="{DynamicResource Surface.Brush}" Foreground="{DynamicResource Text.Brush}">
+ <Grid Margin="16">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel>
+   <TextBlock Text="Connectivity incidents" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/>
+   <TextBlock Text="Historical accepted evidence, not live health. Manual resolution does not change measured reachability. Refresh for current queue state. Retained for 30 days, at most 200 incidents per source, including unresolved incidents." TextWrapping="Wrap" Margin="0,8"/>
+   <WrapPanel>
+    <Button Content="Refresh queue" Command="{Binding RefreshCommand}"/>
+    <Button Content="Previous" Command="{Binding PreviousCommand}"/>
+    <Button Content="Next" Command="{Binding NextCommand}"/>
+    <CheckBox Content="Include resolved (then refresh)" IsChecked="{Binding IncludeResolved}" VerticalAlignment="Center"/>
+    <TextBlock Text="{Binding PageSummary}" Margin="8"/>
+   </WrapPanel>
+   <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
+   <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+  </StackPanel>
+  <DataGrid Grid.Row="1" Style="{StaticResource AccessibleDataGrid}" ItemsSource="{Binding Alerts}" SelectedItem="{Binding SelectedAlert}" AutoGenerateColumns="False" IsReadOnly="True" SelectionMode="Single" SelectionUnit="FullRow" AutomationProperties.Name="Historical connectivity incident queue">
+   <DataGrid.RowStyle><Style TargetType="DataGridRow" BasedOn="{StaticResource AccessibleRow}">
+    <Setter Property="AutomationProperties.Name"><Setter.Value><MultiBinding StringFormat="{}{0}, source {1}, status {2}"><Binding Path="SourceName"/><Binding Path="SourceCabinetId"/><Binding Path="Status"/></MultiBinding></Setter.Value></Setter>
+   </Style></DataGrid.RowStyle>
+   <DataGrid.Columns>
+    <DataGridTextColumn Header="Client" Binding="{Binding ClientName}"/>
+    <DataGridTextColumn Header="Site" Binding="{Binding SiteName}"/>
+    <DataGridTextColumn Header="Source" Binding="{Binding SourceName}"/>
+    <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+    <DataGridTextColumn Header="Incident observed (MST)" Binding="{Binding ObservedUtc, Converter={StaticResource SupportTime}}"/>
+    <DataGridTextColumn Header="Evidence received (MST)" Binding="{Binding ReceivedUtc, Converter={StaticResource SupportTime}}"/>
+    <DataGridTextColumn Header="Source ID" Binding="{Binding SourceCabinetId}"/>
+    <DataGridTextColumn Header="Target ID" Binding="{Binding TargetCabinetId}"/>
+   </DataGrid.Columns>
+  </DataGrid>
+  <StackPanel Grid.Row="2" Margin="0,12,0,0">
+   <TextBlock Text="Selected source cabinet ID"/><TextBlock Text="{Binding SelectedAlert.SourceCabinetId}"/>
+   <TextBlock Text="{Binding SelectedAlert.Note}" TextWrapping="Wrap"/>
+   <Label Content="Annotation _reason" Target="{Binding ElementName=Note}"/>
+   <TextBox x:Name="Note" Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" AutomationProperties.Name="Required annotation reason"/>
+   <WrapPanel>
+    <Button Content="Open source cabinet" Command="{Binding OpenSourceCommand}"/>
+    <Button Content="Acknowledge selected incident" Command="{Binding AcknowledgeCommand}"/>
+    <Button Content="Resolve acknowledged incident" Command="{Binding ResolveCommand}"/>
+   </WrapPanel>
+  </StackPanel>
+ </Grid>
+</UserControl>

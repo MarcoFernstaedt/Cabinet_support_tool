@@ -142,14 +142,18 @@ public class ScheduledUpdateRunnerTests
         Assert.NotEmpty(updates.Installed);
     }
 
-    [Fact]
-    public void Diagnostic_default_preserves_old_due_schedule_without_installing()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Demo")]
+    public void Restricted_mode_preserves_old_due_schedule_without_installing(string? mode)
     {
         var schedule = new StubScheduleWriter { Schedule = Due(Now.AddDays(-1)) };
         var updates = new StubUpdateGateway();
         var runner = new ScheduledUpdateRunner(schedule, updates, new StubRollbackStore(),
             new StubNetworkGateway(current: null), new InMemoryAgentStateStore(),
-            new FixedClock(Now), NullLogger<ScheduledUpdateRunner>.Instance);
+            new FixedClock(Now), NullLogger<ScheduledUpdateRunner>.Instance,
+            mode is null ? null : TestOptions.Create(new CabinetPlatform.Agent.Configuration.AgentOptions
+            { Actions = new() { ExecutionMode = mode } }));
         runner.RunDueInstall(CancellationToken.None);
         Assert.Empty(updates.Installed);
         Assert.NotNull(schedule.Schedule);

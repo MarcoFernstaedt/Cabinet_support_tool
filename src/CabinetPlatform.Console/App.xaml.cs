@@ -53,111 +53,102 @@ public partial class App : Application
             .AddEnvironmentVariables("MASHURA_CONSOLE_")
             .Build();
 
-        ServiceCollection services = new();
-        ConfigureServices(services, configuration);
-
-        ServiceProvider provider = services.BuildServiceProvider();
-        _services = provider;
-
-        var shell = provider.GetRequiredService<ShellViewModel>();
-
-        // The announcer is constructed before the shell, because the ViewModels
-        // that write to it are constructed before the shell that owns them.
-        provider.GetRequiredService<WpfLiveRegionAnnouncer>().Attach(shell);
-
-        var window = new MainWindow { DataContext = shell };
-
-        window.Closed += (_, _) =>
+        SignInReason reason = SignInReason.SignedOut;
+        while (true)
         {
-            // The token does not outlive the window. Also cancels anything in
-            // flight, so a response cannot arrive against a discarded session.
-            shell.DeactivateAll();
-            provider.GetRequiredService<ISessionStore>().SignOut();
-            Shutdown();
-        };
-
-        // An expiry or a sign-out puts the login window back in front of the
-        // main window rather than closing the application. A support engineer
-        // whose token lapsed while they were reading a cabinet should be one
-        // sign-in away from the same cabinet, not one restart.
-        shell.SignInRequired += async (_, reason) =>
-        {
+            // Singletons belong to one login attempt/session, never the process.
+            // A new account gets a new store, client, announcer and every screen.
+            ServiceCollection services = new();
+            ConfigureServices(services, configuration);
+            using ServiceProvider provider = services.BuildServiceProvider();
+            _services = provider;
             try
             {
-                if (!await SignInAsync(window, reason))
+                if (!await SignInAsync(reason)) break;
+
+                var shell = provider.GetRequiredService<ShellViewModel>();
+                provider.GetRequiredService<WpfLiveRegionAnnouncer>().Attach(shell);
+                var window = new MainWindow { DataContext = shell };
+                var finished = new TaskCompletionSource<SignInReason?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                void RequireSignIn(object? sender, SignInReason nextReason)
                 {
-                    window.Close();
-                    return;
+                    finished.TrySetResult(nextReason);
+                    window.Close(); // Synchronous: no authenticated window behind login.
                 }
-
-                await shell.StartSessionAsync();
+                shell.SignInRequired += RequireSignIn;
+                window.Closed += (_, _) =>
+                {
+                    shell.Dispose();
+                    window.DataContext = null;
+                    finished.TrySetResult(null); // A normal window close exits.
+                };
+                MainWindow = window;
+                try
+                {
+                    window.Show();
+                    Task loading = shell.StartSessionAsync();
+                    // Sign-out must not wait for a slow server or a late body.
+                    if (await Task.WhenAny(loading, finished.Task) == loading)
+                        await loading;
+                    else
+                        _ = ObserveRetiredLoadAsync(loading);
+                    SignInReason? next = await finished.Task;
+                    if (next is null) break;
+                    reason = next.Value;
+                }
+                finally
+                {
+                    shell.SignInRequired -= RequireSignIn;
+                    shell.Dispose();
+                    window.Close();
+                    window.DataContext = null;
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                // async void: an escaped exception here would terminate the
-                // process without a word, which is the one outcome worse than a
-                // failed re-authentication.
-                MessageBox.Show(
-                    $"Signing back in failed.\n\n{ex.Message}",
-                    "Mashura Support Console",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-
-                window.Close();
+                provider.GetRequiredService<ISessionStore>().SignOut();
+                _services = null;
             }
-        };
-
-        MainWindow = window;
-
-        if (!await SignInAsync(owner: null, SignInReason.SignedOut))
-        {
-            // Cancelled at the first sign-in prompt: there is nothing to show.
-            Shutdown();
-            return;
+            // provider.Dispose runs before the next login is created.
         }
+        Shutdown();
+    }
 
-        window.Show();
-        await shell.StartSessionAsync();
+    private static async Task ObserveRetiredLoadAsync(Task loading)
+    {
+        try { await loading; }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            // The retired graph cannot report into another operator's window.
+            System.Diagnostics.Debug.WriteLine($"Retired session load: {ex.GetType().Name}");
+        }
     }
 
     /// <summary>
     /// Shows the login window and returns whether a usable session resulted.
     /// </summary>
-    /// <remarks>
-    /// The login window is modal and separate from the main window, so there is
-    /// no state in which the console is showing cabinet data behind a sign-in
-    /// prompt. On an expiry the main window stays open behind it: the user gets
-    /// their place back rather than a restart.
-    /// </remarks>
-    private async Task<bool> SignInAsync(Window? owner, SignInReason reason)
+    /// <remarks>No authenticated window exists while this dialog is open.</remarks>
+    private async Task<bool> SignInAsync(SignInReason reason)
     {
         var login = _services!.GetRequiredService<LoginViewModel>();
-
         login.Reset();
-
-        if (reason == SignInReason.SessionExpired)
-        {
-            login.ExplainExpiredSession();
-        }
-
+        if (reason == SignInReason.SessionExpired) login.ExplainExpiredSession();
         var dialog = new LoginWindow { DataContext = login };
-
-        if (owner is not null && owner.IsVisible)
+        MainWindow = dialog;
+        bool signedIn;
+        try
         {
-            dialog.Owner = owner;
+            signedIn = dialog.ShowDialog() == true;
         }
-
-        bool signedIn = dialog.ShowDialog() == true;
-
-        // Whatever happened, nothing typed into the dialog stays in memory.
-        login.ClearSecrets();
-
-        // ShowDialog runs its own message loop, so there is nothing genuinely
-        // asynchronous to await here. The yield keeps the signature honest
-        // rather than returning an already-completed task from a method the
-        // callers treat as async.
+        finally
+        {
+            login.Deactivate();
+            login.ClearSecrets();
+            dialog.DataContext = null;
+        }
+        if (!signedIn) _services!.GetRequiredService<ISessionStore>().SignOut();
         await Task.Yield();
-
         return signedIn;
     }
 
@@ -180,11 +171,13 @@ public partial class App : Application
             {
                 ApiClientOptions options = sp.GetRequiredService<IOptions<ApiClientOptions>>().Value;
 
-                http.BaseAddress = new Uri(options.BaseAddress);
+                http.BaseAddress = options.GetHttpsOrigin();
                 http.Timeout = TimeSpan.FromSeconds(Math.Max(5, options.TimeoutSeconds));
                 http.DefaultRequestHeaders.Accept.Add(
                     new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
             })
+            .RedactLoggedHeaders(_ => true)
+            .ConfigurePrimaryHttpMessageHandler(CreateTransportHandler)
             .AddHttpMessageHandler<BearerTokenHandler>();
 
         // AddHttpClient registers its typed client as transient, and every
@@ -211,8 +204,15 @@ public partial class App : Application
         services.AddSingleton<FleetTabViewModel>();
         services.AddSingleton<ApprovalsViewModel>();
         services.AddSingleton<RegistrationsViewModel>();
+        services.AddSingleton<StaffViewModel>();
+        services.AddSingleton<ConnectivityAlertsViewModel>();
         services.AddSingleton<ShellViewModel>();
     }
+
+    // Narrow composition seam: native tests supply a non-network handler before
+    // any client/ViewModel/window is resolved. Shipping transport is unchanged.
+    protected virtual System.Net.Http.HttpMessageHandler CreateTransportHandler() =>
+        ApiClientOptions.CreateTransportHandler();
 
     /// <summary>
     /// Swaps the palette when the user turns high contrast on or off, without

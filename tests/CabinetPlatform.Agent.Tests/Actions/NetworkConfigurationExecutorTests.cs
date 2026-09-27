@@ -284,8 +284,10 @@ public class NetworkConfigurationExecutorTests
 /// </summary>
 public class InterruptedNetworkChangeTests
 {
-    [Fact]
-    public void Diagnostic_default_preserves_pending_rollback_without_changing_network()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Demo")]
+    public void Restricted_mode_preserves_pending_rollback_without_changing_network(string? mode)
     {
         var previous = new AdapterConfiguration { AdapterId = "{ADAPTER}", DhcpEnabled = true };
         var rollback = new StubRollbackStore();
@@ -294,7 +296,9 @@ public class InterruptedNetworkChangeTests
         var network = new StubNetworkGateway(previous);
         var runner = new ScheduledUpdateRunner(new StubScheduleWriter(), new StubUpdateGateway(),
             rollback, network, new InMemoryAgentStateStore(), new FixedClock(DateTimeOffset.UtcNow),
-            NullLogger<ScheduledUpdateRunner>.Instance);
+            NullLogger<ScheduledUpdateRunner>.Instance,
+            mode is null ? null : TestOptions.Create(new CabinetPlatform.Agent.Configuration.AgentOptions
+            { Actions = new() { ExecutionMode = mode } }));
         runner.RecoverInterruptedNetworkChange();
         Assert.False(network.Restored);
         Assert.NotNull(rollback.Pending);
