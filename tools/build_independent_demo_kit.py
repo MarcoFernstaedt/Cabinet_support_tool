@@ -144,7 +144,7 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
             if not _safe_name(name) or _forbidden_content(name) or not _allowed_runtime(name, component):
                 if name.lower() == "appsettings.json":
                     continue
-                raise ValueError("Unsafe publish member")
+                raise ValueError(f"Unsafe publish member: {name}")
             if len(name) > 240 or path.stat().st_size > 100 * 1024 * 1024:
                 raise ValueError("Publish member exceeds limit")
             files[name] = path.read_bytes()
