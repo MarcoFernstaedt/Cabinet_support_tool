@@ -8,9 +8,7 @@ using System.Text;
 public static class CabinetRecoveryProcess {
     [StructLayout(LayoutKind.Sequential)] struct Basic { public IntPtr exit, peb, affinity, priority, id, parent; }
     [StructLayout(LayoutKind.Sequential)] struct Memory { public IntPtr address, allocation; public uint protect; public UIntPtr size; public uint state, protection, type; }
-    [StructLayout(LayoutKind.Sequential)] struct Privilege { public uint count; public long luid; public uint attributes; }
     [DllImport("kernel32.dll", SetLastError=true)] static extern IntPtr OpenProcess(uint access, bool inherit, int id);
-    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool IsWow64Process(IntPtr handle, out bool wow);
     [DllImport("kernel32.dll", SetLastError=true)] static extern bool ReadProcessMemory(IntPtr handle, IntPtr address, byte[] bytes, int length, out IntPtr read);
@@ -18,8 +16,6 @@ public static class CabinetRecoveryProcess {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool QueryFullProcessImageName(IntPtr handle, uint flags, StringBuilder path, ref uint length);
     [DllImport("ntdll.dll")] static extern int NtQueryInformationProcess(IntPtr handle, int kind, out Basic info, int size, out int returned);
     [DllImport("advapi32.dll", SetLastError=true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
-    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool LookupPrivilegeValue(string system, string name, out long luid);
-    [DllImport("advapi32.dll", SetLastError=true)] static extern bool AdjustTokenPrivileges(IntPtr token, bool disable, ref Privilege value, int size, out Privilege previous, out int returned);
     static void Check(bool value) { if (!value) throw new Win32Exception(Marshal.GetLastWin32Error()); }
     static byte[] Bytes(IntPtr h, IntPtr address, int length) {
         if (address == IntPtr.Zero || length < 0 || length > 1048576) throw new InvalidOperationException("Invalid process buffer");
@@ -46,14 +42,8 @@ public static class CabinetRecoveryProcess {
     }
     public static Launch Read(int id) {
         if (IntPtr.Size!=8) throw new InvalidOperationException("64-bit PowerShell required");
-        IntPtr token; Check(OpenProcessToken(GetCurrentProcess(),0x28,out token));
-        Privilege previous=new Privilege(); bool adjusted=false;
-        try {
-            Privilege requested=new Privilege(); requested.count=1; requested.attributes=2;
-            Check(LookupPrivilegeValue(null,"SeDebugPrivilege",out requested.luid)); int returned;
-            Check(AdjustTokenPrivileges(token,false,ref requested,Marshal.SizeOf(typeof(Privilege)),out previous,out returned));
-            adjusted=true;
-            // A missing debug privilege is not elevated by this call. OpenProcess must still succeed.
+        // Read only targets accessible with the inspector's existing token.
+        // A denied OpenProcess is a refusal, never a reason to change privileges.
             IntPtr h=OpenProcess(0x410,false,id);
             if(h==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
             try {
@@ -85,9 +75,5 @@ public static class CabinetRecoveryProcess {
                 }
                 return result;
             } finally { CloseHandle(h); }
-        } finally {
-            if(adjusted) { Privilege ignored; int count; AdjustTokenPrivileges(token,false,ref previous,Marshal.SizeOf(typeof(Privilege)),out ignored,out count); }
-            CloseHandle(token);
-        }
     }
 }

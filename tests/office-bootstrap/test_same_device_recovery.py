@@ -28,6 +28,7 @@ class RecoveryContracts(unittest.TestCase):
                 (output / f"cabinet-{name}.zip").write_bytes(name.encode())
             bundle_operator_files(source, output, "a" * 40)
             inventory = json.loads((output / "release-evidence.json").read_text())["sha256"]
+            self.assertEqual(len(inventory), 11)
             self.assertIn("RecoveryProcess.cs", inventory)
             name = "Restore-CabinetDemoAgent.ps1"
             self.assertEqual((source / "tools" / name).read_bytes(), (output / name).read_bytes())
