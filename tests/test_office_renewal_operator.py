@@ -2,8 +2,11 @@
 import io
 import json
 import os
+import pty
+import subprocess
 import tempfile
 import unittest
+
 from unittest.mock import patch
 from urllib.error import HTTPError
 from pathlib import Path
@@ -53,6 +56,70 @@ class SyntheticTransport:
 
 
 class OperatorTests(unittest.TestCase):
+    def test_unmasked_terminal_fallback_refuses_without_login(self):
+        fake = SyntheticTransport()
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(op.password_prompt, 'getpass', side_effect=op.password_prompt.GetPassWarning('no terminal')), \
+                patch.object(op, 'urlopen', fake):
+            with self.assertRaisesRegex(ValueError, 'masked terminal') as error:
+                op.run('https://example.test', 'supervisor', '22222222-2222-2222-2222-222222222222',
+                       'device', Path(root) / 'decision.json', 'lab repeat')
+            self.assertNotIn('no terminal', str(error.exception))
+            self.assertEqual(fake.calls, [])
+
+    def test_real_getpass_refuses_before_nonterminal_stdin_fallback(self):
+        fake = SyntheticTransport()
+        with tempfile.TemporaryDirectory() as root, \
+                patch.object(op.password_prompt.os, 'open', side_effect=OSError('no tty')), \
+                patch.object(op.password_prompt, 'input', create=True, side_effect=AssertionError('unmasked read')), \
+                patch.object(op.password_prompt.sys, 'stdin', io.StringIO('synthetic-not-a-secret\n')), \
+                patch.object(op.password_prompt.sys, 'stderr', io.StringIO()), \
+                patch.object(op, 'urlopen', fake):
+            with self.assertRaisesRegex(ValueError, 'masked terminal'):
+                op.run('https://example.test', 'supervisor', '22222222-2222-2222-2222-222222222222',
+                       'device', Path(root) / 'decision.json', 'lab repeat')
+            self.assertEqual(fake.calls, [])
+
+    @unittest.skipUnless(os.name == 'posix', 'PTY requires POSIX')
+    def test_real_pty_masks_synthetic_input(self):
+        import fcntl
+        import select
+        import termios
+        master, slave = pty.openpty()
+        proc = None
+        try:
+            proc = subprocess.Popen([sys.executable, '-c',
+                'import sys; sys.path.insert(0, sys.argv[1]); import office_renewal_operator as op; '
+                'op.getpass("Password: "); print("ACCEPTED")', str(Path(op.__file__).parent)],
+                stdin=slave, stdout=slave, stderr=slave, close_fds=True,
+                preexec_fn=lambda: (os.setsid(), fcntl.ioctl(slave, termios.TIOCSCTTY, 0)))
+            os.close(slave)
+            slave = -1
+            output = bytearray()
+            for _ in range(100):
+                ready, _, _ = select.select([master], [], [], .05)
+                if ready:
+                    output.extend(os.read(master, 4096))
+                    if b'Password: ' in output: break
+            else:
+                self.fail('PTY prompt missing')
+            os.write(master, b'synthetic-not-a-secret\n')
+            for _ in range(100):
+                ready, _, _ = select.select([master], [], [], .05)
+                if ready:
+                    try: output.extend(os.read(master, 4096))
+                    except OSError: break
+                if proc.poll() is not None: break
+            self.assertEqual(proc.wait(timeout=5), 0)
+            self.assertIn(b'ACCEPTED', output)
+            self.assertNotIn(b'synthetic-not-a-secret', output)
+        finally:
+            if slave != -1: os.close(slave)
+            os.close(master)
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait()
+
     def test_rejects_nonexact_https_origin(self):
         for value in ('http://host', 'https://host/path', 'https://user@host', 'https://host/?x=1',
                       'https://host/#frag', 'https://host:0', 'https://host\\evil'):

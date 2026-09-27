@@ -9,6 +9,7 @@ import ssl
 import stat
 import sys
 import uuid
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -42,7 +43,14 @@ def origin(value):
 
 
 def getpass(prompt):
-    return password_prompt.getpass(prompt)
+    try:
+        # getpass warns immediately before reading unmasked stdin. Escalate the
+        # warning before the fallback can consume a credential.
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', password_prompt.GetPassWarning)
+            return password_prompt.getpass(prompt)
+    except (password_prompt.GetPassWarning, OSError, EOFError):
+        raise ValueError('A working masked terminal is required; stop and retry from a trusted interactive terminal.') from None
 
 
 def urlopen(request, timeout):
