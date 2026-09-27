@@ -10,6 +10,7 @@ public sealed class StaffInputTests : IClassFixture<SupportApiFactory>
 
     [Theory]
     [InlineData(" ")]
+    [InlineData("Jöhn")]
     [InlineData("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abc")]
     public async Task Invalid_usernames_are_rejected_before_persistence(string username)
     {

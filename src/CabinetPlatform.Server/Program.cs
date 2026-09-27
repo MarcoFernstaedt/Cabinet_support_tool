@@ -317,6 +317,17 @@ static async Task InitialiseDatabaseAsync(WebApplication app)
     using IServiceScope scope = app.Services.CreateScope();
 
     var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+    if ((await db.Database.GetPendingMigrationsAsync()).Any(m =>
+            m.EndsWith("_CaseInsensitiveUsernames", StringComparison.Ordinal)) &&
+        (await db.Database.GetAppliedMigrationsAsync()).Any())
+    {
+        var names = await db.Users.AsNoTracking().Select(u => new { u.Id, u.Username }).ToListAsync();
+        var collision = names.GroupBy(u => u.Username, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (collision is not null)
+            throw new InvalidOperationException("Case-equivalent staff usernames already exist: " +
+                string.Join(", ", collision.Select(u => u.Id)) + ". Resolve them manually before migration.");
+    }
     await db.Database.MigrateAsync();
 
     var seeder = scope.ServiceProvider.GetRequiredService<DatabaseSeeder>();

@@ -6,15 +6,134 @@ using CabinetPlatform.Server.Domain;
 using CabinetPlatform.Server.Security;
 using CabinetPlatform.Server.Services;
 using CabinetPlatform.Server.Auditing;
+using CabinetPlatform.Contracts.Audit;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Data.Sqlite;
+using System.Text.Json;
 
 namespace CabinetPlatform.Server.Tests;
 
 public sealed class StaffSessionAuthorityTests
 {
+    [Fact]
+    public async Task Overlapping_login_deactivation_and_reactivation_leave_only_current_authority()
+    {
+        using var factory = new SupportApiFactory();
+        var (admin, _) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "race-admin");
+        var (_, target) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "race-target");
+        using var oldClient = factory.CreateClient();
+        var old = (await (await oldClient.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = target.Username, Password = "Str0ng!TestPassword" })).ReadAsync<LoginResponse>())!;
+        using var newClient = factory.CreateClient();
+        Task<HttpResponseMessage> login = newClient.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = "RACE-TARGET", Password = "Str0ng!TestPassword" });
+        Task<HttpResponseMessage> disable = admin.PatchJsonAsync($"/api/users/{target.Id}",
+            new UpdateUserRequest { IsActive = false, SupportAccountsOnly = true });
+        Task<HttpResponseMessage> reactivate = admin.PatchJsonAsync($"/api/users/{target.Id}",
+            new UpdateUserRequest { IsActive = true, SupportAccountsOnly = true });
+        var responses = await Task.WhenAll(login, disable, reactivate);
+        Assert.All(responses, response => Assert.True(response.StatusCode is HttpStatusCode.OK or
+            HttpStatusCode.Forbidden or HttpStatusCode.Conflict, response.StatusCode.ToString()));
+        oldClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", old.AccessToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await oldClient.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await oldClient.PostJsonAsync("/api/auth/refresh",
+            new RefreshRequest { RefreshToken = old.RefreshToken })).StatusCode);
+        if (responses[0].StatusCode == HttpStatusCode.OK)
+        {
+            var candidate = (await responses[0].ReadAsync<LoginResponse>())!;
+            newClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", candidate.AccessToken);
+            var current = await factory.WithDbAsync(db => db.Users.AsNoTracking()
+                .Where(u => u.Id == target.Id).Select(u => u.IsActive).SingleAsync());
+            var access = await newClient.GetAsync("/api/auth/me");
+            if (!current) Assert.Equal(HttpStatusCode.Unauthorized, access.StatusCode);
+            if (access.StatusCode == HttpStatusCode.Unauthorized)
+                Assert.Equal(HttpStatusCode.Forbidden, (await newClient.PostJsonAsync("/api/auth/refresh",
+                    new RefreshRequest { RefreshToken = candidate.RefreshToken })).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Database_rejects_case_equivalent_username_even_when_creation_bypasses_controller()
+    {
+        using var factory = new SupportApiFactory();
+        var (_, user) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "UniqueCase");
+        var (_, other) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "differentCase");
+        await factory.WithDbAsync(async db =>
+        {
+            // The index is the last guard against concurrent creates.
+            var conflict = await Assert.ThrowsAsync<SqliteException>(() => db.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE Users SET Username = {"uNIQUEcASE"} WHERE Id = {other.Id}"));
+            Assert.Equal(19, conflict.SqliteErrorCode);
+            Assert.Equal(user.Id, (await db.Users.AsNoTracking().SingleAsync(u => u.Username == "UniqueCase")).Id);
+        });
+    }
+    [Fact]
+    public async Task Mixed_case_login_preserves_password_case_and_refuses_duplicate_and_inactive_account()
+    {
+        using var factory = new SupportApiFactory();
+        var (admin, _) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "case-admin");
+        var (_, user) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "CaseSupport");
+        using var browser = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = "cASEsUPPORT", Password = "str0ng!TestPassword" })).StatusCode);
+        var login = (await (await browser.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = "cASEsUPPORT", Password = "Str0ng!TestPassword" })).ReadAsync<LoginResponse>())!;
+        Assert.Equal(user.Id, login.UserId);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PostJsonAsync("/api/users", new CreateUserRequest
+        { Username = "casesupport", DisplayName = "Duplicate", Role = Role.Tier1,
+            InitialPassword = "Temporary!Password42" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchJsonAsync($"/api/users/{user.Id}",
+            new UpdateUserRequest { IsActive = false, SupportAccountsOnly = true })).StatusCode);
+        browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostJsonAsync("/api/auth/refresh",
+            new RefreshRequest { RefreshToken = login.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = "cASEsUPPORT", Password = "Str0ng!TestPassword" })).StatusCode);
+    }
+
+    [Fact]
+    public async Task Reactivation_requires_fresh_login_and_never_resurrects_old_tokens()
+    {
+        using var factory = new SupportApiFactory();
+        var (admin, supervisor) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "react-admin");
+        var (nonSupervisor, _) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "react-other");
+        var (_, user) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "react-target", mustChangePassword: true);
+        using var browser = factory.CreateClient();
+        var login = (await (await browser.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = user.Username, Password = "Str0ng!TestPassword" })).ReadAsync<LoginResponse>())!;
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchJsonAsync($"/api/users/{user.Id}",
+            new UpdateUserRequest { IsActive = false, SupportAccountsOnly = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await nonSupervisor.PatchJsonAsync($"/api/users/{user.Id}",
+            new UpdateUserRequest { IsActive = true, SupportAccountsOnly = true })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await admin.PatchJsonAsync($"/api/users/{user.Id}",
+            new UpdateUserRequest { IsActive = true, SupportAccountsOnly = true })).StatusCode);
+        var reactivation = await factory.WithDbAsync(db => db.AuditEntries.AsNoTracking()
+            .Where(a => a.Event == AuditEvent.UpdateUser && a.ActorId == supervisor.Id.ToString())
+            .ToListAsync());
+        Assert.Contains(reactivation, a => a.Result == AuditResult.Success && a.Details != null &&
+            JsonDocument.Parse(a.Details).RootElement.EnumerateObject()
+                .Where(p => p.Name.Equals("changes", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(p => p.Value.EnumerateArray())
+                .Any(change => change.GetString() == "IsActive False -> True"));
+        browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/auth/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostJsonAsync("/api/auth/refresh",
+            new RefreshRequest { RefreshToken = login.RefreshToken })).StatusCode);
+        var fresh = (await (await browser.PostJsonAsync("/api/auth/login", new LoginRequest
+        { Username = "REACT-TARGET", Password = "Str0ng!TestPassword" })).ReadAsync<LoginResponse>())!;
+        Assert.True(fresh.MustChangePassword);
+        Assert.Equal(HttpStatusCode.Forbidden, (await browser.PostJsonAsync("/api/auth/refresh",
+            new RefreshRequest { RefreshToken = login.RefreshToken })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await admin.PatchJsonAsync($"/api/users/{user.Id}",
+            new UpdateUserRequest { IsActive = true, SupportAccountsOnly = true })).StatusCode);
+        browser.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", fresh.AccessToken);
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/auth/me")).StatusCode);
+    }
     [Fact]
     public async Task Login_wins_over_in_flight_old_refresh_without_resurrecting_it()
     {

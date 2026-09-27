@@ -155,6 +155,17 @@ public sealed class UsersController : SupportControllerBase
 
         string username = request.Username.Trim();
 
+        // SQLite NOCASE and PostgreSQL lower() agree on ASCII usernames. Keep
+        // this rule for new names so the database uniqueness guard cannot
+        // disagree with the ordinal comparison used for identity lookup.
+        if (username.Any(c => c > 127))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.CreateUser, "Username contains non-ASCII characters.",
+                null, new { Username = username }, cancellationToken: ct);
+            return Problem("Usernames must use ASCII characters.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
+        }
+
         if (!Enum.IsDefined(request.Role))
         {
             await _audit.WriteDenialAsync(
@@ -175,7 +186,8 @@ public sealed class UsersController : SupportControllerBase
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
 
-        if (await _db.Users.AnyAsync(u => u.Username == username, ct))
+        var existing = await _db.Users.AsNoTracking().Select(u => u.Username).ToListAsync(ct);
+        if (existing.Any(name => string.Equals(name, username, StringComparison.OrdinalIgnoreCase)))
         {
             await _audit.WriteDenialAsync(
                 AuditEvent.CreateUser, "Username already exists.", null,
@@ -252,16 +264,18 @@ public sealed class UsersController : SupportControllerBase
         {
             // Reserve the current support row until its update and audit commit.
             // A preflight GET would leave a promotion race before SaveChanges.
-            int reserved = await _db.Users.Where(u => u.Id == id && u.IsActive &&
+            // Reactivation reserves an inactive support row instead.
+            int reserved = await _db.Users.Where(u => u.Id == id &&
+                (request.IsActive == true ? !u.IsActive : u.IsActive) &&
                 (u.Role == CabinetPlatform.Contracts.Auth.Role.Tier1 || u.Role == CabinetPlatform.Contracts.Auth.Role.Tier2))
                 .ExecuteUpdateAsync(set => set.SetProperty(u => u.IsActive, u => u.IsActive), ct);
             if (reserved != 1)
             {
                 await _audit.WriteDenialAsync(AuditEvent.UpdateUser,
-                    "The account is no longer an active support account.", null,
+                    "The account no longer matches the selected support state.", null,
                     new { UserId = id }, cancellationToken: ct);
                 await supportTransaction!.CommitAsync(ct);
-                return Problem("The account is no longer an active support account. Refresh staff before deciding again.",
+                return Problem("The account has changed. Refresh staff before deciding again.",
                     statusCode: StatusCodes.Status409Conflict, title: "Staff target changed");
             }
         }

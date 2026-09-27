@@ -64,6 +64,9 @@ public sealed class DatabaseSeeder
             return;
         }
 
+        if (_options.SupervisorUsername.Trim().Any(c => c > 127))
+            throw new InvalidOperationException("The configured Supervisor username must use ASCII characters.");
+
         if (string.IsNullOrWhiteSpace(_options.SupervisorInitialPassword))
         {
             // Refuse rather than invent one. A server that silently seeds a

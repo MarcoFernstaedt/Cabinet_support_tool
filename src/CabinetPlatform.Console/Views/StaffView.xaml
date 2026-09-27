@@ -49,6 +49,8 @@
      <Button Content="Save selected tier" Command="{Binding SaveTierCommand}"/>
      <CheckBox Content="I intend to disable this selected account and revoke its sessions." IsChecked="{Binding DisableConfirmed}" VerticalAlignment="Center"/>
      <Button Content="Disable selected account" Command="{Binding DisableCommand}"/>
+     <CheckBox Content="I intend to reactivate this selected account. A fresh login is required." IsChecked="{Binding ReactivateConfirmed}" Visibility="{Binding ShowReactivate, Converter={StaticResource BoolToVisibility}}" VerticalAlignment="Center"/>
+     <Button Content="Reactivate selected account" Command="{Binding ReactivateCommand}" Visibility="{Binding ShowReactivate, Converter={StaticResource BoolToVisibility}}"/>
     </WrapPanel>
    </StackPanel>
   </ScrollViewer>

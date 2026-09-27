@@ -72,7 +72,13 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
         string username = request.Username.Trim();
 
-        User? user = await _db.Users.FirstOrDefaultAsync(u => u.Username == username, ct);
+        // Username spelling is for display. Compare identities independent of
+        // database collation; password verification below remains exact.
+        var identities = await _db.Users.AsNoTracking()
+            .Select(u => new { u.Id, u.Username }).ToListAsync(ct);
+        var identity = identities.SingleOrDefault(u =>
+            string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase));
+        User? user = identity is null ? null : await _db.Users.SingleAsync(u => u.Id == identity.Id, ct);
 
         if (user is null)
         {

@@ -20,12 +20,15 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     public ObservableCollection<UserDto> Users { get; } = new();
     public IReadOnlyList<Role> SupportTiers { get; } = new[] { Role.Tier1, Role.Tier2 };
     public bool IsSupervisor => _session.IsSignedIn && !_session.MustChangePassword && _session.Role == Role.Supervisor;
+    public bool ShowReactivate => IsSupervisor && SelectedUser is { IsActive: false } user &&
+        user.Id != _session.UserId && SupportTiers.Contains(user.Role);
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(CreateCommand))] private string _username = string.Empty;
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(CreateCommand))] private string _displayName = string.Empty;
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(CreateCommand))] private Role _selectedTier = Role.Tier1;
     [ObservableProperty] private string _outcome = string.Empty;
     [ObservableProperty] private UserDto? _selectedUser;
     [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(DisableCommand))] private bool _disableConfirmed;
+    [ObservableProperty] [NotifyCanExecuteChangedFor(nameof(ReactivateCommand))] private bool _reactivateConfirmed;
     [ObservableProperty] private int _page = 1;
     [ObservableProperty] private int _totalCount;
     [ObservableProperty] private bool _hasMore;
@@ -38,6 +41,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     public async Task LoadAsync()
     {
         OnPropertyChanged(nameof(IsSupervisor));
+        OnPropertyChanged(nameof(ShowReactivate));
         if (!CanLoad()) return;
         Users.Clear(); SelectedUser = null;
         await RunAsync(async ct =>
@@ -72,6 +76,8 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         user.Id != _session.UserId && SupportTiers.Contains(user.Role);
     private bool CanSaveTier() => CanEdit() && SupportTiers.Contains(SelectedTier);
     private bool CanDisable() => CanEdit() && DisableConfirmed;
+    private bool CanReactivate() => CanLoad() && SelectedUser is { IsActive: false } user &&
+        user.Id != _session.UserId && SupportTiers.Contains(user.Role) && ReactivateConfirmed;
 
     [RelayCommand(CanExecute = nameof(CanSaveTier))]
     private async Task SaveTierAsync()
@@ -87,6 +93,13 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         await UpdateAsync(new UpdateUserRequest { IsActive = false });
     }
 
+    [RelayCommand(CanExecute = nameof(CanReactivate))]
+    private async Task ReactivateAsync()
+    {
+        if (!CanReactivate()) return;
+        await UpdateAsync(new UpdateUserRequest { IsActive = true });
+    }
+
     private async Task UpdateAsync(UpdateUserRequest request)
     {
         var selected = SelectedUser!;
@@ -95,7 +108,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         try { result = await RunAsync(ct => _api.UpdateUserAsync(selected.Id, request with { SupportAccountsOnly = true }, ct)); }
         finally
         {
-            if (generation == _generation) { SelectedUser = null; DisableConfirmed = false; }
+            if (generation == _generation) { SelectedUser = null; DisableConfirmed = false; ReactivateConfirmed = false; }
         }
         if (generation != _generation) return;
         Outcome = result is null ? "Change not confirmed. Refresh staff before trying again; the server may have saved it."
@@ -107,6 +120,8 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     partial void OnSelectedUserChanged(UserDto? value)
     {
         DisableConfirmed = false;
+        ReactivateConfirmed = false;
+        OnPropertyChanged(nameof(ShowReactivate));
         if (value is not null && SupportTiers.Contains(value.Role)) SelectedTier = value.Role;
         NotifyCommands();
     }
@@ -124,6 +139,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
         Username = DisplayName = Outcome = string.Empty;
         Page = 1; TotalCount = 0; HasMore = false; SelectedTier = Role.Tier1;
         ClearError(); OnPropertyChanged(nameof(PageSummary)); NotifyCommands();
+        OnPropertyChanged(nameof(ShowReactivate));
     }
     protected override void OnLoadingChanged(bool isLoading) => NotifyCommands();
     public override void Deactivate()
@@ -134,7 +150,7 @@ public sealed partial class StaffViewModel : ObservableViewModelBase
     private void NotifyCommands()
     {
         CreateCommand.NotifyCanExecuteChanged(); RefreshCommand.NotifyCanExecuteChanged();
-        SaveTierCommand.NotifyCanExecuteChanged(); DisableCommand.NotifyCanExecuteChanged();
+        SaveTierCommand.NotifyCanExecuteChanged(); DisableCommand.NotifyCanExecuteChanged(); ReactivateCommand.NotifyCanExecuteChanged();
         NextCommand.NotifyCanExecuteChanged(); PreviousCommand.NotifyCanExecuteChanged();
     }
 }
