@@ -27,7 +27,9 @@ function Service-Read {
     return [pscustomobject]@{ State=$script:state; StartName='LocalSystem'; StartMode=$script:mode;
         PathName=('"' + $install + '\CabinetPlatform.Agent.exe"'); DisplayName='Mashura Cabinet Support Agent' }
 }
-function Service-Recovery { return 'synthetic-recovery-policy' }
+function Service-Recovery { return [pscustomobject]@{Policy='synthetic-recovery-policy'} }
+function Service-Admission {}
+function Assert-ExecutionEnvironment {} # Synthetic adapter only.
 function Service-Stop {
     $script:events += 'stop'
     if ($script:journalLock) { $script:journalLock.Dispose(); $script:journalLock = $null }
@@ -81,7 +83,7 @@ try {
             Actions=@{ExecutionMode='DiagnosticOnly'; DiagnosticBundleDirectory='C:/Program Files/Mashura/CabinetAgent/bundles'}}} | ConvertTo-Json -Depth 10
         $files = @{'CabinetPlatform.Agent.exe'='old-binary'; 'appsettings.json'=$script:syntheticConfig;
             'office-enrollment.json.device'='{"ServerBaseUrl":"https://srv1522777.tail72f980.ts.net/","MachineId":"synthetic-id","DeviceKey":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","Confirmed":true}'; 'state\agent-state.json'='{"MachineId":"synthetic-id","CabinetId":"synthetic-cabinet"}';
-            'buffer\pending.txt'='pending'; 'logs\old.txt'='history'}
+            'buffer\pending.txt'='pending'; 'buffer\CabinetPlatform.Agent.exe'='nested pending'; 'logs\old.txt'='history'}
         foreach ($name in $files.Keys) {
             $path = Join-Path $install $name
             [IO.File]::WriteAllText($path, $files[$name]); Lock-File $path
@@ -89,14 +91,7 @@ try {
         $script:exists = $true; $script:state = 'Running'; $script:mode = 'Auto'; $script:events = @()
     }
     $script:failStage = ''
-    $createDefinition = @($definitions | Where-Object { $_.Name -eq 'Service-CreateDisabled' })[0].Extent.Text
-    function Invoke-Sc([string[]]$arguments) { $script:scCalls += ,@($arguments) }
-    $script:scCalls = @()
-    & ([scriptblock]::Create($createDefinition + "`nService-CreateDisabled"))
-    Pass ($script:scCalls[0][0] -eq 'create' -and $script:scCalls[0][3] -eq ('"' + $install + '\CabinetPlatform.Agent.exe"') -and
-        $script:scCalls[0] -contains 'disabled' -and $script:scCalls[0] -contains 'LocalSystem') 'quoted service path and disabled registration arguments'
-    Pass ($script:scCalls[1][0] -eq 'failure' -and $script:scCalls[2][0] -eq 'failureflag') 'service recovery options passed explicitly'
-    $script:scCalls = @()
+    # Real quoted SCM readback is tested by Test-RecoveryScmProbe.ps1.
     $package = @{'cabinetplatform.agent.exe'=[pscustomobject]@{Name='CabinetPlatform.Agent.exe'; Bytes=[Text.Encoding]::UTF8.GetBytes('new-binary')};
         'kit-manifest.json'=[pscustomobject]@{Name='kit-manifest.json'; Bytes=[byte[]]@()}}
     Must-Fail { Assert-Service 'Auto' 'Stopped' } 'requires running original service'
@@ -115,6 +110,30 @@ try {
     [IO.File]::WriteAllText($token, '{}'); Lock-File $token
     Must-Fail { Assert-Identity $install } 'fresh enrollment input refused on enrolled machine'
     Remove-Item -LiteralPath $token -Force
+    Check-Acl 'C:\' $false
+    Pass $true 'ordinary system drive creation ACE does not authorize existing child replacement'
+    $unsafeParent = Join-Path $root 'unsafe-ancestor'
+    New-Item -ItemType Directory -Path $unsafeParent | Out-Null
+    Lock-Directory $unsafeParent
+    $unsafeAcl = Get-Acl -LiteralPath $unsafeParent
+    $untrusted = [Security.Principal.SecurityIdentifier]::new('S-1-5-11')
+    $unsafeAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($untrusted,
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles,
+        [Security.AccessControl.AccessControlType]::Allow))
+    Set-Acl -LiteralPath $unsafeParent -AclObject $unsafeAcl
+    Must-Fail { Check-Acl $unsafeParent $false } 'ancestor delete-child right refused'
+    Pass ([bool](Get-Command Assert-EnvironmentEntries -ErrorAction SilentlyContinue)) 'environment admission helper exists'
+    $env:Agent__OfficeEnrollmentFile = 'fresh-synthetic.json'
+    Must-Fail { Assert-EnvironmentEntries @([pscustomobject]@{Key='Agent__OfficeEnrollmentFile';Value=$env:Agent__OfficeEnrollmentFile}) } 'configuration override refused'
+    Remove-Item Env:Agent__OfficeEnrollmentFile
+    Must-Fail { Assert-EnvironmentEntries @([pscustomobject]@{Key='DOTNET_STARTUP_HOOKS';Value='synthetic.dll'}) } 'runtime injection refused'
+    $outside = Join-Path $root 'outside.txt'
+    [IO.File]::WriteAllText($outside, 'external synthetic')
+    Lock-File $outside
+    $alias = Join-Path $install 'logs\linked.txt'
+    New-Item -ItemType HardLink -Path $alias -Target $outside | Out-Null
+    Must-Fail { Check-Tree $install } 'hardlink alias outside protected tree refused'
+    Remove-Item -LiteralPath $alias -Force
     foreach ($stage in @('stop','delete','create','mode','start','')) {
         Fixture
         $script:failStage = $stage
@@ -134,6 +153,7 @@ try {
             Pass (!$errorText -and $script:state -eq 'Running' -and $script:mode -eq 'Auto') 'replacement starts and becomes automatic'
             Pass ($script:restoredAtStart -and $script:events[-2] -eq 'start') 'identity restored before first service start'
             Pass (([IO.File]::ReadAllText((Join-Path $install 'buffer\pending.txt'))) -eq 'pending') 'pending state restored before start'
+            Pass (([IO.File]::ReadAllText((Join-Path $install 'buffer\CabinetPlatform.Agent.exe'))) -eq 'nested pending') 'nested filename collision retained'
             Pass (@(Get-ChildItem -LiteralPath $install -Recurse -Filter '*.device' -File).Count -eq 1 -and
                 ([IO.File]::ReadAllText((Join-Path $install 'state\agent-state.json'))) -like '*synthetic-cabinet*') 'one original device identity retained'
             Pass (($script:events -join ',') -match 'create,mode-demand,start,mode-auto$') 'service recreated disabled then manually started'

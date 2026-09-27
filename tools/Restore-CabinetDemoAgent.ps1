@@ -38,18 +38,18 @@ function Check-Acl([string]$path, [bool]$private) {
     $sid = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
     $installer = 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'
     if ($sid -notin ($trusted + @($installer))) { Refuse 'Untrusted path owner.' }
-    $mutation = [Security.AccessControl.FileSystemRights]::WriteData -bor
-        [Security.AccessControl.FileSystemRights]::AppendData -bor
-        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
-        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
-        [Security.AccessControl.FileSystemRights]::Delete -bor
+    $replacement = [Security.AccessControl.FileSystemRights]::Delete -bor
         [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership
     foreach ($ace in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
-        if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
+        if ($ace.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+            ($ace.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
         $who = $ace.IdentityReference.Value
-        if ($who -notin $trusted -and ($private -or ($who -ne $installer -and ($ace.FileSystemRights -band $mutation) -ne 0))) {
+        # A creation right on an ancestor cannot replace its existing protected child.
+        # Delete-child, DACL/owner mutation and deletion can, so they remain refusals.
+        if ($who -notin $trusted -and ($private -or ($who -ne $installer -and
+            ($ace.FileSystemRights -band $replacement) -ne 0))) {
             Refuse 'Untrusted access to recovery path.'
         }
     }
@@ -64,12 +64,47 @@ function Check-Ancestors([string]$path) {
         $part = $next
     }
 }
+function File-LinkCount([string]$path) {
+    if (-not ('CabinetRecoveryFileIdentity' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class CabinetRecoveryFileIdentity {
+    [StructLayout(LayoutKind.Sequential)]
+    struct FileInfo {
+        public uint attributes; public System.Runtime.InteropServices.ComTypes.FILETIME creation;
+        public System.Runtime.InteropServices.ComTypes.FILETIME access;
+        public System.Runtime.InteropServices.ComTypes.FILETIME write;
+        public uint serial; public uint sizeHigh; public uint sizeLow;
+        public uint links; public uint indexHigh; public uint indexLow;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security,
+        uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInfo info);
+    public static uint Links(string path) {
+        using (var handle = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
+            if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+            FileInfo info;
+            if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            return info.links;
+        }
+    }
+}
+'@
+    }
+    return [CabinetRecoveryFileIdentity]::Links($path)
+}
 function Check-Tree([string]$path) {
     Check-Path $path $true | Out-Null
     Check-Acl $path $true
     foreach ($entry in Get-ChildItem -LiteralPath $path -Force -Recurse) {
         if (($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Refuse 'Linked tree member refused.' }
         Check-Acl $entry.FullName $true
+        if (!$entry.PSIsContainer -and (File-LinkCount $entry.FullName) -ne 1) { Refuse 'Hardlinked tree member refused.' }
     }
 }
 function Lock-Directory([string]$path) {
@@ -113,6 +148,42 @@ function Same-Tree([hashtable]$expected, [string]$path) {
     foreach ($key in $expected.Keys) {
         if (!$actual.ContainsKey($key) -or $actual[$key] -cne $expected[$key]) { Refuse 'Protected tree content changed.' }
     }
+}
+function Preserved-Members([string]$path, [hashtable]$package) {
+    $members = Fingerprint $path
+    $preserved = @{}
+    foreach ($key in $members.Keys) {
+        if ($key -eq '' -or $key -ieq 'appsettings.json' -or !$package.ContainsKey($key.ToLowerInvariant())) {
+            $preserved[$key] = $members[$key]
+        }
+    }
+    return $preserved
+}
+function Assert-EnvironmentEntries([object[]]$entries) {
+    foreach ($entry in $entries) {
+        if ($entry.Key -match '^(?i:Agent__|DOTNET_|COMPlus_|CORECLR_|COR_|ASPNETCORE_|APPSETTING|CONFIGURATION)' -or
+            $entry.Key -match '^(?i:Path|PATHEXT|PSModulePath|__COMPAT_LAYER)$') {
+            Refuse 'Service configuration or runtime environment override requires separate review.'
+        }
+    }
+}
+function Assert-ExecutionEnvironment {
+    # Inspect distinct sources. The caller's process environment is NOT SCM's environment.
+    $machine = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment')
+    $service = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Services\' + $serviceName)
+    if (!$machine -or !$service) { Refuse 'Machine or service environment unavailable.' }
+    try {
+        $names = @($machine.GetValueNames() | ForEach-Object { [pscustomobject]@{Key=$_} })
+        # PATH is ordinary in the machine environment. Its effective search path still
+        # needs provenance review separately from a service-specific PATH override.
+        Assert-EnvironmentEntries @($names | Where-Object { $_.Key -notin @('Path','PATHEXT','PSModulePath') })
+        if ($null -ne $service.GetValue('Environment', $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)) {
+            Refuse 'Per-service environment overrides are unsupported.'
+        }
+    } finally { $service.Dispose(); $machine.Dispose() }
+    # SCM may hold a boot-time environment different from the registry or this shell.
+    # Until its actual launch block is attested, a first start is not authorized.
+    Refuse 'Effective SCM process environment cannot be attested; no service stop authorized.'
 }
 function Assert-Identity([string]$path) {
     foreach ($name in @('CabinetPlatform.Agent.exe','appsettings.json','office-enrollment.json.device','state\agent-state.json')) {
@@ -212,12 +283,122 @@ function Invoke-Sc([string[]]$arguments) {
     if ($LASTEXITCODE -ne 0) { Refuse 'Service control failed; inspect protected backup.' }
 }
 function Service-Recovery {
-    $sc = "$env:SystemRoot\System32\sc.exe"
-    $actions = & $sc qfailure $serviceName
-    if ($LASTEXITCODE -ne 0) { Refuse 'Cannot capture service recovery settings.' }
-    $flag = & $sc qfailureflag $serviceName
-    if ($LASTEXITCODE -ne 0) { Refuse 'Cannot capture service failure flag.' }
-    return (($actions -join "`n") + "`n" + ($flag -join "`n"))
+    if (-not ('CabinetRecoveryDefinition' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+public static class CabinetRecoveryDefinition {
+    [StructLayout(LayoutKind.Sequential)]
+    struct Config {
+        public uint type, start, error; public IntPtr image, group; public uint tag;
+        public IntPtr dependencies, account, display;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct Actions {
+        public uint reset; public IntPtr reboot, command; public uint count; public IntPtr actions;
+    }
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr OpenSCManager(string machine, string database, uint access);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr OpenService(IntPtr manager, string name, uint access);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool CloseServiceHandle(IntPtr handle);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool QueryServiceConfig(IntPtr service, IntPtr buffer, uint size, out uint needed);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern bool QueryServiceConfig2(IntPtr service, uint level, IntPtr buffer, uint size, out uint needed);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool QueryServiceObjectSecurity(IntPtr service, uint info, byte[] buffer, uint size, out uint needed);
+    static IntPtr Config2(IntPtr service, uint level) {
+        uint needed;
+        QueryServiceConfig2(service, level, IntPtr.Zero, 0, out needed);
+        if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service option size");
+        IntPtr buffer = Marshal.AllocHGlobal((int)needed);
+        if (!QueryServiceConfig2(service, level, buffer, needed, out needed)) {
+            int error = Marshal.GetLastWin32Error(); Marshal.FreeHGlobal(buffer); throw new Win32Exception(error, "QueryServiceConfig2 level " + level);
+        }
+        return buffer;
+    }
+    public sealed class Snapshot {
+        public uint Type, Start, Error, Reset, Count, Sid, TriggerCount;
+        public bool FailureFlag, Delayed;
+        public string Image, Group, Dependencies, Account, Display, Privileges, Dacl;
+        public string ActionSequence, Reboot, Command;
+        public string Policy { get { return Reset + ":" + Count + ":" + ActionSequence + ":" + FailureFlag + ":" + Reboot + ":" + Command; } }
+    }
+    public static Snapshot Read(string name) {
+        IntPtr manager = OpenSCManager(null, null, 1);
+        if (manager == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            IntPtr service = OpenService(manager, name, 0x20001);
+            if (service == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            try {
+                uint needed;
+                QueryServiceConfig(service, IntPtr.Zero, 0, out needed);
+                if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service configuration size");
+                IntPtr buffer = Marshal.AllocHGlobal((int)needed);
+                try {
+                    if (!QueryServiceConfig(service, buffer, needed, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceConfig code=" + Marshal.GetLastWin32Error());
+                    Config config = (Config)Marshal.PtrToStructure(buffer, typeof(Config));
+                    Snapshot s = new Snapshot();
+                    s.Type=config.type; s.Start=config.start; s.Error=config.error;
+                    s.Image=Marshal.PtrToStringUni(config.image); s.Group=Marshal.PtrToStringUni(config.group);
+                    s.Account=Marshal.PtrToStringUni(config.account); s.Display=Marshal.PtrToStringUni(config.display);
+                    s.Dependencies=Marshal.PtrToStringUni(config.dependencies);
+                    IntPtr failure = Config2(service, 2);
+                    try {
+                        Actions a=(Actions)Marshal.PtrToStructure(failure, typeof(Actions));
+                        s.Reset=a.reset; s.Count=a.count; s.Reboot=Marshal.PtrToStringUni(a.reboot);
+                        s.Command=Marshal.PtrToStringUni(a.command);
+                        s.ActionSequence="";
+                        if (a.count > 16 || (a.count > 0 && a.actions == IntPtr.Zero)) throw new InvalidOperationException("Invalid service actions");
+                        for (int i=0;i<a.count;i++) {
+                            IntPtr p=IntPtr.Add(a.actions, i*8);
+                            s.ActionSequence += Marshal.ReadInt32(p) + "/" + (uint)Marshal.ReadInt32(p,4) + ";";
+                        }
+                    } finally { Marshal.FreeHGlobal(failure); }
+                    IntPtr flag=Config2(service,4);
+                    try { s.FailureFlag=Marshal.ReadInt32(flag)!=0; } finally { Marshal.FreeHGlobal(flag); }
+                    IntPtr delay=Config2(service,3);
+                    try { s.Delayed=Marshal.ReadInt32(delay)!=0; } finally { Marshal.FreeHGlobal(delay); }
+                    IntPtr sid=Config2(service,5);
+                    try { s.Sid=(uint)Marshal.ReadInt32(sid); } finally { Marshal.FreeHGlobal(sid); }
+                    IntPtr priv=Config2(service,6);
+                    try { s.Privileges=Marshal.PtrToStringUni(Marshal.ReadIntPtr(priv)); } finally { Marshal.FreeHGlobal(priv); }
+                    IntPtr triggers=Config2(service,8);
+                    try { s.TriggerCount=(uint)Marshal.ReadInt32(triggers); } finally { Marshal.FreeHGlobal(triggers); }
+                    byte[] security=new byte[65536];
+                    if (!QueryServiceObjectSecurity(service, 7, security, (uint)security.Length, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceObjectSecurity");
+                    s.Dacl=new RawSecurityDescriptor(security,0).GetSddlForm(AccessControlSections.Access);
+                    return s;
+                } finally { Marshal.FreeHGlobal(buffer); }
+            } finally { CloseServiceHandle(service); }
+        } finally { CloseServiceHandle(manager); }
+    }
+}
+'@
+    }
+    return [CabinetRecoveryDefinition]::Read($serviceName)
+}
+function Service-Admission {
+    $d = Service-Recovery
+    # Only the exact recreated definition is supported. Refuse deviations before stop.
+    if ($d.Type -ne 16 -or $d.Start -ne 2 -or $d.Error -ne 1 -or
+        $d.Image -cne ('"' + $install + '\CabinetPlatform.Agent.exe"') -or
+        $d.Display -cne 'Mashura Cabinet Support Agent' -or
+        $d.Account -notin @('LocalSystem','LocalSystem'.ToUpperInvariant()) -or
+        $d.Group -or $d.Dependencies -or $d.Delayed -or $d.Sid -ne 0 -or
+        $d.Privileges -or $d.TriggerCount -ne 0 -or
+        $d.Reset -ne 86400 -or $d.Count -ne 3 -or
+        $d.ActionSequence -cne '1/60000;1/120000;1/300000;' -or
+        !$d.FailureFlag -or $d.Reboot -or $d.Command) {
+        Refuse 'Unsupported original service definition or recovery policy.'
+    }
+    # SCM security is not copied by CreateService. A custom descriptor is unsupported.
+    $defaultDacl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)'
+    if ($d.Dacl -cne $defaultDacl) { Refuse 'Unsupported original service security descriptor.' }
 }
 function Service-Read {
     $s = Get-CimInstance Win32_Service -Filter "Name='CabinetPlatformAgent'"
@@ -237,11 +418,51 @@ function Service-Stop {
     (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
     if ((Service-Read).State -ne 'Stopped') { Refuse 'Service did not stop gracefully.' }
 }
-function Service-Delete { Invoke-Sc @('delete', $serviceName); Service-WaitAbsent }
+function Service-EnsureStopped {
+    $svc = Service-Read
+    if (!$svc -or $svc.State -cne 'Stopped') { Refuse 'Service state is not terminal Stopped; recovery incomplete.' }
+}
+function Service-WaitTerminal {
+    for ($i = 0; $i -lt 30; $i++) {
+        $svc = Service-Read
+        if (!$svc) { Refuse 'Service disappeared during state reconciliation.' }
+        if ($svc.State -cin @('Stopped','Running')) { return $svc.State }
+        Start-Sleep -Seconds 1
+    }
+    Refuse 'Service transition unresolved; recovery incomplete.'
+}
+function Service-Delete { Service-EnsureStopped; Invoke-Sc @('delete', $serviceName); Service-WaitAbsent }
 function Service-CreateDisabled {
-    # sc.exe gets one binPath value with embedded quotes; verify SCM readback before start.
-    Invoke-Sc @('create', $serviceName, 'binPath=', ('"' + $install + '\CabinetPlatform.Agent.exe"'),
-        'DisplayName=', 'Mashura Cabinet Support Agent', 'start=', 'disabled', 'obj=', 'LocalSystem')
+    # PowerShell 5.1 removes embedded quotes when passing arguments to sc.exe.
+    # CreateServiceW accepts the literal image path without command-line remarshal.
+    if (-not ('CabinetRecoveryScm' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+public static class CabinetRecoveryScm {
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr OpenSCManager(string machine, string database, uint access);
+    [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr CreateService(IntPtr scm, string name, string display, uint access,
+        uint type, uint start, uint error, string image, string group, IntPtr tag,
+        string dependencies, string account, string password);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool CloseServiceHandle(IntPtr handle);
+    public static void CreateDisabled(string name, string image) {
+        IntPtr scm = OpenSCManager(null, null, 0x0002);
+        if (scm == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            IntPtr service = CreateService(scm, name, "Mashura Cabinet Support Agent", 0x0003,
+                0x0010, 0x0004, 0x0001, image, null, IntPtr.Zero, null, null, null);
+            if (service == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            CloseServiceHandle(service);
+        } finally { CloseServiceHandle(scm); }
+    }
+}
+'@
+    }
+    [CabinetRecoveryScm]::CreateDisabled($serviceName, ('"' + $install + '\CabinetPlatform.Agent.exe"'))
     Invoke-Sc @('failure', $serviceName, 'reset=', '86400', 'actions=', 'restart/60000/restart/120000/restart/300000')
     Invoke-Sc @('failureflag', $serviceName, '1')
 }
@@ -261,7 +482,9 @@ function Assert-Service([string]$mode, [string]$state) {
 }
 function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
     Assert-Service 'Auto' 'Running'
-    $recovery = Service-Recovery
+    Service-Admission
+    Assert-ExecutionEnvironment
+    $recovery = (Service-Recovery).Policy
     Check-Tree $install
     # The live credential journal can hold an exclusive lock. Inspect bytes only
     # after the graceful stop, and freeze the baseline at that point.
@@ -288,6 +511,8 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
         Check-Tree $snapshot
         Same-Tree $original $snapshot
         # The snapshot is retained even if any subsequent operation fails.
+        # Recheck after capture: a controller or recovery action may have restarted it.
+        Service-EnsureStopped
         Service-Delete
         $deleted = $true
         Move-Item -LiteralPath $install -Destination $retired -ErrorAction Stop
@@ -308,7 +533,7 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
             if ($entry.PSIsContainer) {
                 New-Item -ItemType Directory -Path $target -ErrorAction Stop | Out-Null
                 Lock-Directory $target
-            } elseif ($entry.Name -ceq 'appsettings.json' -or !$package.ContainsKey($entry.Name.ToLowerInvariant())) {
+            } elseif ($relative -ceq 'appsettings.json' -or !$package.ContainsKey($relative.ToLowerInvariant())) {
                 Copy-Item -LiteralPath $entry.FullName -Destination $target -ErrorAction Stop
                 Lock-File $target
             }
@@ -316,11 +541,11 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
         Check-Tree $install
         Assert-Identity $install
         # Compare all preserved members privately. Package members may be replaced.
-        foreach ($entry in Get-ChildItem -LiteralPath $snapshot -Recurse -Force -File) {
-            if ($entry.Name -cne 'appsettings.json' -and $package.ContainsKey($entry.Name.ToLowerInvariant())) { continue }
-            $relative = $entry.FullName.Substring($snapshot.Length).TrimStart('\')
-            $copy = Join-Path $install $relative
-            if (!(Test-Path -LiteralPath $copy -PathType Leaf) -or !(Same-Bytes $entry.FullName $copy)) {
+        $preserved = Preserved-Members $snapshot $package
+        $restored = Preserved-Members $install $package
+        if ($preserved.Count -ne $restored.Count) { Refuse 'Preserved tree membership changed.' }
+        foreach ($key in $preserved.Keys) {
+            if (!$restored.ContainsKey($key) -or $restored[$key] -cne $preserved[$key]) {
                 Refuse 'Original configuration or identity changed during restore.'
             }
         }
@@ -333,7 +558,7 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
         }
         Service-CreateDisabled
         Assert-Service 'Disabled' 'Stopped'
-        if ((Service-Recovery) -cne $recovery) { Refuse 'Service recovery policy differs from original.' }
+        if ((Service-Recovery).Policy -cne $recovery) { Refuse 'Service recovery policy differs from original.' }
         Assert-Identity $install
         Service-SetStart 'demand'
         Assert-Service 'Manual' 'Stopped'
@@ -347,16 +572,24 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
     } catch {
         $cause = $_.Exception.Message
         if ($started) {
-            try { Service-SetStart 'disabled'; if ((Service-Read).State -eq 'Running') { Service-Stop } }
-            catch { Write-Warning 'Could not fail-stop replacement; manual isolation required.' }
-            throw "Poststart failure: $cause. Do not restore older state; preserve current journal and backup at $run. Verify manually."
+            try {
+                Service-SetStart 'disabled'
+                $terminal = Service-WaitTerminal
+                if ($terminal -eq 'Running') { Service-Stop }
+                Service-EnsureStopped
+            } catch { throw "Poststart failure: $cause. Fail-stop unresolved; do not restore older state. Preserve current journal and backup at $run. Manual isolation required: $($_.Exception.Message)" }
+            throw "Poststart failure: $cause. Replacement verified Stopped/Disabled. Do not restore older state; preserve current journal and backup at $run. Verify manually."
         }
         try {
             # A command can throw after its external effect. Reconcile actual paths
             # and SCM state before deciding whether rollback must recreate them.
             if (!$deleted -and !(Service-Read)) { $deleted = $true }
+            if (!$deleted) {
+                $terminal = Service-WaitTerminal
+                if ($stopped -and $terminal -eq 'Running') { Refuse 'Original restarted during stopped capture; recovery incomplete.' }
+            }
             if (!$moved -and (Test-Path -LiteralPath $retired)) { $moved = $true }
-            if ($deleted -and (Service-Read)) { Service-Delete }
+            if ($deleted -and (Service-Read)) { Service-EnsureStopped; Service-Delete }
             if ($moved) {
                 if (Test-Path -LiteralPath $install) { Move-Item -LiteralPath $install -Destination $failed -ErrorAction Stop }
                 Move-Item -LiteralPath $retired -Destination $install -ErrorAction Stop
@@ -365,11 +598,13 @@ function Invoke-Recovery([hashtable]$package, [string]$backupParent) {
             if ($deleted) {
                 Service-CreateDisabled
                 Assert-Service 'Disabled' 'Stopped'
-                if ((Service-Recovery) -cne $recovery) { Refuse 'Original service recovery policy not restored.' }
+                if ((Service-Recovery).Policy -cne $recovery) { Refuse 'Original service recovery policy not restored.' }
                 Service-SetStart 'auto'
                 Assert-Service 'Auto' 'Stopped'
             }
-            if ($stopAttempted -and (Service-Read).State -eq 'Stopped') { Service-Start; Assert-Service 'Auto' 'Running' }
+            $terminal = Service-WaitTerminal
+            if ($stopAttempted -and $terminal -eq 'Stopped') { Service-Start }
+            Assert-Service 'Auto' 'Running'
         } catch { throw "Rollback incomplete after $cause. Do not start or remove anything; protected backup at $run. Recovery error: $($_.Exception.Message)" }
         throw "Recovery failed before start: $cause. Original service restored; backup retained at $run."
     }
