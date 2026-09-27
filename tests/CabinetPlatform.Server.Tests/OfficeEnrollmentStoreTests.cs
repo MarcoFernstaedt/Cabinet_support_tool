@@ -173,6 +173,29 @@ public sealed class OfficeEnrollmentStoreTests
     }
 
     [Fact]
+    public void Preexisting_tombstone_is_shredded_without_losing_renewal_history()
+    {
+        using var fixture = new Fixture();
+        var request = Guid.NewGuid();
+        using (var store = fixture.Open())
+        {
+            Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+            fixture.Clock.Now = fixture.Issued.AddDays(2);
+            Assert.NotNull(store.Renew("device", request, "supervisor-id", "lab repeat"));
+        }
+        var old = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        File.WriteAllText(fixture.File, System.Text.Json.JsonSerializer.Serialize(old.Select(g => g with { Revoked = true, KeyDestroyed = false })));
+        using (var store = fixture.Open()) Assert.False(fixture.Authenticate(store, "device", fixture.Key));
+        var upgraded = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        Assert.True(upgraded[0].Revoked);
+        Assert.True(upgraded[0].KeyDestroyed);
+        Assert.NotEqual(old[0].KeyHash, upgraded[0].KeyHash);
+        Assert.Equal(old[0].TokenHash, upgraded[0].TokenHash);
+        Assert.Equal(old[0].MachineId, upgraded[0].MachineId);
+        Assert.Equal(request, Assert.Single(upgraded[0].Renewals).RequestId);
+    }
+
+    [Fact]
     public void Clock_rollback_cannot_extend_or_replace_a_recorded_renewal()
     {
         using var fixture = new Fixture();

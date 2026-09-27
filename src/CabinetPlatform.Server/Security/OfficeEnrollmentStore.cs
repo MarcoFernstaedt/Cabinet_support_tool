@@ -54,7 +54,7 @@ public sealed class OfficeEnrollmentStore : IDisposable
             _grants = JsonSerializer.Deserialize<List<Grant>>(File.ReadAllText(_options.StateFile))
                 ?? throw new InvalidOperationException("Office enrollment journal is invalid.");
             if (_grants.Count > 100 || _grants.Any(g => g is null || !IsKey(g.TokenHash) || !IsKey(g.KeyHash) || !IsMachineId(g.MachineId) ||
-                    g.Renewals is null || g.Renewals.Count > 30 || g.Renewals.Any(r => r is null ||
+                    (g.KeyDestroyed && !g.Revoked) || g.Renewals is null || g.Renewals.Count > 30 || g.Renewals.Any(r => r is null ||
                         r.RequestId == Guid.Empty || string.IsNullOrWhiteSpace(r.ActorId) ||
                         string.IsNullOrWhiteSpace(r.Reason) || r.ExpiresUtc != r.IssuedUtc.AddDays(1))) ||
                 _grants.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _grants.Count ||
@@ -62,10 +62,13 @@ public sealed class OfficeEnrollmentStore : IDisposable
                 _grants.SelectMany(g => g.Renewals).Select(r => r.RequestId).Distinct().Count() !=
                 _grants.Sum(g => g.Renewals.Count))
                 throw new InvalidOperationException("Office enrollment journal is invalid.");
-            // Removal is a revocation, not a pause. Persist tombstones before serving requests.
-            var revoked = _grants.Select(g => _options.Tokens.Any(t => EqualsHash(t.TokenHash, g.TokenHash))
-                ? g : g with { Revoked = true }).ToList();
-            if (revoked.Where((g, i) => g.Revoked != _grants[i].Revoked).Any())
+            // Destroy the usable key hash when first tombstoned. The previous reader ignores
+            // Revoked, but cannot authenticate the original key after this replacement.
+            var revoked = _grants.Select(g => (g.Revoked && g.KeyDestroyed) ||
+                (!g.Revoked && _options.Tokens.Any(t => EqualsHash(t.TokenHash, g.TokenHash)))
+                ? g : g with { Revoked = true, KeyDestroyed = true,
+                    KeyHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)) }).ToList();
+            if (revoked.Where((g, i) => g.KeyDestroyed != _grants[i].KeyDestroyed).Any())
             {
                 Persist(revoked);
                 _grants = revoked;
@@ -132,9 +135,11 @@ public sealed class OfficeEnrollmentStore : IDisposable
         {
             var grant = _grants.SingleOrDefault(g => g.MachineId == machine[0]);
             var token = grant is null ? null : _options.Tokens.SingleOrDefault(t => EqualsHash(t.TokenHash, grant.TokenHash));
-            var expires = grant?.Renewals.LastOrDefault()?.ExpiresUtc ?? token?.DeviceExpiresUtc;
+            var now = _clock.GetUtcNow();
+            var latest = grant?.Renewals.LastOrDefault();
+            var expires = latest?.ExpiresUtc ?? token?.DeviceExpiresUtc;
             if (grant is null || grant.Revoked || token is null || expires is null ||
-                _clock.GetUtcNow() < token.IssuedUtc || _clock.GetUtcNow() >= expires ||
+                now < token.IssuedUtc || (latest is not null && now < latest.IssuedUtc) || now >= expires ||
                 !EqualsHash(grant.KeyHash, Hash(key[0]!)))
                 return AgentIdentity.Fail("Office device credential invalid.");
             return AgentIdentity.Success(grant.MachineId);
@@ -171,6 +176,7 @@ public sealed class OfficeEnrollmentStore : IDisposable
     public sealed record Grant(string TokenHash, string MachineId, string KeyHash)
     {
         public bool Revoked { get; init; }
+        public bool KeyDestroyed { get; init; }
         public List<Renewal> Renewals { get; init; } = [];
     }
 }
