@@ -223,6 +223,7 @@ class PackageTests(unittest.TestCase):
             (source / "docs").mkdir()
             (source / "tools/Install-CabinetDemoAgent.ps1").write_bytes(b"trusted helper")
             (source / "tools/Restore-CabinetDemoAgent.ps1").write_bytes(b"trusted recovery helper")
+            (source / "tools/RecoveryProcess.cs").write_bytes(b"trusted process inspector")
             (source / "docs/independent-demo-kit.md").write_bytes(b"trusted guide")
             for name in ("office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py"):
                 (source / "tools" / name).write_bytes(name.encode())
@@ -235,7 +236,7 @@ class PackageTests(unittest.TestCase):
             bundle_operator_files(source, output, "a" * 40)
             evidence = json.loads((output / "release-evidence.json").read_text())
             self.assertEqual("a" * 40, evidence["sourceCommit"])
-            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1",
+            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1", "RecoveryProcess.cs",
                               "independent-demo-kit.md", "office_renewal_operator.py", "office_renewal_preflight.py",
                               "issue_office_enrollment.py", "demo-credential-renewal.md", "independent-demo-server.md"}, set(evidence["sha256"]))
             for name, digest in evidence["sha256"].items():

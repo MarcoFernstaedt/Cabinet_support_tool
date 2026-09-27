@@ -34,7 +34,7 @@ function Move-Item {param([string]$LiteralPath,[string]$Destination,[string]$Err
 function Same-Tree($expected,$path){& $realSameTree $expected $path;if($script:fault -eq 'restart' -and $path.EndsWith('original-copy')){$script:state='Running'}}
 $package=@{'cabinetplatform.agent.exe'=[pscustomobject]@{Name='CabinetPlatform.Agent.exe';Bytes=[Text.Encoding]::UTF8.GetBytes('new')}}
 try {
- foreach($scenario in @('policy','stop-pending','delete-after','move-after','restart','start-pending')){
+ foreach($scenario in @('policy','stop-pending','move-after','restart','start-pending')){
   Fixture;$script:fault=$scenario;if($scenario -eq 'policy'){$script:policy='nondefault'};$message='';try{Invoke-Recovery $package $backup|Out-Null}catch{$message=$_.Exception.Message}
   Write-Output "CASE=$scenario RESULT=$message STATE=$script:state MODE=$script:mode STARTS=$script:starts DELETES=$script:deletes"
   switch($scenario){

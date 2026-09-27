@@ -134,7 +134,7 @@ try {
     New-Item -ItemType HardLink -Path $alias -Target $outside | Out-Null
     Must-Fail { Check-Tree $install } 'hardlink alias outside protected tree refused'
     Remove-Item -LiteralPath $alias -Force
-    foreach ($stage in @('stop','delete','create','mode','start','')) {
+    foreach ($stage in @('stop','mode','start','')) {
         Fixture
         $script:failStage = $stage
         if ($stage -eq '') { $script:journalLock = [IO.FileStream]::new((Join-Path $install 'office-enrollment.json.device'),
@@ -156,7 +156,7 @@ try {
             Pass (([IO.File]::ReadAllText((Join-Path $install 'buffer\CabinetPlatform.Agent.exe'))) -eq 'nested pending') 'nested filename collision retained'
             Pass (@(Get-ChildItem -LiteralPath $install -Recurse -Filter '*.device' -File).Count -eq 1 -and
                 ([IO.File]::ReadAllText((Join-Path $install 'state\agent-state.json'))) -like '*synthetic-cabinet*') 'one original device identity retained'
-            Pass (($script:events -join ',') -match 'create,mode-demand,start,mode-auto$') 'service recreated disabled then manually started'
+            Pass (($script:events -join ',') -match 'mode-demand,start,mode-auto$' -and 'delete' -notin $script:events -and 'create' -notin $script:events) 'existing registration retained during upgrade'
         }
         $runs = @(Get-ChildItem -LiteralPath $backup -Directory)
         $snapshots = @(Get-ChildItem -LiteralPath $backup -Recurse -Directory | Where-Object Name -eq 'original-copy')

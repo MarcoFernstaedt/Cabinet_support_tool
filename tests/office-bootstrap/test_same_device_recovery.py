@@ -19,7 +19,7 @@ class RecoveryContracts(unittest.TestCase):
             (source / "tools").mkdir(parents=True)
             (source / "docs").mkdir()
             for name in ("Install-CabinetDemoAgent.ps1", "Restore-CabinetDemoAgent.ps1",
-                         "office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py"):
+                         "RecoveryProcess.cs", "office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py"):
                 (source / "tools" / name).write_text(name)
             for name in ("independent-demo-kit.md", "demo-credential-renewal.md", "independent-demo-server.md"):
                 (source / "docs" / name).write_text(name)
@@ -28,6 +28,7 @@ class RecoveryContracts(unittest.TestCase):
                 (output / f"cabinet-{name}.zip").write_bytes(name.encode())
             bundle_operator_files(source, output, "a" * 40)
             inventory = json.loads((output / "release-evidence.json").read_text())["sha256"]
+            self.assertIn("RecoveryProcess.cs", inventory)
             name = "Restore-CabinetDemoAgent.ps1"
             self.assertEqual((source / "tools" / name).read_bytes(), (output / name).read_bytes())
             self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest().upper(), inventory[name])
