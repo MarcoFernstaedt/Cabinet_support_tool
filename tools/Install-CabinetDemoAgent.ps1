@@ -39,18 +39,22 @@ function Check-Acl([string]$path, [bool]$secret) {
     $operator = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     if ($owner -notin @('S-1-5-18','S-1-5-32-544',$operator,
         'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { Refuse "Untrusted owner: $path" }
-    $mutation = [Security.AccessControl.FileSystemRights]::Write -bor
-        [Security.AccessControl.FileSystemRights]::Modify -bor
-        [Security.AccessControl.FileSystemRights]::FullControl -bor
+    $mutation = [Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
         [Security.AccessControl.FileSystemRights]::Delete -bor
         [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
         [Security.AccessControl.FileSystemRights]::TakeOwnership
+    # TrustedInstaller may maintain executable ancestors, not enrollment secrets.
+    $trustedAncestor = @('S-1-5-18','S-1-5-32-544',
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
     foreach ($rule in $acl.Access) {
         if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
         $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
         if ($sid -notin @('S-1-5-18','S-1-5-32-544') -and
-            ($secret -or (($rule.FileSystemRights -band $mutation) -ne 0))) {
+            ($secret -or ($sid -notin $trustedAncestor -and (($rule.FileSystemRights -band $mutation) -ne 0)))) {
             Refuse "Untrusted access on $path for $sid"
         }
     }
@@ -100,17 +104,17 @@ function Json-Value([string[]]$tokens, [ref]$position, [int]$depth) {
 }
 function Read-Json([byte[]]$bytes) {
     $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
-    $pattern = '\G\s*(?:"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\x00-\x1f])*"|[{}\[\]:,]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)'
+    $pattern = '\G[ \t\r\n]*(?:"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\x00-\x1f])*"|[{}\[\]:,]|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|true|false|null)'
     $scanner = New-Object System.Text.RegularExpressions.Regex $pattern
     $tokens = New-Object 'System.Collections.Generic.List[string]'
     $offset = 0
     while ($offset -lt $text.Length) {
         $match = $scanner.Match($text, $offset)
         if (!$match.Success -or $match.Index -ne $offset) { break }
-        $tokens.Add($match.Value.TrimStart())
+        $tokens.Add(($match.Value -creplace '^[ \t\r\n]+', ''))
         $offset += $match.Length
     }
-    if ($text.Substring($offset).Trim().Length -ne 0 -or $tokens.Count -eq 0) { Refuse 'Invalid JSON syntax.' }
+    if ($text.Substring($offset) -cnotmatch '^[ \t\r\n]*$' -or $tokens.Count -eq 0) { Refuse 'Invalid JSON syntax.' }
     $position = 0
     Json-Value $tokens.ToArray() ([ref]$position) 0
     if ($position -ne $tokens.Count) { Refuse 'Trailing JSON content.' }
@@ -131,7 +135,7 @@ function Json-TopString([string[]]$tokens, [string]$field) {
     Refuse 'Expiry field is missing.'
 }
 function Valid-Name([string]$name) {
-    if (!$name -or $name.Length -gt 240 -or $name.EndsWith('/')) { return $false }
+    if (!$name -or $name.Length -gt 240 -or $name.EndsWith('/') -or $name -cne $name.Trim()) { return $false }
     foreach ($part in $name.Split('/')) {
         if (!$part -or $part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
             $part.Split('.')[0] -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$' -or $part -match '[\\:\x00-\x1f<>|"?*]') { return $false }

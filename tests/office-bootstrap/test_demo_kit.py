@@ -1,6 +1,7 @@
 """Offline package and first-install contracts. No server or service is touched."""
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -14,6 +15,37 @@ ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
 
 
 class PackageTests(unittest.TestCase):
+    def test_json_scanner_uses_only_json_whitespace_and_ascii_digits(self):
+        helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()
+        scanner = helper.split("function Read-Json", 1)[1].split("function Json-TopString", 1)[0]
+        self.assertNotIn(r"\s", scanner)
+        self.assertNotIn(r"\d", scanner)
+        self.assertIn(r"[ \t\r\n]", scanner)
+        self.assertIn(r"[0-9]", scanner)
+
+    def test_acl_mutation_mask_excludes_read_and_allows_trusted_installer_only_on_ancestors(self):
+        helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()
+        mask = helper.split("$mutation =", 1)[1].split("foreach ($rule", 1)[0]
+        names = re.findall(r'FileSystemRights\]::(\w+)', mask)
+        rights = {"WriteData": 2, "CreateFiles": 2, "AppendData": 4,
+                  "CreateDirectories": 4, "WriteExtendedAttributes": 16, "WriteAttributes": 256,
+                  "DeleteSubdirectoriesAndFiles": 64, "Delete": 65536,
+                  "ChangePermissions": 262144, "TakeOwnership": 524288,
+                  "Write": 278, "Modify": 197055, "FullControl": 2032127}
+        self.assertTrue(set(names) <= rights.keys())
+        mask_value = 0
+        for name in names:
+            mask_value |= rights[name]
+        self.assertEqual(0, mask_value & 131241, "ReadAndExecute must not count as mutation")
+        self.assertEqual(0, mask_value & 131209, "Read must not count as mutation")
+        for name in ("WriteData", "AppendData", "WriteExtendedAttributes", "WriteAttributes",
+                     "DeleteSubdirectoriesAndFiles", "Delete", "ChangePermissions", "TakeOwnership"):
+            self.assertNotEqual(0, mask_value & rights[name], name)
+        acl = helper.split("function Check-Acl", 1)[1].split("function Lock-Directory", 1)[0]
+        self.assertRegex(acl, r'\$secret\s*-or\s*\(\$sid -notin \$trustedAncestor -and \(\(\$rule\.FileSystemRights -band \$mutation\) -ne 0\)\)')
+        self.assertIn("S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", acl)
+        self.assertIn("$trustedAncestor", acl)
+
     def test_agent_package_has_complete_source_bound_inventory_and_no_secrets(self):
         from build_independent_demo_kit import package_component, verify_package
         with tempfile.TemporaryDirectory() as root:
@@ -114,6 +146,10 @@ class PackageTests(unittest.TestCase):
     def test_archive_refuses_windows_conflicts_and_bounded_size(self):
         from build_independent_demo_kit import _safe_name, package_component, verify_package
         self.assertFalse(_safe_name("bad\x01.txt"))
+        helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()
+        valid_name = helper.split("function Valid-Name", 1)[1].split("function Forbidden-Member", 1)[0]
+        self.assertFalse(_safe_name(" leading.dll"))
+        self.assertIn("$name -cne $name.Trim()", valid_name)
         with tempfile.TemporaryDirectory() as root:
             base = Path(root)
             publish = base / "publish"
@@ -121,19 +157,50 @@ class PackageTests(unittest.TestCase):
             (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
             target = base / "console.zip"
             package_component("console", publish, target, "b" * 40)
-            with zipfile.ZipFile(target) as archive:
-                rows = [(entry, archive.read(entry)) for entry in archive.infolist()]
-            for kind in ("reparse", "case", "prefix", "control"):
+            original = target.read_bytes()
+            for kind in ("reparse", "case", "prefix", "control", "leading"):
                 with self.subTest(kind=kind):
+                    target.write_bytes(original)
+                    self.assertEqual("console", verify_package(target, "console")["component"])
+                    with zipfile.ZipFile(target, "r") as source:
+                        rows = [(entry.filename, source.read(entry)) for entry in source.infolist()]
                     with zipfile.ZipFile(target, "w") as archive:
-                        for entry, data in rows:
+                        for name, data in rows:
+                            entry = zipfile.ZipInfo(name)
                             if kind == "reparse" and entry.filename == "CabinetPlatform.Console.exe":
                                 entry.external_attr |= 0x400
                             archive.writestr(entry, data)
                         if kind == "case": archive.writestr("APPSETTINGS.JSON", b"x")
                         if kind == "prefix": archive.writestr("appsettings.json/child", b"x")
                         if kind == "control": archive.writestr("unsafe\x01.txt", b"x")
+                        if kind == "leading": archive.writestr(" leading.dll", b"x")
                     with self.assertRaises(ValueError): verify_package(target, "console")
+
+    def test_archive_size_boundaries_use_actual_zip_member_lengths(self):
+        from build_independent_demo_kit import package_component, verify_package
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
+            exact = b"\0" * (100 * 1024 * 1024)
+            (publish / "boundary.dll").write_bytes(exact)
+            target = base / "at-limit.zip"
+            package_component("console", publish, target, "b" * 40)
+            with zipfile.ZipFile(target) as archive:
+                self.assertEqual(len(exact), archive.getinfo("boundary.dll").file_size)
+            self.assertEqual("console", verify_package(target, "console")["component"])
+            (publish / "boundary.dll").write_bytes(exact + b"x")
+            with self.assertRaises(ValueError): package_component("console", publish, base / "over-limit.zip", "b" * 40)
+            self.assertFalse((base / "over-limit.zip").exists())
+
+            aggregate = base / "aggregate.zip"
+            with zipfile.ZipFile(aggregate, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for index in range(11):
+                    archive.writestr(f"{index}.dll", exact)
+            with zipfile.ZipFile(aggregate) as archive:
+                self.assertEqual(11 * len(exact), sum(item.file_size for item in archive.infolist()))
+            with self.assertRaises(ValueError): verify_package(aggregate, "console")
 
     def test_operator_bundle_copies_exact_source_helper_and_guide(self):
         from build_independent_demo_kit import bundle_operator_files

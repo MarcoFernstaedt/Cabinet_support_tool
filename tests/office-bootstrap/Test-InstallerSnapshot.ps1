@@ -32,7 +32,7 @@ try {
             $other.Dispose()
         } catch [IO.IOException] { $writeDenied = $true }
         $replaceDenied = $false
-        try { [IO.File]::Replace($replacement, $path, $null) }
+        try { [IO.File]::Replace($replacement, $path, (Join-Path $folder 'backup.zip')) }
         catch [IO.IOException] { $replaceDenied = $true }
         if (!$writeDenied -or !$replaceDenied) { throw 'Retained stream did not deny write and replacement.' }
         $archive = [IO.Compression.ZipArchive]::new($retained, [IO.Compression.ZipArchiveMode]::Read, $true)
