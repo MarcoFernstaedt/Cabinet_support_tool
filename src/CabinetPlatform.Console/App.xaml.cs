@@ -177,7 +177,7 @@ public partial class App : Application
                     new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
             })
             .RedactLoggedHeaders(_ => true)
-            .ConfigurePrimaryHttpMessageHandler(ApiClientOptions.CreateTransportHandler)
+            .ConfigurePrimaryHttpMessageHandler(CreateTransportHandler)
             .AddHttpMessageHandler<BearerTokenHandler>();
 
         // AddHttpClient registers its typed client as transient, and every
@@ -208,6 +208,11 @@ public partial class App : Application
         services.AddSingleton<ConnectivityAlertsViewModel>();
         services.AddSingleton<ShellViewModel>();
     }
+
+    // Narrow composition seam: native tests supply a non-network handler before
+    // any client/ViewModel/window is resolved. Shipping transport is unchanged.
+    protected virtual System.Net.Http.HttpMessageHandler CreateTransportHandler() =>
+        ApiClientOptions.CreateTransportHandler();
 
     /// <summary>
     /// Swaps the palette when the user turns high contrast on or off, without

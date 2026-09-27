@@ -15,6 +15,7 @@ internal static class Program
     private static int Main(string[] args)
     {
         if (args.SequenceEqual(new[] { "--lifecycle" })) return SessionLifecycle.Run();
+        if (args.SequenceEqual(new[] { "--lifecycle-fail" })) return SessionLifecycle.Run(forceFailure: true);
         try
         {
             // No App startup, window.Show, command execution, HTTP client or real credentials.

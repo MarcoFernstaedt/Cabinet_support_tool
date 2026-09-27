@@ -28,6 +28,46 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class XamlContractTests
 {
     [Fact]
+    public void Native_lifecycle_suppresses_automatic_startup_before_driving_one_loop()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("new LifecycleApp()", code);
+        Assert.Contains("protected override void OnStartup(StartupEventArgs e)", code);
+        Assert.DoesNotContain("base.OnStartup(e)", code);
+        Assert.Single(Regex.Matches(code, "GetMethod\\(\\\"StartAsync\\\""));
+        Assert.Contains("app.StartupCount == 1", code);
+    }
+
+    [Fact]
+    public void Native_lifecycle_owns_dispatcher_shutdown_even_on_failure()
+    {
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("finally { app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background); }", code);
+        Assert.Contains("finally\n            {\n                Stop();\n            }", code);
+        Assert.Contains("DispatcherUnhandledException +=", code);
+        Assert.Contains("if (forceFailure)", code);
+        Assert.DoesNotContain("app.Shutdown(1)", code);
+    }
+
+    [Fact]
+    public void Native_lifecycle_installs_non_network_transport_at_graph_construction()
+    {
+        var app = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml.cs"));
+        var code = File.ReadAllText(Path.Combine(ProjectRoot, "tests/CabinetPlatform.Console.NativeTests/SessionLifecycle.cs"));
+        Assert.Contains("protected virtual System.Net.Http.HttpMessageHandler CreateTransportHandler()", app);
+        Assert.Contains(".ConfigurePrimaryHttpMessageHandler(CreateTransportHandler)", app);
+        Assert.Contains("protected override HttpMessageHandler CreateTransportHandler()", code);
+        Assert.Contains("CurrentHandler = new HeldHandler()", code);
+        Assert.DoesNotContain("GetField(\"_http\"", code);
+        Assert.DoesNotContain("field.SetValue", code);
+        Assert.Contains("app.TransportCount == 3", code);
+        Assert.Contains("app.Windows.OfType<LoginWindow>()", code);
+        Assert.Contains("ReferenceEquals(login.DataContext, provider.GetRequiredService<LoginViewModel>())", code);
+        Assert.DoesNotContain("HttpClientHandler", code);
+        Assert.DoesNotContain("SocketsHttpHandler", code);
+    }
+
+    [Fact]
     public void App_recreates_the_session_graph_and_closes_the_old_window_before_reauthentication()
     {
         var code = File.ReadAllText(Path.Combine(ProjectRoot, "src/CabinetPlatform.Console/App.xaml.cs"));

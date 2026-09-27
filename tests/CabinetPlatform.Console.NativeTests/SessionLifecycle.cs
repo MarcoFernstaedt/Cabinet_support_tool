@@ -10,17 +10,19 @@ using CabinetPlatform.Console.Views;
 using CabinetPlatform.Contracts.Auth;
 using Microsoft.Extensions.DependencyInjection;
 
-// Test-only reflection keeps transport replacement out of the shipping API.
-// Drives the real App loop and real synthetic windows, never a running Console.
+// Reflection only drives/observes the private loop and provider, never mutates a client.
+// The subclass supplies non-network transport at construction for EVERY graph.
 internal static class SessionLifecycle
 {
-    public static int Run()
+    public static int Run(bool forceFailure = false)
     {
-        var app = new App();
+        var app = new LifecycleApp();
         app.InitializeComponent();
         int result = 1;
         int stage = 0;
         int checks = 0;
+        bool failed = false;
+        bool stopping = false;
         MainWindow? previous = null;
         ShellViewModel? previousShell = null;
         IServiceProvider? previousProvider = null;
@@ -31,6 +33,27 @@ internal static class SessionLifecycle
         SessionStore? cancelledSession = null;
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(25) };
+        void Stop()
+        {
+            timer.Stop();
+            if (stopping) return;
+            stopping = true;
+            try { app.Shutdown(result); }
+            // Let Application's normal-priority cleanup run before stopping our pump.
+            finally { app.Dispatcher.BeginInvokeShutdown(DispatcherPriority.Background); }
+        }
+        void Fail(Exception ex)
+        {
+            failed = true;
+            result = 1;
+            System.Console.WriteLine("FAIL " + ex);
+            Stop();
+        }
+        app.DispatcherUnhandledException += (_, e) =>
+        {
+            e.Handled = true;
+            Fail(e.Exception);
+        };
         void Check(bool condition, string name)
         {
             if (!condition) throw new InvalidOperationException(name);
@@ -46,13 +69,13 @@ internal static class SessionLifecycle
                 {
                     var provider = (IServiceProvider)typeof(App).GetField("_services", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(app)!;
                     var session = (SessionStore)provider.GetRequiredService<ISessionStore>();
-                    var api = (ApiClient)provider.GetRequiredService<IApiClient>();
-                    // Replace the unused transport before any command or shell load.
-                    // Disposing the original client closes the only real transport.
-                    var field = typeof(ApiClient).GetField("_http", BindingFlags.Instance | BindingFlags.NonPublic)!;
-                    ((HttpClient)field.GetValue(api)!).Dispose();
-                    var handler = new HeldHandler();
-                    field.SetValue(api, new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.invalid/") });
+                    var handler = app.CurrentHandler ?? throw new InvalidOperationException("No synthetic transport installed");
+                    Check(app.Windows.OfType<LoginWindow>().Where(w => w.IsVisible).SequenceEqual(new[] { login })
+                        && ReferenceEquals(login.DataContext, provider.GetRequiredService<LoginViewModel>())
+                        && app.TransportCount == stage / 2 + 1
+                        && !ReferenceEquals(handler, previousHandler),
+                        "every visible login belongs to the intended fresh synthetic graph");
+                    if (forceFailure) throw new InvalidOperationException("Synthetic forced failure for dispatcher shutdown verification");
                     if (stage == 0 || stage == 2)
                     {
                         if (stage == 2)
@@ -117,9 +140,7 @@ internal static class SessionLifecycle
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine("FAIL " + ex);
-                timer.Stop();
-                app.Shutdown(1);
+                Fail(ex);
             }
         };
         app.Dispatcher.BeginInvoke(new Action(async () =>
@@ -127,22 +148,48 @@ internal static class SessionLifecycle
             try
             {
                 timer.Start();
+                Check(app.StartupCount == 1, "one automatic startup was suppressed before the single explicit loop");
                 await (Task)typeof(App).GetMethod("StartAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(app, null)!;
+                Check(app.StartupCount == 1 && app.TransportCount == 3,
+                    "exactly one startup and three synthetic-only graphs completed");
                 Check(stage == 5 && cancelledLogin?.Password == "" && cancelledWindow?.DataContext is null
                     && cancelledSession is { IsSignedIn: false },
                     "cancel login clears secrets, detaches the dialog and ends the app loop");
-                result = 0;
+                if (!failed) result = 0;
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine("FAIL " + ex);
+                failed = true;
                 result = 1;
-                app.Shutdown(1);
+                System.Console.WriteLine("FAIL " + ex);
+            }
+            finally
+            {
+                Stop();
             }
         }));
-        Dispatcher.Run();
+        try { Dispatcher.Run(); }
+        catch (Exception ex) { Fail(ex); }
+        finally { timer.Stop(); }
         System.Console.WriteLine($"Lifecycle checks={checks}; stage={stage}; exit={result}; synthetic transport only");
         return result;
+    }
+
+    private sealed class LifecycleApp : App
+    {
+        public int StartupCount { get; private set; }
+        public int TransportCount { get; private set; }
+        public HeldHandler? CurrentHandler { get; private set; }
+
+        protected override HttpMessageHandler CreateTransportHandler()
+        {
+            TransportCount++;
+            return CurrentHandler = new HeldHandler();
+        }
+
+        // Application queues this even when Dispatcher.Run owns the pump.
+        // Suppress production startup; the harness drives StartAsync exactly once.
+        protected override void OnStartup(StartupEventArgs e) => StartupCount++;
     }
 
     private sealed class HeldHandler : HttpMessageHandler
