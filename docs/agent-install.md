@@ -1,6 +1,6 @@
 # Installing the cabinet agent
 
-For a fresh bounded office demo, follow [independent demo kit](independent-demo-kit.md) instead. The manual commands below are historical general guidance, not the reviewed first-install helper. Do not use the uninstall or reinstall shortcuts below on an enrolled machine: preserve its identity and server history.
+For a fresh bounded office demo, follow [independent demo kit](independent-demo-kit.md) instead. For an existing enrolled lab Agent on the same machine, use the separately reviewed recovery helper documented there. The manual commands below are historical general guidance, not the reviewed first-install or recovery helpers. Do not use the uninstall or reinstall shortcuts below on an enrolled machine: preserve its identity and server history.
 
 The agent is a .NET Worker Service that runs on each cabinet PC as a Windows
 Service under `LocalSystem`, with no interactive session required.
