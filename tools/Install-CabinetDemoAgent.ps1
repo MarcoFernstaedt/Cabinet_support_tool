@@ -50,9 +50,9 @@ function Check-Acl([string]$path, [bool]$secret) {
     # TrustedInstaller may maintain executable ancestors, not enrollment secrets.
     $trustedAncestor = @('S-1-5-18','S-1-5-32-544',
         'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
-    foreach ($rule in $acl.Access) {
+    foreach ($rule in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
         if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
-        $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
+        $sid = $rule.IdentityReference.Value
         if ($sid -notin @('S-1-5-18','S-1-5-32-544') -and
             ($secret -or ($sid -notin $trustedAncestor -and (($rule.FileSystemRights -band $mutation) -ne 0)))) {
             Refuse "Untrusted access on $path for $sid"

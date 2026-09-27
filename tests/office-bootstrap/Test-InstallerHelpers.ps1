@@ -132,6 +132,12 @@ try {
         }
         Set-Acl -LiteralPath $path -AclObject $acl
     }
+    $unmapped = [Security.Principal.SecurityIdentifier]::new('S-1-5-21-111111111-222222222-333333333-1001')
+    Set-SyntheticAcl $folder $unmapped ([Security.AccessControl.FileSystemRights]::ReadAndExecute)
+    Assert-Accepted { Check-Acl $folder $false } 'unmapped SID with read-only ancestor access'
+    Assert-Refused { Check-Acl $folder $true } 'unmapped SID with secret read access'
+    Set-SyntheticAcl $folder $unmapped ([Security.AccessControl.FileSystemRights]::WriteData)
+    Assert-Refused { Check-Acl $folder $false } 'unmapped SID with ancestor write access'
     Set-SyntheticAcl $folder $users ([Security.AccessControl.FileSystemRights]::ReadAndExecute)
     Assert-Accepted { Check-Acl $folder $false } 'shared parent read and execute'
     Assert-Refused { Check-Acl $folder $true } 'secret parent with Users read'
