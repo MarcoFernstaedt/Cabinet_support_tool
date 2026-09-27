@@ -46,6 +46,8 @@ function Assert-Fixture([string]$path) {
     }
     $item=Get-Item -LiteralPath $root -Force
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'Fixture root alias refused.' }
+    $ancestor=Get-Item -LiteralPath $env:ProgramData -Force
+    if (($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'ProgramData alias refused.' }
     $svc=Get-CimInstance Win32_Service -Filter ("Name='"+$service+"'")
     if ($svc -and ($svc.Name -cne $service -or $svc.PathName -cne ('"'+$exe+'"') -or
                     $svc.StartName -cne 'LocalSystem')) {
@@ -73,6 +75,12 @@ try {
         Start-Sleep -Seconds 1
     }
     if (Get-Service -Name $target.Service -ErrorAction SilentlyContinue) { throw 'Fixture deletion pending; retain files.' }
+    $target=Assert-Fixture $Manifest
+    foreach ($member in Get-ChildItem -LiteralPath $target.Root -Recurse -Force) {
+        if (($member.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Linked fixture tree refused; retain files for exact review.'
+        }
+    }
     $target=Assert-Fixture $Manifest
     Remove-Item -LiteralPath $target.Root -Recurse -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $target.Root) { throw 'Fixture root cleanup incomplete.' }

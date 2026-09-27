@@ -32,8 +32,11 @@ try {
  $vm=Get-CimInstance Win32_ComputerSystemProduct
  $key=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Cryptography')
  try { $machine=[string]$key.GetValue('MachineGuid') } finally { $key.Dispose() }
- @{Service=$serviceName;Root=$root;Image=$exe;Sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash;
-   Machine=$machine;UUID=[string]$vm.UUID;Scenario=$Scenario} | ConvertTo-Json | Set-Content -LiteralPath $manifest
+ $manifestText=@{Service=$serviceName;Root=$root;Image=$exe;Sha256=(Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash;
+   Machine=$machine;UUID=[string]$vm.UUID;Scenario=$Scenario} | ConvertTo-Json
+ $manifestStream=[IO.File]::Open($manifest,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+ try { $bytes=[Text.Encoding]::UTF8.GetBytes($manifestText); $manifestStream.Write($bytes,0,$bytes.Length) }
+ finally { $manifestStream.Dispose() }
  & "$env:SystemRoot\System32\icacls.exe" $manifest /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
  if ($LASTEXITCODE -ne 0) { throw 'Manifest ACL failed.' }
  & $powershell -NoProfile -NonInteractive -File $guard -Action Gate -Manifest $manifest

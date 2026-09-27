@@ -41,6 +41,14 @@ class FixtureIsolation(unittest.TestCase):
             self.assertNotIn(name, cleanup)
         self.assertIn('-Manifest $manifest', cleanup)
 
+    def test_manifest_is_new_only_and_cleanup_refuses_linked_tree(self):
+        parent = PARENT.read_text()
+        guard = GUARD.read_text()
+        self.assertIn('[IO.FileMode]::CreateNew', parent)
+        self.assertIn('Get-ChildItem -LiteralPath $target.Root -Recurse -Force', guard)
+        self.assertLess(guard.index('Get-ChildItem -LiteralPath $target.Root -Recurse -Force'),
+                        guard.index('Remove-Item -LiteralPath $target.Root'))
+
 
 if __name__ == "__main__":
     unittest.main()
