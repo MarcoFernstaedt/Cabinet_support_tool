@@ -87,6 +87,15 @@ public static class CabinetRecoveryFileIdentity {
         uint creation, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError=true)]
     static extern bool GetFileInformationByHandle(SafeFileHandle handle, out FileInfo info);
+    public static string Identity(string path) {
+        using (var handle = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero)) {
+            if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+            FileInfo info;
+            if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if ((info.attributes & 0x400)!=0 || info.links!=1) throw new InvalidOperationException("Destination alias refused");
+            return info.serial.ToString("X8")+":"+info.indexHigh.ToString("X8")+info.indexLow.ToString("X8");
+        }
+    }
     public static uint Links(string path) {
         using (var handle = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0, IntPtr.Zero)) {
             if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -345,35 +354,45 @@ public static class CabinetRecoveryDefinition {
     static extern bool QueryServiceConfig2(IntPtr service, uint level, IntPtr buffer, uint size, out uint needed);
     [DllImport("advapi32.dll", SetLastError=true)]
     static extern bool QueryServiceObjectSecurity(IntPtr service, uint info, byte[] buffer, uint size, out uint needed);
+    [DllImport("advapi32.dll", SetLastError=true)]
+    static extern bool SetServiceObjectSecurity(IntPtr service, uint info, byte[] descriptor);
     static IntPtr Config2(IntPtr service, uint level) {
         uint needed;
         QueryServiceConfig2(service, level, IntPtr.Zero, 0, out needed);
-        if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service option size");
+        if (needed == 0 || needed > 65536) throw new InvalidOperationException("Unsupported service option size level="+level+" error="+Marshal.GetLastWin32Error());
         IntPtr buffer = Marshal.AllocHGlobal((int)needed);
         if (!QueryServiceConfig2(service, level, buffer, needed, out needed)) {
             int error = Marshal.GetLastWin32Error(); Marshal.FreeHGlobal(buffer); throw new Win32Exception(error, "QueryServiceConfig2 level " + level);
         }
         return buffer;
     }
+    static IntPtr OptionalPreferredNode(IntPtr service) {
+        uint needed;
+        if(!QueryServiceConfig2(service,9,IntPtr.Zero,0,out needed) &&
+           needed==0 && Marshal.GetLastWin32Error()==87) return IntPtr.Zero;
+        return Config2(service,9);
+    }
     public sealed class Snapshot {
-        public uint Type, Start, Error, Reset, Count, Sid, TriggerCount;
-        public bool FailureFlag, Delayed;
-        public string Image, Group, Dependencies, Account, Display, Description, Privileges, Dacl, OwnerGroup;
+        public uint Type, Start, Error, Reset, Count, Sid, TriggerCount, Preshutdown, LaunchProtected;
+        public ushort PreferredNode;
+        public bool FailureFlag, Delayed, PreferredDeleted;
+        public string Image, Group, Dependencies, Account, Display, Description, Privileges, Dacl, OwnerGroup, SecurityAudit;
         public string ActionSequence, Reboot, Command;
         public string Policy { get { return Reset + ":" + Count + ":" + ActionSequence + ":" + FailureFlag + ":" + Reboot + ":" + Command; } }
     }
-    public static bool Exists(string name) {
+    public static string DeletionState(string name) {
         IntPtr manager=OpenSCManager(null,null,1);
         if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         try {
             IntPtr service=OpenService(manager,name,1);
-            if(service!=IntPtr.Zero) { CloseServiceHandle(service); return true; }
+            if(service!=IntPtr.Zero) { CloseServiceHandle(service); return "present"; }
             int error=Marshal.GetLastWin32Error();
-            if(error==1060) return false;
-            if(error==1072) return true;
+            if(error==1060) return "absent";
+            if(error==1072) return "pending";
             throw new Win32Exception(error);
         } finally { CloseServiceHandle(manager); }
     }
+    public static bool Exists(string name) { return DeletionState(name)!="absent"; }
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     static extern bool ChangeServiceConfig2(IntPtr service, uint level, IntPtr value);
     [DllImport("advapi32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
@@ -385,7 +404,9 @@ public static class CabinetRecoveryDefinition {
         if (value.Type!=16 || value.Start!=2 || value.Error!=1 || value.Account!="LocalSystem" ||
             !String.IsNullOrEmpty(value.Group) || !String.IsNullOrEmpty(value.Dependencies) || value.Delayed || value.Sid!=0 ||
             !String.IsNullOrEmpty(value.Privileges) || value.TriggerCount!=0 || String.IsNullOrWhiteSpace(value.Display) ||
-            String.IsNullOrWhiteSpace(value.Image)) throw new InvalidOperationException("Unsupported original service definition");
+            String.IsNullOrWhiteSpace(value.Image) || value.OwnerGroup!="O:SYG:SY" ||
+            value.SecurityAudit!="S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)")
+            throw new InvalidOperationException("Unsupported original service definition");
         IntPtr manager=OpenSCManager(null,null,2);
         if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         try {
@@ -399,9 +420,27 @@ public static class CabinetRecoveryDefinition {
                     Marshal.WriteIntPtr(buffer,text);
                     if(!ChangeServiceConfig2(service,1,buffer)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 } finally { Marshal.FreeHGlobal(buffer); Marshal.FreeHGlobal(text); }
+                IntPtr timeout=Marshal.AllocHGlobal(4);
+                try {
+                    Marshal.WriteInt32(timeout,unchecked((int)value.Preshutdown));
+                    if(!ChangeServiceConfig2(service,7,timeout)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                } finally { Marshal.FreeHGlobal(timeout); }
             } finally { CloseServiceHandle(service); }
         } finally { CloseServiceHandle(manager); }
         ApplyPolicy(name,value);
+        ApplyAudit(name,value.SecurityAudit);
+    }
+    static void ApplyAudit(string name,string audit) {
+        EnableAudit();
+        IntPtr manager=OpenSCManager(null,null,1),service=IntPtr.Zero;
+        if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            service=OpenService(manager,name,0x01000000);
+            if(service==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            var descriptor=new RawSecurityDescriptor(audit);
+            byte[] bytes=new byte[descriptor.BinaryLength]; descriptor.GetBinaryForm(bytes,0);
+            if(!SetServiceObjectSecurity(service,8,bytes)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        } finally { if(service!=IntPtr.Zero) CloseServiceHandle(service); CloseServiceHandle(manager); }
     }
     public static void ApplyPolicy(string name, Snapshot value) {
         if(value.Count>16 || value.Reboot!="" && value.Reboot!=null || value.Command!="" && value.Command!=null)
@@ -474,6 +513,18 @@ public static class CabinetRecoveryDefinition {
                     try { s.Privileges=Marshal.PtrToStringUni(Marshal.ReadIntPtr(priv)); } finally { Marshal.FreeHGlobal(priv); }
                     IntPtr triggers=Config2(service,8);
                     try { s.TriggerCount=(uint)Marshal.ReadInt32(triggers); } finally { Marshal.FreeHGlobal(triggers); }
+                    IntPtr preshutdown=Config2(service,7);
+                    try { s.Preshutdown=(uint)Marshal.ReadInt32(preshutdown); } finally { Marshal.FreeHGlobal(preshutdown); }
+                    IntPtr preferred=OptionalPreferredNode(service);
+                    if(preferred==IntPtr.Zero) s.PreferredDeleted=true;
+                    else {
+                        try { s.PreferredNode=(ushort)Marshal.ReadInt16(preferred); s.PreferredDeleted=Marshal.ReadByte(preferred,2)!=0; }
+                        finally { Marshal.FreeHGlobal(preferred); }
+                    }
+                    IntPtr protectedLaunch=Config2(service,12);
+                    try { s.LaunchProtected=(uint)Marshal.ReadInt32(protectedLaunch); }
+                    finally { Marshal.FreeHGlobal(protectedLaunch); }
+                    s.SecurityAudit=ReadAudit(name);
                     byte[] security=new byte[65536];
                     if (!QueryServiceObjectSecurity(service, 7, security, (uint)security.Length, out needed)) throw new Win32Exception(Marshal.GetLastWin32Error(), "QueryServiceObjectSecurity");
                     var descriptor=new RawSecurityDescriptor(security,0);
@@ -483,6 +534,41 @@ public static class CabinetRecoveryDefinition {
                 } finally { Marshal.FreeHGlobal(buffer); }
             } finally { CloseServiceHandle(service); }
         } finally { CloseServiceHandle(manager); }
+    }
+    [DllImport("advapi32.dll",SetLastError=true)] static extern bool OpenProcessToken(IntPtr process,uint access,out IntPtr token);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    [DllImport("kernel32.dll",SetLastError=true)] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)]
+    static extern bool LookupPrivilegeValue(string system,string name,out long luid);
+    [StructLayout(LayoutKind.Sequential,Pack=4)] struct TokenPrivilege { public uint count; public long luid; public uint attributes; }
+    [DllImport("advapi32.dll",SetLastError=true)]
+    static extern bool AdjustTokenPrivileges(IntPtr token,bool disable,ref TokenPrivilege value,uint length,IntPtr previous,IntPtr needed);
+    static void EnableAudit() {
+        IntPtr token=IntPtr.Zero;
+        try {
+            if(!OpenProcessToken(GetCurrentProcess(),0x28,out token)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            long luid;
+            if(!LookupPrivilegeValue(null,"SeSecurityPrivilege",out luid)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            TokenPrivilege privilege=new TokenPrivilege { count=1,luid=luid,attributes=2 };
+            if(!AdjustTokenPrivileges(token,false,ref privilege,0,IntPtr.Zero,IntPtr.Zero) || Marshal.GetLastWin32Error()!=0)
+                throw new InvalidOperationException("Service audit security cannot be inspected");
+        } finally { if(token!=IntPtr.Zero) CloseHandle(token); }
+    }
+    static string ReadAudit(string name) {
+        EnableAudit();
+        IntPtr manager=IntPtr.Zero, service=IntPtr.Zero;
+        try {
+            manager=OpenSCManager(null,null,1); if(manager==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            service=OpenService(manager,name,0x01000000|0x20000);
+            if(service==IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            byte[] security=new byte[65536]; uint needed;
+            if(!QueryServiceObjectSecurity(service,8,security,(uint)security.Length,out needed)) throw new Win32Exception(Marshal.GetLastWin32Error());
+            var descriptor=new RawSecurityDescriptor(security,0);
+            return descriptor.SystemAcl==null ? "" : descriptor.GetSddlForm(AccessControlSections.Audit);
+        } finally {
+            if(service!=IntPtr.Zero) CloseServiceHandle(service);
+            if(manager!=IntPtr.Zero) CloseServiceHandle(manager);
+        }
     }
 }
 '@
@@ -498,14 +584,18 @@ function Service-Admission {
         [string]::IsNullOrWhiteSpace($d.Display) -or
         $d.Account -notin @('LocalSystem','LocalSystem'.ToUpperInvariant()) -or
         $d.Group -or $d.Dependencies -or $d.Delayed -or $d.Sid -ne 0 -or
-        $d.Privileges -or $d.TriggerCount -ne 0 -or
+        $d.Privileges -or $d.TriggerCount -ne 0 -or $d.LaunchProtected -ne 0 -or
+        !$d.PreferredDeleted -or
         $d.Count -gt 16 -or $d.ActionSequence -cnotmatch '^(?:[01]/[0-9]+;)*$' -or
         $d.Reboot -or $d.Command) {
         Refuse 'Unsupported original service definition or recovery policy.'
     }
     # Custom access policy still needs review, but no descriptor is rewritten.
     $defaultDacl = 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)'
-    if ($d.Dacl -cne $defaultDacl) { Refuse 'Unsupported original service security descriptor.' }
+    if ($d.Dacl -cne $defaultDacl -or $d.OwnerGroup -cne 'O:SYG:SY' -or
+        $d.SecurityAudit -cne 'S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)') {
+        Refuse 'Unsupported original service security metadata.'
+    }
 }
 function Service-Read {
     $s = Get-CimInstance Win32_Service -Filter ("Name='" + $serviceName + "'")

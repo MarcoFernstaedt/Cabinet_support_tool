@@ -45,14 +45,16 @@ function Read-Record([string]$path) {
 function Same-Definition($wanted) {
     $actual=Service-Recovery
     foreach ($field in @('Type','Error','Image','Group','Dependencies','Account','Display','Description',
-        'Delayed','Sid','Privileges','TriggerCount','Dacl','OwnerGroup','Policy')) {
+        'Delayed','Sid','Privileges','TriggerCount','Preshutdown','PreferredNode','PreferredDeleted',
+        'LaunchProtected','Dacl','OwnerGroup','SecurityAudit','Policy')) {
         if ([string]$actual.$field -cne [string]$wanted.$field) { Refuse "Service definition mismatch: $field" }
     }
 }
 function Snapshot-FromRecord($record) {
     $value=[CabinetRecoveryDefinition+Snapshot]::new()
     foreach ($field in @('Type','Start','Error','Reset','Count','Sid','TriggerCount','FailureFlag','Delayed',
-        'Image','Group','Dependencies','Account','Display','Description','Privileges','Dacl','OwnerGroup',
+        'PreferredNode','PreferredDeleted','LaunchProtected',
+        'Image','Group','Dependencies','Account','Display','Description','Privileges','Dacl','OwnerGroup','SecurityAudit','Preshutdown',
         'ActionSequence','Reboot','Command')) { $value.$field=$record.$field }
     return $value
 }
@@ -67,9 +69,18 @@ function Check-PrivateBackup([string]$path) {
     $path=Check-Path $path $true
     if ($path -match '(?i)(^|\\)Desktop(\\|$)' -or
         $path.StartsWith($install+'\',[StringComparison]::OrdinalIgnoreCase) -or
-        $install.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase)) { Refuse 'Overlapping or desktop backup.' }
+        $install.StartsWith($path+'\',[StringComparison]::OrdinalIgnoreCase) -or
+        $path.Equals($install,[StringComparison]::OrdinalIgnoreCase)) { Refuse 'Overlapping or desktop backup.' }
     Check-Ancestors $path; Check-Tree $path
     return $path
+}
+function Assert-Destination([string]$root, [string]$witness) {
+    Check-Path $root $true | Out-Null
+    Check-Ancestors $root
+    Check-Acl $root $true
+    if ([CabinetRecoveryFileIdentity]::Identity($root) -cne $witness) {
+        Refuse 'Destination identity changed during restore.'
+    }
 }
 function Prepare-Removal([string]$parent) {
     $parent=Check-PrivateBackup $parent
@@ -83,7 +94,7 @@ function Prepare-Removal([string]$parent) {
     New-Item -ItemType Directory -Path $run -ErrorAction Stop | Out-Null
     Lock-Directory $run
     $copy=Join-Path $run 'original-copy'; $archive=Join-Path $run 'original-installed'
-    $stopRequested=$false; $deleted=$false
+    $stopRequested=$false; $deletionRequested=$false
     try {
         $stopRequested=$true
         Service-SetStart 'disabled'; Service-Stop; Service-EnsureStopped
@@ -96,21 +107,22 @@ function Prepare-Removal([string]$parent) {
         }
         Check-Tree $copy; Same-Tree $fingerprint $copy
         $members=@($fingerprint.GetEnumerator() | ForEach-Object { [pscustomobject]@{Path=$_.Key; Hash=$_.Value} })
-        $record=[pscustomobject]@{Schema=1; Host=$hostId; Definition=$definition;
+        $record=[pscustomobject]@{Schema=2; Host=$hostId; Definition=$definition;
             Fingerprint=$members; Service=$serviceName; Install=$install}
         Seal-Record (Join-Path $run 'record.dpapi') $record
         # Capture is complete before any deletion. A competing restart is not removable.
         Service-EnsureStopped; Assert-Service 'Disabled' 'Stopped'; Same-Definition $definition
         Move-Item -LiteralPath $install -Destination $archive -ErrorAction Stop
         Same-Tree $fingerprint $archive
-        Service-EnsureStopped; Service-Delete
-        $deleted=$true
+        Service-EnsureStopped; Invoke-Sc @('delete', $serviceName)
+        $deletionRequested=$true
+        Service-WaitAbsent
         if (Service-Read) { Refuse 'Service deletion is still pending.' }
         Write-Output "MANUAL_REINSTALL_HANDLE=$run"
         Write-Output 'Original service absent; stopped original archived. No enrollment or server change.'
     } catch {
         $cause=$_.Exception.Message
-        if (!$deleted -and [CabinetRecoveryDefinition]::Exists($serviceName)) {
+        if (!$deletionRequested -and [CabinetRecoveryDefinition]::DeletionState($serviceName) -ceq 'present') {
             try {
                 if (!(Test-Path -LiteralPath $install) -and (Test-Path -LiteralPath $archive)) {
                     Move-Item -LiteralPath $archive -Destination $install -ErrorAction Stop
@@ -133,7 +145,7 @@ function Restore-Installation([string]$handle, [string]$zipPath, [string]$digest
     if ($zipPath.StartsWith($handle+'\',[StringComparison]::OrdinalIgnoreCase)) { Refuse 'Package overlaps protected backup.' }
     $record=Read-Record (Join-Path $handle 'record.dpapi')
     $hostId=Host-Binding
-    if ($record.Schema -ne 1 -or $record.Service -cne $serviceName -or $record.Install -cne $install -or
+    if ($record.Schema -ne 2 -or $record.Service -cne $serviceName -or $record.Install -cne $install -or
         $record.Host.Machine -cne $hostId.Machine -or $record.Host.Boot -cne $hostId.Boot) {
         Refuse 'Backup provenance or same-boot execution witness differs. Do not restart after reboot.'
     }
@@ -147,7 +159,10 @@ function Restore-Installation([string]$handle, [string]$zipPath, [string]$digest
     if ($value.Image -cne ('"'+$install+'\CabinetPlatform.Agent.exe"') -or
         $value.Dacl -cne 'D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLOCRRC;;;IU)(A;;CCLCSWLOCRRC;;;SU)' -or
         $value.Group -or $value.Dependencies -or $value.Delayed -or $value.Sid -ne 0 -or
-        $value.Privileges -or $value.TriggerCount -ne 0 -or $value.Reboot -or $value.Command) {
+        $value.Privileges -or $value.TriggerCount -ne 0 -or $value.LaunchProtected -ne 0 -or
+        !$value.PreferredDeleted -or $value.Reboot -or $value.Command -or
+        $value.OwnerGroup -cne 'O:SYG:SY' -or
+        $value.SecurityAudit -cne 'S:(AU;FA;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;WD)') {
         Refuse 'Unsupported original service definition.'
     }
     $stream=[IO.FileStream]::new($zipPath,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
@@ -157,9 +172,31 @@ function Restore-Installation([string]$handle, [string]$zipPath, [string]$digest
         try {
             # Install only the reviewed package members. Preserve all original non-package
             # state and configuration by exact relative path from the stopped original.
-            Copy-Item -LiteralPath $copy -Destination $install -Recurse -ErrorAction Stop
+            Check-Path $install $false | Out-Null; Check-Ancestors $install
+            if (Test-Path -LiteralPath $install) { Refuse 'Install destination appeared before creation.' }
+            New-Item -ItemType Directory -Path $install -ErrorAction Stop | Out-Null
+            Lock-Directory $install
+            $destinationWitness=[CabinetRecoveryFileIdentity]::Identity($install)
+            Assert-Destination $install $destinationWitness
+            # Children inherit this private root. Secure each directory before
+            # copying files, never after writing original identity bytes.
+            foreach ($entry in Get-ChildItem -LiteralPath $copy -Force -Recurse) {
+                Assert-Destination $install $destinationWitness
+                $relative=$entry.FullName.Substring($copy.Length).TrimStart('\')
+                $path=Join-Path $install $relative
+                if ($entry.PSIsContainer) {
+                    New-Item -ItemType Directory -Path $path -ErrorAction Stop | Out-Null
+                    Lock-Directory $path
+                } else {
+                    Check-Acl (Split-Path $path -Parent) $true
+                    Copy-Item -LiteralPath $entry.FullName -Destination $path -ErrorAction Stop
+                    Lock-File $path
+                }
+                Assert-Destination $install $destinationWitness
+            }
             foreach ($entry in $package.Values) {
                 if ($entry.Name -cin @('kit-manifest.json','appsettings.json')) { continue }
+                Assert-Destination $install $destinationWitness
                 $path=Join-Path $install $entry.Name
                 [IO.File]::WriteAllBytes($path,$entry.Bytes); Lock-File $path
             }

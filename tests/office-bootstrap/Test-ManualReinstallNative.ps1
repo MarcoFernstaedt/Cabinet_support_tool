@@ -1,5 +1,5 @@
 # Disposable native two-process manual reinstall, no production Agent targeting.
-param([ValidateSet('success','prestart','poststart','tamper')][string]$Scenario='success')
+param([ValidateSet('success','prestart','poststart','tamper','inherited-read','owner-group','preshutdown','pending-deletion','alias')][string]$Scenario='success')
 $ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
 if ($PSVersionTable.PSVersion.ToString() -notlike '5.1.*') { throw 'Windows PowerShell 5.1 required' }
 $serviceName='CabinetManualProbe-'+[guid]::NewGuid().ToString('N')
@@ -50,16 +50,65 @@ try {
  Start-Service $serviceName
  & "$env:SystemRoot\System32\sc.exe" config $serviceName start= auto | Out-Null
  if($LASTEXITCODE){throw 'Start mode setup failed'}
+ if($Scenario -eq 'inherited-read'){
+  & icacls.exe $root /grant '*S-1-5-32-545:(OI)(CI)RX' | Out-Null
+  if($LASTEXITCODE){throw 'Fixture parent reader ACL failed'}
+ }
+ if($Scenario -eq 'owner-group' -or $Scenario -eq 'preshutdown' -or $Scenario -eq 'pending-deletion'){
+  Add-Type -TypeDefinition @'
+using System;using System.ComponentModel;using System.Runtime.InteropServices;using System.Security.AccessControl;
+public static class ManualFixtureScm {
+ [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr OpenSCManager(string a,string b,uint c);
+ [DllImport("advapi32.dll",CharSet=CharSet.Unicode,SetLastError=true)] static extern IntPtr OpenService(IntPtr a,string b,uint c);
+ [DllImport("advapi32.dll",SetLastError=true)] static extern bool SetServiceObjectSecurity(IntPtr a,uint b,byte[] c);
+ [DllImport("advapi32.dll",SetLastError=true)] static extern bool ChangeServiceConfig2(IntPtr a,uint b,IntPtr c);
+ [DllImport("advapi32.dll",SetLastError=true)] static extern bool QueryServiceConfig2(IntPtr a,uint b,IntPtr c,uint d,out uint e);
+ [DllImport("advapi32.dll")] public static extern bool CloseServiceHandle(IntPtr a);
+ public static IntPtr Hold(string name){IntPtr manager=OpenSCManager(null,null,1);try{IntPtr service=OpenService(manager,name,0x80003);if(service==IntPtr.Zero)throw new Win32Exception(Marshal.GetLastWin32Error());return service;}finally{CloseServiceHandle(manager);}}
+ public static void Group(IntPtr service){var sd=new RawSecurityDescriptor("O:BAG:BA");byte[] bytes=new byte[sd.BinaryLength];sd.GetBinaryForm(bytes,0);if(!SetServiceObjectSecurity(service,2,bytes))throw new Win32Exception(Marshal.GetLastWin32Error());}
+ public static uint Preshutdown(IntPtr service,bool set){IntPtr data=Marshal.AllocHGlobal(4);try{if(set){Marshal.WriteInt32(data,12345);if(!ChangeServiceConfig2(service,7,data))throw new Win32Exception(Marshal.GetLastWin32Error());}uint needed;if(!QueryServiceConfig2(service,7,data,4,out needed))throw new Win32Exception(Marshal.GetLastWin32Error());return (uint)Marshal.ReadInt32(data);}finally{Marshal.FreeHGlobal(data);}}
+}
+'@
+  $held=[ManualFixtureScm]::Hold($serviceName)
+  if($Scenario -eq 'owner-group'){[ManualFixtureScm]::Group($held);[ManualFixtureScm]::CloseServiceHandle($held)|Out-Null;$held=[IntPtr]::Zero}
+  if($Scenario -eq 'preshutdown'){if([ManualFixtureScm]::Preshutdown($held,$true) -ne 12345){throw 'Preshutdown setup failed'};[ManualFixtureScm]::CloseServiceHandle($held)|Out-Null;$held=[IntPtr]::Zero}
+ }
  $powershell="$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
  & $powershell -NoProfile -NonInteractive -File $child (Join-Path $root 'Kit\Manual-Reinstall-CabinetDemoAgent.ps1') $serviceName $install $backup $zip $digest $commit 'prepare' $Scenario
  $first=$LASTEXITCODE; Write-Output "PREPARE_EXIT=$first"
+ if($Scenario -eq 'pending-deletion'){
+  if(!$first -or !(Test-Path (Join-Path $backup 'manual-reinstall-*' ))){throw 'Expected held-handle deletion timeout'}
+  [ManualFixtureScm]::CloseServiceHandle($held)|Out-Null;$held=[IntPtr]::Zero
+  for($i=0;$i -lt 30;$i++){if(!(Get-Service $serviceName -ErrorAction SilentlyContinue)){break};Start-Sleep -Seconds 1}
+  if((Get-Service $serviceName -ErrorAction SilentlyContinue) -or (Test-Path $install)){throw 'Pending deletion did not leave restorable layout'}
+  Write-Output 'PASS deletion requested but not completed, archive retained after handle release'
+  $first=0
+ }
+ if($Scenario -eq 'owner-group'){
+  if(!$first -or !(Get-Service $serviceName -ErrorAction SilentlyContinue) -or !(Test-Path $install)){throw 'Unsupported group was not refused before stop'}
+  if((Get-Service $serviceName).Status -ne 'Running'){throw 'Unsupported group interrupted original service'}
+  Write-Output 'PASS unsupported owner/group refused before stop'
+  return
+ }
  if($first){throw 'Prepare child failed'}
  if(Get-Service $serviceName -ErrorAction SilentlyContinue){throw 'Probe not absent between clean processes'}
  Write-Output 'PASS exact service absent between processes'
  & $powershell -NoProfile -NonInteractive -File $child (Join-Path $root 'Kit\Manual-Reinstall-CabinetDemoAgent.ps1') $serviceName $install $backup $zip $digest $commit 'restore' $Scenario
  $second=$LASTEXITCODE;Write-Output "RESTORE_EXIT=$second"
  if($second){throw 'Restore child failed'}
+ if($Scenario -eq 'preshutdown'){
+  $query=[ManualFixtureScm]::Hold($serviceName)
+  try{if([ManualFixtureScm]::Preshutdown($query,$false) -ne 12345){throw 'Preshutdown metadata lost'}}finally{[ManualFixtureScm]::CloseServiceHandle($query)|Out-Null}
+  Write-Output 'PASS preshutdown preserved after service recreation'
+ }
+ if($Scenario -eq 'inherited-read'){
+  $device=Join-Path $install 'office-enrollment.json.device'
+  $rules=(Get-Acl $device).GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])
+  if(@($rules | Where-Object {$_.IdentityReference.Value -eq 'S-1-5-32-545' -and $_.AccessControlType -eq 'Allow'}).Count){throw 'Synthetic device journal inherited Users access'}
+  Write-Output 'PASS synthetic identity copied privately beneath shared vendor parent'
+ }
 } finally {
+ if((Get-Variable held -ErrorAction SilentlyContinue) -and $held -ne [IntPtr]::Zero){[ManualFixtureScm]::CloseServiceHandle($held)|Out-Null}
  $svc=Get-Service $serviceName -ErrorAction SilentlyContinue
  if($svc){if($svc.Status -ne 'Stopped'){Stop-Service $serviceName -ErrorAction Stop;$svc.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(30))}; & "$env:SystemRoot\System32\sc.exe" delete $serviceName | Out-Null;if($LASTEXITCODE){throw 'Exact service cleanup failed'}}
  for($i=0;$i -lt 30;$i++){if(!(Get-Service $serviceName -ErrorAction SilentlyContinue)){break};Start-Sleep -Seconds 1}

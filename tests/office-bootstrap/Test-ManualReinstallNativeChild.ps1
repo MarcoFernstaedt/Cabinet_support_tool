@@ -15,6 +15,18 @@ if($Phase -eq 'prepare'){
 }
 $runs=@(Get-ChildItem -LiteralPath $Backup -Directory -Filter 'manual-reinstall-*')
 if($runs.Count -ne 1){throw 'Backup handle missing'}
+if($Scenario -eq 'alias'){
+ New-Item -ItemType Junction -Path $ProbeInstall -Target $runs[0].FullName | Out-Null
+ try {
+  $failure=''
+  try { & $Manual -Restore -ConfirmSameMachine -BackupHandle $runs[0].FullName -AgentZip $Zip -ExpectedSha256 $Digest -ExpectedSourceCommit $Commit }
+  catch { $failure=$_.Exception.Message }
+  if(!$failure -or (Get-Service $ProbeService -ErrorAction SilentlyContinue)){throw 'Alias destination was admitted'}
+  if(!(Test-Path (Join-Path $runs[0].FullName 'original-copy\office-enrollment.json.device'))){throw 'Backup changed after alias refusal'}
+  Write-Output 'PASS destination junction refused before identity copy'
+ } finally { & "$env:SystemRoot\System32\cmd.exe" /c rmdir $ProbeInstall | Out-Null; if($LASTEXITCODE){throw 'Exact junction cleanup failed'} }
+ exit 0
+}
 if($Scenario -eq 'tamper'){
  [IO.File]::AppendAllText((Join-Path $runs[0].FullName 'original-copy\state\agent-state.json'),' ')
 }
@@ -46,7 +58,7 @@ if($Scenario -eq 'tamper'){
 if(!$svc){throw 'Restored service missing'}
 if($svc.PathName -cne ('"'+$ProbeInstall+'\CabinetPlatform.Agent.exe"') -or $svc.StartName -cne 'LocalSystem') {throw 'SCM image or identity changed'}
 if((Get-Content -LiteralPath (Join-Path $ProbeInstall 'state\agent-state.json') -Raw | ConvertFrom-Json).MachineId -cne 'synthetic-manual'){throw 'Original identity lost'}
-if($Scenario -eq 'success'){
+if($Scenario -notin @('prestart','poststart')){
  if($failure -or $svc.State -cne 'Running' -or $svc.StartMode -cne 'Auto'){throw "Success mismatch: $failure"}
  Write-Output 'PASS clean restore Running Auto and original synthetic identity'
 }elseif($Scenario -eq 'prestart'){
