@@ -14,6 +14,8 @@ def assert_manifest_binding(test, source):
     assignments = list(re.finditer(r"(?im)^\s*\$fixtureManifestPath\s*=", source))
     test.assertEqual(1, len(assignments), "fixture manifest binding must be unique")
     test.assertRegex(source, r"(?im)^\s*Set-Variable\s+-Name\s+fixtureManifestPath\s+-Option\s+ReadOnly\b")
+    test.assertLess(source.index('Set-Variable -Name fixtureManifestPath -Option ReadOnly'),
+                    source.index('[IO.File]::WriteAllText($intent'))
     test.assertNotRegex(source, r"(?im)^\s*\$(?:manifest|fixtureManifestPath)\s*=.*ConvertTo-Json")
     gates = re.findall(r"-Action\s+(?:Gate|Cleanup)\s+-Manifest\s+\$([\w]+)", source)
     test.assertTrue(gates)

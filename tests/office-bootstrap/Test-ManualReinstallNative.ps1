@@ -10,6 +10,8 @@ $guard=Join-Path $PSScriptRoot 'DisposableServiceFixture.ps1'
 if ($LASTEXITCODE -ne 0) { throw 'Disposable machine gate failed before fixture creation.' }
 $serviceName='CabinetManualProbe-'+[guid]::NewGuid().ToString('N')
 $root=Join-Path $env:ProgramData $serviceName
+$fixtureManifestPath=Join-Path $root 'fixture-target.json'
+Set-Variable -Name fixtureManifestPath -Option ReadOnly
 $install=Join-Path $root 'Synthetic'; $backup=Join-Path $root 'Backup'
 $helper=Join-Path $PSScriptRoot 'Restore-CabinetDemoAgent.ps1'
 $manual=Join-Path $PSScriptRoot 'Manual-Reinstall-CabinetDemoAgent.ps1'
@@ -30,8 +32,6 @@ try {
  [IO.File]::WriteAllText((Join-Path $install 'state\agent-state.json'),' {"MachineId":"synthetic-manual","CabinetId":"synthetic-cabinet"}')
  foreach($p in @($root,$install,$backup,(Join-Path $install 'state'),(Join-Path $root 'Kit'))){& "$env:SystemRoot\System32\icacls.exe" $p /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null;if($LASTEXITCODE){throw 'Directory ACL failed'}}
  foreach($p in @($exe,(Join-Path $install 'appsettings.json'),(Join-Path $install 'office-enrollment.json.device'),(Join-Path $install 'state\agent-state.json'))){& "$env:SystemRoot\System32\icacls.exe" $p /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null;if($LASTEXITCODE){throw 'File ACL failed'}}
- $fixtureManifestPath=Join-Path $root 'fixture-target.json'
- Set-Variable -Name fixtureManifestPath -Option ReadOnly
  $vm=Get-CimInstance Win32_ComputerSystemProduct
  $key=[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SOFTWARE\Microsoft\Cryptography')
  try { $machine=[string]$key.GetValue('MachineGuid') } finally { $key.Dispose() }
