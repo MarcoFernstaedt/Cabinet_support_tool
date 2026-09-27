@@ -91,6 +91,8 @@ public sealed class SessionSafetyTests
             Username = user.Username, Password = "Str0ng!TestPassword"
         })).ReadAsync<LoginResponse>();
         Assert.NotNull(login);
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", login.AccessToken);
         var changed = await client.PostJsonAsync("/api/auth/change-password", new ChangePasswordRequest
         {
             CurrentPassword = "Str0ng!TestPassword", NewPassword = "Different!Password123"

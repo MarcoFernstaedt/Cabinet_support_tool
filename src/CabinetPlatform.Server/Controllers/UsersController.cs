@@ -242,8 +242,12 @@ public sealed class UsersController : SupportControllerBase
         CurrentUser actor = CurrentUser;
         DateTime nowUtc = _timeProvider.GetUtcNow().UtcDateTime;
 
-        await using var supportTransaction = request.SupportAccountsOnly
-            ? await _db.Database.BeginTransactionAsync(ct) : null;
+        await using var supportTransaction = await _db.Database.BeginTransactionAsync(ct);
+        // Serialize all account edits against a successful login on the user row.
+        // The support-only predicate below additionally rejects a stale staff selection.
+        if (!request.SupportAccountsOnly)
+            await _db.Users.Where(u => u.Id == id)
+                .ExecuteUpdateAsync(set => set.SetProperty(u => u.IsActive, u => u.IsActive), ct);
         if (request.SupportAccountsOnly)
         {
             // Reserve the current support row until its update and audit commit.
@@ -268,7 +272,7 @@ public sealed class UsersController : SupportControllerBase
         {
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "User not found.", null, new { UserId = id }, cancellationToken: ct);
-            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
+            await supportTransaction.CommitAsync(ct);
             return Problem("User not found.",
                 statusCode: StatusCodes.Status404NotFound, title: "Not found");
         }
@@ -278,7 +282,7 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Role is not a defined value.", null,
                 new { UserId = id }, cancellationToken: ct);
-            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
+            await supportTransaction.CommitAsync(ct);
             return Problem("Role is not valid.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -290,7 +294,7 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Supervisor attempted to change their own role.", null,
                 new { UserId = id }, cancellationToken: ct);
-            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
+            await supportTransaction.CommitAsync(ct);
             return Problem("You cannot change your own role.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
@@ -300,18 +304,16 @@ public sealed class UsersController : SupportControllerBase
             await _audit.WriteDenialAsync(
                 AuditEvent.UpdateUser, "Supervisor attempted to deactivate themselves.", null,
                 new { UserId = id }, cancellationToken: ct);
-            if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
+            await supportTransaction.CommitAsync(ct);
             return Problem("You cannot deactivate your own account.",
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid request");
         }
 
         var changes = new List<string>();
 
-        if (request.Role is { } demotedTo && demotedTo < user.Role)
+        if (request.Role is { } changedRole && changedRole != user.Role)
         {
-            // A demotion, like a deactivation, must not wait for a token to
-            // age out on its own.
-            changes.Add($"Sessions revoked: {await _refreshTokens.RevokeAllAsync(user.Id, "Role reduced.", ct)}");
+            changes.Add($"Sessions revoked: {await _refreshTokens.RevokeAllAsync(user.Id, "Role changed.", ct)}");
         }
 
         if (request.Role is { } assignedRole && assignedRole != user.Role)
@@ -365,7 +367,7 @@ public sealed class UsersController : SupportControllerBase
             await _db.SaveChangesAsync(ct);
         }
 
-        if (supportTransaction is not null) await supportTransaction.CommitAsync(ct);
+        await supportTransaction.CommitAsync(ct);
         return Ok(ToDto(user, nowUtc));
     }
 

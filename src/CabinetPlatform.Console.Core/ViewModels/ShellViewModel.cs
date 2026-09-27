@@ -53,6 +53,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     private bool _disposed;
     private readonly ISessionStore _session;
     private readonly ILiveRegionAnnouncer _announcer;
+    private readonly IApiClient _sessionApi;
 
     public ShellViewModel(
         CabinetListViewModel cabinets,
@@ -65,6 +66,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         RegistrationsViewModel registrations,
         ISessionStore session,
         ILiveRegionAnnouncer announcer,
+        IApiClient sessionApi,
         StaffViewModel? staff = null,
         ConnectivityAlertsViewModel? alerts = null)
     {
@@ -94,6 +96,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
 
         _session = session;
         _announcer = announcer;
+        _sessionApi = sessionApi;
 
         // The task is kept rather than discarded. Selecting a row is a user
         // gesture with nothing to await it, so without this the load is
@@ -275,6 +278,27 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
             (ApprovalBadge is { } badge
                 ? $"{badge} actions await your approval."
                 : "Nothing awaits your approval."));
+    }
+
+    /// <summary>Checks account authority without fetching fleet data.</summary>
+    public async Task CheckSessionAsync(CancellationToken ct)
+    {
+        if (_disposed || !_sessionLive) return;
+        try
+        {
+            await _sessionApi.GetCurrentUserAsync(ct);
+        }
+        catch (ApiException ex) when (ex.RequiresReauthentication)
+        {
+            if (!_disposed && _sessionLive) EndSession(SignInReason.SessionExpired);
+        }
+        catch (ApiException)
+        {
+            // An outage is not proof of revoked authority. The next check retries.
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested || _disposed)
+        {
+        }
     }
 
     [RelayCommand]

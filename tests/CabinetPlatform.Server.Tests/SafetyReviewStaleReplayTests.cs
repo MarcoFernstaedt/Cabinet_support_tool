@@ -24,6 +24,7 @@ public sealed class SafetyReviewStaleReplayTests
         Assert.Equal(HttpStatusCode.OK, rotatedResponse.StatusCode);
         var rotated = await rotatedResponse.ReadAsync<RefreshResponse>();
         Assert.NotNull(rotated);
+        original.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", rotated.AccessToken);
 
         switch (endedBy)
         {

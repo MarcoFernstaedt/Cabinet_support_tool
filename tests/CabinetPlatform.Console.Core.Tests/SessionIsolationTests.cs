@@ -63,6 +63,59 @@ public sealed class SessionIsolationTests
         Assert.Null(shell.Fleet.Summary);
     }
 
+    [Fact]
+    public async Task Idle_check_retires_shell_on_server_denial_without_fleet_polling()
+    {
+        var handler = new HeldHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.invalid/") };
+        var session = new SessionStore();
+        session.SignIn("old-token", DateTimeOffset.UtcNow.AddHours(1), "old-refresh",
+            "Operator", Role.Tier1, false);
+        using var api = new ApiClient(http, session);
+        var shell = CreateShell(api, session);
+        var reasons = new List<SignInReason>();
+        shell.SignInRequired += (_, reason) => reasons.Add(reason);
+        Task startup = shell.StartSessionAsync();
+        await shell.CheckSessionAsync(CancellationToken.None);
+        Assert.Equal(new[] { SignInReason.SessionExpired }, reasons);
+        Assert.False(session.IsSignedIn);
+        handler.Completion.SetResult(new HttpResponseMessage(HttpStatusCode.OK));
+        await startup;
+        await shell.CheckSessionAsync(CancellationToken.None);
+        Assert.Single(reasons);
+        Assert.Equal(3, handler.Requests);
+    }
+
+    [Fact]
+    public async Task Idle_check_keeps_shell_when_server_is_unreachable()
+    {
+        var handler = new UnreachableSessionHandler();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://synthetic.invalid/") };
+        var session = new SessionStore();
+        session.SignIn("old-token", DateTimeOffset.UtcNow.AddHours(1), "old-refresh",
+            "Operator", Role.Tier1, false);
+        using var api = new ApiClient(http, session);
+        var shell = CreateShell(api, session);
+        var reasons = new List<SignInReason>();
+        shell.SignInRequired += (_, reason) => reasons.Add(reason);
+        Task startup = shell.StartSessionAsync();
+        await shell.CheckSessionAsync(CancellationToken.None);
+        Assert.Empty(reasons);
+        Assert.True(session.IsSignedIn);
+        shell.SignOutCommand.Execute(null);
+        handler.Completion.SetResult(new HttpResponseMessage(HttpStatusCode.OK));
+        await startup;
+    }
+
+    private sealed class UnreachableSessionHandler : HttpMessageHandler
+    {
+        private int _requests;
+        public TaskCompletionSource<HttpResponseMessage> Completion { get; } = new();
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Interlocked.Increment(ref _requests) == 1 ? Completion.Task :
+                Task.FromException<HttpResponseMessage>(new HttpRequestException("offline"));
+    }
+
     internal static CabinetPlatform.Console.Core.ViewModels.ShellViewModel CreateShell(IApiClient api, SessionStore session)
     {
         var announcer = NullLiveRegionAnnouncer.Instance;
@@ -72,7 +125,7 @@ public sealed class SessionIsolationTests
             new(api, new ActionInvoker(api, ScriptedActionDialog.Accepting(), announcer, session), session, announcer, time),
             new(), new(api, announcer, time), new(api, announcer, time),
             new(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
-            new(api, session, announcer), session, announcer, new(api, session, announcer));
+            new(api, session, announcer), session, announcer, api, new(api, session, announcer));
     }
 
     private sealed class HeldHandler : HttpMessageHandler

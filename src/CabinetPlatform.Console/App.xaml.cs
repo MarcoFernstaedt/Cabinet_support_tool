@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Threading;
 using CabinetPlatform.Console.Accessibility;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
@@ -69,6 +70,25 @@ public partial class App : Application
                 var shell = provider.GetRequiredService<ShellViewModel>();
                 provider.GetRequiredService<WpfLiveRegionAnnouncer>().Attach(shell);
                 var window = new MainWindow { DataContext = shell };
+                using var probeLifetime = new CancellationTokenSource();
+                var sessionProbe = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+                {
+                    Interval = TimeSpan.FromSeconds(15)
+                };
+                bool probeBusy = false;
+                async void ProbeSession(object? sender, EventArgs args)
+                {
+                    if (probeBusy || probeLifetime.IsCancellationRequested) return;
+                    probeBusy = true;
+                    try { await shell.CheckSessionAsync(probeLifetime.Token); }
+                    catch (OperationCanceledException) when (probeLifetime.IsCancellationRequested) { }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Session check: {ex.GetType().Name}");
+                    }
+                    finally { probeBusy = false; }
+                }
+                sessionProbe.Tick += ProbeSession;
                 var finished = new TaskCompletionSource<SignInReason?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 void RequireSignIn(object? sender, SignInReason nextReason)
                 {
@@ -86,6 +106,7 @@ public partial class App : Application
                 try
                 {
                     window.Show();
+                    sessionProbe.Start();
                     Task loading = shell.StartSessionAsync();
                     // Sign-out must not wait for a slow server or a late body.
                     if (await Task.WhenAny(loading, finished.Task) == loading)
@@ -98,6 +119,9 @@ public partial class App : Application
                 }
                 finally
                 {
+                    sessionProbe.Stop();
+                    sessionProbe.Tick -= ProbeSession;
+                    probeLifetime.Cancel();
                     shell.SignInRequired -= RequireSignIn;
                     shell.Dispose();
                     window.Close();

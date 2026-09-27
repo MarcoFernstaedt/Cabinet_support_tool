@@ -130,6 +130,20 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
             return InvalidCredentials();
         }
 
+        // Reserve this account in the database rather than in this process.
+        // A competing login, password change or role edit changes its epoch.
+        await using var loginTransaction = await _db.Database.BeginTransactionAsync(ct);
+        Guid observedStamp = user.SecurityStamp;
+        Guid reservedStamp = Guid.NewGuid();
+        int reserved = await _db.Users
+            .Where(u => u.Id == user.Id && u.IsActive && u.SecurityStamp == observedStamp &&
+                u.PasswordHash == user.PasswordHash)
+            .ExecuteUpdateAsync(set => set.SetProperty(u => u.SecurityStamp, reservedStamp), ct);
+        if (reserved != 1)
+            return OperationResult<LoginResponse>.Forbidden("Account changed during sign-in. Try again.");
+        await _db.Entry(user).ReloadAsync(ct);
+        await _refreshTokens.RevokeAllAsync(user.Id, "New sign-in.", ct);
+
         user.FailedLoginCount = 0;
         user.LockedUntilUtc = null;
         user.LastLoginUtc = nowUtc;
@@ -159,6 +173,7 @@ public sealed class UserAuthenticationService : IUserAuthenticationService
         });
 
         await _db.SaveChangesAsync(ct);
+        await loginTransaction.CommitAsync(ct);
 
         return OperationResult<LoginResponse>.Ok(new LoginResponse
         {

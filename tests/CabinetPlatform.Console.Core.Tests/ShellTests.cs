@@ -109,6 +109,7 @@ public sealed class ShellTests : IClassFixture<ConsoleTestHost>
             new RegistrationsViewModel(api, session, announcer),
             session,
             announcer,
+            api,
             new StaffViewModel(api, session, announcer));
 
         return (shell, session, api, announcer);

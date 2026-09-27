@@ -162,7 +162,7 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
             new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
             new RegistrationsViewModel(api, session, announcer),
-            session, announcer);
+            session, announcer, api);
     }
 
     private static XDocument LoadView(string name)
