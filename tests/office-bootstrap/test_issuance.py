@@ -130,6 +130,8 @@ class IssueEnrollmentTests(unittest.TestCase):
             self.assertEqual(2, len(tokens))
             secret = json.loads(output.read_text())
             self.assertEqual(ENDPOINT, secret["ServerBaseUrl"])
+            self.assertEqual(tokens[1]["ExpiresUtc"], secret["ExpiresUtc"])
+            self.assertEqual(tokens[1]["DeviceExpiresUtc"], secret["DeviceExpiresUtc"])
             self.assertEqual(hashlib.sha256(secret["Token"].encode()).hexdigest().upper(), tokens[1]["TokenHash"])
             self.assertNotIn(secret["Token"], result.stdout + result.stderr + manifest.read_text())
             self.assertEqual(0o600, output.stat().st_mode & 0o777)
