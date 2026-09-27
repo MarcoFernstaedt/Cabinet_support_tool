@@ -88,9 +88,73 @@ class PackageTests(unittest.TestCase):
             publish.mkdir()
             (publish / "CabinetPlatform.Agent.exe").write_bytes(b"x")
             (publish / "appsettings.Production.json").write_text('{"Agent":{"ServerBaseUrl":"https://evil.example/"}}')
-            package_component("agent", publish, base / "agent.zip", "a" * 40)
-            with zipfile.ZipFile(base / "agent.zip") as archive:
-                self.assertNotIn("appsettings.Production.json", archive.namelist())
+            with self.assertRaises(ValueError):
+                package_component("agent", publish, base / "agent.zip", "a" * 40)
+            self.assertFalse((base / "agent.zip").exists())
+
+    def test_nested_state_and_overlays_are_refused_before_output(self):
+        from build_independent_demo_kit import package_component
+        for name in ("office-enrollment.json.device", "deep/office-enrollment.json.device",
+                     "deep/appsettings.Production.json", "deep/state/record", "deep/x.sqlite",
+                     "deep/x.log", "deep/x.pfx", "deep/grants.json", "deep/secret.txt",
+                     "deep/Agent.dll", "deep/config.json"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as root:
+                base = Path(root)
+                publish = base / "publish"
+                publish.mkdir()
+                (publish / "CabinetPlatform.Agent.exe").write_bytes(b"synthetic")
+                item = publish / name
+                item.parent.mkdir(parents=True, exist_ok=True)
+                item.write_bytes(b"synthetic")
+                with self.assertRaises(ValueError):
+                    package_component("agent", publish, base / "agent.zip", "a" * 40)
+                self.assertFalse((base / "agent.zip").exists())
+
+    def test_archive_refuses_windows_conflicts_and_bounded_size(self):
+        from build_independent_demo_kit import _safe_name, package_component, verify_package
+        self.assertFalse(_safe_name("bad\x01.txt"))
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
+            target = base / "console.zip"
+            package_component("console", publish, target, "b" * 40)
+            with zipfile.ZipFile(target) as archive:
+                rows = [(entry, archive.read(entry)) for entry in archive.infolist()]
+            for kind in ("reparse", "case", "prefix", "control"):
+                with self.subTest(kind=kind):
+                    with zipfile.ZipFile(target, "w") as archive:
+                        for entry, data in rows:
+                            if kind == "reparse" and entry.filename == "CabinetPlatform.Console.exe":
+                                entry.external_attr |= 0x400
+                            archive.writestr(entry, data)
+                        if kind == "case": archive.writestr("APPSETTINGS.JSON", b"x")
+                        if kind == "prefix": archive.writestr("appsettings.json/child", b"x")
+                        if kind == "control": archive.writestr("unsafe\x01.txt", b"x")
+                    with self.assertRaises(ValueError): verify_package(target, "console")
+
+    def test_operator_bundle_copies_exact_source_helper_and_guide(self):
+        from build_independent_demo_kit import bundle_operator_files
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            source = base / "source"
+            (source / "tools").mkdir(parents=True)
+            (source / "docs").mkdir()
+            (source / "tools/Install-CabinetDemoAgent.ps1").write_bytes(b"trusted helper")
+            (source / "docs/independent-demo-kit.md").write_bytes(b"trusted guide")
+            output = base / "kit"
+            output.mkdir()
+            for name in ("agent", "console"):
+                (output / f"cabinet-{name}.zip").write_bytes(name.encode())
+            bundle_operator_files(source, output, "a" * 40)
+            evidence = json.loads((output / "release-evidence.json").read_text())
+            self.assertEqual("a" * 40, evidence["sourceCommit"])
+            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1",
+                              "independent-demo-kit.md"}, set(evidence["sha256"]))
+            for name, digest in evidence["sha256"].items():
+                self.assertEqual(hashlib.sha256((output / name).read_bytes()).hexdigest().upper(), digest)
+            self.assertEqual(b"trusted helper", (output / "Install-CabinetDemoAgent.ps1").read_bytes())
 
     def test_helper_contract_keeps_install_and_enrollment_separate(self):
         helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()
@@ -101,10 +165,13 @@ class PackageTests(unittest.TestCase):
         self.assertIn("office-enrollment.json", helper)
         self.assertIn("ExpectedSha256", helper)
         self.assertIn("ExpectedSourceCommit", helper)
-        self.assertIn("Get-FileHash", helper)
+        self.assertIn("[IO.FileShare]::Read", helper)
+        self.assertIn("ComputeHash($packageStream)", helper)
+        self.assertIn("ZipArchive]::new($packageStream", helper)
+        self.assertIn("$packageStream.Dispose()", helper)
         self.assertIn("$PSVersionTable.PSVersion.Major", helper)
         self.assertIn("ExpiresUtc", helper)
-        self.assertIn("GetProperty('ExpiresUtc').GetString()", helper)
+        self.assertIn("Json-TopString $script:jsonTokens", helper)
         self.assertIn("Get-Service -Name $serviceName", helper)
         for forbidden in ("ExecutionPolicy Bypass", "Set-ExecutionPolicy", "DisableRealtimeMonitoring", "Expand-Archive", "Invoke-Expression"):
             self.assertNotIn(forbidden, helper)

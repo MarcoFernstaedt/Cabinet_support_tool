@@ -14,6 +14,7 @@ $install = 'C:\Program Files\Mashura\CabinetAgent'
 $endpoint = 'https://srv1522777.tail72f980.ts.net/'
 $created = $false
 $registered = $false
+$packageStream = $null
 
 function Refuse([string]$reason) { throw "Install refused: $reason" }
 function Check-Path([string]$path, [bool]$mustExist) {
@@ -32,87 +33,183 @@ function Check-Path([string]$path, [bool]$mustExist) {
     if ($mustExist -and !(Test-Path -LiteralPath $full -PathType Leaf)) { Refuse 'Required input is missing.' }
     return $full
 }
-function Private-Acl([string]$path) {
+function Check-Acl([string]$path, [bool]$secret) {
     $acl = Get-Acl -LiteralPath $path
-    if (!$acl.AreAccessRulesProtected) { Refuse 'Permissions still inherit from a parent.' }
+    $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+    $operator = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    if ($owner -notin @('S-1-5-18','S-1-5-32-544',$operator,
+        'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')) { Refuse "Untrusted owner: $path" }
+    $mutation = [Security.AccessControl.FileSystemRights]::Write -bor
+        [Security.AccessControl.FileSystemRights]::Modify -bor
+        [Security.AccessControl.FileSystemRights]::FullControl -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
     foreach ($rule in $acl.Access) {
         if ($rule.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow) { continue }
         $sid = $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
-        if ($sid -notin @('S-1-5-18','S-1-5-32-544')) { Refuse 'Unexpected principal can access a protected path.' }
+        if ($sid -notin @('S-1-5-18','S-1-5-32-544') -and
+            ($secret -or (($rule.FileSystemRights -band $mutation) -ne 0))) {
+            Refuse "Untrusted access on $path for $sid"
+        }
     }
 }
 function Lock-Directory([string]$path) {
     & icacls.exe $path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { Refuse 'Could not set private directory permissions.' }
-    Private-Acl $path
+    Check-Acl $path $true
 }
 function Lock-File([string]$path) {
     & icacls.exe $path /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null
     if ($LASTEXITCODE -ne 0) { Refuse 'Could not set private file permissions.' }
-    Private-Acl $path
+    Check-Acl $path $true
 }
-function Unique-Object([System.Text.Json.JsonElement]$node) {
-    if ($node.ValueKind -eq [System.Text.Json.JsonValueKind]::Object) {
+function Json-Value([string[]]$tokens, [ref]$position, [int]$depth) {
+    if ($depth -gt 64 -or $position.Value -ge $tokens.Length) { Refuse 'Invalid JSON depth or value.' }
+    $value = $tokens[$position.Value]
+    $position.Value++
+    if ($value -ceq '{') {
         $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-        foreach ($property in $node.EnumerateObject()) {
-            if (!$seen.Add($property.Name)) { Refuse 'Duplicate JSON property.' }
-            Unique-Object $property.Value
+        if ($position.Value -lt $tokens.Length -and $tokens[$position.Value] -ceq '}') { $position.Value++; return }
+        while ($true) {
+            if ($position.Value -ge $tokens.Length -or !$tokens[$position.Value].StartsWith('"')) { Refuse 'Invalid JSON object key.' }
+            $key = ConvertFrom-Json -InputObject $tokens[$position.Value]
+            if (!$seen.Add($key)) { Refuse 'Duplicate JSON property.' }
+            $position.Value++
+            if ($position.Value -ge $tokens.Length -or $tokens[$position.Value] -cne ':') { Refuse 'Invalid JSON object separator.' }
+            $position.Value++
+            Json-Value $tokens $position ($depth + 1)
+            if ($position.Value -ge $tokens.Length) { Refuse 'Unclosed JSON object.' }
+            $next = $tokens[$position.Value]; $position.Value++
+            if ($next -ceq '}') { return }
+            if ($next -cne ',') { Refuse 'Invalid JSON object delimiter.' }
         }
-    } elseif ($node.ValueKind -eq [System.Text.Json.JsonValueKind]::Array) {
-        foreach ($value in $node.EnumerateArray()) { Unique-Object $value }
     }
+    if ($value -ceq '[') {
+        if ($position.Value -lt $tokens.Length -and $tokens[$position.Value] -ceq ']') { $position.Value++; return }
+        while ($true) {
+            Json-Value $tokens $position ($depth + 1)
+            if ($position.Value -ge $tokens.Length) { Refuse 'Unclosed JSON array.' }
+            $next = $tokens[$position.Value]; $position.Value++
+            if ($next -ceq ']') { return }
+            if ($next -cne ',') { Refuse 'Invalid JSON array delimiter.' }
+        }
+    }
+    if ($value -cin @('}',']',':',',')) { Refuse 'Invalid JSON value.' }
 }
 function Read-Json([byte[]]$bytes) {
-    $document = [System.Text.Json.JsonDocument]::Parse([ReadOnlyMemory[byte]]::new($bytes))
-    try {
-        Unique-Object $document.RootElement
-        return ($document.RootElement.GetRawText() | ConvertFrom-Json)
-    } finally { $document.Dispose() }
+    $text = [Text.UTF8Encoding]::new($false, $true).GetString($bytes)
+    $pattern = '\G\s*(?:"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\\x00-\x1f])*"|[{}\[\]:,]|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)'
+    $scanner = New-Object System.Text.RegularExpressions.Regex $pattern
+    $tokens = New-Object 'System.Collections.Generic.List[string]'
+    $offset = 0
+    while ($offset -lt $text.Length) {
+        $match = $scanner.Match($text, $offset)
+        if (!$match.Success -or $match.Index -ne $offset) { break }
+        $tokens.Add($match.Value.TrimStart())
+        $offset += $match.Length
+    }
+    if ($text.Substring($offset).Trim().Length -ne 0 -or $tokens.Count -eq 0) { Refuse 'Invalid JSON syntax.' }
+    $position = 0
+    Json-Value $tokens.ToArray() ([ref]$position) 0
+    if ($position -ne $tokens.Count) { Refuse 'Trailing JSON content.' }
+    $script:jsonTokens = $tokens.ToArray()
+    return ConvertFrom-Json -InputObject $text
+}
+function Json-TopString([string[]]$tokens, [string]$field) {
+    $depth = 0
+    for ($i = 0; $i -lt $tokens.Length - 2; $i++) {
+        if ($tokens[$i] -ceq '{' -or $tokens[$i] -ceq '[') { $depth++ }
+        if ($tokens[$i] -ceq '}' -or $tokens[$i] -ceq ']') { $depth-- }
+        if ($depth -eq 1 -and $tokens[$i] -ceq ('"' + $field + '"') -and $tokens[$i + 1] -ceq ':') {
+            $value = $tokens[$i + 2]
+            if ($value.Length -lt 2 -or !$value.StartsWith('"') -or !$value.EndsWith('"')) { Refuse 'Expiry must be a JSON string.' }
+            return $value.Substring(1, $value.Length - 2)
+        }
+    }
+    Refuse 'Expiry field is missing.'
 }
 function Valid-Name([string]$name) {
     if (!$name -or $name.Length -gt 240 -or $name.EndsWith('/')) { return $false }
     foreach ($part in $name.Split('/')) {
         if (!$part -or $part -in @('.','..') -or $part.EndsWith('.') -or $part.EndsWith(' ') -or
-            $part.Split('.')[0] -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$' -or $part -match '[\\:\x00<>|"?*]') { return $false }
+            $part.Split('.')[0] -match '^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$' -or $part -match '[\\:\x00-\x1f<>|"?*]') { return $false }
     }
     return $true
+}
+function Forbidden-Member([string]$name) {
+    if ($name -ceq 'kit-manifest.json' -or $name -ceq 'appsettings.json') { return $false }
+    $parts = $name.ToLowerInvariant().Split('/')
+    $leaf = $parts[$parts.Length - 1]
+    for ($i = 0; $i -lt $parts.Length - 1; $i++) {
+        if ($parts[$i] -in @('state','logs','buffer','bundles','secrets','credentials')) { return $true }
+    }
+    if ($name.Contains('/')) { return $true }
+    if ($name -cnotin @('kit-manifest.json','appsettings.json','CabinetPlatform.Contracts.xml',
+        'CabinetPlatform.Agent.deps.json','CabinetPlatform.Agent.runtimeconfig.json') -and
+        $name -notmatch '(?i)\.(dll|exe)$') { return $true }
+    return ($leaf.StartsWith('appsettings') -or $leaf.Contains('enrollment') -or
+        $leaf.StartsWith('grants') -or $leaf -eq 'kit-manifest.json' -or $leaf.StartsWith('.env') -or
+        $leaf -match '(\.device|\.db|\.sqlite|\.sqlite3|\.db-wal|\.db-shm|\.log|\.pfx|\.pem|\.key|\.bak|\.journal|\.token)$')
+}
+
+function Sc-Exit([string]$arguments) {
+    $process = Start-Process -FilePath "$env:SystemRoot\System32\sc.exe" -ArgumentList $arguments -Wait -PassThru -NoNewWindow
+    return $process.ExitCode
 }
 
 try {
     $principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
     if (!$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { Refuse 'Run from an elevated administrator PowerShell window.' }
     if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { Refuse 'Windows is required.' }
-    if ($PSVersionTable.PSVersion.Major -lt 7) { Refuse 'PowerShell 7 is required for this helper.' }
+    if ($PSVersionTable.PSVersion.Major -lt 5 -or
+        ($PSVersionTable.PSVersion.Major -eq 5 -and $PSVersionTable.PSVersion.Minor -lt 1)) {
+        Refuse 'Windows PowerShell 5.1 or later is required.'
+    }
     if ($ExpectedSha256 -cnotmatch '^[A-Fa-f0-9]{64}$' -or $ExpectedSourceCommit -cnotmatch '^[a-f0-9]{40}$') {
         Refuse 'Trusted package digest and source revision are required.'
     }
     $zipPath = Check-Path $AgentZip $true
-    if ((Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash -cne $ExpectedSha256.ToUpperInvariant()) {
+    $packageStream = [IO.FileStream]::new($zipPath, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $digest = [BitConverter]::ToString($sha.ComputeHash($packageStream)).Replace('-', '') }
+    finally { $sha.Dispose() }
+    if ($digest -cne $ExpectedSha256.ToUpperInvariant()) {
         Refuse 'Package digest differs from independently delivered release evidence.'
     }
+    $packageStream.Position = 0
     $tokenPath = Check-Path $EnrollmentFile $true
     if ($zipPath -eq $tokenPath) { Refuse 'Package and enrollment input must be separate.' }
     $target = Check-Path $install $false
     if (Test-Path -LiteralPath $target) { Refuse 'Install directory already exists; existing identities are never overwritten.' }
     if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) { Refuse 'Service already exists.' }
-    $existing = & sc.exe query $serviceName 2>&1
-    if ($LASTEXITCODE -eq 0) { Refuse 'Service already exists.' }
-    if ($LASTEXITCODE -ne 1060) { Refuse 'Could not establish that the service name is unused.' }
+    $queryExit = Sc-Exit 'query CabinetPlatformAgent'
+    if ($queryExit -eq 0) { Refuse 'Service already exists.' }
+    if ($queryExit -ne 1060) { Refuse 'Could not establish that the service name is unused.' }
     $parent = Check-Path ([IO.Path]::GetDirectoryName($target)) $false
-    if (Test-Path -LiteralPath $parent) { Private-Acl $parent }
-    # The operator must place the token in a private directory. Never print its value.
-    Private-Acl ([IO.Path]::GetDirectoryName($tokenPath))
-    Private-Acl $tokenPath
+    $ancestor = $parent
+    while ($ancestor) {
+        if (Test-Path -LiteralPath $ancestor) { Check-Acl $ancestor $false }
+        if ($ancestor -ieq 'C:\Program Files') { break }
+        $next = [IO.Path]::GetDirectoryName($ancestor)
+        if (!$next -or $next -eq $ancestor) { break }
+        $ancestor = $next
+    }
+    # The token and its parent must be confidential. Inherited trusted ACEs are allowed.
+    Check-Acl ([IO.Path]::GetDirectoryName($tokenPath)) $true
+    Check-Acl $tokenPath $true
     $tokenBytes = [IO.File]::ReadAllBytes($tokenPath)
     if ($tokenBytes.Length -gt 4096) { Refuse 'Enrollment file is too large.' }
     $token = Read-Json $tokenBytes
-    if ($token.ServerBaseUrl -cne $endpoint -or $token.Token -cnotmatch '^[A-Fa-f0-9]{64}$' -or @($token.PSObject.Properties).Count -ne 4) {
+    if ($token -isnot [pscustomobject] -or @($token.PSObject.Properties).Count -ne 4 -or
+        $token.ServerBaseUrl -isnot [string] -or $token.Token -isnot [string] -or
+        $token.ServerBaseUrl -cne $endpoint -or $token.Token -cnotmatch '^[A-Fa-f0-9]{64}$') {
         Refuse 'Enrollment file does not match the reviewed endpoint and token shape.'
     }
-    $tokenDocument = [System.Text.Json.JsonDocument]::Parse([ReadOnlyMemory[byte]]::new($tokenBytes))
     try {
-        $expiresText = $tokenDocument.RootElement.GetProperty('ExpiresUtc').GetString()
-        $deviceExpiresText = $tokenDocument.RootElement.GetProperty('DeviceExpiresUtc').GetString()
+        $expiresText = Json-TopString $script:jsonTokens 'ExpiresUtc'
+        $deviceExpiresText = Json-TopString $script:jsonTokens 'DeviceExpiresUtc'
         if ($expiresText -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$' -or
             $deviceExpiresText -cnotmatch '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,7})?\+00:00$') {
             Refuse 'Enrollment expiry metadata is invalid.'
@@ -120,11 +217,11 @@ try {
         $expires = [DateTimeOffset]::Parse($expiresText, [Globalization.CultureInfo]::InvariantCulture)
         $deviceExpires = [DateTimeOffset]::Parse($deviceExpiresText, [Globalization.CultureInfo]::InvariantCulture)
     } catch { Refuse 'Enrollment expiry metadata is invalid.' }
-    finally { $tokenDocument.Dispose() }
     if ($expires -le [DateTimeOffset]::UtcNow -or $deviceExpires -le $expires -or $deviceExpires -le [DateTimeOffset]::UtcNow) {
         Refuse 'Enrollment is expired or its time bounds are invalid. Issue a fresh token; do not change the journal.'
     }
-    $archive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+    Add-Type -AssemblyName System.IO.Compression
+    $archive = [IO.Compression.ZipArchive]::new($packageStream, [IO.Compression.ZipArchiveMode]::Read, $true)
     try {
         $entries = @($archive.Entries)
         $names = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -132,7 +229,7 @@ try {
         [long]$total = 0
         foreach ($entry in $entries) {
             if (!(Valid-Name $entry.FullName) -or !$names.Add($entry.FullName) -or
-                $entry.FullName -match '(^|/)appsettings[^/]*\.json$' -and $entry.FullName -cne 'appsettings.json' -or
+                (Forbidden-Member $entry.FullName) -or
                 (($entry.ExternalAttributes -shr 16) -band 0xF000) -notin @(0, 0x8000) -or
                 (($entry.ExternalAttributes -band 0x400) -ne 0) -or $entry.Length -gt 104857600) {
                 Refuse 'Unsafe or duplicate ZIP member.'
@@ -150,6 +247,12 @@ try {
             if ($data.Length -ne $entry.Length) { Refuse 'ZIP member length mismatch.' }
             $bytesByName[$entry.FullName] = $data
         }
+        foreach ($entry in $entries) {
+            $parts = $entry.FullName.Split('/')
+            for ($i = 1; $i -lt $parts.Length; $i++) {
+                if ($names.Contains([string]::Join('/', $parts[0..($i - 1)]))) { Refuse 'File and directory names collide.' }
+            }
+        }
         if (!$names.Contains('kit-manifest.json') -or !$names.Contains('appsettings.json') -or !$names.Contains('CabinetPlatform.Agent.exe')) {
             Refuse 'Required ZIP member missing.'
         }
@@ -165,7 +268,9 @@ try {
             $name = $property.Name
             if ($name -ceq 'kit-manifest.json' -or !$names.Contains($name) -or $name -cnotin $bytesByName.Keys -or
                 $property.Value -cnotmatch '^[A-F0-9]{64}$') { Refuse 'Invalid manifest member.' }
-            $digest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytesByName[$name]))
+            $sha = [Security.Cryptography.SHA256]::Create()
+            try { $digest = [BitConverter]::ToString($sha.ComputeHash($bytesByName[$name])).Replace('-', '') }
+            finally { $sha.Dispose() }
             if ($digest -cne $property.Value) { Refuse 'ZIP hash mismatch.' }
         }
         $config = Read-Json $bytesByName['appsettings.json']
@@ -182,7 +287,7 @@ try {
         if (!(Test-Path -LiteralPath $mashura)) {
             New-Item -ItemType Directory -Path $mashura | Out-Null
             Lock-Directory $mashura
-        } else { Private-Acl $mashura }
+        } else { Check-Acl $mashura $false }
         New-Item -ItemType Directory -Path $target | Out-Null
         $created = $true
         Lock-Directory $target
@@ -208,13 +313,15 @@ try {
         }
         $exe = Join-Path $target 'CabinetPlatform.Agent.exe'
         $quoted = '"' + $exe + '"'
-        & sc.exe create $serviceName 'binPath=' $quoted 'DisplayName=' 'Mashura Cabinet Support Agent' 'start=' 'auto' 'obj=' 'LocalSystem' | Out-Null
-        if ($LASTEXITCODE -ne 0) { Refuse 'Service registration failed.' }
+        $createArguments = 'create CabinetPlatformAgent binPath= "\"C:\Program Files\Mashura\CabinetAgent\CabinetPlatform.Agent.exe\"" DisplayName= "Mashura Cabinet Support Agent" start= auto obj= LocalSystem'
+        if ((Sc-Exit $createArguments) -ne 0) { Refuse 'Service registration failed.' }
         $registered = $true
-        & sc.exe failure $serviceName 'reset=' '86400' 'actions=' 'restart/60000/restart/120000/restart/300000' | Out-Null
-        if ($LASTEXITCODE -ne 0) { Refuse 'Service recovery setup failed; secure files and service remain for inspection.' }
-        & sc.exe failureflag $serviceName 1 | Out-Null
-        if ($LASTEXITCODE -ne 0) { Refuse 'Service failure flag setup failed; secure files and service remain for inspection.' }
+        if ((Sc-Exit 'failure CabinetPlatformAgent reset= 86400 actions= restart/60000/restart/120000/restart/300000') -ne 0) {
+            Refuse 'Service recovery setup failed; secure files and service remain for inspection.'
+        }
+        if ((Sc-Exit 'failureflag CabinetPlatformAgent 1') -ne 0) {
+            Refuse 'Service failure flag setup failed; secure files and service remain for inspection.'
+        }
         $service = Get-CimInstance Win32_Service -Filter "Name='$serviceName'"
         if (!$service -or $service.StartName -ne 'LocalSystem' -or $service.PathName -ne $quoted -or $service.StartMode -ne 'Auto') {
             Refuse 'Registered service settings differ from the expected configuration.'
@@ -228,4 +335,6 @@ try {
         Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
     }
     throw
+} finally {
+    if ($null -ne $packageStream) { $packageStream.Dispose() }
 }

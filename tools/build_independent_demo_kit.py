@@ -14,6 +14,7 @@ from pathlib import Path
 from prepare_office_demo import TRUSTED_ENDPOINT, REPOSITORY
 
 COMPONENTS = {"agent": "Agent", "console": "Console"}
+CONSOLE_LOCALES = {"cs", "de", "es", "fr", "it", "ja", "ko", "pl", "pt-BR", "ru", "tr", "zh-Hans", "zh-Hant"}
 
 
 def assert_clean_source(status):
@@ -26,8 +27,41 @@ def _safe_name(name):
     return (bool(name) and len(name) <= 240 and not name.endswith("/") and
             all(part not in ("", ".", "..") and not part.endswith((".", " ")) and
                 not re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])", part.split(".")[0]) and
-                not any(c in part for c in '\\:\0<>|"?*') for part in parts) and
-            name == name.strip() and name.lower() not in ("office-enrollment.json", "kit-manifest.json"))
+                not any(ord(c) < 32 or c in '\\:<>|"?*' for c in part) for part in parts) and
+            name == name.strip() and not name.startswith("/"))
+
+def _forbidden_content(name):
+    parts = name.lower().split("/")
+    leaf = parts[-1]
+    return (any(part in {"state", "logs", "buffer", "bundles", "secrets", "credentials"} for part in parts[:-1]) or
+            leaf.startswith("appsettings") or "enrollment" in leaf or leaf.startswith("grants") or
+            leaf == "kit-manifest.json" or leaf.startswith(".env") or
+            leaf.endswith((".device", ".json.device", ".db", ".sqlite", ".sqlite3", ".db-wal", ".db-shm",
+                           ".log", ".pfx", ".pem", ".key", ".bak", ".journal", ".token")))
+
+def _allowed_runtime(name, component):
+    parts = name.split("/")
+    if len(parts) == 2:
+        return component == "console" and parts[0] in CONSOLE_LOCALES and parts[1].endswith(".resources.dll")
+    if len(parts) != 1:
+        return False
+    if name in {"appsettings.json", "kit-manifest.json", "CabinetPlatform.Contracts.xml"}:
+        return True
+    if name in {f"CabinetPlatform.{COMPONENTS[component]}.deps.json",
+                f"CabinetPlatform.{COMPONENTS[component]}.runtimeconfig.json"}:
+        return True
+    return name.lower().endswith((".dll", ".exe"))
+
+def _unique_json(pairs):
+    result = {}
+    seen = set()
+    for key, value in pairs:
+        folded = key.casefold()
+        if folded in seen:
+            raise ValueError("Duplicate JSON key")
+        seen.add(folded)
+        result[key] = value
+    return result
 
 
 def _settings(component, source):
@@ -67,12 +101,16 @@ def verify_package(path, component):
         with zipfile.ZipFile(path) as archive:
             entries = archive.infolist()
             names = [entry.filename for entry in entries]
-            if (len(names) != len(set(n.lower() for n in names)) or not names or
-                any(not _safe_name(n) and n != "kit-manifest.json" for n in names) or
+            folded = {n.lower() for n in names}
+            if (len(names) != len(folded) or not names or
+                any(not _safe_name(n) or _forbidden_content(n) and n not in ("kit-manifest.json", "appsettings.json") or
+                    not _allowed_runtime(n, component) for n in names) or
+                any("/".join(n.lower().split("/")[:i]) in folded for n in names for i in range(1, len(n.split("/")))) or
                 any(entry.is_dir() or (entry.external_attr >> 16) & 0o170000 not in (0, 0o100000) for entry in entries) or
-                any(entry.file_size > 100 * 1024 * 1024 for entry in entries)):
+                any(entry.external_attr & 0x400 or entry.file_size > 100 * 1024 * 1024 for entry in entries) or
+                sum(entry.file_size for entry in entries) > 1024 * 1024 * 1024):
                 raise ValueError("Unsafe archive member")
-            manifest = json.loads(archive.read("kit-manifest.json"))
+            manifest = json.loads(archive.read("kit-manifest.json"), object_pairs_hook=_unique_json)
             hashes = manifest["sha256"]
             if (set(manifest) != {"schema", "component", "endpoint", "sourceCommit", "signed", "sha256"} or
                 manifest["schema"] != 1 or manifest["component"] != component or manifest["endpoint"] != TRUSTED_ENDPOINT or
@@ -84,6 +122,7 @@ def verify_package(path, component):
             for name, expected in hashes.items():
                 if hashlib.sha256(archive.read(name)).hexdigest().upper() != expected:
                     raise ValueError("Package hash mismatch")
+            json.loads(archive.read("appsettings.json"), object_pairs_hook=_unique_json)
             if not _valid_config(component, archive.read("appsettings.json")):
                 raise ValueError("Package configuration mismatch")
             return manifest
@@ -102,11 +141,16 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
             raise ValueError("Linked publish member")
         if path.is_file():
             name = path.relative_to(publish).as_posix()
-            if not _safe_name(name) or name.lower().startswith("appsettings") or name.lower() == "kit-manifest.json":
-                if name.lower().startswith("appsettings") or name.lower() == "kit-manifest.json":
+            if not _safe_name(name) or _forbidden_content(name) or not _allowed_runtime(name, component):
+                if name.lower() == "appsettings.json":
                     continue
                 raise ValueError("Unsafe publish member")
+            if len(name) > 240 or path.stat().st_size > 100 * 1024 * 1024:
+                raise ValueError("Publish member exceeds limit")
             files[name] = path.read_bytes()
+    folded = {n.lower() for n in files}
+    if len(folded) != len(files) or any("/".join(n.lower().split("/")[:i]) in folded for n in files for i in range(1, len(n.split("/")))) or sum(map(len, files.values())) > 1024 * 1024 * 1024:
+        raise ValueError("Conflicting or oversized publish members")
     files["appsettings.json"] = (json.dumps(_settings(component, source), indent=2) + "\n").encode()
     if f"CabinetPlatform.{COMPONENTS[component]}.exe" not in files:
         raise ValueError("Windows executable missing")
@@ -120,6 +164,19 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
                 archive.writestr(name, data)
             archive.writestr("kit-manifest.json", json.dumps(manifest, indent=2) + "\n")
     verify_package(destination, component)
+
+
+def bundle_operator_files(source, output, commit):
+    for source_name, target_name in (("tools/Install-CabinetDemoAgent.ps1", "Install-CabinetDemoAgent.ps1"),
+                                     ("docs/independent-demo-kit.md", "independent-demo-kit.md")):
+        with (output / target_name).open("xb") as target:
+            target.write((source / source_name).read_bytes())
+    names = ("cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "independent-demo-kit.md")
+    evidence = {"sourceCommit": commit, "sha256": {name: hashlib.sha256((output / name).read_bytes()).hexdigest().upper()
+                                                   for name in names}}
+    with (output / "release-evidence.json").open("x") as target:
+        json.dump(evidence, target, indent=2)
+        target.write("\n")
 
 
 def build(output, dotnet):
@@ -147,6 +204,7 @@ def build(output, dotnet):
                        "-p:PublishSingleFile=false", "-p:DebugType=None", "-p:DebugSymbols=false", "-o", str(publish)]
             subprocess.run(command, cwd=source, check=True)
             package_component(component, publish, output / f"cabinet-{component}.zip", commit, source)
+        bundle_operator_files(source, output, commit)
     print(f"Built unsigned credential-free packages from {commit} at {output}")
 
 
