@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Events | Mashura Support</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to events</a>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Primary">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">M</span><div><strong>Mashura</strong><span>Support workspace</span></div></div>
+      <div class="nav-label">WORKSPACE</div>
+      <nav aria-label="Support sections">
+        <span class="nav-item disabled" title="Not available in this preview">Fleet <small>Later</small></span>
+        <span class="nav-item active" aria-current="page">Event viewer</span>
+        <span class="nav-item disabled" title="Not available in this preview">Files <small>Later</small></span>
+        <span class="nav-item disabled" title="Not available in this preview">Audit <small>Later</small></span>
+      </nav>
+      <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span>Local design preview<br><small>No production connection</small></div>
+    </aside>
+    <div class="workspace">
+      <header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> Diagnostics <span>/</span> <strong>Event viewer</strong></div><span class="preview-pill">SYNTHETIC DATA PREVIEW</span></header>
+      <main id="main">
+        <div class="page-head"><div><div class="eyebrow">DIAGNOSTICS / EVENTS</div><h1>Event viewer</h1><p>Inspect collected Windows events for the selected cabinet. This preview does not connect to live cabinets.</p></div><div class="scope"><span>Viewing cabinet</span><strong id="cabinet-name">CAB-01 · Example cabinet</strong><small>Sample data only</small></div></div>
+        <section class="viewer" aria-label="Cabinet event viewer">
+          <div class="list-pane"><div class="pane-heading"><div><h2>Collected events</h2><span id="result-status" role="status" aria-live="polite">Loading preview</span></div></div>
+            <div class="filters"><label class="search-label" for="event-search">Search events</label><input id="event-search" type="search" autocomplete="off" placeholder="Provider, event ID, message…" aria-describedby="search-hint"><span id="search-hint" class="sr-only">Filters the loaded records on this cabinet, not the entire Windows event log.</span><label class="search-label" for="level-filter">Level</label><select id="level-filter"><option value="all">All levels</option><option value="Error">Error</option><option value="Warning">Warning</option><option value="Information">Information</option></select></div>
+            <div class="column-labels" aria-hidden="true"><span>EVENT / PROVIDER</span><span>WHEN</span></div>
+            <div id="event-list" class="event-list" role="listbox" aria-label="Collected events" tabindex="0" aria-describedby="list-help"></div><p id="list-help" class="sr-only">Use up and down arrows to choose an event. Its details appear to the right.</p>
+          </div>
+          <div class="detail-pane" aria-live="polite"><div id="empty-selection" class="empty-selection"><div class="empty-symbol" aria-hidden="true">↗</div><h2>Choose an event</h2><p>Select a row to inspect its collected details and copy the message.</p></div><article id="selected-event" hidden><div class="detail-top"><span class="eyebrow">SELECTED EVENT</span><span class="read-only">READ ONLY</span></div><h2 id="selected-title"></h2><div id="selected-level" class="level-chip"></div><dl class="detail-grid"><div><dt>Channel</dt><dd id="selected-channel"></dd></div><div><dt>Provider</dt><dd id="selected-provider"></dd></div><div><dt>Event ID</dt><dd id="selected-id"></dd></div><div><dt>Recorded</dt><dd id="selected-time"></dd></div></dl><div class="message-title"><h3>Collected message</h3><button id="copy-message" type="button">Copy message</button></div><pre id="selected-message" tabindex="0"></pre><p class="detail-note">The collected message may be truncated by the Windows Agent. This is not the full event record.</p><span id="copy-status" class="sr-only" role="status" aria-live="polite"></span></article></div>
+        </section>
+        <p class="footnote">Preview only. No staff authentication, MFA, live API access or operational actions are enabled here.</p>
+      </main>
+    </div>
+  </div>
+  <script type="module" src="./bootstrap.mjs"></script>
+</body>
+</html>
