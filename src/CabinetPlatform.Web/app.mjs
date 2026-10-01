@@ -5,15 +5,59 @@ export function createEventInspector(doc, initialEvents = []) {
   const detail = doc.querySelector("#selected-event");
   const empty = doc.querySelector("#empty-selection");
   const status = doc.querySelector("#result-status");
+  const channelNav = doc.querySelector("#channel-nav");
+  const activeFilters = doc.querySelector("#active-filters");
+  const providerButton = doc.querySelector("#show-provider-events");
   let events = [...initialEvents];
   let selectedId = null;
   let cabinetId = "CAB-01";
+  let channelFilter = "all";
+  let providerFilter = null;
+
+  function renderNavigation() {
+    const scoped = events.filter((event) => event.cabinet === cabinetId);
+    const counts = new Map();
+    for (const event of scoped)
+      counts.set(event.channel, (counts.get(event.channel) ?? 0) + 1);
+    channelNav.replaceChildren();
+    for (const [channel, count] of [["all", scoped.length], ...[...counts].sort(([a], [b]) => a.localeCompare(b))]) {
+      const button = doc.createElement("button");
+      button.type = "button";
+      button.dataset.channel = channel;
+      button.setAttribute("aria-pressed", String(channel === channelFilter));
+      button.append(doc.createTextNode(channel === "all" ? "All channels" : channel));
+      const quantity = doc.createElement("small");
+      quantity.textContent = String(count);
+      button.append(quantity);
+      button.addEventListener("click", () => {
+        channelFilter = channel;
+        render();
+        channelNav.querySelectorAll("button").forEach(item =>
+          item.setAttribute("aria-pressed", String(item.dataset.channel === channelFilter)));
+      });
+      channelNav.append(button);
+    }
+  }
+  function renderProviderFilter() {
+    activeFilters.replaceChildren();
+    if (!providerFilter) return;
+    const label = doc.createElement("span");
+    label.textContent = `Provider: ${providerFilter}`;
+    const clear = doc.createElement("button");
+    clear.type = "button";
+    clear.id = "clear-provider-filter";
+    clear.textContent = "Clear provider";
+    clear.addEventListener("click", () => { providerFilter = null; render(); });
+    activeFilters.append(label, clear);
+  }
 
   function visible() {
     const query = search.value.trim().toLocaleLowerCase();
     return events.filter(
       (event) =>
         event.cabinet === cabinetId &&
+        (channelFilter === "all" || event.channel === channelFilter) &&
+        (providerFilter === null || event.provider === providerFilter) &&
         (level.value === "all" || event.level === level.value) &&
         (!query ||
           [
@@ -33,6 +77,7 @@ export function createEventInspector(doc, initialEvents = []) {
     selectedId = event?.id ?? null;
     detail.hidden = !event;
     empty.hidden = !!event;
+    providerButton.disabled = !event;
     if (!event) return;
     const fields = {
       "selected-title": `${event.provider} · ${event.eventId}`,
@@ -53,6 +98,7 @@ export function createEventInspector(doc, initialEvents = []) {
   function render() {
     const filtered = visible();
     if (!filtered.some((event) => event.id === selectedId)) showSelection(null);
+    renderProviderFilter();
     list.replaceChildren();
     for (const event of filtered) {
       const row = doc.createElement("button");
@@ -96,6 +142,12 @@ export function createEventInspector(doc, initialEvents = []) {
   }
   search.addEventListener("input", render);
   level.addEventListener("change", render);
+  providerButton.addEventListener("click", () => {
+    const event = events.find(item => item.cabinet === cabinetId && item.id === selectedId);
+    if (!event) return;
+    providerFilter = event.provider;
+    render();
+  });
   list.addEventListener("keydown", (evt) => {
     if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(evt.key)) return;
     evt.preventDefault();
@@ -123,14 +175,18 @@ export function createEventInspector(doc, initialEvents = []) {
         "Copy unavailable. Select the message text to copy it.";
     }
   });
+  renderNavigation();
   render();
   return {
     setCabinet(id, newEvents) {
       cabinetId = id;
       events = [...newEvents];
+      channelFilter = "all";
+      providerFilter = null;
       search.value = "";
       level.value = "all";
       showSelection(null);
+      renderNavigation();
       render();
     },
   };
