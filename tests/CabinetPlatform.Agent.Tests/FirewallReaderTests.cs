@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CabinetPlatform.Agent.Actions.Executors;
+using CabinetPlatform.Agent.Connectivity;
 using CabinetPlatform.Agent.Platform;
 using CabinetPlatform.Agent.Transport;
 using CabinetPlatform.Contracts.Actions;
@@ -9,6 +10,55 @@ namespace CabinetPlatform.Agent.Tests;
 
 public sealed class FirewallReaderTests
 {
+    [Theory]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    public void Automatic_check_reports_only_a_source_outbound_profile_clue(int action, bool expected)
+    {
+        var native = new ScriptedGateway { ProfileRead = p => new() { Profile = p, Status = FirewallReadStatus.Read,
+            Enabled = true, DefaultOutboundAction = action } };
+        var checkedAt = DateTimeOffset.UtcNow;
+        var result = new WindowsSourceFirewallCheck(new FirewallReader(native)).Read(checkedAt, default);
+        Assert.Equal(expected, result.HasOutboundProfileBlockClue);
+        Assert.True(result.ObservedUtc >= checkedAt.AddSeconds(-1));
+        Assert.Equal(0, native.RuleCalls);
+        Assert.True(native.Disposed);
+    }
+
+    [Fact]
+    public async Task Source_check_refuses_overlapping_native_reads_across_sampler_lifetimes()
+    {
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var native = new ScriptedGateway { ProfileRead = p =>
+        {
+            if (p == 1) { entered.Set(); release.Wait(TimeSpan.FromSeconds(3)); }
+            return new FirewallProfileObservation { Profile = p, Status = FirewallReadStatus.Read,
+                Enabled = true, DefaultOutboundAction = 1 };
+        } };
+        var check = new WindowsSourceFirewallCheck(new FirewallReader(native));
+        var first = Task.Run(() => check.Read(DateTimeOffset.UtcNow, default));
+        try
+        {
+            Assert.True(entered.Wait(TimeSpan.FromSeconds(2)));
+            var second = await Task.Run(() => check.Read(DateTimeOffset.UtcNow, default)).WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.Equal(FirewallReadStatus.Unavailable, second.Status);
+        }
+        finally { release.Set(); await first; }
+    }
+
+    [Fact]
+    public void Automatic_check_keeps_missing_active_profile_unknown()
+    {
+        var native = new ScriptedGateway { ProfileRead = p => p == 1
+            ? throw new UnauthorizedAccessException("Synthetic access denied")
+            : new() { Profile = p, Status = FirewallReadStatus.Read,
+                Enabled = true, DefaultOutboundAction = 1 } };
+        var result = new WindowsSourceFirewallCheck(new FirewallReader(native)).Read(DateTimeOffset.UtcNow, default);
+        Assert.Null(result.HasOutboundProfileBlockClue);
+        Assert.Equal(FirewallReadStatus.Partial, result.Status);
+    }
+
     [Fact]
     public async Task Fixed_read_returns_profiles_and_bounded_rules_through_agent_json()
     {
@@ -185,11 +235,12 @@ public sealed class FirewallReaderTests
         public Func<int, FirewallProfileObservation> ProfileRead { get; init; } = p => new() { Profile = p, Status = FirewallReadStatus.Read };
         public IEnumerable<FirewallRuleObservation> Rows { get; init; } = Array.Empty<FirewallRuleObservation>();
         public bool Disposed;
+        public int RuleCalls;
         public IFirewallSession Open() => this;
         public int ActiveProfiles => 1;
         public int LocalPolicyModifyState => 0;
         public FirewallProfileObservation ReadProfile(int profile) => ProfileRead(profile);
-        public IEnumerable<FirewallRuleObservation> ReadRules() => Rows;
+        public IEnumerable<FirewallRuleObservation> ReadRules() { RuleCalls++; return Rows; }
         public void Dispose() => Disposed = true;
     }
 

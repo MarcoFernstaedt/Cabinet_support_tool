@@ -8,6 +8,10 @@
    <TextBlock Text="Connectivity incidents" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/>
    <TextBlock Text="Historical accepted evidence, not live health. Manual resolution does not change measured reachability. Refresh for current queue state. Retained for 30 days, at most 200 incidents per source, including unresolved incidents." TextWrapping="Wrap" Margin="0,8"/>
    <WrapPanel>
+    <TextBlock Text="{Binding ScopeSummary}" Margin="0,8,12,8" VerticalAlignment="Center"
+               AutomationProperties.LiveSetting="Polite"/>
+    <Button Content="Show selected site's alerts" Command="{Binding FilterToSelectedSiteCommand}"/>
+    <Button Content="Show all sites" Command="{Binding ShowAllSitesCommand}"/>
     <Button Content="Refresh queue" Command="{Binding RefreshCommand}"/>
     <Button Content="Previous" Command="{Binding PreviousCommand}"/>
     <Button Content="Next" Command="{Binding NextCommand}"/>
@@ -26,6 +30,7 @@
     <DataGridTextColumn Header="Site" Binding="{Binding SiteName}"/>
     <DataGridTextColumn Header="Source" Binding="{Binding SourceName}"/>
     <DataGridTextColumn Header="Status" Binding="{Binding Status}"/>
+    <DataGridTextColumn Header="Source firewall clue (not cause)" Binding="{Binding SourceFirewallClueLabel}"/>
     <DataGridTextColumn Header="Incident observed (MST)" Binding="{Binding ObservedUtc, Converter={StaticResource SupportTime}}"/>
     <DataGridTextColumn Header="Evidence received (MST)" Binding="{Binding ReceivedUtc, Converter={StaticResource SupportTime}}"/>
     <DataGridTextColumn Header="Source ID" Binding="{Binding SourceCabinetId}"/>
@@ -35,10 +40,17 @@
   <StackPanel Grid.Row="2" Margin="0,12,0,0">
    <TextBlock Text="Selected source cabinet ID"/><TextBlock Text="{Binding SelectedAlert.SourceCabinetId}"/>
    <TextBlock Text="{Binding SelectedAlert.Note}" TextWrapping="Wrap"/>
+   <StackPanel Orientation="Horizontal">
+    <TextBlock Text="Source firewall check observed (MST): "/>
+    <TextBlock Text="{Binding SelectedAlert.SourceFirewallCheck.ObservedUtc, Converter={StaticResource SupportTime}}"/>
+   </StackPanel>
+   <TextBlock Text="{Binding FirewallTriageGuidance}" TextWrapping="Wrap" Margin="0,8,0,8" Focusable="True"
+              AutomationProperties.Name="{Binding FirewallTriageGuidance}" AutomationProperties.LiveSetting="Polite"/>
    <Label Content="Annotation _reason" Target="{Binding ElementName=Note}"/>
    <TextBox x:Name="Note" Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" AutomationProperties.Name="Required annotation reason"/>
    <WrapPanel>
     <Button Content="Open source cabinet" Command="{Binding OpenSourceCommand}"/>
+    <Button Content="Open measured target" Command="{Binding OpenTargetCommand}"/>
     <Button Content="Acknowledge selected incident" Command="{Binding AcknowledgeCommand}"/>
     <Button Content="Resolve acknowledged incident" Command="{Binding ResolveCommand}"/>
    </WrapPanel>

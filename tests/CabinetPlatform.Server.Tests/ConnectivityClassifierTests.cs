@@ -6,6 +6,19 @@ namespace CabinetPlatform.Server.Tests;
 public sealed class ConnectivityClassifierTests
 {
     [Fact]
+    public void Source_firewall_clue_requires_failed_probe_bounded_time_and_readable_status()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var failed = Summary("FFF", now.AddMinutes(-3));
+        var check = new SourceFirewallCheck { ObservedUtc = failed.LastObservedUtc.AddSeconds(1),
+            Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true };
+        Assert.True(ConnectivityClassifier.IsValid(failed with { SourceFirewallCheck = check }, now));
+        Assert.False(ConnectivityClassifier.IsValid(Summary("SSS", now.AddMinutes(-3)) with { SourceFirewallCheck = check }, now));
+        Assert.False(ConnectivityClassifier.IsValid(failed with { SourceFirewallCheck = check with { ObservedUtc = now.AddMinutes(1) } }, now));
+        Assert.False(ConnectivityClassifier.IsValid(failed with { SourceFirewallCheck = check with { Status = FirewallReadStatus.AccessDenied } }, now));
+    }
+
+    [Fact]
     public void Contradictory_success_timestamps_cannot_turn_a_failed_final_probe_green()
     {
         var now = DateTimeOffset.UtcNow;

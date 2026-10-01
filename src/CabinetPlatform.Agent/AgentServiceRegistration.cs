@@ -38,6 +38,7 @@ public static class AgentServiceRegistration
         AddTransport(services, configuration);
         AddActions(services);
         services.AddSingleton<Connectivity.IConnectivityProbe, Connectivity.ConnectivityProbe>();
+        services.AddSingleton<Connectivity.ISourceFirewallCheck, Connectivity.WindowsSourceFirewallCheck>();
         services.AddHostedService<Connectivity.ConnectivityWorker>();
 
         return services;

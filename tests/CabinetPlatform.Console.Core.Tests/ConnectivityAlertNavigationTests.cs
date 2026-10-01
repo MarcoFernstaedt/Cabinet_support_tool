@@ -21,10 +21,15 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         while (!File.Exists(Path.Combine(root.FullName, "CabinetPlatform.sln"))) root = root.Parent!;
         var main = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/MainWindow.xaml"));
         Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowAlertsCommand}");
+        Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowSiteAlertsCommand}");
         Assert.Equal("{Binding Alerts}", (string?)Assert.Single(main.Descendants(), e => e.Name.LocalName == "ConnectivityAlertsView").Attribute("DataContext"));
         var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
-        foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "NextCommand", "PreviousCommand" })
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding FirewallTriageGuidance}");
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding ScopeSummary}");
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding SourceFirewallClueLabel}");
+        foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand",
+                     "FilterToSelectedSiteCommand", "ShowAllSitesCommand", "NextCommand", "PreviousCommand" })
             Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Command") == "{Binding " + command + "}");
         string username = Guid.NewGuid().ToString();
         await _host.CreateUserAsync(role, username);
@@ -40,7 +45,7 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
             new MachineTabViewModel(api, invoker, session, announcer, time), new CabinetTabViewModel(),
             new AuditTabViewModel(api, announcer, time), new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
-            new RegistrationsViewModel(api, session, announcer), session, announcer, null, alerts)!;
+            new RegistrationsViewModel(api, session, announcer), session, announcer, api, null, alerts)!;
         var show = (IAsyncRelayCommand)typeof(ShellViewModel).GetProperty("ShowAlertsCommand")!.GetValue(shell)!;
         Assert.True(show.CanExecute(null)); await show.ExecuteAsync(null);
         Assert.Equal("Alerts", shell.CurrentView.ToString());
@@ -50,7 +55,18 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         ((IRelayCommand)typeof(ConnectivityAlertsViewModel).GetProperty("OpenSourceCommand")!.GetValue(alerts)!).Execute(null);
         await shell.PendingSelectionLoad;
         Assert.Equal(cabinet.Id, shell.Machine.Path!.CabinetId);
+        ((IRelayCommand)typeof(ConnectivityAlertsViewModel).GetProperty("OpenTargetCommand")!.GetValue(alerts)!).Execute(null);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(other.Id, shell.Machine.Path!.CabinetId);
+        var site = (IAsyncRelayCommand)typeof(ShellViewModel).GetProperty("ShowSiteAlertsCommand")!.GetValue(shell)!;
+        Assert.True(site.CanExecute(null));
+        await site.ExecuteAsync(null);
+        Assert.Equal(other.SiteId, alerts.SiteId);
+        Assert.Equal(ShellView.Alerts, shell.CurrentView);
+        await show.ExecuteAsync(null);
+        Assert.Null(alerts.SiteId);
         shell.SignOutCommand.Execute(null);
+        Assert.False(site.CanExecute(null));
         Assert.Empty(alerts.Alerts); Assert.Null(alerts.SelectedAlert); Assert.False(show.CanExecute(null));
     }
 }

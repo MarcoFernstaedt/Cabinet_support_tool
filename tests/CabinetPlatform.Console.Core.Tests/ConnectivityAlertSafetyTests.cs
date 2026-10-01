@@ -12,6 +12,83 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class ConnectivityAlertSafetyTests
 {
     [Fact]
+    public void Site_alert_labels_source_firewall_clue_without_a_cause_verdict()
+    {
+        var original = new ConnectivityAlertDto();
+        Assert.Equal("Unknown (not checked)", original.SourceFirewallClueLabel);
+        var check = new SourceFirewallCheck { ObservedUtc = DateTimeOffset.UtcNow,
+            Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true };
+        Assert.Contains("Possible", (original with { SourceFirewallCheck = check }).SourceFirewallClueLabel);
+        Assert.Contains("source", (original with { SourceFirewallCheck = check }).SourceFirewallClueLabel);
+        Assert.Contains("not ruled out", (original with { SourceFirewallCheck = check with { HasOutboundProfileBlockClue = false } }).SourceFirewallClueLabel);
+        Assert.Contains("Unknown (inconclusive)", (original with { SourceFirewallCheck = check with { HasOutboundProfileBlockClue = null } }).SourceFirewallClueLabel);
+        Assert.Contains("Unknown (read unavailable)", (original with { SourceFirewallCheck = check with {
+            Status = FirewallReadStatus.Unavailable, HasOutboundProfileBlockClue = null } }).SourceFirewallClueLabel);
+    }
+
+    [Fact]
+    public void Target_navigation_refuses_missing_identity_stale_selection_and_signout()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        using var http = new HttpClient(new Pages()) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var chosen = new List<Guid>(); vm.CabinetChosen += (_, id) => chosen.Add(id);
+        var missing = new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid() };
+        vm.Alerts.Add(missing); vm.SelectedAlert = missing;
+        Assert.False(vm.OpenTargetCommand.CanExecute(null)); vm.OpenTargetCommand.Execute(null);
+        var stale = new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid(), TargetCabinetId = Guid.NewGuid() };
+        vm.SelectedAlert = stale;
+        Assert.False(vm.OpenTargetCommand.CanExecute(null)); vm.OpenTargetCommand.Execute(null);
+        vm.Alerts.Add(stale); session.SignOut();
+        Assert.False(vm.OpenTargetCommand.CanExecute(null)); vm.OpenTargetCommand.Execute(null);
+        Assert.Empty(chosen);
+    }
+
+    [Fact]
+    public void Triage_selection_notifies_binding_on_change_clear_and_reset()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        using var http = new HttpClient(new Pages()) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var changes = new List<string?>(); vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+        var first = new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid() };
+        var second = new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid() };
+        vm.Alerts.Add(first); vm.Alerts.Add(second);
+        vm.SelectedAlert = first; vm.SelectedAlert = second; vm.SelectedAlert = null;
+        Assert.Equal(3, changes.Count(name => name == nameof(vm.FirewallTriageGuidance)));
+        vm.SelectedAlert = first; vm.Reset();
+        Assert.DoesNotContain(first.SourceCabinetId.ToString(), vm.FirewallTriageGuidance);
+        Assert.Equal(5, changes.Count(name => name == nameof(vm.FirewallTriageGuidance)));
+    }
+
+    [Fact]
+    public void Triage_guidance_keeps_firewall_cause_unknown_and_clears_old_identity()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        using var http = new HttpClient(new Pages()) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var source = Guid.NewGuid(); var target = Guid.NewGuid();
+        var alert = new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = source, TargetCabinetId = target };
+        vm.Alerts.Add(alert); vm.SelectedAlert = alert;
+        Assert.Contains(source.ToString(), vm.FirewallTriageGuidance);
+        Assert.Contains(target.ToString(), vm.FirewallTriageGuidance);
+        Assert.Contains("unknown", vm.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("firewall caused", vm.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("inspect", vm.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("does not change firewall configuration or measured reachability", vm.FirewallTriageGuidance);
+        vm.SelectedAlert = alert with { SourceFirewallCheck = new() {
+            ObservedUtc = DateTimeOffset.UtcNow, Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true } };
+        vm.Alerts.Add(vm.SelectedAlert);
+        Assert.Contains("Possible source outbound firewall block", vm.FirewallTriageGuidance);
+        vm.SelectedAlert = null;
+        Assert.DoesNotContain(source.ToString(), vm.FirewallTriageGuidance);
+        Assert.False(vm.OpenTargetCommand.CanExecute(null));
+    }
+
+    [Fact]
     public async Task Queue_pages_are_reachable_and_failed_reload_discards_stale_selection()
     {
         Assert.NotNull(typeof(ConnectivityAlertsViewModel).GetProperty("NextCommand"));
@@ -42,6 +119,38 @@ public sealed class ConnectivityAlertSafetyTests
                 new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
                     new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid() }
                 }, LastQuery.Contains("page=2") ? 2 : 1, 50, 51), options: ContractJson.CreateOptions()) });
+        }
+    }
+    [Fact]
+    public async Task Global_scope_supersedes_in_flight_site_response()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        var handler = new ScopeGate();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var site = vm.ShowSiteAsync(Guid.NewGuid(), "Site A");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SiteId);
+        Assert.Equal("All sites", vm.ScopeSummary);
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+        handler.Release.SetResult();
+        await site;
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+    }
+    private sealed class ScopeGate : HttpMessageHandler
+    {
+        public Guid GlobalAlert { get; } = Guid.NewGuid();
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            bool site = request.RequestUri!.Query.Contains("siteId=", StringComparison.OrdinalIgnoreCase);
+            if (site) { Entered.SetResult(); await Release.Task; }
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
+                new ConnectivityAlertDto { Id = site ? Guid.NewGuid() : GlobalAlert, SourceCabinetId = Guid.NewGuid() }
+            }, 1, 50, 1), options: ContractJson.CreateOptions()) };
         }
     }
     [Theory]

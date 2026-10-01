@@ -1,4 +1,5 @@
 using CabinetPlatform.Contracts.Common;
+using System.Text.Json;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Contracts.Telemetry;
@@ -56,6 +57,7 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
     {
         var cutoff = time.GetUtcNow().AddDays(-30);
         var rows = db.ConnectivityAlerts.AsNoTracking().Where(a => a.ReceivedUtc >= cutoff);
+        if (query.SiteId is { } site) rows = rows.Where(a => a.SourceCabinet!.SiteId == site);
         if (query.SourceCabinetId is { } source) rows = rows.Where(a => a.SourceCabinetId == source);
         if (!query.IncludeResolved) rows = rows.Where(a => a.Status != "Resolved");
         int total = await rows.CountAsync(ct);
@@ -63,11 +65,23 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
             .Select(a => new ConnectivityAlertDto
             {
                 Id = a.Id, SourceCabinetId = a.SourceCabinetId, TargetCabinetId = a.TargetCabinetId,
+                SiteId = a.SourceCabinet!.SiteId,
                 EvidenceId = a.EvidenceId, ObservedUtc = a.ObservedUtc, ReceivedUtc = a.ReceivedUtc,
                 Status = a.Status, Note = a.Note, UpdatedUtc = a.UpdatedUtc,
                 SourceName = a.SourceCabinet!.FriendlyName ?? a.SourceCabinet.Hostname,
                 SiteName = a.SourceCabinet.Site!.Name, ClientName = a.SourceCabinet.Site.Client!.Name
             }).ToArrayAsync(ct);
+        var evidenceIds = items.Select(a => a.EvidenceId).ToArray();
+        var snapshots = await db.ConnectivityEvidence.AsNoTracking()
+            .Where(e => evidenceIds.Contains(e.Id))
+            .Select(e => new { e.Id, e.SourceCabinetId, e.SummaryJson }).ToArrayAsync(ct);
+        var byEvidence = snapshots.ToDictionary(e => (e.Id, e.SourceCabinetId));
+        items = items.Select(a =>
+        {
+            if (!byEvidence.TryGetValue((a.EvidenceId, a.SourceCabinetId), out var evidence)) return a;
+            var summary = JsonSerializer.Deserialize<ConnectivitySummary>(evidence.SummaryJson, ContractJson.Default);
+            return a with { SourceFirewallCheck = summary?.SourceFirewallCheck };
+        }).ToArray();
         return Ok(PagedResult<ConnectivityAlertDto>.Create(items, query.Page, query.PageSize, total));
     }
 }

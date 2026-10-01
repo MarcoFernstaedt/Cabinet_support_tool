@@ -1,5 +1,8 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using CabinetPlatform.Server.Data;
+using CabinetPlatform.Server.Domain;
+using Microsoft.Extensions.DependencyInjection;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.ViewModels;
@@ -14,6 +17,50 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
 {
     private readonly ConsoleTestHost _host;
     public ConnectivityAlertConsoleTests(ConsoleTestHost host) => _host = host;
+
+    [Fact]
+    public async Task Site_scope_reaches_authenticated_server_and_global_reset_clears_old_selection()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Tier2, username);
+        var (api, session) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        string duplicate = Guid.NewGuid().ToString();
+        var first = await _host.CreateCabinetAsync("same", client: "A", site: duplicate);
+        var second = await _host.CreateCabinetAsync("same", client: "B", site: duplicate);
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+            db.ConnectivityAlerts.AddRange(new ConnectivityAlert
+            { SourceCabinetId = first.Id, TargetCabinetId = Guid.NewGuid(), EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow },
+                new ConnectivityAlert
+                { SourceCabinetId = second.Id, TargetCabinetId = Guid.NewGuid(), EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        var vm = new ConnectivityAlertsViewModel(api, session, new RecordingLiveRegionAnnouncer());
+        await vm.ShowSiteAsync(first.SiteId, "A / " + duplicate);
+        Assert.Equal(first.SiteId, vm.SiteId);
+        Assert.Contains("A / " + duplicate, vm.ScopeSummary);
+        var row = Assert.Single(vm.Alerts);
+        Assert.Equal(first.Id, row.SourceCabinetId);
+        vm.SelectedAlert = row;
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SelectedAlert);
+        Assert.Null(vm.SiteId);
+        Assert.Contains("All sites", vm.ScopeSummary);
+        Assert.Contains(vm.Alerts, a => a.SourceCabinetId == first.Id);
+        Assert.Contains(vm.Alerts, a => a.SourceCabinetId == second.Id);
+        vm.SelectedAlert = vm.Alerts.Single(a => a.SourceCabinetId == first.Id);
+        Assert.True(vm.FilterToSelectedSiteCommand.CanExecute(null));
+        await vm.FilterToSelectedSiteCommand.ExecuteAsync(null);
+        Assert.Equal(first.SiteId, vm.SiteId);
+        Assert.True(vm.ShowAllSitesCommand.CanExecute(null));
+        await vm.ShowAllSitesCommand.ExecuteAsync(null);
+        Assert.Contains(vm.Alerts, a => a.SourceCabinetId == second.Id);
+        vm.Reset();
+        Assert.Null(vm.SiteId);
+        Assert.Empty(vm.Alerts);
+    }
 
     [Theory]
     [InlineData(false)]

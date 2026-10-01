@@ -31,6 +31,21 @@ public sealed record ConnectivitySummary
     public DateTimeOffset? LastSuccessUtc { get; init; }
     /// <summary>Most recent completed nonreply, or null when there was none.</summary>
     public DateTimeOffset? LastFailureUtc { get; init; }
+    /// <summary>Optional, source-only read at a sync-target failure threshold. Never a packet-path verdict.</summary>
+    public SourceFirewallCheck? SourceFirewallCheck { get; init; }
+}
+
+/// <summary>Bounded read-only source policy clue, not proof of the cause of a failed ping.</summary>
+public sealed record SourceFirewallCheck
+{
+    /// <summary>Time of the source-cabinet observation.</summary>
+    public DateTimeOffset ObservedUtc { get; init; }
+    /// <summary>Outcome of the bounded native read.</summary>
+    public FirewallReadStatus Status { get; init; }
+    /// <summary>True means a readable active source profile defaults to blocking outbound traffic;
+    /// false means no such coarse clue in fully read active profiles; null means unknown.
+    /// Even false does not exclude an explicit firewall rule or destination-side block.</summary>
+    public bool? HasOutboundProfileBlockClue { get; init; }
 }
 
 /// <summary>Server-classified link state with raw evidence available separately.</summary>

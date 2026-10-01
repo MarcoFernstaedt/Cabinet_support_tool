@@ -6,6 +6,79 @@ namespace CabinetPlatform.Agent.Tests;
 public sealed class ConnectivitySamplerTests
 {
     [Fact]
+    public async Task Three_failed_sync_probes_collect_one_read_only_source_firewall_check_per_failure_run()
+    {
+        var now = DateTimeOffset.UtcNow.AddMinutes(-9);
+        var source = Guid.NewGuid(); var saved = new List<ConnectivitySummary>();
+        var reader = new RecordingFirewallCheck();
+        var sampler = new ConnectivitySampler(source, new SequenceProbe(
+            ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply,
+            ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply,
+            ProbeObservation.Reply, ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply),
+            s => { saved.Add(s); return true; }, reader);
+        var plan = Plan(source, now);
+        sampler.ApplyPlan(plan, now);
+        for (int i = 0; i < 12; i++)
+        {
+            if (i == 8) sampler.ApplyPlan(plan with { IssuedUtc = now.AddMinutes(8), ExpiresUtc = now.AddMinutes(18) }, now.AddMinutes(8));
+            await sampler.SampleAsync(now.AddMinutes(i), default);
+        }
+        Assert.Equal(2, reader.Calls);
+        Assert.True(saved[0].SourceFirewallCheck!.HasOutboundProfileBlockClue);
+        Assert.Null(saved[1].SourceFirewallCheck);
+        Assert.True(saved[3].SourceFirewallCheck!.HasOutboundProfileBlockClue);
+    }
+
+    private sealed class RecordingFirewallCheck : ISourceFirewallCheck
+    {
+        public int Calls { get; private set; }
+        public SourceFirewallCheck Read(DateTimeOffset observedUtc, CancellationToken ct)
+        {
+            Calls++;
+            return new SourceFirewallCheck { ObservedUtc = observedUtc, Status = FirewallReadStatus.Read,
+                HasOutboundProfileBlockClue = true };
+        }
+    }
+
+    [Fact]
+    public async Task Slow_native_firewall_read_does_not_stall_the_probe_schedule()
+    {
+        var now = DateTimeOffset.UtcNow.AddMinutes(-8);
+        var source = Guid.NewGuid();
+        var saved = new List<ConnectivitySummary>();
+        var native = new BlockingFirewallCheck();
+        var sampler = new ConnectivitySampler(source, new SequenceProbe(
+            ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply,
+            ProbeObservation.Reply, ProbeObservation.NoReply, ProbeObservation.NoReply,
+            ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply),
+            s => { saved.Add(s); return true; }, native, TimeSpan.FromMilliseconds(25));
+        sampler.ApplyPlan(Plan(source, now), now);
+        try
+        {
+            for (int i = 0; i < 9; i++)
+                await sampler.SampleAsync(now.AddMinutes(i), default).WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.Equal(3, saved.Count);
+            Assert.Equal(FirewallReadStatus.Unavailable, saved[0].SourceFirewallCheck?.Status);
+            Assert.Equal(FirewallReadStatus.Unavailable, saved[2].SourceFirewallCheck?.Status);
+            Assert.Equal(1, native.Calls);
+        }
+        finally { native.Release(); }
+    }
+
+    private sealed class BlockingFirewallCheck : ISourceFirewallCheck
+    {
+        private readonly ManualResetEventSlim _release = new();
+        public int Calls;
+        public SourceFirewallCheck Read(DateTimeOffset observedUtc, CancellationToken ct)
+        {
+            Interlocked.Increment(ref Calls);
+            _release.Wait(TimeSpan.FromSeconds(3));
+            return new() { ObservedUtc = observedUtc, Status = FirewallReadStatus.Read };
+        }
+        public void Release() => _release.Set();
+    }
+
+    [Fact]
     public void Shipping_agent_registers_connectivity_hosted_worker_without_enabling_legacy_actions()
     {
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
@@ -13,6 +86,8 @@ public sealed class ConnectivitySamplerTests
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
         Assert.Contains(services, s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
             s.ImplementationType?.Name == "ConnectivityWorker");
+        Assert.Contains(services, s => s.ServiceType == typeof(ISourceFirewallCheck) &&
+            s.ImplementationType == typeof(WindowsSourceFirewallCheck));
     }
 
     [Fact]
