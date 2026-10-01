@@ -37,6 +37,8 @@ public sealed partial class ConnectivityController
         var targets = await LiveTargets(config, source, ct);
         if (summaries.Any(s => s.ConfigurationId != config.ConfigurationId || targets.All(t => t.CabinetId != s.TargetCabinetId)))
             return Conflict("Connectivity configuration changed.");
+        if (summaries.Any(s => s.SourceFirewallCheck is not null && !targets.Single(t => t.CabinetId == s.TargetCabinetId).IsSync))
+            return BadRequest("Source firewall check requires an approved sync target.");
         var states = JsonSerializer.Deserialize<ConnectivityLinkState[]>(config.StatesJson, Json)!.ToDictionary(s => s.TargetCabinetId);
         foreach (var summary in summaries.OrderBy(s => s.FirstObservedUtc))
         {
@@ -90,11 +92,13 @@ public sealed partial class ConnectivityController
         var alertOverflow = db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id)
             .OrderByDescending(a => a.ReceivedUtc).ThenBy(a => a.Id).Skip(200).Select(a => a.Id);
         await db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id && alertOverflow.Contains(a.Id)).ExecuteDeleteAsync(ct);
-        // Fixed per-source retention, not an unbounded successful-ping event history.
-        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && e.ObservedUtc < now.AddDays(-14)).ExecuteDeleteAsync(ct);
+        // Keep incident evidence while its bounded alert is retained, even after ordinary evidence expires.
+        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && e.ObservedUtc < now.AddDays(-14) &&
+            !db.ConnectivityAlerts.Any(a => a.SourceCabinetId == e.SourceCabinetId && a.EvidenceId == e.Id)).ExecuteDeleteAsync(ct);
         var overflow = db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id)
             .OrderByDescending(e => e.ObservedUtc).ThenBy(e => e.Id).Skip(27000).Select(e => e.Id);
-        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && overflow.Contains(e.Id)).ExecuteDeleteAsync(ct);
+        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && overflow.Contains(e.Id) &&
+            !db.ConnectivityAlerts.Any(a => a.SourceCabinetId == e.SourceCabinetId && a.EvidenceId == e.Id)).ExecuteDeleteAsync(ct);
         await transaction.CommitAsync(ct);
         return Ok();
     }

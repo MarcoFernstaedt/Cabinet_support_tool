@@ -12,6 +12,49 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
     public ConnectivityAlertTests(SupportApiFactory factory) => _factory = factory;
 
     [Fact]
+    public async Task Sync_failure_alert_exposes_source_check_without_claiming_firewall_cause()
+    {
+        var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());
+        string site = Guid.NewGuid().ToString();
+        var source = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id, siteName: site);
+        var target = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            siteName: site, role: CabinetPlatform.Contracts.Cabinets.CabinetRole.Sync);
+        (await supervisor.PutJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new ConfigureConnectivityRequest
+        { Reason = "Synthetic test", Targets = [new ConnectivityTarget { CabinetId = target.Id, Address = "192.168.10.2" }] })).EnsureSuccessStatusCode();
+        using var agent = TestClient.CreateAgentClient(_factory, source.MachineId);
+        var plan = await (await agent.GetAsync("/api/agent/connectivity/plan")).ReadAsync<ConnectivityPlan>();
+        Assert.True(Assert.Single(plan!.Targets).IsSync);
+        var first = DateTimeOffset.UtcNow.AddMinutes(-4);
+        var summary = new ConnectivitySummary
+        {
+            Id = Guid.NewGuid(), ConfigurationId = plan.ConfigurationId, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+            FirstObservedUtc = first, LastObservedUtc = first.AddMinutes(2), FailureCount = 3,
+            LeadingFailures = 3, TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = first.AddMinutes(2),
+            SourceFirewallCheck = new() { ObservedUtc = first.AddMinutes(2).AddSeconds(1), Status = FirewallReadStatus.Read,
+                HasOutboundProfileBlockClue = true }
+        };
+        Assert.Equal(HttpStatusCode.OK, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).StatusCode);
+        var page = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
+        var alert = Assert.Single(page.GetProperty("items").EnumerateArray());
+        Assert.True(alert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        // Simulate a retained 15-day incident; ordinary evidence normally expires after 14 days.
+        await _factory.WithDbAsync(async db =>
+        {
+            var evidence = await db.ConnectivityEvidence.SingleAsync(e => e.Id == summary.Id);
+            evidence.FirstObservedUtc = evidence.FirstObservedUtc.AddDays(-15);
+            evidence.ObservedUtc = evidence.ObservedUtc.AddDays(-15);
+            var row = await db.ConnectivityAlerts.SingleAsync(a => a.EvidenceId == summary.Id);
+            row.ReceivedUtc = row.ReceivedUtc.AddDays(-15);
+            await db.SaveChangesAsync();
+        });
+        (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
+        var retained = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
+        Assert.True(Assert.Single(retained.GetProperty("items").EnumerateArray())
+            .GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        Assert.Equal("Open", alert.GetProperty("status").GetString());
+    }
+
+    [Fact]
     public async Task Accepted_incident_creates_one_source_bound_alert_even_on_replay()
     {
         var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());
@@ -29,6 +72,10 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
             FirstObservedUtc = first, LastObservedUtc = first.AddMinutes(2), FailureCount = 3,
             LeadingFailures = 3, TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = first.AddMinutes(2)
         };
+        Assert.Equal(HttpStatusCode.BadRequest, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] {
+            summary with { SourceFirewallCheck = new() { ObservedUtc = first.AddMinutes(2).AddSeconds(1),
+                Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true } }
+        })).StatusCode);
         (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
         (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
         var response = await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}");

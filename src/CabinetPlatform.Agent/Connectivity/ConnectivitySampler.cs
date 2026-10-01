@@ -10,6 +10,11 @@ public interface IConnectivityProbe
     Task<ProbeObservation> ProbeAsync(string address, CancellationToken ct);
 }
 
+public interface ISourceFirewallCheck
+{
+    SourceFirewallCheck Read(DateTimeOffset observedUtc, CancellationToken ct);
+}
+
 /// <summary>One bounded managed ICMP operation. No subprocess, DNS, retries or event logging.</summary>
 public sealed class ConnectivityProbe : IConnectivityProbe
 {
@@ -30,11 +35,17 @@ public sealed class ConnectivityProbe : IConnectivityProbe
 }
 
 /// <summary>Fixed-size counters only. No threshold, incident decision or individual-ping history.</summary>
-public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, Func<ConnectivitySummary, bool> persist)
+public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, Func<ConnectivitySummary, bool> persist,
+    ISourceFirewallCheck? firewallCheck = null, TimeSpan? firewallReadBudget = null)
 {
+    private readonly TimeSpan _firewallReadBudget = firewallReadBudget ?? TimeSpan.FromSeconds(2);
     private readonly SemaphoreSlim _gate = new(1, 1);
     private ConnectivityPlan? _plan;
     private readonly Dictionary<Guid, Counter> _counters = new();
+    private readonly Dictionary<Guid, int> _failureRuns = new();
+    private readonly HashSet<Guid> _checkedRuns = new();
+    // Retained across plan resets so a stuck native call cannot spawn another read on a new failure run.
+    private Task<SourceFirewallCheck>? _nativeCheck;
     private DateTimeOffset? _lastTick;
 
     public void ApplyPlan(ConnectivityPlan plan, DateTimeOffset now)
@@ -54,7 +65,7 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
                 (plan.ConfigurationId != Guid.Empty || plan.Targets.Count == 0);
             if (!valid) { Clear(); return; }
             if (_plan?.ConfigurationId != plan!.ConfigurationId || _plan?.SiteId != plan.SiteId ||
-                !_plan.Targets.SequenceEqual(plan.Targets!)) _counters.Clear();
+                !_plan.Targets.SequenceEqual(plan.Targets!)) ClearCounters();
             _plan = plan;
         }
         finally { _gate.Release(); }
@@ -67,7 +78,8 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
         finally { _gate.Release(); }
     }
 
-    private void Clear() { _plan = null; _counters.Clear(); }
+    private void Clear() { _plan = null; ClearCounters(); }
+    private void ClearCounters() { _counters.Clear(); _failureRuns.Clear(); _checkedRuns.Clear(); }
 
     public async Task SampleAsync(DateTimeOffset now, CancellationToken ct)
     {
@@ -77,11 +89,11 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
             if (_plan is null || _plan.ExpiresUtc <= now || _plan.IssuedUtc > now.AddSeconds(30)) { Clear(); return; }
             if (_lastTick is { } last)
             {
-                if (now < last) { _counters.Clear(); _lastTick = now; return; }
+                if (now < last) { ClearCounters(); _lastTick = now; return; }
                 // PeriodicTimer is nominally 60 seconds; sub-second scheduler jitter
                 // must not turn a minute schedule into one sample every two minutes.
                 if (now - last < TimeSpan.FromSeconds(59)) return;
-                if (now - last > TimeSpan.FromSeconds(75)) _counters.Clear();
+                if (now - last > TimeSpan.FromSeconds(75)) ClearCounters();
             }
             _lastTick = now;
             foreach (var target in _plan.Targets)
@@ -91,6 +103,36 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
                     _counters[target.CabinetId] = counter = new Counter();
                 var observation = await probe.ProbeAsync(target.Address, ct);
                 counter.Add(now, observation);
+                if (observation != ProbeObservation.NoReply)
+                {
+                    _failureRuns.Remove(target.CabinetId);
+                    _checkedRuns.Remove(target.CabinetId);
+                }
+                else
+                {
+                    int failures = _failureRuns.GetValueOrDefault(target.CabinetId) + 1;
+                    _failureRuns[target.CabinetId] = failures;
+                    if (target.IsSync && failures >= 3 && _checkedRuns.Add(target.CabinetId) && firewallCheck is not null)
+                    {
+                        try
+                        {
+                            if (_nativeCheck is { IsCompleted: false })
+                                counter.FirewallCheck = new() { ObservedUtc = now, Status = FirewallReadStatus.Unavailable };
+                            else
+                            {
+                                using var nativeCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                nativeCancellation.CancelAfter(_firewallReadBudget);
+                                // COM itself cannot be interrupted. Bound the scheduling wait and never overlap a stuck read.
+                                var read = Task.Run(() => firewallCheck.Read(now, nativeCancellation.Token), CancellationToken.None);
+                                _nativeCheck = read;
+                                _ = read.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+                                counter.FirewallCheck = await read.WaitAsync(_firewallReadBudget, ct);
+                            }
+                        }
+                        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                        catch (Exception) { counter.FirewallCheck = new() { ObservedUtc = now, Status = FirewallReadStatus.Unavailable }; }
+                    }
+                }
                 if (counter.Count == ConnectivityLimits.SamplesPerSummary)
                 {
                     var summary = counter.Build(source, target.CabinetId, _plan.ConfigurationId);
@@ -107,6 +149,7 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
     private sealed class Counter
     {
         public int Count;
+        public SourceFirewallCheck? FirewallCheck;
         private int _success, _failure, _error, _leading, _trailing, _maximum;
         private DateTimeOffset _first, _last;
         private DateTimeOffset? _lastSuccess, _lastFailure;
@@ -133,7 +176,7 @@ public sealed class ConnectivitySampler(Guid source, IConnectivityProbe probe, F
             Id = Guid.NewGuid(), SourceCabinetId = sourceId, TargetCabinetId = targetId, ConfigurationId = revision,
             FirstObservedUtc = _first, LastObservedUtc = _last, SuccessCount = _success, FailureCount = _failure,
             ErrorCount = _error, LeadingFailures = _leading, TrailingFailures = _trailing, MaximumFailureRun = _maximum,
-            LastSuccessUtc = _lastSuccess, LastFailureUtc = _lastFailure
+            LastSuccessUtc = _lastSuccess, LastFailureUtc = _lastFailure, SourceFirewallCheck = FirewallCheck
         };
     }
 }

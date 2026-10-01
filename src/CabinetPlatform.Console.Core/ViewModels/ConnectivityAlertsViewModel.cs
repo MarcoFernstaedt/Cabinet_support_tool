@@ -33,7 +33,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     [ObservableProperty] private ConnectivityAlertDto? _selectedAlert;
     public string FirewallTriageGuidance => SelectedAlert is not { } row ?
         "Select an incident to investigate. Firewall involvement is unknown without packet-path evidence." :
-        $"Firewall involvement: unknown. ICMP nonreply from source {row.SourceCabinetId} to target {row.TargetCabinetId} " +
+        $"Firewall involvement: unknown. {row.SourceFirewallClueLabel}. ICMP nonreply from source {row.SourceCabinetId} to target {row.TargetCabinetId} " +
         "does not prove a firewall block. A support member can open each cabinet and request a read-only Windows firewall inspection. " +
         "Compare timestamps, active profiles, both endpoints and the actual network path. Profile and rule metadata are not an effective packet verdict. " +
         "Only an operator may make approved configuration changes; this view does not change firewall configuration or measured reachability.";

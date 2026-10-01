@@ -8,7 +8,7 @@ namespace CabinetPlatform.Agent.Connectivity;
 
 /// <summary>Sampling is independent of uplink backoff and heavyweight inventory collection.</summary>
 public sealed class ConnectivityWorker(
-    IAgentStateStore identity, IHttpClientFactory clients, IConnectivityProbe probe,
+    IAgentStateStore identity, IHttpClientFactory clients, IConnectivityProbe probe, ISourceFirewallCheck firewallCheck,
     IOptions<AgentOptions> options, IClock clock, ILogger<ConnectivityWorker> logger) : BackgroundService
 {
     private Context? _context;
@@ -76,7 +76,7 @@ public sealed class ConnectivityWorker(
         if (_context?.Source != state.CabinetId)
         {
             var spool = new ConnectivitySpool(Path.Combine(options.Value.StateDirectory, "connectivity", state.CabinetId.Value.ToString("N")));
-            var sampler = new ConnectivitySampler(state.CabinetId.Value, probe, summary => spool.Enqueue(summary, clock.UtcNow));
+            var sampler = new ConnectivitySampler(state.CabinetId.Value, probe, summary => spool.Enqueue(summary, clock.UtcNow), firewallCheck);
             var http = clients.CreateClient(AgentHttpClients.Server);
             http.Timeout = TimeSpan.FromSeconds(10);
             http.MaxResponseContentBufferSize = 32768;

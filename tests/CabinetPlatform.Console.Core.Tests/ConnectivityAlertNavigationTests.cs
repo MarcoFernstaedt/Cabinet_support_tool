@@ -25,6 +25,7 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding FirewallTriageGuidance}");
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding SourceFirewallClueLabel}");
         foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand", "NextCommand", "PreviousCommand" })
             Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Command") == "{Binding " + command + "}");
         string username = Guid.NewGuid().ToString();

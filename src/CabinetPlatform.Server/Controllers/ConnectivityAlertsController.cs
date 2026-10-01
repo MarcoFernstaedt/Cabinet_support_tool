@@ -1,4 +1,5 @@
 using CabinetPlatform.Contracts.Common;
+using System.Text.Json;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Server.Auditing;
 using CabinetPlatform.Contracts.Telemetry;
@@ -68,6 +69,17 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
                 SourceName = a.SourceCabinet!.FriendlyName ?? a.SourceCabinet.Hostname,
                 SiteName = a.SourceCabinet.Site!.Name, ClientName = a.SourceCabinet.Site.Client!.Name
             }).ToArrayAsync(ct);
+        var evidenceIds = items.Select(a => a.EvidenceId).ToArray();
+        var snapshots = await db.ConnectivityEvidence.AsNoTracking()
+            .Where(e => evidenceIds.Contains(e.Id))
+            .Select(e => new { e.Id, e.SourceCabinetId, e.SummaryJson }).ToArrayAsync(ct);
+        var byEvidence = snapshots.ToDictionary(e => (e.Id, e.SourceCabinetId));
+        items = items.Select(a =>
+        {
+            if (!byEvidence.TryGetValue((a.EvidenceId, a.SourceCabinetId), out var evidence)) return a;
+            var summary = JsonSerializer.Deserialize<ConnectivitySummary>(evidence.SummaryJson, ContractJson.Default);
+            return a with { SourceFirewallCheck = summary?.SourceFirewallCheck };
+        }).ToArray();
         return Ok(PagedResult<ConnectivityAlertDto>.Create(items, query.Page, query.PageSize, total));
     }
 }

@@ -15,7 +15,8 @@ public static class ConnectivityClassifier
             s.LastObservedUtc - s.FirstObservedUtc > TimeSpan.FromSeconds(150) ||
             s.SuccessCount is < 0 or > 3 || s.FailureCount is < 0 or > 3 || s.ErrorCount is < 0 or > 3 ||
             s.SuccessCount + s.FailureCount + s.ErrorCount != 3 ||
-            !ValidTime(s.LastSuccessUtc, s.SuccessCount, s) || !ValidTime(s.LastFailureUtc, s.FailureCount, s)) return false;
+            !ValidTime(s.LastSuccessUtc, s.SuccessCount, s) || !ValidTime(s.LastFailureUtc, s.FailureCount, s) ||
+            !ValidCheck(s.SourceFirewallCheck, s, now)) return false;
         // There are only 27 possible ternary intervals. Match a possible aggregate
         // rather than accepting contradictory leading/trailing counters from wire JSON.
         for (var encoded = 0; encoded < 27; encoded++)
@@ -57,6 +58,13 @@ public static class ConnectivityClassifier
 
     private static bool ValidTime(DateTimeOffset? value, int count, ConnectivitySummary s) =>
         count == 0 ? value is null : value >= s.FirstObservedUtc && value <= s.LastObservedUtc;
+
+    private static bool ValidCheck(SourceFirewallCheck? check, ConnectivitySummary summary, DateTimeOffset now) =>
+        check is null || (summary.FailureCount > 0 && Enum.IsDefined(check.Status) &&
+            check.ObservedUtc >= summary.FirstObservedUtc &&
+            check.ObservedUtc <= summary.LastObservedUtc.AddSeconds(30) && check.ObservedUtc <= now &&
+            (check.HasOutboundProfileBlockClue is null ||
+             check.Status is FirewallReadStatus.Read or FirewallReadStatus.Partial));
 
     public static ConnectivityLinkState Apply(ConnectivityLinkState previous, ConnectivitySummary s, DateTimeOffset received)
     {

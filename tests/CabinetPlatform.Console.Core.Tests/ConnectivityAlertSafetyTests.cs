@@ -12,6 +12,21 @@ namespace CabinetPlatform.Console.Core.Tests;
 public sealed class ConnectivityAlertSafetyTests
 {
     [Fact]
+    public void Site_alert_labels_source_firewall_clue_without_a_cause_verdict()
+    {
+        var original = new ConnectivityAlertDto();
+        Assert.Equal("Unknown (not checked)", original.SourceFirewallClueLabel);
+        var check = new SourceFirewallCheck { ObservedUtc = DateTimeOffset.UtcNow,
+            Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true };
+        Assert.Contains("Possible", (original with { SourceFirewallCheck = check }).SourceFirewallClueLabel);
+        Assert.Contains("source", (original with { SourceFirewallCheck = check }).SourceFirewallClueLabel);
+        Assert.Contains("not ruled out", (original with { SourceFirewallCheck = check with { HasOutboundProfileBlockClue = false } }).SourceFirewallClueLabel);
+        Assert.Contains("Unknown (inconclusive)", (original with { SourceFirewallCheck = check with { HasOutboundProfileBlockClue = null } }).SourceFirewallClueLabel);
+        Assert.Contains("Unknown (read unavailable)", (original with { SourceFirewallCheck = check with {
+            Status = FirewallReadStatus.Unavailable, HasOutboundProfileBlockClue = null } }).SourceFirewallClueLabel);
+    }
+
+    [Fact]
     public void Target_navigation_refuses_missing_identity_stale_selection_and_signout()
     {
         var session = new SessionStore();
@@ -64,6 +79,10 @@ public sealed class ConnectivityAlertSafetyTests
         Assert.DoesNotContain("firewall caused", vm.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("inspect", vm.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("does not change firewall configuration or measured reachability", vm.FirewallTriageGuidance);
+        vm.SelectedAlert = alert with { SourceFirewallCheck = new() {
+            ObservedUtc = DateTimeOffset.UtcNow, Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true } };
+        vm.Alerts.Add(vm.SelectedAlert);
+        Assert.Contains("Possible source outbound firewall block", vm.FirewallTriageGuidance);
         vm.SelectedAlert = null;
         Assert.DoesNotContain(source.ToString(), vm.FirewallTriageGuidance);
         Assert.False(vm.OpenTargetCommand.CanExecute(null));
