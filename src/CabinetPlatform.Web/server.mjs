@@ -2,6 +2,7 @@ import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, validGuid } from "./read-only-pages.mjs";
+import { renderEventResult } from "./event-result-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -92,8 +93,9 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const route = new URL(req.url, origin);
     const fleetRoute = route.pathname === "/fleet";
     const cabinetRoute = /^\/cabinet\/([^/]+)$/.exec(route.pathname);
+    const eventRoute = /^\/cabinet\/([^/]+)\/events$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !incidentRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !eventRoute && !incidentRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -125,6 +127,21 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         } catch { /* Optional counts cannot hide an authorized incident page. */ }
         respond(200, renderSiteIncidents(siteId, queue, summary, pageNumber), "text/html; charset=utf-8");
       } catch { respond(502, "Incident page unavailable"); }
+      return;
+    }
+    if (eventRoute) {
+      const cabinetId = eventRoute[1].toLowerCase();
+      if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      if ([...route.searchParams.keys()].some(key => !["channel", "provider", "entry"].includes(key)) ||
+          [...route.searchParams.keys()].some(key => route.searchParams.getAll(key).length !== 1)) { respond(400, "Invalid event filter"); return; }
+      try {
+        const result = await api(`api/cabinets/${cabinetId}/event-log-results/latest`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 404) { respond(404, "No saved event result for this cabinet"); return; }
+        if (result.status === 403) { respond(403, "Event result access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const data = await readBoundedJson(result);
+        respond(200, renderEventResult(cabinetId, data, route.searchParams), "text/html; charset=utf-8");
+      } catch (error) { respond(error.message === "Invalid event filter" || error.message === "Invalid event selection" ? 400 : 502, "Saved event result unavailable"); }
       return;
     }
     if (cabinetRoute) {
