@@ -65,6 +65,13 @@ builder.Services.AddAuthentication(options =>
             if (!EntraAssurance.IsSatisfied(context.Principal, entra))
                 context.Fail("Required Entra tenant and authentication context were not proven.");
             return Task.CompletedTask;
+        },
+        OnRemoteFailure = async context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            context.Response.ContentType = "text/plain; charset=utf-8";
+            await context.Response.WriteAsync("This account did not meet the web sign-in requirements.");
         }
     };
 });
@@ -98,13 +105,20 @@ app.MapGet("/", (ClaimsPrincipal principal, IAntiforgery antiforgery, HttpContex
     var token = WebUtility.HtmlEncode(antiforgery.GetAndStoreTokens(context).RequestToken ?? "");
     return Results.Content($"""
         <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cabinet Support</title></head>
-        <body><main><h1>Cabinet Support</h1><p>Signed in as {name}.</p><p>The cabinet data adapter is not enabled yet.</p>
+        <body><main><h1>Cabinet Support</h1><p>Signed in as {name}.</p><p>Entra identity verified. Cabinet staff access and data are not enabled yet.</p>
         <form method="post" action="/signout"><input type="hidden" name="__RequestVerificationToken" value="{token}"><button>Sign out</button></form></main></body></html>
         """, "text/html; charset=utf-8");
 });
 app.MapPost("/signout", async (HttpContext context, IAntiforgery antiforgery) =>
 {
-    await antiforgery.ValidateRequestAsync(context);
+    try
+    {
+        await antiforgery.ValidateRequestAsync(context);
+    }
+    catch (AntiforgeryValidationException)
+    {
+        return Results.BadRequest("Invalid sign-out request.");
+    }
     return Results.SignOut(new AuthenticationProperties { RedirectUri = "/signed-out" },
         [CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme]);
 });
