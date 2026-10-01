@@ -149,6 +149,10 @@ public sealed class WebHostBoundaryTests
         Assert.Equal(HttpStatusCode.Redirect, callback.StatusCode);
         using var home = await client.GetAsync("/");
         Assert.Equal(HttpStatusCode.OK, home.StatusCode);
+        using var unsolicitedRemoteSignout = await client.GetAsync("/signout-oidc");
+        Assert.Equal(HttpStatusCode.NotFound, unsolicitedRemoteSignout.StatusCode);
+        using var afterRemoteSignout = await client.GetAsync("/");
+        Assert.Equal(HttpStatusCode.OK, afterRemoteSignout.StatusCode);
         using var signout = await client.PostAsync("/signout", null);
         Assert.Equal(HttpStatusCode.BadRequest, signout.StatusCode);
         using var stillSignedIn = await client.GetAsync("/");

@@ -66,6 +66,14 @@ builder.Services.AddAuthentication(options =>
                 context.Fail("Required Entra tenant and authentication context were not proven.");
             return Task.CompletedTask;
         },
+        OnRemoteSignOut = context =>
+        {
+            // This host uses only its CSRF-protected local POST signout. Do not let
+            // an unsolicited provider GET clear a browser session without sid binding.
+            context.HandleResponse();
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return Task.CompletedTask;
+        },
         OnRemoteFailure = async context =>
         {
             context.HandleResponse();
