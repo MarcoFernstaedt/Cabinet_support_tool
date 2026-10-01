@@ -117,6 +117,8 @@ public sealed partial class OfficeBootstrapTests
         var incident = Assert.Single(alerts.Alerts, a => a.SourceCabinetId == cabinetId);
         Assert.Equal(target.Id, incident.TargetCabinetId);
         Assert.True(incident.SourceFirewallCheck?.HasOutboundProfileBlockClue);
+        Assert.Equal(Assert.Single(observed.RecentEvidence).Summary, incident.IncidentEvidence);
+        Assert.Equal(3, incident.IncidentEvidence?.FailureCount);
         Assert.Contains("Possible source outbound firewall block", incident.SourceFirewallClueLabel);
         Assert.Equal(incident.SourceFirewallCheck, Assert.Single(observed.RecentEvidence).Summary.SourceFirewallCheck);
 

@@ -26,6 +26,8 @@ public sealed record ConnectivityAlertDto
     public DateTimeOffset? ObservedUtc { get; init; }
     /// <summary>Server reception of incident evidence.</summary>
     public DateTimeOffset ReceivedUtc { get; init; }
+    /// <summary>Accepted source and target interval facts behind this incident, if retained.</summary>
+    public ConnectivitySummary? IncidentEvidence { get; init; }
     /// <summary>Optional source-only firewall profile check attached to the accepted incident evidence.</summary>
     public SourceFirewallCheck? SourceFirewallCheck { get; init; }
     /// <summary>Operator label for the limited source-side clue. Does not diagnose causation.</summary>

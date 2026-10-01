@@ -71,6 +71,9 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (CanOpenTarget()) CabinetChosen?.Invoke(this, SelectedAlert!.TargetCabinetId);
     }
     [ObservableProperty] private ConnectivityAlertDto? _selectedAlert;
+    public string EvidenceAvailability => SelectedAlert is not { } row ? "Select an incident to inspect its accepted interval evidence." :
+        row.IncidentEvidence is null ? "Accepted interval evidence unavailable. Counts and exact measurement times are unknown; do not infer current health." :
+        "Historical accepted interval evidence. Measurement times are not server reception or current health; a failed probe does not identify the cause.";
     public string FirewallTriageGuidance => SelectedAlert is not { } row ?
         "Select an incident to investigate. Firewall involvement is unknown without packet-path evidence." :
         $"Firewall involvement: unknown. {row.SourceFirewallClueLabel}. ICMP nonreply from source {row.SourceCabinetId} to target {row.TargetCabinetId} " +
@@ -139,7 +142,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (success) await LoadAsync();
         else Alerts.Clear();
     }
-    partial void OnSelectedAlertChanged(ConnectivityAlertDto? value) { Note = string.Empty; OnPropertyChanged(nameof(FirewallTriageGuidance)); NotifyCommands(); }
+    partial void OnSelectedAlertChanged(ConnectivityAlertDto? value) { Note = string.Empty; OnPropertyChanged(nameof(EvidenceAvailability)); OnPropertyChanged(nameof(FirewallTriageGuidance)); NotifyCommands(); }
     partial void OnNoteChanged(string value) => NotifyCommands();
     protected override void OnLoadingChanged(bool isLoading) => NotifyCommands();
     private void NotifyCommands()

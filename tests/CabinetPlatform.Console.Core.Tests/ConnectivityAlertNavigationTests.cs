@@ -27,6 +27,10 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding FirewallTriageGuidance}");
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding EvidenceAvailability}");
+        foreach (var binding in new[] { "FirstObservedUtc", "LastObservedUtc", "SuccessCount", "FailureCount", "ErrorCount", "MaximumFailureRun", "LastSuccessUtc", "LastFailureUtc", "ConfigurationId" })
+            Assert.Contains(view.Descendants(), e => ((string?)e.Attribute("Text"))?.Contains("SelectedAlert.IncidentEvidence." + binding, StringComparison.Ordinal) == true);
+        Assert.Contains(view.Descendants(), e => e.Name.LocalName == "Expander" && (string?)e.Attribute("Header") == "Accepted interval evidence (historical)");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding ScopeSummary}");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding SourceFirewallClueLabel}");
         foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand",

@@ -44,6 +44,22 @@
     <TextBlock Text="Source firewall check observed (MST): "/>
     <TextBlock Text="{Binding SelectedAlert.SourceFirewallCheck.ObservedUtc, Converter={StaticResource SupportTime}}"/>
    </StackPanel>
+   <TextBlock Text="{Binding EvidenceAvailability}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+   <Expander Header="Accepted interval evidence (historical)" AutomationProperties.Name="Inspect accepted interval evidence" Margin="0,8,0,4">
+    <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+     <StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="First measured (MST): "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.FirstObservedUtc, Converter={StaticResource SupportTime}}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Last measured (MST): "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.LastObservedUtc, Converter={StaticResource SupportTime}}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Replies: "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.SuccessCount}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Nonreplies: "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.FailureCount}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Local probe errors: "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.ErrorCount}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Longest uninterrupted nonreply run: "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.MaximumFailureRun}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Last reply (MST): "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.LastSuccessUtc, Converter={StaticResource SupportTime}}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Last nonreply (MST): "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.LastFailureUtc, Converter={StaticResource SupportTime}}"/></StackPanel>
+      <StackPanel Orientation="Horizontal"><TextBlock Text="Approved plan revision: "/><TextBlock Text="{Binding SelectedAlert.IncidentEvidence.ConfigurationId}"/></StackPanel>
+     </StackPanel>
+    </ScrollViewer>
+   </Expander>
    <TextBlock Text="{Binding FirewallTriageGuidance}" TextWrapping="Wrap" Margin="0,8,0,8" Focusable="True"
               AutomationProperties.Name="{Binding FirewallTriageGuidance}" AutomationProperties.LiveSetting="Polite"/>
    <Label Content="Annotation _reason" Target="{Binding ElementName=Note}"/>
