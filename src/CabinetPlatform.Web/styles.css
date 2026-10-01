@@ -677,8 +677,12 @@ pre {
 .fleet-list a { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; text-decoration: none; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 16px; }
 .fleet-list a:hover { border-color: var(--focus); }
 .fleet-list strong { min-width: 170px; }
-.fleet-page nav { display: flex; gap: 12px; margin-top: 22px; }
+.fleet-page nav { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
 .fleet-page nav a { text-decoration: none; }
+.fleet-page a:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.fleet-page nav a[aria-current="page"] { border-color: var(--focus); }
+.fleet-page pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 18px; }
+.fleet-page .incident-card { margin-top: 24px; padding: 18px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
 
 @media (prefers-reduced-motion: reduce) {
   * {
