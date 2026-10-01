@@ -39,7 +39,7 @@
             Workspace <span>/</span> Diagnostics <span>/</span>
             <strong>Event viewer</strong>
           </div>
-          <span class="preview-pill">SYNTHETIC DATA PREVIEW</span>
+          <div class="session-bar"><span>__DISPLAY_NAME__</span><span class="preview-pill">SYNTHETIC DATA PREVIEW</span><form action="/signout" method="post"><input type="hidden" name="csrf" value="__CSRF__"><button type="submit">Sign out</button></form></div>
         </header>
         <main id="main">
           <div class="page-head">
@@ -67,6 +67,8 @@
                   >
                 </div>
               </div>
+              <nav class="channel-nav" id="channel-nav" aria-label="Event channels"></nav>
+              <div class="active-filters" id="active-filters" aria-live="polite"></div>
               <div class="filters">
                 <label class="search-label" for="event-search"
                   >Search events</label
@@ -119,6 +121,7 @@
                 </div>
                 <h2 id="selected-title"></h2>
                 <div id="selected-level" class="level-chip"></div>
+                <div class="drilldown"><button id="show-provider-events" type="button">Show this provider’s events</button><span>Filters the collected records for this cabinet only.</span></div>
                 <dl class="detail-grid">
                   <div>
                     <dt>Channel</dt>
@@ -156,8 +159,8 @@
             </div>
           </section>
           <p class="footnote">
-            Preview only. No staff authentication, MFA, live API access or
-            operational actions are enabled here.
+            Local development only. This password sign-in does not enforce MFA.
+            The event records remain synthetic and no cabinet data is available.
           </p>
         </main>
       </div>
