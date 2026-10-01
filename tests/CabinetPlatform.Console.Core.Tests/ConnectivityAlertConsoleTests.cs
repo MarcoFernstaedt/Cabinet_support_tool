@@ -19,6 +19,38 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
     public ConnectivityAlertConsoleTests(ConsoleTestHost host) => _host = host;
 
     [Fact]
+    public async Task Loaded_cabinet_queue_excludes_other_sources_at_the_same_site()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Tier1, username);
+        var (api, session) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        string site = Guid.NewGuid().ToString();
+        var first = await _host.CreateCabinetAsync("duplicate", client: "Source client", site: site);
+        var second = await _host.CreateCabinetAsync("duplicate", client: "Source client", site: site);
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+            db.ConnectivityAlerts.AddRange(new ConnectivityAlert
+            { SourceCabinetId = first.Id, TargetCabinetId = second.Id, EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow },
+                new ConnectivityAlert
+                { SourceCabinetId = second.Id, TargetCabinetId = first.Id, EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        var vm = new ConnectivityAlertsViewModel(api, session, new RecordingLiveRegionAnnouncer());
+        await vm.ShowSiteAsync(first.SiteId, "Source client / " + site);
+        Assert.Equal(2, vm.Alerts.Count(a => a.SourceCabinetId == first.Id || a.SourceCabinetId == second.Id));
+        await vm.ShowCabinetAsync(first.Id, "duplicate");
+        Assert.Null(vm.SiteId);
+        Assert.Equal(first.Id, vm.SourceCabinetId);
+        Assert.Equal(first.Id, Assert.Single(vm.Alerts).SourceCabinetId);
+        Assert.Contains("Cabinet:", vm.ScopeSummary);
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SourceCabinetId);
+        Assert.Contains(vm.Alerts, a => a.SourceCabinetId == second.Id);
+    }
+
+    [Fact]
     public async Task Site_scope_reaches_authenticated_server_and_global_reset_clears_old_selection()
     {
         string username = Guid.NewGuid().ToString();

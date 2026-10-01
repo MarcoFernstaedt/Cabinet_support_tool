@@ -152,11 +152,21 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public ConnectivityAlertsViewModel? Alerts { get; }
     public bool CanSeeAlerts => IsSignedIn && Alerts is not null;
     public bool CanSeeSiteAlerts => CanSeeAlerts && Machine.Path is { } path && path.SiteId != Guid.Empty;
+    public bool CanSeeCabinetAlerts => CanSeeAlerts && Machine.Path is { } path && path.CabinetId != Guid.Empty;
     private void OnMachinePropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
         if (args.PropertyName != nameof(MachineTabViewModel.Path)) return;
         OnPropertyChanged(nameof(CanSeeSiteAlerts));
+        OnPropertyChanged(nameof(CanSeeCabinetAlerts));
         ShowSiteAlertsCommand.NotifyCanExecuteChanged();
+        ShowCabinetAlertsCommand.NotifyCanExecuteChanged();
+    }
+    [RelayCommand(CanExecute = nameof(CanSeeCabinetAlerts))]
+    private async Task ShowCabinetAlertsAsync()
+    {
+        if (!CanSeeCabinetAlerts || Machine.Path is not { } path) return;
+        CurrentView = ShellView.Alerts;
+        await Alerts!.ShowCabinetAsync(path.CabinetId, path.CabinetName);
     }
     [RelayCommand(CanExecute = nameof(CanSeeSiteAlerts))]
     private async Task ShowSiteAlertsAsync()
@@ -584,6 +594,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ShowAlertsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSeeSiteAlerts));
         ShowSiteAlertsCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSeeCabinetAlerts));
+        ShowCabinetAlertsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ApprovalBadge));
         OnPropertyChanged(nameof(ApprovalBadgeAccessibleText));
     }
