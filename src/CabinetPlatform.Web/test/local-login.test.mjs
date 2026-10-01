@@ -17,7 +17,7 @@ async function fixture() {
       : new Response("", { status: 401 });
     throw Error("Unexpected upstream request");
   };
-  const server = createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "https://example.test/", upstreamFetch });
+  const server = createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "https://127.0.0.1:8443/", upstreamFetch });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const origin = `http://127.0.0.1:${server.address().port}`;
   const request = (path, options = {}) => fetch(`${origin}${path}`, { redirect: "manual", ...options });
@@ -26,6 +26,7 @@ async function fixture() {
 
 test("login is explicitly local-only and requires HTTPS upstream", () => {
   assert.throws(() => createPreviewServer("0.0.0.0", { enabled: true, upstreamUrl: "https://example.test/" }), /loopback/);
+  assert.throws(() => createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "https://example.test/" }), /loopback upstream/);
   assert.throws(() => createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "http://example.test/" }), /HTTPS/);
   assert.throws(() => createPreviewServer("127.0.0.1", { upstreamUrl: "https://example.test/" }), /opt-in/);
 });
