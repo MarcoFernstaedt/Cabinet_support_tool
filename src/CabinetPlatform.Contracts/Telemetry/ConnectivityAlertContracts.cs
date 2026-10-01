@@ -14,6 +14,8 @@ public sealed record ConnectivityAlertDto
     public Guid TargetCabinetId { get; init; }
     /// <summary>Accepted summary that established this incident.</summary>
     public Guid EvidenceId { get; init; }
+    /// <summary>Current site identity of the source cabinet.</summary>
+    public Guid SiteId { get; init; }
     /// <summary>Current source client label.</summary>
     public string ClientName { get; init; } = string.Empty;
     /// <summary>Current source site label.</summary>
@@ -52,6 +54,8 @@ public sealed record ConnectivityAlertDto
 /// <summary>Bounded connectivity incident queue query.</summary>
 public sealed record ConnectivityAlertQuery : PagedQuery
 {
+    /// <summary>Optional current site scope for the source cabinet.</summary>
+    public Guid? SiteId { get; init; }
     /// <summary>Optional immutable source filter.</summary>
     public Guid? SourceCabinetId { get; init; }
     /// <summary>Include resolved annotations.</summary>

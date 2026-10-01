@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using CabinetPlatform.Console.Core.Api;
@@ -73,6 +74,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         Cabinets = cabinets;
         Finder = finder;
         Machine = machine;
+        Machine.PropertyChanged += OnMachinePropertyChanged;
         Cabinet = cabinet;
         Audit = audit;
         Fleet = fleet;
@@ -149,12 +151,26 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
     public StaffViewModel? Staff { get; }
     public ConnectivityAlertsViewModel? Alerts { get; }
     public bool CanSeeAlerts => IsSignedIn && Alerts is not null;
+    public bool CanSeeSiteAlerts => CanSeeAlerts && Machine.Path is { } path && path.SiteId != Guid.Empty;
+    private void OnMachinePropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(MachineTabViewModel.Path)) return;
+        OnPropertyChanged(nameof(CanSeeSiteAlerts));
+        ShowSiteAlertsCommand.NotifyCanExecuteChanged();
+    }
+    [RelayCommand(CanExecute = nameof(CanSeeSiteAlerts))]
+    private async Task ShowSiteAlertsAsync()
+    {
+        if (!CanSeeSiteAlerts || Machine.Path is not { } path) return;
+        CurrentView = ShellView.Alerts;
+        await Alerts!.ShowSiteAsync(path.SiteId, $"{path.ClientName} / {path.SiteName}");
+    }
     [RelayCommand(CanExecute = nameof(CanSeeAlerts))]
     private async Task ShowAlertsAsync()
     {
         if (!CanSeeAlerts) return;
         CurrentView = ShellView.Alerts;
-        await Alerts!.LoadAsync();
+        await Alerts!.ShowAllAsync();
     }
     public bool CanSeeStaff => CanSeeRegistrations && Staff is not null;
 
@@ -443,6 +459,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         _sessionLive = false;
+        Machine.PropertyChanged -= OnMachinePropertyChanged;
 
         DeactivateAll();
 
@@ -565,6 +582,8 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         ShowStaffCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(CanSeeAlerts));
         ShowAlertsCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(CanSeeSiteAlerts));
+        ShowSiteAlertsCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ApprovalBadge));
         OnPropertyChanged(nameof(ApprovalBadgeAccessibleText));
     }

@@ -64,6 +64,9 @@
                     <Button Content="A_lerts" Command="{Binding ShowAlertsCommand}"
                             Visibility="{Binding CanSeeAlerts, Converter={StaticResource BoolToVisibility}}"
                             AutomationProperties.Name="Connectivity incident queue" />
+                    <Button Content="Site alerts" Command="{Binding ShowSiteAlertsCommand}"
+                            Visibility="{Binding CanSeeSiteAlerts, Converter={StaticResource BoolToVisibility}}"
+                            AutomationProperties.Name="Connectivity incidents for the loaded cabinet's site" />
 
                     <Button Content="_Staff"
                             Command="{Binding ShowStaffCommand}"

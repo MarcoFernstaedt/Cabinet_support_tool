@@ -86,7 +86,8 @@ public sealed class ApiClient : IApiClient, IDisposable
     // --- Enrollment ------------------------------------------------------
     public Task<PagedResult<ConnectivityAlertDto>> GetConnectivityAlertsAsync(ConnectivityAlertQuery query, CancellationToken ct) =>
         GetAsync<PagedResult<ConnectivityAlertDto>>("api/connectivity-alerts" + new QueryString()
-            .Add("sourceCabinetId", query.SourceCabinetId).Add("includeResolved", query.IncludeResolved)
+            .Add("sourceCabinetId", query.SourceCabinetId).Add("siteId", query.SiteId)
+            .Add("includeResolved", query.IncludeResolved)
             .Add("page", query.Page).Add("pageSize", query.PageSize), ct);
     public Task AcknowledgeConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>
         PostAsync($"api/connectivity-alerts/{id:D}/acknowledge", request, ct);

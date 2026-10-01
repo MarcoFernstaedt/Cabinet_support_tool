@@ -12,6 +12,34 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
     public ConnectivityAlertTests(SupportApiFactory factory) => _factory = factory;
 
     [Fact]
+    public async Task Authenticated_site_queue_uses_source_site_identity_not_duplicate_site_names()
+    {
+        var (support, user) = await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Guid.NewGuid().ToString());
+        string duplicate = Guid.NewGuid().ToString();
+        var first = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            clientName: "Client A", siteName: duplicate);
+        var second = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            clientName: "Client B", siteName: duplicate);
+        await _factory.WithDbAsync(async db =>
+        {
+            db.ConnectivityAlerts.AddRange(new CabinetPlatform.Server.Domain.ConnectivityAlert
+            { SourceCabinetId = first.Id, TargetCabinetId = Guid.NewGuid(), EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow },
+                new CabinetPlatform.Server.Domain.ConnectivityAlert
+                { SourceCabinetId = second.Id, TargetCabinetId = Guid.NewGuid(), EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        });
+        var selected = await (await support.GetAsync($"/api/connectivity-alerts?siteId={first.SiteId}")).ReadAsync<JsonElement>();
+        Assert.Equal(1, selected.GetProperty("totalCount").GetInt32());
+        var row = Assert.Single(selected.GetProperty("items").EnumerateArray());
+        Assert.Equal(first.Id, row.GetProperty("sourceCabinetId").GetGuid());
+        Assert.Equal(first.SiteId, row.GetProperty("siteId").GetGuid());
+        var other = await (await support.GetAsync($"/api/connectivity-alerts?siteId={second.SiteId}&sourceCabinetId={first.Id}")).ReadAsync<JsonElement>();
+        Assert.Equal(0, other.GetProperty("totalCount").GetInt32());
+        Assert.Empty(other.GetProperty("items").EnumerateArray());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync($"/api/connectivity-alerts?siteId={first.SiteId}")).StatusCode);
+    }
+
+    [Fact]
     public async Task Sync_failure_alert_exposes_source_check_without_claiming_firewall_cause()
     {
         var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());

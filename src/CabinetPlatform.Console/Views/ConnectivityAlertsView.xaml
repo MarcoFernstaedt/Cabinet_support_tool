@@ -8,6 +8,10 @@
    <TextBlock Text="Connectivity incidents" FontSize="22" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level1"/>
    <TextBlock Text="Historical accepted evidence, not live health. Manual resolution does not change measured reachability. Refresh for current queue state. Retained for 30 days, at most 200 incidents per source, including unresolved incidents." TextWrapping="Wrap" Margin="0,8"/>
    <WrapPanel>
+    <TextBlock Text="{Binding ScopeSummary}" Margin="0,8,12,8" VerticalAlignment="Center"
+               AutomationProperties.LiveSetting="Polite"/>
+    <Button Content="Show selected site's alerts" Command="{Binding FilterToSelectedSiteCommand}"/>
+    <Button Content="Show all sites" Command="{Binding ShowAllSitesCommand}"/>
     <Button Content="Refresh queue" Command="{Binding RefreshCommand}"/>
     <Button Content="Previous" Command="{Binding PreviousCommand}"/>
     <Button Content="Next" Command="{Binding NextCommand}"/>

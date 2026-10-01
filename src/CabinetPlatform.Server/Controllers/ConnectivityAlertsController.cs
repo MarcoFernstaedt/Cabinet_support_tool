@@ -57,6 +57,7 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
     {
         var cutoff = time.GetUtcNow().AddDays(-30);
         var rows = db.ConnectivityAlerts.AsNoTracking().Where(a => a.ReceivedUtc >= cutoff);
+        if (query.SiteId is { } site) rows = rows.Where(a => a.SourceCabinet!.SiteId == site);
         if (query.SourceCabinetId is { } source) rows = rows.Where(a => a.SourceCabinetId == source);
         if (!query.IncludeResolved) rows = rows.Where(a => a.Status != "Resolved");
         int total = await rows.CountAsync(ct);
@@ -64,6 +65,7 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
             .Select(a => new ConnectivityAlertDto
             {
                 Id = a.Id, SourceCabinetId = a.SourceCabinetId, TargetCabinetId = a.TargetCabinetId,
+                SiteId = a.SourceCabinet!.SiteId,
                 EvidenceId = a.EvidenceId, ObservedUtc = a.ObservedUtc, ReceivedUtc = a.ReceivedUtc,
                 Status = a.Status, Note = a.Note, UpdatedUtc = a.UpdatedUtc,
                 SourceName = a.SourceCabinet!.FriendlyName ?? a.SourceCabinet.Hostname,

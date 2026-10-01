@@ -13,6 +13,23 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private readonly IApiClient _api;
     private readonly ISessionStore _session;
     private int _generation;
+    public Guid? SiteId { get; private set; }
+    private string _siteLabel = string.Empty;
+    public string ScopeSummary => SiteId is null ? "All sites" : $"Site: {_siteLabel}";
+    public async Task ShowSiteAsync(Guid siteId, string siteLabel)
+    {
+        if (!CanRequest() || siteId == Guid.Empty) return;
+        SiteId = siteId; _siteLabel = siteLabel; Page = 1;
+        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        await LoadCoreAsync(supersede: true);
+    }
+    public async Task ShowAllAsync()
+    {
+        if (!CanRequest()) return;
+        SiteId = null; _siteLabel = string.Empty; Page = 1;
+        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        await LoadCoreAsync(supersede: true);
+    }
     public ConnectivityAlertsViewModel(IApiClient api, ISessionStore session, ILiveRegionAnnouncer announcer) : base(announcer)
     { _api = api; _session = session; }
 
@@ -20,6 +37,16 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     public event EventHandler<Guid>? CabinetChosen;
     private bool CanOpen() => CanLoad() && SelectedAlert is { } row && Alerts.Contains(row);
     private bool CanOpenTarget() => CanOpen() && SelectedAlert!.TargetCabinetId != Guid.Empty;
+    private bool CanFilterToSelectedSite() => CanOpen() && SelectedAlert!.SiteId != Guid.Empty;
+    private bool CanShowAllSites() => CanLoad() && SiteId is not null;
+    [RelayCommand(CanExecute = nameof(CanFilterToSelectedSite))]
+    private Task FilterToSelectedSiteAsync()
+    {
+        var row = SelectedAlert!;
+        return ShowSiteAsync(row.SiteId, $"{row.ClientName} / {row.SiteName}");
+    }
+    [RelayCommand(CanExecute = nameof(CanShowAllSites))]
+    private Task ShowAllSitesAsync() => ShowAllAsync();
     [RelayCommand(CanExecute = nameof(CanOpen))]
     private void OpenSource()
     {
@@ -50,19 +77,27 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private async Task NextAsync() { if (!CanNext()) return; Page++; await LoadAsync(); }
     [RelayCommand(CanExecute = nameof(CanPrevious))]
     private async Task PreviousAsync() { if (!CanPrevious()) return; Page--; await LoadAsync(); }
-    private bool CanLoad() => _session.IsSignedIn && !_session.MustChangePassword && !IsLoading;
+    private bool CanRequest() => _session.IsSignedIn && !_session.MustChangePassword;
+    private bool CanLoad() => CanRequest() && !IsLoading;
     private bool CanAnnotate(string status) => CanLoad() && SelectedAlert is { } row && Alerts.Contains(row) &&
         row.Status == status && !string.IsNullOrWhiteSpace(Note) && Note.Length <= 1000;
     private bool CanAcknowledge() => CanAnnotate("Open");
     private bool CanResolve() => CanAnnotate("Acknowledged");
 
-    public async Task LoadAsync()
+    public Task LoadAsync() => LoadCoreAsync(supersede: false);
+    private async Task LoadCoreAsync(bool supersede)
     {
-        if (!CanLoad()) return;
-        Alerts.Clear(); SelectedAlert = null;
+        if (!(supersede ? CanRequest() : CanLoad())) return;
+        if (supersede) ++_generation; // A superseded annotation must not clear the new queue.
+        Alerts.Clear(); SelectedAlert = null; TotalCount = 0; HasMore = false;
+        OnPropertyChanged(nameof(PageSummary));
+        var siteId = SiteId;
+        var includeResolved = IncludeResolved;
+        var pageNumber = Page;
         await RunAsync(async ct =>
         {
-            var page = await _api.GetConnectivityAlertsAsync(new ConnectivityAlertQuery { IncludeResolved = IncludeResolved, Page = Page, PageSize = 50 }, ct);
+            var page = await _api.GetConnectivityAlertsAsync(new ConnectivityAlertQuery { SiteId = siteId,
+                IncludeResolved = includeResolved, Page = pageNumber, PageSize = 50 }, ct);
             ct.ThrowIfCancellationRequested();
             foreach (var row in page.Items) Alerts.Add(row);
             TotalCount = page.TotalCount; HasMore = page.HasMore;
@@ -97,11 +132,13 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     {
         RefreshCommand.NotifyCanExecuteChanged(); AcknowledgeCommand.NotifyCanExecuteChanged(); ResolveCommand.NotifyCanExecuteChanged();
         OpenSourceCommand.NotifyCanExecuteChanged(); OpenTargetCommand.NotifyCanExecuteChanged();
+        FilterToSelectedSiteCommand.NotifyCanExecuteChanged(); ShowAllSitesCommand.NotifyCanExecuteChanged();
         NextCommand.NotifyCanExecuteChanged(); PreviousCommand.NotifyCanExecuteChanged();
     }
     public void Reset()
     {
         Deactivate(); Alerts.Clear(); SelectedAlert = null; Note = Outcome = string.Empty; IncludeResolved = false; ClearError(); NotifyCommands();
+        SiteId = null; _siteLabel = string.Empty; OnPropertyChanged(nameof(ScopeSummary));
         Page = 1; TotalCount = 0; HasMore = false; OnPropertyChanged(nameof(PageSummary));
     }
     public override void Deactivate()

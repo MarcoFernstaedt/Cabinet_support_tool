@@ -121,6 +121,38 @@ public sealed class ConnectivityAlertSafetyTests
                 }, LastQuery.Contains("page=2") ? 2 : 1, 50, 51), options: ContractJson.CreateOptions()) });
         }
     }
+    [Fact]
+    public async Task Global_scope_supersedes_in_flight_site_response()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        var handler = new ScopeGate();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var site = vm.ShowSiteAsync(Guid.NewGuid(), "Site A");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SiteId);
+        Assert.Equal("All sites", vm.ScopeSummary);
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+        handler.Release.SetResult();
+        await site;
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+    }
+    private sealed class ScopeGate : HttpMessageHandler
+    {
+        public Guid GlobalAlert { get; } = Guid.NewGuid();
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            bool site = request.RequestUri!.Query.Contains("siteId=", StringComparison.OrdinalIgnoreCase);
+            if (site) { Entered.SetResult(); await Release.Task; }
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
+                new ConnectivityAlertDto { Id = site ? Guid.NewGuid() : GlobalAlert, SourceCabinetId = Guid.NewGuid() }
+            }, 1, 50, 1), options: ContractJson.CreateOptions()) };
+        }
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
