@@ -21,6 +21,24 @@ namespace CabinetPlatform.Agent.Tests;
 
 public sealed partial class OfficeBootstrapTests
 {
+    private sealed class OfflineConnectivityHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            throw new HttpRequestException("Synthetic uplink failure before server receipt");
+    }
+
+    private sealed class SyntheticSourceFirewallCheck : ISourceFirewallCheck
+    {
+        public int Calls { get; private set; }
+        public SourceFirewallCheck Read(DateTimeOffset observedUtc, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            Calls++;
+            return new() { ObservedUtc = observedUtc, Status = FirewallReadStatus.Read,
+                HasOutboundProfileBlockClue = true };
+        }
+    }
+
     // Called after real one-use enrollment, supervisor approval and agent restart,
     // including the case where the first exchange response was lost after commit.
     private static async Task VerifyOfficeMonitoringAsync(IServiceProvider server, ServiceProvider agent,
@@ -46,6 +64,11 @@ public sealed partial class OfficeBootstrapTests
             db.Cabinets.Add(target);
             await db.SaveChangesAsync();
         }
+        using var designated = await supervisor.PutAsJsonAsync($"/api/cabinets/{target.Id}/role", new
+        {
+            role = CabinetRole.Sync, reason = "Synthetic site sync designation"
+        });
+        designated.EnsureSuccessStatusCode();
         using var configured = await supervisor.PutAsJsonAsync($"/api/connectivity/cabinets/{cabinetId}/targets", new
         {
             reason = "Synthetic office integration", targets = new[] { new { cabinetId = target.Id, address = "192.168.50.20" } }
@@ -56,17 +79,26 @@ public sealed partial class OfficeBootstrapTests
         using var http = agent.GetRequiredService<IHttpClientFactory>().CreateClient(AgentHttpClients.Server);
         var plan = (await http.GetFromJsonAsync<ConnectivityPlan>("/api/agent/connectivity/plan", AgentJson.SerializerOptions))!;
         Assert.Equal(target.Id, Assert.Single(plan.Targets).CabinetId);
+        Assert.True(plan.Targets[0].IsSync);
         var spoolPath = Path.Combine(root, "combined-outbox");
         var spool = new ConnectivitySpool(spoolPath);
         var start = DateTimeOffset.UtcNow.AddMinutes(-6);
+        var sourceCheck = new SyntheticSourceFirewallCheck();
         var sampler = new ConnectivitySampler(cabinetId, new ConnectivitySamplerTests.SequenceProbe(
             ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply,
             ProbeObservation.Reply, ProbeObservation.Reply, ProbeObservation.Reply),
-            summary => spool.Enqueue(summary, DateTimeOffset.UtcNow));
+            summary => spool.Enqueue(summary, DateTimeOffset.UtcNow), sourceCheck);
         sampler.ApplyPlan(plan with { IssuedUtc = start, ExpiresUtc = start.AddMinutes(10) }, start);
         for (var i = 0; i < 3; i++) await sampler.SampleAsync(start.AddMinutes(i), default);
+        Assert.Equal(1, sourceCheck.Calls);
+        using (var offline = new HttpClient(new OfflineConnectivityHandler()) { BaseAddress = new Uri("https://localhost/") })
+            await Assert.ThrowsAsync<HttpRequestException>(() =>
+                new ConnectivityDelivery(offline, spool, sampler).DeliverAsync(DateTimeOffset.UtcNow, default));
+        // A local reading is not a central alert until the buffered interval is delivered.
+        var beforeDelivery = await api.GetConnectivityAlertsAsync(new ConnectivityAlertQuery { SourceCabinetId = cabinetId }, default);
+        Assert.Empty(beforeDelivery.Items);
         var reopened = new ConnectivitySpool(spoolPath);
-        Assert.Single(reopened.Peek(DateTimeOffset.UtcNow));
+        Assert.True(Assert.Single(reopened.Peek(DateTimeOffset.UtcNow)).SourceFirewallCheck?.HasOutboundProfileBlockClue);
         var delivery = new ConnectivityDelivery(http, reopened, sampler);
         Assert.True(await delivery.DeliverAsync(DateTimeOffset.UtcNow, default));
         Assert.Empty(reopened.Peek(DateTimeOffset.UtcNow));
@@ -79,6 +111,14 @@ public sealed partial class OfficeBootstrapTests
             session, announcer, TimeProvider.System);
         await tab.LoadAsync(cabinetId);
         Assert.Contains("Unreachable", Assert.Single(tab.ConnectivityRows));
+        var alerts = new ConnectivityAlertsViewModel(api, session, announcer);
+        await alerts.ShowSiteAsync(tab.Path!.SiteId, $"{tab.Path.ClientName} / {tab.Path.SiteName}");
+        Assert.False(alerts.HasError, alerts.ErrorMessage);
+        var incident = Assert.Single(alerts.Alerts, a => a.SourceCabinetId == cabinetId);
+        Assert.Equal(target.Id, incident.TargetCabinetId);
+        Assert.True(incident.SourceFirewallCheck?.HasOutboundProfileBlockClue);
+        Assert.Contains("Possible source outbound firewall block", incident.SourceFirewallClueLabel);
+        Assert.Equal(incident.SourceFirewallCheck, Assert.Single(observed.RecentEvidence).Summary.SourceFirewallCheck);
 
         var transport = agent.GetRequiredService<IServerClient>();
         async Task<ActionRequestDto> Dispatch()
@@ -163,6 +203,12 @@ public sealed partial class OfficeBootstrapTests
         observed = await api.GetConnectivityAsync(cabinetId, default);
         Assert.False(Assert.Single(observed.Links).IncidentOpen);
         Assert.Equal(2, observed.RecentEvidence.Count);
+        Assert.Null(observed.RecentEvidence[0].Summary.SourceFirewallCheck);
+        await alerts.LoadAsync();
+        var historical = Assert.Single(alerts.Alerts, a => a.Id == incident.Id);
+        Assert.True(historical.SourceFirewallCheck?.HasOutboundProfileBlockClue);
+        alerts.SelectedAlert = historical;
+        Assert.Contains("unknown", alerts.FirewallTriageGuidance, StringComparison.OrdinalIgnoreCase);
         await Complete(await Dispatch(), new OfficeDeniedFirewallGateway());
         Assert.Empty(tab.Firewall.Rules);
         Assert.Contains("AccessDenied", tab.Firewall.ResultSummary);
