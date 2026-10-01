@@ -14,11 +14,23 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private readonly ISessionStore _session;
     private int _generation;
     public Guid? SiteId { get; private set; }
+    public Guid? SourceCabinetId { get; private set; }
     private string _siteLabel = string.Empty;
-    public string ScopeSummary => SiteId is null ? "All sites" : $"Site: {_siteLabel}";
+    private string _cabinetLabel = string.Empty;
+    public string ScopeSummary => SourceCabinetId is not null ? $"Cabinet: {_cabinetLabel} ({SourceCabinetId})" :
+        SiteId is null ? "All sites" : $"Site: {_siteLabel}";
+    public async Task ShowCabinetAsync(Guid cabinetId, string cabinetLabel)
+    {
+        if (!CanRequest() || cabinetId == Guid.Empty) return;
+        SourceCabinetId = cabinetId; _cabinetLabel = cabinetLabel;
+        SiteId = null; _siteLabel = string.Empty; Page = 1;
+        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        await LoadCoreAsync(supersede: true);
+    }
     public async Task ShowSiteAsync(Guid siteId, string siteLabel)
     {
         if (!CanRequest() || siteId == Guid.Empty) return;
+        SourceCabinetId = null; _cabinetLabel = string.Empty;
         SiteId = siteId; _siteLabel = siteLabel; Page = 1;
         OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
         await LoadCoreAsync(supersede: true);
@@ -26,6 +38,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     public async Task ShowAllAsync()
     {
         if (!CanRequest()) return;
+        SourceCabinetId = null; _cabinetLabel = string.Empty;
         SiteId = null; _siteLabel = string.Empty; Page = 1;
         OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
         await LoadCoreAsync(supersede: true);
@@ -38,7 +51,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private bool CanOpen() => CanLoad() && SelectedAlert is { } row && Alerts.Contains(row);
     private bool CanOpenTarget() => CanOpen() && SelectedAlert!.TargetCabinetId != Guid.Empty;
     private bool CanFilterToSelectedSite() => CanOpen() && SelectedAlert!.SiteId != Guid.Empty;
-    private bool CanShowAllSites() => CanLoad() && SiteId is not null;
+    private bool CanShowAllSites() => CanLoad() && (SiteId is not null || SourceCabinetId is not null);
     [RelayCommand(CanExecute = nameof(CanFilterToSelectedSite))]
     private Task FilterToSelectedSiteAsync()
     {
@@ -92,12 +105,13 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         Alerts.Clear(); SelectedAlert = null; TotalCount = 0; HasMore = false;
         OnPropertyChanged(nameof(PageSummary));
         var siteId = SiteId;
+        var sourceCabinetId = SourceCabinetId;
         var includeResolved = IncludeResolved;
         var pageNumber = Page;
         await RunAsync(async ct =>
         {
             var page = await _api.GetConnectivityAlertsAsync(new ConnectivityAlertQuery { SiteId = siteId,
-                IncludeResolved = includeResolved, Page = pageNumber, PageSize = 50 }, ct);
+                SourceCabinetId = sourceCabinetId, IncludeResolved = includeResolved, Page = pageNumber, PageSize = 50 }, ct);
             ct.ThrowIfCancellationRequested();
             foreach (var row in page.Items) Alerts.Add(row);
             TotalCount = page.TotalCount; HasMore = page.HasMore;
@@ -138,6 +152,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     public void Reset()
     {
         Deactivate(); Alerts.Clear(); SelectedAlert = null; Note = Outcome = string.Empty; IncludeResolved = false; ClearError(); NotifyCommands();
+        SourceCabinetId = null; _cabinetLabel = string.Empty;
         SiteId = null; _siteLabel = string.Empty; OnPropertyChanged(nameof(ScopeSummary));
         Page = 1; TotalCount = 0; HasMore = false; OnPropertyChanged(nameof(PageSummary));
     }

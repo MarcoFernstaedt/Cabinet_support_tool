@@ -22,6 +22,7 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         var main = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/MainWindow.xaml"));
         Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowAlertsCommand}");
         Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowSiteAlertsCommand}");
+        Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowCabinetAlertsCommand}");
         Assert.Equal("{Binding Alerts}", (string?)Assert.Single(main.Descendants(), e => e.Name.LocalName == "ConnectivityAlertsView").Attribute("DataContext"));
         var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
@@ -63,10 +64,18 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         await site.ExecuteAsync(null);
         Assert.Equal(other.SiteId, alerts.SiteId);
         Assert.Equal(ShellView.Alerts, shell.CurrentView);
+        var scoped = (IAsyncRelayCommand)typeof(ShellViewModel).GetProperty("ShowCabinetAlertsCommand")!.GetValue(shell)!;
+        Assert.True(scoped.CanExecute(null));
+        await scoped.ExecuteAsync(null);
+        Assert.Equal(other.Id, alerts.SourceCabinetId);
+        Assert.Null(alerts.SiteId);
+        Assert.Equal(ShellView.Alerts, shell.CurrentView);
         await show.ExecuteAsync(null);
+        Assert.Null(alerts.SourceCabinetId);
         Assert.Null(alerts.SiteId);
         shell.SignOutCommand.Execute(null);
         Assert.False(site.CanExecute(null));
+        Assert.False(scoped.CanExecute(null));
         Assert.Empty(alerts.Alerts); Assert.Null(alerts.SelectedAlert); Assert.False(show.CanExecute(null));
     }
 }
