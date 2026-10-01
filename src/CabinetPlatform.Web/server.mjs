@@ -66,6 +66,8 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         const user = await me.json();
         if (!user.isActive || user.mustChangePassword || !["Tier1", "Tier2", "Supervisor"].includes(user.role)) { respond(403, page(true), "text/html; charset=utf-8"); return; }
         if (id) sessions.delete(id);
+        for (const [key, session] of sessions)
+          if (session.expires <= Date.now()) sessions.delete(key);
         if (sessions.size >= 100) { respond(503, "Session capacity reached"); return; }
         const key = randomBytes(32).toString("base64url");
         sessions.set(key, { token: data.accessToken, csrf: randomBytes(32).toString("base64url"), expires: Math.min(expires, Date.now() + 30 * 60 * 1000) });

@@ -54,6 +54,17 @@ test("unauthenticated preview is gated, credentials stay on server, and revocati
   } finally { await f.close(); }
 });
 
+test("expired abandoned sessions release local capacity for a new sign-in", async () => {
+  const f = await fixture();
+  const now = Date.now;
+  try {
+    const options = { method: "POST", headers: { origin: f.origin, "content-type": "application/x-www-form-urlencoded" }, body: "username=tester&password=test-only-password" };
+    for (let i = 0; i < 100; i++) assert.equal((await f.request("/signin", options)).status, 303);
+    Date.now = () => now() + 120000;
+    assert.equal((await f.request("/signin", options)).status, 303);
+  } finally { Date.now = now; await f.close(); }
+});
+
 test("login refuses cross-origin requests, failure leaks no token, and logout needs CSRF", async () => {
   const f = await fixture();
   try {
