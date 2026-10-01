@@ -1,6 +1,7 @@
 import http from "node:http";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, validGuid } from "./read-only-pages.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -11,7 +12,7 @@ const files = new Map([
   ["/login.css", ["login.css", "text/css; charset=utf-8"]],
 ]);
 const escapeHtml = text => String(text).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
-const page = error => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in | Mashura Support</title><link rel="stylesheet" href="/login.css"></head><body><main class="login"><div class="brand">Mashura <span>Support workspace</span></div><p class="tag">LOCAL DEVELOPMENT BUILD</p><h1>Sign in</h1><p>Use a test support account. This browser build is local only and does not enforce MFA.</p>${error ? '<p class="error" role="alert">Sign-in failed. Check your account or contact an administrator.</p>' : ''}<form method="post" action="/signin"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="128"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button>Sign in</button></form><small>This build shows synthetic event records only. It does not connect to a cabinet.</small></main></body></html>`;
+const page = error => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in | Mashura Support</title><link rel="stylesheet" href="/login.css"></head><body><main class="login"><div class="brand">Mashura <span>Support workspace</span></div><p class="tag">LOCAL DEVELOPMENT BUILD</p><h1>Sign in</h1><p>Use a test support account. This browser build is local only and does not enforce MFA.</p>${error ? '<p class="error" role="alert">Sign-in failed. Check your account or contact an administrator.</p>' : ''}<form method="post" action="/signin"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="128"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button>Sign in</button></form><small>The Event Viewer shows synthetic records. Read-only fleet and incident pages connect only to the configured local test server; use disposable synthetic data.</small></main></body></html>`;
 
 async function form(req) {
   if (!req.headers["content-type"]?.toLowerCase().startsWith("application/x-www-form-urlencoded")) throw Error("Invalid form");
@@ -31,9 +32,11 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
   try { upstream = new URL(upstreamUrl); } catch { throw Error("HTTPS upstream origin required"); }
   if (upstream.protocol !== "https:" || upstream.username || upstream.password || upstream.pathname !== "/" || upstream.search || upstream.hash)
     throw Error("HTTPS upstream origin required");
+  if (upstream.hostname !== "127.0.0.1" && upstream.hostname !== "[::1]")
+    throw Error("Local preview requires a loopback upstream; never point it at a staff or production server");
   const sessions = new Map();
   const cookieName = "cabinet_local_dev";
-  const api = (path, options) => upstreamFetch(new URL(path, upstream), { ...options, redirect: "manual", signal: AbortSignal.timeout(5000), cache: "no-store" });
+  const api = (path, options) => upstreamFetch(new URL(path, upstream), { ...options, redirect: "manual", signal: options?.signal ?? AbortSignal.timeout(5000), cache: "no-store" });
   const clearCookie = `${cookieName}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict`;
   return http.createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
@@ -85,7 +88,12 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
       res.setHeader("Set-Cookie", clearCookie);
       redirect("/signin"); return;
     }
-    if (req.method !== "GET" || !files.has(req.url)) { respond(404, "Not found"); return; }
+    if (!req.url.startsWith("/") || req.url.startsWith("//")) { respond(404, "Not found"); return; }
+    const route = new URL(req.url, origin);
+    const fleetRoute = route.pathname === "/fleet";
+    const cabinetRoute = /^\/cabinet\/([^/]+)$/.exec(route.pathname);
+    const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !incidentRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -97,6 +105,53 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         }
         session.name = user.displayName;
       } catch { respond(502, "Support server unavailable"); return; }
+    }
+    if (incidentRoute) {
+      const siteId = incidentRoute[1].toLowerCase();
+      const rawPage = route.searchParams.get("page") ?? "1";
+      if (!validGuid(siteId)) { respond(404, "Site not found"); return; }
+      if (!/^[1-9][0-9]{0,3}$/.test(rawPage)) { respond(400, "Invalid incident page"); return; }
+      const pageNumber = Number(rawPage);
+      try {
+        const query = new URLSearchParams({ SiteId: siteId, Page: String(pageNumber), PageSize: "20", IncludeResolved: "false" });
+        const result = await api(`api/connectivity-alerts?${query}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 403) { respond(403, "Incident access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const queue = await readBoundedJson(result);
+        let summary = null;
+        try {
+          const countResult = await api(`api/connectivity-alerts/site/${siteId}/summary`, { headers: { Authorization: `Bearer ${session.token}` }, signal: AbortSignal.timeout(800) });
+          summary = await readBoundedJson(countResult, 8192);
+        } catch { /* Optional counts cannot hide an authorized incident page. */ }
+        respond(200, renderSiteIncidents(siteId, queue, summary, pageNumber), "text/html; charset=utf-8");
+      } catch { respond(502, "Incident page unavailable"); }
+      return;
+    }
+    if (cabinetRoute) {
+      const cabinetId = cabinetRoute[1];
+      if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      try {
+        const result = await api(`api/cabinets/${cabinetId}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 404) { respond(404, "Cabinet not found"); return; }
+        if (result.status === 403) { respond(403, "Cabinet access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const data = await readBoundedJson(result);
+        respond(200, renderCabinet(data, cabinetId), "text/html; charset=utf-8");
+      } catch { respond(502, "Cabinet detail unavailable"); }
+      return;
+    }
+    if (fleetRoute) {
+      const search = route.searchParams.get("search") ?? "";
+      const rawPage = route.searchParams.get("page") ?? "1";
+      if (search.length > 80 || /[\u0000-\u001f]/.test(search) || !/^[1-9][0-9]{0,3}$/.test(rawPage)) { respond(400, "Invalid fleet query"); return; }
+      const pageNumber = Number(rawPage);
+      try {
+        const query = new URLSearchParams({ Search: search, Page: String(pageNumber), PageSize: "20", IsActive: "true" });
+        const result = await api(`api/cabinets?${query}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        const data = await readBoundedJson(result);
+        respond(200, renderFleet(data, { search, page: pageNumber }), "text/html; charset=utf-8");
+      } catch { respond(502, "Cabinet finder unavailable"); }
+      return;
     }
     const [name, contentType] = files.get(req.url);
     try {

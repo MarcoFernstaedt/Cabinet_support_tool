@@ -1,0 +1,42 @@
+# Cabinet Support delivery register
+
+This is a finite planning baseline, not a claim that the 82 vision sections are 82 independent features. **21 operator workflows** are in scope in this register. A workflow is a bounded support outcome with a visible entry point, authorized data path, failure states and a testable acceptance result. Split or rebaseline it explicitly if the requirements change. The web app is the primary Console; WPF is a transitional compatibility surface. Remote screen/control, arbitrary shell, patient or application database access, physical actuation and automatic firewall repair are excluded. Privileged repairs and file handling need separate approval before implementation.
+
+**Status rule:** `source merged` means reviewed code is on `main`, not deployed or production accepted. `planned` means no acceptance claim. A workflow becomes `accepted` only after identity, security, native Windows/browser, fleet, deployment and operator gates relevant to that workflow are evidenced. The local password gateway is loopback-only, has no MFA and may use synthetic accounts only. The separate Entra host has no cabinet data routes. Never expose cabinet data to staff through either as though production auth were complete.
+
+## Delivery sequence
+
+### Incident triage source, WPF transitional
+1. **Cabinet incident queue** | Source merged, PR #7 | From a loaded cabinet, open incidents scoped to its immutable ID, with empty/error and stale-scope handling. Native UI and deployment acceptance open.
+2. **Incident evidence detail** | Source merged, PR #8 | Open accepted historical interval evidence with timestamps, counts and explicit unknowns; never infer live connectivity or firewall cause. Native UI and device acceptance open.
+3. **Site incident annotation workload** | Source merged, PR #9 | Show retained status totals across the current source site, query time and unknown on summary failure without hiding the queue. PostgreSQL fleet latency and native UI acceptance open.
+
+### Web Console, local development preview source
+4. **Web cabinet finder** | Local preview source, release blocked | Staff searches a bounded, paginated cabinet list, sees site/client and freshness, and cannot leak bearer credentials into browser JavaScript. The local password gateway is only for disposable synthetic data; production requires Entra staff mapping and authorized BFF, deny/revocation tests, real fleet pagination and accessible browser QA.
+5. **Web cabinet detail** | Local preview source, release blocked | Open the exact selected cabinet ID from the finder, show site/sync identity and timestamped historical health; handle inactive, denied, missing and stale navigation distinctly. Same identity and release gates as #4.
+6. **Web site incident queue** | Local preview source, release blocked | From the selected cabinet's site, read a bounded incident page and server-timed site workload, inspect historical evidence and preserve uncertainty. A failed optional count must not blank the page. Same identity and release gates as #4 plus PostgreSQL plan/latency.
+
+### Read-only diagnosis and monitoring
+7. **Web Event Viewer connected result** | Planned | Read bounded saved Agent results with exact cabinet/channel/provider identity, per-channel outcomes and evidence times; no fictional records in connected mode. Windows native read, actual transport, security and accessibility gates.
+8. **Application crash investigation** | Planned | Correlate approved events, WER and genuinely historical process evidence, with unknown cause when unsupported; never infer causation from a later snapshot.
+9. **Process and service diagnostics** | Planned | Show bounded discovered process/service state, exact identities, collection times and stale/denied outcomes without control operations.
+10. **Fleet and site health overview** | Planned | Paginate active cabinets and aggregate measured health with freshness, missing data and site/sync distinctions; validate multi-page parity and realistic fleet latency.
+11. **Connectivity incident correlation** | Planned | Correlate source-to-sync ICMP, server contact, target reachability and supported application-port evidence without equating any nonreply with firewall causation.
+12. **Network history** | Planned | Inspect retained bounded measurements and outages with recovery confirmation, clock caveats and buffer/replay gaps.
+13. **Storage and SMART investigation** | Planned | Inspect exact measured disk evidence, reliability warnings, unavailable counters and collection time; no fabricated prediction.
+14. **Restricted log explorer** | Planned | List and read only explicitly approved support-owned logs with path/link limits, redaction, auditing and no patient/database content.
+15. **Display diagnosis** | Planned | Distinguish resolution, scaling, Magnifier and app zoom through available evidence, including inaccessible session state; no implicit correction.
+
+### Operator administration and controlled change, separately authorized
+16. **Cabinet enrollment and retirement** | Planned for web | Review exact identity and role, approve/reject and retire with audit, conflict protection and credential revocation. Existing server capabilities do not constitute a web workflow.
+17. **Staff and session administration** | Planned for web | Review scoped staff identities, roles and revocation with least privilege and independent authorization; Entra mapping and MFA are prerequisite.
+18. **Approved file staging and receipt** | Planned | Select exact targets, stage signed/approved files and distinguish server receipt, Agent receipt and verified local staging; no installer execution.
+19. **Process lifecycle maintenance** | Planned, approval required | Select a creation-verified process or approved application session, preview impact, obtain authorization, record unknown outcomes and prove inert Windows recovery.
+20. **Network and display recovery** | Planned, approval required | Apply only narrow approved changes with durable prior state, independent access and timed revert; no automatic firewall repair.
+21. **Approved update deployment** | Planned, approval required | Target signed compatible packages in maintenance windows, verify version/reboot and recover interrupted installations; never treat file delivery as execution authority.
+
+## Cross-cutting release gates
+
+For each slice record the commit, supported OS/browser, threat boundary, role and cabinet/site authority, test counts, review, failure/revocation/restart behavior, real Agent-to-Server-to-web data evidence where applicable, query plan at representative fleet size, accessibility and Windows 10/11 acceptance, rollout and rollback. These gates are not implicitly passed by a source merge, mock, synthetic test, Linux cross-build or green CI. The current web sign-in and synthetic Event Viewer must not be used for staff or production cabinet data. Native and physical-cabinet checks remain blocked while the HP is offline.
+
+The vision index and `docs/readiness.md` remain requirements and release-gate references. This register is the countable delivery queue; new requests change the baseline only with an explicit new entry and acceptance criteria.
