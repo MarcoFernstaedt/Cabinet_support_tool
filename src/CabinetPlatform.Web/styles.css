@@ -273,6 +273,63 @@ p {
   color: var(--muted);
   font-size: 12px;
 }
+.channel-nav {
+  display: flex;
+  gap: 7px;
+  padding: 0 24px 14px;
+  overflow-x: auto;
+  min-height: 48px;
+}
+.channel-nav button,
+.active-filters button,
+.drilldown button {
+  color: var(--text);
+  background: #1b2a38;
+  border: 1px solid #5e7488;
+  border-radius: 5px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 44px;
+}
+.channel-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.channel-nav button[aria-pressed="true"] {
+  border-color: var(--focus);
+  background: #213d4d;
+  color: #fff;
+}
+.channel-nav small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.active-filters:not(:empty) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 24px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.active-filters button { padding: 0 12px; white-space: nowrap; }
+.channel-nav button:hover,
+.active-filters button:hover,
+.drilldown button:hover { background: #294658; }
+.channel-nav button:focus-visible,
+.active-filters button:focus-visible,
+.drilldown button:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+.drilldown {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 17px;
+}
+.drilldown button { padding: 0 13px; }
+.drilldown span { color: var(--muted); font-size: 11px; }
 .filters {
   padding: 4px 24px 20px;
   display: grid;

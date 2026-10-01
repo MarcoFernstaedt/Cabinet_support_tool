@@ -67,6 +67,8 @@
                   >
                 </div>
               </div>
+              <nav class="channel-nav" id="channel-nav" aria-label="Event channels"></nav>
+              <div class="active-filters" id="active-filters" aria-live="polite"></div>
               <div class="filters">
                 <label class="search-label" for="event-search"
                   >Search events</label
@@ -119,6 +121,7 @@
                 </div>
                 <h2 id="selected-title"></h2>
                 <div id="selected-level" class="level-chip"></div>
+                <div class="drilldown"><button id="show-provider-events" type="button">Show this provider’s events</button><span>Filters the collected records for this cabinet only.</span></div>
                 <dl class="detail-grid">
                   <div>
                     <dt>Channel</dt>
