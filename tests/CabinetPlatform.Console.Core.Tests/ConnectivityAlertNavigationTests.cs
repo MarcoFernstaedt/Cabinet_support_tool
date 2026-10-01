@@ -24,7 +24,8 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         Assert.Equal("{Binding Alerts}", (string?)Assert.Single(main.Descendants(), e => e.Name.LocalName == "ConnectivityAlertsView").Attribute("DataContext"));
         var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
-        foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "NextCommand", "PreviousCommand" })
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding FirewallTriageGuidance}");
+        foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand", "NextCommand", "PreviousCommand" })
             Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Command") == "{Binding " + command + "}");
         string username = Guid.NewGuid().ToString();
         await _host.CreateUserAsync(role, username);
@@ -40,7 +41,7 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
             new MachineTabViewModel(api, invoker, session, announcer, time), new CabinetTabViewModel(),
             new AuditTabViewModel(api, announcer, time), new FleetTabViewModel(api, announcer, time),
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
-            new RegistrationsViewModel(api, session, announcer), session, announcer, null, alerts)!;
+            new RegistrationsViewModel(api, session, announcer), session, announcer, api, null, alerts)!;
         var show = (IAsyncRelayCommand)typeof(ShellViewModel).GetProperty("ShowAlertsCommand")!.GetValue(shell)!;
         Assert.True(show.CanExecute(null)); await show.ExecuteAsync(null);
         Assert.Equal("Alerts", shell.CurrentView.ToString());
@@ -50,6 +51,9 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
         ((IRelayCommand)typeof(ConnectivityAlertsViewModel).GetProperty("OpenSourceCommand")!.GetValue(alerts)!).Execute(null);
         await shell.PendingSelectionLoad;
         Assert.Equal(cabinet.Id, shell.Machine.Path!.CabinetId);
+        ((IRelayCommand)typeof(ConnectivityAlertsViewModel).GetProperty("OpenTargetCommand")!.GetValue(alerts)!).Execute(null);
+        await shell.PendingSelectionLoad;
+        Assert.Equal(other.Id, shell.Machine.Path!.CabinetId);
         shell.SignOutCommand.Execute(null);
         Assert.Empty(alerts.Alerts); Assert.Null(alerts.SelectedAlert); Assert.False(show.CanExecute(null));
     }

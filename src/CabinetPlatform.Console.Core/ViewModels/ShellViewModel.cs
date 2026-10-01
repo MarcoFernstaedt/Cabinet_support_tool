@@ -83,7 +83,7 @@ public sealed partial class ShellViewModel : ObservableObject, IDisposable
         if (Alerts is not null)
         {
             WatchForExpiry(Alerts);
-            Alerts.SourceChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
+            Alerts.CabinetChosen += (_, id) => PendingSelectionLoad = OpenCabinetAsync(id);
         }
         if (Staff is not null) WatchForExpiry(Staff);
 

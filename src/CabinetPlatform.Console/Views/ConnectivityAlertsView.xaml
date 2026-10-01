@@ -35,10 +35,13 @@
   <StackPanel Grid.Row="2" Margin="0,12,0,0">
    <TextBlock Text="Selected source cabinet ID"/><TextBlock Text="{Binding SelectedAlert.SourceCabinetId}"/>
    <TextBlock Text="{Binding SelectedAlert.Note}" TextWrapping="Wrap"/>
+   <TextBlock Text="{Binding FirewallTriageGuidance}" TextWrapping="Wrap" Margin="0,8,0,8" Focusable="True"
+              AutomationProperties.Name="{Binding FirewallTriageGuidance}" AutomationProperties.LiveSetting="Polite"/>
    <Label Content="Annotation _reason" Target="{Binding ElementName=Note}"/>
    <TextBox x:Name="Note" Text="{Binding Note, UpdateSourceTrigger=PropertyChanged}" MaxLength="1000" AutomationProperties.Name="Required annotation reason"/>
    <WrapPanel>
     <Button Content="Open source cabinet" Command="{Binding OpenSourceCommand}"/>
+    <Button Content="Open measured target" Command="{Binding OpenTargetCommand}"/>
     <Button Content="Acknowledge selected incident" Command="{Binding AcknowledgeCommand}"/>
     <Button Content="Resolve acknowledged incident" Command="{Binding ResolveCommand}"/>
    </WrapPanel>

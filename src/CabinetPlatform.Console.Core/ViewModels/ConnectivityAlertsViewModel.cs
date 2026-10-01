@@ -17,14 +17,26 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     { _api = api; _session = session; }
 
     public ObservableCollection<ConnectivityAlertDto> Alerts { get; } = new();
-    public event EventHandler<Guid>? SourceChosen;
+    public event EventHandler<Guid>? CabinetChosen;
     private bool CanOpen() => CanLoad() && SelectedAlert is { } row && Alerts.Contains(row);
+    private bool CanOpenTarget() => CanOpen() && SelectedAlert!.TargetCabinetId != Guid.Empty;
     [RelayCommand(CanExecute = nameof(CanOpen))]
     private void OpenSource()
     {
-        if (CanOpen()) SourceChosen?.Invoke(this, SelectedAlert!.SourceCabinetId);
+        if (CanOpen()) CabinetChosen?.Invoke(this, SelectedAlert!.SourceCabinetId);
+    }
+    [RelayCommand(CanExecute = nameof(CanOpenTarget))]
+    private void OpenTarget()
+    {
+        if (CanOpenTarget()) CabinetChosen?.Invoke(this, SelectedAlert!.TargetCabinetId);
     }
     [ObservableProperty] private ConnectivityAlertDto? _selectedAlert;
+    public string FirewallTriageGuidance => SelectedAlert is not { } row ?
+        "Select an incident to investigate. Firewall involvement is unknown without packet-path evidence." :
+        $"Firewall involvement: unknown. ICMP nonreply from source {row.SourceCabinetId} to target {row.TargetCabinetId} " +
+        "does not prove a firewall block. A support member can open each cabinet and request a read-only Windows firewall inspection. " +
+        "Compare timestamps, active profiles, both endpoints and the actual network path. Profile and rule metadata are not an effective packet verdict. " +
+        "Only an operator may make approved configuration changes; this view does not change firewall configuration or measured reachability.";
     [ObservableProperty] private string _note = string.Empty;
     [ObservableProperty] private bool _includeResolved;
     [ObservableProperty] private string _outcome = string.Empty;
@@ -78,13 +90,13 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (success) await LoadAsync();
         else Alerts.Clear();
     }
-    partial void OnSelectedAlertChanged(ConnectivityAlertDto? value) { Note = string.Empty; NotifyCommands(); }
+    partial void OnSelectedAlertChanged(ConnectivityAlertDto? value) { Note = string.Empty; OnPropertyChanged(nameof(FirewallTriageGuidance)); NotifyCommands(); }
     partial void OnNoteChanged(string value) => NotifyCommands();
     protected override void OnLoadingChanged(bool isLoading) => NotifyCommands();
     private void NotifyCommands()
     {
         RefreshCommand.NotifyCanExecuteChanged(); AcknowledgeCommand.NotifyCanExecuteChanged(); ResolveCommand.NotifyCanExecuteChanged();
-        OpenSourceCommand.NotifyCanExecuteChanged();
+        OpenSourceCommand.NotifyCanExecuteChanged(); OpenTargetCommand.NotifyCanExecuteChanged();
         NextCommand.NotifyCanExecuteChanged(); PreviousCommand.NotifyCanExecuteChanged();
     }
     public void Reset()
