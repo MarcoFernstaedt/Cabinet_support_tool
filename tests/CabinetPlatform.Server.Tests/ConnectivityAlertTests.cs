@@ -65,6 +65,13 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
         var page = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
         var alert = Assert.Single(page.GetProperty("items").EnumerateArray());
         Assert.True(alert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        var accepted = alert.GetProperty("incidentEvidence");
+        Assert.Equal(summary.Id, accepted.GetProperty("id").GetGuid());
+        Assert.Equal(summary.ConfigurationId, accepted.GetProperty("configurationId").GetGuid());
+        Assert.Equal(first, accepted.GetProperty("firstObservedUtc").GetDateTimeOffset());
+        Assert.Equal(first.AddMinutes(2), accepted.GetProperty("lastObservedUtc").GetDateTimeOffset());
+        Assert.Equal(3, accepted.GetProperty("failureCount").GetInt32());
+        Assert.Equal(0, accepted.GetProperty("successCount").GetInt32());
         // Simulate a retained 15-day incident; ordinary evidence normally expires after 14 days.
         await _factory.WithDbAsync(async db =>
         {
@@ -77,8 +84,10 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
         });
         (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
         var retained = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
-        Assert.True(Assert.Single(retained.GetProperty("items").EnumerateArray())
-            .GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        var retainedAlert = Assert.Single(retained.GetProperty("items").EnumerateArray());
+        Assert.True(retainedAlert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        Assert.Equal(summary.Id, retainedAlert.GetProperty("incidentEvidence").GetProperty("id").GetGuid());
+        Assert.Equal(3, retainedAlert.GetProperty("incidentEvidence").GetProperty("failureCount").GetInt32());
         Assert.Equal("Open", alert.GetProperty("status").GetString());
     }
 

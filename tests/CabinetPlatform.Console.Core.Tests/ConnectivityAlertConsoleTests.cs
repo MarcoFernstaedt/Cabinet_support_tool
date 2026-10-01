@@ -44,6 +44,10 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
         Assert.Null(vm.SiteId);
         Assert.Equal(first.Id, vm.SourceCabinetId);
         Assert.Equal(first.Id, Assert.Single(vm.Alerts).SourceCabinetId);
+        vm.SelectedAlert = Assert.Single(vm.Alerts);
+        Assert.Null(vm.SelectedAlert.IncidentEvidence);
+        Assert.Contains("unavailable", vm.EvidenceAvailability, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("unknown", vm.EvidenceAvailability, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Cabinet:", vm.ScopeSummary);
         await vm.ShowAllAsync();
         Assert.Null(vm.SourceCabinetId);
@@ -131,7 +135,11 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
         await vm.LoadAsync();
         var rows = (IEnumerable<ConnectivityAlertDto>)vm.Alerts;
         var alert = Assert.Single(rows, a => a.SourceCabinetId == source.Id);
+        Assert.Equal(3, alert.IncidentEvidence?.FailureCount);
+        Assert.Equal(0, alert.IncidentEvidence?.SuccessCount);
+        Assert.Equal(first, alert.IncidentEvidence?.FirstObservedUtc);
         vm.SelectedAlert = alert;
+        Assert.Contains("historical", (string)vm.EvidenceAvailability, StringComparison.OrdinalIgnoreCase);
         vm.Note = "Investigating";
         await ((IAsyncRelayCommand)vm.AcknowledgeCommand).ExecuteAsync(null);
         Assert.Null((object?)vm.SelectedAlert);

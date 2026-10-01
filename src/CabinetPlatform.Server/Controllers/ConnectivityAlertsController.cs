@@ -80,7 +80,9 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
         {
             if (!byEvidence.TryGetValue((a.EvidenceId, a.SourceCabinetId), out var evidence)) return a;
             var summary = JsonSerializer.Deserialize<ConnectivitySummary>(evidence.SummaryJson, ContractJson.Default);
-            return a with { SourceFirewallCheck = summary?.SourceFirewallCheck };
+            if (summary is null || summary.Id != a.EvidenceId || summary.SourceCabinetId != a.SourceCabinetId ||
+                summary.TargetCabinetId != a.TargetCabinetId) return a;
+            return a with { IncidentEvidence = summary, SourceFirewallCheck = summary.SourceFirewallCheck };
         }).ToArray();
         return Ok(PagedResult<ConnectivityAlertDto>.Create(items, query.Page, query.PageSize, total));
     }
