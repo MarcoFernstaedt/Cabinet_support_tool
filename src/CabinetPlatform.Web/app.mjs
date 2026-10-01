@@ -11,7 +11,7 @@ export function createEventInspector(doc, initialEvents = []) {
   let events = [...initialEvents];
   let selectedId = null;
   let cabinetId = "CAB-01";
-  let channelFilter = "all";
+  let channelFilter = null;
   let providerFilter = null;
 
   function renderNavigation() {
@@ -20,12 +20,12 @@ export function createEventInspector(doc, initialEvents = []) {
     for (const event of scoped)
       counts.set(event.channel, (counts.get(event.channel) ?? 0) + 1);
     channelNav.replaceChildren();
-    for (const [channel, count] of [["all", scoped.length], ...[...counts].sort(([a], [b]) => a.localeCompare(b))]) {
+    for (const [channel, count] of [[null, scoped.length], ...[...counts].sort(([a], [b]) => String(a).localeCompare(String(b)))]) {
       const button = doc.createElement("button");
       button.type = "button";
-      button.dataset.channel = channel;
+      button.dataset.channel = channel === null ? "all" : channel;
       button.setAttribute("aria-pressed", String(channel === channelFilter));
-      button.append(doc.createTextNode(channel === "all" ? "All channels" : channel));
+      button.append(doc.createTextNode(channel === null ? "All channels" : channel));
       const quantity = doc.createElement("small");
       quantity.textContent = String(count);
       button.append(quantity);
@@ -33,7 +33,7 @@ export function createEventInspector(doc, initialEvents = []) {
         channelFilter = channel;
         render();
         channelNav.querySelectorAll("button").forEach(item =>
-          item.setAttribute("aria-pressed", String(item.dataset.channel === channelFilter)));
+          item.setAttribute("aria-pressed", String(item === button)));
       });
       channelNav.append(button);
     }
@@ -47,7 +47,7 @@ export function createEventInspector(doc, initialEvents = []) {
     clear.type = "button";
     clear.id = "clear-provider-filter";
     clear.textContent = "Clear provider";
-    clear.addEventListener("click", () => { providerFilter = null; render(); });
+    clear.addEventListener("click", () => { providerFilter = null; render(); search.focus(); });
     activeFilters.append(label, clear);
   }
 
@@ -56,7 +56,7 @@ export function createEventInspector(doc, initialEvents = []) {
     return events.filter(
       (event) =>
         event.cabinet === cabinetId &&
-        (channelFilter === "all" || event.channel === channelFilter) &&
+        (channelFilter === null || event.channel === channelFilter) &&
         (providerFilter === null || event.provider === providerFilter) &&
         (level.value === "all" || event.level === level.value) &&
         (!query ||
@@ -77,7 +77,7 @@ export function createEventInspector(doc, initialEvents = []) {
     selectedId = event?.id ?? null;
     detail.hidden = !event;
     empty.hidden = !!event;
-    providerButton.disabled = !event;
+    providerButton.disabled = !event?.provider;
     if (!event) return;
     const fields = {
       "selected-title": `${event.provider} · ${event.eventId}`,
@@ -144,7 +144,7 @@ export function createEventInspector(doc, initialEvents = []) {
   level.addEventListener("change", render);
   providerButton.addEventListener("click", () => {
     const event = events.find(item => item.cabinet === cabinetId && item.id === selectedId);
-    if (!event) return;
+    if (!event?.provider) return;
     providerFilter = event.provider;
     render();
   });
@@ -181,7 +181,7 @@ export function createEventInspector(doc, initialEvents = []) {
     setCabinet(id, newEvents) {
       cabinetId = id;
       events = [...newEvents];
-      channelFilter = "all";
+      channelFilter = null;
       providerFilter = null;
       search.value = "";
       level.value = "all";

@@ -53,6 +53,35 @@ test("cabinet change resets channel and provider navigation without old cabinet 
   assert.equal(doc.querySelector("#selected-event").hidden, true);
 });
 
+test("clearing a provider filter returns keyboard focus to search", () => {
+  const { doc } = setup();
+  doc.querySelector('[data-event-id="one"]').click();
+  doc.querySelector("#show-provider-events").click();
+  doc.querySelector("#clear-provider-filter").focus();
+  doc.querySelector("#clear-provider-filter").click();
+  assert.equal(doc.activeElement, doc.querySelector("#event-search"));
+});
+
+test("records without a provider cannot create an invisible provider restriction", () => {
+  const { doc, inspector } = setup();
+  inspector.setCabinet("CAB-01", [{ ...data[0], provider: "" }, data[1]]);
+  doc.querySelector('[data-event-id="one"]').click();
+  assert.equal(doc.querySelector("#show-provider-events").disabled, true);
+  doc.querySelector("#show-provider-events").click();
+  assert.equal(doc.querySelectorAll("[data-event-id]").length, 2);
+  assert.equal(doc.querySelector("#active-filters").textContent.trim(), "");
+});
+
+test("a collected channel literally named all stays distinct from all channels", () => {
+  const { doc, inspector } = setup();
+  inspector.setCabinet("CAB-01", [{ ...data[0], channel: "all" }, data[1]]);
+  const options = [...doc.querySelectorAll("#channel-nav button")];
+  assert.equal(options.length, 3);
+  options.find(x => x.textContent.trim() === "all1").click();
+  assert.deepEqual([...doc.querySelectorAll("[data-event-id]")].map(x => x.dataset.eventId), ["one"]);
+  assert.equal(options.filter(x => x.getAttribute("aria-pressed") === "true").length, 1);
+});
+
 test("untrusted provider/channel names are rendered as text only", () => {
   const { doc, inspector } = setup();
   inspector.setCabinet("CAB-01", [{ ...data[0], id: "bad", channel: "<img src=x onerror=alert(1)>", provider: "<script>alert(1)</script>" }]);
