@@ -46,6 +46,7 @@ public interface IApiClient
 
     // --- Enrollment ------------------------------------------------------
     Task<PagedResult<ConnectivityAlertDto>> GetConnectivityAlertsAsync(ConnectivityAlertQuery query, CancellationToken ct) => throw new NotSupportedException();
+    Task<ConnectivitySiteWorkloadDto> GetConnectivitySiteWorkloadAsync(Guid siteId, CancellationToken ct) => throw new NotSupportedException();
     Task AcknowledgeConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) => throw new NotSupportedException();
     Task ResolveConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) => throw new NotSupportedException();
     Task<PagedResult<UserDto>> GetUsersAsync(PagedQuery query, CancellationToken ct) => throw new NotSupportedException();

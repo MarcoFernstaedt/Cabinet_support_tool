@@ -53,6 +53,23 @@ public sealed record ConnectivityAlertDto
     public DateTimeOffset? UpdatedUtc { get; init; }
 }
 
+/// <summary>Server snapshot of retained incident annotation workload for a source site, not measured health.</summary>
+public sealed record ConnectivitySiteWorkloadDto
+{
+    /// <summary>Current source-site identity, not an incident-time site snapshot.</summary>
+    public Guid SiteId { get; init; }
+    /// <summary>Server time when the grouped query was requested.</summary>
+    public DateTimeOffset AsOfUtc { get; init; }
+    /// <summary>Retained incidents awaiting operator acknowledgment.</summary>
+    public int Open { get; init; }
+    /// <summary>Retained incidents acknowledged but not resolved.</summary>
+    public int Acknowledged { get; init; }
+    /// <summary>Retained incidents manually resolved; not proof of restored connectivity.</summary>
+    public int Resolved { get; init; }
+    /// <summary>All retained incident annotations at this source site.</summary>
+    public int Total => Open + Acknowledged + Resolved;
+}
+
 /// <summary>Bounded connectivity incident queue query.</summary>
 public sealed record ConnectivityAlertQuery : PagedQuery
 {

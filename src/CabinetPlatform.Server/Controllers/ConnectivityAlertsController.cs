@@ -21,6 +21,23 @@ public sealed class ConnectivityAlertsController(SupportDbContext db, TimeProvid
         return await ListCore(query, ct);
     }
 
+    [HttpGet("site/{siteId:guid}/summary")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
+    public async Task<ActionResult<ConnectivitySiteWorkloadDto>> SiteWorkload(Guid siteId, CancellationToken ct)
+    {
+        if (siteId == Guid.Empty) return BadRequest("A site ID is required.");
+        var now = time.GetUtcNow();
+        var counts = await db.ConnectivityAlerts.AsNoTracking()
+            .Where(a => a.SourceCabinet!.SiteId == siteId && a.ReceivedUtc >= now.AddDays(-30))
+            .GroupBy(a => a.Status).Select(g => new { Status = g.Key, Count = g.Count() }).ToArrayAsync(ct);
+        int Count(string status) => counts.Where(c => c.Status == status).Sum(c => c.Count);
+        return Ok(new ConnectivitySiteWorkloadDto
+        {
+            SiteId = siteId, AsOfUtc = now, Open = Count("Open"),
+            Acknowledged = Count("Acknowledged"), Resolved = Count("Resolved")
+        });
+    }
+
     [HttpPost("{id:guid}/acknowledge")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
     public Task<IActionResult> Acknowledge(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>

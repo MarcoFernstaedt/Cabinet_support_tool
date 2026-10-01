@@ -32,6 +32,7 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
             Assert.Contains(view.Descendants(), e => ((string?)e.Attribute("Text"))?.Contains("SelectedAlert.IncidentEvidence." + binding, StringComparison.Ordinal) == true);
         Assert.Contains(view.Descendants(), e => e.Name.LocalName == "Expander" && (string?)e.Attribute("Header") == "Accepted interval evidence (historical)");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding ScopeSummary}");
+        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding SiteWorkloadText}");
         Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding SourceFirewallClueLabel}");
         foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand",
                      "FilterToSelectedSiteCommand", "ShowAllSitesCommand", "NextCommand", "PreviousCommand" })

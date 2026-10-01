@@ -13,6 +13,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private readonly IApiClient _api;
     private readonly ISessionStore _session;
     private int _generation;
+    private CancellationTokenSource? _workloadCts;
     public Guid? SiteId { get; private set; }
     public Guid? SourceCabinetId { get; private set; }
     private string _siteLabel = string.Empty;
@@ -24,7 +25,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (!CanRequest() || cabinetId == Guid.Empty) return;
         SourceCabinetId = cabinetId; _cabinetLabel = cabinetLabel;
         SiteId = null; _siteLabel = string.Empty; Page = 1;
-        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        OnPropertyChanged(nameof(ScopeSummary)); OnPropertyChanged(nameof(SiteWorkloadText)); NotifyCommands();
         await LoadCoreAsync(supersede: true);
     }
     public async Task ShowSiteAsync(Guid siteId, string siteLabel)
@@ -32,7 +33,7 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (!CanRequest() || siteId == Guid.Empty) return;
         SourceCabinetId = null; _cabinetLabel = string.Empty;
         SiteId = siteId; _siteLabel = siteLabel; Page = 1;
-        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        OnPropertyChanged(nameof(ScopeSummary)); OnPropertyChanged(nameof(SiteWorkloadText)); NotifyCommands();
         await LoadCoreAsync(supersede: true);
     }
     public async Task ShowAllAsync()
@@ -40,12 +41,19 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
         if (!CanRequest()) return;
         SourceCabinetId = null; _cabinetLabel = string.Empty;
         SiteId = null; _siteLabel = string.Empty; Page = 1;
-        OnPropertyChanged(nameof(ScopeSummary)); NotifyCommands();
+        OnPropertyChanged(nameof(ScopeSummary)); OnPropertyChanged(nameof(SiteWorkloadText)); NotifyCommands();
         await LoadCoreAsync(supersede: true);
     }
     public ConnectivityAlertsViewModel(IApiClient api, ISessionStore session, ILiveRegionAnnouncer announcer) : base(announcer)
     { _api = api; _session = session; }
 
+    [ObservableProperty] private ConnectivitySiteWorkloadDto? _siteWorkload;
+    public string SiteWorkloadText => SiteId is null ? "Site workload is available in a site-scoped queue." :
+        SiteWorkload is not { } summary ? "Site workload unavailable. Counts unknown; refresh to retry." :
+        $"Historical operator workload: {summary.Open} open, {summary.Acknowledged} acknowledged, {summary.Resolved} resolved; " +
+        $"{summary.Total} retained incidents. Counts include resolved incidents regardless of the queue checkbox. " +
+        "An operator status is not measured connectivity or current site health.";
+    partial void OnSiteWorkloadChanged(ConnectivitySiteWorkloadDto? value) => OnPropertyChanged(nameof(SiteWorkloadText));
     public ObservableCollection<ConnectivityAlertDto> Alerts { get; } = new();
     public event EventHandler<Guid>? CabinetChosen;
     private bool CanOpen() => CanLoad() && SelectedAlert is { } row && Alerts.Contains(row);
@@ -104,14 +112,15 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private async Task LoadCoreAsync(bool supersede)
     {
         if (!(supersede ? CanRequest() : CanLoad())) return;
-        if (supersede) ++_generation; // A superseded annotation must not clear the new queue.
-        Alerts.Clear(); SelectedAlert = null; TotalCount = 0; HasMore = false;
+        int generation = ++_generation;
+        _workloadCts?.Cancel();
+        Alerts.Clear(); SelectedAlert = null; TotalCount = 0; HasMore = false; SiteWorkload = null;
         OnPropertyChanged(nameof(PageSummary));
         var siteId = SiteId;
         var sourceCabinetId = SourceCabinetId;
         var includeResolved = IncludeResolved;
         var pageNumber = Page;
-        await RunAsync(async ct =>
+        bool loaded = await RunAsync(async ct =>
         {
             var page = await _api.GetConnectivityAlertsAsync(new ConnectivityAlertQuery { SiteId = siteId,
                 SourceCabinetId = sourceCabinetId, IncludeResolved = includeResolved, Page = pageNumber, PageSize = 50 }, ct);
@@ -120,6 +129,23 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
             TotalCount = page.TotalCount; HasMore = page.HasMore;
             OnPropertyChanged(nameof(PageSummary));
         });
+        if (!loaded || siteId is not { } id || generation != _generation || !CanRequest()) return;
+        using var workloadCts = new CancellationTokenSource();
+        _workloadCts = workloadCts;
+        try
+        {
+            var workload = await _api.GetConnectivitySiteWorkloadAsync(id, workloadCts.Token);
+            if (!workloadCts.IsCancellationRequested && generation == _generation && CanRequest()) SiteWorkload = workload;
+        }
+        catch (OperationCanceledException) { /* Scope changed or view deactivated. */ }
+        catch (ApiException ex)
+        {
+            if (!workloadCts.IsCancellationRequested && generation == _generation) Fail(ex);
+        }
+        finally
+        {
+            if (ReferenceEquals(_workloadCts, workloadCts)) _workloadCts = null;
+        }
     }
     [RelayCommand(CanExecute = nameof(CanLoad))]
     private async Task RefreshAsync() { Page = 1; await LoadAsync(); }
@@ -130,6 +156,8 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     private async Task AnnotateAsync(bool resolve)
     {
         if (!(resolve ? CanResolve() : CanAcknowledge())) return;
+        _workloadCts?.Cancel(); // An optional count must not overwrite a decision error or ambiguous outcome.
+        SiteWorkload = null;
         var row = SelectedAlert!;
         int generation = _generation;
         var request = new AnnotateConnectivityAlertRequest { SourceCabinetId = row.SourceCabinetId, Note = Note.Trim() };
@@ -156,12 +184,14 @@ public sealed partial class ConnectivityAlertsViewModel : ObservableViewModelBas
     {
         Deactivate(); Alerts.Clear(); SelectedAlert = null; Note = Outcome = string.Empty; IncludeResolved = false; ClearError(); NotifyCommands();
         SourceCabinetId = null; _cabinetLabel = string.Empty;
-        SiteId = null; _siteLabel = string.Empty; OnPropertyChanged(nameof(ScopeSummary));
+        SiteId = null; _siteLabel = string.Empty; SiteWorkload = null;
+        OnPropertyChanged(nameof(ScopeSummary)); OnPropertyChanged(nameof(SiteWorkloadText));
         Page = 1; TotalCount = 0; HasMore = false; OnPropertyChanged(nameof(PageSummary));
     }
     public override void Deactivate()
     {
         ++_generation;
+        _workloadCts?.Cancel();
         base.Deactivate();
     }
 }
