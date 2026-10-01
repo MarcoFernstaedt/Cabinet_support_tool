@@ -12,6 +12,43 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
     public ConnectivityAlertTests(SupportApiFactory factory) => _factory = factory;
 
     [Fact]
+    public async Task Site_workload_counts_all_retained_statuses_before_queue_pagination()
+    {
+        var (support, user) = await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Guid.NewGuid().ToString());
+        string duplicate = Guid.NewGuid().ToString();
+        var first = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            clientName: "Client A", siteName: duplicate);
+        var peer = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            clientName: "Client A", siteName: duplicate);
+        var other = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
+            clientName: "Client B", siteName: duplicate);
+        var now = DateTimeOffset.UtcNow;
+        await _factory.WithDbAsync(async db =>
+        {
+            for (int i = 0; i < 55; i++) db.ConnectivityAlerts.Add(new CabinetPlatform.Server.Domain.ConnectivityAlert
+            { SourceCabinetId = i % 2 == 0 ? first.Id : peer.Id, TargetCabinetId = other.Id, EvidenceId = Guid.NewGuid(), ReceivedUtc = now });
+            foreach (var (source, status, received) in new[] {
+                (first.Id, "Acknowledged", now), (peer.Id, "Resolved", now),
+                (other.Id, "Open", now), (first.Id, "Open", now.AddDays(-31)) })
+                db.ConnectivityAlerts.Add(new CabinetPlatform.Server.Domain.ConnectivityAlert
+                { SourceCabinetId = source, TargetCabinetId = other.Id, EvidenceId = Guid.NewGuid(), Status = status, ReceivedUtc = received });
+            await db.SaveChangesAsync();
+        });
+        var response = await support.GetAsync($"/api/connectivity-alerts/site/{first.SiteId}/summary");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var summary = await response.ReadAsync<ConnectivitySiteWorkloadDto>();
+        Assert.NotNull(summary);
+        Assert.Equal(first.SiteId, summary.SiteId);
+        Assert.Equal(55, summary.Open);
+        Assert.Equal(1, summary.Acknowledged);
+        Assert.Equal(1, summary.Resolved);
+        Assert.Equal(57, summary.Total);
+        Assert.InRange(summary.AsOfUtc, now.AddMinutes(-1), DateTimeOffset.UtcNow.AddMinutes(1));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync($"/api/connectivity-alerts/site/{first.SiteId}/summary")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await support.GetAsync($"/api/connectivity-alerts/site/{Guid.Empty}/summary")).StatusCode);
+    }
+
+    [Fact]
     public async Task Authenticated_site_queue_uses_source_site_identity_not_duplicate_site_names()
     {
         var (support, user) = await TestClient.CreateUserClientAsync(_factory, Role.Tier2, Guid.NewGuid().ToString());

@@ -19,6 +19,54 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
     public ConnectivityAlertConsoleTests(ConsoleTestHost host) => _host = host;
 
     [Fact]
+    public async Task Site_queue_shows_retained_operator_workload_and_clears_it_on_scope_change()
+    {
+        string username = Guid.NewGuid().ToString();
+        await _host.CreateUserAsync(Role.Tier2, username);
+        var (api, session) = _host.CreateConsole();
+        await api.LoginAsync(new LoginRequest { Username = username, Password = ConsoleTestHost.KnownPassword }, default);
+        string site = Guid.NewGuid().ToString();
+        var source = await _host.CreateCabinetAsync("source", site: site);
+        var peer = await _host.CreateCabinetAsync("peer", site: site);
+        var elsewhere = await _host.CreateCabinetAsync("elsewhere", site: Guid.NewGuid().ToString());
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+            db.ConnectivityAlerts.AddRange(new ConnectivityAlert
+            { SourceCabinetId = source.Id, TargetCabinetId = peer.Id, EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow },
+                new ConnectivityAlert
+                { SourceCabinetId = peer.Id, TargetCabinetId = source.Id, EvidenceId = Guid.NewGuid(), Status = "Acknowledged", ReceivedUtc = DateTimeOffset.UtcNow },
+                new ConnectivityAlert
+                { SourceCabinetId = source.Id, TargetCabinetId = peer.Id, EvidenceId = Guid.NewGuid(), Status = "Resolved", ReceivedUtc = DateTimeOffset.UtcNow },
+                new ConnectivityAlert
+                { SourceCabinetId = elsewhere.Id, TargetCabinetId = source.Id, EvidenceId = Guid.NewGuid(), ReceivedUtc = DateTimeOffset.UtcNow });
+            await db.SaveChangesAsync();
+        }
+        var vm = new ConnectivityAlertsViewModel(api, session, new RecordingLiveRegionAnnouncer());
+        await vm.ShowSiteAsync(source.SiteId, site);
+        Assert.Equal(2, vm.Alerts.Count); // Default queue excludes resolved rows.
+        Assert.Equal(1, vm.SiteWorkload?.Open);
+        Assert.Equal(1, vm.SiteWorkload?.Acknowledged);
+        Assert.Equal(1, vm.SiteWorkload?.Resolved);
+        Assert.Equal(3, vm.SiteWorkload?.Total);
+        Assert.Contains("historical", vm.SiteWorkloadText, StringComparison.OrdinalIgnoreCase);
+        vm.SelectedAlert = vm.Alerts.Single(a => a.SourceCabinetId == source.Id);
+        vm.Note = "Reviewing historical incident";
+        await vm.AcknowledgeCommand.ExecuteAsync(null);
+        Assert.Equal(0, vm.SiteWorkload?.Open);
+        Assert.Equal(2, vm.SiteWorkload?.Acknowledged);
+        Assert.Equal(1, vm.SiteWorkload?.Resolved);
+        await vm.ShowCabinetAsync(source.Id, "source");
+        Assert.Null(vm.SiteWorkload);
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SiteWorkload);
+        await vm.ShowSiteAsync(source.SiteId, site);
+        Assert.Equal(3, vm.SiteWorkload?.Total);
+        vm.Reset();
+        Assert.Null(vm.SiteWorkload);
+    }
+
+    [Fact]
     public async Task Loaded_cabinet_queue_excludes_other_sources_at_the_same_site()
     {
         string username = Guid.NewGuid().ToString();

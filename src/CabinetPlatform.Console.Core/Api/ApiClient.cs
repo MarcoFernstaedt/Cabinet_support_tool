@@ -89,6 +89,8 @@ public sealed class ApiClient : IApiClient, IDisposable
             .Add("sourceCabinetId", query.SourceCabinetId).Add("siteId", query.SiteId)
             .Add("includeResolved", query.IncludeResolved)
             .Add("page", query.Page).Add("pageSize", query.PageSize), ct);
+    public Task<ConnectivitySiteWorkloadDto> GetConnectivitySiteWorkloadAsync(Guid siteId, CancellationToken ct) =>
+        GetAsync<ConnectivitySiteWorkloadDto>($"api/connectivity-alerts/site/{siteId:D}/summary", ct);
     public Task AcknowledgeConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>
         PostAsync($"api/connectivity-alerts/{id:D}/acknowledge", request, ct);
     public Task ResolveConnectivityAlertAsync(Guid id, AnnotateConnectivityAlertRequest request, CancellationToken ct) =>

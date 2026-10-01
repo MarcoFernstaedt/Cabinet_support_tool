@@ -18,6 +18,10 @@
     <CheckBox Content="Include resolved (then refresh)" IsChecked="{Binding IncludeResolved}" VerticalAlignment="Center"/>
     <TextBlock Text="{Binding PageSummary}" Margin="8"/>
    </WrapPanel>
+   <TextBlock Text="{Binding SiteWorkloadText}" TextWrapping="Wrap" Margin="0,4" AutomationProperties.LiveSetting="Polite"/>
+   <StackPanel Orientation="Horizontal"><TextBlock Text="Workload queried (MST): "/>
+    <TextBlock Text="{Binding SiteWorkload.AsOfUtc, Converter={StaticResource SupportTime}}"/>
+   </StackPanel>
    <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Assertive"/>
    <TextBlock Text="{Binding Outcome}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
   </StackPanel>

@@ -122,6 +122,105 @@ public sealed class ConnectivityAlertSafetyTests
         }
     }
     [Fact]
+    public async Task Site_summary_failure_keeps_loaded_queue_actionable()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier1, false);
+        using var http = new HttpClient(new FailedWorkload()) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        await vm.ShowSiteAsync(Guid.NewGuid(), "Site A");
+        Assert.Single(vm.Alerts);
+        Assert.Null(vm.SiteWorkload);
+        Assert.True(vm.HasError);
+        Assert.Contains("unavailable", vm.SiteWorkloadText, StringComparison.OrdinalIgnoreCase);
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+    }
+    private sealed class FailedWorkload : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(request.RequestUri!.AbsolutePath.EndsWith("/summary", StringComparison.Ordinal)
+                ? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+                : new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
+                    new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid() }
+                }, 1, 50, 1), options: ContractJson.CreateOptions()) });
+    }
+    [Fact]
+    public async Task Late_summary_failure_cannot_replace_annotation_error()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier1, false);
+        var handler = new AnnotationWorkloadRace();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var site = vm.ShowSiteAsync(Guid.NewGuid(), "Site A");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        vm.SelectedAlert = Assert.Single(vm.Alerts);
+        vm.Note = "Checking incident";
+        await vm.AcknowledgeCommand.ExecuteAsync(null);
+        Assert.True(vm.HasError);
+        string? annotationError = vm.ErrorMessage;
+        Assert.Empty(vm.Alerts); // The annotation outcome is unknown until refreshed.
+        handler.Release.SetResult();
+        await site;
+        Assert.Equal(annotationError, vm.ErrorMessage);
+        Assert.Null(vm.SiteWorkload);
+    }
+    private sealed class AnnotationWorkloadRace : HttpMessageHandler
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/summary", StringComparison.Ordinal))
+            {
+                Entered.SetResult(); await Release.Task;
+                return new(HttpStatusCode.ServiceUnavailable);
+            }
+            if (request.Method == HttpMethod.Post) return new(HttpStatusCode.Conflict);
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
+                new ConnectivityAlertDto { Id = Guid.NewGuid(), SourceCabinetId = Guid.NewGuid(), Status = "Open" }
+            }, 1, 50, 1), options: ContractJson.CreateOptions()) };
+        }
+    }
+    [Fact]
+    public async Task Late_site_workload_cannot_repopulate_global_queue()
+    {
+        var session = new SessionStore();
+        session.SignIn("synthetic", DateTimeOffset.UtcNow.AddHours(1), "synthetic", "Lab", Role.Tier2, false);
+        var handler = new WorkloadGate();
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost") };
+        var vm = new ConnectivityAlertsViewModel(new ApiClient(http, session), session, new RecordingLiveRegionAnnouncer());
+        var site = vm.ShowSiteAsync(Guid.NewGuid(), "Site A");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(vm.Alerts); // A slow optional summary must not hold the working queue hostage.
+        Assert.True(vm.RefreshCommand.CanExecute(null));
+        await vm.ShowAllAsync();
+        Assert.Null(vm.SiteWorkload);
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+        handler.Release.SetResult();
+        await site;
+        Assert.Null(vm.SiteWorkload);
+        Assert.Equal(handler.GlobalAlert, Assert.Single(vm.Alerts).Id);
+    }
+    private sealed class WorkloadGate : HttpMessageHandler
+    {
+        public Guid GlobalAlert { get; } = Guid.NewGuid();
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/summary", StringComparison.Ordinal))
+            {
+                Entered.SetResult(); await Release.Task;
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ConnectivitySiteWorkloadDto
+                { SiteId = Guid.NewGuid(), Open = 12 }, options: ContractJson.CreateOptions()) };
+            }
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(PagedResult<ConnectivityAlertDto>.Create(new[] {
+                new ConnectivityAlertDto { Id = request.RequestUri.Query.Contains("siteId=", StringComparison.Ordinal) ? Guid.NewGuid() : GlobalAlert }
+            }, 1, 50, 1), options: ContractJson.CreateOptions()) };
+        }
+    }
+    [Fact]
     public async Task Global_scope_supersedes_in_flight_site_response()
     {
         var session = new SessionStore();
