@@ -13,6 +13,30 @@ public class ActionDispatcherTests
     private static readonly DateTimeOffset Now = new(2026, 9, 10, 18, 0, 0, TimeSpan.Zero);
     private static readonly Guid CabinetId = Guid.Parse("11111111-1111-1111-1111-111111111111");
 
+#if !LEGACY_MAINTENANCE_TESTS
+    [Theory]
+    [InlineData("Demo")]
+    [InlineData("Maintenance")]
+    public async Task Release_denies_registered_maintenance_before_native_execution_and_keeps_history(string mode)
+    {
+        var store = new InMemoryAgentStateStore(ApprovedState());
+        var native = new RecordingExecutor(ActionName.FlushDnsCache);
+        var dispatcher = Dispatcher(store, new AgentOptions { Actions = new() { ExecutionMode = mode } }, native);
+        var request = Request(native.Action);
+
+        var denied = await dispatcher.DispatchAsync(request, default);
+        Assert.Equal(ActionStatus.Denied, denied.Status);
+        Assert.Equal(0, native.CallCount);
+        Assert.Null(store.Load().InFlightAction);
+        var recorded = Assert.Single(store.Load().CompletedActions);
+        Assert.Equal(request.Id, recorded.RequestId);
+        Assert.Equal(ActionStatus.Denied, recorded.Status);
+        Assert.Equal(denied, await dispatcher.DispatchAsync(request, default));
+        Assert.Equal(0, native.CallCount);
+    }
+#endif
+
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task DispatchAsync_RunsTheExecutorRegisteredForTheAction()
     {
@@ -26,6 +50,8 @@ public class ActionDispatcherTests
         Assert.Equal(Now, result.CompletedAtUtc);
     }
 
+#endif
+
     [Fact]
     public async Task DispatchAsync_DeniesAnActionWithNoRegisteredExecutor()
     {
@@ -33,10 +59,10 @@ public class ActionDispatcherTests
         // executors for. There is no interpretation path and no default branch.
         var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.FlushDnsCache));
 
-        var result = await dispatcher.DispatchAsync(Request(ActionName.RebootMachine), CancellationToken.None);
+        var result = await dispatcher.DispatchAsync(Request(ActionName.GetProcessList), CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
-        Assert.Contains("no executor", result.Output!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("has no executor for GetProcessList", result.Output!, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -68,25 +94,27 @@ public class ActionDispatcherTests
     [Fact]
     public async Task DispatchAsync_DeniesActionsUntilTheCabinetIsApproved()
     {
-        var executor = new RecordingExecutor(ActionName.FlushDnsCache);
+        var executor = new RecordingExecutor(ActionName.GetProcessList);
         var dispatcher = Dispatcher(new AgentState { MachineId = "m" }, executor);
 
-        var result = await dispatcher.DispatchAsync(Request(ActionName.FlushDnsCache), CancellationToken.None);
+        var result = await dispatcher.DispatchAsync(Request(ActionName.GetProcessList), CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Contains("approved", result.Output!, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, executor.CallCount);
     }
 
     [Fact]
     public async Task DispatchAsync_DeniesAnActionAddressedToADifferentCabinet()
     {
-        var executor = new RecordingExecutor(ActionName.FlushDnsCache);
+        var executor = new RecordingExecutor(ActionName.GetProcessList);
         var dispatcher = Dispatcher(ApprovedState(), executor);
 
-        var request = Request(ActionName.FlushDnsCache) with { CabinetId = Guid.NewGuid() };
+        var request = Request(ActionName.GetProcessList) with { CabinetId = Guid.NewGuid() };
         var result = await dispatcher.DispatchAsync(request, CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Contains("cabinet", result.Output!, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(0, executor.CallCount);
     }
 
@@ -97,28 +125,31 @@ public class ActionDispatcherTests
     {
         // Every action on a DEA-regulated cabinet must be justifiable after the
         // fact. One that arrives without a reason cannot be.
-        var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.FlushDnsCache));
+        var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.GetProcessList));
 
-        var request = Request(ActionName.FlushDnsCache) with { Reason = reason };
+        var request = Request(ActionName.GetProcessList) with { Reason = reason };
         var result = await dispatcher.DispatchAsync(request, CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Contains("reason", result.Output!, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public async Task DispatchAsync_DeniesAnActionWithNoNamedRequester()
     {
-        var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.FlushDnsCache));
+        var dispatcher = Dispatcher(ApprovedState(), new RecordingExecutor(ActionName.GetProcessList));
 
         // Guid.Empty is what an unset requester deserialises to. An action on a
         // DEA-regulated machine that cannot say who asked for it cannot be
         // justified after the fact, which is reason enough to refuse it.
-        var request = Request(ActionName.FlushDnsCache) with { RequestedByUserId = Guid.Empty };
+        var request = Request(ActionName.GetProcessList) with { RequestedByUserId = Guid.Empty };
         var result = await dispatcher.DispatchAsync(request, CancellationToken.None);
 
         Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Contains("request", result.Output!, StringComparison.OrdinalIgnoreCase);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task DispatchAsync_ReportsATimeoutRatherThanAFailure()
     {
@@ -151,6 +182,9 @@ public class ActionDispatcherTests
         Assert.Equal(ActionStatus.TimedOut, result.Status);
     }
 
+#endif
+
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task DispatchAsync_ReportsAThrowingExecutorAsFailed()
     {
@@ -187,6 +221,8 @@ public class ActionDispatcherTests
 
         Assert.Null(stateStore.Load().InFlightAction);
     }
+
+#endif
 
     [Fact]
     public async Task DispatchAsync_ClearsTheJournalEvenWhenTheExecutorThrows()
@@ -246,7 +282,9 @@ public class ActionDispatcherTests
 
     [Theory]
     [InlineData(1)]
+#if LEGACY_MAINTENANCE_TESTS
     [InlineData(2)]
+#endif
     public async Task PersistenceFailureStopsExecutionOrRetainsInFlight(int failedWrite)
     {
         var store = new FailingStore(ApprovedState(), failedWrite);
@@ -276,6 +314,7 @@ public class ActionDispatcherTests
         Assert.Equal(0, executor.CallCount);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task StructuredResultSurvivesRestartReplay()
     {
@@ -287,6 +326,8 @@ public class ActionDispatcherTests
         Assert.Equal(original.CollectedData, replay.CollectedData);
         Assert.Equal(1, executor.CallCount);
     }
+
+#endif
 
     [Fact]
     public async Task UnresolvedJournalBlocksAnotherActionWithoutOverwritingEvidence()
@@ -341,7 +382,9 @@ public class ActionDispatcherTests
             ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata, ActionName.GetHistoricalProcessEvidence };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999))
         {
+#if LEGACY_MAINTENANCE_TESTS
             if (mode == "Demo" && action == ActionName.KillProcess) continue;
+#endif
             var executor = new RecordingExecutor(action);
             var dispatcher = Dispatcher(ApprovedState(), new AgentOptions { Actions = new() { ExecutionMode = mode } }, executor);
             var result = await dispatcher.DispatchAsync(Request(action), CancellationToken.None);
@@ -352,8 +395,13 @@ public class ActionDispatcherTests
 
     [Theory]
     [InlineData("DiagnosticOnly", false)]
+#if LEGACY_MAINTENANCE_TESTS
     [InlineData("Maintenance", true)]
     [InlineData("Demo", true)]
+#else
+    [InlineData("Maintenance", false)]
+    [InlineData("Demo", false)]
+#endif
     [InlineData("demo", false)]
     [InlineData("maintenance", false)]
     [InlineData("", false)]
@@ -363,8 +411,8 @@ public class ActionDispatcherTests
         var options = new ActionOptions { ExecutionMode = mode };
         Assert.Equal("DiagnosticOnly", new ActionOptions().ExecutionMode);
         Assert.Equal(maintenance, options.Permits(ActionName.KillProcess));
-        Assert.Equal(mode == "Maintenance", options.MaintenanceEnabled);
-        Assert.Equal(mode == "Maintenance", options.Permits(ActionName.RestartApplication));
+        Assert.Equal(maintenance && mode == "Maintenance", options.MaintenanceEnabled);
+        Assert.Equal(maintenance && mode == "Maintenance", options.Permits(ActionName.RestartApplication));
         Assert.True(options.Permits(ActionName.GetProcessList));
         Assert.False(options.Permits((ActionName)9999));
     }

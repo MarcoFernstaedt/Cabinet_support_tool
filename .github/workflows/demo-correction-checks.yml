@@ -15,6 +15,7 @@ jobs:
       - run: dotnet restore CabinetPlatform.sln
       - run: dotnet test tests/CabinetPlatform.Console.Core.Tests/CabinetPlatform.Console.Core.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~ShellTests.The_approval_badge_is_empty_when_shipping_refuses_legacy_work|FullyQualifiedName~Staff|FullyQualifiedName~Session' -m:1
       - run: dotnet test tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj -c Release --no-restore --filter 'FullyQualifiedName~DiagnosticModeTests|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~Staff|FullyQualifiedName~Renewal' -m:1
+      - run: dotnet test tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj -c Release --no-restore -m:1
       - run: dotnet test tests/CabinetPlatform.WebHost.Tests/CabinetPlatform.WebHost.Tests.csproj -c Release --no-restore -m:1
       - uses: actions/setup-node@v4
         with:
@@ -30,6 +31,8 @@ jobs:
           dotnet-version: '8.0.x'
       - run: dotnet restore tests/CabinetPlatform.Console.Core.Tests/CabinetPlatform.Console.Core.Tests.csproj -p:Configuration=LegacyMaintenanceTests
       - run: dotnet restore tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj -p:Configuration=LegacyMaintenanceTests
+      - run: dotnet restore tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj -p:Configuration=LegacyMaintenanceTests
       - run: dotnet test tests/CabinetPlatform.Console.Core.Tests/CabinetPlatform.Console.Core.Tests.csproj -c LegacyMaintenanceTests --no-restore --filter 'FullyQualifiedName~ShellTests.The_approval_badge_counts_only_what_this_user_can_act_on' -m:1
       - run: dotnet test tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj -c LegacyMaintenanceTests --no-restore --filter 'FullyQualifiedName~DiagnosticModeTests' -m:1
+      - run: dotnet test tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj -c LegacyMaintenanceTests --no-restore -m:1
       # This lane is test-only. Directory.Build.props also refuses every publish and pack target.

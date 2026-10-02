@@ -80,7 +80,8 @@ public sealed partial class TwoSiteOfficeDemoTests
         var records = new LabRecords();
         var eventExecutor = new RunEventLogViewExecutor(new EventLogReader(NullLogger<EventLogReader>.Instance,
             new LabChannels(), records: records), NullLogger<RunEventLogViewExecutor>.Instance);
-        await Complete(await Dispatch(ActionName.RunEventLogView), eventExecutor);
+        var successfulEventRequest = await Dispatch(ActionName.RunEventLogView);
+        await Complete(successfulEventRequest, eventExecutor);
         Assert.NotNull(records.Definition);
         Assert.Equal(EventLogLevel.Error, records.Definition.MinimumLevel);
         Assert.Equal(new[] { 9001 }, records.Definition.EventIds);
@@ -89,12 +90,20 @@ public sealed partial class TwoSiteOfficeDemoTests
         Assert.Equal(9001, Assert.Single(tab.EventLogs.Entries).EventId);
         var eventSummary = tab.EventLogs.ResultSummary;
         records.Deny = true;
-        await Complete(await Dispatch(ActionName.RunEventLogView), eventExecutor);
-        Assert.Empty(tab.EventLogs.Entries);
-        Assert.Contains("access denied", tab.EventLogs.ResultSummary, StringComparison.OrdinalIgnoreCase);
+        var deniedEventRequest = await Dispatch(ActionName.RunEventLogView);
+        await Complete(deniedEventRequest, eventExecutor);
+        Assert.Equal(9001, Assert.Single(tab.EventLogs.Entries).EventId);
+        Assert.Equal("SIM application errors", tab.EventLogs.ResultViewName);
+        Assert.Contains($"Last successful {ActionName.RunEventLogView} snapshot: {successfulEventRequest.Id}", tab.ActionHistoryNote);
+        Assert.DoesNotContain(deniedEventRequest.Id.ToString(), tab.ActionHistoryNote);
+        var deniedHistory = Assert.Single(tab.ActionHistory, a => a.Id == deniedEventRequest.Id);
+        Assert.Equal(ActionStatus.Failed, deniedHistory.Request.ResultStatus);
+        Assert.Contains("No selected event channel could be read", deniedHistory.ResultOutput, StringComparison.Ordinal);
+        Assert.Equal(eventSummary, tab.EventLogs.ResultSummary);
+        Assert.Contains(tab.ActionHistory, a => a.Id == successfulEventRequest.Id && a.Request.ResultStatus == ActionStatus.Succeeded);
         steps.Add(new { stage = "Event Viewer errors", cabinet = source.Name, channel = "Synthetic/Application", provider = "SyntheticProvider",
             eventId = 9001, minimumLevel = "Error", windowHours = 1, successfulRead = eventSummary,
-            subsequentDeniedRead = tab.EventLogs.ResultSummary,
+            subsequentDeniedRead = deniedHistory.ResultOutput, retainedSnapshotActionId = successfulEventRequest.Id,
             limitation = "Native Windows query execution is injected; this verifies filter propagation and result/error handling, not Windows Event Viewer acceptance" });
         await Complete(await Dispatch(ActionName.InspectFirewall), new InspectFirewallExecutor(new FirewallReader(new FirewallReaderTests.Native())));
         Assert.Equal(3, tab.Firewall.Profiles.Count);
