@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, validGuid } from "./read-only-pages.mjs";
 import { renderEventResult } from "./event-result-page.mjs";
 import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
+import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -97,8 +98,10 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const eventRoute = /^\/cabinet\/([^/]+)\/events$/.exec(route.pathname);
     const pinnedEventRoute = /^\/cabinet\/([^/]+)\/events\/([^/]+)$/.exec(route.pathname);
     const crashRoute = /^\/cabinet\/([^/]+)\/crashes$/.exec(route.pathname);
+    const processRoute = /^\/cabinet\/([^/]+)\/processes$/.exec(route.pathname);
+    const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !incidentRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -130,6 +133,29 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         } catch { /* Optional counts cannot hide an authorized incident page. */ }
         respond(200, renderSiteIncidents(siteId, queue, summary, pageNumber), "text/html; charset=utf-8");
       } catch { respond(502, "Incident page unavailable"); }
+      return;
+    }
+    if (processRoute || pinnedProcessRoute) {
+      const cabinetId = (processRoute ?? pinnedProcessRoute)[1].toLowerCase();
+      const actionId = pinnedProcessRoute?.[2].toLowerCase();
+      if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      if (actionId && !validGuid(actionId)) { respond(404, "Saved process result not found"); return; }
+      if (route.search) { respond(400, "Invalid process query"); return; }
+      try {
+        const headers = { Authorization: `Bearer ${session.token}` };
+        const cabinetResponse = await api(`api/cabinets/${cabinetId}`, { headers });
+        if (cabinetResponse.status === 404) { respond(404, "Cabinet not found"); return; }
+        if (cabinetResponse.status === 403) { respond(403, "Cabinet access denied"); return; }
+        if (cabinetResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const cabinet = await readBoundedJson(cabinetResponse);
+        const processResponse = await api(`api/cabinets/${cabinetId}/process-results/${actionId ?? "latest"}`, { headers });
+        if (processResponse.status === 403) { respond(403, "Process result access denied"); return; }
+        if (processResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        if (actionId && processResponse.status === 404) { respond(404, "Saved process result not found"); return; }
+        const process = processResponse.status === 404 ? null : await readBoundedJson(processResponse);
+        if (actionId && process?.actionId?.toLowerCase() !== actionId) { respond(502, "Saved process result identity mismatch"); return; }
+        respond(200, renderProcessDiagnostics(cabinetId, process, cabinet), "text/html; charset=utf-8");
+      } catch { respond(502, "Process and service observations unavailable"); }
       return;
     }
     if (eventRoute || pinnedEventRoute || crashRoute) {
