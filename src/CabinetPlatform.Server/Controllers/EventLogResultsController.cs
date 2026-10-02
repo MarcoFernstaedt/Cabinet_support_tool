@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CabinetPlatform.Server.Controllers;
 
-/// <summary>Only the latest saved Event Viewer action for the explicitly named cabinet.</summary>
+/// <summary>Cabinet-bound saved Event Viewer action results.</summary>
 [ApiController]
 [Route("api/cabinets/{cabinetId:guid}/event-log-results")]
 public sealed class EventLogResultsController : ControllerBase
@@ -34,6 +34,24 @@ public sealed class EventLogResultsController : ControllerBase
             .Where(a => a.CabinetId == cabinetId && a.Action == ActionName.RunEventLogView)
             .OrderByDescending(a => a.RequestedUtc).ThenByDescending(a => a.Id)
             .FirstOrDefaultAsync(ct);
+        return ProjectResponse(action);
+    }
+
+    [HttpGet("{actionId:guid}")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
+    [ProducesResponseType(typeof(EventLogLatestResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<EventLogLatestResult>> ByAction(Guid cabinetId, Guid actionId, CancellationToken ct)
+    {
+        ActionRequest? action = await _db.ActionRequests.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == actionId && a.CabinetId == cabinetId &&
+                a.Action == ActionName.RunEventLogView, ct);
+        return ProjectResponse(action);
+    }
+
+    private ActionResult<EventLogLatestResult> ProjectResponse(ActionRequest? action)
+    {
         if (action is null) return NotFound();
 
         try
