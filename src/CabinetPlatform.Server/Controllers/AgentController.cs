@@ -418,6 +418,19 @@ public sealed class AgentController : SupportControllerBase
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
         }
 
+        if (action.Action == ActionName.GetWerMetadata &&
+            (!Enum.IsDefined(result.Status) ||
+             (result.Status == ActionStatus.Succeeded
+                 ? !WerMetadataValidator.TryValidate(result.CollectedData, _timeProvider.GetUtcNow(), out _)
+                 : result.CollectedData is not null)))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.AgentReportResult,
+                "Invalid or oversized WER metadata result.", cabinet.Id,
+                new { ActionRequestId = result.RequestId }, action.Action, ct);
+            return Problem("Invalid WER metadata result.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
+        }
+
         if (action.Status is ActionRequestStatus.Completed)
         {
             // The agent is idempotent per request id, but a retried delivery of
@@ -444,7 +457,8 @@ public sealed class AgentController : SupportControllerBase
 
         action.Status = ActionRequestStatus.Completed;
         action.ResultStatus = result.Status;
-        action.ResultOutput = action.Action == ActionName.GetDisplayDiagnostics ? null : Truncate(result.Output, 8000);
+        action.ResultOutput = action.Action is ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata
+            ? null : Truncate(result.Output, 8000);
         action.ExitCode = result.ExitCode;
         action.StartedUtc = result.StartedAtUtc;
         action.CompletedUtc = result.CompletedAtUtc;

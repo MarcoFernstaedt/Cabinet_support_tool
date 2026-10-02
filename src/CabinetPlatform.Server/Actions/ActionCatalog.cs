@@ -379,6 +379,20 @@ public static class ActionCatalog
             },
             new ActionCatalogEntry
             {
+                Action = ActionName.GetWerMetadata,
+                DisplayName = "View Windows Error Reporting metadata",
+                Description = "Reads bounded recent machine WER report metadata without report contents.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
                 Action = ActionName.GetProcessList,
                 DisplayName = "View process list",
                 Description = "Reads the cabinet's current process list, outside the check-in cadence.",

@@ -191,6 +191,9 @@ public enum ActionName
     /// <summary>Observe bounded OS display modes visible to the service without changing settings.</summary>
     GetDisplayDiagnostics = 30,
 
+    /// <summary>Read bounded, allowlisted Windows Error Reporting store metadata only.</summary>
+    GetWerMetadata = 31,
+
     /// <summary>
     /// Reserved. Opening a drawer is hardware actuation, which this build does
     /// not perform.

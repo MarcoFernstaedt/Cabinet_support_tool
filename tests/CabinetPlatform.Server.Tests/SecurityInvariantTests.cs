@@ -159,7 +159,10 @@ public sealed class SecurityInvariantTests
 
                 foreach (string call in forbidden)
                 {
-                    if (line.Contains(call, StringComparison.Ordinal))
+                    if (line.Contains(call, StringComparison.Ordinal) &&
+                        !(call == "ArgumentList" && Path.GetFileName(file) == "WerMetadataProcessProbe.cs" &&
+                          (trimmed == "if (dotnetHost) start.ArgumentList.Add(assembly);" ||
+                           trimmed == "start.ArgumentList.Add(\"--wer-metadata-probe\");")))
                     {
                         offenders.Add($"{Path.GetFileName(file)}: {call}");
                     }
@@ -167,6 +170,15 @@ public sealed class SecurityInvariantTests
             }
         }
 
+        // The sole additional argument-bearing launch is the fixed, local Agent
+        // binary used to bound a native WER call. No action operand, shell or
+        // executable path supplied by support may reach its argument list.
+        string probe = File.ReadAllText(SourceFiles.Single(f => f.EndsWith("WerMetadataProcessProbe.cs", StringComparison.Ordinal)));
+        string[] arguments = probe.Split('\n').Where(line => line.Contains("start.ArgumentList.Add(", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(2, arguments.Length);
+        Assert.Contains("start.ArgumentList.Add(assembly);", arguments[0], StringComparison.Ordinal);
+        Assert.Contains("start.ArgumentList.Add(\"--wer-metadata-probe\");", arguments[1], StringComparison.Ordinal);
+        Assert.Contains("UseShellExecute = false", probe, StringComparison.Ordinal);
         Assert.True(offenders.Count == 0,
             "Shell, interpreter or command-line-utility code: " + string.Join(", ", offenders));
     }

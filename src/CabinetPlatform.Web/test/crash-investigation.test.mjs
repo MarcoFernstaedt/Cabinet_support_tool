@@ -4,6 +4,15 @@ import { createPreviewServer } from "../server.mjs";
 
 const cabinet = "11111111-1111-4111-8111-111111111111";
 const other = "22222222-2222-4222-8222-222222222222";
+const werAction = "66666666-6666-4666-8666-666666666666";
+const wer = {
+  cabinetId: cabinet, actionId: werAction, state: "complete", requestedAtUtc: "2026-09-01T00:00:00Z",
+  completedAtUtc: "2026-09-01T00:02:00Z", metadata: {
+    version: 1, observedUtc: "2026-09-01T00:01:30Z",
+    stores: [{ store: "MachineQueue", status: "Partial", truncated: true }, { store: "MachineArchive", status: "Denied", truncated: false }],
+    reports: [{ reportId: "77777777-7777-4777-8777-777777777777", createdUtc: "2026-09-01T00:01:00Z", eventType: "APPCRASH", store: "MachineQueue" }],
+  },
+};
 const result = {
   cabinetId: cabinet, actionId: "33333333-3333-4333-8333-333333333333", viewId: "44444444-4444-4444-8444-444444444444",
   state: "complete", viewDisplayName: "Application evidence", requestedAtUtc: "2026-09-01T00:00:00Z",
@@ -19,7 +28,7 @@ const result = {
     { channel: "System", provider: "Application Error", level: "error", eventId: 1000, occurredAt: "2026-09-01T00:01:11Z", message: "Unrelated" },
   ],
 };
-async function fixture(data = result, status = 200) {
+async function fixture(data = result, status = 200, werData = null, werStatus = werData ? 200 : 404) {
   let active = true;
   let latest = data;
   const calls = [];
@@ -30,6 +39,8 @@ async function fixture(data = result, status = 200) {
     if (path === "/api/auth/me") return active ? Response.json({ displayName: "Test rep", role: "Tier2", isActive: true }) : new Response("", { status: 401 });
     if (path === `/api/cabinets/${cabinet}/event-log-results/latest`) return status === 200 ? Response.json(latest) : new Response("", { status });
     if (path === `/api/cabinets/${cabinet}/event-log-results/${data.actionId}`) return Response.json(data);
+    if (path === `/api/cabinets/${cabinet}/wer-metadata/latest` || path === `/api/cabinets/${cabinet}/wer-metadata/${werAction}`)
+      return werStatus === 200 ? Response.json(werData) : new Response("private upstream error", { status: werStatus });
     return new Response("", { status: 404 });
   };
   const server = createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "https://127.0.0.1:8443/", upstreamFetch });
@@ -51,7 +62,7 @@ test("crash clues link exact saved Application records without leaking messages 
     assert.match(html, /Application Error/);
     assert.match(html, /Windows Error Reporting event/);
     assert.match(html, /cause unknown/i);
-    assert.match(html, /Structured WER report unavailable/);
+    assert.match(html, /WER metadata not collected/);
     assert.match(html, /Historical process evidence unavailable/);
     assert.match(html, new RegExp(`/cabinet/${cabinet}/events/${result.actionId}\\?entry=0`));
     assert.match(html, new RegExp(`/cabinet/${cabinet}/events/${result.actionId}\\?entry=1`));
@@ -96,6 +107,140 @@ test("unknown coverage does not become a clean bill of health", async () => {
       assert.match(await response.text(), /coverage unavailable|pending|failed|accessDenied/i);
     } finally { await f.close(); }
   }
+});
+
+test("WER is separately dated machine-store evidence without joining event clues", async () => {
+  const f = await fixture(result, 200, wer);
+  try {
+    const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /Machine queue.*partial/i);
+    assert.match(html, /Machine archive.*denied/i);
+    assert.match(html, /truncated/i);
+    assert.match(html, /Report created.*2026-09-01T00:01:00Z/i);
+    assert.match(html, /APPCRASH/);
+    assert.match(html, new RegExp(`/cabinet/${cabinet}/crashes/${werAction}`));
+    assert.match(html, /cause unknown/i);
+    assert.match(html, new RegExp(`/cabinet/${cabinet}/events/${result.actionId}\\?entry=0`));
+    assert.doesNotMatch(html, /77777777|private upstream error|same crash|crash occurred at/i);
+    assert.equal(f.calls.find(c => c.path.endsWith("wer-metadata/latest")).options.headers.Authorization, "Bearer server-only-token");
+  } finally { await f.close(); }
+});
+
+test("WER absence and upstream failure do not hide event evidence", async () => {
+  for (const status of [404, 500]) {
+    const f = await fixture(result, 200, null, status);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      assert.match(html, /Application Error event/);
+      assert.match(html, status === 404 ? /WER.*not collected/i : /WER.*unavailable/i);
+      assert.doesNotMatch(html, /private upstream error/);
+    } finally { await f.close(); }
+  }
+});
+
+test("malformed WER is unsafe rather than rendered or silently treated as absent", async () => {
+  for (const bad of [
+    { ...wer, cabinetId: other }, { ...wer, metadata: { ...wer.metadata, reports: [{ ...wer.metadata.reports[0], eventType: "<script>secret</script>" }] } },
+    { ...wer, metadata: { ...wer.metadata, stores: [{ ...wer.metadata.stores[0], status: 2 }, wer.metadata.stores[1]] } },
+    { ...wer, metadata: { ...wer.metadata, reports: Array(41).fill(wer.metadata.reports[0]) } },
+    { ...wer, rawOutput: "sensitive path" },
+  ]) {
+    const f = await fixture(result, 200, bad);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      assert.match(html, /WER.*unsafe/i);
+      assert.match(html, /Application Error event/);
+      assert.doesNotMatch(html, /sensitive path|<script>secret/);
+    } finally { await f.close(); }
+  }
+});
+
+test("pinned WER route refuses substituted identity and query parameters", async () => {
+  const f = await fixture(result, 200, wer);
+  try {
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes?entry=0`, f.cookie)).status, 400);
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes/${werAction}?entry=0`, f.cookie)).status, 400);
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes/not-a-guid`, f.cookie)).status, 404);
+    const pinned = await f.request(`/cabinet/${cabinet}/crashes/${werAction}`, f.cookie);
+    assert.equal(pinned.status, 200);
+    assert.match(await pinned.text(), /APPCRASH/);
+    assert.ok(f.calls.some(c => c.path === `/api/cabinets/${cabinet}/wer-metadata/${werAction}`));
+  } finally { await f.close(); }
+  const swapped = await fixture(result, 200, { ...wer, actionId: result.actionId });
+  try {
+    const response = await swapped.request(`/cabinet/${cabinet}/crashes/${werAction}`, swapped.cookie);
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /WER.*unsafe/i);
+  } finally { await swapped.close(); }
+});
+
+test("WER pending, failed, and store-unavailable states retain unknown coverage", async () => {
+  for (const value of [
+    { ...wer, state: "pending", completedAtUtc: null, metadata: null },
+    { ...wer, state: "failed", metadata: null },
+    { ...wer, metadata: { ...wer.metadata, stores: [{ store: "MachineQueue", status: "Read", truncated: false }, { store: "MachineArchive", status: "Unavailable", truncated: false }] } },
+  ]) {
+    const f = await fixture(result, 200, value);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+      assert.match(html, /WER.*(?:pending|failed|unavailable)|Machine archive: unavailable/i);
+      assert.match(html, /coverage unknown|leave gaps/i);
+    } finally { await f.close(); }
+  }
+});
+
+test("pinned WER result removed upstream is not replaced with latest", async () => {
+  const f = await fixture(result, 200, null, 404);
+  try {
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes/${werAction}`, f.cookie)).status, 404);
+  } finally { await f.close(); }
+});
+
+test("WER read does not depend on an existing saved Event Viewer action", async () => {
+  const f = await fixture(result, 404, wer);
+  try {
+    const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /APPCRASH/);
+    assert.match(html, /Event Viewer.*not collected/i);
+  } finally { await f.close(); }
+});
+
+test("WER gateway rejects implausible observation time and oversized response", async () => {
+  for (const bad of [
+    { ...wer, metadata: { ...wer.metadata, observedUtc: "2030-09-01T00:01:30Z" } },
+    { ...wer, metadata: { ...wer.metadata, observedUtc: "2026-08-01T00:01:30Z", reports: [] } },
+    { ...wer, padding: "x".repeat(13000) },
+  ]) {
+    const f = await fixture(result, 200, bad);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      assert.match(await response.text(), /WER.*unsafe/i);
+    } finally { await f.close(); }
+  }
+});
+
+test("valid native report GUID shapes are accepted without displaying their identifiers", async () => {
+  const reportId = "77777777-7777-0777-0777-777777777777";
+  const data = { ...wer, metadata: { ...wer.metadata, reports: [{ ...wer.metadata.reports[0], reportId }] } };
+  const f = await fixture(result, 200, data);
+  try {
+    const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, /APPCRASH/);
+    assert.doesNotMatch(html, /77777777/);
+  } finally { await f.close(); }
 });
 
 test("cross cabinet evidence and upstream denials fail closed", async () => {
