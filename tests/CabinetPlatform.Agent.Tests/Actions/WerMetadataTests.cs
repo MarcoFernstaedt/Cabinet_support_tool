@@ -95,10 +95,21 @@ public sealed class WerMetadataTests
     [Fact]
     public async Task Same_binary_probe_starts_without_host_and_emits_only_typed_result()
     {
+        // The dotnet CLI is required for this same-binary child check. Do not
+        // silently pass when a test runner omits DOTNET_HOST_PATH.
         var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
-        if (string.IsNullOrEmpty(host)) return; // Apphost test runners have no dotnet host.
+        if (string.IsNullOrEmpty(host))
+            host = Environment.GetEnvironmentVariable("DOTNET_ROOT") is { Length: > 0 } root
+                ? Path.Combine(root, OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet")
+                : OperatingSystem.IsWindows() ? "dotnet.exe" : "dotnet";
+        // Launch the Agent's complete build output, not the test runner's
+        // dependency-incomplete project-reference copy or a stale Debug build.
+        var configuration = new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name;
         var assembly = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
-            "../../../../../src/CabinetPlatform.Agent/bin/Debug/net8.0-windows/CabinetPlatform.Agent.dll"));
+            $"../../../../../src/CabinetPlatform.Agent/bin/{configuration}/net8.0-windows/CabinetPlatform.Agent.dll"));
+        Assert.True(File.Exists(assembly), $"Agent artifact missing: {assembly}");
+        Assert.Equal(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(typeof(GetWerMetadataExecutor).Assembly.Location)),
+            System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assembly)));
         var start = WerMetadataProcessProbe.CreateStartInfo(host, assembly);
         Assert.False(start.Environment.ContainsKey("WER_TEST_SECRET"));
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

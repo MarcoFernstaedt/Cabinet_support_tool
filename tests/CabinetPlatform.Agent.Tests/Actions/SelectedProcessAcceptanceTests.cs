@@ -55,6 +55,39 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<SelectedProce
         Assert.Equal("Unknown action.", denied.Message); // Diagnostic catalogue deliberately omits mutation.
     }
 
+#if !LEGACY_MAINTENANCE_TESTS
+    [Theory]
+    [InlineData("Demo")]
+    [InlineData("Maintenance")]
+    public async Task Release_rejects_legacy_selected_process_requests_without_opening_a_native_handle(string mode)
+    {
+        var factory = new SelectedProcessGatewayTests.FakeFactory();
+        var options = new AgentOptions { Actions = new() { ExecutionMode = mode } };
+        var executor = new KillProcessExecutor(new ProcessControlGateway(factory),
+            ProcessTargetPolicyTests.Policy(["notepad"]), Options.Create(options), NullLogger<KillProcessExecutor>.Instance);
+        var cabinetId = Guid.NewGuid();
+        var store = new InMemoryAgentStateStore(new AgentState
+        { MachineId = "synthetic", CabinetId = cabinetId, RegistrationStatus = RegistrationStatus.Approved });
+        var dispatcher = new ActionDispatcher(new ActionExecutorRegistry([executor], NullLogger<ActionExecutorRegistry>.Instance),
+            store, new FixedClock(DateTimeOffset.UtcNow), Options.Create(options), NullLogger<ActionDispatcher>.Instance);
+        var result = await dispatcher.DispatchAsync(new ActionRequestDto
+        {
+            Id = Guid.NewGuid(), CabinetId = cabinetId, Action = ActionName.KillProcess,
+            Reason = "Legacy selected process request", RequestedByUserId = Guid.NewGuid(), RequestedUtc = DateTimeOffset.UtcNow,
+            Parameters = new Dictionary<string, string>
+            {
+                [ActionParameterKeys.ProcessId] = "900", [ActionParameterKeys.ExpectedProcessName] = "notepad",
+                [ActionParameterKeys.ExpectedCreationTimeFileTime] = "133700000000000001",
+                [ActionParameterKeys.ExpectedExecutablePath] = @"C:\Lab\notepad.exe"
+            }
+        }, default);
+        Assert.Equal(ActionStatus.Denied, result.Status);
+        Assert.Equal(0, factory.OpenCount);
+        Assert.Null(store.Load().InFlightAction);
+    }
+#endif
+
+#if LEGACY_MAINTENANCE_TESTS
     [Theory]
     [InlineData("matched", ActionStatus.Succeeded)]
     [InlineData("same-name-replacement", ActionStatus.Denied)]
@@ -197,6 +230,8 @@ public sealed class SelectedProcessAcceptanceTests : IClassFixture<SelectedProce
             Assert.Equal(output, tab.ActionHistory.Single(a => a.Request.Id == id).ResultOutput);
         }
     }
+
+#endif
 
     public sealed class DemoProcessTestHost : ConsoleTestHost
     {

@@ -25,6 +25,7 @@ public class NetworkConfigurationExecutorTests
 {
     private const string AdapterId = "{7B2C1D8E-0000-4000-8000-A1B2C3D4E5F6}";
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task A_change_the_cabinet_survives_is_kept_and_the_rollback_is_cleared()
     {
@@ -115,6 +116,8 @@ public class NetworkConfigurationExecutorTests
         Assert.Null(rollback.Pending);
     }
 
+#endif
+
     [Fact]
     public async Task An_adapter_this_cabinet_does_not_have_is_refused_before_anything_happens()
     {
@@ -145,6 +148,7 @@ public class NetworkConfigurationExecutorTests
         Assert.False(network.ApplyWasCalled);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task Returning_to_dhcp_also_clears_the_adapters_static_dns_servers()
     {
@@ -185,6 +189,8 @@ public class NetworkConfigurationExecutorTests
         Assert.Null(rollback.Pending);
     }
 
+#endif
+
     [Fact]
     public async Task PendingRollbackBlocksAnotherMutation()
     {
@@ -199,6 +205,7 @@ public class NetworkConfigurationExecutorTests
         Assert.Same(original, rollback.Pending);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task CancellationDuringPartialApplyAttemptsRestoreAndRetainsFailedRollback()
     {
@@ -213,6 +220,7 @@ public class NetworkConfigurationExecutorTests
         Assert.Contains("RevertFailed", outcome.CollectedData!);
         Assert.NotNull(rollback.Pending);
     }
+#endif
 
     private sealed class FailingProbe(bool cancel) : IServerReachabilityProbe
     {
@@ -287,6 +295,9 @@ public class InterruptedNetworkChangeTests
     [Theory]
     [InlineData(null)]
     [InlineData("Demo")]
+#if !LEGACY_MAINTENANCE_TESTS
+    [InlineData("Maintenance")]
+#endif
     public void Restricted_mode_preserves_pending_rollback_without_changing_network(string? mode)
     {
         var previous = new AdapterConfiguration { AdapterId = "{ADAPTER}", DhcpEnabled = true };
@@ -301,9 +312,11 @@ public class InterruptedNetworkChangeTests
             { Actions = new() { ExecutionMode = mode } }));
         runner.RecoverInterruptedNetworkChange();
         Assert.False(network.Restored);
+        Assert.False(network.ApplyWasCalled);
         Assert.NotNull(rollback.Pending);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public void An_unconfirmed_change_found_at_startup_is_reverted()
     {
@@ -353,6 +366,8 @@ public class InterruptedNetworkChangeTests
 
         Assert.NotNull(rollback.Pending);
     }
+
+#endif
 
     [Fact]
     public void A_clean_start_reverts_nothing()
