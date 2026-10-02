@@ -15,7 +15,7 @@ const summary = { totalCabinets: 21, healthy: 0, warning: 0, critical: 0, offlin
 const siteRow = (id, overrides = {}) => ({ id, clientName: "Synthetic", siteName: "Lab", cabinetCount: 21,
   unhealthyCabinetCount: 21, worstHealth: "Unknown", syncCabinetId: null, syncCabinetHealth: null, syncReachability: null, ...overrides });
 
-async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus = 200, corruptSite = false, changedFleet = false } = {}) {
+async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus = 200, corruptSite = false, changedFleet = false, omittedNulls = false } = {}) {
   let active = true;
   const calls = [];
   const upstreamFetch = async (url, options) => {
@@ -27,14 +27,22 @@ async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus =
       if (cabinetsStatus !== 200) return new Response("", { status: cabinetsStatus });
       const page = Number(q.get("Page"));
       return Response.json({ page, pageSize: 20, totalCount: 21, hasMore: page === 1,
-        items: page === 1 ? Array.from({ length: 20 }, (_, i) => cabinetRow(i, i === 0 ? { friendlyName: "<svg onload=alert(1)>" } : {})) : [cabinetRow(20)] });
+        items: page === 1 ? Array.from({ length: 20 }, (_, i) => {
+          const row = cabinetRow(i, i === 0 ? { friendlyName: "<svg onload=alert(1)>" } : {});
+          if (omittedNulls && i === 0) { delete row.lastCheckInUtc; delete row.latestHeartbeatCollectedAtUtc; delete row.latestHeartbeatReceivedAtUtc; }
+          return row;
+        }) : [cabinetRow(20)] });
     }
     if (path === "/api/fleet/health") return healthStatus === 200 ? Response.json(changedFleet ? { ...summary, totalCabinets: 20, unknown: 20, staleMeasurement: 20 } : summary) : new Response("", { status: healthStatus });
     if (path === "/api/fleet/sites") {
       if (sitesStatus !== 200) return new Response("", { status: sitesStatus });
       const page = Number(q.get("Page"));
       return Response.json({ page, pageSize: 20, totalCount: 21, hasMore: page === 1,
-        items: page === 1 ? [siteRow(corruptSite ? "not-a-guid" : site, { siteName: "<img src=x onerror=alert(1)>" }), ...Array.from({ length: 19 }, (_, i) => siteRow(`22222222-2222-4222-8222-${String(i + 1).padStart(12, "0")}`))] : [siteRow(otherSite, { syncCabinetId: cabinet, syncCabinetHealth: "Unknown", syncReachability: { reaching: 0, notReaching: 0, neverProbed: 20, mostRecentProbeUtc: null } })] });
+        items: page === 1 ? [(() => {
+          const row = siteRow(corruptSite ? "not-a-guid" : site, { siteName: "<img src=x onerror=alert(1)>" });
+          if (omittedNulls) { delete row.syncCabinetId; delete row.syncCabinetHealth; delete row.syncReachability; }
+          return row;
+        })(), ...Array.from({ length: 19 }, (_, i) => siteRow(`22222222-2222-4222-8222-${String(i + 1).padStart(12, "0")}`))] : [siteRow(otherSite, { syncCabinetId: cabinet, syncCabinetHealth: "Unknown", syncReachability: { reaching: 0, notReaching: 0, neverProbed: 20, mostRecentProbeUtc: null } })] });
     }
     throw Error(`Unexpected upstream ${path}`);
   };
@@ -70,6 +78,17 @@ test("fleet health shows distinct measurement and contact freshness with stable 
     assert.equal(f.calls.some(c => c.path === "/api/cabinets" && c.query.includes("IsActive=true") && c.query.includes("PageSize=20") && c.options.headers.Authorization === "Bearer server-only-token"), true);
     f.revoke();
     assert.equal((await f.request(url, f.cookie)).status, 303);
+  } finally { await f.close(); }
+});
+
+test("nullable fleet fields omitted by the Server remain unknown rather than breaking the page", async () => {
+  const f = await fixture({ omittedNulls: true });
+  try {
+    const response = await f.request("/fleet/health", f.cookie);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /Standalone site; no sync cabinet relationship/);
+    assert.match(body, /latest heartbeat collected Never; received Never/);
   } finally { await f.close(); }
 });
 
