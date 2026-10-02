@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using CabinetPlatform.Contracts.Actions;
 using CabinetPlatform.Contracts.Auth;
+using CabinetPlatform.Server.Actions;
 using Microsoft.EntityFrameworkCore;
 
 namespace CabinetPlatform.Server.Tests;
@@ -35,8 +36,10 @@ public class MonitoringBoundaryTests
                 OverrideSafetyChecks = true, OverrideReason = "Legacy supervisor override"
             });
             Assert.False(request.IsSuccessStatusCode, action.ToString());
-            Assert.Equal(HttpStatusCode.BadRequest, request.StatusCode);
-            Assert.Contains("Unknown action", await request.Content.ReadAsStringAsync());
+            bool reserved = ActionCatalog.TryGet(action, out var entry) && entry.IsReservedHardwareActuation;
+            Assert.Equal(reserved ? HttpStatusCode.Forbidden : HttpStatusCode.BadRequest, request.StatusCode);
+            Assert.Contains(reserved ? "actuates cabinet hardware" : "Unknown action",
+                await request.Content.ReadAsStringAsync());
             using var batch = await client.PostAsJsonAsync("/api/batches", new CreateBatchActionRequest
             { CabinetIds = [cabinet.Id], ConfirmedCabinetCount = 1, Action = action, Reason = "Monitoring boundary regression" });
             Assert.False(batch.IsSuccessStatusCode, action.ToString());

@@ -19,6 +19,7 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
     public ActionApprovalTests(SupportApiFactory factory) => _factory = factory;
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task Requester_cannot_approve_their_own_action()
     {
@@ -242,6 +243,28 @@ public sealed class ActionApprovalTests : IClassFixture<SupportApiFactory>
 
         return dto.Id;
     }
+#endif
+
+#if !LEGACY_MAINTENANCE_TESTS
+    [Fact]
+    public async Task Reserved_hardware_actuation_is_refused_and_audited_in_release()
+    {
+        (HttpClient client, User supervisor) = await TestClient.CreateUserClientAsync(
+            _factory, Role.Supervisor, Unique("hardware"));
+        Cabinet cabinet = await TestClient.CreateApprovedCabinetAsync(
+            _factory, Unique("hardwarecab"), supervisor.Id);
+        using var response = await client.PostJsonAsync("/api/actions", new CreateActionRequest
+        {
+            Action = ActionName.OpenDrawer, CabinetId = cabinet.Id,
+            Reason = "Synthetic refusal check"
+        });
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.True(await TestClient.CountAuditAsync(
+            _factory, AuditEvent.HardwareActuationRefused, AuditResult.Denied) > 0);
+        Assert.False(await _factory.WithDbAsync(db => db.ActionRequests
+            .AnyAsync(a => a.CabinetId == cabinet.Id && a.Action == ActionName.OpenDrawer)));
+    }
+#endif
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 }

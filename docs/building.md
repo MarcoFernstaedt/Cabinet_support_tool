@@ -49,14 +49,16 @@ Everything except the WPF console builds and tests anywhere:
 dotnet build src/CabinetPlatform.Contracts/CabinetPlatform.Contracts.csproj
 dotnet build src/CabinetPlatform.Agent/CabinetPlatform.Agent.csproj
 dotnet build src/CabinetPlatform.Server/CabinetPlatform.Server.csproj
+dotnet test tests/CabinetPlatform.Server.Tests -c Release
 dotnet test tests/CabinetPlatform.Server.Tests -c LegacyMaintenanceTests
 dotnet test tests/CabinetPlatform.Agent.Tests -c LegacyMaintenanceTests
 dotnet test tests/CabinetPlatform.Console.Core.Tests -c LegacyMaintenanceTests
 ```
 
-`Debug` and `Release` compile the monitoring-only boundary. Run the monitoring
-tests above against the actual release composition. The historical full suites
-retain their maintenance expectations and require the explicit
+`Debug` and `Release` compile the monitoring-only boundary. The full Server
+Release suite now excludes historical control expectations while retaining
+shipping-boundary tests; run both Server configurations above. The historical
+maintenance suites require the explicit
 `LegacyMaintenanceTests` configuration, with separate build outputs and blocked
 publish/pack targets. Do not distribute that test build or mistake its passing
 tests for monitoring-release acceptance. See [compiled monitoring boundary](restricted-demo-mode.md).

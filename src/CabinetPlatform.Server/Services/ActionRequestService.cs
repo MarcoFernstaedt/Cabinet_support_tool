@@ -119,7 +119,11 @@ public sealed class ActionRequestService : IActionRequestService
 
         // An integer outside the enum can arrive in any JSON body, so the
         // catalog lookup is the gate, not the deserialiser.
-        if (!ActionCatalog.TryGet(request.Action, _options, out ActionCatalogEntry entry))
+        // Reserved hardware entries are looked up only to reach their permanent
+        // refusal and dedicated audit. No other action can bypass the compiled
+        // observation-only catalog, even with a Supervisor override.
+        if (!ActionCatalog.TryGet(request.Action, _options, out ActionCatalogEntry entry) &&
+            !(ActionCatalog.TryGet(request.Action, out entry) && entry.IsReservedHardwareActuation))
         {
             return await DeniedAsync(
                 AuditEvent.RequestAction, actor, null,

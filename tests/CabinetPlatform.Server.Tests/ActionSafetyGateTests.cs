@@ -21,6 +21,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
     public ActionSafetyGateTests(SupportApiFactory factory) => _factory = factory;
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task Reboot_is_blocked_while_a_user_is_logged_on()
     {
@@ -130,6 +131,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
+#endif
 
     [Fact]
     public async Task A_Supervisor_override_requires_a_reason()
@@ -150,6 +152,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task A_Supervisor_override_with_a_reason_is_permitted_and_the_reason_is_recorded()
     {
@@ -212,6 +215,7 @@ public sealed class ActionSafetyGateTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
+#endif
 
     /// <summary>The human-readable reason out of a problem response.</summary>
     private static async Task<string?> Detail(HttpResponseMessage response) =>
