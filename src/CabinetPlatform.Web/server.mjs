@@ -10,6 +10,7 @@ import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
 import { renderNetworkHistory } from "./network-history-page.mjs";
 import { renderStorageInvestigation } from "./storage-investigation-page.mjs";
 import { renderDisplayDiagnosis } from "./display-diagnosis-page.mjs";
+import { renderQueue, pendingTarget, cabinetTarget, renderDecision, decisionValues } from "./enrollment-retirement-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -22,12 +23,12 @@ const files = new Map([
 const escapeHtml = text => String(text).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
 const page = error => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign in | Mashura Support</title><link rel="stylesheet" href="/login.css"></head><body><main class="login"><div class="brand">Mashura <span>Support workspace</span></div><p class="tag">LOCAL DEVELOPMENT BUILD</p><h1>Sign in</h1><p>Use a test support account. This browser build is local only and does not enforce MFA.</p>${error ? '<p class="error" role="alert">Sign-in failed. Check your account or contact an administrator.</p>' : ''}<form method="post" action="/signin"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="128"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"><button>Sign in</button></form><small>The Event Viewer shows synthetic records. Read-only fleet and incident pages connect only to the configured local test server; use disposable synthetic data.</small></main></body></html>`;
 
-async function form(req) {
+async function form(req, maxBytes = 4096) {
   if (!req.headers["content-type"]?.toLowerCase().startsWith("application/x-www-form-urlencoded")) throw Error("Invalid form");
   let size = 0, content = "";
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 4096) throw Error("Form too large");
+    if (size > maxBytes) throw Error("Form too large");
     content += chunk.toString("utf8");
   }
   return new URLSearchParams(content);
@@ -98,6 +99,77 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     }
     if (!req.url.startsWith("/") || req.url.startsWith("//")) { respond(404, "Not found"); return; }
     const route = new URL(req.url, origin);
+    const enrollmentRoute = route.pathname === "/enrollment";
+    const enrollmentDecision = /^\/enrollment\/([^/]+)\/(approve|reject)$/.exec(route.pathname);
+    const retirementRoute = /^\/cabinet\/([^/]+)\/retire$/.exec(route.pathname);
+    if (enrollmentRoute || enrollmentDecision || retirementRoute) {
+      if ((req.method !== "GET" && req.method !== "POST") || route.searchParams.size > (enrollmentRoute || enrollmentDecision ? 1 : 0) ||
+          [...route.searchParams.keys()].some(key => key !== "page" || route.searchParams.getAll(key).length !== 1)) { respond(400, "Invalid request"); return; }
+      const rawPage = route.searchParams.get("page") ?? "1";
+      if (!/^[1-9][0-9]{0,3}$/.test(rawPage)) { respond(400, "Invalid page"); return; }
+      const pageNumber = Number(rawPage);
+      const targetId = (enrollmentDecision?.[1] ?? retirementRoute?.[1])?.toLowerCase();
+      if (targetId && !validGuid(targetId)) { respond(404, "Target not found"); return; }
+      if (enrollmentRoute && req.method !== "GET") { respond(404, "Not found"); return; }
+      if (req.method === "POST" && !sameOrigin()) { respond(403, "Invalid origin"); return; }
+      if (!session) { respond(401, "Sign in required"); return; }
+      let values;
+      if (req.method === "POST") {
+        try { values = await form(req, 32768); } catch { respond(400, "Invalid form"); return; }
+        if (values.getAll("csrf").length !== 1 || values.get("csrf") !== session.csrf) { respond(403, "Invalid request token"); return; }
+        if (!values.get("machineId") || values.getAll("machineId").length !== 1) { respond(400, "Invalid target"); return; }
+        if (!decisionValues(values, enrollmentDecision?.[2] ?? "retire")) { respond(400, "Invalid decision"); return; }
+      }
+      try {
+        const headers = { Authorization: `Bearer ${session.token}` };
+        const me = await api("api/auth/me", { headers });
+        if (me.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); respond(401, "Session expired"); return; }
+        if (me.status === 403) { respond(403, "Access denied"); return; }
+        if (!me.ok) { respond(502, "Support server unavailable"); return; }
+        const actor = await readBoundedJson(me, 4096);
+        if (!actor.isActive || actor.mustChangePassword || actor.role !== "Supervisor") { respond(403, "Supervisor required"); return; }
+        const kind = enrollmentDecision?.[2] ?? "retire";
+        let row;
+        if (!retirementRoute) {
+          const queueResponse = await api(`api/registrations/pending?Page=${pageNumber}&PageSize=20`, { headers });
+          if (queueResponse.status === 401 || queueResponse.status === 403) { respond(queueResponse.status, "Enrollment access denied"); return; }
+          if (!queueResponse.ok) { respond(502, "Enrollment unavailable"); return; }
+          const queue = await readBoundedJson(queueResponse, 16384);
+          if (enrollmentRoute) { respond(200, renderQueue(queue, pageNumber), "text/html; charset=utf-8"); return; }
+          row = pendingTarget(queue, pageNumber, targetId);
+          if (!row) { respond(404, "Pending registration not found"); return; }
+        } else {
+          const detailResponse = await api(`api/cabinets/${targetId}`, { headers });
+          if ([401, 403, 404].includes(detailResponse.status)) { respond(detailResponse.status, "Cabinet unavailable"); return; }
+          if (!detailResponse.ok) { respond(502, "Cabinet unavailable"); return; }
+          row = cabinetTarget(await readBoundedJson(detailResponse, 16384), targetId);
+          if (!row.isActive) { respond(409, "Cabinet already inactive; refresh detail"); return; }
+        }
+        const confirmationKey = `${kind}:${targetId}:${pageNumber}`;
+        if (req.method === "GET") {
+          session.confirmations ??= new Map();
+          session.confirmations.set(confirmationKey, { machineId: row.machineId, hostname: row.hostname, ...(retirementRoute ? { siteId: row.siteId.toLowerCase(), clientName: row.clientName, siteName: row.siteName, role: row.role } : {}) });
+          if (session.confirmations.size > 32) session.confirmations.delete(session.confirmations.keys().next().value);
+          respond(200, renderDecision(kind, row, session.csrf, pageNumber), "text/html; charset=utf-8"); return;
+        }
+        const confirmed = session.confirmations?.get(confirmationKey);
+        if (confirmed?.machineId !== row.machineId || confirmed?.hostname !== row.hostname || values.get("machineId") !== row.machineId ||
+            (retirementRoute && (confirmed.siteId !== row.siteId.toLowerCase() || confirmed.clientName !== row.clientName || confirmed.siteName !== row.siteName || confirmed.role !== row.role))) {
+          session.confirmations?.delete(confirmationKey); respond(409, "Target changed; review again"); return;
+        }
+        const payload = decisionValues(values, kind);
+        const path = retirementRoute ? `api/cabinets/${targetId}/retire` : `api/registrations/${targetId}/${kind}`;
+        const result = await api(path, { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if ([401, 403, 404, 409].includes(result.status)) { session.confirmations.delete(confirmationKey); respond(result.status, "Decision refused; refresh before retrying"); return; }
+        if (kind === "approve" && result.status === 200) {
+          const approved = await readBoundedJson(result, 8192);
+          if (approved?.id?.toLowerCase() !== targetId || approved.machineId !== row.machineId || approved.status !== "Approved") { session.confirmations.delete(confirmationKey); respond(502, "Decision outcome unverified; refresh before retrying"); return; }
+        } else if (result.status !== 204) { session.confirmations.delete(confirmationKey); respond(502, "Decision outcome unknown; refresh before retrying"); return; }
+        session.confirmations.delete(confirmationKey);
+        redirect(kind === "retire" ? `/cabinet/${targetId}` : "/enrollment");
+      } catch { if (req.method === "POST") session.confirmations?.delete(`${enrollmentDecision?.[2] ?? "retire"}:${targetId}:${pageNumber}`); respond(502, "Support server unavailable; decision outcome may be unknown, refresh before retrying"); }
+      return;
+    }
     const fleetRoute = route.pathname === "/fleet";
     const fleetHealthRoute = route.pathname === "/fleet/health";
     const cabinetRoute = /^\/cabinet\/([^/]+)$/.exec(route.pathname);

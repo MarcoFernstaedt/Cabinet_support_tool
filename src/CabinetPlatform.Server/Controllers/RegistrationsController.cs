@@ -196,6 +196,7 @@ public sealed class RegistrationsController : SupportControllerBase
             ActorDisplayName = actor.Username,
             CabinetId = cabinet.Id,
             CabinetHostname = cabinet.Hostname,
+            Reason = request.ApprovalReason?.Trim(),
             TicketReference = string.IsNullOrWhiteSpace(request.TicketReference)
                 ? null : request.TicketReference.Trim(),
             ApprovedByUserId = actor.UserId,
