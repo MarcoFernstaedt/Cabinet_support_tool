@@ -5,6 +5,7 @@ import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, valid
 import { renderEventResult } from "./event-result-page.mjs";
 import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
 import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
+import { renderFleetHealth } from "./fleet-health-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -94,6 +95,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     if (!req.url.startsWith("/") || req.url.startsWith("//")) { respond(404, "Not found"); return; }
     const route = new URL(req.url, origin);
     const fleetRoute = route.pathname === "/fleet";
+    const fleetHealthRoute = route.pathname === "/fleet/health";
     const cabinetRoute = /^\/cabinet\/([^/]+)$/.exec(route.pathname);
     const eventRoute = /^\/cabinet\/([^/]+)\/events$/.exec(route.pathname);
     const pinnedEventRoute = /^\/cabinet\/([^/]+)\/events\/([^/]+)$/.exec(route.pathname);
@@ -101,7 +103,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const processRoute = /^\/cabinet\/([^/]+)\/processes$/.exec(route.pathname);
     const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -113,6 +115,29 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         }
         session.name = user.displayName;
       } catch { respond(502, "Support server unavailable"); return; }
+    }
+    if (fleetHealthRoute) {
+      const pages = [route.searchParams.get("cabinetPage") ?? "1", route.searchParams.get("sitePage") ?? "1"];
+      if ([...route.searchParams.keys()].some(key => !["cabinetPage", "sitePage"].includes(key) || route.searchParams.getAll(key).length !== 1) ||
+          pages.some(page => !/^[1-9][0-9]{0,3}$/.test(page))) { respond(400, "Invalid health page"); return; }
+      const [cabinetPage, sitePage] = pages.map(Number);
+      try {
+        const headers = { Authorization: `Bearer ${session.token}` };
+        const healthResponse = await api("api/fleet/health", { headers });
+        if (healthResponse.status === 403) { respond(403, "Fleet health access denied"); return; }
+        if (healthResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const health = await readBoundedJson(healthResponse);
+        const cabinetsResponse = await api(`api/cabinets?${new URLSearchParams({ IsActive: "true", Page: String(cabinetPage), PageSize: "20" })}`, { headers });
+        if (cabinetsResponse.status === 403) { respond(403, "Fleet health access denied"); return; }
+        if (cabinetsResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const cabinets = await readBoundedJson(cabinetsResponse);
+        const sitesResponse = await api(`api/fleet/sites?${new URLSearchParams({ Page: String(sitePage), PageSize: "20" })}`, { headers });
+        if (sitesResponse.status === 403) { respond(403, "Fleet health access denied"); return; }
+        if (sitesResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        const sites = await readBoundedJson(sitesResponse);
+        respond(200, renderFleetHealth(health, cabinets, sites, cabinetPage, sitePage), "text/html; charset=utf-8");
+      } catch { respond(502, "Fleet health unavailable"); }
+      return;
     }
     if (incidentRoute) {
       const siteId = incidentRoute[1].toLowerCase();

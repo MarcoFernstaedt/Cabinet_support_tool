@@ -57,6 +57,12 @@ public sealed record CabinetSummary
     /// <summary>UTC instant of the most recent check-in of any tier.</summary>
     public DateTimeOffset? LastCheckInUtc { get; init; }
 
+    /// <summary>UTC time the latest heartbeat was collected on the cabinet, or null if never measured. Contact is separate.</summary>
+    public DateTimeOffset? LatestHeartbeatCollectedAtUtc { get; init; }
+
+    /// <summary>UTC time the server received that same heartbeat, or null if never measured.</summary>
+    public DateTimeOffset? LatestHeartbeatReceivedAtUtc { get; init; }
+
     /// <summary>Version of the agent that last reported.</summary>
     public string? AgentVersion { get; init; }
 
@@ -283,6 +289,15 @@ public sealed record FleetHealthSummary
 
     /// <summary>How far back the stale count reaches, in hours.</summary>
     public required int StaleAfterHours { get; init; }
+
+    /// <summary>Active cabinets with no heartbeat measurement, irrespective of recent contact. Separate from Unknown health.</summary>
+    public required int NoMeasurement { get; init; }
+
+    /// <summary>Active cabinets whose latest heartbeat collection is older than MeasurementStaleAfterHours; excludes never-measured cabinets.</summary>
+    public required int StaleMeasurement { get; init; }
+
+    /// <summary>Measurement collection-age threshold in hours, using the same clamped window as contact StaleAfterHours (default 24 hours).</summary>
+    public required int MeasurementStaleAfterHours { get; init; }
 
     /// <summary>Cabinets with at least one update detected and not installed.</summary>
     public required int WithPendingUpdates { get; init; }

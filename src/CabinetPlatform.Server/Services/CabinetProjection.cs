@@ -103,6 +103,8 @@ public sealed class CabinetProjection : ICabinetProjection
                     .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
                     .Select(h => new
                     {
+                        h.CollectedAtUtc,
+                        h.ReceivedUtc,
                         h.CpuPercent,
                         h.RamUsedPercent,
                         h.MinFreeDiskPercent,
@@ -139,6 +141,8 @@ public sealed class CabinetProjection : ICabinetProjection
                 SerialNumber = r.Cabinet.SerialNumber,
                 IsActive = r.Cabinet.IsActive,
                 LastCheckInUtc = r.Cabinet.LastCheckInUtc,
+                LatestHeartbeatCollectedAtUtc = r.Latest?.CollectedAtUtc,
+                LatestHeartbeatReceivedAtUtc = r.Latest?.ReceivedUtc,
                 AgentVersion = r.Cabinet.AgentVersion,
                 TimeZoneId = r.Cabinet.TimeZoneId,
                 CpuPercent = r.Latest?.CpuPercent,
