@@ -16,24 +16,24 @@ export function renderFleetHealth(health, cabinets, sites, cabinetPage, sitePage
   if (health.totalCabinets !== cabinets.totalCount) throw Error("Fleet snapshot changed");
   const cabinetRows = cabinets.items.map(row => {
     if (!validGuid(row.id) || !validGuid(row.siteId) || row.isActive !== true || !healthValues.has(row.health) ||
-        !timeOrNull(row.lastCheckInUtc) || !timeOrNull(row.latestHeartbeatCollectedAtUtc) ||
-        !timeOrNull(row.latestHeartbeatReceivedAtUtc) ||
-        (row.latestHeartbeatCollectedAtUtc === null) !== (row.latestHeartbeatReceivedAtUtc === null))
+        !timeOrNull(row.lastCheckInUtc ?? null) || !timeOrNull(row.latestHeartbeatCollectedAtUtc ?? null) ||
+        !timeOrNull(row.latestHeartbeatReceivedAtUtc ?? null) ||
+        ((row.latestHeartbeatCollectedAtUtc ?? null) === null) !== ((row.latestHeartbeatReceivedAtUtc ?? null) === null))
       throw Error("Invalid cabinet health");
     return `<li><a href="/cabinet/${row.id}"><strong>${html(row.friendlyName || row.hostname)}</strong></a> · ${html(row.clientName)} / ${html(row.siteName)} · ${html(row.role ?? "Unknown")}. Health classification: ${html(row.health)}. Contact ${html(row.lastCheckInUtc ?? "Never")}; latest heartbeat collected ${html(row.latestHeartbeatCollectedAtUtc ?? "Never")}; received ${html(row.latestHeartbeatReceivedAtUtc ?? "Never")}.</li>`;
   });
   const siteRows = sites.items.map(row => {
     if (!validGuid(row.id) || !integer(row.cabinetCount) || !integer(row.unhealthyCabinetCount) ||
         row.unhealthyCabinetCount > row.cabinetCount || !healthValues.has(row.worstHealth) ||
-        (row.syncCabinetId !== null && !validGuid(row.syncCabinetId)) ||
-        (row.syncCabinetHealth !== null && !healthValues.has(row.syncCabinetHealth))) throw Error("Invalid site health");
-    const sync = row.syncCabinetId === null ? "Standalone site; no sync cabinet relationship." :
+        (row.syncCabinetId != null && !validGuid(row.syncCabinetId)) ||
+        (row.syncCabinetHealth != null && !healthValues.has(row.syncCabinetHealth))) throw Error("Invalid site health");
+    const sync = row.syncCabinetId == null ? "Standalone site; no sync cabinet relationship." :
       `Sync cabinet <a href="/cabinet/${row.syncCabinetId}">${row.syncCabinetId}</a>; contact-based health ${html(row.syncCabinetHealth ?? "Unknown")}.`;
     let reachability = "No sync reachability evidence.";
-    if (row.syncReachability !== null) {
+    if (row.syncReachability != null) {
       const r = row.syncReachability;
-      if (row.syncCabinetId === null || ![r.reaching, r.notReaching, r.neverProbed].every(integer) ||
-          !timeOrNull(r.mostRecentProbeUtc)) throw Error("Invalid sync reachability");
+      if (row.syncCabinetId == null || ![r.reaching, r.notReaching, r.neverProbed].every(integer) ||
+          !timeOrNull(r.mostRecentProbeUtc ?? null)) throw Error("Invalid sync reachability");
       reachability = `${r.reaching} last reached sync; ${r.notReaching} last did not reach; ${r.neverProbed} never probed. Most recent probe ${html(r.mostRecentProbeUtc ?? "Unknown")}. This is historical evidence, not current reachability or proof of a firewall cause.`;
     }
     return `<li><strong>${html(row.clientName)} / ${html(row.siteName)}</strong> (${row.id}). ${row.cabinetCount} cabinets, ${row.unhealthyCabinetCount} not classified Healthy, including Unknown. Worst classification ${html(row.worstHealth)}. ${sync} ${reachability}</li>`;

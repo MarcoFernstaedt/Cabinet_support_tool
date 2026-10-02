@@ -6,6 +6,7 @@ import { renderEventResult } from "./event-result-page.mjs";
 import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
 import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 import { renderFleetHealth } from "./fleet-health-page.mjs";
+import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -103,7 +104,8 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const processRoute = /^\/cabinet\/([^/]+)\/processes$/.exec(route.pathname);
     const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute)) { respond(404, "Not found"); return; }
+    const correlationRoute = /^\/incident\/([^/]+)\/correlation$/.exec(route.pathname);
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -141,6 +143,19 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
           respond(409, '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fleet changed | Mashura Support</title><link rel="stylesheet" href="/styles.css"></head><body><main class="fleet-page"><h1>Fleet changed while loading</h1><p role="status">The summary and cabinet page were read at different moments. No combined count is shown. Refresh to try again.</p><a href="/fleet/health">Retry fleet health</a></main></body></html>', "text/html; charset=utf-8");
         } else respond(502, "Fleet health unavailable");
       }
+      return;
+    }
+    if (correlationRoute) {
+      const alertId = correlationRoute[1].toLowerCase();
+      if (!validGuid(alertId)) { respond(404, "Incident not found"); return; }
+      if (route.search) { respond(400, "Invalid incident query"); return; }
+      try {
+        const result = await api(`api/connectivity-alerts/${alertId}/correlation`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 404) { respond(404, "Incident not found"); return; }
+        if (result.status === 403) { respond(403, "Incident access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        respond(200, renderIncidentCorrelation(alertId, await readBoundedJson(result, 32768)), "text/html; charset=utf-8");
+      } catch { respond(502, "Incident evidence unavailable"); }
       return;
     }
     if (incidentRoute) {

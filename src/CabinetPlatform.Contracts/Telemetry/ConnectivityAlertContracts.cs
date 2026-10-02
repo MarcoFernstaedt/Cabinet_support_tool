@@ -3,6 +3,75 @@ using CabinetPlatform.Contracts.Common;
 
 namespace CabinetPlatform.Contracts.Telemetry;
 
+/// <summary>Read-only correlation of one accepted incident, not a cause or live reachability diagnosis.</summary>
+public sealed record ConnectivityCorrelationDto
+{
+    /// <summary>Selected alert identity.</summary>
+    public Guid AlertId { get; init; }
+    /// <summary>Current source site, not a stored incident-time site.</summary>
+    public Guid SiteId { get; init; }
+    /// <summary>Accepted source cabinet.</summary>
+    public Guid SourceCabinetId { get; init; }
+    /// <summary>Accepted measured destination.</summary>
+    public Guid TargetCabinetId { get; init; }
+    /// <summary>Operator annotation, not measured recovery.</summary>
+    public string Status { get; init; } = "Open";
+    /// <summary>Exact accepted interval identity.</summary>
+    public Guid EvidenceId { get; init; }
+    /// <summary>Null when the exact retained accepted evidence is unavailable or inconsistent.</summary>
+    public ConnectivityCorrelationIntervalDto? Interval { get; init; }
+    /// <summary>Explicit reason for missing interval.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? IntervalClaim { get; init; }
+    /// <summary>Current source contact and latest heartbeat provenance.</summary>
+    public required ConnectivityCorrelationCabinetDto Source { get; init; }
+    /// <summary>Current target contact and latest heartbeat provenance.</summary>
+    public required ConnectivityCorrelationCabinetDto Target { get; init; }
+    /// <summary>Current site designation, if any.</summary>
+    public Guid? CurrentSyncCabinetId { get; init; }
+    /// <summary>Whether the measured target is designated sync now.</summary>
+    public bool TargetIsCurrentSync { get; init; }
+    /// <summary>Current topology only; neither incident-time role nor proof of changed topology.</summary>
+    public string TopologyClaim { get; init; } = "Current topology only; incident-time role unknown.";
+    /// <summary>Application port checks are outside this measurement.</summary>
+    public string ApplicationPortEvidence { get; init; } = "Not collected";
+    /// <summary>Operator annotation cannot establish measured recovery.</summary>
+    public string ResolutionClaim { get; init; } = "Operator resolution is not measured recovery";
+}
+
+/// <summary>Contact and latest collected heartbeat of one named cabinet.</summary>
+public sealed record ConnectivityCorrelationCabinetDto
+{
+    /// <summary>Cabinet identity.</summary>
+    public Guid CabinetId { get; init; }
+    /// <summary>Any-tier server contact.</summary>
+    public DateTimeOffset? LastCheckInUtc { get; init; }
+    /// <summary>Latest measurement by collection time, not arrival time.</summary>
+    public DateTimeOffset? LatestHeartbeatCollectedAtUtc { get; init; }
+    /// <summary>Reception of that selected measurement.</summary>
+    public DateTimeOffset? LatestHeartbeatReceivedAtUtc { get; init; }
+}
+
+/// <summary>Only bounded facts from the exact accepted interval.</summary>
+public sealed record ConnectivityCorrelationIntervalDto
+{
+    /// <summary>First probe measurement time.</summary>
+    public DateTimeOffset FirstObservedUtc { get; init; }
+    /// <summary>Last probe measurement time.</summary>
+    public DateTimeOffset LastObservedUtc { get; init; }
+    /// <summary>Server receipt of accepted evidence.</summary>
+    public DateTimeOffset ReceivedUtc { get; init; }
+    /// <summary>Replies in interval.</summary>
+    public int SuccessCount { get; init; }
+    /// <summary>Completed nonreplies in interval.</summary>
+    public int FailureCount { get; init; }
+    /// <summary>Local probe errors in interval.</summary>
+    public int ErrorCount { get; init; }
+    /// <summary>Optional bounded source-only profile clue, not a cause verdict.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public SourceFirewallCheck? SourceFirewallCheck { get; init; }
+}
+
 /// <summary>Operator annotation for an accepted connectivity incident, not current health.</summary>
 public sealed record ConnectivityAlertDto
 {
