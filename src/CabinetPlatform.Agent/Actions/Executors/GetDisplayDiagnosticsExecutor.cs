@@ -51,9 +51,9 @@ public sealed class GetDisplayDiagnosticsExecutor(IDisplayModeGateway gateway, I
             ModeStatus = status,
             Modes = modes,
             ModesTruncated = native.Count > MaxModes,
-            ScalingStatus = DisplaySessionStatus.InteractiveSessionInaccessible,
+            ScalingStatus = DisplaySessionStatus.NotCollected,
             ScalingPercent = null,
-            MagnifierStatus = DisplaySessionStatus.InteractiveSessionInaccessible,
+            MagnifierStatus = DisplaySessionStatus.NotCollected,
             AppZoomStatus = DisplaySessionStatus.NotCollected
         };
         return Task.FromResult(ActionOutcome.Collected(
