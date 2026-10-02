@@ -10,12 +10,13 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
 
 namespace CabinetPlatform.Server.Controllers;
 
 /// <summary>Opt-in office monitoring. No scanning, DNS, actions or cabinet mutation.</summary>
 [Route("api/connectivity")]
-public sealed partial class ConnectivityController(SupportDbContext db, IAuditService audit, TimeProvider time) : SupportControllerBase
+public sealed partial class ConnectivityController(SupportDbContext db, IAuditService audit, TimeProvider time, IDataProtectionProvider protection) : SupportControllerBase
 {
     private static readonly JsonSerializerOptions Json = ContractJson.CreateOptions();
 

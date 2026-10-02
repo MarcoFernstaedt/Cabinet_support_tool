@@ -7,6 +7,7 @@ import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
 import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 import { renderFleetHealth } from "./fleet-health-page.mjs";
 import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
+import { renderNetworkHistory } from "./network-history-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -105,7 +106,8 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
     const correlationRoute = /^\/incident\/([^/]+)\/correlation$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute)) { respond(404, "Not found"); return; }
+    const networkHistoryRoute = /^\/cabinet\/([^/]+)\/network-history$/.exec(route.pathname);
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -143,6 +145,28 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
           respond(409, '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fleet changed | Mashura Support</title><link rel="stylesheet" href="/styles.css"></head><body><main class="fleet-page"><h1>Fleet changed while loading</h1><p role="status">The summary and cabinet page were read at different moments. No combined count is shown. Refresh to try again.</p><a href="/fleet/health">Retry fleet health</a></main></body></html>', "text/html; charset=utf-8");
         } else respond(502, "Fleet health unavailable");
       }
+      return;
+    }
+    if (networkHistoryRoute) {
+      const sourceId = networkHistoryRoute[1].toLowerCase();
+      if (!validGuid(sourceId)) { respond(404, "Cabinet not found"); return; }
+      const query = route.searchParams;
+      if ([...query.keys()].some(key => !["target", "from", "to", "cursor"].includes(key) || query.getAll(key).length !== 1)) { respond(400, "Invalid history filter"); return; }
+      const target = query.get("target")?.toLowerCase() ?? null;
+      const from = query.get("from"), to = query.get("to"), cursor = query.get("cursor");
+      const utc = value => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,7})?(?:Z|\+00:00)$/.test(value) && Number.isFinite(Date.parse(value));
+      if ((target !== null && !validGuid(target)) || (from === null) !== (to === null) ||
+          (from !== null && (!utc(from) || !utc(to) || Date.parse(from) >= Date.parse(to) || Date.parse(to) - Date.parse(from) > 30 * 86400000)) ||
+          (cursor !== null && (!/^[A-Za-z0-9_-]{1,2048}$/.test(cursor) || from === null))) { respond(400, "Invalid history filter"); return; }
+      try {
+        const upstreamQuery = new URLSearchParams({ ...(target ? { targetId: target } : {}), ...(from ? { from, to } : {}), ...(cursor ? { nextCursor: cursor } : {}), pageSize: "20" });
+        const result = await api(`api/connectivity/cabinets/${sourceId}/history?${upstreamQuery}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 404) { respond(404, "Cabinet history not found"); return; }
+        if (result.status === 403) { respond(403, "Network history access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        if (result.status === 400) { respond(400, "Invalid history cursor or bounds"); return; }
+        respond(200, renderNetworkHistory(sourceId, target, await readBoundedJson(result), { from, to }), "text/html; charset=utf-8");
+      } catch { respond(502, "Network history unavailable"); }
       return;
     }
     if (correlationRoute) {
