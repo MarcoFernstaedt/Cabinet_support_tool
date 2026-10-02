@@ -1,4 +1,7 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.AspNetCore.DataProtection;
 using CabinetPlatform.Contracts.Audit;
 using CabinetPlatform.Contracts.Cabinets;
 using CabinetPlatform.Contracts.Common;
@@ -27,6 +30,7 @@ public sealed class CabinetsController : SupportControllerBase
     private readonly QueryLimitsOptions _queryLimits;
     private readonly TimeProvider _timeProvider;
     private readonly OfficeEnrollmentStore _officeEnrollment;
+    private readonly IDataProtector _storageProtector;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="db">The database.</param>
@@ -45,7 +49,8 @@ public sealed class CabinetsController : SupportControllerBase
         ICabinetSearchService search,
         IOptions<QueryLimitsOptions> queryLimits,
         TimeProvider timeProvider,
-        OfficeEnrollmentStore officeEnrollment)
+        OfficeEnrollmentStore officeEnrollment,
+        IDataProtectionProvider protection)
     {
         _db = db;
         _audit = audit;
@@ -55,6 +60,7 @@ public sealed class CabinetsController : SupportControllerBase
         _queryLimits = queryLimits.Value;
         _timeProvider = timeProvider;
         _officeEnrollment = officeEnrollment;
+        _storageProtector = protection.CreateProtector("CabinetPlatform.Storage.DriveTrend.v1");
     }
 
     /// <summary>
@@ -303,14 +309,17 @@ public sealed class CabinetsController : SupportControllerBase
                 .Where(s => s.CabinetId == id && s.DriveSerial == drive.Serial &&
                     s.TimestampUtc == drive.Latest)
                 .OrderBy(s => s.IsAggregated).ThenBy(s => s.Id)
-                .Select(s => new StorageSmartDto
-                {
-                    ObservedUtc = s.TimestampUtc, Health = s.Health, Source = s.Source,
-                    TemperatureCelsius = s.TemperatureCelsius, PowerOnHours = s.PowerOnHours,
-                    WearPercent = s.Wear, ReallocatedSectors = s.ReallocatedSectorCount,
-                    PendingSectors = s.PendingSectorCount, Aggregated = s.IsAggregated
-                }).FirstAsync(ct);
-            smart.Add(reading);
+                .Select(s => new { s.TimestampUtc, s.Health, s.Source, s.TemperatureCelsius,
+                    s.PowerOnHours, s.Wear, s.ReallocatedSectorCount, s.PendingSectorCount, s.IsAggregated })
+                .FirstAsync(ct);
+            smart.Add(new StorageSmartDto
+            {
+                DriveSelector = _storageProtector.Protect(JsonSerializer.Serialize(new DriveSelector(1, id, drive.Serial))),
+                ObservedUtc = reading.TimestampUtc, Health = reading.Health, Source = reading.Source,
+                TemperatureCelsius = reading.TemperatureCelsius, PowerOnHours = reading.PowerOnHours,
+                WearPercent = reading.Wear, ReallocatedSectors = reading.ReallocatedSectorCount,
+                PendingSectors = reading.PendingSectorCount, Aggregated = reading.IsAggregated
+            });
         }
 
         var result = new CabinetStorageDto
@@ -322,6 +331,88 @@ public sealed class CabinetsController : SupportControllerBase
             new { CabinetId = id, Projection = "Storage", VolumeCount = volumes.Count,
                 SmartCount = smart.Count }, id), ct);
         return Ok(result);
+    }
+
+    private sealed record DriveSelector(int Version, Guid CabinetId, string Serial);
+    private sealed record TrendCursor(int Version, Guid CabinetId, string Serial, DateTimeOffset From,
+        DateTimeOffset To, DateTimeOffset AsOf, DateTimeOffset LastObserved, Guid LastId);
+
+    private T? UnprotectStorage<T>(string token) where T : class
+    {
+        if (token.Length is < 1 or > 2048) return null;
+        try
+        {
+            if (WebEncoders.Base64UrlEncode(WebEncoders.Base64UrlDecode(token)) != token) return null;
+            return JsonSerializer.Deserialize<T>(_storageProtector.Unprotect(token));
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException or JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<BadRequestObjectResult> DenyTrendAsync(Guid cabinetId, string reason, CancellationToken ct)
+    {
+        await _audit.WriteDenialAsync(AuditEvent.ViewSmartHistory, reason, cabinetId, null, null, ct);
+        return BadRequest(reason);
+    }
+
+    /// <summary>Retained observations for one opaque cabinet-bound drive selector.</summary>
+    [HttpGet("{id:guid}/storage/trends")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
+    [ProducesResponseType(typeof(StorageTrendPage), StatusCodes.Status200OK)]
+    public async Task<ActionResult<StorageTrendPage>> StorageTrends(Guid id,
+        [FromQuery] string? driveSelector, [FromQuery(Name = "from")] DateTimeOffset? from,
+        [FromQuery(Name = "to")] DateTimeOffset? to, [FromQuery] int pageSize = 20,
+        [FromQuery] string? nextCursor = null, CancellationToken ct = default)
+    {
+        if (id == Guid.Empty || pageSize is < 1 or > 50 || from is null || to is null ||
+            from.Value.Offset != TimeSpan.Zero || to.Value.Offset != TimeSpan.Zero ||
+            from >= to || to.Value - from.Value > TimeSpan.FromDays(90))
+            return await DenyTrendAsync(id, "Invalid trend window or page size.", ct);
+        DriveSelector? selector = driveSelector is null ? null : UnprotectStorage<DriveSelector>(driveSelector);
+        if (selector is null || selector.Version != 1 || selector.CabinetId != id ||
+            string.IsNullOrEmpty(selector.Serial) || selector.Serial.Length > 256)
+            return await DenyTrendAsync(id, "Invalid drive selector. Refresh the storage snapshot and retry.", ct);
+        TrendCursor? cursor = nextCursor is null ? null : UnprotectStorage<TrendCursor>(nextCursor);
+        if (nextCursor is not null && (cursor is null || cursor.Version != 1 || cursor.CabinetId != id ||
+            cursor.Serial != selector.Serial || cursor.From != from || cursor.To != to ||
+            cursor.AsOf > _timeProvider.GetUtcNow() || cursor.LastObserved < from ||
+            cursor.LastObserved >= to || cursor.LastId == Guid.Empty))
+            return await DenyTrendAsync(id, "Invalid trend cursor. Refresh the storage snapshot and retry.", ct);
+        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct)) return NotFound();
+        if (!await _db.SmartReadings.AsNoTracking().AnyAsync(s => s.CabinetId == id && s.DriveSerial == selector.Serial, ct))
+            return NotFound();
+
+        DateTimeOffset asOf = cursor?.AsOf ?? _timeProvider.GetUtcNow();
+        var query = _db.SmartReadings.AsNoTracking().Where(s => s.CabinetId == id &&
+            s.DriveSerial == selector.Serial && s.TimestampUtc >= from && s.TimestampUtc < to &&
+            (s.ReceivedUtc == null || s.ReceivedUtc <= asOf));
+        if (cursor is not null)
+            query = query.Where(s => s.TimestampUtc < cursor.LastObserved ||
+                (s.TimestampUtc == cursor.LastObserved && s.Id.CompareTo(cursor.LastId) < 0));
+        // One lookahead, stable timestamp/Id ordering. Retention can remove older rows.
+        var rows = await query.OrderByDescending(s => s.TimestampUtc).ThenByDescending(s => s.Id)
+            .Select(s => new { s.Id, s.TimestampUtc, s.ReceivedUtc, s.Health, s.Source, s.TemperatureCelsius,
+                s.PowerOnHours, s.Wear, s.ReallocatedSectorCount, s.PendingSectorCount, s.IsAggregated })
+            .Take(pageSize + 1).ToArrayAsync(ct);
+        var pageRows = rows.Take(pageSize).ToArray();
+        var items = pageRows.Select(s => new StorageTrendPoint
+        {
+            ObservedUtc = s.TimestampUtc,
+            ReceivedUtc = s.IsAggregated ? null : s.ReceivedUtc,
+            Health = s.Health, Source = s.Source, TemperatureCelsius = s.TemperatureCelsius,
+            PowerOnHours = s.PowerOnHours, WearPercent = s.Wear,
+            ReallocatedSectors = s.ReallocatedSectorCount, PendingSectors = s.PendingSectorCount,
+            Aggregated = s.IsAggregated
+        }).ToArray();
+        string? continuation = rows.Length > pageSize
+            ? _storageProtector.Protect(JsonSerializer.Serialize(new TrendCursor(1, id, selector.Serial,
+                from.Value, to.Value, asOf, pageRows[^1].TimestampUtc, pageRows[^1].Id))) : null;
+        await _audit.WriteAsync(Observed(AuditEvent.ViewSmartHistory,
+            new { CabinetId = id, Projection = "StorageTrend", FromUtc = from, ToUtc = to, Count = items.Length }, id), ct);
+        return Ok(new StorageTrendPage { CabinetId = id, FromUtc = from.Value, ToUtc = to.Value,
+            AsOfUtc = asOf, Items = items, NextCursor = continuation });
     }
 
     /// <summary>One cabinet's heartbeat history, paged and bounded.</summary>

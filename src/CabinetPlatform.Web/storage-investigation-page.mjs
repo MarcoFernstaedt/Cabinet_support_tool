@@ -6,6 +6,34 @@ const number = (value, max) => value == null || (Number.isFinite(value) && value
 const integer = value => value == null || (Number.isSafeInteger(value) && value >= 0 && value <= 2147483647);
 const fields = (value, permitted) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).every(key => permitted.includes(key));
 const unknown = value => value == null ? "Unknown" : escape(value);
+export const opaqueStorageToken = value => typeof value === "string" && /^[A-Za-z0-9_-]{1,2048}$/.test(value);
+export const preciseStorageUtc = value => {
+  const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,7}))?(?:Z|\+00:00)$/.exec(value ?? "");
+  return match ? `${match[1]}.${(match[2] ?? "").padEnd(7, "0")}` : null;
+};
+export const validStorageUtc = value => utc(value) && new Date(Date.parse(value)).toISOString().slice(0, 19) === value.slice(0, 19);
+export function storageWindow(asOfUtc) {
+  const start = new Date(Date.parse(asOfUtc) - 7 * 86400000).toISOString().slice(0, 19);
+  const fraction = /(?:\.(\d{1,7}))?(?:Z|\+00:00)$/.exec(asOfUtc)[1];
+  return { from: `${start}${fraction ? `.${fraction}` : ""}+00:00`, to: asOfUtc };
+}
+export function validStorageWindow(from, to) {
+  if (!validStorageUtc(from) || !validStorageUtc(to)) return false;
+  const elapsed = Date.parse(to) - Date.parse(from);
+  const fraction = value => (/(?:\.(\d{1,7}))?(?:Z|\+00:00)$/.exec(value)[1] ?? "").padEnd(7, "0");
+  return preciseStorageUtc(from) < preciseStorageUtc(to) &&
+    (elapsed < 90 * 86400000 || (elapsed === 90 * 86400000 && fraction(to) <= fraction(from)));
+}
+export function validateSmart(drive, requireSelector = false) {
+  return fields(drive, ["driveSelector", "observedUtc", "receivedUtc", "health", "source", "temperatureCelsius", "powerOnHours", "wearPercent", "reallocatedSectors", "pendingSectors", "aggregated"]) &&
+    (requireSelector ? opaqueStorageToken(drive.driveSelector) && !Object.hasOwn(drive, "receivedUtc") : drive.driveSelector === undefined) &&
+    validStorageUtc(drive.observedUtc) &&
+    ["Unknown", "Healthy", "Watch", "Failing"].includes(drive.health) &&
+    ["Unavailable", "StorageReliabilityCounter", "FailurePredictStatus", "FailurePredictData"].includes(drive.source) &&
+    (drive.temperatureCelsius == null || (Number.isSafeInteger(drive.temperatureCelsius) && drive.temperatureCelsius >= -2147483648 && drive.temperatureCelsius <= 2147483647)) &&
+    integer(drive.powerOnHours) && integer(drive.wearPercent) && integer(drive.reallocatedSectors) && integer(drive.pendingSectors) &&
+    typeof drive.aggregated === "boolean";
+}
 
 export function renderStorageInvestigation(cabinetId, data) {
   if (!data || !validGuid(data.cabinetId) || data.cabinetId.toLowerCase() !== cabinetId || !utc(data.asOfUtc) ||
@@ -24,15 +52,10 @@ export function renderStorageInvestigation(cabinetId, data) {
     return `<li><strong>Volume observation ${index + 1}</strong>. Free space ${volume.freePercent == null ? "Unknown" : `${volume.freePercent}%`}. Embedded values measured at ${escape(volume.embeddedValuesMeasuredAtUtc)}; version observed ${escape(volume.observationFirstUtc)} to ${escape(volume.observationLastUtc)}. A later inventory observation does not remeasure these values. Volume identity is withheld.</li>`;
   });
   const smart = data.smart.map((drive, index) => {
-    if (!fields(drive, ["observedUtc", "health", "source", "temperatureCelsius", "powerOnHours", "wearPercent", "reallocatedSectors", "pendingSectors", "aggregated"]) ||
-        !utc(drive.observedUtc) ||
-        !["Unknown", "Healthy", "Watch", "Failing"].includes(drive.health) ||
-        !["Unavailable", "StorageReliabilityCounter", "FailurePredictStatus", "FailurePredictData"].includes(drive.source) ||
-        (drive.temperatureCelsius != null && (!Number.isSafeInteger(drive.temperatureCelsius) || drive.temperatureCelsius < -2147483648 || drive.temperatureCelsius > 2147483647)) ||
-        !integer(drive.powerOnHours) || !integer(drive.wearPercent) ||
-        !integer(drive.reallocatedSectors) || !integer(drive.pendingSectors) ||
-        (drive.aggregated != null && typeof drive.aggregated !== "boolean")) throw Error("Invalid SMART evidence");
-    return `<li>Drive observation ${index + 1}. Measured ${escape(drive.observedUtc)}; server receipt time not retained. Reported health ${escape(drive.health)}; dominant source ${escape(drive.source)} (not field-by-field provenance)${drive.aggregated ? "; daily worst-value aggregate, not a measurement at midnight" : ""}. Temperature ${unknown(drive.temperatureCelsius)} °C; power-on hours ${unknown(drive.powerOnHours)}; rated endurance consumed ${drive.wearPercent == null ? "Unknown" : `${drive.wearPercent}%`}; reallocated sectors ${unknown(drive.reallocatedSectors)}; pending sectors ${unknown(drive.pendingSectors)}. Missing counters are unknown, not zero. A later drive replacement is not ruled out; drive identity is withheld.</li>`;
+    if (!validateSmart(drive, true)) throw Error("Invalid SMART evidence");
+    const window = storageWindow(data.asOfUtc);
+    const link = `/cabinet/${cabinetId}/storage/trends?${new URLSearchParams({ driveSelector: drive.driveSelector, ...window })}`;
+    return `<li>Drive observation ${index + 1}. <a href="${escape(link)}">Retained SMART trend</a>.  Measured ${escape(drive.observedUtc)}; receipt shown in the trend when retained for this reading. Reported health ${escape(drive.health)}; dominant source ${escape(drive.source)} (not field-by-field provenance)${drive.aggregated ? "; daily worst-value aggregate, not a measurement at midnight" : ""}. Temperature ${unknown(drive.temperatureCelsius)} °C; power-on hours ${unknown(drive.powerOnHours)}; rated endurance consumed ${drive.wearPercent == null ? "Unknown" : `${drive.wearPercent}%`}; reallocated sectors ${unknown(drive.reallocatedSectors)}; pending sectors ${unknown(drive.pendingSectors)}. Missing counters are unknown, not zero. A later drive replacement is not ruled out; drive identity is withheld.</li>`;
   });
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Storage observations | Mashura Support</title><link rel="stylesheet" href="/styles.css"></head><body><main class="fleet-page"><p class="tag">LOCAL DEVELOPMENT BUILD · NO MFA</p><a href="/cabinet/${cabinetId}">Back to cabinet</a><h1>Storage and SMART observations</h1><p>Source cabinet ${cabinetId}; server query ${escape(data.asOfUtc)}. These are historical reports, not verified current drive condition. A retained SMART flag is not a prediction from this page. Missing evidence is unknown.</p>${heartbeat ? `<section><h2>Heartbeat storage summary</h2><p>Collected ${escape(heartbeat.collectedAtUtc)}; server received ${escape(heartbeat.receivedUtc)}. Reported free space ${heartbeat.diskFreePercent == null ? "Unknown" : `${heartbeat.diskFreePercent}%`}; reported worst disk health ${unknown(heartbeat.worstDiskHealth)}. This verdict may be carried from an earlier full collection.</p></section>` : "<p>No heartbeat storage summary available.</p>"}<section><h2>Volume observations</h2>${volumes.length ? `<ul>${volumes.join("")}</ul>` : "<p>No volume observations available. Free space is unknown.</p>"}</section><section><h2>SMART observations</h2>${smart.length ? `<ul>${smart.join("")}</ul>` : "<p>No SMART observations available. Drive condition is unknown.</p>"}</section></main></body></html>`;
 }

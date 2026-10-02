@@ -8,7 +8,8 @@ import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 import { renderFleetHealth } from "./fleet-health-page.mjs";
 import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
 import { renderNetworkHistory } from "./network-history-page.mjs";
-import { renderStorageInvestigation } from "./storage-investigation-page.mjs";
+import { renderStorageInvestigation, opaqueStorageToken, validStorageWindow } from "./storage-investigation-page.mjs";
+import { renderStorageTrends } from "./storage-trends-page.mjs";
 import { renderDisplayDiagnosis } from "./display-diagnosis-page.mjs";
 import { renderQueue, pendingTarget, cabinetTarget, renderDecision, decisionValues } from "./enrollment-retirement-page.mjs";
 
@@ -182,9 +183,10 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const correlationRoute = /^\/incident\/([^/]+)\/correlation$/.exec(route.pathname);
     const networkHistoryRoute = /^\/cabinet\/([^/]+)\/network-history$/.exec(route.pathname);
     const storageRoute = /^\/cabinet\/([^/]+)\/storage$/.exec(route.pathname);
+    const storageTrendRoute = /^\/cabinet\/([^/]+)\/storage\/trends$/.exec(route.pathname);
     const displayRoute = /^\/cabinet\/([^/]+)\/display$/.exec(route.pathname);
     const pinnedDisplayRoute = /^\/cabinet\/([^/]+)\/display\/([^/]+)$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !storageTrendRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -239,6 +241,26 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         if (actionId && saved?.actionId?.toLowerCase() !== actionId) { respond(502, "Display result identity mismatch"); return; }
         respond(200, renderDisplayDiagnosis(cabinetId, saved), "text/html; charset=utf-8");
       } catch { respond(502, "Display observations unavailable"); }
+      return;
+    }
+    if (storageTrendRoute) {
+      const cabinetId = storageTrendRoute[1].toLowerCase();
+      if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      const query = route.searchParams;
+      const selector = query.get("driveSelector"), from = query.get("from"), to = query.get("to"), cursor = query.get("cursor");
+      if ([...query.keys()].some(key => !["driveSelector", "from", "to", "cursor"].includes(key) || query.getAll(key).length !== 1) ||
+          !opaqueStorageToken(selector) || !validStorageWindow(from, to) || (cursor !== null && !opaqueStorageToken(cursor))) {
+        respond(400, "Invalid SMART trend query"); return;
+      }
+      try {
+        const upstreamQuery = new URLSearchParams({ driveSelector: selector, from, to, pageSize: "20", ...(cursor ? { nextCursor: cursor } : {}) });
+        const result = await api(`api/cabinets/${cabinetId}/storage/trends?${upstreamQuery}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 404) { respond(404, "SMART trend not found"); return; }
+        if (result.status === 403) { respond(403, "SMART trend access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        if (result.status === 400) { respond(400, "Invalid SMART trend cursor or bounds; refresh the storage snapshot"); return; }
+        respond(200, renderStorageTrends(cabinetId, selector, { from, to }, await readBoundedJson(result, 32768)), "text/html; charset=utf-8");
+      } catch { respond(502, "SMART trend unavailable"); }
       return;
     }
     if (storageRoute) {
