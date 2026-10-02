@@ -85,6 +85,10 @@ public sealed record ApproveRegistrationRequest
     /// <summary>Cabinet serial number, when known.</summary>
     public string? SerialNumber { get; init; }
 
+    /// <summary>Supervisor's optional approval reason, recorded in the audit.</summary>
+    [MaxLength(2000), RegularExpression(@"[\s\S]*\S[\s\S]*")]
+    public string? ApprovalReason { get; init; }
+
     /// <summary>Support ticket the approval is associated with, if any.</summary>
     public string? TicketReference { get; init; }
 }
