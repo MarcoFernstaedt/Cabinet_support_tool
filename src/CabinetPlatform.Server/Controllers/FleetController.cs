@@ -99,8 +99,11 @@ public sealed class FleetController : SupportControllerBase
                 Latest = _db.Heartbeats
                     .Where(h => h.CabinetId == c.Id)
                     .OrderByDescending(h => h.CollectedAtUtc)
+                    .ThenByDescending(h => h.Id)
                     .Select(h => new
                     {
+                        h.CollectedAtUtc,
+                        h.ReceivedUtc,
                         h.CpuPercent,
                         h.RamUsedPercent,
                         h.MinFreeDiskPercent,
@@ -120,6 +123,8 @@ public sealed class FleetController : SupportControllerBase
         var unknown = 0;
         var sitesWithOfflineSync = 0;
         var stale = 0;
+        var noMeasurement = 0;
+        var staleMeasurement = 0;
         var withPendingUpdates = 0;
         var withSecurityUpdates = 0;
         var rebootPending = 0;
@@ -134,6 +139,15 @@ public sealed class FleetController : SupportControllerBase
             if (row.LastCheckInUtc is null || row.LastCheckInUtc < staleBefore)
             {
                 stale++;
+            }
+
+            if (row.Latest is null)
+            {
+                noMeasurement++;
+            }
+            else if (row.Latest.CollectedAtUtc < staleBefore)
+            {
+                staleMeasurement++;
             }
 
             if (row.Latest?.PendingUpdateCount > 0)
@@ -208,6 +222,9 @@ public sealed class FleetController : SupportControllerBase
             TotalCabinets = rows.Count,
             Stale = stale,
             StaleAfterHours = staleAfterHours,
+            NoMeasurement = noMeasurement,
+            StaleMeasurement = staleMeasurement,
+            MeasurementStaleAfterHours = staleAfterHours,
             WithPendingUpdates = withPendingUpdates,
             WithPendingSecurityUpdates = withSecurityUpdates,
             RebootPending = rebootPending,
@@ -254,6 +271,8 @@ public sealed class FleetController : SupportControllerBase
                 query.DepartmentName,
                 summary.TotalCabinets,
                 summary.Stale,
+                summary.NoMeasurement,
+                summary.StaleMeasurement,
                 StaleAfterHours = staleAfterHours,
             },
         }, ct);
@@ -262,7 +281,7 @@ public sealed class FleetController : SupportControllerBase
     }
 
     /// <summary>
-    /// The site list, worst sites first.
+    /// The site list in stable client, site, identifier order across pages.
     /// </summary>
     /// <remarks>
     /// Fleet views group by site because that is the unit a rep diagnoses. The
@@ -300,6 +319,7 @@ public sealed class FleetController : SupportControllerBase
         List<Domain.Site> page = await sites
             .OrderBy(s => s.Client!.Name)
             .ThenBy(s => s.Name)
+            .ThenBy(s => s.Id)
             .Skip(query.Skip)
             .Take(query.PageSize)
             .ToListAsync(ct);
@@ -318,9 +338,6 @@ public sealed class FleetController : SupportControllerBase
         List<SiteSummary> items = page
             .Select(site => Summarise(
                 site, bySite[site.Id].ToList(), reachability.GetValueOrDefault(site.Id)))
-            .OrderByDescending(s => Severity(s.WorstHealth))
-            .ThenBy(s => s.ClientName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(s => s.SiteName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         CurrentUser actor = CurrentUser;
@@ -599,14 +616,4 @@ public sealed class FleetController : SupportControllerBase
                     CabinetHealthStatus.Healthy, (worst, c) => HealthEvaluator.Worse(worst, c.Health)),
         };
     }
-
-    private static int Severity(CabinetHealthStatus status) => status switch
-    {
-        CabinetHealthStatus.Healthy => 0,
-        CabinetHealthStatus.Unknown => 1,
-        CabinetHealthStatus.Warning => 2,
-        CabinetHealthStatus.Offline => 3,
-        CabinetHealthStatus.Critical => 4,
-        _ => 1,
-    };
 }
