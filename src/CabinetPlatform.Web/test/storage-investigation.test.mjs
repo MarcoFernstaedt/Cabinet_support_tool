@@ -51,7 +51,7 @@ test("cabinet storage evidence is scoped, time-labeled and does not claim curren
 
 test("typed volume and SMART projection preserves null, zero, old timestamps and aggregate provenance", async () => {
   const result = { ...sample, volumes: [{ freePercent: 0, observationFirstUtc: "2026-09-01T00:00:00+00:00", observationLastUtc: "2026-10-01T00:00:00+00:00", embeddedValuesMeasuredAtUtc: "2026-09-01T00:00:00+00:00" }],
-    smart: [{ observedUtc: "2026-09-01T00:00:00+00:00", health: "Failing", source: "FailurePredictData", temperatureCelsius: null,
+    smart: [{ driveSelector: "Opaque_123-ABC", observedUtc: "2026-09-01T00:00:00+00:00", health: "Failing", source: "FailurePredictData", temperatureCelsius: null,
       powerOnHours: 0, wearPercent: 110, reallocatedSectors: null, pendingSectors: 2, aggregated: true }] };
   const f = await fixture({ result });
   try {
@@ -64,7 +64,7 @@ test("typed volume and SMART projection preserves null, zero, old timestamps and
     assert.match(html, /daily worst-value aggregate/);
     assert.match(html, /rated endurance consumed 110%/);
     assert.match(html, /reallocated sectors Unknown/);
-    assert.match(html, /server receipt time not retained/);
+    assert.match(html, /receipt shown in the trend when retained for this reading/);
     assert.doesNotMatch(html, /serial|private-patient/i);
   } finally { await f.close(); }
 });

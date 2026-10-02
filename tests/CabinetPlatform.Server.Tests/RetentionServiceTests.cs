@@ -142,8 +142,10 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
 
         await _factory.WithDbAsync(async db =>
         {
-            db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(2),
-                reallocated: 5, wear: 70, health: DiskHealthStatus.Healthy));
+            var receivedReading = NewReading(cabinet.Id, "SERIAL-A", day.AddHours(2),
+                reallocated: 5, wear: 70, health: DiskHealthStatus.Healthy);
+            receivedReading.ReceivedUtc = day.AddDays(1);
+            db.SmartReadings.Add(receivedReading);
             db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(10),
                 reallocated: 41, wear: 90, health: DiskHealthStatus.Watch));
             db.SmartReadings.Add(NewReading(cabinet.Id, "SERIAL-A", day.AddHours(18),
@@ -168,6 +170,7 @@ public sealed class RetentionServiceTests : IClassFixture<SupportApiFactory>
         SmartReading aggregate = Assert.Single(rows);
 
         Assert.True(aggregate.IsAggregated);
+        Assert.Null(aggregate.ReceivedUtc);
         Assert.Equal(day, aggregate.TimestampUtc);
 
         // The worst value of the day survives: an error count that spiked and

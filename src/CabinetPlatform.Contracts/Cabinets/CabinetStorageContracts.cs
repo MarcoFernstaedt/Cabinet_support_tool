@@ -43,9 +43,11 @@ public sealed record StorageVolumeDto
     public required DateTimeOffset EmbeddedValuesMeasuredAtUtc { get; init; }
 }
 
-/// <summary>One recent reading per physical drive; identity is deliberately not exposed.</summary>
+/// <summary>One recent reading per reported serial; physical continuity is not verified.</summary>
 public sealed record StorageSmartDto
 {
+    /// <summary>Cabinet-bound opaque selector for historical observations. Refresh the snapshot if invalidated by key rotation.</summary>
+    public required string DriveSelector { get; init; }
     /// <summary>Agent measurement time, not server receipt.</summary>
     public required DateTimeOffset ObservedUtc { get; init; }
     /// <summary>Measured health or Unknown.</summary>
@@ -64,4 +66,46 @@ public sealed record StorageSmartDto
     public int? PendingSectors { get; init; }
     /// <summary>Whether this is a daily retention rollup.</summary>
     public required bool Aggregated { get; init; }
+}
+
+/// <summary>Historical SMART observation. A serial groups observations, not guaranteed physical continuity.</summary>
+public sealed record StorageTrendPoint
+{
+    /// <summary>Agent observation instant.</summary>
+    public required DateTimeOffset ObservedUtc { get; init; }
+    /// <summary>Exact raw heartbeat receipt, null when rolled or removed.</summary>
+    public DateTimeOffset? ReceivedUtc { get; init; }
+    /// <summary>Historical derived health.</summary>
+    public required DiskHealthStatus Health { get; init; }
+    /// <summary>Dominant historical source, not per-counter provenance.</summary>
+    public required SmartSource Source { get; init; }
+    /// <summary>Measured temperature, if present.</summary>
+    public int? TemperatureCelsius { get; init; }
+    /// <summary>Measured powered-on hours, if present.</summary>
+    public int? PowerOnHours { get; init; }
+    /// <summary>Measured wear, if present.</summary>
+    public int? WearPercent { get; init; }
+    /// <summary>Measured reallocated sectors, if present.</summary>
+    public int? ReallocatedSectors { get; init; }
+    /// <summary>Measured pending sectors, if present.</summary>
+    public int? PendingSectors { get; init; }
+    /// <summary>Daily retention rollup, not an individual raw reading.</summary>
+    public required bool Aggregated { get; init; }
+}
+
+/// <summary>A bounded [from,to) page of retained SMART evidence. Late inserts and retention can change later pages.</summary>
+public sealed record StorageTrendPage
+{
+    /// <summary>Requested cabinet.</summary>
+    public required Guid CabinetId { get; init; }
+    /// <summary>Inclusive UTC observation start.</summary>
+    public required DateTimeOffset FromUtc { get; init; }
+    /// <summary>Exclusive UTC observation end.</summary>
+    public required DateTimeOffset ToUtc { get; init; }
+    /// <summary>First-page server watermark for receipt metadata.</summary>
+    public required DateTimeOffset AsOfUtc { get; init; }
+    /// <summary>At most 50 retained rows.</summary>
+    public required IReadOnlyList<StorageTrendPoint> Items { get; init; }
+    /// <summary>Opaque continuation, null at the end. Retention may remove rows between pages.</summary>
+    public string? NextCursor { get; init; }
 }

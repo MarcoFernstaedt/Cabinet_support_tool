@@ -163,6 +163,9 @@ public class SmartReading
     /// <summary>UTC instant the reading was taken on the cabinet.</summary>
     public DateTimeOffset TimestampUtc { get; set; }
 
+    /// <summary>Server receipt of this raw reading; unknown for legacy and aggregate rows.</summary>
+    public DateTimeOffset? ReceivedUtc { get; set; }
+
     /// <summary>Health derived from the counters.</summary>
     public DiskHealthStatus Health { get; set; } = DiskHealthStatus.Unknown;
 

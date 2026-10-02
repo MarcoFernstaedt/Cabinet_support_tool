@@ -195,7 +195,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
 
             // Unique older samples still belong in the historical SMART series;
             // duplicates have already returned without any sample side effects.
-            StoreSmartReadings(cabinet, payload, collectedUtc);
+            StoreSmartReadings(cabinet, payload, collectedUtc, nowUtc);
         }
 
         if (advancesCurrent)
@@ -437,7 +437,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
     /// a row that cannot be trended is noise in the table this system exists
     /// for.
     /// </remarks>
-    private void StoreSmartReadings(Cabinet cabinet, CheckInPayload payload, DateTimeOffset collectedUtc)
+    private void StoreSmartReadings(Cabinet cabinet, CheckInPayload payload, DateTimeOffset collectedUtc, DateTimeOffset receivedUtc)
     {
         if (payload.Disks is null)
         {
@@ -475,6 +475,7 @@ public sealed class CheckInIngestService : ICheckInIngestService
                 DriveSerial = serial,
                 DriveModel = smart.Model,
                 TimestampUtc = collectedUtc,
+                ReceivedUtc = receivedUtc,
                 Health = disk.HealthStatus,
                 Source = smart.Source,
                 ReallocatedSectorCount = smart.ReallocatedSectorCount,

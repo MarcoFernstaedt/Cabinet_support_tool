@@ -961,6 +961,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.Property<long?>("ReadErrorsUncorrected")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("ReceivedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("ReallocatedSectorCount")
                         .HasColumnType("INTEGER");
 

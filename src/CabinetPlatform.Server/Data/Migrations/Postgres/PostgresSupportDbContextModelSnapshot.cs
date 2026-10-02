@@ -946,6 +946,9 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<long?>("ReadErrorsUncorrected")
                         .HasColumnType("bigint");
 
+                    b.Property<DateTimeOffset?>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<int?>("ReallocatedSectorCount")
                         .HasColumnType("integer");
 
