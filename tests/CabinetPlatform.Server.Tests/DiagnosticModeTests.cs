@@ -65,11 +65,12 @@ public class DiagnosticModeTests
             dispatched.AddRange((await agent.GetFromJsonAsync<List<ActionRequestDto>>("/api/agent/actions", TestClient.Json))!);
         Assert.Contains(dispatched, r => r.Action == ActionName.GetProcessList);
         Assert.Contains(dispatched, r => r.Action == ActionName.GetDisplayDiagnostics);
-        Assert.Equal(2, dispatched.Count);
+        Assert.Contains(dispatched, r => r.Action == ActionName.GetWerMetadata);
+        Assert.Equal(3, dispatched.Count);
         await factory.WithDbAsync(async db =>
         {
             var rows = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(db.ActionRequests);
-            Assert.All(rows.Where(r => r.Action is not (ActionName.GetProcessList or ActionName.GetDisplayDiagnostics)),
+            Assert.All(rows.Where(r => r.Action is not (ActionName.GetProcessList or ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata)),
                 r => Assert.Equal(ActionRequestStatus.Cancelled, r.Status));
         });
     }
@@ -83,7 +84,7 @@ public class DiagnosticModeTests
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "approval", requester.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
             ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall,
-            ActionName.GetDisplayDiagnostics, ActionName.KillProcess };
+            ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata, ActionName.KillProcess };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
         {
             var id = Guid.NewGuid();
@@ -114,7 +115,7 @@ public class DiagnosticModeTests
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "diagnostic", user.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
             ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall,
-            ActionName.GetDisplayDiagnostics };
+            ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata };
         var catalog = await client.GetFromJsonAsync<List<ActionCatalogEntryDto>>("/api/actions/catalog", TestClient.Json);
 #if LEGACY_MAINTENANCE_TESTS
         Assert.Equal((mode == "Demo" ? allowed.Append(ActionName.KillProcess) : allowed).Order(),

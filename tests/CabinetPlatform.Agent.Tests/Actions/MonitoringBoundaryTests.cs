@@ -17,7 +17,7 @@ namespace CabinetPlatform.Agent.Tests.Actions;
 public class MonitoringBoundaryTests
 {
     private static readonly ActionName[] Observations =
-    [ActionName.GetProcessList, ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.GetDisplayDiagnostics];
+    [ActionName.GetProcessList, ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata];
 
     [Theory]
     [InlineData("Demo")]
@@ -54,7 +54,7 @@ public class MonitoringBoundaryTests
         services.AddCabinetAgent(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         { ["Agent:Actions:ExecutionMode"] = mode }).Build());
         var registered = services.Where(s => s.ServiceType == typeof(IActionExecutor)).Select(s => s.ImplementationType!.Name).Order();
-        Assert.Equal(new[] { "CollectEventLogsExecutor", "GetDisplayDiagnosticsExecutor", "GetProcessListExecutor", "GetScheduledUpdatesExecutor", "InspectFirewallExecutor", "RunEventLogViewExecutor" }.Order(), registered);
+        Assert.Equal(new[] { "CollectEventLogsExecutor", "GetDisplayDiagnosticsExecutor", "GetProcessListExecutor", "GetScheduledUpdatesExecutor", "GetWerMetadataExecutor", "InspectFirewallExecutor", "RunEventLogViewExecutor" }.Order(), registered);
     }
 
     [Theory]

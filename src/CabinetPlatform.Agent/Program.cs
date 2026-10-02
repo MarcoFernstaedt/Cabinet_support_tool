@@ -3,8 +3,33 @@ using System.Text.Json;
 using CabinetPlatform.Agent;
 using CabinetPlatform.Agent.Collectors;
 using CabinetPlatform.Agent.Transport;
+using CabinetPlatform.Agent.Platform;
+using CabinetPlatform.Agent.Actions.Executors;
+using CabinetPlatform.Contracts.Actions;
 using Microsoft.Extensions.Options;
 using Serilog;
+
+// Dispatch the fixed native probe before host configuration, logging, credentials or network startup.
+if (args is ["--wer-metadata-probe"])
+{
+    Console.SetError(TextWriter.Null);
+    try
+    {
+        var executor = new GetWerMetadataExecutor(new WindowsWerMetadataGateway(), new SystemClock());
+        var result = await executor.ExecuteAsync(new ActionRequestDto
+        {
+            Action = ActionName.GetWerMetadata, Parameters = new Dictionary<string, string>(),
+            Id = Guid.Empty, CabinetId = Guid.Empty, RequestedByUserId = Guid.Empty,
+            RequestedUtc = DateTimeOffset.MinValue, Reason = string.Empty
+        }, CancellationToken.None).ConfigureAwait(false);
+        Console.Out.Write(result.CollectedData);
+    }
+    catch
+    {
+        Environment.ExitCode = 1;
+    }
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 

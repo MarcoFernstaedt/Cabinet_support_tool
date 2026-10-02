@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, validGuid } from "./read-only-pages.mjs";
 import { renderEventResult } from "./event-result-page.mjs";
 import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
+import { validateWerMetadata } from "./wer-metadata-page.mjs";
 import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 import { renderFleetHealth } from "./fleet-health-page.mjs";
 import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
@@ -177,6 +178,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const eventRoute = /^\/cabinet\/([^/]+)\/events$/.exec(route.pathname);
     const pinnedEventRoute = /^\/cabinet\/([^/]+)\/events\/([^/]+)$/.exec(route.pathname);
     const crashRoute = /^\/cabinet\/([^/]+)\/crashes$/.exec(route.pathname);
+    const pinnedCrashRoute = /^\/cabinet\/([^/]+)\/crashes\/([^/]+)$/.exec(route.pathname);
     const processRoute = /^\/cabinet\/([^/]+)\/processes$/.exec(route.pathname);
     const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
@@ -186,7 +188,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const storageTrendRoute = /^\/cabinet\/([^/]+)\/storage\/trends$/.exec(route.pathname);
     const displayRoute = /^\/cabinet\/([^/]+)\/display$/.exec(route.pathname);
     const pinnedDisplayRoute = /^\/cabinet\/([^/]+)\/display\/([^/]+)$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !storageTrendRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !pinnedCrashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !storageTrendRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -355,22 +357,39 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
       } catch { respond(502, "Process and service observations unavailable"); }
       return;
     }
-    if (eventRoute || pinnedEventRoute || crashRoute) {
-      const cabinetId = (eventRoute ?? pinnedEventRoute ?? crashRoute)[1].toLowerCase();
+    if (eventRoute || pinnedEventRoute || crashRoute || pinnedCrashRoute) {
+      const cabinetId = (eventRoute ?? pinnedEventRoute ?? crashRoute ?? pinnedCrashRoute)[1].toLowerCase();
       if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      const werActionId = pinnedCrashRoute?.[2].toLowerCase();
+      if (werActionId && !validGuid(werActionId)) { respond(404, "Saved WER result not found"); return; }
       const actionId = pinnedEventRoute?.[2].toLowerCase();
       if (actionId && !validGuid(actionId)) { respond(404, "Saved event result not found"); return; }
-      if (crashRoute && route.search) { respond(400, "Invalid crash query"); return; }
+      if ((crashRoute || pinnedCrashRoute) && route.search) { respond(400, "Invalid crash query"); return; }
       if ((eventRoute || pinnedEventRoute) && ([...route.searchParams.keys()].some(key => !["channel", "provider", "entry"].includes(key)) ||
           [...route.searchParams.keys()].some(key => route.searchParams.getAll(key).length !== 1))) { respond(400, "Invalid event filter"); return; }
       try {
         const result = await api(`api/cabinets/${cabinetId}/event-log-results/${actionId ?? "latest"}`, { headers: { Authorization: `Bearer ${session.token}` } });
-        if (result.status === 404) { respond(404, "No saved event result for this cabinet"); return; }
+        if (result.status === 404 && (eventRoute || pinnedEventRoute)) { respond(404, "No saved event result for this cabinet"); return; }
         if (result.status === 403) { respond(403, "Event result access denied"); return; }
         if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
-        const data = await readBoundedJson(result);
+        if (result.status !== 404 && !result.ok) { respond(502, "Saved event result unavailable"); return; }
+        const data = result.status === 404 ? null : await readBoundedJson(result);
         if (actionId && data?.actionId?.toLowerCase() !== actionId) { respond(502, "Saved event result identity mismatch"); return; }
-        respond(200, (eventRoute || pinnedEventRoute) ? renderEventResult(cabinetId, data, route.searchParams) : renderCrashInvestigation(cabinetId, data), "text/html; charset=utf-8");
+        if (eventRoute || pinnedEventRoute) {
+          respond(200, renderEventResult(cabinetId, data, route.searchParams), "text/html; charset=utf-8"); return;
+        }
+        let wer = { state: "unavailable" };
+        try {
+          const response = await api(`api/cabinets/${cabinetId}/wer-metadata/${werActionId ?? "latest"}`, { headers: { Authorization: `Bearer ${session.token}` } });
+          if (response.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+          if (response.status === 403) wer = { state: "denied" };
+          else if (response.status === 404) { if (werActionId || data === null) { respond(404, "Saved crash evidence not found"); return; } wer = { state: "missing" }; }
+          else if (response.ok) {
+            try { wer = { state: "ready", data: validateWerMetadata(cabinetId, await readBoundedJson(response, 12288), werActionId) }; }
+            catch { wer = { state: "unsafe" }; }
+          } else if (response.status === 502) wer = { state: "unsafe" };
+        } catch { wer = { state: "unavailable" }; }
+        respond(200, renderCrashInvestigation(cabinetId, data, wer), "text/html; charset=utf-8");
       } catch (error) { respond(error.message === "Invalid event filter" || error.message === "Invalid event selection" ? 400 : 502, "Saved event result unavailable"); }
       return;
     }
