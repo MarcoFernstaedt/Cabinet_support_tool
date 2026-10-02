@@ -16,7 +16,7 @@ public sealed class DisplayResultEndpointTests : IClassFixture<SupportApiFactory
     public DisplayResultEndpointTests(SupportApiFactory factory) => _factory = factory;
     private static string Latest(Guid id) => $"/api/cabinets/{id}/display-results/latest";
     private static string Pinned(Guid id, Guid action) => $"/api/cabinets/{id}/display-results/{action}";
-    private const string Valid = "{\"observedAtUtc\":\"2026-10-02T12:00:00Z\",\"modeStatus\":\"Observed\",\"modes\":[{\"displayIndex\":0,\"widthPixels\":1920,\"heightPixels\":1080,\"refreshHz\":null}],\"modesTruncated\":false,\"scalingStatus\":\"InteractiveSessionInaccessible\",\"scalingPercent\":null,\"magnifierStatus\":\"InteractiveSessionInaccessible\",\"appZoomStatus\":\"NotCollected\"}";
+    private const string Valid = "{\"observedAtUtc\":\"2026-10-02T12:00:00Z\",\"modeStatus\":\"Observed\",\"modes\":[{\"displayIndex\":0,\"widthPixels\":1920,\"heightPixels\":1080,\"refreshHz\":null}],\"modesTruncated\":false,\"scalingStatus\":\"NotCollected\",\"scalingPercent\":null,\"magnifierStatus\":\"NotCollected\",\"appZoomStatus\":\"NotCollected\"}";
 
     private async Task<(HttpClient User, HttpClient Agent, Cabinet Cabinet, ActionRequest Action)> SetupAsync()
     {
@@ -55,8 +55,8 @@ public sealed class DisplayResultEndpointTests : IClassFixture<SupportApiFactory
             ModeStatus = DisplayModeStatus.Observed,
             Modes = [new DisplayModeObservation { DisplayIndex = 0, WidthPixels = 1920, HeightPixels = 1080 }],
             ModesTruncated = false,
-            ScalingStatus = DisplaySessionStatus.InteractiveSessionInaccessible,
-            MagnifierStatus = DisplaySessionStatus.InteractiveSessionInaccessible,
+            ScalingStatus = DisplaySessionStatus.NotCollected,
+            MagnifierStatus = DisplaySessionStatus.NotCollected,
             AppZoomStatus = DisplaySessionStatus.NotCollected
         }, ContractJson.Default);
         Assert.Contains("\"scalingPercent\":null", wire);
@@ -83,13 +83,27 @@ public sealed class DisplayResultEndpointTests : IClassFixture<SupportApiFactory
         JsonElement display = root.GetProperty("display");
         Assert.Equal(new[] { "observedAtUtc", "modeStatus", "modes", "modesTruncated", "scalingStatus", "scalingPercent", "magnifierStatus", "appZoomStatus" }, display.EnumerateObject().Select(p => p.Name));
         Assert.Equal("Observed", display.GetProperty("modeStatus").GetString());
-        Assert.Equal("InteractiveSessionInaccessible", display.GetProperty("scalingStatus").GetString());
+        Assert.Equal("NotCollected", display.GetProperty("scalingStatus").GetString());
+        Assert.Equal("NotCollected", display.GetProperty("magnifierStatus").GetString());
         Assert.Equal("NotCollected", display.GetProperty("appZoomStatus").GetString());
         Assert.Equal(JsonValueKind.Null, display.GetProperty("scalingPercent").ValueKind);
         Assert.Equal(JsonValueKind.Null, display.GetProperty("modes")[0].GetProperty("refreshHz").ValueKind);
         Assert.NotNull((await _factory.WithDbAsync(db => db.ActionRequests.AsNoTracking().SingleAsync(a => a.Id == action.Id))).CollectedDataJson);
         Assert.Contains(await _factory.WithDbAsync(db => db.AuditEntries.AsNoTracking().Where(a => a.CabinetId == cabinet.Id && a.Action == ActionName.GetDisplayDiagnostics).ToListAsync()),
             a => a.Event == AuditEvent.ListActions && a.Result == AuditResult.Success);
+    }
+
+    [Fact]
+    public async Task Earlier_inaccessible_session_status_remains_readable()
+    {
+        var (user, agent, cabinet, action) = await SetupAsync();
+        string earlier = Valid.Replace("\"scalingStatus\":\"NotCollected\"", "\"scalingStatus\":\"InteractiveSessionInaccessible\"")
+            .Replace("\"magnifierStatus\":\"NotCollected\"", "\"magnifierStatus\":\"InteractiveSessionInaccessible\"");
+        Assert.Equal(HttpStatusCode.NoContent, (await Report(agent, action.Id, earlier)).StatusCode);
+        using JsonDocument response = JsonDocument.Parse(await user.GetStringAsync(Pinned(cabinet.Id, action.Id)));
+        JsonElement display = response.RootElement.GetProperty("display");
+        Assert.Equal("InteractiveSessionInaccessible", display.GetProperty("scalingStatus").GetString());
+        Assert.Equal("InteractiveSessionInaccessible", display.GetProperty("magnifierStatus").GetString());
     }
 
     [Theory]

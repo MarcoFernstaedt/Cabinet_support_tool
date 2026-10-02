@@ -29,9 +29,9 @@ public sealed class DisplayDiagnosticsTests
         Assert.Equal(60, rows[0].GetProperty("refreshHz").GetInt32());
         Assert.Equal(1, rows[1].GetProperty("displayIndex").GetInt32());
         Assert.False(rows[1].TryGetProperty("refreshHz", out _));
-        Assert.Equal("InteractiveSessionInaccessible", root.GetProperty("scalingStatus").GetString());
+        Assert.Equal("NotCollected", root.GetProperty("scalingStatus").GetString());
         Assert.Equal(JsonValueKind.Null, root.GetProperty("scalingPercent").ValueKind);
-        Assert.Equal("InteractiveSessionInaccessible", root.GetProperty("magnifierStatus").GetString());
+        Assert.Equal("NotCollected", root.GetProperty("magnifierStatus").GetString());
         Assert.Equal("NotCollected", root.GetProperty("appZoomStatus").GetString());
         Assert.False(root.GetProperty("modesTruncated").GetBoolean());
     }

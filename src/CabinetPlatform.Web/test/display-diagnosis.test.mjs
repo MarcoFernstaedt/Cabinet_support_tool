@@ -8,7 +8,7 @@ const action = "33333333-3333-4333-8333-333333333333";
 const nextAction = "44444444-4444-4444-8444-444444444444";
 const display = { observedAtUtc: "2026-10-02T05:00:00+00:00", modeStatus: "Observed", modes: [
   { displayIndex: 0, widthPixels: 1920, heightPixels: 1080, refreshHz: 60 }], modesTruncated: false,
-  scalingStatus: "InteractiveSessionInaccessible", scalingPercent: null, magnifierStatus: "InteractiveSessionInaccessible", appZoomStatus: "NotCollected" };
+  scalingStatus: "NotCollected", scalingPercent: null, magnifierStatus: "NotCollected", appZoomStatus: "NotCollected" };
 const saved = { cabinetId: cabinet, actionId: action, state: "complete", requestedAtUtc: "2026-10-02T04:59:00+00:00", completedAtUtc: "2026-10-02T05:01:00+00:00", display };
 async function fixture({ result = saved, status = 200, pinnedResult = saved, pinnedStatus = 200 } = {}) {
   let active = true;
@@ -41,8 +41,8 @@ test("display page reports OS mode, separately unknown session facts and pinned 
     assert.equal(res.status, 200);
     const html = await res.text();
     assert.match(html, /2560.*1080/);
-    assert.match(html, /interactive session inaccessible|not available for the interactive session/i);
-    assert.match(html, /Magnifier/);
+    assert.match(html, /Scaling<\/dt><dd>Not collected; no reliable user scaling measurement\./i);
+    assert.match(html, /Magnifier<\/dt><dd>Not collected; state unknown\./i);
     assert.match(html, /app zoom/i);
     assert.match(html, new RegExp(action));
     const pinned = await f.request(`/cabinet/${cabinet}/display/${action}`, f.cookie);
@@ -52,6 +52,19 @@ test("display page reports OS mode, separately unknown session facts and pinned 
     assert.doesNotMatch(html, /server-only-token|correct display|remote control/i);
     f.revoke();
     assert.equal((await f.request(url, f.cookie)).status, 303);
+  } finally { await f.close(); }
+});
+
+test("older saved inaccessible-session statuses remain readable", async () => {
+  const earlier = { ...saved, display: { ...display,
+    scalingStatus: "InteractiveSessionInaccessible", magnifierStatus: "InteractiveSessionInaccessible" } };
+  const f = await fixture({ result: earlier });
+  try {
+    const res = await f.request(`/cabinet/${cabinet}/display`, f.cookie);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    assert.match(html, /Scaling<\/dt><dd>Interactive session inaccessible/);
+    assert.match(html, /Magnifier<\/dt><dd>Interactive session inaccessible/);
   } finally { await f.close(); }
 });
 
