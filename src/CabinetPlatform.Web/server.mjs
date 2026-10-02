@@ -9,6 +9,7 @@ import { renderFleetHealth } from "./fleet-health-page.mjs";
 import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
 import { renderNetworkHistory } from "./network-history-page.mjs";
 import { renderStorageInvestigation } from "./storage-investigation-page.mjs";
+import { renderDisplayDiagnosis } from "./display-diagnosis-page.mjs";
 
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
@@ -109,7 +110,9 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const correlationRoute = /^\/incident\/([^/]+)\/correlation$/.exec(route.pathname);
     const networkHistoryRoute = /^\/cabinet\/([^/]+)\/network-history$/.exec(route.pathname);
     const storageRoute = /^\/cabinet\/([^/]+)\/storage$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute)) { respond(404, "Not found"); return; }
+    const displayRoute = /^\/cabinet\/([^/]+)\/display$/.exec(route.pathname);
+    const pinnedDisplayRoute = /^\/cabinet\/([^/]+)\/display\/([^/]+)$/.exec(route.pathname);
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -147,6 +150,23 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
           respond(409, '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fleet changed | Mashura Support</title><link rel="stylesheet" href="/styles.css"></head><body><main class="fleet-page"><h1>Fleet changed while loading</h1><p role="status">The summary and cabinet page were read at different moments. No combined count is shown. Refresh to try again.</p><a href="/fleet/health">Retry fleet health</a></main></body></html>', "text/html; charset=utf-8");
         } else respond(502, "Fleet health unavailable");
       }
+      return;
+    }
+    if (displayRoute || pinnedDisplayRoute) {
+      const cabinetId = (displayRoute ?? pinnedDisplayRoute)[1].toLowerCase();
+      const actionId = pinnedDisplayRoute?.[2].toLowerCase();
+      if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
+      if (actionId && !validGuid(actionId)) { respond(404, "Saved display result not found"); return; }
+      if (route.search) { respond(400, "Invalid display query"); return; }
+      try {
+        const result = await api(`api/cabinets/${cabinetId}/display-results/${actionId ?? "latest"}`, { headers: { Authorization: `Bearer ${session.token}` } });
+        if (result.status === 403) { respond(403, "Display result access denied"); return; }
+        if (result.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+        if (actionId && result.status === 404) { respond(404, "Saved display result not found"); return; }
+        const saved = result.status === 404 ? null : await readBoundedJson(result, 16384);
+        if (actionId && saved?.actionId?.toLowerCase() !== actionId) { respond(502, "Display result identity mismatch"); return; }
+        respond(200, renderDisplayDiagnosis(cabinetId, saved), "text/html; charset=utf-8");
+      } catch { respond(502, "Display observations unavailable"); }
       return;
     }
     if (storageRoute) {

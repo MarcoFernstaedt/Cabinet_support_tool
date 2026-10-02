@@ -365,6 +365,20 @@ public static class ActionCatalog
             },
             new ActionCatalogEntry
             {
+                Action = ActionName.GetDisplayDiagnostics,
+                DisplayName = "View display modes",
+                Description = "Reads bounded OS display modes without monitor identity or interactive-user settings.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
                 Action = ActionName.GetProcessList,
                 DisplayName = "View process list",
                 Description = "Reads the cabinet's current process list, outside the check-in cadence.",

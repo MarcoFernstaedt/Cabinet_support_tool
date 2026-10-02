@@ -188,6 +188,9 @@ public enum ActionName
     /// <summary>Read bounded Windows Defender Firewall profile and rule metadata. Changes nothing.</summary>
     InspectFirewall = 29,
 
+    /// <summary>Observe bounded OS display modes visible to the service without changing settings.</summary>
+    GetDisplayDiagnostics = 30,
+
     /// <summary>
     /// Reserved. Opening a drawer is hardware actuation, which this build does
     /// not perform.
