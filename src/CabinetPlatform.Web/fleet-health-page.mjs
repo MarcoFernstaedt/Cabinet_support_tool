@@ -9,11 +9,11 @@ export function renderFleetHealth(health, cabinets, sites, cabinetPage, sitePage
   if (!validPage(cabinets, cabinetPage) || !validPage(sites, sitePage) || !health ||
       ![health.totalCabinets, health.healthy, health.warning, health.critical, health.offline, health.unknown,
         health.noMeasurement, health.staleMeasurement, health.measurementStaleAfterHours, health.stale, health.staleAfterHours].every(integer) ||
-      health.totalCabinets !== cabinets.totalCount ||
       health.healthy + health.warning + health.critical + health.offline + health.unknown !== health.totalCabinets ||
       health.noMeasurement > health.totalCabinets || health.staleMeasurement > health.totalCabinets ||
       !timeOrNull(health.generatedUtc) || health.generatedUtc === null)
     throw Error("Invalid fleet health summary");
+  if (health.totalCabinets !== cabinets.totalCount) throw Error("Fleet snapshot changed");
   const cabinetRows = cabinets.items.map(row => {
     if (!validGuid(row.id) || !validGuid(row.siteId) || row.isActive !== true || !healthValues.has(row.health) ||
         !timeOrNull(row.lastCheckInUtc) || !timeOrNull(row.latestHeartbeatCollectedAtUtc) ||

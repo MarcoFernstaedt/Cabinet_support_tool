@@ -136,7 +136,11 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
         if (sitesResponse.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
         const sites = await readBoundedJson(sitesResponse);
         respond(200, renderFleetHealth(health, cabinets, sites, cabinetPage, sitePage), "text/html; charset=utf-8");
-      } catch { respond(502, "Fleet health unavailable"); }
+      } catch (error) {
+        if (error.message === "Fleet snapshot changed") {
+          respond(409, '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Fleet changed | Mashura Support</title><link rel="stylesheet" href="/styles.css"></head><body><main class="fleet-page"><h1>Fleet changed while loading</h1><p role="status">The summary and cabinet page were read at different moments. No combined count is shown. Refresh to try again.</p><a href="/fleet/health">Retry fleet health</a></main></body></html>', "text/html; charset=utf-8");
+        } else respond(502, "Fleet health unavailable");
+      }
       return;
     }
     if (incidentRoute) {

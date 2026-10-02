@@ -15,7 +15,7 @@ const summary = { totalCabinets: 21, healthy: 0, warning: 0, critical: 0, offlin
 const siteRow = (id, overrides = {}) => ({ id, clientName: "Synthetic", siteName: "Lab", cabinetCount: 21,
   unhealthyCabinetCount: 21, worstHealth: "Unknown", syncCabinetId: null, syncCabinetHealth: null, syncReachability: null, ...overrides });
 
-async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus = 200, corruptSite = false } = {}) {
+async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus = 200, corruptSite = false, changedFleet = false } = {}) {
   let active = true;
   const calls = [];
   const upstreamFetch = async (url, options) => {
@@ -29,7 +29,7 @@ async function fixture({ healthStatus = 200, sitesStatus = 200, cabinetsStatus =
       return Response.json({ page, pageSize: 20, totalCount: 21, hasMore: page === 1,
         items: page === 1 ? Array.from({ length: 20 }, (_, i) => cabinetRow(i, i === 0 ? { friendlyName: "<svg onload=alert(1)>" } : {})) : [cabinetRow(20)] });
     }
-    if (path === "/api/fleet/health") return healthStatus === 200 ? Response.json(summary) : new Response("", { status: healthStatus });
+    if (path === "/api/fleet/health") return healthStatus === 200 ? Response.json(changedFleet ? { ...summary, totalCabinets: 20, unknown: 20, staleMeasurement: 20 } : summary) : new Response("", { status: healthStatus });
     if (path === "/api/fleet/sites") {
       if (sitesStatus !== 200) return new Response("", { status: sitesStatus });
       const page = Number(q.get("Page"));
@@ -79,9 +79,13 @@ test("fleet health rejects invalid navigation and upstream authorization, not co
     for (const query of ["?cabinetPage=0", "?sitePage=2&sitePage=1", "?unknown=1", "?cabinetPage=99999"])
       assert.equal((await f.request(`/fleet/health${query}`, f.cookie)).status, 400);
   } finally { await f.close(); }
-  for (const [settings, expected] of [[{ healthStatus: 403 }, 403], [{ sitesStatus: 403 }, 403], [{ cabinetsStatus: 404 }, 502], [{ corruptSite: true }, 502]]) {
+  for (const [settings, expected] of [[{ healthStatus: 403 }, 403], [{ sitesStatus: 403 }, 403], [{ cabinetsStatus: 404 }, 502], [{ corruptSite: true }, 502], [{ changedFleet: true }, 409]]) {
     const fixtureInstance = await fixture(settings);
-    try { assert.equal((await fixtureInstance.request("/fleet/health", fixtureInstance.cookie)).status, expected); }
+    try {
+      const response = await fixtureInstance.request("/fleet/health", fixtureInstance.cookie);
+      assert.equal(response.status, expected);
+      if (settings.changedFleet) assert.match(await response.text(), /Retry fleet health/);
+    }
     finally { await fixtureInstance.close(); }
   }
 });
