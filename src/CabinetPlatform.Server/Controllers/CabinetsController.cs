@@ -217,6 +217,109 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(dto);
     }
 
+    /// <summary>Read-only, bounded storage evidence without device identifiers or raw payloads.</summary>
+    [HttpGet("{id:guid}/storage")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
+    [ProducesResponseType(typeof(CabinetStorageDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<CabinetStorageDto>> Storage(Guid id, CancellationToken ct)
+    {
+        if (!await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.ViewCabinetLatest,
+                "Cabinet not found.", id, null, null, ct);
+            return NotFound();
+        }
+
+        // Only one typed heartbeat is selected, ordered by measurement, not receipt.
+        var heartbeat = await _db.Heartbeats.AsNoTracking()
+            .Where(h => h.CabinetId == id)
+            .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.Id)
+            .Select(h => new StorageHeartbeatDto
+            {
+                CollectedAtUtc = h.CollectedAtUtc, ReceivedUtc = h.ReceivedUtc,
+                DiskFreePercent = h.MinFreeDiskPercent, WorstDiskHealth = h.WorstDiskHealth
+            }).FirstOrDefaultAsync(ct);
+
+        // The version pointer is cabinet-bound. SQL substring caps transferred JSON
+        // even if an older stored version exceeds the current collector limits.
+        var inventory = await _db.Cabinets.AsNoTracking()
+            .Where(c => c.Id == id && c.CurrentInventoryVersionId != null)
+            .Select(c => _db.InventoryVersions.Where(v => v.Id == c.CurrentInventoryVersionId && v.CabinetId == id)
+                .Select(v => new { v.FirstObservedUtc, v.LastObservedUtc,
+                    Payload = v.PayloadJson.Substring(0, 262145) }).FirstOrDefault())
+            .FirstOrDefaultAsync(ct);
+        var volumes = new List<StorageVolumeDto>();
+        if (inventory is not null && inventory.Payload.Length <= 262144)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(inventory.Payload);
+                if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                    document.RootElement.TryGetProperty("disks", out var disks) &&
+                    disks.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (JsonElement disk in disks.EnumerateArray().Take(32))
+                    {
+                        double? free = null;
+                        if (disk.ValueKind == JsonValueKind.Object &&
+                            disk.TryGetProperty("freePercent", out var value) &&
+                            value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out double number) &&
+                            double.IsFinite(number) && number >= 0 && number <= 100)
+                            free = number;
+                        volumes.Add(new StorageVolumeDto
+                        {
+                            FreePercent = free,
+                            ObservationFirstUtc = inventory.FirstObservedUtc,
+                            ObservationLastUtc = inventory.LastObservedUtc,
+                            EmbeddedValuesMeasuredAtUtc = inventory.FirstObservedUtc
+                        });
+                    }
+                }
+            }
+            catch (JsonException)
+            {
+                // Corrupt stored inventory does not turn unknown storage into healthy storage.
+            }
+        }
+
+        // Grouping chooses the 32 most recently observed distinct drives in SQL.
+        // Fetch only one typed row for each. This avoids unbounded equal-time
+        // duplicates and avoids materializing serials or old readings in bulk.
+        var drives = await _db.SmartReadings.AsNoTracking()
+            .Where(s => s.CabinetId == id)
+            .GroupBy(s => s.DriveSerial)
+            .Select(g => new { Serial = g.Key, Latest = g.Max(s => s.TimestampUtc) })
+            .OrderByDescending(g => g.Latest).ThenBy(g => g.Serial)
+            .Take(32).ToListAsync(ct);
+        var smart = new List<StorageSmartDto>(drives.Count);
+        foreach (var drive in drives)
+        {
+            var reading = await _db.SmartReadings.AsNoTracking()
+                .Where(s => s.CabinetId == id && s.DriveSerial == drive.Serial &&
+                    s.TimestampUtc == drive.Latest)
+                .OrderBy(s => s.IsAggregated).ThenBy(s => s.Id)
+                .Select(s => new StorageSmartDto
+                {
+                    ObservedUtc = s.TimestampUtc, Health = s.Health, Source = s.Source,
+                    TemperatureCelsius = s.TemperatureCelsius, PowerOnHours = s.PowerOnHours,
+                    WearPercent = s.Wear, ReallocatedSectors = s.ReallocatedSectorCount,
+                    PendingSectors = s.PendingSectorCount, Aggregated = s.IsAggregated
+                }).FirstAsync(ct);
+            smart.Add(reading);
+        }
+
+        var result = new CabinetStorageDto
+        {
+            CabinetId = id, AsOfUtc = _timeProvider.GetUtcNow(),
+            Heartbeat = heartbeat, Volumes = volumes, Smart = smart
+        };
+        await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetLatest,
+            new { CabinetId = id, Projection = "Storage", VolumeCount = volumes.Count,
+                SmartCount = smart.Count }, id), ct);
+        return Ok(result);
+    }
+
     /// <summary>One cabinet's heartbeat history, paged and bounded.</summary>
     /// <param name="id">The cabinet.</param>
     /// <param name="query">Window and page.</param>
