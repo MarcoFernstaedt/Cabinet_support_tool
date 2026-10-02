@@ -393,6 +393,20 @@ public static class ActionCatalog
             },
             new ActionCatalogEntry
             {
+                Action = ActionName.GetHistoricalProcessEvidence,
+                DisplayName = "View historical process lifecycle evidence",
+                Description = "Reads bounded Security start and exit event clues without audit coverage claims.",
+                MinimumRole = EveryRep,
+                RequiresApproval = false,
+                IsDisruptive = false,
+                TimeoutSeconds = 120,
+                AllowedParameterKeys = ImmutableHashSet<string>.Empty,
+                MaintenanceWindowOnly = false,
+                BlockedIfUserLoggedOn = false,
+                Batchable = false,
+            },
+            new ActionCatalogEntry
+            {
                 Action = ActionName.GetProcessList,
                 DisplayName = "View process list",
                 Description = "Reads the cabinet's current process list, outside the check-in cadence.",

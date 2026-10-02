@@ -160,9 +160,11 @@ public sealed class SecurityInvariantTests
                 foreach (string call in forbidden)
                 {
                     if (line.Contains(call, StringComparison.Ordinal) &&
-                        !(call == "ArgumentList" && Path.GetFileName(file) == "WerMetadataProcessProbe.cs" &&
-                          (trimmed == "if (dotnetHost) start.ArgumentList.Add(assembly);" ||
-                           trimmed == "start.ArgumentList.Add(\"--wer-metadata-probe\");")))
+                        !((call == "ArgumentList" && Path.GetFileName(file) == "WerMetadataProcessProbe.cs" &&
+                           (trimmed == "if (dotnetHost) start.ArgumentList.Add(assembly);" ||
+                            trimmed == "start.ArgumentList.Add(\"--wer-metadata-probe\");")) ||
+                          (call == "ArgumentList" && Path.GetFileName(file) == "HistoricalProcessProbe.cs" &&
+                           trimmed == "start.ArgumentList[start.ArgumentList.Count - 1] = \"--historical-process-probe\";")))
                     {
                         offenders.Add($"{Path.GetFileName(file)}: {call}");
                     }
@@ -179,6 +181,11 @@ public sealed class SecurityInvariantTests
         Assert.Contains("start.ArgumentList.Add(assembly);", arguments[0], StringComparison.Ordinal);
         Assert.Contains("start.ArgumentList.Add(\"--wer-metadata-probe\");", arguments[1], StringComparison.Ordinal);
         Assert.Contains("UseShellExecute = false", probe, StringComparison.Ordinal);
+        string historical = File.ReadAllText(SourceFiles.Single(f => f.EndsWith("HistoricalProcessProbe.cs", StringComparison.Ordinal)));
+        string[] historicalArguments = historical.Split('\n').Where(line => line.Contains("ArgumentList", StringComparison.Ordinal)).ToArray();
+        Assert.Single(historicalArguments);
+        Assert.Equal("start.ArgumentList[start.ArgumentList.Count - 1] = \"--historical-process-probe\";",
+            historicalArguments[0].Trim());
         Assert.True(offenders.Count == 0,
             "Shell, interpreter or command-line-utility code: " + string.Join(", ", offenders));
     }

@@ -10,6 +10,24 @@ using Microsoft.Extensions.Options;
 using Serilog;
 
 // Dispatch the fixed native probe before host configuration, logging, credentials or network startup.
+if (args is ["--historical-process-probe"])
+{
+    Console.SetError(TextWriter.Null);
+    try
+    {
+        var executor = new GetHistoricalProcessEvidenceExecutor(new WindowsHistoricalProcessGateway(), new SystemClock());
+        var result = await executor.ExecuteAsync(new ActionRequestDto
+        {
+            Action = ActionName.GetHistoricalProcessEvidence, Parameters = new Dictionary<string, string>(),
+            Id = Guid.Empty, CabinetId = Guid.Empty, RequestedByUserId = Guid.Empty,
+            RequestedUtc = DateTimeOffset.MinValue, Reason = string.Empty
+        }, CancellationToken.None).ConfigureAwait(false);
+        Console.Out.Write(result.CollectedData);
+    }
+    catch { Environment.ExitCode = 1; }
+    return;
+}
+
 if (args is ["--wer-metadata-probe"])
 {
     Console.SetError(TextWriter.Null);

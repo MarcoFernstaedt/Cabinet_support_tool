@@ -194,6 +194,9 @@ public enum ActionName
     /// <summary>Read bounded, allowlisted Windows Error Reporting store metadata only.</summary>
     GetWerMetadata = 31,
 
+    /// <summary>Read bounded local Security 4688/4689 lifecycle clues, without attribution.</summary>
+    GetHistoricalProcessEvidence = 32,
+
     /// <summary>
     /// Reserved. Opening a drawer is hardware actuation, which this build does
     /// not perform.

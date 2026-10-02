@@ -176,6 +176,8 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, GetDisplayDiagnosticsExecutor>();
         services.AddSingleton<IWerResultProbe, WerMetadataProcessProbe>();
         services.AddSingleton<IActionExecutor, GetWerMetadataExecutor>();
+        services.AddSingleton<IHistoricalProcessProbe, HistoricalProcessProbe>();
+        services.AddSingleton<IActionExecutor, GetHistoricalProcessEvidenceExecutor>();
 
 #if LEGACY_MAINTENANCE_TESTS
         // Historical safety regression composition. Never enabled by appsettings.

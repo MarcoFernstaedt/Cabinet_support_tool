@@ -5,6 +5,7 @@ import { readBoundedJson, renderCabinet, renderFleet, renderSiteIncidents, valid
 import { renderEventResult } from "./event-result-page.mjs";
 import { renderCrashInvestigation } from "./crash-investigation-page.mjs";
 import { validateWerMetadata } from "./wer-metadata-page.mjs";
+import { validateHistoricalProcess } from "./historical-process-page.mjs";
 import { renderProcessDiagnostics } from "./process-diagnostics-page.mjs";
 import { renderFleetHealth } from "./fleet-health-page.mjs";
 import { renderIncidentCorrelation } from "./incident-correlation-page.mjs";
@@ -179,6 +180,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const pinnedEventRoute = /^\/cabinet\/([^/]+)\/events\/([^/]+)$/.exec(route.pathname);
     const crashRoute = /^\/cabinet\/([^/]+)\/crashes$/.exec(route.pathname);
     const pinnedCrashRoute = /^\/cabinet\/([^/]+)\/crashes\/([^/]+)$/.exec(route.pathname);
+    const pinnedHistoricalProcessRoute = /^\/cabinet\/([^/]+)\/crashes\/process\/([^/]+)$/.exec(route.pathname);
     const processRoute = /^\/cabinet\/([^/]+)\/processes$/.exec(route.pathname);
     const pinnedProcessRoute = /^\/cabinet\/([^/]+)\/processes\/([^/]+)$/.exec(route.pathname);
     const incidentRoute = /^\/site\/([^/]+)\/incidents$/.exec(route.pathname);
@@ -188,7 +190,7 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
     const storageTrendRoute = /^\/cabinet\/([^/]+)\/storage\/trends$/.exec(route.pathname);
     const displayRoute = /^\/cabinet\/([^/]+)\/display$/.exec(route.pathname);
     const pinnedDisplayRoute = /^\/cabinet\/([^/]+)\/display\/([^/]+)$/.exec(route.pathname);
-    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !pinnedCrashRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !storageTrendRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
+    if (req.method !== "GET" || (!files.has(req.url) && !fleetRoute && !fleetHealthRoute && !cabinetRoute && !eventRoute && !pinnedEventRoute && !crashRoute && !pinnedCrashRoute && !pinnedHistoricalProcessRoute && !processRoute && !pinnedProcessRoute && !incidentRoute && !correlationRoute && !networkHistoryRoute && !storageRoute && !storageTrendRoute && !displayRoute && !pinnedDisplayRoute)) { respond(404, "Not found"); return; }
     if (req.url !== "/login.css") {
       if (!session) { redirect("/signin"); return; }
       try {
@@ -357,14 +359,16 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
       } catch { respond(502, "Process and service observations unavailable"); }
       return;
     }
-    if (eventRoute || pinnedEventRoute || crashRoute || pinnedCrashRoute) {
-      const cabinetId = (eventRoute ?? pinnedEventRoute ?? crashRoute ?? pinnedCrashRoute)[1].toLowerCase();
+    if (eventRoute || pinnedEventRoute || crashRoute || pinnedCrashRoute || pinnedHistoricalProcessRoute) {
+      const cabinetId = (eventRoute ?? pinnedEventRoute ?? crashRoute ?? pinnedCrashRoute ?? pinnedHistoricalProcessRoute)[1].toLowerCase();
       if (!validGuid(cabinetId)) { respond(404, "Cabinet not found"); return; }
       const werActionId = pinnedCrashRoute?.[2].toLowerCase();
       if (werActionId && !validGuid(werActionId)) { respond(404, "Saved WER result not found"); return; }
+      const processActionId = pinnedHistoricalProcessRoute?.[2].toLowerCase();
+      if (processActionId && !validGuid(processActionId)) { respond(404, "Saved historical process result not found"); return; }
       const actionId = pinnedEventRoute?.[2].toLowerCase();
       if (actionId && !validGuid(actionId)) { respond(404, "Saved event result not found"); return; }
-      if ((crashRoute || pinnedCrashRoute) && route.search) { respond(400, "Invalid crash query"); return; }
+      if ((crashRoute || pinnedCrashRoute || pinnedHistoricalProcessRoute) && route.search) { respond(400, "Invalid crash query"); return; }
       if ((eventRoute || pinnedEventRoute) && ([...route.searchParams.keys()].some(key => !["channel", "provider", "entry"].includes(key)) ||
           [...route.searchParams.keys()].some(key => route.searchParams.getAll(key).length !== 1))) { respond(400, "Invalid event filter"); return; }
       try {
@@ -383,13 +387,25 @@ export function createPreviewServer(host = "127.0.0.1", { enabled = false, upstr
           const response = await api(`api/cabinets/${cabinetId}/wer-metadata/${werActionId ?? "latest"}`, { headers: { Authorization: `Bearer ${session.token}` } });
           if (response.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
           if (response.status === 403) wer = { state: "denied" };
-          else if (response.status === 404) { if (werActionId || data === null) { respond(404, "Saved crash evidence not found"); return; } wer = { state: "missing" }; }
+          else if (response.status === 404) { if (werActionId) { respond(404, "Saved crash evidence not found"); return; } wer = { state: "missing" }; }
           else if (response.ok) {
             try { wer = { state: "ready", data: validateWerMetadata(cabinetId, await readBoundedJson(response, 12288), werActionId) }; }
             catch { wer = { state: "unsafe" }; }
           } else if (response.status === 502) wer = { state: "unsafe" };
         } catch { wer = { state: "unavailable" }; }
-        respond(200, renderCrashInvestigation(cabinetId, data, wer), "text/html; charset=utf-8");
+        let process = { state: "unavailable" };
+        try {
+          const response = await api(`api/cabinets/${cabinetId}/historical-process-evidence/${processActionId ?? "latest"}`, { headers: { Authorization: `Bearer ${session.token}` } });
+          if (response.status === 401) { sessions.delete(id); res.setHeader("Set-Cookie", clearCookie); redirect("/signin"); return; }
+          if (response.status === 403) process = { state: "denied" };
+          else if (response.status === 404) { if (processActionId) { respond(404, "Saved historical process result not found"); return; } process = { state: "missing" }; }
+          else if (response.ok) {
+            try { process = { state: "ready", data: validateHistoricalProcess(cabinetId, await readBoundedJson(response, 20480), processActionId) }; }
+            catch { process = { state: "unsafe" }; }
+          } else if (response.status === 502) process = { state: "unsafe" };
+        } catch { process = { state: "unavailable" }; }
+        if (data === null && wer.state === "missing" && process.state === "missing") { respond(404, "Saved crash evidence not found"); return; }
+        respond(200, renderCrashInvestigation(cabinetId, data, wer, process), "text/html; charset=utf-8");
       } catch (error) { respond(error.message === "Invalid event filter" || error.message === "Invalid event selection" ? 400 : 502, "Saved event result unavailable"); }
       return;
     }

@@ -338,7 +338,7 @@ public class ActionDispatcherTests
     {
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
             ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall,
-            ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata };
+            ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata, ActionName.GetHistoricalProcessEvidence };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999))
         {
             if (mode == "Demo" && action == ActionName.KillProcess) continue;
