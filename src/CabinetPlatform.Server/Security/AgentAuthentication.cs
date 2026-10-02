@@ -2,7 +2,10 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using CabinetPlatform.Server.Data;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Server.Security;
@@ -127,18 +130,21 @@ public sealed class AgentAuthenticationHandler
     public const string MachineIdClaimType = "mashura:machine_id";
 
     private readonly IAgentAuthenticator _authenticator;
+    private readonly OfficeEnrollmentStore _officeEnrollment;
 
     public AgentAuthenticationHandler(
         IOptionsMonitor<AgentAuthenticationSchemeOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder,
-        IAgentAuthenticator authenticator)
+        IAgentAuthenticator authenticator,
+        OfficeEnrollmentStore officeEnrollment)
         : base(options, logger, encoder)
     {
         _authenticator = authenticator;
+        _officeEnrollment = officeEnrollment;
     }
 
-    protected override Task<AuthenticateResult> HandleAuthenticateAsync()
+    protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
         AgentIdentity identity = _authenticator.Authenticate(Context);
 
@@ -146,7 +152,27 @@ public sealed class AgentAuthenticationHandler
         {
             // NoResult, not Fail: an unauthenticated request should produce a
             // clean 401 from the policy rather than an exception-shaped 500.
-            return Task.FromResult(AuthenticateResult.NoResult());
+            return AuthenticateResult.NoResult();
+        }
+
+        if (_officeEnrollment.Enabled)
+        {
+            try
+            {
+                // No Cabinet row means enrollment is still pending. A persisted
+                // inactive device is denied on every agent route, even registration.
+                var db = Context.RequestServices.GetRequiredService<SupportDbContext>();
+                if (await db.Cabinets.AsNoTracking().AnyAsync(
+                    c => c.MachineId == identity.MachineId && !c.IsActive,
+                    Context.RequestAborted))
+                    return AuthenticateResult.NoResult();
+            }
+            catch (Exception)
+            {
+                // A failed SQL check cannot establish activity. Do not reveal
+                // identities, credentials or database errors in the response.
+                return AuthenticateResult.NoResult();
+            }
         }
 
         var claims = new[]
@@ -156,7 +182,6 @@ public sealed class AgentAuthenticationHandler
         };
 
         var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, SchemeName));
-        return Task.FromResult(
-            AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName)));
+        return AuthenticateResult.Success(new AuthenticationTicket(principal, SchemeName));
     }
 }

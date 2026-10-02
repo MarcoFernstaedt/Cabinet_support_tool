@@ -336,6 +336,26 @@ static async Task InitialiseDatabaseAsync(WebApplication app)
     }
     await db.Database.MigrateAsync();
     await seeder.SeedAsync();
+
+    var office = scope.ServiceProvider.GetRequiredService<OfficeEnrollmentStore>();
+    if (office.Enabled)
+    {
+        // Fetch only identities, in bounded pages. Complete every durable tombstone
+        // before Run opens the listener; SQL or journal errors must abort startup.
+        const int pageSize = 128;
+        for (var offset = 0; ; offset += pageSize)
+        {
+            var inactive = await db.Cabinets.AsNoTracking()
+                .Where(c => !c.IsActive)
+                .OrderBy(c => c.Id)
+                .Skip(offset).Take(pageSize)
+                .Select(c => c.MachineId)
+                .ToListAsync();
+            foreach (var machineId in inactive)
+                office.Revoke(machineId);
+            if (inactive.Count < pageSize) break;
+        }
+    }
 }
 
 /// <summary>
