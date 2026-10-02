@@ -20,7 +20,7 @@ public sealed class WerMetadataProcessProbe : IWerResultProbe
     public async Task<WerMetadataResult> ReadAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var assembly = typeof(GetWerMetadataExecutor).Assembly.Location;
+        var assembly = Path.Combine(AppContext.BaseDirectory, "CabinetPlatform.Agent.dll");
         var executable = Environment.ProcessPath ?? throw new InvalidOperationException("WER probe host unavailable.");
         return await ReadProcessAsync(CreateStartInfo(executable, assembly), cancellationToken, Deadline).ConfigureAwait(false);
     }

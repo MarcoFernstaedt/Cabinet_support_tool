@@ -18,7 +18,8 @@ public sealed class HistoricalProcessProbe : IHistoricalProcessProbe
     public Task<HistoricalProcessEvidenceResult> ReadAsync(CancellationToken cancellationToken)
     {
         var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Native probe unavailable.");
-        var start = WerMetadataProcessProbe.CreateStartInfo(executable, typeof(GetHistoricalProcessEvidenceExecutor).Assembly.Location);
+        var start = WerMetadataProcessProbe.CreateStartInfo(executable,
+            Path.Combine(AppContext.BaseDirectory, "CabinetPlatform.Agent.dll"));
         start.ArgumentList[start.ArgumentList.Count - 1] = "--historical-process-probe";
         return ReadProcessAsync(start, cancellationToken, TimeSpan.FromSeconds(5));
     }
