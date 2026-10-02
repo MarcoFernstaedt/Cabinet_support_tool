@@ -18,5 +18,6 @@ public static class MonitoringBoundary
     public static bool IsObservation(ActionName action) => action is
         ActionName.GetProcessList or ActionName.CollectEventLogs or
         ActionName.RunEventLogView or ActionName.GetScheduledUpdates or
-        ActionName.InspectFirewall or ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata;
+        ActionName.InspectFirewall or ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata or
+        ActionName.GetHistoricalProcessEvidence;
 }

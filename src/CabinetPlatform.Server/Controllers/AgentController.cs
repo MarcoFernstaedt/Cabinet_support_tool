@@ -431,6 +431,19 @@ public sealed class AgentController : SupportControllerBase
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
         }
 
+        if (action.Action == ActionName.GetHistoricalProcessEvidence &&
+            (!Enum.IsDefined(result.Status) ||
+             (result.Status == ActionStatus.Succeeded
+                 ? !HistoricalProcessEvidenceValidator.TryValidate(result.CollectedData, _timeProvider.GetUtcNow(), out _)
+                 : result.CollectedData is not null)))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.AgentReportResult,
+                "Invalid or oversized historical process evidence result.", cabinet.Id,
+                new { ActionRequestId = result.RequestId }, action.Action, ct);
+            return Problem("Invalid historical process evidence result.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
+        }
+
         if (action.Status is ActionRequestStatus.Completed)
         {
             // The agent is idempotent per request id, but a retried delivery of
@@ -457,7 +470,7 @@ public sealed class AgentController : SupportControllerBase
 
         action.Status = ActionRequestStatus.Completed;
         action.ResultStatus = result.Status;
-        action.ResultOutput = action.Action is ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata
+        action.ResultOutput = action.Action is ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata or ActionName.GetHistoricalProcessEvidence
             ? null : Truncate(result.Output, 8000);
         action.ExitCode = result.ExitCode;
         action.StartedUtc = result.StartedAtUtc;

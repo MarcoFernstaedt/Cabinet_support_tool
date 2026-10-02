@@ -13,6 +13,16 @@ const wer = {
     reports: [{ reportId: "77777777-7777-4777-8777-777777777777", createdUtc: "2026-09-01T00:01:00Z", eventType: "APPCRASH", store: "MachineQueue" }],
   },
 };
+const processAction = "88888888-8888-4888-8888-888888888888";
+const processEvidence = {
+  cabinetId: cabinet, actionId: processAction, state: "complete", requestedAtUtc: "2026-09-01T00:00:00Z",
+  completedAtUtc: "2026-09-01T00:02:00Z", evidence: {
+    version: 1, observedUtc: "2026-09-01T00:01:30Z", windowStartUtc: "2026-08-31T00:01:30Z",
+    status: "Partial", auditCoverageVerified: false, truncated: true,
+    events: [{ occurredUtc: "2026-09-01T00:01:00Z", kind: "Start", processId: 421, recordId: 21 },
+      { occurredUtc: "2026-09-01T00:01:20Z", kind: "Exit", processId: 421, recordId: null }],
+  },
+};
 const result = {
   cabinetId: cabinet, actionId: "33333333-3333-4333-8333-333333333333", viewId: "44444444-4444-4444-8444-444444444444",
   state: "complete", viewDisplayName: "Application evidence", requestedAtUtc: "2026-09-01T00:00:00Z",
@@ -28,7 +38,7 @@ const result = {
     { channel: "System", provider: "Application Error", level: "error", eventId: 1000, occurredAt: "2026-09-01T00:01:11Z", message: "Unrelated" },
   ],
 };
-async function fixture(data = result, status = 200, werData = null, werStatus = werData ? 200 : 404) {
+async function fixture(data = result, status = 200, werData = null, werStatus = werData ? 200 : 404, processData = null, processStatus = processData ? 200 : 404) {
   let active = true;
   let latest = data;
   const calls = [];
@@ -41,6 +51,8 @@ async function fixture(data = result, status = 200, werData = null, werStatus = 
     if (path === `/api/cabinets/${cabinet}/event-log-results/${data.actionId}`) return Response.json(data);
     if (path === `/api/cabinets/${cabinet}/wer-metadata/latest` || path === `/api/cabinets/${cabinet}/wer-metadata/${werAction}`)
       return werStatus === 200 ? Response.json(werData) : new Response("private upstream error", { status: werStatus });
+    if (path === `/api/cabinets/${cabinet}/historical-process-evidence/latest` || path === `/api/cabinets/${cabinet}/historical-process-evidence/${processAction}`)
+      return processStatus === 200 ? Response.json(processData) : new Response("private process error", { status: processStatus });
     return new Response("", { status: 404 });
   };
   const server = createPreviewServer("127.0.0.1", { enabled: true, upstreamUrl: "https://127.0.0.1:8443/", upstreamFetch });
@@ -241,6 +253,133 @@ test("valid native report GUID shapes are accepted without displaying their iden
     assert.match(html, /APPCRASH/);
     assert.doesNotMatch(html, /77777777/);
   } finally { await f.close(); }
+});
+
+test("historical starts and exits are separate bounded clues with pinned action and unknown continuity", async () => {
+  const f = await fixture(result, 200, wer, 200, processEvidence);
+  try {
+    const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /Historical process lifecycle/);
+    assert.match(body, /Start.*PID 421.*2026-09-01T00:01:00Z/);
+    assert.match(body, /Exit.*PID 421.*2026-09-01T00:01:20Z/);
+    assert.match(body, /truncated.*partial|partial.*truncated/i);
+    assert.match(body, /audit continuity.*unknown/i);
+    assert.match(body, /presence at crash.*unknown/i);
+    assert.match(body, new RegExp(`/cabinet/${cabinet}/crashes/process/${processAction}`));
+    assert.match(body, /APPCRASH|Application Error event/);
+    assert.doesNotMatch(body, /private path|Patient|server-only-token|caused the crash/i);
+    const pinned = await f.request(`/cabinet/${cabinet}/crashes/process/${processAction}`, f.cookie);
+    assert.equal(pinned.status, 200);
+    assert.match(await pinned.text(), /PID 421/);
+    assert.ok(f.calls.some(c => c.path === `/api/cabinets/${cabinet}/historical-process-evidence/${processAction}`));
+    assert.equal(f.calls.find(c => c.path.endsWith("historical-process-evidence/latest")).options.headers.Authorization, "Bearer server-only-token");
+  } finally { await f.close(); }
+});
+
+test("process absence denial and invalid upstream do not hide Event Viewer or WER", async () => {
+  for (const [status, expected] of [[404, /not collected/i], [403, /access denied/i], [502, /unsafe|unavailable/i], [401, /Session expired|Sign in/i]]) {
+    const f = await fixture(result, 200, wer, 200, null, status);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      if (status === 401) { assert.equal(response.status, 303); continue; }
+      assert.equal(response.status, 200);
+      const body = await response.text();
+      assert.match(body, expected);
+      assert.match(body, /Application Error event/);
+      assert.match(body, /APPCRASH/);
+      assert.doesNotMatch(body, /private process error/);
+    } finally { await f.close(); }
+  }
+});
+
+test("zero-row Read does not certify auditing or no processes", async () => {
+  const empty = { ...processEvidence, evidence: { ...processEvidence.evidence, status: "Read", truncated: false, events: [] } };
+  const f = await fixture(result, 404, wer, 200, empty);
+  try {
+    const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /Event Viewer result not collected/);
+    assert.match(body, /APPCRASH/);
+    assert.match(body, /audit continuity.*unknown/i);
+    assert.match(body, /No recorded starts or exits.*does not establish/i);
+  } finally { await f.close(); }
+});
+
+test("process schema, timestamps, counts and identity fail closed without losing other clues", async () => {
+  const evidence = processEvidence.evidence;
+  const row = evidence.events[0];
+  for (const bad of [
+    { ...processEvidence, cabinetId: other },
+    { ...processEvidence, rawOutput: "<script>secret</script>" },
+    { ...processEvidence, evidence: { ...evidence, commandLine: "private path" } },
+    { ...processEvidence, evidence: { ...evidence, auditCoverageVerified: true } },
+    { ...processEvidence, evidence: { ...evidence, version: 2 } },
+    { ...processEvidence, evidence: { ...evidence, status: "Read", truncated: true } },
+    { ...processEvidence, evidence: { ...evidence, status: "Denied", events: [row], truncated: false } },
+    { ...processEvidence, evidence: { ...evidence, events: Array(65).fill(row) } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, processId: 0 }] } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, processId: 4294967296 }] } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, kind: "<script>secret</script>" }] } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, recordId: -1 }] } },
+    { ...processEvidence, evidence: { ...evidence, events: [row, { ...row }] } },
+    { ...processEvidence, evidence: { ...evidence, windowStartUtc: "2026-08-30T00:01:30Z" } },
+    { ...processEvidence, evidence: { ...evidence, observedUtc: "2030-09-01T00:01:30Z" } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, occurredUtc: "2026-08-29T00:00:00Z" }] } },
+    { ...processEvidence, evidence: { ...evidence, windowStartUtc: "2026-08-31T00:01:30.0000001Z" } },
+    { ...processEvidence, evidence: { ...evidence, events: [{ ...row, occurredUtc: "2026-09-01T00:01:30.0000001Z" }] } },
+    { ...processEvidence, requestedAtUtc: "2026-09-01T00:02:00.0000001Z" },
+    { ...processEvidence, state: "pending" },
+    { ...processEvidence, padding: "x".repeat(21000) },
+  ]) {
+    const f = await fixture(result, 200, wer, 200, bad);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      const body = await response.text();
+      assert.match(body, /Historical process.*unsafe/i);
+      assert.match(body, /Application Error event/);
+      assert.match(body, /APPCRASH/);
+      assert.doesNotMatch(body, /private path|<script>secret|PID 421/);
+    } finally { await f.close(); }
+  }
+});
+
+test("pinned process query, substituted identity and missing saved action are refused", async () => {
+  const f = await fixture(result, 200, wer, 200, processEvidence);
+  try {
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes/process/not-a-guid`, f.cookie)).status, 404);
+    assert.equal((await f.request(`/cabinet/${cabinet}/crashes/process/${processAction}?entry=0`, f.cookie)).status, 400);
+    assert.equal((await f.request(`/cabinet/${other}/crashes/process/${processAction}`, f.cookie)).status, 404);
+  } finally { await f.close(); }
+  const missing = await fixture(result, 200, wer, 200, null, 404);
+  try { assert.equal((await missing.request(`/cabinet/${cabinet}/crashes/process/${processAction}`, missing.cookie)).status, 404); }
+  finally { await missing.close(); }
+  const swapped = await fixture(result, 200, wer, 200, { ...processEvidence, actionId: other });
+  try { assert.equal((await swapped.request(`/cabinet/${cabinet}/crashes/process/${processAction}`, swapped.cookie)).status, 200);
+    assert.match(await (await swapped.request(`/cabinet/${cabinet}/crashes/process/${processAction}`, swapped.cookie)).text(), /Historical process.*unsafe/i); }
+  finally { await swapped.close(); }
+});
+
+test("process only and pending, failed, denied, unavailable statuses keep coverage unknown", async () => {
+  for (const value of [
+    { ...processEvidence, state: "pending", completedAtUtc: null, evidence: null },
+    { ...processEvidence, state: "failed", evidence: null },
+    { ...processEvidence, evidence: { ...processEvidence.evidence, status: "Denied", truncated: false, events: [] } },
+    { ...processEvidence, evidence: { ...processEvidence.evidence, status: "Unavailable", truncated: false, events: [] } },
+  ]) {
+    const f = await fixture(result, 404, null, 404, value);
+    try {
+      const response = await f.request(`/cabinet/${cabinet}/crashes`, f.cookie);
+      assert.equal(response.status, 200);
+      const body = await response.text();
+      assert.match(body, /Event Viewer result not collected/);
+      assert.match(body, /audit continuity.*unknown/i);
+      assert.match(body, /pending|failed|denied|unavailable/i);
+    } finally { await f.close(); }
+  }
 });
 
 test("cross cabinet evidence and upstream denials fail closed", async () => {
