@@ -402,6 +402,22 @@ public sealed class AgentController : SupportControllerBase
                 statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
         }
 
+        if (action.Action == ActionName.GetDisplayDiagnostics &&
+            (result.Status == ActionStatus.Succeeded
+                ? !DisplayResultValidator.TryValidate(result.CollectedData, out _)
+                : result.CollectedData is not null))
+        {
+            await _audit.WriteDenialAsync(
+                AuditEvent.AgentReportResult,
+                "Invalid or oversized display diagnostics result.",
+                cabinet.Id,
+                new { ActionRequestId = result.RequestId },
+                action.Action,
+                ct);
+            return Problem("Invalid display diagnostics result.",
+                statusCode: StatusCodes.Status400BadRequest, title: "Invalid result");
+        }
+
         if (action.Status is ActionRequestStatus.Completed)
         {
             // The agent is idempotent per request id, but a retried delivery of
@@ -428,7 +444,7 @@ public sealed class AgentController : SupportControllerBase
 
         action.Status = ActionRequestStatus.Completed;
         action.ResultStatus = result.Status;
-        action.ResultOutput = Truncate(result.Output, 8000);
+        action.ResultOutput = action.Action == ActionName.GetDisplayDiagnostics ? null : Truncate(result.Output, 8000);
         action.ExitCode = result.ExitCode;
         action.StartedUtc = result.StartedAtUtc;
         action.CompletedUtc = result.CompletedAtUtc;

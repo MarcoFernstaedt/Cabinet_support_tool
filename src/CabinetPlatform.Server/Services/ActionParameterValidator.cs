@@ -113,6 +113,7 @@ public sealed class ActionParameterValidator : IActionParameterValidator
             ActionName.RebootMachine => ValidateReboot(normalised),
             ActionName.CollectEventLogs => ValidateEventLogs(normalised),
             ActionName.RunEventLogView => ValidateEventLogView(normalised),
+            ActionName.GetDisplayDiagnostics => OperationResult<IReadOnlyDictionary<string, string>>.Ok(normalised),
             ActionName.GetProcessList => ValidateProcessList(normalised),
 
             ActionName.KillProcess => ValidateKillProcess(normalised),

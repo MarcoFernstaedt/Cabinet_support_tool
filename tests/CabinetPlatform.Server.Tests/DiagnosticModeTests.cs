@@ -63,11 +63,13 @@ public class DiagnosticModeTests
         // The endpoint deliberately takes at most twenty queue rows per poll.
         for (int poll = 0; poll < actions.Count(); poll++)
             dispatched.AddRange((await agent.GetFromJsonAsync<List<ActionRequestDto>>("/api/agent/actions", TestClient.Json))!);
-        Assert.Equal(ActionName.GetProcessList, Assert.Single(dispatched).Action);
+        Assert.Contains(dispatched, r => r.Action == ActionName.GetProcessList);
+        Assert.Contains(dispatched, r => r.Action == ActionName.GetDisplayDiagnostics);
+        Assert.Equal(2, dispatched.Count);
         await factory.WithDbAsync(async db =>
         {
             var rows = await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.ToListAsync(db.ActionRequests);
-            Assert.All(rows.Where(r => r.Action != ActionName.GetProcessList),
+            Assert.All(rows.Where(r => r.Action is not (ActionName.GetProcessList or ActionName.GetDisplayDiagnostics)),
                 r => Assert.Equal(ActionRequestStatus.Cancelled, r.Status));
         });
     }
@@ -80,7 +82,8 @@ public class DiagnosticModeTests
         var (approver, _) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "demo-approver");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "approval", requester.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.KillProcess };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall,
+            ActionName.GetDisplayDiagnostics, ActionName.KillProcess };
         foreach (var action in Enum.GetValues<ActionName>().Append((ActionName)9999).Except(allowed))
         {
             var id = Guid.NewGuid();
@@ -110,7 +113,8 @@ public class DiagnosticModeTests
         var (client, user) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, "diagnostic");
         var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "diagnostic", user.Id);
         var allowed = new[] { ActionName.GetProcessList, ActionName.CollectEventLogs,
-            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall };
+            ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall,
+            ActionName.GetDisplayDiagnostics };
         var catalog = await client.GetFromJsonAsync<List<ActionCatalogEntryDto>>("/api/actions/catalog", TestClient.Json);
 #if LEGACY_MAINTENANCE_TESTS
         Assert.Equal((mode == "Demo" ? allowed.Append(ActionName.KillProcess) : allowed).Order(),

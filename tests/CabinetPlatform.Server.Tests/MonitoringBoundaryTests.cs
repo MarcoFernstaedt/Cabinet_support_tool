@@ -11,7 +11,7 @@ namespace CabinetPlatform.Server.Tests;
 public class MonitoringBoundaryTests
 {
     private static readonly ActionName[] Observations =
-    [ActionName.GetProcessList, ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall];
+    [ActionName.GetProcessList, ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.GetDisplayDiagnostics];
 
     [Theory]
     [InlineData("Demo")]

@@ -63,6 +63,7 @@ public static class AgentServiceRegistration
         services.AddSingleton<IScheduledUpdateWriter, ScheduledUpdateWriter>();
         services.AddSingleton<IProcessControlGateway, ProcessControlGateway>();
         services.AddSingleton<IFirewallGateway, WindowsFirewallGateway>();
+        services.AddSingleton<IDisplayModeGateway, WindowsDisplayModeGateway>();
         services.AddSingleton<FirewallReader>();
         services.AddSingleton<INetworkConfigurationGateway, NetworkConfigurationGateway>();
         services.AddSingleton<INetworkRollbackStore, FileNetworkRollbackStore>();
@@ -172,6 +173,7 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, RunEventLogViewExecutor>();
         services.AddSingleton<IActionExecutor, GetProcessListExecutor>();
         services.AddSingleton<IActionExecutor, InspectFirewallExecutor>();
+        services.AddSingleton<IActionExecutor, GetDisplayDiagnosticsExecutor>();
 
 #if LEGACY_MAINTENANCE_TESTS
         // Historical safety regression composition. Never enabled by appsettings.
