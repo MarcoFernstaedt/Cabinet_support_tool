@@ -99,6 +99,27 @@ public sealed class OfficeEnrollmentStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns true only when a grant is durably tombstoned. Disabled mode, invalid or
+    /// unknown identities, and fully tombstoned grants return false without writing.
+    /// Persistence failures propagate and leave the in-memory grant unchanged.
+    /// </summary>
+    public bool Revoke(string machineId)
+    {
+        if (!Enabled || !IsMachineId(machineId)) return false;
+        lock (_gate)
+        {
+            var grant = _grants.SingleOrDefault(g => g.MachineId == machineId);
+            if (grant is null || (grant.Revoked && grant.KeyDestroyed)) return false;
+            var next = _grants.Select(g => g.MachineId == machineId
+                ? g with { Revoked = true, KeyDestroyed = true,
+                    KeyHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)) } : g).ToList();
+            Persist(next);
+            _grants = next;
+            return true;
+        }
+    }
+
     /// <summary>Called only after a Supervisor request has locked and verified an active cabinet.</summary>
     public DateTimeOffset? Renew(string machineId, Guid requestId, string actorId, string reason)
     {

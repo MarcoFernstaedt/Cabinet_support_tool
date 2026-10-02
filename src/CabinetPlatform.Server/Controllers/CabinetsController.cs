@@ -26,6 +26,7 @@ public sealed class CabinetsController : SupportControllerBase
     private readonly ICabinetSearchService _search;
     private readonly QueryLimitsOptions _queryLimits;
     private readonly TimeProvider _timeProvider;
+    private readonly OfficeEnrollmentStore _officeEnrollment;
 
     /// <summary>Creates the controller.</summary>
     /// <param name="db">The database.</param>
@@ -35,6 +36,7 @@ public sealed class CabinetsController : SupportControllerBase
     /// <param name="search">Records which cabinets this rep has opened.</param>
     /// <param name="queryLimits">History query bounds.</param>
     /// <param name="timeProvider">Clock.</param>
+    /// <param name="officeEnrollment">Office credential journal.</param>
     public CabinetsController(
         SupportDbContext db,
         IAuditService audit,
@@ -42,7 +44,8 @@ public sealed class CabinetsController : SupportControllerBase
         ICabinetClock clock,
         ICabinetSearchService search,
         IOptions<QueryLimitsOptions> queryLimits,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        OfficeEnrollmentStore officeEnrollment)
     {
         _db = db;
         _audit = audit;
@@ -51,6 +54,7 @@ public sealed class CabinetsController : SupportControllerBase
         _search = search;
         _queryLimits = queryLimits.Value;
         _timeProvider = timeProvider;
+        _officeEnrollment = officeEnrollment;
     }
 
     /// <summary>
@@ -514,19 +518,29 @@ public sealed class CabinetsController : SupportControllerBase
         {
             // Repair old invalid designations without duplicating the original audit.
             await transaction.CommitAsync(ct);
-            return NoContent();
+        }
+        else
+        {
+            _audit.Enqueue(new AuditRecord
+            {
+                Event = AuditEvent.RetireCabinet, EventKind = AuditEventKind.Caused,
+                Result = AuditResult.Success, ActorType = ActorType.User,
+                ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+                CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
+                Reason = request.Reason.Trim(), Details = new { cabinet.SiteId, PreviousIsActive = true, IsActive = false }
+            });
+            await _db.SaveChangesAsync(ct);
+            await transaction.CommitAsync(ct);
         }
 
-        _audit.Enqueue(new AuditRecord
+        // SQL eligibility is withdrawn before touching the independent office journal.
+        // Retrying an inactive cabinet must also repair a previously failed journal write.
+        try { _officeEnrollment.Revoke(cabinet.MachineId); }
+        catch (Exception) when (!ct.IsCancellationRequested)
         {
-            Event = AuditEvent.RetireCabinet, EventKind = AuditEventKind.Caused,
-            Result = AuditResult.Success, ActorType = ActorType.User,
-            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
-            CabinetId = cabinet.Id, CabinetHostname = cabinet.Hostname,
-            Reason = request.Reason.Trim(), Details = new { cabinet.SiteId, PreviousIsActive = true, IsActive = false }
-        });
-        await _db.SaveChangesAsync(ct);
-        await transaction.CommitAsync(ct);
+            // Do not expose the key, machine identity or journal path in a response.
+            return StatusCode(StatusCodes.Status503ServiceUnavailable);
+        }
         return NoContent();
     }
 

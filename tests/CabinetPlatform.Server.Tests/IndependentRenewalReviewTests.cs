@@ -221,20 +221,21 @@ public class IndependentRenewalReviewTests
         Assert.Equal(renewalFirst?HttpStatusCode.OK:HttpStatusCode.NoContent,a.StatusCode);
         Assert.Equal(renewalFirst?HttpStatusCode.NoContent:HttpStatusCode.Conflict,b.StatusCode);
         Assert.Equal(renewalFirst?1:0,f.Grants()[0].Renewals.Count);
-        Assert.Equal(renewalFirst?HttpStatusCode.Forbidden:HttpStatusCode.Unauthorized,(await f.Agent.GetAsync("/api/agent/actions")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.GetAsync("/api/agent/actions")).StatusCode);
     }
     [Fact]
     public async Task Renewed_then_retired_office_key_is_refused_on_every_agent_route() {
         using var f=new HttpFixture();await f.Init();var req=new {RequestId=Guid.NewGuid(),Reason="test"};
         Assert.Equal(HttpStatusCode.OK,(await f.Supervisor.PostAsJsonAsync(f.Path,req)).StatusCode);
-        var bytes=File.ReadAllText(f.Store.Options.StateFile);
+        var previousHash=f.Grants()[0].KeyHash;
         Assert.Equal(HttpStatusCode.NoContent,(await f.Supervisor.PostAsJsonAsync($"/api/cabinets/{f.CabinetId}/retire",new {Reason="synthetic retirement"})).StatusCode);
-        var reg=await f.Agent.PostAsJsonAsync("/api/agent/register",new RegistrationRequest {MachineId="device",Hostname="lab",OsVersion="test",AgentVersion="test"});
-        Assert.Equal(RegistrationStatus.Rejected,(await reg.Content.ReadFromJsonAsync<RegistrationResponse>())!.Status);
-        foreach(var p in new[]{"/api/agent/checkin","/api/agent/checkin/full"}) Assert.Equal(HttpStatusCode.Forbidden,(await f.Agent.PostAsJsonAsync(p,new CheckInPayload {MachineId="device",AgentVersion="test",CollectedAtUtc=DateTimeOffset.UtcNow})).StatusCode);
-        foreach(var p in new[]{"/api/agent/actions","/api/agent/connectivity/plan"}) Assert.Equal(HttpStatusCode.Forbidden,(await f.Agent.GetAsync(p)).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden,(await f.Agent.PostAsJsonAsync("/api/agent/connectivity/summaries",Array.Empty<ConnectivitySummary>())).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden,(await f.Agent.PostAsJsonAsync("/api/agent/actions/result",new ActionResultDto {RequestId=Guid.NewGuid(),Status=ActionStatus.Succeeded,StartedAtUtc=DateTimeOffset.UtcNow,CompletedAtUtc=DateTimeOffset.UtcNow})).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict,(await f.Supervisor.PostAsJsonAsync(f.Path,req)).StatusCode);Assert.Equal(bytes,File.ReadAllText(f.Store.Options.StateFile));
+        var tombstone=f.Grants()[0]; Assert.True(tombstone.Revoked && tombstone.KeyDestroyed); Assert.NotEqual(previousHash,tombstone.KeyHash);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.PostAsJsonAsync("/api/agent/register",new RegistrationRequest {MachineId="device",Hostname="lab",OsVersion="test",AgentVersion="test"})).StatusCode);
+        foreach(var p in new[]{"/api/agent/checkin","/api/agent/checkin/full"}) Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.PostAsJsonAsync(p,new CheckInPayload {MachineId="device",AgentVersion="test",CollectedAtUtc=DateTimeOffset.UtcNow})).StatusCode);
+        foreach(var p in new[]{"/api/agent/actions","/api/agent/connectivity/plan"}) Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.GetAsync(p)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.PostAsJsonAsync("/api/agent/connectivity/summaries",Array.Empty<ConnectivitySummary>())).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized,(await f.Agent.PostAsJsonAsync("/api/agent/actions/result",new ActionResultDto {RequestId=Guid.NewGuid(),Status=ActionStatus.Succeeded,StartedAtUtc=DateTimeOffset.UtcNow,CompletedAtUtc=DateTimeOffset.UtcNow})).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict,(await f.Supervisor.PostAsJsonAsync(f.Path,req)).StatusCode);
+        Assert.Equal(tombstone.KeyHash,f.Grants()[0].KeyHash); Assert.True(f.Grants()[0].KeyDestroyed);
     }
 }

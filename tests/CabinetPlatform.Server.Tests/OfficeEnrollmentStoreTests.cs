@@ -207,6 +207,94 @@ public sealed class OfficeEnrollmentStoreTests
         Assert.Null(store.Renew("device", Guid.NewGuid(), "supervisor-id", "lab repeat"));
     }
 
+    [Fact]
+    public void Revoke_tombstones_grant_once_and_denies_old_key_after_restart()
+    {
+        using var fixture = new Fixture();
+        var renewal = Guid.NewGuid();
+        using (var store = fixture.Open())
+        {
+            Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+            Assert.NotNull(store.Renew("device", renewal, "supervisor-id", "lab repeat"));
+            Assert.True(fixture.Authenticate(store, "device", fixture.Key));
+            Assert.True(store.Revoke("device"));
+            Assert.False(fixture.Authenticate(store, "device", fixture.Key));
+            Assert.False(store.Redeem(fixture.Token, "device", fixture.Key));
+            Assert.Null(store.Renew("device", Guid.NewGuid(), "supervisor-id", "lab repeat"));
+            var tombstone = File.ReadAllText(fixture.File);
+            var grant = Assert.Single(System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(tombstone)!);
+            Assert.True(grant.Revoked);
+            Assert.True(grant.KeyDestroyed);
+            Assert.NotEqual(Hash(fixture.Key), grant.KeyHash);
+            Assert.Equal(renewal, Assert.Single(grant.Renewals).RequestId);
+            Assert.False(store.Revoke("device"));
+            Assert.Equal(tombstone, File.ReadAllText(fixture.File));
+        }
+        using var reopened = fixture.Open();
+        Assert.False(fixture.Authenticate(reopened, "device", fixture.Key));
+        Assert.False(reopened.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.Null(reopened.Renew("device", Guid.NewGuid(), "supervisor-id", "lab repeat"));
+        Assert.False(reopened.Revoke("device"));
+    }
+
+    [Fact]
+    public void Revoke_no_ops_without_a_live_grant_or_office_mode()
+    {
+        using var fixture = new Fixture();
+        using (var store = fixture.Open())
+        {
+            Assert.False(store.Revoke("missing"));
+            Assert.False(store.Revoke("../device"));
+            Assert.False(store.Revoke(""));
+            Assert.Equal("[]", File.ReadAllText(fixture.File));
+        }
+        fixture.Options.Enabled = false;
+        using var disabled = fixture.Open();
+        Assert.False(disabled.Revoke("device"));
+        Assert.Equal("[]", File.ReadAllText(fixture.File));
+    }
+
+    [Fact]
+    public void Revoke_refuses_missing_journal_without_mutating_grant()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        var backup = fixture.File + ".backup";
+        File.Move(fixture.File, backup);
+        try
+        {
+            Assert.Throws<IOException>(() => store.Revoke("device"));
+            Assert.True(fixture.Authenticate(store, "device", fixture.Key));
+        }
+        finally { File.Move(backup, fixture.File); }
+        Assert.True(fixture.Authenticate(store, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+    }
+
+    [Fact]
+    public void Revoke_write_failure_keeps_old_grant_until_retry()
+    {
+        if (OperatingSystem.IsWindows()) return; // Unix directory mode is the fault injection.
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        var before = File.ReadAllText(fixture.File);
+        var directory = Path.GetDirectoryName(fixture.File)!;
+        var mode = File.GetUnixFileMode(directory);
+        try
+        {
+            File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var failure = Record.Exception(() => store.Revoke("device"));
+            Assert.True(failure is IOException or UnauthorizedAccessException, $"Unexpected failure: {failure?.GetType().Name}");
+            Assert.True(fixture.Authenticate(store, "device", fixture.Key));
+            Assert.Equal(before, File.ReadAllText(fixture.File));
+        }
+        finally { File.SetUnixFileMode(directory, mode); }
+        Assert.True(store.Revoke("device"));
+        Assert.False(fixture.Authenticate(store, "device", fixture.Key));
+    }
+
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private sealed class Clock : TimeProvider
     {
