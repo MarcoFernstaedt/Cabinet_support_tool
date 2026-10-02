@@ -34,11 +34,13 @@ public sealed class ConnectivityAlertMigrationTests
             {
                 Assert.Null((await db.ConnectivityAlerts.SingleAsync()).ObservedUtc);
                 var migrations = (await db.Database.GetAppliedMigrationsAsync()).ToArray();
-                Assert.EndsWith("ConnectivityAlerts", migrations[^1]);
-                await db.GetService<IMigrator>().MigrateAsync("20260920011114_CabinetFriendlyName");
+                int alertIndex = Array.FindIndex(migrations, m => m.EndsWith("_ConnectivityAlerts", StringComparison.Ordinal));
+                int priorIndex = Array.FindIndex(migrations, m => m == "20260920011114_CabinetFriendlyName");
+                Assert.True(alertIndex > priorIndex && priorIndex >= 0);
+                await db.GetService<IMigrator>().MigrateAsync(migrations[priorIndex]);
                 Assert.Equal(sourceId, await db.Cabinets.Select(c => c.Id).SingleAsync());
                 Assert.Equal(evidenceId, await db.ConnectivityEvidence.Select(e => e.Id).SingleAsync());
-                Assert.Equal(migrations[..^1], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
+                Assert.Equal(migrations[..(priorIndex + 1)], (await db.Database.GetAppliedMigrationsAsync()).ToArray());
                 await db.Database.MigrateAsync();
                 Assert.Empty(await db.ConnectivityAlerts.ToArrayAsync());
                 Assert.Equal(migrations, (await db.Database.GetAppliedMigrationsAsync()).ToArray());

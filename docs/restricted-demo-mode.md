@@ -4,9 +4,9 @@ The current shipping capability ceiling remains observation only. The later prod
 
 ## Allowed surface
 
-Only `GetProcessList`, `CollectEventLogs`, `RunEventLogView`, `GetScheduledUpdates` and `InspectFirewall` are allowed actions. `InspectFirewall` reads bounded profile/rule metadata without a write API; see [firewall inspection and future repair](firewall-inspection.md). `GetScheduledUpdates` reads retained schedule evidence; it does not make that schedule eligible to run. Routine inventory collection remains available, including offline update metadata queries. Online update scans, scheduling, cancellation, installation, reboot, process termination/launch, service control, network changes, arbitrary shell/scripts and hardware actuation are not available actions in this release. There is no generic executor fallback.
+Only `GetProcessList`, `CollectEventLogs`, `RunEventLogView`, `GetScheduledUpdates`, `InspectFirewall` and `GetDisplayDiagnostics` are allowed actions. `GetDisplayDiagnostics` reports service-visible OS display modes only, not interactive-user scaling or zoom. `InspectFirewall` reads bounded profile/rule metadata without a write API; see [firewall inspection and future repair](firewall-inspection.md). `GetScheduledUpdates` reads retained schedule evidence; it does not make that schedule eligible to run. Routine inventory collection remains available, including offline update metadata queries. Online update scans, scheduling, cancellation, installation, reboot, process termination/launch, service control, network changes, arbitrary shell/scripts and hardware actuation are not available actions in this release. There is no generic executor fallback.
 
-The server applies this boundary to catalog visibility, direct and batch requests, single and batch approvals, and queued dispatch. Previously approved mutations are durably cancelled when polled. Pending mutations cannot be approved. The agent independently refuses disallowed actions even if an executor is injected, and its shipping DI composition registers only the five observational executors.
+The server applies this boundary to catalog visibility, direct and batch requests, single and batch approvals, and queued dispatch. Previously approved mutations are durably cancelled when polled. Pending mutations cannot be approved. The agent independently refuses disallowed actions even if an executor is injected, and its shipping DI composition registers only the six observational executors.
 
 The startup recovery and periodic scheduled-install runner remain callable, but maintenance eligibility is compiled off. Due schedules and network rollback records stay intact. An unconfirmed network change needs explicit on-site reconciliation; the monitoring agent does not restore, clear or silently forget it. Existing action-journal interrupted-result reporting remains unchanged and never resumes execution.
 
@@ -17,14 +17,14 @@ The startup recovery and periodic scheduled-install runner remain callable, but 
 Run from the repository root with the .NET 8 SDK (add `-m:1` on constrained hosts):
 
 ```text
-dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1 --filter FullyQualifiedName~MonitoringBoundaryTests
+dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1
 dotnet test tests/CabinetPlatform.Agent.Tests -c Release -m:1 --filter "FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
 dotnet test tests/CabinetPlatform.Server.Tests -c LegacyMaintenanceTests -m:1
 dotnet test tests/CabinetPlatform.Agent.Tests -c LegacyMaintenanceTests -m:1
 dotnet test tests/CabinetPlatform.Console.Core.Tests -c LegacyMaintenanceTests -m:1
 ```
 
-The new boundary tests are compiled only in monitoring configurations. The full historical suites deliberately require `LegacyMaintenanceTests`; an unfiltered run of those old control expectations in `Release` is not a supported regression command. A passing historical suite is not proof of the shipping boundary: run both lanes, and never use `--no-build` to interchange configurations.
+The shipping Server suite keeps the monitoring boundary tests and excludes historical control assertions; run its full `Release` suite and the separate historical `LegacyMaintenanceTests` suite. Agent and Console historical suites also require `LegacyMaintenanceTests`. A passing historical suite is not proof of the shipping boundary: run both lanes, and never use `--no-build` to interchange configurations.
 
 ## Evidence and remaining gates
 

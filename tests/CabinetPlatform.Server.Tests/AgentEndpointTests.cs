@@ -214,6 +214,38 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
     }
 
     [Fact]
+    public async Task An_agent_cannot_report_another_cabinets_observation_result()
+    {
+        (HttpClient requester, User supervisor) = await TestClient.CreateUserClientAsync(
+            _factory, Role.Supervisor, Unique("observer"));
+        string ownerMachine = Unique("owner");
+        string otherMachine = Unique("other");
+        Cabinet owner = await TestClient.CreateApprovedCabinetAsync(_factory, ownerMachine, supervisor.Id);
+        await TestClient.CreateApprovedCabinetAsync(_factory, otherMachine, supervisor.Id);
+
+        using var created = await requester.PostJsonAsync("/api/actions", new CreateActionRequest
+        {
+            Action = ActionName.GetProcessList, CabinetId = owner.Id, Reason = "Synthetic observation"
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var action = (await created.ReadAsync<ActionRequestView>())!;
+        using var other = TestClient.CreateAgentClient(_factory, otherMachine);
+        using var response = await other.PostJsonAsync("/api/agent/actions/result", new ActionResultDto
+        {
+            RequestId = action.Id, Status = ActionStatus.Succeeded,
+            CompletedAtUtc = DateTimeOffset.UtcNow
+        });
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var stored = await _factory.WithDbAsync(db => db.ActionRequests.AsNoTracking()
+            .SingleAsync(a => a.Id == action.Id));
+        Assert.NotEqual(ActionRequestStatus.Completed, stored.Status);
+        Assert.True(await _factory.WithDbAsync(db => db.AuditEntries.AsNoTracking().AnyAsync(a =>
+            a.Event == AuditEvent.AgentReportResult && a.Result == AuditResult.Denied &&
+            a.ActorId == otherMachine)));
+    }
+
+#if LEGACY_MAINTENANCE_TESTS
+    [Fact]
     public async Task A_cabinet_cannot_report_a_result_for_another_cabinets_action()
     {
         (HttpClient requesterClient, User requester) =
@@ -345,6 +377,7 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
 
         return dto.Id;
     }
+#endif
 
     /// <summary>
     /// A representative full-tier payload, in session 1's sectioned shape.

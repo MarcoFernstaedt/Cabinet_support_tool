@@ -276,6 +276,7 @@ public sealed class FleetAggregateTests : IClassFixture<SupportApiFactory>
         Assert.Null(detail!.Site.SyncReachability);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task An_install_outcome_reported_on_a_check_in_is_audited_as_caused()
     {
@@ -414,6 +415,7 @@ public sealed class FleetAggregateTests : IClassFixture<SupportApiFactory>
 
         Assert.Null(collected);
     }
+#endif
 
     /// <summary>
     /// A full check-in carrying the sections the extracted columns come from.

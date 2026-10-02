@@ -69,6 +69,7 @@ public sealed class ConcurrencyTests : IClassFixture<SupportApiFactory>
         Assert.Contains(reads, e => e.ActorId == secondUser.Id.ToString());
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task Two_reps_requesting_the_same_action_get_two_requests_and_neither_is_swallowed()
     {
@@ -431,6 +432,7 @@ public sealed class ConcurrencyTests : IClassFixture<SupportApiFactory>
 
         Assert.Equal(ActionRequestStatus.Dispatched, inFlight.Status);
     }
+#endif
 
     [Fact]
     public async Task Two_supervisors_changing_a_cabinets_role_at_once_produce_one_change()
@@ -481,6 +483,7 @@ public sealed class ConcurrencyTests : IClassFixture<SupportApiFactory>
         Assert.Equal(2, changes.Count);
     }
 
+#if LEGACY_MAINTENANCE_TESTS
     /// <summary>
     /// Approves an action from its own service scope, optionally having first
     /// read the row so that its concurrency token is the pre-decision one.
@@ -532,6 +535,7 @@ public sealed class ConcurrencyTests : IClassFixture<SupportApiFactory>
         Reason = "Print queue is wedged.",
         TicketReference = ticket,
     };
+#endif
 
     private static string Unique(string prefix) => $"{prefix}-{Guid.NewGuid():N}"[..24];
 }
