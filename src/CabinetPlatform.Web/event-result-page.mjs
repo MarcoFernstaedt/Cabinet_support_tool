@@ -5,7 +5,7 @@ const time = value => typeof value === "string" && Number.isFinite(Date.parse(va
 const short = (value, max = 256) => typeof value === "string" && value.length <= max;
 const states = new Set(["pending", "failed", "complete", "partial"]);
 
-export function renderEventResult(cabinetId, data, query) {
+export function validateEventResult(cabinetId, data) {
   if (!validGuid(cabinetId) || !data || !validGuid(data.cabinetId) || data.cabinetId.toLowerCase() !== cabinetId.toLowerCase() ||
       !validGuid(data.actionId) || !states.has(data.state) || !time(data.requestedAtUtc) ||
       (data.completedAtUtc != null && !time(data.completedAtUtc)) ||
@@ -28,10 +28,15 @@ export function renderEventResult(cabinetId, data, query) {
         !(row.message === null || short(row.message, 8192))) throw Error("Invalid event evidence");
   }
   if (data.entries.length && data.channelReads.length && data.entries.some(row => !data.channelReads.some(read => read.channelName.toLowerCase() === row.channel.toLowerCase()))) throw Error("Missing channel outcome");
+  return channels;
+}
+
+export function renderEventResult(cabinetId, data, query) {
+  const channels = validateEventResult(cabinetId, data);
   const rawChannel = query.get("channel"), rawProvider = query.get("provider"), rawEntry = query.get("entry");
   if ((rawChannel && !channels.has(rawChannel.toLowerCase())) || (rawProvider && !short(rawProvider, 255)) ||
       (rawEntry !== null && !/^(0|[1-9][0-9]{0,2})$/.test(rawEntry))) throw Error("Invalid event filter");
-  const base = `/cabinet/${cabinetId}/events`;
+  const base = `/cabinet/${cabinetId}/events/${data.actionId}`;
   const link = (values = {}) => `${base}${Object.keys(values).length ? `?${new URLSearchParams(values)}` : ""}`;
   const filtered = data.entries.map((row, i) => ({ row, i })).filter(({ row }) =>
     (!rawChannel || row.channel.toLowerCase() === rawChannel.toLowerCase()) && (!rawProvider || row.provider === rawProvider));

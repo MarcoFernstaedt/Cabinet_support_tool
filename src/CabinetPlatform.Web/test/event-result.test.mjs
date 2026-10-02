@@ -52,8 +52,8 @@ test("connected event result is scoped, escaped, navigable and honestly partial"
     assert.match(html, /partial/i);
     assert.match(html, /2026-09-01T00:01:00Z/);
     assert.match(html, /&lt;svg\/onload=alert\(1\)&gt;/);
-    assert.match(html, new RegExp(`href="/cabinet/${cabinet}/events\\?entry=0"`));
-    assert.match(html, new RegExp(`href="/cabinet/${cabinet}/events\\?channel=System"`));
+    assert.match(html, new RegExp(`href="/cabinet/${cabinet}/events/${action}\\?entry=0"`));
+    assert.match(html, new RegExp(`href="/cabinet/${cabinet}/events/${action}\\?channel=System"`));
     assert.doesNotMatch(html, /server-only-token|<script>alert/);
     const detail = await f.request(`${url}?entry=0`, f.cookie);
     assert.match(await detail.text(), /A &amp; B &lt;script&gt;alert\(1\)&lt;\/script&gt;/);

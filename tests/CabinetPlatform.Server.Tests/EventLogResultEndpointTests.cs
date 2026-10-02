@@ -15,6 +15,8 @@ public sealed class EventLogResultEndpointTests : IClassFixture<SupportApiFactor
     public EventLogResultEndpointTests(SupportApiFactory factory) => _factory = factory;
 
     private static string Url(Guid cabinetId) => $"/api/cabinets/{cabinetId}/event-log-results/latest";
+    private static string PinnedUrl(Guid cabinetId, Guid actionId) =>
+        $"/api/cabinets/{cabinetId}/event-log-results/{actionId}";
     private static string Unique() => Guid.NewGuid().ToString("N");
 
     private async Task<(HttpClient Client, Cabinet Cabinet, ActionRequest Action)> SetupAsync()
@@ -292,6 +294,82 @@ public sealed class EventLogResultEndpointTests : IClassFixture<SupportApiFactor
         Assert.Equal(newerId, json.RootElement.GetProperty("actionId").GetGuid());
         Assert.Equal("pending", json.RootElement.GetProperty("state").GetString());
         Assert.Empty(json.RootElement.GetProperty("entries").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task Pinned_completed_run_retains_its_event_after_a_newer_completed_run()
+    {
+        var (client, cabinet, oldAction) = await SetupAsync();
+        await CompleteAsync(oldAction, Result(oldAction).Replace("I/O error", "Old crash"));
+        var newer = new ActionRequest
+        {
+            CabinetId = cabinet.Id, RequestedByUserId = oldAction.RequestedByUserId,
+            RequestedUtc = oldAction.RequestedUtc.AddMinutes(1), Action = ActionName.RunEventLogView,
+            Status = ActionRequestStatus.Dispatched, ParametersJson = oldAction.ParametersJson, Reason = "Again"
+        };
+        await _factory.WithDbAsync(async db => { db.ActionRequests.Add(newer); await db.SaveChangesAsync(); });
+        await CompleteAsync(newer, Result(newer).Replace("I/O error", "New crash"));
+
+        using JsonDocument latest = JsonDocument.Parse(await client.GetStringAsync(Url(cabinet.Id)));
+        Assert.Equal(newer.Id, latest.RootElement.GetProperty("actionId").GetGuid());
+        Assert.Equal("New crash", latest.RootElement.GetProperty("entries")[0].GetProperty("message").GetString());
+        using JsonDocument pinned = JsonDocument.Parse(await client.GetStringAsync(PinnedUrl(cabinet.Id, oldAction.Id)));
+        Assert.Equal(oldAction.Id, pinned.RootElement.GetProperty("actionId").GetGuid());
+        Assert.Equal(cabinet.Id, pinned.RootElement.GetProperty("cabinetId").GetGuid());
+        Assert.Equal("complete", pinned.RootElement.GetProperty("state").GetString());
+        Assert.Equal("Old crash", pinned.RootElement.GetProperty("entries")[0].GetProperty("message").GetString());
+    }
+
+    [Fact]
+    public async Task Pinned_result_rejects_wrong_cabinet_or_unknown_action()
+    {
+        var (client, cabinet, action) = await SetupAsync();
+        await CompleteAsync(action, Result(action));
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.GetAsync(PinnedUrl(Guid.NewGuid(), action.Id))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.GetAsync(PinnedUrl(cabinet.Id, Guid.NewGuid()))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Pinned_result_rejects_other_action_type_even_with_valid_event_data()
+    {
+        var (client, cabinet, action) = await SetupAsync();
+        await CompleteAsync(action, Result(action));
+        await _factory.WithDbAsync(async db =>
+        {
+            ActionRequest row = await db.ActionRequests.SingleAsync(a => a.Id == action.Id);
+            row.Action = ActionName.GetProcessList;
+            await db.SaveChangesAsync();
+        });
+        Assert.Equal(HttpStatusCode.NotFound,
+            (await client.GetAsync(PinnedUrl(cabinet.Id, action.Id))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Pinned_result_rejects_anonymous_and_revoked_staff()
+    {
+        var (client, cabinet, action) = await SetupAsync();
+        await CompleteAsync(action, Result(action));
+        string url = PinnedUrl(cabinet.Id, action.Id);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync(url)).StatusCode);
+        await _factory.WithDbAsync(async db =>
+        {
+            User user = await db.Users.SingleAsync(u => u.Id == action.RequestedByUserId);
+            user.SecurityStamp = Guid.NewGuid();
+            await db.SaveChangesAsync();
+        });
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(url)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Pinned_result_reuses_projection_validation()
+    {
+        var (client, cabinet, action) = await SetupAsync();
+        await CompleteAsync(action, "not-json");
+        Assert.Equal(HttpStatusCode.BadGateway,
+            (await client.GetAsync(PinnedUrl(cabinet.Id, action.Id))).StatusCode);
     }
 
     [Fact]
