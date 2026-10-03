@@ -2,7 +2,7 @@
 
 An internal Cabinet Support product. Staff use a browser-based support Console to inspect cabinets and request only approved operations. Each cabinet runs a Windows Agent service; there is no desktop Console delivery target.
 
-Production release is blocked while the audited defects are repaired and Windows lab testing is completed. See the [release gates](docs/readiness.md). Passing automated tests does not establish that a cabinet is safe to deploy.
+Production release is blocked while the audited defects are repaired and Windows lab testing is completed. See the [current build tracker](docs/build-tracker.md) and [release gates](docs/readiness.md). Passing automated tests does not establish that a cabinet is safe to deploy.
 
 ## Where it runs
 
@@ -26,7 +26,7 @@ Physical cabinet sensors, drawer opening, lock release and cubie opening remain 
 4. `CabinetPlatform.Web` is a loopback-only synthetic-data preview, not an approved staff deployment.
 5. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
 
-Historical `CabinetPlatform.Console.Core` and `CabinetPlatform.Console` projects remain in the repository for compatibility and safety-test reference. They are not a product milestone or fallback requirement.
+Historical `CabinetPlatform.Console.Core` and `CabinetPlatform.Console` projects remain temporarily for safety-test reference. They are not a product milestone or fallback requirement. Once equivalent web behavior and safety tests are accepted, remove them and all retired delivery references through the tracked G08 cleanup.
 
 ## Build and test
 
