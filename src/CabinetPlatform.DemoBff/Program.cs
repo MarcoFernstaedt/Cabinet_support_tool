@@ -88,7 +88,48 @@ app.MapGet("/cabinets/{id}", async (string id, HttpContext ctx, DemoSessions ses
             !SafeLabel(detail.Hostname) || (detail.FriendlyName is { Length: > 256 }) ||
             !SafeLabel(detail.SiteName) || !SafeLabel(detail.ClientName)) return Results.NotFound();
         var title = string.IsNullOrWhiteSpace(detail.FriendlyName) ? detail.Hostname : detail.FriendlyName;
-        var html = $"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Cabinet detail</title></head><body><main><h1>{WebUtility.HtmlEncode(title)}</h1><dl><dt>Cabinet ID</dt><dd>{detail.CabinetId:D}</dd><dt>Hostname</dt><dd>{WebUtility.HtmlEncode(detail.Hostname)}</dd><dt>Site</dt><dd>{WebUtility.HtmlEncode(detail.SiteName)}</dd><dt>Client</dt><dd>{WebUtility.HtmlEncode(detail.ClientName)}</dd></dl><a href=\"/\">Home</a></main></body></html>";
+        var html = $"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Cabinet detail</title></head><body><main><h1>{WebUtility.HtmlEncode(title)}</h1><dl><dt>Cabinet ID</dt><dd>{detail.CabinetId:D}</dd><dt>Hostname</dt><dd>{WebUtility.HtmlEncode(detail.Hostname)}</dd><dt>Site</dt><dd>{WebUtility.HtmlEncode(detail.SiteName)}</dd><dt>Client</dt><dd>{WebUtility.HtmlEncode(detail.ClientName)}</dd></dl><a href=\"/cabinets/{cabinetId:D}/performance\">Latest performance</a> <a href=\"/\">Home</a></main></body></html>";
+        return Results.Content(html, "text/html; charset=utf-8");
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or NotSupportedException)
+    {
+        return Results.NotFound();
+    }
+});
+
+app.MapGet("/cabinets/{id}/performance", async (string id, HttpContext ctx, DemoSessions sessions, IHttpClientFactory clients) =>
+{
+    if (!ctx.Request.Cookies.TryGetValue("__Host-DemoSession", out var cookie) ||
+        !sessions.TryGetToken(cookie, out var token)) return Results.Unauthorized();
+    if (!Guid.TryParseExact(id, "D", out var cabinetId) || cabinetId == Guid.Empty)
+        return Results.BadRequest("Invalid cabinet ID.");
+    try
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"api/demo/cabinets/{cabinetId:D}/performance");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await clients.CreateClient("server-login").SendAsync(request, HttpCompletionOption.ResponseContentRead, ctx.RequestAborted);
+        if (response.StatusCode != HttpStatusCode.OK) return Results.NotFound();
+        var reading = await response.Content.ReadFromJsonAsync<DemoPerformanceReading>(cancellationToken: ctx.RequestAborted);
+        if (reading is null || reading.CabinetId != cabinetId ||
+            reading.State is not ("current" or "missing" or "stale" or "unknown") ||
+            !SafePercent(reading.CpuPercent) || !SafePercent(reading.RamUsedPercent) || !SafePercent(reading.MinFreeDiskPercent) ||
+            (reading.State == "current" && (reading.CollectedAtUtc is null || reading.ReceivedUtc is null)) ||
+            (reading.State == "stale" && (reading.CollectedAtUtc is null || reading.ReceivedUtc is null)) ||
+            (reading.State == "missing" && (reading.CollectedAtUtc is not null || reading.ReceivedUtc is not null ||
+                reading.CpuPercent is not null || reading.RamUsedPercent is not null || reading.MinFreeDiskPercent is not null)))
+            return Results.NotFound();
+        var state = reading.State switch
+        {
+            "missing" => "No agent performance sample",
+            "stale" => "Stale (collected more than 15 minutes ago)",
+            "unknown" => "Unknown (sample or measurements unavailable)",
+            _ => "Current sample"
+        };
+        static string Value(double? percent) => percent is { } value
+            ? value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture) + "%" : "Unknown";
+        static string Time(DateTimeOffset? instant) => instant is { } value
+            ? WebUtility.HtmlEncode(value.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss 'UTC'", System.Globalization.CultureInfo.InvariantCulture)) : "Unknown";
+        var html = $"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Latest performance</title></head><body><main><h1>Latest performance</h1><p>Cabinet {cabinetId:D}</p><p>Agent heartbeat — {state}. Not a live probe; measurements require an enrolled, checking-in Agent.</p><dl><dt>CPU used</dt><dd>{Value(reading.CpuPercent)}</dd><dt>RAM used</dt><dd>{Value(reading.RamUsedPercent)}</dd><dt>Minimum free disk</dt><dd>{Value(reading.MinFreeDiskPercent)}</dd><dt>Agent collected (UTC)</dt><dd>{Time(reading.CollectedAtUtc)}</dd><dt>Server received (UTC)</dt><dd>{Time(reading.ReceivedUtc)}</dd></dl><a href=\"/cabinets/{cabinetId:D}\">Cabinet detail</a></main></body></html>";
         return Results.Content(html, "text/html; charset=utf-8");
     }
     catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or NotSupportedException)
@@ -165,8 +206,10 @@ static Uri RequireHttpsRoot(string? value)
 }
 
 static bool SafeLabel(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256;
-
+static bool SafePercent(double? value) => value is null || (double.IsFinite(value.Value) && value is >= 0 and <= 100);
 internal sealed record DemoCabinetDetail(Guid CabinetId, string? Hostname, string? FriendlyName, string? SiteName, string? ClientName);
+internal sealed record DemoPerformanceReading(Guid CabinetId, string? State, DateTimeOffset? CollectedAtUtc,
+    DateTimeOffset? ReceivedUtc, double? CpuPercent, double? RamUsedPercent, double? MinFreeDiskPercent);
 
 public partial class Program;
 

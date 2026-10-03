@@ -30,6 +30,7 @@ public sealed class CabinetDetailTests : IDisposable
         Assert.Contains("Cabinet Gamma", html);
         Assert.Contains("host-delta", html);
         Assert.Contains(CabinetId.ToString(), html);
+        Assert.Contains($"href=\"/cabinets/{CabinetId}/performance\"", html);
         Assert.Equal("/api/demo/cabinets/" + CabinetId, _factory.LastPath);
         Assert.Equal("Bearer", _factory.LastAuthorization?.Scheme);
         Assert.Equal("secret-staff-jwt", _factory.LastAuthorization?.Parameter);
