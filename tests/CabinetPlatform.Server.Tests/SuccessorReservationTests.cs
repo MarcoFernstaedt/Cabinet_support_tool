@@ -184,6 +184,177 @@ public sealed class SuccessorReservationTests
         Assert.Equal(predecessor.MachineId, await WithDbAsync(host, db => db.Cabinets.Where(c => c.Id == predecessor.Id).Select(c => c.MachineId).SingleAsync()));
     }
 
+    [Fact]
+    public async Task Issuance_intent_is_durable_audited_and_non_activating()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        using var reserved = await client.PostAsync($"/api/cabinets/{predecessor.Id}/successor-reservation", null);
+        Assert.Equal(HttpStatusCode.OK, reserved.StatusCode);
+        var requestId = Guid.NewGuid();
+        string keyHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        using var response = await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/successor-issuance-intent",
+            new { RequestId = requestId, ProposedKeyHash = keyHash });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(requestId, body.RootElement.GetProperty("requestId").GetGuid());
+        Assert.True(body.RootElement.GetProperty("intentOnly").GetBoolean());
+        Assert.False(body.RootElement.TryGetProperty("deviceKey", out _));
+        Assert.False(body.RootElement.TryGetProperty("token", out _));
+        await WithDbAsync(host, async db =>
+        {
+            var intent = await db.SuccessorIssuanceIntents.SingleAsync();
+            Assert.Equal(keyHash, intent.ProposedKeyHash);
+            Assert.Equal(predecessor.Id, intent.PredecessorCabinetId);
+            Assert.Equal((await db.SuccessorReservations.SingleAsync()).Id, intent.ReservationId);
+            Assert.False((await db.Cabinets.SingleAsync(c => c.Id == predecessor.Id)).IsActive);
+            Assert.Equal(predecessor.MachineId, (await db.Cabinets.SingleAsync(c => c.Id == predecessor.Id)).MachineId);
+            Assert.Equal(1, await db.AuditEntries.CountAsync(a => a.Event == CabinetPlatform.Contracts.Audit.AuditEvent.RecordSuccessorIssuanceIntent));
+            Assert.DoesNotContain(keyHash, (await db.AuditEntries.SingleAsync(a =>
+                a.Event == CabinetPlatform.Contracts.Audit.AuditEvent.RecordSuccessorIssuanceIntent)).Details);
+            Assert.Equal(1, await db.Cabinets.CountAsync());
+            Assert.Empty(await db.PendingRegistrations.ToListAsync());
+            return 0;
+        });
+    }
+
+    [Fact]
+    public async Task Reused_request_id_across_existing_predecessors_conflicts_without_mutation()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        await client.PostAsync($"/api/cabinets/{predecessor.Id}/successor-reservation", null);
+        var firstId = Guid.NewGuid();
+        string hash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        string path = $"/api/cabinets/{predecessor.Id}/successor-issuance-intent";
+        Assert.Equal(HttpStatusCode.OK, (await client.PostJsonAsync(path,
+            new { RequestId = firstId, ProposedKeyHash = hash })).StatusCode);
+        var otherId = Guid.NewGuid();
+        await WithDbAsync(host, async db =>
+        {
+            var other = new Cabinet { Id = otherId, MachineId = "other-" + Guid.NewGuid().ToString("N"),
+                Hostname = "other", IsActive = false, SiteId = predecessor.SiteId };
+            var reservation = new SuccessorReservation { PredecessorCabinetId = otherId,
+                SuccessorMachineId = "successor-" + Guid.NewGuid().ToString("N"), ReservedUtc = DateTimeOffset.UtcNow };
+            db.Cabinets.Add(other);
+            db.SuccessorReservations.Add(reservation);
+            db.SuccessorIssuanceIntents.Add(new SuccessorIssuanceIntent
+            {
+                PredecessorCabinetId = otherId, ReservationId = reservation.Id,
+                RequestId = Guid.NewGuid(), ProposedKeyHash = hash, RequestedUtc = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+            return 0;
+        });
+        var otherRequestId = await WithDbAsync(host, db => db.SuccessorIssuanceIntents
+            .Where(i => i.PredecessorCabinetId == otherId).Select(i => i.RequestId).SingleAsync());
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = otherRequestId, ProposedKeyHash = hash })).StatusCode);
+        Assert.Equal(2, await WithDbAsync(host, db => db.SuccessorIssuanceIntents.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Intent_retries_are_idempotent_but_changed_hash_or_request_conflicts()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        string path = $"/api/cabinets/{predecessor.Id}/successor-issuance-intent";
+        var requestId = Guid.NewGuid();
+        string hash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = requestId, ProposedKeyHash = hash })).StatusCode);
+        await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = requestId, ProposedKeyHash = hash })).StatusCode);
+        await client.PostAsync($"/api/cabinets/{predecessor.Id}/successor-reservation", null);
+        var tasks = await Task.WhenAll(client.PostJsonAsync(path, new { RequestId = requestId, ProposedKeyHash = hash }),
+            client.PostJsonAsync(path, new { RequestId = requestId, ProposedKeyHash = hash }));
+        Assert.All(tasks, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = requestId, ProposedKeyHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)) })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = Guid.NewGuid(), ProposedKeyHash = hash })).StatusCode);
+        Assert.Equal(1, await WithDbAsync(host, db => db.SuccessorIssuanceIntents.CountAsync()));
+        Assert.Equal(1, await WithDbAsync(host, db => db.AuditEntries.CountAsync(a =>
+            a.Event == CabinetPlatform.Contracts.Audit.AuditEvent.RecordSuccessorIssuanceIntent)));
+        File.WriteAllText(fixture.StateFile, "not-json");
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostJsonAsync(path,
+            new { RequestId = requestId, ProposedKeyHash = hash })).StatusCode);
+        Assert.Equal(1, await WithDbAsync(host, db => db.SuccessorIssuanceIntents.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Intent_rejects_unprivileged_and_invalid_commitments()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        await client.PostAsync($"/api/cabinets/{predecessor.Id}/successor-reservation", null);
+        string path = $"/api/cabinets/{predecessor.Id}/successor-issuance-intent";
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.CreateClient().PostJsonAsync(path,
+            new { RequestId = Guid.NewGuid(), ProposedKeyHash = new string('A', 64) })).StatusCode);
+        using var scope = host.Services.CreateScope();
+        var hashed = scope.ServiceProvider.GetRequiredService<IPasswordHasher>().Hash("Str0ng!TestPassword");
+        var tier = new User { Username = Guid.NewGuid().ToString(), DisplayName = "Tier2", Role = Role.Tier2,
+            PasswordHash = hashed.Hash, PasswordSalt = hashed.Salt, PasswordIterations = hashed.Iterations,
+            IsActive = true, CreatedUtc = DateTimeOffset.UtcNow };
+        var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+        db.Users.Add(tier);
+        await db.SaveChangesAsync();
+        using var tierClient = host.CreateClient();
+        tierClient.DefaultRequestHeaders.Authorization = new("Bearer",
+            scope.ServiceProvider.GetRequiredService<IJwtTokenService>().Issue(tier).AccessToken);
+        Assert.Equal(HttpStatusCode.Forbidden, (await tierClient.PostJsonAsync(path,
+            new { RequestId = Guid.NewGuid(), ProposedKeyHash = new string('A', 64) })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostJsonAsync(path,
+            new { RequestId = Guid.Empty, ProposedKeyHash = new string('A', 64) })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostJsonAsync(path,
+            new { RequestId = Guid.NewGuid(), ProposedKeyHash = "not-a-hash" })).StatusCode);
+        Assert.Equal(0, await WithDbAsync(host, context => context.SuccessorIssuanceIntents.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Intent_audit_failure_rolls_back_without_losing_reservation()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        await client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        await client.PostAsync($"/api/cabinets/{predecessor.Id}/successor-reservation", null);
+        await WithDbAsync(host, async db =>
+        {
+            await db.Database.ExecuteSqlRawAsync("CREATE TRIGGER deny_intent_audit BEFORE INSERT ON AuditEntries WHEN NEW.Event = 146 BEGIN SELECT RAISE(ABORT, 'audit refused'); END");
+            return 0;
+        });
+        Assert.Equal(HttpStatusCode.InternalServerError, (await client.PostJsonAsync(
+            $"/api/cabinets/{predecessor.Id}/successor-issuance-intent",
+            new { RequestId = Guid.NewGuid(), ProposedKeyHash = new string('A', 64) })).StatusCode);
+        Assert.Equal(0, await WithDbAsync(host, db => db.SuccessorIssuanceIntents.CountAsync()));
+        Assert.Equal(1, await WithDbAsync(host, db => db.SuccessorReservations.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Retirement_race_cannot_commit_intent_before_revocation()
+    {
+        using var fixture = new ReservationFixture();
+        var (host, client, predecessor) = await fixture.CreateAsync();
+        string path = $"/api/cabinets/{predecessor.Id}/successor-issuance-intent";
+        var request = new { RequestId = Guid.NewGuid(), ProposedKeyHash = new string('A', 64) };
+        using var other = host.CreateClient();
+        other.DefaultRequestHeaders.Authorization = client.DefaultRequestHeaders.Authorization;
+        var retireTask = client.PostJsonAsync($"/api/cabinets/{predecessor.Id}/retire", new { Reason = "Synthetic retirement" });
+        var intentTask = other.PostJsonAsync(path, request);
+        await Task.WhenAll(retireTask, intentTask);
+        Assert.Equal(HttpStatusCode.NoContent, retireTask.Result.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, intentTask.Result.StatusCode); // no reservation exists yet
+        Assert.Equal(0, await WithDbAsync(host, db => db.SuccessorIssuanceIntents.CountAsync()));
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsync(
+            $"/api/cabinets/{predecessor.Id}/successor-reservation", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostJsonAsync(path, request)).StatusCode);
+        Assert.False(await WithDbAsync(host, db => db.Cabinets.Where(c => c.Id == predecessor.Id).Select(c => c.IsActive).SingleAsync()));
+    }
+
     private static async Task<T> WithDbAsync<T>(WebApplicationFactory<Program> host, Func<SupportDbContext, Task<T>> work)
     {
         using var scope = host.Services.CreateScope();

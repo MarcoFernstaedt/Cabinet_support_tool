@@ -253,4 +253,6 @@ public enum AuditEvent
     RenewOfficeDevice = 144,
     /// <summary>A Supervisor reserved an uncredentialed successor identity.</summary>
     ReserveSuccessorIdentity = 145,
+    /// <summary>A Supervisor recorded non-activating successor issuance intent.</summary>
+    RecordSuccessorIssuanceIntent = 146,
 }

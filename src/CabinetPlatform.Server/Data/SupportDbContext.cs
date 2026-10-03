@@ -62,6 +62,9 @@ public class SupportDbContext : DbContext
     /// <summary>Non-credential successor identity reservations.</summary>
     public DbSet<SuccessorReservation> SuccessorReservations => Set<SuccessorReservation>();
 
+    /// <summary>Non-activating successor issuance intentions.</summary>
+    public DbSet<SuccessorIssuanceIntent> SuccessorIssuanceIntents => Set<SuccessorIssuanceIntent>();
+
     /// <summary>The five-minute tier, stored as typed columns and no payload.</summary>
     public DbSet<Heartbeat> Heartbeats => Set<Heartbeat>();
 
@@ -271,6 +274,19 @@ public class SupportDbContext : DbContext
             e.HasIndex(x => x.PredecessorCabinetId).IsUnique();
             e.HasOne(x => x.PredecessorCabinet).WithMany()
                 .HasForeignKey(x => x.PredecessorCabinetId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<SuccessorIssuanceIntent>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ProposedKeyHash).IsRequired().HasMaxLength(64);
+            e.HasIndex(x => x.RequestId).IsUnique();
+            e.HasIndex(x => x.PredecessorCabinetId).IsUnique();
+            e.HasIndex(x => x.ReservationId).IsUnique();
+            e.HasOne(x => x.PredecessorCabinet).WithMany()
+                .HasForeignKey(x => x.PredecessorCabinetId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.Reservation).WithMany()
+                .HasForeignKey(x => x.ReservationId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Heartbeat>(e =>

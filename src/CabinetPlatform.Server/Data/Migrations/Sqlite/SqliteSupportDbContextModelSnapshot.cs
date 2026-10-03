@@ -1025,6 +1025,47 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.ToTable("SmartReadings");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorIssuanceIntent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("PredecessorCabinetId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProposedKeyHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RequestedUtc")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PredecessorCabinetId")
+                        .IsUnique();
+
+                    b.HasIndex("RequestId")
+                        .IsUnique();
+
+                    b.HasIndex("ReservationId")
+                        .IsUnique();
+
+                    b.ToTable("SuccessorIssuanceIntents");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorReservation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1292,6 +1333,25 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .IsRequired();
 
                     b.Navigation("Cabinet");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorIssuanceIntent", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "PredecessorCabinet")
+                        .WithMany()
+                        .HasForeignKey("PredecessorCabinetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("CabinetPlatform.Server.Domain.SuccessorReservation", "Reservation")
+                        .WithMany()
+                        .HasForeignKey("ReservationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PredecessorCabinet");
+
+                    b.Navigation("Reservation");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorReservation", b =>
