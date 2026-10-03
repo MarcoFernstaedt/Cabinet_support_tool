@@ -1,5 +1,4 @@
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
+using System.Text.Json;
 using CabinetPlatform.Server.Data;
 using CabinetPlatform.Server.Domain;
 using Microsoft.Extensions.DependencyInjection;
@@ -161,22 +160,31 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
         string site = Guid.NewGuid().ToString();
         var source = await _host.CreateCabinetAsync("SAME-HOST", site: site);
         var target = await _host.CreateCabinetAsync("SAME-HOST", site: site);
-        using var supervisor = _host.CreateClient();
-        supervisor.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", session.AccessToken);
-        var json = ContractJson.CreateOptions();
-        (await supervisor.PutAsJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new ConfigureConnectivityRequest
-        { Reason = "Lab", Targets = new[] { new ConnectivityTarget { CabinetId = target.Id, Address = "192.168.10.2" } } }, json)).EnsureSuccessStatusCode();
-        using var agent = _host.CreateClient();
-        agent.DefaultRequestHeaders.Add("X-Mashura-Agent-Key", "console-test-agent-secret");
-        agent.DefaultRequestHeaders.Add("X-Mashura-Machine-Id", source.MachineId);
-        var plan = await agent.GetFromJsonAsync<ConnectivityPlan>("/api/agent/connectivity/plan", json);
         var first = DateTimeOffset.UtcNow.AddMinutes(-4);
-        (await agent.PostAsJsonAsync("/api/agent/connectivity/summaries", new[] { new ConnectivitySummary
+        // A retained incident, not a new target configuration or probe upload.
+        var summary = new ConnectivitySummary
         {
-            Id = Guid.NewGuid(), ConfigurationId = plan!.ConfigurationId, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+            Id = Guid.NewGuid(), ConfigurationId = Guid.NewGuid(), SourceCabinetId = source.Id, TargetCabinetId = target.Id,
             FirstObservedUtc = first, LastObservedUtc = first.AddMinutes(2), FailureCount = 3,
             LeadingFailures = 3, TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = first.AddMinutes(2)
-        } }, json)).EnsureSuccessStatusCode();
+        };
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<SupportDbContext>();
+            db.ConnectivityEvidence.Add(new ConnectivityEvidence
+            {
+                Id = summary.Id, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+                ConfigurationId = summary.ConfigurationId, FirstObservedUtc = first,
+                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3),
+                SummaryJson = JsonSerializer.Serialize(summary, ContractJson.Default)
+            });
+            db.ConnectivityAlerts.Add(new ConnectivityAlert
+            {
+                SourceCabinetId = source.Id, TargetCabinetId = target.Id, EvidenceId = summary.Id,
+                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3)
+            });
+            await db.SaveChangesAsync();
+        }
         var type = typeof(ShellViewModel).Assembly.GetType("CabinetPlatform.Console.Core.ViewModels.ConnectivityAlertsViewModel");
         Assert.NotNull(type);
         dynamic vm = Activator.CreateInstance(type, api, session, new RecordingLiveRegionAnnouncer())!;
@@ -186,8 +194,14 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
         Assert.Equal(3, alert.IncidentEvidence?.FailureCount);
         Assert.Equal(0, alert.IncidentEvidence?.SuccessCount);
         Assert.Equal(first, alert.IncidentEvidence?.FirstObservedUtc);
+        Assert.Equal(summary.Id, alert.EvidenceId);
+        Assert.Equal(target.Id, alert.TargetCabinetId);
         vm.SelectedAlert = alert;
         Assert.Contains("historical", (string)vm.EvidenceAvailability, StringComparison.OrdinalIgnoreCase);
+        Guid? openedCabinet = null;
+        ((ConnectivityAlertsViewModel)vm).CabinetChosen += (_, id) => openedCabinet = id;
+        ((ConnectivityAlertsViewModel)vm).OpenSourceCommand.Execute(null);
+        Assert.Equal(source.Id, openedCabinet);
         vm.Note = "Investigating";
         await ((IAsyncRelayCommand)vm.AcknowledgeCommand).ExecuteAsync(null);
         Assert.Null((object?)vm.SelectedAlert);
@@ -209,6 +223,8 @@ public sealed class ConnectivityAlertConsoleTests : IClassFixture<ConsoleTestHos
         vm.SelectedAlert = ((IEnumerable<ConnectivityAlertDto>)vm.Alerts).Single(a => a.Id == alert.Id);
         Assert.Equal("Resolved", (string)vm.SelectedAlert.Status);
         Assert.Equal(source.Id, (Guid)vm.SelectedAlert.SourceCabinetId);
+        Assert.Equal(summary.Id, (Guid)vm.SelectedAlert.EvidenceId);
+        Assert.Equal(3, (int)vm.SelectedAlert.IncidentEvidence.FailureCount);
         vm.Reset();
         Assert.Empty((IEnumerable<ConnectivityAlertDto>)vm.Alerts);
         Assert.False(((IAsyncRelayCommand)vm.ResolveCommand).CanExecute(null));
