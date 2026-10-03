@@ -616,6 +616,60 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(new { PredecessorCabinetId = id, PreparationOnly = true });
     }
 
+    /// <summary>Reserve a fresh, non-credential machine identity against one retired predecessor.</summary>
+    [HttpPost("{id:guid}/successor-reservation")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<IActionResult> ReserveSuccessor(Guid id, CancellationToken ct)
+    {
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // Serialize competing reservations and retirement against the same predecessor.
+        int locked = await _db.Cabinets.Where(c => c.Id == id && !c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, c => c.IsActive), ct);
+        if (locked == 0)
+        {
+            bool exists = await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct);
+            return exists ? Conflict(new { Reason = "Predecessor must be retired and revoked." }) : NotFound();
+        }
+        var predecessor = await _db.Cabinets.AsNoTracking().SingleAsync(c => c.Id == id, ct);
+        // Read the journal on every request, including retries. This is not a
+        // provenance guarantee against a hostile local writer or issuance authority.
+        if (!_officeEnrollment.HasDurableRevocation(predecessor.MachineId))
+            return Conflict(new { Reason = "Predecessor must be retired and revoked." });
+
+        var existing = await _db.SuccessorReservations.AsNoTracking()
+            .SingleOrDefaultAsync(r => r.PredecessorCabinetId == id, ct);
+        if (existing is not null)
+        {
+            await transaction.CommitAsync(ct);
+            return Ok(new { PredecessorCabinetId = id, existing.SuccessorMachineId, ReservationOnly = true });
+        }
+
+        // Generated server-side; never accept a caller-supplied routing identity.
+        // Cross-table uniqueness checks avoid legacy cabinet/registration collisions.
+        string machineId = "successor-" + Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
+        if (await _db.Cabinets.AnyAsync(c => c.MachineId == machineId, ct) ||
+            await _db.PendingRegistrations.AnyAsync(r => r.MachineId == machineId, ct) ||
+            await _db.SuccessorReservations.AnyAsync(r => r.SuccessorMachineId == machineId, ct))
+            return Conflict(new { Reason = "Identity collision; retry reservation." });
+
+        _db.SuccessorReservations.Add(new Domain.SuccessorReservation
+        {
+            PredecessorCabinetId = id, SuccessorMachineId = machineId,
+            ReservedByUserId = CurrentUser.UserId, ReservedUtc = _timeProvider.GetUtcNow()
+        });
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.ReserveSuccessorIdentity, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = id, CabinetHostname = predecessor.Hostname,
+            Details = new { PredecessorCabinetId = id, SuccessorMachineId = machineId, ReservationOnly = true }
+        });
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return Ok(new { PredecessorCabinetId = id, SuccessorMachineId = machineId, ReservationOnly = true });
+    }
+
     /// <summary>Withdraws service eligibility, retaining identity and historical records.</summary>
     [HttpPost("{id:guid}/retire")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]

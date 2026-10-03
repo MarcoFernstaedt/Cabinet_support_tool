@@ -80,6 +80,20 @@ public sealed class AgentController : SupportControllerBase
     {
         string machineId = RequireMachineIdMatch(request.MachineId);
         DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
+        // A reserved successor is not an enrolled device or a pending approval.
+        if (await _db.SuccessorReservations.AsNoTracking()
+            .AnyAsync(r => r.SuccessorMachineId == machineId, ct))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.AgentRegister,
+                "A reserved successor identity cannot register as an agent.",
+                null, new { MachineId = machineId }, cancellationToken: ct);
+            return Ok(new RegistrationResponse
+            {
+                Status = RegistrationStatus.Rejected,
+                CabinetId = null,
+                RetryAfterSeconds = _options.RegistrationRetrySeconds,
+            });
+        }
 
         Cabinet? cabinet = await _db.Cabinets
             .AsNoTracking()

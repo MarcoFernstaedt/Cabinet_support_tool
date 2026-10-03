@@ -251,4 +251,6 @@ public enum AuditEvent
     ResolveConnectivityAlert = 143,
     /// <summary>A Supervisor requested a bounded office device grant renewal.</summary>
     RenewOfficeDevice = 144,
+    /// <summary>A Supervisor reserved an uncredentialed successor identity.</summary>
+    ReserveSuccessorIdentity = 145,
 }
