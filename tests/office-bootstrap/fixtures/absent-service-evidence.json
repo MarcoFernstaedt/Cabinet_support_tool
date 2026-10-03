@@ -1,0 +1,19 @@
+{
+  "intent": "same_identity_recovery",
+  "service": "absent_1060",
+  "install": "absent",
+  "backups": {
+    "original_copy": {"device_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+    "original_installed": {"device_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "state_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"},
+    "incident_copy": {"device_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "state_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}
+  },
+  "evidence": {
+    "independent_provenance": false,
+    "protected_backup_acl": false,
+    "original_scm_definition": false,
+    "original_identity_match": false,
+    "secure_rollback_boundary": false,
+    "journal_not_advanced": false,
+    "server_compatibility": false
+  }
+}
