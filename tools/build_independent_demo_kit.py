@@ -47,7 +47,7 @@ def _allowed_runtime(name, component):
     if name in {f"CabinetPlatform.{COMPONENTS[component]}.deps.json",
                 f"CabinetPlatform.{COMPONENTS[component]}.runtimeconfig.json"}:
         return True
-    return name.lower().endswith((".dll", ".exe"))
+    return name == f"CabinetPlatform.{COMPONENTS[component]}.exe" or name.lower().endswith(".dll")
 
 def _unique_json(pairs):
     result = {}
@@ -134,6 +134,9 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
             raise ValueError("Linked publish member")
         if path.is_file():
             name = path.relative_to(publish).as_posix()
+            # The SDK's crash-dump executable is not needed for the monitored Agent.
+            if name == "createdump.exe":
+                continue
             if not _safe_name(name) or _forbidden_content(name) or not _allowed_runtime(name, component):
                 if name in ("appsettings.json", "appsettings.Development.json"):
                     continue

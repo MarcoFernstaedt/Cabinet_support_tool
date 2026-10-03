@@ -43,6 +43,28 @@ class PackageTests(unittest.TestCase):
                 package_component("agent", publish, target, "a" * 40)
             self.assertFalse(target.exists())
 
+    def test_agent_package_omits_sdk_dump_helper_and_refuses_other_executables(self):
+        from build_independent_demo_kit import package_component, verify_package
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"agent")
+            (publish / "createdump.exe").write_bytes(b"sdk helper")
+            target = base / "agent.zip"
+            package_component("agent", publish, target, "a" * 40)
+            with zipfile.ZipFile(target) as archive:
+                self.assertNotIn("createdump.exe", archive.namelist())
+            (publish / "Unexpected.exe").write_bytes(b"unexpected")
+            with self.assertRaises(ValueError):
+                package_component("agent", publish, base / "unsafe.zip", "a" * 40)
+            self.assertFalse((base / "unsafe.zip").exists())
+
+            with zipfile.ZipFile(target, "a") as archive:
+                archive.writestr("Unexpected.exe", b"unexpected")
+            with self.assertRaises(ValueError):
+                verify_package(target, "agent")
+
     def test_builder_publishes_only_agent_and_inventory_matches_output(self):
         from build_independent_demo_kit import build, verify_package
         commands = []
