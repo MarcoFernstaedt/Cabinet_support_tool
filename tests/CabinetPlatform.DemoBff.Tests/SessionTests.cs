@@ -64,6 +64,8 @@ public sealed class SessionTests : IDisposable
         Assert.Equal(HttpStatusCode.Found, logout.StatusCode);
         using var after = await Get(client, "/", joined);
         Assert.DoesNotContain("Signed in", await after.Content.ReadAsStringAsync());
+        using var detailAfterLogout = await Get(client, "/cabinets/b3dcbf90-c029-4617-b9ad-486f280df11b", joined);
+        Assert.Equal(HttpStatusCode.Unauthorized, detailAfterLogout.StatusCode);
     }
 
     [Fact]

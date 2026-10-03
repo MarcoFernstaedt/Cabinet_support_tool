@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.RateLimiting;
@@ -55,9 +56,45 @@ app.MapGet("/", (HttpContext ctx, IAntiforgery antiforgery, DemoSessions session
     var active = ctx.Request.Cookies.TryGetValue("__Host-DemoSession", out var cookie) && sessions.Valid(cookie);
     var csrf = WebUtility.HtmlEncode(antiforgery.GetAndStoreTokens(ctx).RequestToken ?? "");
     var html = active
-        ? $"<h1>Signed in (demo only)</h1><p>Cabinet access is not enabled.</p><form method=\"post\" action=\"/logout\"><input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"{csrf}\"><button>Log out</button></form>"
+        ? $"<h1>Signed in (demo only)</h1><p>Only exact cabinet IDs with an active staff grant can be read. No fleet listing or MFA is enabled.</p><form method=\"get\" action=\"/cabinets/\"><label>Cabinet ID<input name=\"id\" required autocomplete=\"off\"></label><button>Open cabinet</button></form><form method=\"post\" action=\"/logout\"><input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"{csrf}\"><button>Log out</button></form>"
         : $"<h1>Cabinet demo sign in</h1><p>Demo only; no MFA or cabinet access.</p><form method=\"post\" action=\"/login\"><label>Username<input name=\"username\" required autocomplete=\"username\"></label><label>Password<input name=\"password\" type=\"password\" required autocomplete=\"current-password\"></label><input type=\"hidden\" name=\"__RequestVerificationToken\" value=\"{csrf}\"><button>Sign in</button></form>";
     return Results.Content("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Cabinet demo</title></head><body><main>" + html + "</main></body></html>", "text/html; charset=utf-8");
+});
+
+app.MapGet("/cabinets/", (HttpContext ctx, DemoSessions sessions) =>
+{
+    if (!ctx.Request.Cookies.TryGetValue("__Host-DemoSession", out var cookie) || !sessions.Valid(cookie))
+        return Results.Unauthorized();
+    var id = ctx.Request.Query["id"].ToString();
+    if (!Guid.TryParseExact(id, "D", out var cabinetId) || cabinetId == Guid.Empty)
+        return Results.BadRequest("Invalid cabinet ID.");
+    return Results.Redirect($"/cabinets/{cabinetId:D}");
+});
+
+app.MapGet("/cabinets/{id}", async (string id, HttpContext ctx, DemoSessions sessions, IHttpClientFactory clients) =>
+{
+    if (!ctx.Request.Cookies.TryGetValue("__Host-DemoSession", out var cookie) ||
+        !sessions.TryGetToken(cookie, out var token)) return Results.Unauthorized();
+    if (!Guid.TryParseExact(id, "D", out var cabinetId) || cabinetId == Guid.Empty)
+        return Results.BadRequest("Invalid cabinet ID.");
+    try
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"api/demo/cabinets/{cabinetId:D}");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var response = await clients.CreateClient("server-login").SendAsync(request, HttpCompletionOption.ResponseContentRead, ctx.RequestAborted);
+        if (response.StatusCode != HttpStatusCode.OK) return Results.NotFound();
+        var detail = await response.Content.ReadFromJsonAsync<DemoCabinetDetail>(cancellationToken: ctx.RequestAborted);
+        if (detail is null || detail.CabinetId != cabinetId ||
+            !SafeLabel(detail.Hostname) || (detail.FriendlyName is { Length: > 256 }) ||
+            !SafeLabel(detail.SiteName) || !SafeLabel(detail.ClientName)) return Results.NotFound();
+        var title = string.IsNullOrWhiteSpace(detail.FriendlyName) ? detail.Hostname : detail.FriendlyName;
+        var html = $"<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Cabinet detail</title></head><body><main><h1>{WebUtility.HtmlEncode(title)}</h1><dl><dt>Cabinet ID</dt><dd>{detail.CabinetId:D}</dd><dt>Hostname</dt><dd>{WebUtility.HtmlEncode(detail.Hostname)}</dd><dt>Site</dt><dd>{WebUtility.HtmlEncode(detail.SiteName)}</dd><dt>Client</dt><dd>{WebUtility.HtmlEncode(detail.ClientName)}</dd></dl><a href=\"/\">Home</a></main></body></html>";
+        return Results.Content(html, "text/html; charset=utf-8");
+    }
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException or NotSupportedException)
+    {
+        return Results.NotFound();
+    }
 });
 
 app.MapPost("/login", async (HttpContext ctx, IAntiforgery antiforgery, IHttpClientFactory clients, DemoSessions sessions) =>
@@ -127,6 +164,10 @@ static Uri RequireHttpsRoot(string? value)
     return uri;
 }
 
+static bool SafeLabel(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256;
+
+internal sealed record DemoCabinetDetail(Guid CabinetId, string? Hostname, string? FriendlyName, string? SiteName, string? ClientName);
+
 public partial class Program;
 
 namespace CabinetPlatform.DemoBff
@@ -153,8 +194,10 @@ namespace CabinetPlatform.DemoBff
                 return key;
             }
         }
-        public bool Valid(string key)
+        public bool Valid(string key) => TryGetToken(key, out _);
+        public bool TryGetToken(string key, out string? token)
         {
+            token = null;
             if (key.Length != 43) return false;
             var digest = Digest(key);
             lock (_gate)
@@ -167,6 +210,7 @@ namespace CabinetPlatform.DemoBff
                     return false;
                 }
                 _items[digest] = entry with { LastSeen = now };
+                token = entry.Token;
                 return true;
             }
         }
