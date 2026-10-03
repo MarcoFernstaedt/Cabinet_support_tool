@@ -28,5 +28,5 @@ export function createDemoServer() {
 }
 function serverPort(req) { return req.socket.localPort; }
 if (process.argv[1] && new URL(`file://${process.argv[1]}`).href === import.meta.url) {
-  createDemoServer().listen(4174, "127.0.0.1", () => console.log("Fictional Cabinet demo: http://127.0.0.1:4174/"));
+  createDemoServer().listen(4174, "127.0.0.1", () => console.log("Cabinet Demo (synthetic sample data): http://127.0.0.1:4174/"));
 }

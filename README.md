@@ -52,7 +52,7 @@ Read the [current capability status](docs/capabilities.md) for implemented behav
 
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
-3. [Release gates](docs/readiness.md), [isolated demo setup](docs/demo.md) and [Windows demo checks](docs/testing.md)
+3. [Release gates](docs/readiness.md), [isolated demo setup](docs/demo.md), [Windows demo checks](docs/testing.md) and the [static browser operator Demo](src/CabinetPlatform.Web/README.md#mashura-inspired-operator-demo-static-no-backend-or-login). The static Demo uses sample data and is not a connected or accepted Console.
 4. [Display recovery requirement](docs/display.md)
 5. [Build notes](docs/building.md)
 6. [Agent behavior](docs/agent.md) and [installation](docs/agent-install.md)
