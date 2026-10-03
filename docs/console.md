@@ -1,5 +1,7 @@
 # Support Console
 
+> **Historical WPF documentation only.** This page describes the retired desktop delivery path and its old authorization assumptions. It is not the target architecture, staff access policy, release gate or a fallback Console. For current scope and authority requirements see [web-only delivery plan](web-only-delivery-plan.md), [architecture](architecture.md) and [release gates](readiness.md). Do not use this page to authorize broad cabinet access or controlled changes.
+
 The WPF desktop application support staff use: sign in, find a cabinet,
 read its health, and run approved actions — instead of taking a remote
 desktop session into a clinic's machine.

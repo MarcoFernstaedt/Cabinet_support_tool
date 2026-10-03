@@ -1,6 +1,6 @@
 # Support Console web transition
 
-Status: architecture decision, not a released web application. The existing WPF Console remains the current diagnostic UI while a browser replacement is reviewed. Neither UI is certified for production by this document. This document does not enable browser access or widen Agent permissions.
+Status: architecture decision, not a released web application. The browser app is the sole operator Console delivery target and Windows runs the cabinet Agent service. Historical WPF code is not a product fallback or acceptance gate. This document does not enable staff browser access or widen Agent permissions. See [web-only delivery plan](web-only-delivery-plan.md).
 
 ## Current source facts
 
@@ -20,6 +20,6 @@ The support team uses Microsoft 365 work or school accounts with Microsoft Authe
 
 Deliver **one read-only, cabinet-scoped diagnostic**, not a broad UI rewrite: sign in with an MFA-proven staff identity, search/open a cabinet, view a saved event log result, select a row and see its collected channel, provider, time, ID, severity and bounded message. Deny anonymous and wrong-role requests at the server. Prove browser refresh, logout, idle expiry, account deactivation and stale cabinet navigation. Verify keyboard and NVDA behavior, copyable text, high contrast, narrow layout and honest empty/denied/truncated states. Native Agent read and server result limits must remain intact. After this is accepted, add the next diagnostic such as a narrowly authorized read-only file listing. No screen control, remote shell, arbitrary filesystem traversal or disruptive controls are part of this browser milestone.
 
-## Security comparison and release gates
+## Security and release gates
 
-Neither WPF nor a web UI is inherently safer. WPF avoids browser-origin, script and CSRF exposure but currently lacks verified MFA in the source examined. A web Console can centralize updates and MFA, but internet-exposed sign-in and XSS/session vulnerabilities are additional risks. Do not remove the WPF fallback until a threat model, supported IdP, protected ingress, dependency review, penetration/security review, Windows/browser accessibility, revocation tests and an operator acceptance run are complete. Preserve audit, denial, least privilege, data minimization and explicit production approval. This branch may define the migration but cannot claim secure MFA or a finished web app before these checks.
+The web Console introduces browser-origin, XSS, CSRF and session risks that must be controlled at the same-origin BFF and Server. Require a threat model, verified IdP assurance, protected ingress, dependency/security review, Windows Agent and browser accessibility tests, revocation tests and an operator acceptance run before staff access. Preserve audit, denial, least privilege, data minimization and explicit production approval. No WPF fallback is required or planned; retiring its delivery path does not waive any web security gate. This source does not claim secure MFA or a finished web app.

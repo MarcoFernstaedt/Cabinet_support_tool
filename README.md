@@ -1,16 +1,16 @@
 # Cabinet Support Tool
 
-An internal Windows support tool for Mashura cabinet PCs. Support staff use a desktop console to inspect a machine and request approved IT operations without taking over its desktop.
+An internal Cabinet Support product. Staff use a browser-based support Console to inspect cabinets and request only approved operations. Each cabinet runs a Windows Agent service; there is no desktop Console delivery target.
 
 Production release is blocked while the audited defects are repaired and Windows lab testing is completed. See the [release gates](docs/readiness.md). Passing automated tests does not establish that a cabinet is safe to deploy.
 
 ## Where it runs
 
-Mashura hosts the support API and its support database. The console runs on a support workstation. Each customer cabinet runs a lightweight Windows agent that initiates outbound connections to the API.
+Mashura hosts the support API, its database and the target same-origin web Console. Staff use a browser. Each customer cabinet runs a Windows Agent service that initiates outbound connections to the API.
 
 Clients can have multiple locations and several cabinets at each location. Typically one cabinet holds the location's application database and acts as the sync cabinet. Other cabinets communicate with it locally. The Mashura support server does not replace or read that application database.
 
-![Component placement](docs/diagrams/architecture.svg)
+The target placement and trust boundaries are in [architecture](docs/architecture.md). Older SVG placement diagrams depict a historical desktop Console, not the delivery architecture.
 
 ## Scope
 
@@ -23,20 +23,26 @@ Physical cabinet sensors, drawer opening, lock release and cubie opening remain 
 1. `CabinetPlatform.Contracts` defines the messages shared across processes.
 2. `CabinetPlatform.Agent` collects machine information and performs named Windows actions through typed gateways.
 3. `CabinetPlatform.Server` owns support authorization, device registration, topology, approvals and result storage.
-4. `CabinetPlatform.Console.Core` contains the API client and ViewModels without a WPF dependency.
-5. `CabinetPlatform.Console` contains the actual Windows desktop interface. Build it explicitly as well as building the solution.
+4. `CabinetPlatform.Web` is a loopback-only synthetic-data preview, not an approved staff deployment.
+5. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
+
+Historical `CabinetPlatform.Console.Core` and `CabinetPlatform.Console` projects remain in the repository for compatibility and safety-test reference. They are not a product milestone or fallback requirement.
 
 ## Build and test
 
-Use an official .NET 8 SDK. WPF runtime testing requires Windows. Cross compilation on Linux does not verify the desktop interface or native Windows operations.
+Use an official .NET 8 SDK and the Node version required by the web project. Cross compilation on Linux does not verify the Windows Agent service or a browser workflow. The final release suite covers Agent, Server, WebHost and web tests; see [release gates](docs/readiness.md). The following are local development commands, not final-release acceptance:
 
 ```text
-dotnet build CabinetPlatform.sln --configuration Release
-dotnet build src/CabinetPlatform.Console/CabinetPlatform.Console.csproj --configuration Release
-dotnet test CabinetPlatform.sln --configuration Release
+dotnet build src/CabinetPlatform.Agent/CabinetPlatform.Agent.csproj --configuration Release
+dotnet build src/CabinetPlatform.Server/CabinetPlatform.Server.csproj --configuration Release
+dotnet build src/CabinetPlatform.WebHost/CabinetPlatform.WebHost.csproj --configuration Release
+dotnet test tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj --configuration Release
+dotnet test tests/CabinetPlatform.Server.Tests/CabinetPlatform.Server.Tests.csproj --configuration Release
+dotnet test tests/CabinetPlatform.WebHost.Tests/CabinetPlatform.WebHost.Tests.csproj --configuration Release
+cd src/CabinetPlatform.Web && npm ci && npm test
 ```
 
-The explicit console build is intentional. The initial audit found that the solution omitted the WPF project while its tests still passed. Release checks must enumerate all deliverable applications.
+The web-only delivery plan is a rebaseline, not a declaration that these component commands represent the complete final matrix. Do not reintroduce a WPF release gate because older solution/test documentation mentions it.
 
 Do not run the agent, network changes, updates or process controls on a production cabinet while developing. Use an authorized Windows lab machine with an independent recovery console and snapshots. Keep all credentials outside source and test evidence.
 
@@ -50,7 +56,7 @@ Read the [current capability status](docs/capabilities.md) for implemented behav
 4. [Display recovery requirement](docs/display.md)
 5. [Build notes](docs/building.md)
 6. [Agent behavior](docs/agent.md) and [installation](docs/agent-install.md)
-7. [Support console](docs/console.md)
+7. [Web-only delivery plan](docs/web-only-delivery-plan.md) and [web Console security](docs/web-console-security.md); [historical WPF Console](docs/console.md)
 8. [Shared contracts](docs/contracts.md)
 9. [Security invariants](docs/security-invariants.md)
 10. [Location topology](docs/topology.md)
