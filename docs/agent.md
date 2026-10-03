@@ -150,13 +150,13 @@ hammering a server that is already struggling.
 
 ## Actions
 
-One `IActionExecutor` per `ActionName`, resolved through a dictionary keyed by
+In the historical maintenance-test composition, one `IActionExecutor` per registered `ActionName` is resolved through a dictionary keyed by
 the enum. **An action with no registered executor returns `Denied`.** There is
 no generic executor, no interpretation path and no default branch — adding an
 action means writing a class and shipping a build, which is the property that
 makes the catalog auditable.
 
-Implemented, in groups:
+Historical maintenance-test executor groups (the shipped monitoring-only composition registers only observation executors):
 
 | Group | Actions |
 | --- | --- |
@@ -165,7 +165,7 @@ Implemented, in groups:
 | Processes | `GetProcessList`, `KillProcess`, `KillProcessByName`, `RestartApplication` |
 | Network config | `SetDnsServers`, `SetStaticIpAddress`, `SetAdapterToDhcp`, `FlushDnsCache`, `RenewDhcpLease` |
 | Network probes | `PingHost`, `TraceRoute`, `TestPortConnectivity` |
-| Cabinet-to-cabinet probes | `PingCabinet`, `TestCabinetPort`, `TraceRouteToCabinet` |
+| Cabinet-to-cabinet TCP probe | `TestCabinetPort` (maintenance-test composition only; `PingCabinet` and `TraceRouteToCabinet` peer ICMP are retired and have no executor) |
 | Diagnostics | `RunEventLogView`, `CollectEventLogs`, `CollectDiagnosticBundle` |
 | Machine | `RebootMachine` |
 

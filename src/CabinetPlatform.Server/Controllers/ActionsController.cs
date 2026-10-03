@@ -87,6 +87,8 @@ public sealed class ActionsController : SupportControllerBase
     public async Task<ActionResult<ActionRequestView>> Create(
         [FromBody] CreateActionRequest request, CancellationToken ct)
     {
+        if (request.Action is ActionName.PingCabinet or ActionName.TraceRouteToCabinet)
+            return StatusCode(StatusCodes.Status410Gone, "Cabinet-to-cabinet ICMP actions are retired.");
         OperationResult<ActionRequest> result = await _actions.CreateAsync(CurrentUser, request, ct);
 
         if (!result.Succeeded)
@@ -100,81 +102,17 @@ public sealed class ActionsController : SupportControllerBase
         return CreatedAtAction(nameof(GetById), new { id = view.Id }, view);
     }
 
-    /// <summary>
-    /// Tests a cabinet's link to its site's sync cabinet, in one call.
-    /// </summary>
-    /// <remarks>
-    /// This is the common case by a wide margin — "is this satellite talking to
-    /// its sync cabinet?" — so the console offers it as one button and the
-    /// server resolves the target rather than making a rep pick it from a list
-    /// and get it wrong.
-    /// </remarks>
-    /// <param name="id">The source cabinet.</param>
-    /// <param name="request">Why, and against which ticket.</param>
-    /// <param name="ct">Cancels the request.</param>
+    /// <summary>Retired cabinet-to-cabinet ICMP shortcut; never queues a probe.</summary>
+    /// <param name="id">The former source cabinet.</param>
+    /// <param name="request">Unused legacy request body.</param>
+    /// <param name="ct">Unused legacy cancellation token.</param>
     [HttpPost("cabinets/{id:guid}/test-sync-link")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupportUser)]
-    [ProducesResponseType(typeof(ActionRequestView), StatusCodes.Status201Created)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<ActionRequestView>> TestSyncLink(
+    [ProducesResponseType(StatusCodes.Status410Gone)]
+    public ActionResult<ActionRequestView> TestSyncLink(
         Guid id, [FromBody] TestSyncLinkRequest request, CancellationToken ct)
     {
-        Domain.Cabinet? cabinet = await _db.Cabinets
-            .AsNoTracking()
-            .Include(c => c.Site)
-            .FirstOrDefaultAsync(c => c.Id == id, ct);
-
-        if (cabinet?.Site is null)
-        {
-            await _audit.WriteDenialAsync(
-                AuditEvent.CabinetLinkTest, "Cabinet not found.", id, null, ActionName.PingCabinet, ct);
-            return Problem("Cabinet not found.",
-                statusCode: StatusCodes.Status404NotFound, title: "Not found");
-        }
-
-        if (cabinet.Site.SyncCabinetId is not { } syncId)
-        {
-            return Problem(
-                "This cabinet's site has no sync cabinet, so there is no link to test. Standalone sites " +
-                "are normal and are not an error.",
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Conflict");
-        }
-
-        if (syncId == cabinet.Id)
-        {
-            return Problem(
-                "This cabinet is its site's sync cabinet. Test the link from one of its satellites instead.",
-                statusCode: StatusCodes.Status409Conflict,
-                title: "Conflict");
-        }
-
-        var create = new CreateActionRequest
-        {
-            Action = ActionName.PingCabinet,
-            CabinetId = cabinet.Id,
-            Parameters = new Dictionary<string, string>
-            {
-                [ActionCatalog.TargetCabinetIdKey] = syncId.ToString(),
-            },
-            Reason = string.IsNullOrWhiteSpace(request.Reason)
-                ? "Testing this cabinet's link to its site's sync cabinet."
-                : request.Reason.Trim(),
-            TicketReference = request.TicketReference,
-        };
-
-        OperationResult<ActionRequest> result = await _actions.CreateAsync(CurrentUser, create, ct);
-
-        if (!result.Succeeded)
-        {
-            return Problem(result);
-        }
-
-        ActionRequestView view = await ProjectAsync(result.Value!.Id, ct)
-                                 ?? throw new InvalidOperationException("The created action could not be read back.");
-
-        return CreatedAtAction(nameof(GetById), new { id = view.Id }, view);
+        return StatusCode(StatusCodes.Status410Gone, "Cabinet-to-cabinet ICMP actions are retired.");
     }
 
     /// <summary>One action, with its whole lifecycle.</summary>

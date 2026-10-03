@@ -79,12 +79,12 @@ public sealed class ConnectivitySamplerTests
     }
 
     [Fact]
-    public void Shipping_agent_registers_connectivity_hosted_worker_without_enabling_legacy_actions()
+    public void Shipping_agent_does_not_register_peer_sampling_worker_even_when_an_old_plan_exists()
     {
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         CabinetPlatform.Agent.AgentServiceRegistration.AddCabinetAgent(services,
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
-        Assert.Contains(services, s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(Microsoft.Extensions.Hosting.IHostedService) &&
             s.ImplementationType?.Name == "ConnectivityWorker");
         Assert.Contains(services, s => s.ServiceType == typeof(ISourceFirewallCheck) &&
             s.ImplementationType == typeof(WindowsSourceFirewallCheck));

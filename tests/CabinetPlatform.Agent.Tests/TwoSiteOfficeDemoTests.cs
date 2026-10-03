@@ -26,7 +26,7 @@ namespace CabinetPlatform.Agent.Tests;
 public sealed partial class TwoSiteOfficeDemoTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task Five_unique_agents_two_sites_approval_diagnostics_and_buffered_recovery()
+    public async Task Five_unique_agents_two_sites_approval_and_retired_peer_plans()
     {
         var root = Path.Combine(Path.GetTempPath(), "two-site-simulation-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -148,66 +148,12 @@ public sealed partial class TwoSiteOfficeDemoTests(ITestOutputHelper output)
             }
             for (int i = 0; i < specs.Length; i++)
             {
-                var source = specs[i];
-                var target = specs.First(d => d.Site == source.Site && d.Id != source.Id);
-                using var configured = await consoleHttp.PutAsJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new
-                {
-                    Reason = "SIMULATION: explicitly registered same-site target", Targets = new[] { new { CabinetId = target.Id, target.Address } }
-                });
-                configured.EnsureSuccessStatusCode();
                 using var http = providers[i].GetRequiredService<IHttpClientFactory>().CreateClient(AgentHttpClients.Server);
                 var plan = (await http.GetFromJsonAsync<ConnectivityPlan>("/api/agent/connectivity/plan", AgentJson.SerializerOptions))!;
-                Assert.Equal(target.Id, Assert.Single(plan.Targets).CabinetId);
-                Assert.Equal("Unknown", Assert.Single((await api.GetConnectivityAsync(source.Id, default)).Links).Condition);
-                var otherSite = specs.First(d => d.Site != source.Site);
-                using var forbidden = await consoleHttp.PutAsJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new
-                {
-                    Reason = "SIMULATION: negative cross-site probe", Targets = new[] { new { CabinetId = otherSite.Id, otherSite.Address } }
-                });
-                Assert.Equal(HttpStatusCode.NotFound, forbidden.StatusCode);
-                var unchanged = (await http.GetFromJsonAsync<ConnectivityPlan>("/api/agent/connectivity/plan", AgentJson.SerializerOptions))!;
-                Assert.Equal(plan.ConfigurationId, unchanged.ConfigurationId);
-                var start = DateTimeOffset.UtcNow.AddMinutes(-6);
-                var outboxPath = Path.Combine(root, source.Name, "outbox");
-                var spool = new ConnectivitySpool(outboxPath);
-                var sampler = new ConnectivitySampler(source.Id, new ConnectivitySamplerTests.SequenceProbe(
-                    ProbeObservation.NoReply, ProbeObservation.NoReply, ProbeObservation.NoReply,
-                    ProbeObservation.Reply, ProbeObservation.Reply, ProbeObservation.Reply), s => spool.Enqueue(s, DateTimeOffset.UtcNow));
-                // Synthetic clock accelerates six minutes; target identity/revision remain server-issued.
-                sampler.ApplyPlan(plan with { IssuedUtc = start, ExpiresUtc = start.AddMinutes(10) }, start);
-                for (int n = 0; n < 3; n++) await sampler.SampleAsync(start.AddMinutes(n), default);
-                deliveryFaults[source.Name].DropNext = true;
-                await Assert.ThrowsAsync<HttpRequestException>(() => new ConnectivityDelivery(http, spool, sampler).DeliverAsync(DateTimeOffset.UtcNow, default));
-                var reopened = new ConnectivitySpool(outboxPath);
-                Assert.Single(reopened.Peek(DateTimeOffset.UtcNow));
-                var delivery = new ConnectivityDelivery(http, reopened, sampler);
-                Assert.True(await delivery.DeliverAsync(DateTimeOffset.UtcNow, default));
-                Assert.Empty(reopened.Peek(DateTimeOffset.UtcNow));
-                var failure = await api.GetConnectivityAsync(source.Id, default);
-                Assert.Single(failure.RecentEvidence);
-                Assert.True(Assert.Single(failure.Links).IncidentOpen);
-                Assert.Equal("Unreachable", failure.Links[0].Condition);
-                for (int n = 3; n < 6; n++) await sampler.SampleAsync(start.AddMinutes(n), default);
-                Assert.True(await delivery.DeliverAsync(DateTimeOffset.UtcNow, default));
-                var recovery = await api.GetConnectivityAsync(source.Id, default);
-                Assert.Equal(2, recovery.RecentEvidence.Count);
-                Assert.False(Assert.Single(recovery.Links).IncidentOpen);
-                Assert.Equal("Reachable", recovery.Links[0].Condition);
-                Assert.True(recovery.Links[0].IncidentObservedUtc <= recovery.Links[0].RecoveredObservedUtc);
-                var clock = new DemoClock { Now = DateTimeOffset.UtcNow };
-                var tab = new MachineTabViewModel(api, new ActionInvoker(api, ScriptedActionDialog.Accepting("Synthetic two-site diagnostic"), announcer, session), session, announcer, clock);
-                await tab.LoadAsync(source.Id);
-                Assert.Equal(source.Name, tab.CabinetHostname);
-                Assert.Contains("Reachable", Assert.Single(tab.ConnectivityRows));
-                Assert.Contains("MST", tab.ConnectivityRows[0]);
-                Assert.Contains("threshold observed", tab.ConnectivityRows[0]);
-                if (i == 1) await DemonstrateDiagnostics(tab, api, providers[i].GetRequiredService<IServerClient>(), source, steps);
-                clock.Now = clock.Now.AddMinutes(10);
-                tab.RefreshFreshness();
-                Assert.Contains("STALE / UNKNOWN", Assert.Single(tab.ConnectivityRows));
-                steps.Add(new { stage = "Directed reachability", cabinet = source.Name, target = target.Name,
-                    states = new[] { "Unknown", "Unreachable", "Reachable", "STALE / UNKNOWN" }, evidenceRows = recovery.RecentEvidence.Count,
-                    lostCommittedAcknowledgment = "durable outbox reopened and replayed without duplicate", crossSiteTarget = "refused; original plan preserved" });
+                Assert.Equal(specs[i].Id, plan.SourceCabinetId);
+                Assert.Empty(plan.Targets);
+                Assert.Equal(Guid.Empty, plan.ConfigurationId);
+                steps.Add(new { stage = "Retired peer plan", cabinet = specs[i].Name, targetCount = plan.Targets.Count });
             }
             var report = new { simulation = true, nativeWindowsAcceptance = "NOT RUN", generatedMst = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(-7)).ToString("yyyy-MM-dd HH:mm:ss 'MST'"),
                 siteCount = 2, cabinetCount = specs.Length, steps, teardown = "in-process server disposed; synthetic state and credentials deleted in finally; no live endpoint contacted" };

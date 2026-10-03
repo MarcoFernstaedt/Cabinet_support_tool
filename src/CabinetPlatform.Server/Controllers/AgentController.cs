@@ -480,8 +480,6 @@ public sealed class AgentController : SupportControllerBase
                 title: "Conflict");
         }
 
-        DateTimeOffset nowUtc = _timeProvider.GetUtcNow();
-
         action.Status = ActionRequestStatus.Completed;
         action.ResultStatus = result.Status;
         action.ResultOutput = action.Action is ActionName.GetDisplayDiagnostics or ActionName.GetWerMetadata or ActionName.GetHistoricalProcessEvidence
@@ -490,8 +488,6 @@ public sealed class AgentController : SupportControllerBase
         action.StartedUtc = result.StartedAtUtc;
         action.CompletedUtc = result.CompletedAtUtc;
         action.CollectedDataJson = result.CollectedData;
-
-        await RecordLinkProbeAsync(action, result, nowUtc, ct);
 
         _audit.Enqueue(new AuditRecord
         {
@@ -582,75 +578,6 @@ public sealed class AgentController : SupportControllerBase
             NextFullCheckInSeconds = _options.FullCheckInIntervalSeconds,
             HasPendingActions = hasPending,
         });
-    }
-
-    /// <summary>
-    /// Turns a ping result into the reachability fact the cabinet detail view
-    /// shows. Reachable from the server is not the same question.
-    /// </summary>
-    private async Task RecordLinkProbeAsync(
-        ActionRequest action, ActionResultDto result, DateTimeOffset nowUtc, CancellationToken ct)
-    {
-        if (action.TargetCabinetId is not { } targetId || action.Action != ActionName.PingCabinet)
-        {
-            return;
-        }
-
-        CabinetLinkProbe? probe = await _db.CabinetLinkProbes
-            .FirstOrDefaultAsync(p => p.SourceCabinetId == action.CabinetId && p.TargetCabinetId == targetId, ct);
-
-        if (probe is null)
-        {
-            probe = new CabinetLinkProbe
-            {
-                SourceCabinetId = action.CabinetId,
-                TargetCabinetId = targetId,
-            };
-
-            _db.CabinetLinkProbes.Add(probe);
-        }
-
-        probe.ObservedUtc = nowUtc;
-        probe.Reachable = result.Status == ActionStatus.Succeeded;
-        probe.LatencyMs = ParseLatency(result.Output);
-    }
-
-    /// <summary>
-    /// Reads the round-trip time out of a ping executor's own output line.
-    /// </summary>
-    /// <remarks>
-    /// The output is agent-produced text and is treated as such: a value that
-    /// does not parse leaves the latency null rather than defaulting to zero,
-    /// which would read as an instant reply.
-    /// </remarks>
-    private static double? ParseLatency(string? output)
-    {
-        if (string.IsNullOrWhiteSpace(output))
-        {
-            return null;
-        }
-
-        const string marker = "roundTripMs=";
-        int start = output.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-
-        if (start < 0)
-        {
-            return null;
-        }
-
-        ReadOnlySpan<char> tail = output.AsSpan(start + marker.Length);
-        int end = 0;
-
-        while (end < tail.Length && (char.IsDigit(tail[end]) || tail[end] == '.'))
-        {
-            end++;
-        }
-
-        return double.TryParse(
-            tail[..end], System.Globalization.NumberStyles.Float,
-            System.Globalization.CultureInfo.InvariantCulture, out double value)
-            ? value
-            : null;
     }
 
     private async Task<Cabinet?> ResolveApprovedCabinetAsync(

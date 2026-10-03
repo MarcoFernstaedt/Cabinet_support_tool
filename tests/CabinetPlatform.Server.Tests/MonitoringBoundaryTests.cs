@@ -37,8 +37,11 @@ public class MonitoringBoundaryTests
             });
             Assert.False(request.IsSuccessStatusCode, action.ToString());
             bool reserved = ActionCatalog.TryGet(action, out var entry) && entry.IsReservedHardwareActuation;
-            Assert.Equal(reserved ? HttpStatusCode.Forbidden : HttpStatusCode.BadRequest, request.StatusCode);
-            Assert.Contains(reserved ? "actuates cabinet hardware" : "Unknown action",
+            bool retiredIcmp = action is ActionName.PingCabinet or ActionName.TraceRouteToCabinet;
+            Assert.Equal(retiredIcmp ? HttpStatusCode.Gone :
+                reserved ? HttpStatusCode.Forbidden : HttpStatusCode.BadRequest, request.StatusCode);
+            Assert.Contains(retiredIcmp ? "retired" :
+                reserved ? "actuates cabinet hardware" : "Unknown action",
                 await request.Content.ReadAsStringAsync());
             using var batch = await client.PostAsJsonAsync("/api/batches", new CreateBatchActionRequest
             { CabinetIds = [cabinet.Id], ConfirmedCabinetCount = 1, Action = action, Reason = "Monitoring boundary regression" });
