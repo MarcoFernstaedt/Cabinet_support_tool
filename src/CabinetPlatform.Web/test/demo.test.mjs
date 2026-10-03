@@ -58,6 +58,20 @@ test("finder, site navigation and independently selectable not-run modules work 
   } finally { dom.window.close(); }
 });
 
+test("demo can allow one exact tailnet HTTPS host without accepting arbitrary hosts", async () => {
+  const server = createDemoServer({ tailnetHost: "srv1522777.tail72f980.ts.net:8445" });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const statusFor = host => new Promise((resolve, reject) => {
+      http.get(origin, { headers: { Host: host } }, response => { response.resume(); resolve(response.statusCode); }).on("error", reject);
+    });
+    assert.equal(await statusFor("srv1522777.tail72f980.ts.net:8445"), 200);
+    assert.equal(await statusFor("srv1522777.tail72f980.ts.net:443"), 421);
+    assert.equal(await statusFor("evil.example"), 421);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test("demo serves only allowlisted static synthetic assets with restrictive headers", async () => {
   await withServer(async origin => {
     for (const path of ["/", "/demo.css", "/demo-app.mjs", "/demo-data.mjs"]) {

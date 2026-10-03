@@ -7,14 +7,14 @@ const assets = new Map([
   ["/demo-app.mjs", ["demo-app.mjs", "text/javascript; charset=utf-8"]],
   ["/demo-data.mjs", ["demo-data.mjs", "text/javascript; charset=utf-8"]],
 ]);
-export function createDemoServer() {
+export function createDemoServer({ tailnetHost = null } = {}) {
   return http.createServer(async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");
     res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     const expectedHost = `127.0.0.1:${serverPort(req)}`;
-    if (req.headers.host !== expectedHost) { res.writeHead(421); res.end("Invalid host"); return; }
+    if (req.headers.host !== expectedHost && req.headers.host !== tailnetHost) { res.writeHead(421); res.end("Invalid host"); return; }
     const asset = assets.get(req.url);
     if (req.method !== "GET" || !asset) { res.writeHead(404); res.end("Not found"); return; }
     try {
