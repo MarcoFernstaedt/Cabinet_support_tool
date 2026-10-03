@@ -295,6 +295,117 @@ public sealed class OfficeEnrollmentStoreTests
         Assert.False(fixture.Authenticate(store, "device", fixture.Key));
     }
 
+    [Fact]
+    public void Readback_rejects_oversized_journal()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        using (var file = new FileStream(fixture.File, FileMode.Append, FileAccess.Write))
+            file.SetLength(4 * 1024 * 1024 + 1);
+        Assert.False(store.HasDurableRevocation("device"));
+    }
+
+    [Fact]
+    public void Readback_rejects_replaced_journal_path()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        File.Move(fixture.File, fixture.File + ".old");
+        File.WriteAllText(fixture.File, "[]");
+        Assert.False(store.HasDurableRevocation("device"));
+        File.Delete(fixture.File);
+        File.Move(fixture.File + ".old", fixture.File);
+        Assert.True(store.HasDurableRevocation("device"));
+    }
+
+    [Theory]
+    [InlineData("destroyedWithoutRevocation")]
+    [InlineData("nullRenewals")]
+    [InlineData("invalidRenewal")]
+    [InlineData("duplicateRequest")]
+    public void Readback_rejects_unrelated_corrupt_grant(string corruption)
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        var original = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        var id = Guid.NewGuid();
+        var renewal = new OfficeEnrollmentStore.Renewal(id, "actor", "reason", fixture.Issued, fixture.Issued.AddDays(1));
+        var other = new OfficeEnrollmentStore.Grant(Hash(fixture.Key), "other", Hash(fixture.Token)) { Renewals = [renewal] };
+        var grants = corruption switch
+        {
+            "destroyedWithoutRevocation" => new[] { original[0], other with { KeyDestroyed = true } },
+            "nullRenewals" => new[] { original[0], other with { Renewals = null! } },
+            "invalidRenewal" => new[] { original[0], other with { Renewals = [renewal with { ExpiresUtc = renewal.IssuedUtc }] } },
+            _ => new[] { original[0] with { Renewals = [renewal] }, other }
+        };
+        File.WriteAllText(fixture.File, System.Text.Json.JsonSerializer.Serialize(grants));
+        Assert.False(store.HasDurableRevocation("device"));
+        store.Dispose();
+        Assert.Throws<InvalidOperationException>(() => fixture.Open()); // constructor uses the same invariants
+    }
+
+    [Fact]
+    public void Bounded_reader_rejects_source_that_grows_during_read()
+    {
+        using var source = new GrowingStream(Encoding.UTF8.GetBytes("[]"));
+        Assert.Null(OfficeEnrollmentStore.ReadBoundedJournal(source));
+    }
+
+    private sealed class GrowingStream : MemoryStream
+    {
+        private bool _grew;
+        public GrowingStream(byte[] initial)
+        {
+            Write(initial);
+            Position = 0;
+        }
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = base.Read(buffer, offset, count);
+            if (!_grew)
+            {
+                _grew = true;
+                var position = Position;
+                SetLength(4 * 1024 * 1024 + 1);
+                Position = position;
+            }
+            return read;
+        }
+    }
+
+    [Fact]
+    public void Readback_rejects_overflowed_renewal_dates()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        var original = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        var invalid = new OfficeEnrollmentStore.Renewal(Guid.NewGuid(), "actor", "reason", DateTimeOffset.MaxValue, DateTimeOffset.MaxValue);
+        File.WriteAllText(fixture.File, System.Text.Json.JsonSerializer.Serialize(new[] { original[0] with { Renewals = [invalid] } }));
+        Assert.False(store.HasDurableRevocation("device"));
+    }
+
+    [Fact]
+    public void Readback_rejects_offset_renewal_date_that_overflows_local_addition()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        var original = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        var issued = new DateTimeOffset(9999, 12, 31, 1, 0, 0, TimeSpan.FromHours(14));
+        var invalid = new OfficeEnrollmentStore.Renewal(Guid.NewGuid(), "actor", "reason", issued, issued);
+        File.WriteAllText(fixture.File, System.Text.Json.JsonSerializer.Serialize(new[] { original[0] with { Renewals = [invalid] } }));
+        Assert.False(store.HasDurableRevocation("device"));
+    }
+
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private sealed class Clock : TimeProvider
     {
