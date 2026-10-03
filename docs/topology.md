@@ -1,13 +1,14 @@
 # Site topology and the sync cabinet
 
-## Periodic office monitoring
+## Retired peer monitoring
 
-The opt-in [office connectivity slice](office-connectivity.md) adds registered
-same-site ICMP targets, a nominal 60 second sampling loop, bounded interval
-summaries, server-side repeated-failure classification and a Machine-tab status
-panel. It does not enable the historical on-demand network action executors
-described below; those remain behind the existing compiled maintenance boundary.
-Native Windows acceptance and independent review remain separate release gates.
+Scheduled cabinet-to-cabinet ICMP sampling, target configuration writes, summary ingestion,
+and the one-click sync-link test are retired. Existing interval evidence, alerts,
+`CabinetLinkProbe` rows and action receipts remain historical records; none is a
+current reachability measurement. The shipped Agent registers no peer probe executor.
+The maintenance-test composition retains the separate `TestCabinetPort` TCP executor,
+not peer ICMP. Generic host diagnostics are outside this retirement, but are not
+shipped as executable actions in the monitoring-only build.
 
 The hierarchy is client, then site, then cabinet. Both extremes are ordinary
 and neither is a special case: a client with one site and one cabinet, and a
@@ -49,90 +50,26 @@ foreign-key dependency that no ordering of the two inserts satisfies. The
 cabinet goes in first and the site's pointer follows, inside one transaction so
 a site is never left pointing at nothing.
 
-## Reachability is a different fact from health
+## Historical reachability and cabinet diagnostics
 
-The question a support rep has when a whole clinic misbehaves is not "is the
-sync cabinet up" — the fleet view answers that — but "can this satellite reach
-it".
+Server-to-cabinet health does not establish a satellite-to-sync link. Older
+`CabinetLinkProbe` source-target rows and connectivity incident evidence remain
+readable as historical observations; no late `PingCabinet` or
+`TraceRouteToCabinet` result creates or updates a link probe. Authenticated
+result receipts for previously dispatched actions still complete their action
+record (including `UnknownResult`) and duplicate completed receipts remain
+idempotent. Unknown request IDs and cross-cabinet reports retain their refusal
+semantics.
 
-Those are different facts, and only the second explains the site. A sync
-cabinet can be perfectly reachable from the server and unreachable from the
-machine standing next to it: a switch, a VLAN, a firewall rule, a cable. The
-server's own view says nothing about the link between two machines in a room
-it is not in.
-
-So the console never infers reachability from the sync cabinet being online.
-Either a probe has been run **from the satellite**, or the cabinet detail says
-that none has. `CabinetLinkProbe` holds the most recent probe per source-target
-pair, so the detail view can answer without scanning an action history.
-
-## Cabinet-to-cabinet diagnostics
-
-Three actions take a target cabinet:
-
-| Action | Approval | What it answers |
-|---|---|---|
-| `PingCabinet` | none | can this cabinet reach that one at all |
-| `TestCabinetPort` | none | is the host up with the port filtered |
-| `TraceRouteToCabinet` | none | where in the path it stops |
-
-None requires approval, and every rep may run all three. A probe is an
-observation; making a rep wait for a second pair of eyes to find out whether a
-site can talk to itself would mean nobody ever runs it.
-
-The three free-target probes — `PingHost`, `TraceRoute` and
-`TestPortConnectivity` — sit alongside them and are the same in every respect
-except that the rep supplies the host. They are still not a general network
-tool: `DiagnosticHostPolicy` refuses loopback, the unspecified address,
-broadcast, multicast and link-local targets on the server, and the agent
-re-checks the port against the CUBEX list.
-
-### The rules that make them safe
-
-**The rep names a cabinet. The server resolves the address.** There is no host
-or address parameter on any of these actions. The console sends a
-`targetCabinetId`; the server looks up that cabinet's last reported adapter
-address and adds `resolvedTargetAddress` to the dispatched request. A request
-that arrives already carrying a resolved address is refused, because that
-address would then be the caller's choice rather than the server's. The agent
-refuses one that did not arrive that way, parses it as an `IPAddress` rather
-than accepting text, and refuses loopback, multicast and unspecified addresses.
-
-**Source and target must belong to the same client.** A cross-client target is
-refused server-side and an audit row is written under
-`CrossClientCabinetLinkTestRejected`. The response says "not found" rather than
-"wrong client", so a rep learns nothing about a client they cannot see.
-
-**Same-site is the default.** A cross-site target within the same client is
-possible but must be asked for explicitly, and is audited under a distinct
-event — `CrossSiteCabinetLinkTest` rather than `CabinetLinkTest` — so a
-reviewer can tell the two apart without reading parameters.
-
-**The port list is the server's.** `TestCabinetPort` accepts only ports the
-CUBEX stack uses: 135, 443, 445, 1433, 3389, 5985, 5986. An unconstrained port
-parameter would be a port scanner with extra steps. The agent holds its own
-copy of the same list and re-checks against it, which is what keeps a
-compromised or simply buggy server from steering an agent outside it.
-
-**Nothing shells out.** The trace route is built from `Ping` with an
-increasing TTL rather than by running `tracert`. That is not stylistic:
-shelling out would give the agent a general mechanism for launching programs,
-and the agent's safety rests on not having one.
-
-Results are recorded as Observed audit events naming both cabinets, so it is
-always answerable which network was reached from which cabinet, by whom.
-
-## One click, on the cabinet detail
-
-The common case by a wide margin is "can this satellite reach its sync
-cabinet", so it is one button. `POST /api/actions/cabinets/{id}/test-sync-link`
-takes no target: the server resolves the target from the cabinet's own site and
-the address from that cabinet's last adapter. The rep selects nothing and types
-nothing, and therefore cannot select the wrong thing.
-
-The probe runs on the cabinet, so the answer arrives with a later check-in
-rather than with the response. The console says so rather than showing a
-spinner that stops with nothing visibly changed.
+`PingCabinet` and `TraceRouteToCabinet` are retired: authenticated direct action
+requests and the former sync-link shortcut return 410, the execution-policy
+catalog excludes both in every mode, and neither has a registered Agent executor
+in shipping or historical maintenance-test compositions. The enum and catalog
+metadata remain for old action history. `TestCabinetPort` is a separate TCP
+diagnostic retained only in the compiled maintenance-test composition; it is not
+an enabled shipping action. `PingHost`, `TraceRoute` and `TestPortConnectivity`
+are generic host diagnostics, not retired by this peer-ICMP change; shipping
+monitoring policy still prevents dispatching them.
 
 ## Fleet and site aggregates
 

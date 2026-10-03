@@ -37,9 +37,10 @@ public class MonitoringBoundaryTests
             });
             Assert.False(request.IsSuccessStatusCode, action.ToString());
             bool reserved = ActionCatalog.TryGet(action, out var entry) && entry.IsReservedHardwareActuation;
-            Assert.Equal(action == ActionName.PingCabinet ? HttpStatusCode.Gone :
+            bool retiredIcmp = action is ActionName.PingCabinet or ActionName.TraceRouteToCabinet;
+            Assert.Equal(retiredIcmp ? HttpStatusCode.Gone :
                 reserved ? HttpStatusCode.Forbidden : HttpStatusCode.BadRequest, request.StatusCode);
-            Assert.Contains(action == ActionName.PingCabinet ? "retired" :
+            Assert.Contains(retiredIcmp ? "retired" :
                 reserved ? "actuates cabinet hardware" : "Unknown action",
                 await request.Content.ReadAsStringAsync());
             using var batch = await client.PostAsJsonAsync("/api/batches", new CreateBatchActionRequest

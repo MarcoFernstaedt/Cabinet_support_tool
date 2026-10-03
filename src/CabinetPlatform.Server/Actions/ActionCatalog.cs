@@ -124,12 +124,14 @@ public static class ActionCatalog
     public static bool TryGet(ActionName action, Configuration.ActionOptions options, out ActionCatalogEntry entry)
     {
         entry = null!;
-        return action != ActionName.PingCabinet && options.Permits(action) && TryGet(action, out entry);
+        return action is not (ActionName.PingCabinet or ActionName.TraceRouteToCabinet) &&
+               options.Permits(action) && TryGet(action, out entry);
     }
 
     /// <summary>The visible catalog is not itself an authorization boundary.</summary>
     public static IEnumerable<ActionCatalogEntry> Available(Configuration.ActionOptions options) =>
-        All.Where(e => e.Action != ActionName.PingCabinet && options.Permits(e.Action));
+        All.Where(e => e.Action is not (ActionName.PingCabinet or ActionName.TraceRouteToCabinet) &&
+                       options.Permits(e.Action));
 
     /// <summary>Parameter key naming the cabinet a diagnostic probe targets.</summary>
     /// <remarks>

@@ -13,9 +13,9 @@ using Microsoft.Extensions.Options;
 
 namespace CabinetPlatform.Agent.Tests.Actions;
 
-#if !LEGACY_MAINTENANCE_TESTS
 public class MonitoringBoundaryTests
 {
+#if !LEGACY_MAINTENANCE_TESTS
     private static readonly ActionName[] Observations =
     [ActionName.GetProcessList, ActionName.CollectEventLogs, ActionName.RunEventLogView, ActionName.GetScheduledUpdates, ActionName.InspectFirewall, ActionName.GetDisplayDiagnostics, ActionName.GetWerMetadata, ActionName.GetHistoricalProcessEvidence];
 
@@ -57,6 +57,18 @@ public class MonitoringBoundaryTests
         Assert.Equal(new[] { "CollectEventLogsExecutor", "GetDisplayDiagnosticsExecutor", "GetHistoricalProcessEvidenceExecutor", "GetProcessListExecutor", "GetScheduledUpdatesExecutor", "GetWerMetadataExecutor", "InspectFirewallExecutor", "RunEventLogViewExecutor" }.Order(), registered);
     }
 
+#endif
+    [Fact]
+    public void No_composition_registers_retired_peer_icmp_executors()
+    {
+        var services = new ServiceCollection();
+        services.AddCabinetAgent(new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        { ["Agent:Actions:ExecutionMode"] = "Maintenance" }).Build());
+        Assert.DoesNotContain(services, s => s.ServiceType == typeof(IActionExecutor) &&
+            (s.ImplementationType?.Name is "PingCabinetExecutor" or "TraceRouteToCabinetExecutor"));
+    }
+
+#if !LEGACY_MAINTENANCE_TESTS
     [Theory]
     [InlineData("Demo")]
     [InlineData("Maintenance")]
@@ -106,5 +118,5 @@ public class MonitoringBoundaryTests
         public Task<ActionOutcome> ExecuteAsync(ActionRequestDto request, CancellationToken cancellationToken)
         { Calls++; return Task.FromResult(ActionOutcome.Succeeded("Observation")); }
     }
-}
 #endif
+}

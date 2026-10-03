@@ -1,8 +1,6 @@
 using System.Globalization;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Text;
 using CabinetPlatform.Contracts.Actions;
 using Microsoft.Extensions.Logging;
 
@@ -150,110 +148,6 @@ public sealed class TestCabinetPortExecutor : IActionExecutor
             _logger.LogDebug(e, "The connection to {Address}:{Port} failed.", address, port);
             return ActionOutcome.Failed($"Could not connect to {address}:{port}: {e.SocketErrorCode}.");
         }
-    }
-}
-
-/// <summary>
-/// Traces the network path from this cabinet to another at the same site.
-/// </summary>
-/// <remarks>
-/// Built from <see cref="Ping"/> with an increasing TTL rather than by running
-/// <c>tracert</c>. The difference is not stylistic: shelling out would give the
-/// agent a general mechanism for launching programs, and the agent's safety
-/// rests on not having one.
-/// </remarks>
-public sealed class TraceRouteToCabinetExecutor : IActionExecutor
-{
-    private const int MaximumHops = 20;
-    private const int TimeoutMilliseconds = 2000;
-
-    private readonly ILogger<TraceRouteToCabinetExecutor> _logger;
-
-    /// <summary>Creates the executor.</summary>
-    /// <param name="logger">Diagnostic log.</param>
-    public TraceRouteToCabinetExecutor(ILogger<TraceRouteToCabinetExecutor> logger) => _logger = logger;
-
-    /// <inheritdoc />
-    public ActionName Action => ActionName.TraceRouteToCabinet;
-
-    /// <inheritdoc />
-    public async Task<ActionOutcome> ExecuteAsync(
-        ActionRequestDto request, CancellationToken cancellationToken)
-    {
-        if (!ActionParameters.TryValidateNoUnknownParameters(
-                request,
-                new[]
-                {
-                    LinkParameters.TargetCabinetId,
-                    LinkParameters.ResolvedTargetAddress,
-                    LinkParameters.AllowCrossSite,
-                },
-                out string unknownFailure))
-        {
-            return ActionOutcome.Denied(unknownFailure);
-        }
-
-        if (!LinkParameters.TryReadTarget(request, out IPAddress address, out string failure))
-        {
-            return ActionOutcome.Denied(failure);
-        }
-
-        using var ping = new Ping();
-        var trace = new StringBuilder();
-        var reached = false;
-
-        for (var ttl = 1; ttl <= MaximumHops && !reached; ttl++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            var options = new PingOptions(ttl, dontFragment: true);
-
-            try
-            {
-                PingReply reply = await ping
-                    .SendPingAsync(address, TimeoutMilliseconds, new byte[32], options)
-                    .WaitAsync(cancellationToken)
-                    .ConfigureAwait(false);
-
-                trace.Append(CultureInfo.InvariantCulture, $"{ttl}\t");
-
-                switch (reply.Status)
-                {
-                    case IPStatus.Success:
-                        trace.Append(CultureInfo.InvariantCulture,
-                            $"{reply.Address} {reply.RoundtripTime} ms (destination)\n");
-                        reached = true;
-                        break;
-
-                    case IPStatus.TtlExpired:
-                        trace.Append(CultureInfo.InvariantCulture,
-                            $"{reply.Address} {reply.RoundtripTime} ms\n");
-                        break;
-
-                    case IPStatus.TimedOut:
-                        // A hop that does not answer is normal and is recorded
-                        // as such rather than ending the trace.
-                        trace.Append("* (no reply)\n");
-                        break;
-
-                    default:
-                        trace.Append(CultureInfo.InvariantCulture, $"{reply.Status}\n");
-                        break;
-                }
-            }
-            catch (PingException e)
-            {
-                _logger.LogDebug(e, "Hop {Ttl} of the trace to {Address} failed.", ttl, address);
-                trace.Append(CultureInfo.InvariantCulture, $"{ttl}\t(error)\n");
-            }
-        }
-
-        string output = trace.ToString();
-
-        return reached
-            ? ActionOutcome.Succeeded($"Path to {address}:\n{output}")
-            : ActionOutcome.Failed(
-                $"{address} was not reached within {MaximumHops} hops. Path so far:\n{output}");
     }
 }
 

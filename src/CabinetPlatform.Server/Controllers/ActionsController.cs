@@ -87,7 +87,7 @@ public sealed class ActionsController : SupportControllerBase
     public async Task<ActionResult<ActionRequestView>> Create(
         [FromBody] CreateActionRequest request, CancellationToken ct)
     {
-        if (request.Action == ActionName.PingCabinet)
+        if (request.Action is ActionName.PingCabinet or ActionName.TraceRouteToCabinet)
             return StatusCode(StatusCodes.Status410Gone, "Cabinet-to-cabinet ICMP actions are retired.");
         OperationResult<ActionRequest> result = await _actions.CreateAsync(CurrentUser, request, ct);
 

@@ -244,6 +244,68 @@ public sealed class AgentEndpointTests : IClassFixture<SupportApiFactory>
             a.ActorId == otherMachine)));
     }
 
+    [Theory]
+    [InlineData(ActionName.PingCabinet, ActionStatus.Succeeded)]
+    [InlineData(ActionName.PingCabinet, ActionStatus.UnknownResult)]
+    [InlineData(ActionName.TraceRouteToCabinet, ActionStatus.Succeeded)]
+    public async Task Late_peer_icmp_receipt_preserves_action_but_never_creates_or_updates_link_probe(
+        ActionName actionName, ActionStatus status)
+    {
+        using var factory = new SupportApiFactory();
+        (_, User supervisor) = await TestClient.CreateUserClientAsync(factory, Role.Supervisor, Unique("late"));
+        Cabinet source = await TestClient.CreateApprovedCabinetAsync(factory, Unique("source"), supervisor.Id);
+        Cabinet target = await TestClient.CreateApprovedCabinetAsync(factory, Unique("target"), supervisor.Id);
+        Cabinet anotherTarget = await TestClient.CreateApprovedCabinetAsync(factory, Unique("target2"), supervisor.Id);
+        var oldObserved = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var oldId = Guid.NewGuid();
+        var newId = Guid.NewGuid();
+        await factory.WithDbAsync(async db =>
+        {
+            db.CabinetLinkProbes.Add(new CabinetLinkProbe
+            {
+                SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+                ObservedUtc = oldObserved, Reachable = true, LatencyMs = 12
+            });
+            foreach (Guid id in new[] { oldId, newId })
+                db.ActionRequests.Add(new ActionRequest
+                {
+                    Id = id, CabinetId = source.Id, TargetCabinetId = id == oldId ? target.Id : anotherTarget.Id,
+                    Action = actionName, RequestedByUserId = supervisor.Id,
+                    Reason = "Pre-upgrade dispatch", ParametersJson = "{}",
+                    Status = ActionRequestStatus.Dispatched, RequestedUtc = oldObserved
+                });
+            await db.SaveChangesAsync();
+        });
+        using var agent = TestClient.CreateAgentClient(factory, source.MachineId);
+        foreach (Guid id in new[] { oldId, newId })
+        {
+            var result = new ActionResultDto
+            {
+                RequestId = id, Status = status, Output = "roundTripMs=7",
+                CompletedAtUtc = DateTimeOffset.UtcNow
+            };
+            using var receipt = await agent.PostJsonAsync("/api/agent/actions/result", result);
+            Assert.Equal(HttpStatusCode.NoContent, receipt.StatusCode);
+            using var retry = await agent.PostJsonAsync("/api/agent/actions/result", result);
+            Assert.Equal(HttpStatusCode.NoContent, retry.StatusCode);
+        }
+        await factory.WithDbAsync(async db =>
+        {
+            var rows = await db.ActionRequests.AsNoTracking().Where(a => a.Id == oldId || a.Id == newId).ToListAsync();
+            Assert.Equal(2, rows.Count);
+            Assert.All(rows, a =>
+            {
+                Assert.Equal(ActionRequestStatus.Completed, a.Status);
+                Assert.Equal(status, a.ResultStatus);
+            });
+            var probes = await db.CabinetLinkProbes.AsNoTracking().ToListAsync();
+            var historical = Assert.Single(probes);
+            Assert.Equal(oldObserved, historical.ObservedUtc);
+            Assert.Equal(12, historical.LatencyMs);
+            Assert.True(historical.Reachable);
+        });
+    }
+
 #if LEGACY_MAINTENANCE_TESTS
     [Fact]
     public async Task A_cabinet_cannot_report_a_result_for_another_cabinets_action()

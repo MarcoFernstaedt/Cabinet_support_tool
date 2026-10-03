@@ -209,7 +209,6 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, TraceRouteExecutor>();
         services.AddSingleton<IActionExecutor, TestPortConnectivityExecutor>();
         services.AddSingleton<IActionExecutor, TestCabinetPortExecutor>();
-        services.AddSingleton<IActionExecutor, TraceRouteToCabinetExecutor>();
 
         // Network configuration, all under confirm-or-revert
         services.AddSingleton<IActionExecutor, SetDnsServersExecutor>();
