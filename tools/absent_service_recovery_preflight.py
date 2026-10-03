@@ -16,6 +16,12 @@ class InvalidEvidence(Exception):
     pass
 
 
+class SafeArgumentParser(argparse.ArgumentParser):
+    def error(self, message):
+        # argparse's default error includes unrecognized argument values.
+        raise InvalidEvidence()
+
+
 def unique_pairs(pairs):
     result = {}
     for key, value in pairs:
@@ -32,15 +38,23 @@ def exact_keys(value, keys):
 
 def read_evidence(path):
     path = Path(path)
-    if not path.is_absolute() or path.is_symlink():
+    if not path.is_absolute():
         raise InvalidEvidence()
-    info = path.stat()
-    if not stat.S_ISREG(info.st_mode) or info.st_size > 8192 or info.st_size == 0:
+    nofollow = getattr(os, 'O_NOFOLLOW', 0)
+    if not nofollow and path.is_symlink():
         raise InvalidEvidence()
-    if os.name == 'posix' and (info.st_uid != os.getuid() or info.st_mode & 0o077):
-        raise InvalidEvidence()
-    # The file is an operator-authored nonsecret inventory, not the backup itself.
-    return json.loads(path.read_text(encoding='utf-8'), object_pairs_hook=unique_pairs)
+    flags = os.O_RDONLY | nofollow
+    with os.fdopen(os.open(path, flags), 'rb') as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_size > 8192 or info.st_size == 0:
+            raise InvalidEvidence()
+        if os.name == 'posix' and (info.st_uid != os.getuid() or info.st_mode & 0o077):
+            raise InvalidEvidence()
+        # The file is an operator-authored nonsecret inventory, not the backup itself.
+        content = source.read(8193)
+        if not content or len(content) > 8192:
+            raise InvalidEvidence()
+    return json.loads(content.decode('utf-8'), object_pairs_hook=unique_pairs)
 
 
 def assess(value):
@@ -61,7 +75,8 @@ def assess(value):
         raise InvalidEvidence()
     gaps = []
     original = value['backups']
-    if original['original_copy'] != original['original_installed']:
+    if {key: digest.lower() for key, digest in original['original_copy'].items()} != \
+            {key: digest.lower() for key, digest in original['original_installed'].items()}:
         gaps.append('ORIGINAL_COPIES_DISAGREE')
     for field, code in (('independent_provenance', 'PROVENANCE_UNVERIFIED'),
                         ('protected_backup_acl', 'ACL_UNVERIFIED'),
@@ -78,10 +93,10 @@ def assess(value):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
+    parser = SafeArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument('--evidence', required=True)
-    args = parser.parse_args()
     try:
+        args = parser.parse_args()
         gaps = assess(read_evidence(args.evidence))
     except (InvalidEvidence, OSError, UnicodeError, ValueError, TypeError, RecursionError):
         gaps = ['INVALID_EVIDENCE']

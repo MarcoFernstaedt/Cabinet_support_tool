@@ -1,14 +1,21 @@
 """Fail-closed, nonsecret offline evidence triage for issue #35."""
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / 'tools/absent_service_recovery_preflight.py'
 FIXTURE = Path(__file__).with_name('fixtures') / 'absent-service-evidence.json'
+SPEC = importlib.util.spec_from_file_location('absent_service_preflight', TOOL)
+assert SPEC is not None and SPEC.loader is not None
+PREFLIGHT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(PREFLIGHT)
 
 
 class AbsentServicePreflightTests(unittest.TestCase):
@@ -42,6 +49,14 @@ class AbsentServicePreflightTests(unittest.TestCase):
         report = json.loads(self.run_evidence(evidence).stdout)
         self.assertIn('ORIGINAL_COPIES_DISAGREE', report['gaps'])
         self.assertNotIn('incident_copy', json.dumps(report))  # never promote or disclose incident evidence
+
+    def test_mixed_case_equal_digests_do_not_disagree(self):
+        evidence = json.loads(FIXTURE.read_text())
+        evidence['backups']['original_copy']['device_sha256'] = 'ABCDEF' * 10 + 'abcd'
+        evidence['backups']['original_installed']['device_sha256'] = 'abcdef' * 10 + 'ABCD'
+        report = json.loads(self.run_evidence(evidence).stdout)
+        self.assertNotIn('ORIGINAL_COPIES_DISAGREE', report['gaps'])
+        self.assertEqual(report['decision'], 'NO_GO')
 
     def test_fresh_enrollment_and_other_shapes_are_refused(self):
         evidence = json.loads(FIXTURE.read_text())
@@ -84,6 +99,62 @@ class AbsentServicePreflightTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(TOOL), '--evidence', str(path)],
                                     capture_output=True, text=True)
             self.assertEqual(json.loads(result.stdout)['gaps'], ['INVALID_EVIDENCE'])
+
+    def test_unknown_flag_with_evidence_does_not_echo_value(self):
+        evidence = json.loads(FIXTURE.read_text())
+        result = self.run_evidence(evidence, '--token=SECRET_SENTINEL')
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn('SECRET_SENTINEL', result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout)['gaps'], ['INVALID_EVIDENCE'])
+
+    def test_size_growth_after_fstat_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'evidence.json'
+            path.write_text(FIXTURE.read_text())
+            path.chmod(0o600)
+            original_fstat = os.fstat
+
+            def grow_after_fstat(fd):
+                info = original_fstat(fd)
+                with path.open('a') as stream:
+                    stream.write(' ' * 8193)
+                return info
+
+            with patch.object(PREFLIGHT.os, 'fstat', grow_after_fstat):
+                with self.assertRaises(PREFLIGHT.InvalidEvidence):
+                    PREFLIGHT.read_evidence(path)
+
+    def test_symlink_swapped_at_open_is_rejected(self):
+        if not hasattr(os, 'O_NOFOLLOW'):
+            self.skipTest('O_NOFOLLOW unavailable')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'evidence.json'
+            target = Path(directory) / 'target.json'
+            path.write_text(FIXTURE.read_text())
+            target.write_text(FIXTURE.read_text())
+            path.chmod(0o600)
+            target.chmod(0o600)
+            original_open = os.open
+
+            def swap_before_open(candidate, flags, *args, **kwargs):
+                path.unlink()
+                path.symlink_to(target)
+                return original_open(candidate, flags, *args, **kwargs)
+
+            with patch.object(PREFLIGHT.os, 'open', swap_before_open):
+                with self.assertRaises((PREFLIGHT.InvalidEvidence, OSError)):
+                    PREFLIGHT.read_evidence(path)
+
+    def test_symlink_is_rejected_without_nofollow_support(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'target.json'
+            path = Path(directory) / 'evidence.json'
+            target.write_text(FIXTURE.read_text())
+            target.chmod(0o600)
+            path.symlink_to(target)
+            with patch.object(PREFLIGHT.os, 'O_NOFOLLOW', 0, create=True):
+                with self.assertRaises(PREFLIGHT.InvalidEvidence):
+                    PREFLIGHT.read_evidence(path)
 
     def test_no_enrollment_or_write_switch(self):
         result = subprocess.run([sys.executable, str(TOOL), '--enrollment-file', 'SECRET_SENTINEL'],
