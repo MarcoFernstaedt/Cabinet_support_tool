@@ -60,6 +60,12 @@ test('mock Tier 1 stages manual onboarding, Tier 2 reviews and only Supervisor c
     assert.equal(d.querySelector('#client-name').required, true);
     assert.equal(d.querySelector('#site-name').required, true);
     assert.equal(d.querySelector('#department').required, false);
+    assert.equal(d.querySelector('#cabinet-type').disabled, true);
+    d.querySelector('#onboarding-cabinet').value = 'CAB-02';
+    d.querySelector('#onboarding-cabinet').dispatchEvent(new dom.window.Event('change'));
+    assert.equal(d.querySelector('#cabinet-type').value, 'Satellite');
+    d.querySelector('#onboarding-cabinet').value = 'CAB-01';
+    d.querySelector('#onboarding-cabinet').dispatchEvent(new dom.window.Event('change'));
     for (const id of ['new-client', 'new-site', 'new-cabinet']) assert.ok(d.getElementById(id).labels.length, `${id} has an accessible label`);
     d.querySelector('#client-name').value = 'Veterinary Emergency Group (VEG)';
     d.querySelector('#site-name').value = 'VEG Phoenix';

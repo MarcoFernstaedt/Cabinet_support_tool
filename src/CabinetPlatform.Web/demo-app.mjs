@@ -227,8 +227,14 @@ function renderOnboarding() {
   const newCabinet = el("input", "search"); newCabinet.id = "new-cabinet"; newCabinet.placeholder = "CAB-06"; newCabinet.maxLength = 6; newCabinet.hidden = true;
   const cabinetType = el("select", "search"); cabinetType.id = "cabinet-type";
   for (const name of ["Sync", "Satellite"]) { const option = el("option", "", name); option.value = name; cabinetType.append(option); }
-  const typeLabel = el("label", "field-label", "Cabinet type / site role (Sync or Satellite)"); typeLabel.htmlFor = "cabinet-type";
-  cabinet.addEventListener("change", () => { newCabinet.hidden = newCabinetLabel.hidden = cabinet.value !== "__new"; });
+  const typeLabel = el("label", "field-label", "Cabinet type (new cabinet only; existing type is fixed)"); typeLabel.htmlFor = "cabinet-type";
+  function updateCabinetChoice() {
+    newCabinet.hidden = newCabinetLabel.hidden = cabinet.value !== "__new";
+    cabinetType.disabled = cabinet.value !== "__new";
+    if (cabinetType.disabled) cabinetType.value = cabinetFor(cabinet.value)?.cabinet.type ?? "Sync";
+  }
+  cabinet.addEventListener("change", updateCabinetChoice);
+  updateCabinetChoice();
   const stage = el("button", "choice", "Stage manual request"); stage.id = "stage-request"; stage.type = "button";
   const approve = el("button", "choice", "Simulate approval"); approve.id = "approve-request"; approve.type = "button";
   const reset = el("button", "choice", "Start another demo request"); reset.id = "reset-request"; reset.type = "button";
