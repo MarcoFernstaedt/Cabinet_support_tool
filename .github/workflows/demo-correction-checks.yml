@@ -18,6 +18,7 @@ jobs:
       - run: dotnet test tests/CabinetPlatform.Agent.Tests/CabinetPlatform.Agent.Tests.csproj -c Release --no-restore -m:1
       - run: dotnet publish src/CabinetPlatform.Agent/CabinetPlatform.Agent.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "$RUNNER_TEMP/cabinet-agent-singlefile" -m:1
       - run: dotnet test tests/CabinetPlatform.WebHost.Tests/CabinetPlatform.WebHost.Tests.csproj -c Release --no-restore -m:1
+      - run: dotnet test tests/CabinetPlatform.DemoBff.Tests/CabinetPlatform.DemoBff.Tests.csproj -c Release --no-restore -m:1
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
