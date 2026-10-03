@@ -37,6 +37,10 @@ test("finder, site navigation and independently selectable not-run modules work 
     assert.match(d.querySelector(".empty").textContent, /No matching/);
     dom.window.location.hash = "#cabinet/CAB-01";
     dom.window.dispatchEvent(new dom.window.Event("hashchange"));
+    assert.equal(d.activeElement, d.querySelector("h1"), "route transition focuses the new heading");
+    d.querySelector(".skip").click();
+    assert.equal(dom.window.location.hash, "#cabinet/CAB-01", "skip link must not change the route");
+    assert.equal(d.activeElement, d.querySelector("#main"), "skip link focuses the current workspace");
     assert.match(d.querySelector(".context").textContent, /Harbor Arcade/);
     assert.match(d.querySelector(".module-detail").textContent, /All checks/);
     d.querySelector('[data-module="fingerprint"]').click();

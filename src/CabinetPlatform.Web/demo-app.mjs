@@ -155,5 +155,14 @@ function route() {
   else renderFinder();
   doc.querySelector("#finder-nav").setAttribute("aria-current", match ? "false" : "page");
 }
-window.addEventListener("hashchange", route);
+doc.querySelector(".skip").addEventListener("click", event => {
+  event.preventDefault();
+  doc.querySelector("#main").focus();
+});
+window.addEventListener("hashchange", () => {
+  route();
+  const title = view.querySelector("h1");
+  title.tabIndex = -1;
+  title.focus();
+});
 route();
