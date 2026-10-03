@@ -7,9 +7,21 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using CabinetPlatform.DemoBff;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    // Tailscale Serve terminates HTTPS and proxies only to a loopback listener.
+    // Never trust a forwarded Host or a remote client's forwarded scheme.
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
 
 builder.Services.AddSingleton<DemoSessions>();
 builder.Services.AddAntiforgery(o =>
@@ -35,6 +47,7 @@ builder.Services.AddRateLimiter(o =>
 var app = builder.Build();
 var origin = RequireHttpsRoot(app.Configuration["DemoBff:PublicOrigin"]);
 _ = RequireHttpsRoot(app.Configuration["DemoBff:ServerBaseUrl"]);
+app.UseForwardedHeaders();
 app.UseHsts();
 app.Use(async (ctx, next) =>
 {

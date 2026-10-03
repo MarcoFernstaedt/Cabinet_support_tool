@@ -18,6 +18,35 @@ public sealed class SessionTests : IDisposable
     public void Dispose() => _factory.Dispose();
 
     [Fact]
+    public async Task Trusted_loopback_proxy_can_forward_https_but_remote_requests_cannot_spoof_it()
+    {
+        using var client = _factory.CreateClient(new WebApplicationFactoryClientOptions
+        { AllowAutoRedirect = false, BaseAddress = new Uri("http://demo.example") });
+        using var forwarded = new HttpRequestMessage(HttpMethod.Get, "/");
+        forwarded.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        using var allowed = await client.SendAsync(forwarded);
+        Assert.Equal(HttpStatusCode.OK, allowed.StatusCode);
+        Assert.Contains("Cabinet demo sign in", await allowed.Content.ReadAsStringAsync());
+
+        using var unforwarded = await client.GetAsync("/");
+        Assert.Equal(HttpStatusCode.BadRequest, unforwarded.StatusCode);
+        using var spoofedHost = new HttpRequestMessage(HttpMethod.Get, "http://other.example/");
+        spoofedHost.Headers.TryAddWithoutValidation("X-Forwarded-Proto", "https");
+        using var denied = await client.SendAsync(spoofedHost);
+        Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+
+        var remote = await _factory.Server.SendAsync(context =>
+        {
+            context.Connection.RemoteIpAddress = IPAddress.Parse("198.51.100.10");
+            context.Request.Scheme = "http";
+            context.Request.Host = new Microsoft.AspNetCore.Http.HostString("demo.example");
+            context.Request.Path = "/";
+            context.Request.Headers["X-Forwarded-Proto"] = "https";
+        });
+        Assert.Equal(400, remote.Response.StatusCode);
+    }
+
+    [Fact]
     public void Server_login_http_handler_never_follows_cross_origin_redirects()
     {
         using var factory = new RedirectConfigurationFactory();
