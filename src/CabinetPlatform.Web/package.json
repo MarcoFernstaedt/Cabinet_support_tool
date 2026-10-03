@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "demo": "node demo-server.mjs"
   },
   "devDependencies": {
     "jsdom": "^26.1.0"
