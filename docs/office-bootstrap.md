@@ -2,7 +2,7 @@
 
 For a fresh independently operated lab install, see [independent demo kit](independent-demo-kit.md). This original staging generator creates a new server manifest and short-lived tokens, so do not run it against an already active Office server. Use additive issuance instead; it does not renew an existing identity.
 
-This prepares a **private, unsigned staging bundle**, not a customer installer. Distribution is blocked. It does not install a Windows service, contact the server, approve a cabinet, alter the running test service, or change the compiled monitoring boundary. The Agent and WPF Console use the same reviewed endpoint:
+This prepares a **private, unsigned Agent staging bundle**, not a customer installer. Distribution is blocked. It does not install a Windows service, contact the server, approve a cabinet, alter the running test service, or change the compiled monitoring boundary. The Agent uses this reviewed endpoint:
 
 `https://srv1522777.tail72f980.ts.net/`
 
@@ -19,14 +19,13 @@ python3 tools/prepare_office_demo.py \
   --dotnet /home/marco/tmp/cabinet-audit-dotnet/dotnet
 ```
 
-The output parent must already exist and be controlled by the operator. The output must not exist. There is no overwrite switch. The generator publishes **Release**, self-contained `win-x64` Agent and Console artifacts with `-m:1`, then replaces their deployment configuration with one endpoint. `LegacyMaintenanceTests` is never a packaging choice. `--config-only` exercises configuration generation without binaries and remains blocked for distribution.
+The output parent must already exist and be controlled by the operator. The output must not exist. There is no overwrite switch. The generator publishes a **Release**, self-contained `win-x64` Agent with `-m:1`, then generates its endpoint configuration. `LegacyMaintenanceTests` is never a packaging choice. `--config-only` exercises configuration generation without binaries and remains blocked for distribution.
 
 Output:
 
 | Path | Purpose |
 | --- | --- |
 | `agent/` | Generic Agent binaries and generated `appsettings.json`; no baked device identity or fleet key |
-| `console/` | WPF Console binaries and generated `appsettings.json`; no operator credentials |
 | `enrollment/device-001.json`, etc. | One distinct secret token per intended office device |
 | `server/office-enrollment.json` | Office-mode configuration containing token hashes only |
 | `server/grants.json` | Initially empty, private, durable consumed-token journal |
@@ -48,7 +47,7 @@ After independent review and separate authorization for the exact test-service d
 3. Place the generated `server/office-enrollment.json` in the server's content root. The server reads this optional companion before environment and command-line overrides. It does not hot reload.
 4. **Independently pin `OfficeEnrollment__Enabled=true` in the test service environment.** This is required so loss of the companion file cannot silently return the deployment to legacy authentication. With this flag, missing configuration/journal prevents startup. Remove the legacy shared key from the office deployment rather than retaining it as a recovery mechanism.
 5. Retain loopback-only HTTP binding behind a reviewed HTTPS terminator. The application does not itself supply a TLS terminator or trust arbitrary forwarded headers. Confirm the intended public/private access policy; a Funnel is not a tailnet-only access control.
-6. Restart only the explicitly authorized test service, then verify the actual binary provenance, anonymous denial, rejection of the old shared key, one-device token binding, pending approval and an authenticated Console readback. No such restart or live enrollment has been performed here.
+6. Restart only the explicitly authorized test service, then verify the actual binary provenance, anonymous denial, rejection of the old shared key, one-device token binding, pending approval and an authenticated browser readback. No such restart or live enrollment has been performed here.
 
 When office mode is enabled, there is **no shared-key fallback**. A missing, corrupt, oversized or concurrently owned journal is a startup failure. The journal has an exclusive process lock, so this implementation supports one server process only. A new token cannot take over an existing cabinet or pending registration from the legacy identity system. Migration and credential renewal require a separate design, not deletion of historical records.
 
@@ -63,14 +62,14 @@ After those gates are resolved:
 1. Put the generic Agent package in its intended administrator-owned installation directory. Do not use Downloads, a user-writable application directory or a network share for a LocalSystem service.
 2. Ensure the installation directory and its runtime/credential files are writable only by Administrators and SYSTEM, and the credential directory is readable only by those identities. Verify effective inherited permissions, not merely an `icacls` exit code. The generated Linux file mode does not establish Windows ACLs.
 3. Transfer exactly one intended `enrollment/device-NNN.json` through the approved private channel and place it beside the agent executable as `office-enrollment.json`. No per-machine JSON editing is needed. Never reuse this token file on a second machine or image an enrolled installation.
-4. Use the generic Console package unchanged. Sign in with a named test operator account; the generator supplies no username, password or session token.
+4. Use the separately deployed authenticated browser Console with a named test operator account; the generator supplies no username, password or session token.
 5. Perform the separate service installation/recovery checklist in `agent-install.md` only after native approval. Until then the package is staging, not an install recommendation.
-6. Confirm the expected pending machine in the Console's registration queue, independently verify its identity/site and approve it. Enrollment alone never grants monitoring access or approves a cabinet.
-7. Reboot/restart in the lab, verify the same identity persists, inspect the latest check-in through the Console and test denial from a different machine/key. Verify cleanup and revocation on decommissioning.
+6. Confirm the expected pending machine through the Server's authorized registration path, independently verify its identity/site and approve it. Enrollment alone never grants monitoring access or approves a cabinet.
+7. Reboot/restart in the lab, verify the same identity persists, inspect the latest check-in through the authenticated browser and test denial from a different machine/key. Verify cleanup and revocation on decommissioning.
 
 The agent persists a fresh random device key before calling the enrollment endpoint. It submits the one-use token, machine identity and this key over ordinary certificate-validated HTTPS. The server stores only hashes and atomically binds the token to one machine/key pair before returning HTTP 204. A response lost after commit can be retried only with that exact pair, even after the unused-token deadline, until the device deadline. Neither a token alone, a changed machine id nor a changed key can recover the credential. The agent then marks its local journal confirmed and removes the original token file. The live key journal is `office-enrollment.json.device`; it is secret and must retain the protected directory ACL.
 
-Both enrollment and authenticated Agent requests reject another origin and disable redirects. The Console validates an HTTPS origin before login and disables redirects. HTTP client header logs are redacted, including trace-level logs. No custom certificate acceptance callback is installed. The anonymous enrollment surface has a fixed server-wide limit of 20 attempts per minute, no queue and a 2 KiB request limit; rotating caller-supplied machine headers cannot bypass it.
+Both enrollment and authenticated Agent requests reject another origin and disable redirects. The browser BFF also validates its configured HTTPS Server origin and disables redirects. HTTP client header logs are redacted, including trace-level logs. No custom certificate acceptance callback is installed. The anonymous enrollment surface has a fixed server-wide limit of 20 attempts per minute, no queue and a 2 KiB request limit; rotating caller-supplied machine headers cannot bypass it.
 
 ## Revocation and rollback
 
@@ -80,7 +79,7 @@ For an unused staging bundle, remove its private directory after the operator co
 
 ## Remaining security gates
 
-- Native Windows 10/11 service, ACL, WPF, TLS and uninstall/revocation acceptance.
+- Native Windows 10/11 service, ACL, browser, TLS and uninstall/revocation acceptance.
 - Signed artifacts and a verified installer/update chain.
 - Independent review/QA and an authorized matching-server deployment.
 - Mutual TLS, cabinet-side encrypted credential storage, protected/signed telemetry buffers and a split-privilege agent architecture.

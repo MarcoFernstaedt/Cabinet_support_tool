@@ -32,17 +32,16 @@ class OfficeGeneratorTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(SCRIPT), "--config-only", "--output", str(out), "--devices", "2"], capture_output=True, text=True, check=False)
             self.assertEqual(0, result.returncode, result.stderr)
             agent = json.loads((out / "agent/appsettings.json").read_text())
-            console = json.loads((out / "console/appsettings.json").read_text())
+            self.assertFalse((out / "console").exists())
             server = json.loads((out / "server/office-enrollment.json").read_text())["OfficeEnrollment"]
             self.assertEqual(ENDPOINT, agent["Agent"]["ServerBaseUrl"])
-            self.assertEqual(ENDPOINT, console["Api"]["BaseAddress"])
             self.assertEqual("office-enrollment.json", agent["Agent"]["OfficeEnrollmentFile"])
             tokens = [json.loads(p.read_text())["Token"] for p in sorted((out / "enrollment").glob("*.json"))]
             self.assertEqual(2, len(set(tokens)))
             self.assertEqual({hashlib.sha256(t.encode()).hexdigest().upper() for t in tokens}, {t["TokenHash"] for t in server["Tokens"]})
             for token in tokens:
                 self.assertNotIn(token, result.stdout + result.stderr)
-                self.assertNotIn(token, json.dumps(agent) + json.dumps(console) + json.dumps(server))
+                self.assertNotIn(token, json.dumps(agent) + json.dumps(server))
             self.assertEqual([], json.loads((out / "server/grants.json").read_text()))
             self.assertEqual(str(out / "server/grants.json"), server["StateFile"])
             manifest = json.loads((out / "manifest.json").read_text())

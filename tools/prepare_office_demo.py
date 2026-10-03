@@ -44,10 +44,10 @@ def prepare(output, devices, endpoint, dotnet, config_only):
     old_umask = os.umask(0o077)
     try:
         output.mkdir(mode=0o700)
-        for name in ("agent", "console", "server", "enrollment", "build-logs"):
+        for name in ("agent", "server", "enrollment", "build-logs"):
             (output / name).mkdir(mode=0o700)
         if not config_only:
-            for component in ("Agent", "Console"):
+            for component in ("Agent",):
                 destination = output / component.lower()
                 command = [dotnet, "publish", str(REPOSITORY / "src" / f"CabinetPlatform.{component}" / f"CabinetPlatform.{component}.csproj"),
                            "-c", "Release", "-r", "win-x64", "--self-contained", "true", "-m:1",
@@ -76,7 +76,6 @@ def prepare(output, devices, endpoint, dotnet, config_only):
             if sink["Name"] == "File":
                 sink["Args"]["path"] = install + "logs/agent-.log"
         private_json(output / "agent/appsettings.json", agent)
-        private_json(output / "console/appsettings.json", {"Api": {"BaseAddress": endpoint, "TimeoutSeconds": 30}})
         now = datetime.now(timezone.utc)
         iso = lambda value: value.isoformat()
         token_records = []
@@ -92,7 +91,7 @@ def prepare(output, devices, endpoint, dotnet, config_only):
         commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY, text=True).strip()
         dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=REPOSITORY, text=True).strip())
         artifact_hashes = {}
-        for component in ("agent", "console"):
+        for component in ("agent",):
             for artifact in sorted((output / component).rglob("*")):
                 if artifact.is_file():
                     artifact_hashes[str(artifact.relative_to(output))] = hashlib.sha256(artifact.read_bytes()).hexdigest()

@@ -1,6 +1,6 @@
 # Architecture
 
-Target product architecture, not a production deployment claim. See [web-only delivery plan](web-only-delivery-plan.md) for the counted acceptance queue. The **browser is the only support Console**; Windows runs the cabinet Agent service. WPF source is historical compatibility code, not a delivery or fallback requirement. Older SVG diagrams showing a desktop Console describe historical placement and are not the target design.
+Target product architecture, not a production deployment claim. See [web-only delivery plan](web-only-delivery-plan.md) for the counted acceptance queue. The **browser is the only support Console**; Windows runs the cabinet Agent service. The retired WPF executable and old desktop diagram are removed. `Console.Core` remains temporarily for Agent integration test coverage, not as a product deliverable.
 
 ```text
 Staff browser --HTTPS, same-origin session cookie--> ASP.NET Core WebHost/BFF

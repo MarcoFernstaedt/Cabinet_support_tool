@@ -48,7 +48,7 @@ Do not run the agent, network changes, updates or process controls on a producti
 
 ## Documentation
 
-Read the [current capability status](docs/capabilities.md) for implemented behavior, incomplete wiring and verification limits.
+Read the [current source-versus-live tracker](docs/build-tracker.md) for implemented behavior, incomplete wiring and verification limits.
 
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
@@ -56,7 +56,7 @@ Read the [current capability status](docs/capabilities.md) for implemented behav
 4. [Display recovery requirement](docs/display.md)
 5. [Build notes](docs/building.md)
 6. [Agent behavior](docs/agent.md) and [installation](docs/agent-install.md)
-7. [Web-only delivery plan](docs/web-only-delivery-plan.md) and [web Console security](docs/web-console-security.md); [historical WPF Console](docs/console.md)
+7. [Web-only delivery plan](docs/web-only-delivery-plan.md) and [web Console security](docs/web-console-security.md)
 8. [Shared contracts](docs/contracts.md)
 9. [Security invariants](docs/security-invariants.md)
 10. [Location topology](docs/topology.md)

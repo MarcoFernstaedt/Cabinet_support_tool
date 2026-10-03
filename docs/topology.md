@@ -115,6 +115,5 @@ probed — rather than a single reachable/unreachable flag. "Never probed" is th
 common state and is not the same fact as "not reaching"; collapsing them would
 report a working site as broken every time nobody had asked.
 
-Every cabinet named anywhere in these views carries its full `CabinetPath`, for
-the reason set out in [console.md](console.md): a hostname alone is not an
-identifier in an estate this size.
+Every cabinet named anywhere in these views carries its full `CabinetPath`;
+a hostname alone is not a unique identifier across clients and sites.

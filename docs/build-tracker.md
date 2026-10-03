@@ -8,7 +8,7 @@
 
 - **26 tracked outcomes:** 18 active browser workflows W01–W18, mapped exactly to register #4–#21, and eight shared gates G01–G08. **Accepted: 0/26.** Some have merged local-preview source, not released behavior. A shared gate is counted once and can block many workflows. Count is not a time estimate.
 - **Source status** describes what code exists: `preview source`, `partial preview`, `blocked`, `planned`. **Acceptance status** is separately `BLOCKED` until the listed evidence exists. `PASS` requires actual evidence linked to the exact revision and environment. A scope removal needs Marco's explicit decision and a new count; never silently tick a held item.
-- Windows WPF Console delivery is canceled. Entries #1–#3 are *historical source*, not three extra active outcomes. Their incident behavior carries into W03/W08. Keep old WPF code only until equivalent web flows and relevant safety tests are accepted; then remove it under the G08 retirement checklist below. Deleting code now would discard useful regression coverage before replacement.
+- Windows WPF Console delivery is canceled. Entries #1–#3 are *historical source*, not three extra active outcomes. Their incident behavior carries into W03/W08. Marco authorized deleting the unused desktop shell now. `Console.Core` remains temporarily because Agent integration tests depend on it; migrate the safety assertions before removing that library and its tests. Neither retained Core code nor old notes are operator release paths.
 - Controlled changes W15–W18 are **approval holds**. Observational work and a checkpoint are not approval to upload files, execute installers, change firewall/network settings, terminate processes or deploy updates. No remote screen/control or automatic firewall repair.
 
 ## Current architecture and next seam
@@ -51,13 +51,14 @@ Each row gives present source, missing acceptance and the next evidence to captu
 | G05 | Native Windows Agent/end-to-end | Authorized Windows 10/11 service-context installation, enrollment, read-only actions, timeout/restart, typed Server and browser readback | BLOCKED |
 | G06 | PostgreSQL fleet and recovery | Populated migrations, plans/load, concurrency, retention, backup/restore and device revocation rehearsal | BLOCKED |
 | G07 | Browser/operator acceptance | Supported browsers, keyboard/NVDA, high contrast, narrow layout and honest empty/denied/partial/stale states per workflow | BLOCKED |
-| G08 | Production security, operations and legacy retirement | Threat/dependency review, TLS/secrets/signing/shared keys, deploy/rollback, final-commit review, written approval; after web acceptance retire WPF source/docs/CI safely | BLOCKED |
+| G08 | Production security, operations and legacy retirement | Threat/dependency review, TLS/secrets/signing/shared keys, deploy/rollback, final-commit review, written approval; desktop shell removal under explicit direction in this change, Core safety tests retained until migrated | BLOCKED |
 
-### G08 retirement checklist: remove historical WPF only after replacement
+### G08 retirement checklist: remove desktop delivery without losing safety coverage
 
 - [ ] Inventory all `CabinetPlatform.Console` and `Console.Core` source, tests, solution/project references, CI jobs, desktop kits, diagrams and operator docs. Map every remaining test to a current WebHost/Server/Agent safety invariant before deletion.
 - [ ] Inventory every WPF/Core operator behavior, including enrollment/retirement and staff/session flows. Accept its in-scope web replacement (including W13/W14 where applicable) with real scoped Server paths and relevant G01–G07 evidence, or record Marco's explicit decision to retire that behavior. W01–W04 and W03/W08 incident coverage alone are insufficient. Keep historical maintenance safety regressions in Agent/Server tests rather than dropping them with WPF.
-- [ ] In a separate reviewed PR, delete retired WPF executable/Core and WPF-only tests/assets, remove WPF from solution/build/CI/deployment/package instructions, and replace or archive stale operator docs/diagrams without making old broad staff policy authoritative.
+- [ ] In a reviewed PR, delete the retired WPF executable and its native shell tests/assets, remove it from solution/build/deployment/package instructions, and delete stale operator walkthroughs/diagrams. Do not call `Console.Core` a shipped desktop app; it currently supplies Agent integration test fixtures.
+- [ ] Migrate the retained `Console.Core` Agent-transport and safety assertions to Server/Agent/browser-native tests, then delete Core and its remaining tests without weakening coverage.
 - [ ] Prove the new deliverable matrix builds/tests on the final commit and contains no WPF release or deployment path. Verify CI readback and main merge. Record any intentionally retained compatibility code with owner, purpose and removal trigger, rather than calling the cleanup done.
 
 This retirement work is a *subtask of G08*, not permission to erase code today or a 27th workflow. It can be split into smaller reviewed PRs. If WPF is still referenced after the claimed retirement, keep G08 `BLOCKED`.
