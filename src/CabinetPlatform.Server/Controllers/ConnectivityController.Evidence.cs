@@ -22,85 +22,8 @@ public sealed partial class ConnectivityController
     {
         var source = await AgentSource(ct);
         if (source is null) return Forbid();
-        var now = time.GetUtcNow();
-        if (summaries is null || summaries.Count is < 1 or > 16 ||
-            summaries.Any(s => s is null || s.SourceCabinetId != source.Id || !ConnectivityClassifier.IsValid(s, now)) ||
-            summaries.Select(s => s.Id).Distinct().Count() != summaries.Count) return BadRequest("Invalid bounded interval evidence.");
-
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
-        await db.Cabinets.Where(c => c.Id == source.Id)
-            .ExecuteUpdateAsync(s => s.SetProperty(c => c.LastCheckInUtc, c => c.LastCheckInUtc), ct);
-        source = await AgentSource(ct);
-        if (source is null) return Forbid();
-        var config = await db.ConnectivityConfigurations.SingleOrDefaultAsync(c => c.SourceCabinetId == source.Id, ct);
-        if (config is null || config.SiteId != source.SiteId) return Conflict("Connectivity configuration changed.");
-        var targets = await LiveTargets(config, source, ct);
-        if (summaries.Any(s => s.ConfigurationId != config.ConfigurationId || targets.All(t => t.CabinetId != s.TargetCabinetId)))
-            return Conflict("Connectivity configuration changed.");
-        if (summaries.Any(s => s.SourceFirewallCheck is not null && !targets.Single(t => t.CabinetId == s.TargetCabinetId).IsSync))
-            return BadRequest("Source firewall check requires an approved sync target.");
-        var states = JsonSerializer.Deserialize<ConnectivityLinkState[]>(config.StatesJson, Json)!.ToDictionary(s => s.TargetCabinetId);
-        foreach (var summary in summaries.OrderBy(s => s.FirstObservedUtc))
-        {
-            var json = JsonSerializer.Serialize(summary, Json);
-            var existing = await db.ConnectivityEvidence.AsNoTracking().SingleOrDefaultAsync(e => e.SourceCabinetId == source.Id && e.Id == summary.Id, ct);
-            if (existing is not null)
-            {
-                if (existing.SummaryJson != json) return Conflict("Summary identity already used for different evidence.");
-                continue;
-            }
-            // Do not count overlapping/reissued windows twice. Reject ambiguous evidence,
-            // leaving the complete batch transactional and retryable.
-            if (await db.ConnectivityEvidence.AnyAsync(e => e.SourceCabinetId == source.Id &&
-                e.TargetCabinetId == summary.TargetCabinetId && e.ConfigurationId == summary.ConfigurationId &&
-                e.FirstObservedUtc <= summary.LastObservedUtc && e.ObservedUtc >= summary.FirstObservedUtc, ct))
-                return Conflict("Observation windows overlap.");
-            if (db.ConnectivityEvidence.Local.Any(e => e.TargetCabinetId == summary.TargetCabinetId &&
-                e.FirstObservedUtc <= summary.LastObservedUtc && e.ObservedUtc >= summary.FirstObservedUtc))
-                return Conflict("Observation windows overlap.");
-            db.ConnectivityEvidence.Add(new ConnectivityEvidence
-            {
-                Id = summary.Id, SourceCabinetId = source.Id, TargetCabinetId = summary.TargetCabinetId,
-                ConfigurationId = summary.ConfigurationId, FirstObservedUtc = summary.FirstObservedUtc,
-                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = now, SummaryJson = json
-            });
-            var previous = states.GetValueOrDefault(summary.TargetCabinetId) ?? new ConnectivityLinkState
-            {
-                TargetCabinetId = summary.TargetCabinetId,
-                IsSync = targets.Single(t => t.CabinetId == summary.TargetCabinetId).IsSync
-            };
-            var current = ConnectivityClassifier.Apply(previous, summary, now);
-            states[summary.TargetCabinetId] = current;
-            if (current.IncidentReceivedUtc is not null &&
-                (current.IncidentReceivedUtc != previous.IncidentReceivedUtc ||
-                 current.IncidentObservedUtc != previous.IncidentObservedUtc ||
-                 (previous.RecoveredObservedUtc is not null && current.RecoveredObservedUtc is null)))
-            {
-                db.ConnectivityAlerts.Add(new ConnectivityAlert
-                {
-                    SourceCabinetId = source.Id, TargetCabinetId = summary.TargetCabinetId,
-                    EvidenceId = summary.Id, ObservedUtc = current.IncidentObservedUtc,
-                    ReceivedUtc = current.IncidentReceivedUtc.Value
-                });
-            }
-        }
-        config.StatesJson = JsonSerializer.Serialize(states.Values, Json);
-        await db.SaveChangesAsync(ct);
-        // Queue annotations are retained for 30 days and at most 200 per source,
-        // including unresolved rows. This is not a permanent incident archive.
-        await db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id && a.ReceivedUtc < now.AddDays(-30)).ExecuteDeleteAsync(ct);
-        var alertOverflow = db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id)
-            .OrderByDescending(a => a.ReceivedUtc).ThenBy(a => a.Id).Skip(200).Select(a => a.Id);
-        await db.ConnectivityAlerts.Where(a => a.SourceCabinetId == source.Id && alertOverflow.Contains(a.Id)).ExecuteDeleteAsync(ct);
-        // Keep incident evidence while its bounded alert is retained, even after ordinary evidence expires.
-        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && e.ObservedUtc < now.AddDays(-14) &&
-            !db.ConnectivityAlerts.Any(a => a.SourceCabinetId == e.SourceCabinetId && a.EvidenceId == e.Id)).ExecuteDeleteAsync(ct);
-        var overflow = db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id)
-            .OrderByDescending(e => e.ObservedUtc).ThenBy(e => e.Id).Skip(27000).Select(e => e.Id);
-        await db.ConnectivityEvidence.Where(e => e.SourceCabinetId == source.Id && overflow.Contains(e.Id) &&
-            !db.ConnectivityAlerts.Any(a => a.SourceCabinetId == e.SourceCabinetId && a.EvidenceId == e.Id)).ExecuteDeleteAsync(ct);
-        await transaction.CommitAsync(ct);
-        return Ok();
+        // Retained rows remain readable, but no new peer observations can enter the ledger.
+        return StatusCode(410, "Cabinet-to-cabinet ICMP reporting is retired.");
     }
 
     [HttpGet("cabinets/{id:guid}")]

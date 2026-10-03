@@ -17,6 +17,14 @@ namespace CabinetPlatform.Server.Tests;
 public sealed class ActionCatalogTests
 {
     [Fact]
+    public void Legacy_peer_ping_is_unavailable_even_when_maintenance_actions_are_enabled()
+    {
+        var options = new CabinetPlatform.Server.Configuration.ActionOptions { ExecutionMode = "Maintenance" };
+        Assert.False(ActionCatalog.TryGet(ActionName.PingCabinet, options, out _));
+        Assert.DoesNotContain(ActionCatalog.Available(options), e => e.Action == ActionName.PingCabinet);
+    }
+
+    [Fact]
     public void Every_enum_value_has_exactly_one_catalogue_entry()
     {
         ActionName[] declared = Enum.GetValues<ActionName>();

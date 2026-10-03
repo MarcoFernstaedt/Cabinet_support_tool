@@ -22,10 +22,10 @@ namespace CabinetPlatform.Agent.Tests;
 
 public sealed partial class OfficeBootstrapTests
 {
-    [Theory(Skip = "Historical peer sampling relied on newly configuring retired targets; enrollment covered separately")]
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Unique_office_enrollment_restart_connectivity_and_firewall_share_authenticated_transport(bool loseFirstResponse)
+    public async Task Unique_office_enrollment_restart_and_authenticated_checkin(bool loseFirstResponse)
     {
         var root = Path.Combine(Path.GetTempPath(), "office-agent-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -120,8 +120,6 @@ public sealed partial class OfficeBootstrapTests
                 Assert.Equal(CheckInOutcome.Accepted, checkin.Outcome);
                 var detail = await api.GetCabinetLatestAsync(result.CabinetId!.Value, CancellationToken.None);
                 Assert.Equal("LAB", detail.Cabinet.Hostname);
-                await VerifyOfficeMonitoringAsync(server.Services, restarted, consoleHttp, api, session,
-                    result.CabinetId.Value, root, () => server.CreateClient());
             }
             var stored = await File.ReadAllTextAsync(state);
             Assert.DoesNotContain(token, stored);

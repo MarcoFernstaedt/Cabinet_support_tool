@@ -208,7 +208,6 @@ public static class AgentServiceRegistration
         services.AddSingleton<IActionExecutor, PingHostExecutor>();
         services.AddSingleton<IActionExecutor, TraceRouteExecutor>();
         services.AddSingleton<IActionExecutor, TestPortConnectivityExecutor>();
-        services.AddSingleton<IActionExecutor, PingCabinetExecutor>();
         services.AddSingleton<IActionExecutor, TestCabinetPortExecutor>();
         services.AddSingleton<IActionExecutor, TraceRouteToCabinetExecutor>();
 

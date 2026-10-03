@@ -76,82 +76,85 @@ public sealed class ConnectivityAlertTests : IClassFixture<SupportApiFactory>
         Assert.Equal(HttpStatusCode.Unauthorized, (await _factory.CreateClient().GetAsync($"/api/connectivity-alerts?siteId={first.SiteId}")).StatusCode);
     }
 
-    [Fact(Skip = "Historical peer alert fixture relied on newly configuring retired targets")]
-    public async Task Sync_failure_alert_exposes_source_check_without_claiming_firewall_cause()
+    [Fact]
+    public async Task Retained_sync_failure_alert_exposes_historical_firewall_clue()
     {
-        var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());
-        string site = Guid.NewGuid().ToString();
-        var source = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id, siteName: site);
-        var target = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id,
-            siteName: site, role: CabinetPlatform.Contracts.Cabinets.CabinetRole.Sync);
-        (await supervisor.PutJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new ConfigureConnectivityRequest
-        { Reason = "Synthetic test", Targets = [new ConnectivityTarget { CabinetId = target.Id, Address = "192.168.10.2" }] })).EnsureSuccessStatusCode();
-        using var agent = TestClient.CreateAgentClient(_factory, source.MachineId);
-        var plan = await (await agent.GetAsync("/api/agent/connectivity/plan")).ReadAsync<ConnectivityPlan>();
-        Assert.True(Assert.Single(plan!.Targets).IsSync);
-        var first = DateTimeOffset.UtcNow.AddMinutes(-4);
+        var (support, user) = await TestClient.CreateUserClientAsync(_factory, Role.Tier1, Guid.NewGuid().ToString());
+        var source = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id);
+        var target = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id);
+        var first = DateTimeOffset.UtcNow.AddDays(-15);
         var summary = new ConnectivitySummary
         {
-            Id = Guid.NewGuid(), ConfigurationId = plan.ConfigurationId, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+            Id = Guid.NewGuid(), ConfigurationId = Guid.NewGuid(), SourceCabinetId = source.Id, TargetCabinetId = target.Id,
             FirstObservedUtc = first, LastObservedUtc = first.AddMinutes(2), FailureCount = 3,
             LeadingFailures = 3, TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = first.AddMinutes(2),
             SourceFirewallCheck = new() { ObservedUtc = first.AddMinutes(2).AddSeconds(1), Status = FirewallReadStatus.Read,
                 HasOutboundProfileBlockClue = true }
         };
-        Assert.Equal(HttpStatusCode.OK, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).StatusCode);
-        var page = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
-        var alert = Assert.Single(page.GetProperty("items").EnumerateArray());
-        Assert.True(alert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
-        var accepted = alert.GetProperty("incidentEvidence");
-        Assert.Equal(summary.Id, accepted.GetProperty("id").GetGuid());
-        Assert.Equal(summary.ConfigurationId, accepted.GetProperty("configurationId").GetGuid());
-        Assert.Equal(first, accepted.GetProperty("firstObservedUtc").GetDateTimeOffset());
-        Assert.Equal(first.AddMinutes(2), accepted.GetProperty("lastObservedUtc").GetDateTimeOffset());
-        Assert.Equal(3, accepted.GetProperty("failureCount").GetInt32());
-        Assert.Equal(0, accepted.GetProperty("successCount").GetInt32());
-        // Simulate a retained 15-day incident; ordinary evidence normally expires after 14 days.
         await _factory.WithDbAsync(async db =>
         {
-            var evidence = await db.ConnectivityEvidence.SingleAsync(e => e.Id == summary.Id);
-            evidence.FirstObservedUtc = evidence.FirstObservedUtc.AddDays(-15);
-            evidence.ObservedUtc = evidence.ObservedUtc.AddDays(-15);
-            var row = await db.ConnectivityAlerts.SingleAsync(a => a.EvidenceId == summary.Id);
-            row.ReceivedUtc = row.ReceivedUtc.AddDays(-15);
+            db.ConnectivityEvidence.Add(new CabinetPlatform.Server.Domain.ConnectivityEvidence
+            {
+                Id = summary.Id, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+                ConfigurationId = summary.ConfigurationId, FirstObservedUtc = summary.FirstObservedUtc,
+                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3),
+                SummaryJson = JsonSerializer.Serialize(summary, CabinetPlatform.Contracts.Common.ContractJson.Default)
+            });
+            db.ConnectivityAlerts.Add(new CabinetPlatform.Server.Domain.ConnectivityAlert
+            {
+                SourceCabinetId = source.Id, TargetCabinetId = target.Id, EvidenceId = summary.Id,
+                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3)
+            });
             await db.SaveChangesAsync();
         });
-        (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
-        var retained = await (await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
-        var retainedAlert = Assert.Single(retained.GetProperty("items").EnumerateArray());
-        Assert.True(retainedAlert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
-        Assert.Equal(summary.Id, retainedAlert.GetProperty("incidentEvidence").GetProperty("id").GetGuid());
-        Assert.Equal(3, retainedAlert.GetProperty("incidentEvidence").GetProperty("failureCount").GetInt32());
+        var page = await (await support.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}")).ReadAsync<JsonElement>();
+        var alert = Assert.Single(page.GetProperty("items").EnumerateArray());
+        Assert.True(alert.GetProperty("sourceFirewallCheck").GetProperty("hasOutboundProfileBlockClue").GetBoolean());
+        Assert.Equal(summary.Id, alert.GetProperty("incidentEvidence").GetProperty("id").GetGuid());
+        Assert.Equal(3, alert.GetProperty("incidentEvidence").GetProperty("failureCount").GetInt32());
         Assert.Equal("Open", alert.GetProperty("status").GetString());
     }
 
-    [Fact(Skip = "Historical peer alert fixture relied on newly configuring retired targets")]
-    public async Task Accepted_incident_creates_one_source_bound_alert_even_on_replay()
+    [Fact]
+    public async Task Seeded_historical_alert_is_source_bound_and_operator_transitions_remain_audited()
     {
         var (supervisor, user) = await TestClient.CreateUserClientAsync(_factory, Role.Supervisor, Guid.NewGuid().ToString());
         string site = Guid.NewGuid().ToString();
         var source = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id, siteName: site);
         var target = await TestClient.CreateApprovedCabinetAsync(_factory, Guid.NewGuid().ToString(), user.Id, siteName: site);
-        (await supervisor.PutJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new ConfigureConnectivityRequest
-        { Reason = "Lab", Targets = new[] { new ConnectivityTarget { CabinetId = target.Id, Address = "192.168.10.2" } } })).EnsureSuccessStatusCode();
         var agent = TestClient.CreateAgentClient(_factory, source.MachineId);
-        var plan = await (await agent.GetAsync("/api/agent/connectivity/plan")).ReadAsync<ConnectivityPlan>();
         var first = DateTimeOffset.UtcNow.AddMinutes(-4);
         var summary = new ConnectivitySummary
         {
-            Id = Guid.NewGuid(), ConfigurationId = plan!.ConfigurationId, SourceCabinetId = source.Id, TargetCabinetId = target.Id,
+            Id = Guid.NewGuid(), ConfigurationId = Guid.NewGuid(), SourceCabinetId = source.Id, TargetCabinetId = target.Id,
             FirstObservedUtc = first, LastObservedUtc = first.AddMinutes(2), FailureCount = 3,
             LeadingFailures = 3, TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = first.AddMinutes(2)
         };
-        Assert.Equal(HttpStatusCode.BadRequest, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] {
-            summary with { SourceFirewallCheck = new() { ObservedUtc = first.AddMinutes(2).AddSeconds(1),
-                Status = FirewallReadStatus.Read, HasOutboundProfileBlockClue = true } }
-        })).StatusCode);
-        (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
-        (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).EnsureSuccessStatusCode();
+        await _factory.WithDbAsync(async db =>
+        {
+            db.ConnectivityConfigurations.Add(new CabinetPlatform.Server.Domain.ConnectivityConfiguration
+            {
+                SourceCabinetId = source.Id, SiteId = source.SiteId, ConfigurationId = summary.ConfigurationId,
+                TargetsJson = JsonSerializer.Serialize(new[] { new ConnectivityTarget { CabinetId = target.Id, Address = "192.168.10.2" } }),
+                StatesJson = "[]", UpdatedUtc = first
+            });
+            db.ConnectivityEvidence.Add(new CabinetPlatform.Server.Domain.ConnectivityEvidence
+            {
+                Id = summary.Id, SourceCabinetId = source.Id, TargetCabinetId = target.Id, ConfigurationId = summary.ConfigurationId,
+                FirstObservedUtc = first, ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3),
+                SummaryJson = JsonSerializer.Serialize(summary, CabinetPlatform.Contracts.Common.ContractJson.Default)
+            });
+            db.ConnectivityAlerts.Add(new CabinetPlatform.Server.Domain.ConnectivityAlert
+            {
+                SourceCabinetId = source.Id, TargetCabinetId = target.Id, EvidenceId = summary.Id,
+                ObservedUtc = summary.LastObservedUtc, ReceivedUtc = first.AddMinutes(3)
+            });
+            await db.SaveChangesAsync();
+        });
+        // Retired ingestion cannot add another incident or replay an existing one.
+        Assert.Equal(HttpStatusCode.Gone, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary })).StatusCode);
+        Assert.Equal(HttpStatusCode.Gone, (await agent.PostJsonAsync("/api/agent/connectivity/summaries", new[] { summary with { Id = Guid.NewGuid() } })).StatusCode);
+        Assert.Equal(1, await _factory.WithDbAsync(db => db.ConnectivityAlerts.CountAsync(a => a.SourceCabinetId == source.Id)));
         var response = await supervisor.GetAsync($"/api/connectivity-alerts?sourceCabinetId={source.Id}");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var page = await response.ReadAsync<JsonElement>();

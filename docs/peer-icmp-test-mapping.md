@@ -1,0 +1,17 @@
+# Retired peer-ICMP test mapping (local branch)
+
+No new cabinet-to-cabinet ICMP sampling, target issuance, or summary ingestion is permitted. Historical rows below are explicitly seeded in test databases; they are not new observations. These tests establish preview-source behavior only, not native Windows or production acceptance.
+
+| Previously skipped test | Running replacement and invariant |
+| --- | --- |
+| `Real_sampler_durable_outbox_agent_http_and_console_api_show_failure_then_recovery` | `Retained_failure_is_visible_in_console_without_new_sampling`: seeded failure summary/state reaches Console API and MachineTab, including stale/uncertainty presentation. |
+| `Configuration_rejects_unapproved_scope_and_preserves_the_previous_plan` | `Retired_configuration_refuses_all_payloads_and_preserves_old_revision`: self/public/duplicate/empty/missing-reason requests all return 410; stored revision is unchanged; Agent plan is empty. Existing auth tests separately enforce Tier 1 403 and unauthenticated 401. |
+| `Ingestion_rejects_invalid_evidence_without_persisting_any_state` | `Retired_ingestion_refuses_payload_without_changing_historical_projection`: valid and malformed summary variants all return 410; seeded evidence and incident state are unchanged. |
+| `Lost_http_acknowledgment_replays_real_durable_summary_without_duplicate_incident_or_evidence` | `Retired_upload_does_not_acknowledge_historical_spooled_summary`: durable spool survives refused delivery, with no new evidence. Lost-ACK successful-ingestion replay is retired; no attempt to simulate successful upload. |
+| `Changing_target_topology_removes_dispatch_and_refuses_late_evidence` | `Moved_historical_target_disappears_from_projection_and_is_not_dispatched`: historical target moved off-site is omitted from readback and Agent plan remains empty; other ingestion refusal tests cover late submissions. |
+| `Three_misses_form_one_incident_and_success_recovers_without_replay_reopening` | `Historical_recovery_is_read_back_without_reopening_on_refused_replay`: seeded recovered state and failure evidence remain readable; replay returns 410 without reopening. New incident classification is not claimed. |
+| `Supervisor_pins_registered_same_site_targets_and_agent_receives_bounded_plan` | `Agent_plan_is_bounded_and_empty_even_for_retained_target`: plan identity, expiry, empty revision and empty target set; target pinning is retired. |
+| `Unique_device_ingestion_persists_incident_after_its_recovery_in_split_failure_run` | `Enrolled_device_cannot_ingest_but_seeded_split_failure_chronology_remains_readable`: real Office enrollment, seeded split chronology, empty plan, 410 upload, persisted state/evidence and HTTP readback. |
+| `Accepted_incident_creates_one_source_bound_alert_even_on_replay` | `Seeded_historical_alert_is_source_bound_and_operator_transitions_remain_audited`: seeded evidence/alert, replay and new submission both 410, no new alerts, source-bound queue and audited acknowledge/resolve permissions and validation. |
+
+The earlier uncommitted repair also converted the skipped Office bootstrap, two-site Office demo, and retained sync-firewall alert cases to running tests. Agent and Server have **zero remaining skip annotations** (the base `a555023` tree had 12 skipped test declarations: ten Agent and two Server; three were already repaired on entry, and the nine above complete that conversion). See the build tracker for suite execution on this branch. Historical evidence readback is not authorization to turn on peer probes.
