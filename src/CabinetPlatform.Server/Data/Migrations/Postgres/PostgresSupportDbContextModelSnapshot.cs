@@ -946,11 +946,11 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                     b.Property<long?>("ReadErrorsUncorrected")
                         .HasColumnType("bigint");
 
-                    b.Property<DateTimeOffset?>("ReceivedUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<int?>("ReallocatedSectorCount")
                         .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("ReceivedUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("Source")
                         .HasColumnType("integer");
@@ -992,6 +992,37 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .HasDatabaseName("IX_SmartReadings_Cabinet_Drive_Timestamp_Desc");
 
                     b.ToTable("SmartReadings");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("PredecessorCabinetId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReservedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("ReservedUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SuccessorMachineId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PredecessorCabinetId")
+                        .IsUnique();
+
+                    b.HasIndex("SuccessorMachineId")
+                        .IsUnique();
+
+                    b.ToTable("SuccessorReservations");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.User", b =>
@@ -1209,6 +1240,17 @@ namespace CabinetPlatform.Server.Data.Migrations.Postgres
                         .IsRequired();
 
                     b.Navigation("Cabinet");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.SuccessorReservation", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "PredecessorCabinet")
+                        .WithMany()
+                        .HasForeignKey("PredecessorCabinetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("PredecessorCabinet");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.BatchActionRequest", b =>

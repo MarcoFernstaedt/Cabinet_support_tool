@@ -56,6 +56,9 @@ public class SupportDbContext : DbContext
     /// <summary>Agents waiting for a Supervisor decision.</summary>
     public DbSet<PendingRegistration> PendingRegistrations => Set<PendingRegistration>();
 
+    /// <summary>Non-credential successor identity reservations.</summary>
+    public DbSet<SuccessorReservation> SuccessorReservations => Set<SuccessorReservation>();
+
     /// <summary>The five-minute tier, stored as typed columns and no payload.</summary>
     public DbSet<Heartbeat> Heartbeats => Set<Heartbeat>();
 
@@ -245,6 +248,16 @@ public class SupportDbContext : DbContext
             e.Property(x => x.AgentVersion).HasMaxLength(64);
             e.Property(x => x.Status).HasConversion<int>();
             e.HasIndex(x => x.Status);
+        });
+
+        b.Entity<SuccessorReservation>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SuccessorMachineId).IsRequired().HasMaxLength(128);
+            e.HasIndex(x => x.SuccessorMachineId).IsUnique();
+            e.HasIndex(x => x.PredecessorCabinetId).IsUnique();
+            e.HasOne(x => x.PredecessorCabinet).WithMany()
+                .HasForeignKey(x => x.PredecessorCabinetId).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<Heartbeat>(e =>

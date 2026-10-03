@@ -22,7 +22,8 @@ public sealed class OfficeEnrollmentController(OfficeEnrollmentStore store, Supp
         // A fresh token cannot inherit a legacy cabinet's approval or history.
         // An exact retry of an already-bound grant remains valid inside Redeem.
         var existing = await db.Cabinets.AnyAsync(c => c.MachineId == request.MachineId, ct) ||
-                       await db.PendingRegistrations.AnyAsync(r => r.MachineId == request.MachineId, ct);
+                       await db.PendingRegistrations.AnyAsync(r => r.MachineId == request.MachineId, ct) ||
+                       await db.SuccessorReservations.AnyAsync(r => r.SuccessorMachineId == request.MachineId, ct);
         return store.Redeem(request.Token, request.MachineId, request.DeviceKey, allowNewIdentity: !existing)
             ? NoContent() : Unauthorized();
     }
