@@ -24,11 +24,10 @@ class RecoveryContracts(unittest.TestCase):
             for name in ("independent-demo-kit.md", "demo-credential-renewal.md", "independent-demo-server.md"):
                 (source / "docs" / name).write_text(name)
             output.mkdir()
-            for name in ("agent", "console"):
-                (output / f"cabinet-{name}.zip").write_bytes(name.encode())
+            (output / "cabinet-agent.zip").write_bytes(b"agent")
             bundle_operator_files(source, output, "a" * 40)
             inventory = json.loads((output / "release-evidence.json").read_text())["sha256"]
-            self.assertEqual(len(inventory), 9)
+            self.assertEqual(len(inventory), 8)
             for name in ("Restore-CabinetDemoAgent.ps1", "Manual-Reinstall-CabinetDemoAgent.ps1", "RecoveryProcess.cs"):
                 self.assertNotIn(name, inventory)
                 self.assertFalse((output / name).exists())
