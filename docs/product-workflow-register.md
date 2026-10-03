@@ -1,6 +1,6 @@
 # Cabinet Support delivery register
 
-This is a finite planning baseline, not a claim that the 82 vision sections are 82 independent features. **21 operator workflows** are in scope in this register. A workflow is a bounded support outcome with a visible entry point, authorized data path, failure states and a testable acceptance result. Split or rebaseline it explicitly if the requirements change. The web app is the primary Console; WPF is a transitional compatibility surface. Remote screen/control, arbitrary shell, patient or application database access, physical actuation and automatic firewall repair are excluded. Privileged repairs and file handling need separate approval before implementation.
+This is a finite planning baseline, not a claim that the 82 vision sections are 82 independent features. **18 active web operator workflows (#4–#21)** remain to be accepted; #1–#3 are historical WPF-first work whose incident behavior belongs in web workflows #6 and #11. The browser app is the only Console delivery target; Windows runs the cabinet Agent service. Historical WPF code is not a product milestone or fallback gate. A workflow is a bounded support outcome with a visible entry point, authorized data path, failure states and a testable acceptance result. Split or rebaseline it explicitly if the requirements change. Remote screen/control, arbitrary shell, patient or application database access, physical actuation and automatic firewall repair are excluded. Privileged repairs and file handling need separate approval before implementation. See [the 26-item web-only delivery plan](web-only-delivery-plan.md) for these 18 acceptances and eight shared release gates.
 
 **Build sequence:** Finish the source implementation across this register in bounded, independently reviewed web-first slices. Follow with consolidated manual Windows/device/browser testing and visual polish, then staff and production hardening. Automated synthetic tests, security review and CI remain gates for every source merge, not tasks deferred until manual QA. A workflow can remain partial while an evidence source or approval is missing; record that honestly and continue the build queue. Do not activate staff access or privileged control merely because source exists.
 
@@ -8,10 +8,10 @@ This is a finite planning baseline, not a claim that the 82 vision sections are 
 
 ## Delivery sequence
 
-### Incident triage source, WPF transitional
-1. **Cabinet incident queue** | Source merged, PR #7 | From a loaded cabinet, open incidents scoped to its immutable ID, with empty/error and stale-scope handling. Native UI and deployment acceptance open.
-2. **Incident evidence detail** | Source merged, PR #8 | Open accepted historical interval evidence with timestamps, counts and explicit unknowns; never infer live connectivity or firewall cause. Native UI and device acceptance open.
-3. **Site incident annotation workload** | Source merged, PR #9 | Show retained status totals across the current source site, query time and unknown on summary failure without hiding the queue. PostgreSQL fleet latency and native UI acceptance open.
+### Historical WPF-first incident source, not a delivery workstream
+1. **Cabinet incident queue** | Historical source merged, PR #7; absorbed into web #6 | Preserve exact-cabinet scope, empty/error and stale-scope semantics in the browser. No WPF acceptance target.
+2. **Incident evidence detail** | Historical source merged, PR #8; absorbed into web #6/#11 | Preserve historical interval, timestamps and unknowns; never infer live connectivity or firewall cause. No WPF acceptance target.
+3. **Site incident annotation workload** | Historical source merged, PR #9; absorbed into web #6 | Preserve retained site totals, query time and unknown on summary failure. No WPF acceptance target.
 
 ### Web Console, local development preview source
 4. **Web cabinet finder** | Local preview source, release blocked | Staff searches a bounded, paginated cabinet list, sees site/client and freshness, and cannot leak bearer credentials into browser JavaScript. The local password gateway is only for disposable synthetic data; production requires Entra staff mapping and authorized BFF, deny/revocation tests, real fleet pagination and accessible browser QA.

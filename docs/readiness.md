@@ -1,33 +1,19 @@
 # Release gates
 
-Status: production release blocked.
-
-The initial audit covered all 361 tracked files at commit `35f450dde0f3430ad3e3e8119f8b1a782193896b`. Its test run passed 668 tests. The actual WPF application failed its direct build and was absent from the solution. Component repairs are in progress; this baseline is not the final release result.
-
-## Current diagnostic evidence
-
-Reviewed integrated code `6982cdd338d2faa40ec77f3b95be04e208ba625a` passes 813 tests with zero failures or skips. Explicit WPF compilation passes. Independent review confirms the fleet audit identity fix and bounded event discovery/process safety foundations. Selected process control is not operational through the console; native Windows acceptance and production gates remain blocked. See [capability status](capabilities.md). These results supersede the initial build baseline, not the remaining release requirements.
+Status: **production release blocked**. This document describes target acceptance, not a passing build report. The browser is the sole operator Console; Windows runs only the cabinet Agent service. Historical WPF builds and UI tests are not release gates. See the [26-item web-only delivery plan](web-only-delivery-plan.md) for 18 workflow acceptances plus eight shared gates, and the [workflow register](product-workflow-register.md) for source status. Earlier audit/test counts belong to their recorded revisions and are not final-commit evidence.
 
 ## Required evidence
 
-1. Build every executable, including WPF, from the final commit. Run all automated suites and retain the commands, exit codes and test results.
-2. Complete a real Windows console workflow from cabinet selection to displayed diagnostic result. Exercise mouse, keyboard, screen reader, high contrast and stale response handling.
-3. Authenticate each cabinet with its own revocable credential. Prove that one cabinet cannot report or consume another cabinet's work.
-4. Prove concurrent support token refresh, logout, password change, role change and account revocation. Old authority must not remain effective after a security revocation.
-5. Interrupt dispatch, execution and result delivery. Retain honest outcomes without duplicate disruptive effects.
-6. Inject journal write failures, service restarts and power loss. No privileged action may start without its required durable record.
-7. Test network changes with partial apply failures, timeouts, cancellation, multiple adapters and exact rollback. Retain console access independent of the changed network.
-8. Test process and service controls against inert lab targets, including reused process identifiers, dependencies and user session behavior.
-9. Test update occupancy, missed windows, cancellation, interrupted installation and result recovery on disposable Windows machines.
-10. Implement and test display rotation with supported mode validation and automatic restoration. Hardware sensor and actuation work remains excluded.
-11. Rehearse populated database upgrades and recovery on the intended PostgreSQL version. Check retention under sustained fleet load rather than a single sample per cabinet.
-12. Measure idle and active CPU, memory, handles, disk growth and network use. Repeat during a prolonged server outage and stalled Windows APIs.
-13. Resolve dependency advisories and review secret handling, installation ACLs, executable signing, transport certificates and deployment privileges.
-14. Approve diagnostic data classification, retention, access and backup handling for each deployment jurisdiction.
-15. Obtain independent security review and QA on the final revision, then written deployment approval and a rollback plan.
+1. Build the WebHost/BFF, Server, Agent and shared contracts from the final commit; run complete automated suites and record exit codes, failures and supported deployment targets. A source merge is not a deployed result.
+2. Verify actual organization Entra registration and Conditional Access/MFA, immutable staff mapping, cabinet/site authorization and denial/revocation under concurrent sessions. Keep API/device credentials out of browser JavaScript. Exercise cookie lifetime, CSRF and logout.
+3. Prove device-unique credential binding and that one cabinet cannot submit or consume another cabinet's work. Exercise Agent enrollment, service restart, key rotation and retirement/restore safety.
+4. Complete real Windows 10/11 **service-context** Agent -> Server -> web journeys for each collected diagnostic, including stalled native APIs, child timeout/cleanup, partial/unavailable results, replay and interruption. An interactive HP probe, synthetic fixture and cross-publish are not substitutes.
+5. Verify browser navigation, exact selected cabinet/action, stale scope, failure and unknown states, keyboard, screen reader, high contrast and narrow layouts with supported browsers and operator sign-off.
+6. Rehearse populated PostgreSQL migrations, concurrency, retention, backup/restore and recovery on the intended version. Measure representative fleet query plans/latency and sustained Server/Agent resource use and outage behavior.
+7. Approve diagnostic data classification, bounded display, retention/expiry, jurisdiction, audit and backup handling. Do not expose log content, unrestricted action output or diagnostic archives without an independently safe source and privacy review.
+8. Review dependencies, secrets, installation ACLs, signing, transport certificates, ingress, persistent shared Data Protection keys, deployment monitoring and rollback. Obtain independent security/QA review of the final revision and written deployment approval.
+9. If and only if separately authorized, exercise file-staging receipt and each controlled-change workflow against inert disposable Windows targets, with explicit authority, durable prior state, interrupted-operation recovery and unknown outcomes. Do not infer authorization to execute a staged file or automate firewall repair.
 
 ## Evidence rules
 
-Record PASS, FAIL or BLOCKED for each gate with a source artifact. A missing Windows machine is BLOCKED, not PASS. A source review is not a reproduced exploit. A passing fake gateway test is not a native Windows test. Never put credentials or actual customer diagnostics into test evidence.
-
-Keep each commit focused on a behavior or a cohesive repair. Preserve existing history. Use normal reviewed merges without force pushing. The final release record must identify the exact commit and the approved scope; a branch name is not enough.
+Record PASS, FAIL or BLOCKED per applicable workflow and shared gate with commit, environment, test command/output or operator artifact, reviewer and rollback owner. Missing Windows/service/browser/fleet evidence is BLOCKED, not PASS. Do not place secrets or real customer diagnostics in test evidence. A release record names an exact commit and approved scope. Approval to release a narrower read-only product must explicitly rebaseline and remove held workflows; it cannot silently mark them complete.
