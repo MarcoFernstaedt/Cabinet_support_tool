@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -15,6 +16,79 @@ ENDPOINT = "https://srv1522777.tail72f980.ts.net/"
 
 
 class PackageTests(unittest.TestCase):
+    def test_console_package_is_not_an_accepted_component(self):
+        from build_independent_demo_kit import package_component, verify_package
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
+            target = base / "console.zip"
+            with self.assertRaises(ValueError):
+                package_component("console", publish, target, "b" * 40)
+            self.assertFalse(target.exists())
+            with self.assertRaises(ValueError):
+                verify_package(target, "console")
+
+    def test_agent_package_refuses_desktop_executable(self):
+        from build_independent_demo_kit import package_component
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"agent")
+            (publish / "CabinetPlatform.Console.exe").write_bytes(b"desktop")
+            target = base / "agent.zip"
+            with self.assertRaises(ValueError):
+                package_component("agent", publish, target, "a" * 40)
+            self.assertFalse(target.exists())
+
+    def test_agent_package_omits_sdk_dump_helper_and_refuses_other_executables(self):
+        from build_independent_demo_kit import package_component, verify_package
+        with tempfile.TemporaryDirectory() as root:
+            base = Path(root)
+            publish = base / "publish"
+            publish.mkdir()
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"agent")
+            (publish / "createdump.exe").write_bytes(b"sdk helper")
+            target = base / "agent.zip"
+            package_component("agent", publish, target, "a" * 40)
+            with zipfile.ZipFile(target) as archive:
+                self.assertNotIn("createdump.exe", archive.namelist())
+            (publish / "Unexpected.exe").write_bytes(b"unexpected")
+            with self.assertRaises(ValueError):
+                package_component("agent", publish, base / "unsafe.zip", "a" * 40)
+            self.assertFalse((base / "unsafe.zip").exists())
+
+            with zipfile.ZipFile(target, "a") as archive:
+                archive.writestr("Unexpected.exe", b"unexpected")
+            with self.assertRaises(ValueError):
+                verify_package(target, "agent")
+
+    def test_builder_publishes_only_agent_and_inventory_matches_output(self):
+        from build_independent_demo_kit import build, verify_package
+        commands = []
+        real_run = subprocess.run
+
+        def fake_publish(command, **kwargs):
+            if command[0] == "git":
+                return real_run(command, **kwargs)
+            commands.append(command)
+            publish = Path(command[command.index("-o") + 1])
+            publish.mkdir()
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"synthetic")
+
+        with tempfile.TemporaryDirectory() as root, patch("build_independent_demo_kit.subprocess.run", side_effect=fake_publish):
+            output = Path(root) / "kit"
+            build(output, "dotnet")
+            self.assertEqual(1, len(commands))
+            self.assertIn("CabinetPlatform.Agent.csproj", commands[0][2])
+            self.assertEqual("agent", verify_package(output / "cabinet-agent.zip", "agent")["component"])
+            evidence = json.loads((output / "release-evidence.json").read_text())
+            self.assertEqual(set(evidence["sha256"]) | {"release-evidence.json"},
+                             {p.name for p in output.iterdir()})
+            self.assertNotIn("cabinet-console.zip", evidence["sha256"])
+
     def test_json_scanner_uses_only_json_whitespace_and_ascii_digits(self):
         helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()
         scanner = helper.split("function Read-Json", 1)[1].split("function Json-TopString", 1)[0]
@@ -75,20 +149,25 @@ class PackageTests(unittest.TestCase):
             root = Path(root)
             publish = root / "publish"
             publish.mkdir()
-            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
-            target = root / "console.zip"
-            package_component("console", publish, target, "b" * 40)
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"synthetic")
+            target = root / "agent.zip"
+            package_component("agent", publish, target, "b" * 40)
             with zipfile.ZipFile(target) as archive:
                 original = {n: archive.read(n) for n in archive.namelist()}
-            for kind in ("changed", "extra", "missing", "traversal", "duplicate", "wrong-config", "bad-manifest"):
+            for kind in ("changed", "extra", "desktop", "missing", "traversal", "duplicate", "wrong-config", "bad-manifest"):
                 with self.subTest(kind=kind):
                     rows = dict(original)
-                    if kind == "changed": rows["CabinetPlatform.Console.exe"] = b"tampered"
+                    if kind == "changed": rows["CabinetPlatform.Agent.exe"] = b"tampered"
                     if kind == "extra": rows["other.exe"] = b"x"
-                    if kind == "missing": del rows["CabinetPlatform.Console.exe"]
+                    if kind == "desktop":
+                        rows["CabinetPlatform.Console.exe"] = b"desktop"
+                        manifest = json.loads(rows["kit-manifest.json"])
+                        manifest["sha256"]["CabinetPlatform.Console.exe"] = hashlib.sha256(b"desktop").hexdigest().upper()
+                        rows["kit-manifest.json"] = json.dumps(manifest).encode()
+                    if kind == "missing": del rows["CabinetPlatform.Agent.exe"]
                     if kind == "traversal": rows["../escape"] = b"x"
                     if kind == "wrong-config":
-                        rows["appsettings.json"] = b'{"Api":{"BaseAddress":"https://evil.example/"}}'
+                        rows["appsettings.json"] = b'{"Agent":{"ServerBaseUrl":"https://evil.example/"}}'
                         manifest = json.loads(rows["kit-manifest.json"])
                         manifest["sha256"]["appsettings.json"] = hashlib.sha256(rows["appsettings.json"]).hexdigest().upper()
                         rows["kit-manifest.json"] = json.dumps(manifest).encode()
@@ -96,7 +175,7 @@ class PackageTests(unittest.TestCase):
                     with zipfile.ZipFile(target, "w") as archive:
                         for name, data in rows.items(): archive.writestr(name, data)
                         if kind == "duplicate": archive.writestr("appsettings.json", rows["appsettings.json"])
-                    with self.assertRaises(ValueError): verify_package(target, "console")
+                    with self.assertRaises(ValueError): verify_package(target, "agent")
 
     def test_builder_refuses_dirty_source_and_existing_destination(self):
         from build_independent_demo_kit import assert_clean_source, package_component
@@ -105,10 +184,10 @@ class PackageTests(unittest.TestCase):
             base = Path(root)
             publish = base / "publish"
             publish.mkdir()
-            (publish / "CabinetPlatform.Console.exe").write_bytes(b"x")
-            dest = base / "console.zip"
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"x")
+            dest = base / "agent.zip"
             dest.write_bytes(b"do not overwrite")
-            with self.assertRaises(FileExistsError): package_component("console", publish, dest, "c" * 40)
+            with self.assertRaises(FileExistsError): package_component("agent", publish, dest, "c" * 40)
             self.assertEqual(b"do not overwrite", dest.read_bytes())
 
     def test_rejects_windows_device_names_and_runtime_overlays(self):
@@ -154,20 +233,20 @@ class PackageTests(unittest.TestCase):
             base = Path(root)
             publish = base / "publish"
             publish.mkdir()
-            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
-            target = base / "console.zip"
-            package_component("console", publish, target, "b" * 40)
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"synthetic")
+            target = base / "agent.zip"
+            package_component("agent", publish, target, "b" * 40)
             original = target.read_bytes()
             for kind in ("reparse", "case", "prefix", "control", "leading"):
                 with self.subTest(kind=kind):
                     target.write_bytes(original)
-                    self.assertEqual("console", verify_package(target, "console")["component"])
+                    self.assertEqual("agent", verify_package(target, "agent")["component"])
                     with zipfile.ZipFile(target, "r") as source:
                         rows = [(entry.filename, source.read(entry)) for entry in source.infolist()]
                     with zipfile.ZipFile(target, "w") as archive:
                         for name, data in rows:
                             entry = zipfile.ZipInfo(name)
-                            if kind == "reparse" and entry.filename == "CabinetPlatform.Console.exe":
+                            if kind == "reparse" and entry.filename == "CabinetPlatform.Agent.exe":
                                 entry.external_attr |= 0x400
                             archive.writestr(entry, data)
                         if kind == "case": archive.writestr("APPSETTINGS.JSON", b"x")
@@ -175,7 +254,7 @@ class PackageTests(unittest.TestCase):
                         if kind == "control": archive.writestr("unsafe\x01.txt", b"x")
                         if kind == "leading": archive.writestr(" leading.dll", b"x")
                     with self.assertRaisesRegex(ValueError, "Unsafe archive member"):
-                        verify_package(target, "console")
+                        verify_package(target, "agent")
 
     def test_archive_size_boundaries_use_actual_zip_member_lengths(self):
         from build_independent_demo_kit import package_component, verify_package
@@ -183,16 +262,16 @@ class PackageTests(unittest.TestCase):
             base = Path(root)
             publish = base / "publish"
             publish.mkdir()
-            (publish / "CabinetPlatform.Console.exe").write_bytes(b"synthetic")
+            (publish / "CabinetPlatform.Agent.exe").write_bytes(b"synthetic")
             exact = b"\0" * (100 * 1024 * 1024)
             (publish / "boundary.dll").write_bytes(exact)
             target = base / "at-limit.zip"
-            package_component("console", publish, target, "b" * 40)
+            package_component("agent", publish, target, "b" * 40)
             with zipfile.ZipFile(target) as archive:
                 self.assertEqual(len(exact), archive.getinfo("boundary.dll").file_size)
-            self.assertEqual("console", verify_package(target, "console")["component"])
+            self.assertEqual("agent", verify_package(target, "agent")["component"])
             (publish / "boundary.dll").write_bytes(exact + b"x")
-            with self.assertRaises(ValueError): package_component("console", publish, base / "over-limit.zip", "b" * 40)
+            with self.assertRaises(ValueError): package_component("agent", publish, base / "over-limit.zip", "b" * 40)
             self.assertFalse((base / "over-limit.zip").exists())
 
             aggregate = base / "aggregate.zip"
@@ -212,7 +291,7 @@ class PackageTests(unittest.TestCase):
             with zipfile.ZipFile(aggregate) as archive:
                 self.assertGreater(sum(item.file_size for item in archive.infolist()), 1024 * 1024 * 1024)
             with self.assertRaisesRegex(ValueError, "Unsafe archive member"):
-                verify_package(aggregate, "console")
+                verify_package(aggregate, "agent")
 
     def test_operator_bundle_copies_exact_source_helper_and_guide(self):
         from build_independent_demo_kit import bundle_operator_files
@@ -232,12 +311,11 @@ class PackageTests(unittest.TestCase):
                 (source / "docs" / name).write_bytes(name.encode())
             output = base / "kit"
             output.mkdir()
-            for name in ("agent", "console"):
-                (output / f"cabinet-{name}.zip").write_bytes(name.encode())
+            (output / "cabinet-agent.zip").write_bytes(b"agent")
             bundle_operator_files(source, output, "a" * 40)
             evidence = json.loads((output / "release-evidence.json").read_text())
             self.assertEqual("a" * 40, evidence["sourceCommit"])
-            self.assertEqual({"cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1",
+            self.assertEqual({"cabinet-agent.zip", "Install-CabinetDemoAgent.ps1",
                               "independent-demo-kit.md", "office_renewal_operator.py", "office_renewal_preflight.py",
                               "issue_office_enrollment.py", "demo-credential-renewal.md", "independent-demo-server.md"}, set(evidence["sha256"]))
             self.assertEqual(set(evidence["sha256"]) | {"release-evidence.json"}, {p.name for p in output.iterdir()})
@@ -249,6 +327,14 @@ class PackageTests(unittest.TestCase):
                     folder = "docs" if name.endswith(".md") else "tools"
                     self.assertEqual((source / folder / name).read_bytes(), (output / name).read_bytes())
             self.assertEqual(b"trusted helper", (output / "Install-CabinetDemoAgent.ps1").read_bytes())
+
+    def test_bundled_guide_describes_agent_only_delivery(self):
+        guide = (ROOT / "docs/independent-demo-kit.md").read_text()
+        self.assertIn("cabinet-agent.zip", guide)
+        self.assertNotIn("cabinet-console.zip", guide)
+        self.assertNotIn("CabinetPlatform.Console.exe", guide)
+        self.assertNotIn("WPF", guide)
+        self.assertIn("eight inventoried deliverables", guide)
 
     def test_helper_contract_keeps_install_and_enrollment_separate(self):
         helper = (ROOT / "tools/Install-CabinetDemoAgent.ps1").read_text()

@@ -10,7 +10,7 @@ Mashura hosts the support API, its database and the target same-origin web Conso
 
 Clients can have multiple locations and several cabinets at each location. Typically one cabinet holds the location's application database and acts as the sync cabinet. Other cabinets communicate with it locally. The Mashura support server does not replace or read that application database.
 
-The target placement and trust boundaries are in [architecture](docs/architecture.md). Older SVG placement diagrams depict a historical desktop Console, not the delivery architecture.
+The target placement and trust boundaries are in [architecture](docs/architecture.md).
 
 ## Scope
 
@@ -26,7 +26,7 @@ Physical cabinet sensors, drawer opening, lock release and cubie opening remain 
 4. `CabinetPlatform.Web` is a loopback-only synthetic-data preview, not an approved staff deployment.
 5. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
 
-Historical `CabinetPlatform.Console.Core` and `CabinetPlatform.Console` projects remain temporarily for safety-test reference. They are not a product milestone or fallback requirement. Once equivalent web behavior and safety tests are accepted, remove them and all retired delivery references through the tracked G08 cleanup.
+`CabinetPlatform.Console.Core` remains temporarily as a test dependency for Agent and Server safety regressions. The WPF executable and native shell harness are retired; neither is a product milestone or fallback. Move the remaining Core tests to Agent/Server test projects before removing Core.
 
 ## Build and test
 
@@ -48,15 +48,15 @@ Do not run the agent, network changes, updates or process controls on a producti
 
 ## Documentation
 
-Read the [current capability status](docs/capabilities.md) for implemented behavior, incomplete wiring and verification limits.
+Read the [current source-versus-live tracker](docs/build-tracker.md) for implemented behavior, incomplete wiring and verification limits.
 
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
-3. [Release gates](docs/readiness.md), [isolated demo setup](docs/demo.md), [Windows demo checks](docs/testing.md) and the [static browser operator Demo](src/CabinetPlatform.Web/README.md#mashura-inspired-operator-demo-static-no-backend-or-login). The static Demo uses sample data and is not a connected or accepted Console.
+3. [Release gates](docs/readiness.md), [Agent-only demo package](docs/independent-demo-kit.md), and [Windows demo checks](docs/testing.md). The static browser preview uses sample data; it is not a connected or accepted Console.
 4. [Display recovery requirement](docs/display.md)
 5. [Build notes](docs/building.md)
 6. [Agent behavior](docs/agent.md) and [installation](docs/agent-install.md)
-7. [Web-only delivery plan](docs/web-only-delivery-plan.md) and [web Console security](docs/web-console-security.md); [historical WPF Console](docs/console.md)
+7. [Web-only delivery plan](docs/web-only-delivery-plan.md) and [web Console security](docs/web-console-security.md)
 8. [Shared contracts](docs/contracts.md)
 9. [Security invariants](docs/security-invariants.md)
 10. [Location topology](docs/topology.md)

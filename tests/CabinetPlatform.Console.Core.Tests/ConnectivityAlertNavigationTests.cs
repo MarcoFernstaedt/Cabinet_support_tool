@@ -1,4 +1,3 @@
-using System.Xml.Linq;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.ViewModels;
@@ -14,29 +13,9 @@ public sealed class ConnectivityAlertNavigationTests : IClassFixture<ConsoleTest
     [Theory]
     [InlineData(Role.Tier1)]
     [InlineData(Role.Tier2)]
-    public async Task Both_support_tiers_have_real_queue_navigation_and_source_identity_binding(Role role)
+    public async Task Both_support_tiers_can_navigate_alerts_by_exact_source_and_target_identity(Role role)
     {
         Assert.NotNull(typeof(ShellViewModel).GetProperty("Alerts"));
-        var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (!File.Exists(Path.Combine(root.FullName, "CabinetPlatform.sln"))) root = root.Parent!;
-        var main = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/MainWindow.xaml"));
-        Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowAlertsCommand}");
-        Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowSiteAlertsCommand}");
-        Assert.Contains(main.Descendants(), e => (string?)e.Attribute("Command") == "{Binding ShowCabinetAlertsCommand}");
-        Assert.Equal("{Binding Alerts}", (string?)Assert.Single(main.Descendants(), e => e.Name.LocalName == "ConnectivityAlertsView").Attribute("DataContext"));
-        var view = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/ConnectivityAlertsView.xaml"));
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("SelectedItem") == "{Binding SelectedAlert}");
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding FirewallTriageGuidance}");
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding EvidenceAvailability}");
-        foreach (var binding in new[] { "FirstObservedUtc", "LastObservedUtc", "SuccessCount", "FailureCount", "ErrorCount", "MaximumFailureRun", "LastSuccessUtc", "LastFailureUtc", "ConfigurationId" })
-            Assert.Contains(view.Descendants(), e => ((string?)e.Attribute("Text"))?.Contains("SelectedAlert.IncidentEvidence." + binding, StringComparison.Ordinal) == true);
-        Assert.Contains(view.Descendants(), e => e.Name.LocalName == "Expander" && (string?)e.Attribute("Header") == "Accepted interval evidence (historical)");
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding ScopeSummary}");
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Text") == "{Binding SiteWorkloadText}");
-        Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding SourceFirewallClueLabel}");
-        foreach (var command in new[] { "AcknowledgeCommand", "ResolveCommand", "OpenSourceCommand", "OpenTargetCommand",
-                     "FilterToSelectedSiteCommand", "ShowAllSitesCommand", "NextCommand", "PreviousCommand" })
-            Assert.Contains(view.Descendants(), e => (string?)e.Attribute("Command") == "{Binding " + command + "}");
         string username = Guid.NewGuid().ToString();
         await _host.CreateUserAsync(role, username);
         var (api, session) = _host.CreateConsole();

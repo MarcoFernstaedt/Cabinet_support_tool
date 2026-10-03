@@ -1,83 +1,22 @@
-# Building
+# Building the browser Console, Server and Windows Agent
 
-The .NET version is set once, in `Directory.Build.props`, and inherited by
-every project. No project restates it.
+The operator Console is a browser app. Windows ships only `CabinetPlatform.Agent` as a service. `CabinetPlatform.Console.Core` is temporarily retained as a test dependency for Agent transport regressions, **not** a release artifact or operator application. Its removal requires moving those tests without losing their safety assertions.
 
-```
-dotnet build CabinetPlatform.sln
-dotnet test tests/CabinetPlatform.Server.Tests -c Release --filter FullyQualifiedName~MonitoringBoundaryTests
-dotnet test tests/CabinetPlatform.Agent.Tests -c Release --filter "FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
-```
-
-## Office bootstrap tests and staging
-
-The office enrollment and origin checks run against the shipping composition:
+The SDK target is inherited from `Directory.Build.props`. With the .NET 8 SDK:
 
 ```sh
-dotnet test tests/CabinetPlatform.Server.Tests -c Release -m:1 --filter "FullyQualifiedName~OfficeEnrollment|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~EndpointPolicyCoverageTests"
-dotnet test tests/CabinetPlatform.Agent.Tests -c Release -m:1 --filter "FullyQualifiedName~Office|FullyQualifiedName~MonitoringBoundaryTests|FullyQualifiedName~DiagnosticDemoTests"
-dotnet test tests/CabinetPlatform.Console.Core.Tests -c Release -m:1 --filter FullyQualifiedName~OfficeConsoleTransportTests
+dotnet build CabinetPlatform.sln -c Release
+dotnet test tests/CabinetPlatform.Server.Tests -c Release
+dotnet test tests/CabinetPlatform.Agent.Tests -c Release
+dotnet test tests/CabinetPlatform.WebHost.Tests -c Release
+dotnet test tests/CabinetPlatform.DemoBff.Tests -c Release
 python3 -m unittest discover -s tests/office-bootstrap -v
 ```
 
-`tools/prepare_office_demo.py` publishes the actual Windows Agent and WPF Console
-in Release and generates matching configuration without distributing a shared
-key. See [office bootstrap](office-bootstrap.md) for the private output layout,
-short-lived tokens and blocked distribution/native Windows gates.
+The Agent targets Windows APIs but can build and run its injected-interface tests on Linux. Native Windows service installation, SCM behavior, ACLs and actual cabinet readings require separate HP verification. The web source in `src/CabinetPlatform.Web` has its own JavaScript tests and is not a replacement for live authenticated browser acceptance.
 
-## Platform requirements
+Historical `LegacyMaintenanceTests` are a nonshipping test configuration; never publish or install those outputs. The Console.Core tests retain legacy transport and action-policy coverage, including known historical failures; they are not a Windows desktop release gate. Do not delete that coverage merely to make a solution test green.
 
-`CabinetPlatform.Console` is a WPF application and targets `net8.0-windows`.
-It builds only on Windows, or on a machine whose .NET SDK ships the
-`Microsoft.NET.Sdk.WindowsDesktop` targets. On a Linux SDK that omits them the
-project restores but cannot compile, and a whole-solution build reports:
+`tools/prepare_office_demo.py` prepares an unsigned private Agent staging bundle and short-lived lab enrollment tokens. `tools/build_independent_demo_kit.py` packages an Agent-only Windows ZIP from a clean committed revision. Neither script enrolls the HP or changes the running Server. See [office bootstrap](office-bootstrap.md) and [independent kit](independent-demo-kit.md) for restrictions.
 
-```
-error MSB4019: The imported project ".../Microsoft.NET.Sdk.WindowsDesktop/targets/
-Microsoft.NET.Sdk.WindowsDesktop.targets" was not found.
-```
-
-`CabinetPlatform.Agent` also targets `net8.0-windows`, because it reads WMI,
-the registry, the Windows event log and the service control manager. Unlike the
-WPF console it needs no desktop targets, so `EnableWindowsTargeting` in
-`Directory.Build.props` is enough to build and test it on Linux CI. Only
-*running* it against real hardware requires Windows.
-
-Everything except the WPF console builds and tests anywhere:
-
-```
-dotnet build src/CabinetPlatform.Contracts/CabinetPlatform.Contracts.csproj
-dotnet build src/CabinetPlatform.Agent/CabinetPlatform.Agent.csproj
-dotnet build src/CabinetPlatform.Server/CabinetPlatform.Server.csproj
-dotnet test tests/CabinetPlatform.Server.Tests -c Release
-dotnet test tests/CabinetPlatform.Server.Tests -c LegacyMaintenanceTests
-dotnet test tests/CabinetPlatform.Agent.Tests -c LegacyMaintenanceTests
-dotnet test tests/CabinetPlatform.Console.Core.Tests -c LegacyMaintenanceTests
-```
-
-`Debug` and `Release` compile the monitoring-only boundary. The full Server
-Release suite now excludes historical control expectations while retaining
-shipping-boundary tests; run both Server configurations above. The historical
-maintenance suites require the explicit
-`LegacyMaintenanceTests` configuration, with separate build outputs and blocked
-publish/pack targets. Do not distribute that test build or mistake its passing
-tests for monitoring-release acceptance. See [compiled monitoring boundary](restricted-demo-mode.md).
-
-The agent's tests run on a non-Windows machine because the code under test
-reaches Windows only through injected interfaces. That is a design property
-worth preserving: a collector that called WMI from a static helper could only
-be tested on a cabinet, which in practice means it would not be tested.
-
-## Warnings are errors
-
-`TreatWarningsAsErrors` is on for every project. `CabinetPlatform.Contracts`
-also generates its documentation file, which makes an undocumented public
-member a build error — the contracts are the shared surface between three
-executables and are documented as such.
-
-## Configuration
-
-Settings live in `appsettings.json`, never in source: the agent's server URL
-and check-in interval, the server's connection string and log sinks. Use
-`dotnet user-secrets` for anything sensitive during local development. No
-secrets and no plaintext passwords belong in this repository.
+`TreatWarningsAsErrors` applies to the managed projects. Keep passwords, device keys and tokens out of source; use appropriate protected local configuration and the approved Server/Agent deployment procedure.

@@ -6,7 +6,6 @@ using CabinetPlatform.Server.Data;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
-using System.Xml.Linq;
 
 namespace CabinetPlatform.Console.Core.Tests;
 
@@ -41,23 +40,6 @@ public sealed class StaffWorkflowTests : IClassFixture<ConsoleTestHost>
         Assert.True(vm.Users.Single(u => u.Id == target.Id).IsActive);
         Assert.Null(vm.SelectedUser);
         Assert.False(vm.ShowReactivate);
-    }
-
-    [Fact]
-    public void Reactivation_controls_bind_real_command_confirmation_and_visibility()
-    {
-        DirectoryInfo? root = new(AppContext.BaseDirectory);
-        while (root is not null && !Directory.Exists(Path.Combine(root.FullName, "src/CabinetPlatform.Console")))
-            root = root.Parent;
-        Assert.NotNull(root);
-        var xaml = XDocument.Load(Path.Combine(root.FullName, "src/CabinetPlatform.Console/Views/StaffView.xaml"));
-        var button = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "Button" &&
-            (string?)e.Attribute("Command") == "{Binding ReactivateCommand}");
-        Assert.Equal("{Binding ShowReactivate, Converter={StaticResource BoolToVisibility}}",
-            (string?)button.Attribute("Visibility"));
-        var confirmation = Assert.Single(xaml.Descendants(), e => e.Name.LocalName == "CheckBox" &&
-            (string?)e.Attribute("IsChecked") == "{Binding ReactivateConfirmed}");
-        Assert.Equal((string?)button.Attribute("Visibility"), (string?)confirmation.Attribute("Visibility"));
     }
 
     [Fact]

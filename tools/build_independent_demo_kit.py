@@ -13,8 +13,7 @@ from pathlib import Path
 
 from prepare_office_demo import TRUSTED_ENDPOINT, REPOSITORY
 
-COMPONENTS = {"agent": "Agent", "console": "Console"}
-CONSOLE_LOCALES = {"cs", "de", "es", "fr", "it", "ja", "ko", "pl", "pt-BR", "ru", "tr", "zh-Hans", "zh-Hant"}
+COMPONENTS = {"agent": "Agent"}
 
 
 def assert_clean_source(status):
@@ -41,16 +40,14 @@ def _forbidden_content(name):
 
 def _allowed_runtime(name, component):
     parts = name.split("/")
-    if len(parts) == 2:
-        return component == "console" and parts[0] in CONSOLE_LOCALES and parts[1].endswith(".resources.dll")
-    if len(parts) != 1:
+    if len(parts) != 1 or name.casefold().startswith("cabinetplatform.console."):
         return False
     if name in {"appsettings.json", "kit-manifest.json", "CabinetPlatform.Contracts.xml"}:
         return True
     if name in {f"CabinetPlatform.{COMPONENTS[component]}.deps.json",
                 f"CabinetPlatform.{COMPONENTS[component]}.runtimeconfig.json"}:
         return True
-    return name.lower().endswith((".dll", ".exe"))
+    return name == f"CabinetPlatform.{COMPONENTS[component]}.exe" or name.lower().endswith(".dll")
 
 def _unique_json(pairs):
     result = {}
@@ -65,8 +62,6 @@ def _unique_json(pairs):
 
 
 def _settings(component, source):
-    if component == "console":
-        return {"Api": {"BaseAddress": TRUSTED_ENDPOINT, "TimeoutSeconds": 30}}
     agent = json.loads((source / "src/CabinetPlatform.Agent/appsettings.json").read_text())
     options = agent["Agent"]
     options["ServerBaseUrl"] = TRUSTED_ENDPOINT
@@ -86,8 +81,6 @@ def _settings(component, source):
 def _valid_config(component, raw):
     try:
         data = json.loads(raw)
-        if component == "console":
-            return data == {"Api": {"BaseAddress": TRUSTED_ENDPOINT, "TimeoutSeconds": 30}}
         expected = _settings("agent", REPOSITORY)
         return data == expected
     except (ValueError, KeyError, TypeError):
@@ -141,6 +134,9 @@ def package_component(component, publish, destination, commit, source=REPOSITORY
             raise ValueError("Linked publish member")
         if path.is_file():
             name = path.relative_to(publish).as_posix()
+            # The SDK's crash-dump executable is not needed for the monitored Agent.
+            if name == "createdump.exe":
+                continue
             if not _safe_name(name) or _forbidden_content(name) or not _allowed_runtime(name, component):
                 if name in ("appsettings.json", "appsettings.Development.json"):
                     continue
@@ -176,7 +172,7 @@ def bundle_operator_files(source, output, commit):
                                      ("docs/independent-demo-server.md", "independent-demo-server.md")):
         with (output / target_name).open("xb") as target:
             target.write((source / source_name).read_bytes())
-    names = ("cabinet-agent.zip", "cabinet-console.zip", "Install-CabinetDemoAgent.ps1", "independent-demo-kit.md",
+    names = ("cabinet-agent.zip", "Install-CabinetDemoAgent.ps1", "independent-demo-kit.md",
              "office_renewal_operator.py", "office_renewal_preflight.py", "issue_office_enrollment.py",
              "demo-credential-renewal.md", "independent-demo-server.md")
     evidence = {"sourceCommit": commit, "sha256": {name: hashlib.sha256((output / name).read_bytes()).hexdigest().upper()
