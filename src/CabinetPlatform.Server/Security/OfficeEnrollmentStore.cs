@@ -49,19 +49,9 @@ public sealed class OfficeEnrollmentStore : IDisposable
         _lockFile = new FileStream(_options.StateFile + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         try
         {
-            if (new FileInfo(_options.StateFile).Length > 4 * 1024 * 1024)
-                throw new InvalidOperationException("Office enrollment journal exceeds its limit.");
-            _grants = JsonSerializer.Deserialize<List<Grant>>(File.ReadAllText(_options.StateFile))
-                ?? throw new InvalidOperationException("Office enrollment journal is invalid.");
-            if (_grants.Count > 100 || _grants.Any(g => g is null || !IsKey(g.TokenHash) || !IsKey(g.KeyHash) || !IsMachineId(g.MachineId) ||
-                    (g.KeyDestroyed && !g.Revoked) || g.Renewals is null || g.Renewals.Count > 30 || g.Renewals.Any(r => r is null ||
-                        r.RequestId == Guid.Empty || string.IsNullOrWhiteSpace(r.ActorId) ||
-                        string.IsNullOrWhiteSpace(r.Reason) || r.ExpiresUtc != r.IssuedUtc.AddDays(1))) ||
-                _grants.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != _grants.Count ||
-                _grants.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != _grants.Count ||
-                _grants.SelectMany(g => g.Renewals).Select(r => r.RequestId).Distinct().Count() !=
-                _grants.Sum(g => g.Renewals.Count))
-                throw new InvalidOperationException("Office enrollment journal is invalid.");
+            using (var journal = new FileStream(_options.StateFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+                _grants = ParseJournal(ReadBoundedJournal(journal))
+                    ?? throw new InvalidOperationException("Office enrollment journal is invalid or exceeds its limit.");
             // Destroy the usable key hash when first tombstoned. The previous reader ignores
             // Revoked, but cannot authenticate the original key after this replacement.
             var revoked = _grants.Select(g => (g.Revoked && g.KeyDestroyed) ||
@@ -123,7 +113,9 @@ public sealed class OfficeEnrollmentStore : IDisposable
     /// <summary>
     /// Conservative readback for successor *preparation*, not credential issuance.
     /// A disabled store, absent grant, lost/corrupt journal or disagreement with the
-    /// in-process tombstone is never evidence of revocation.
+    /// in-process tombstone is never evidence of revocation. The journal path and its
+    /// parent must be protected by operator-managed ACLs; this is not an authenticated
+    /// record and must never authorize successor credential issuance.
     /// </summary>
     public bool HasDurableRevocation(string machineId)
     {
@@ -134,13 +126,9 @@ public sealed class OfficeEnrollmentStore : IDisposable
             if (expected is not { Revoked: true, KeyDestroyed: true }) return false;
             try
             {
-                if (new FileInfo(_options.StateFile).Length > 4 * 1024 * 1024) return false;
-                var saved = JsonSerializer.Deserialize<List<Grant>>(File.ReadAllText(_options.StateFile));
-                if (saved is null || saved.Count > 100 || saved.Any(g => g is null ||
-                    !IsMachineId(g.MachineId) || !IsKey(g.TokenHash) || !IsKey(g.KeyHash)) ||
-                    saved.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != saved.Count ||
-                    saved.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != saved.Count)
-                    return false;
+                using var journal = new FileStream(_options.StateFile, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var saved = ParseJournal(ReadBoundedJournal(journal));
+                if (saved is null) return false;
                 var actual = saved.SingleOrDefault(g => g.MachineId == machineId);
                 return actual is { Revoked: true, KeyDestroyed: true } &&
                     actual.TokenHash == expected.TokenHash && actual.KeyHash == expected.KeyHash;
@@ -197,6 +185,42 @@ public sealed class OfficeEnrollmentStore : IDisposable
                 return AgentIdentity.Fail("Office device credential invalid.");
             return AgentIdentity.Success(grant.MachineId);
         }
+    }
+
+    // Length, bytes and end-of-read are all checked on one open handle. Never allocate
+    // from an unchecked path length or follow a second pathname for the payload.
+    internal static byte[]? ReadBoundedJournal(Stream stream)
+    {
+        const int limit = 4 * 1024 * 1024;
+        var length = stream.Length;
+        if (length < 0 || length > limit) return null;
+        var bytes = new byte[(int)length];
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            var count = stream.Read(bytes, offset, bytes.Length - offset);
+            if (count == 0) return null;
+            offset += count;
+        }
+        return stream.ReadByte() == -1 && stream.Length == length ? bytes : null;
+    }
+
+    private static List<Grant>? ParseJournal(byte[]? bytes)
+    {
+        if (bytes is null) return null;
+        var grants = JsonSerializer.Deserialize<List<Grant>>(bytes);
+        if (grants is null || grants.Count > 100 || grants.Any(g => g is null ||
+                !IsKey(g.TokenHash) || !IsKey(g.KeyHash) || !IsMachineId(g.MachineId) ||
+                (g.KeyDestroyed && !g.Revoked) || g.Renewals is null || g.Renewals.Count > 30 ||
+                g.Renewals.Any(r => r is null || r.RequestId == Guid.Empty ||
+                    string.IsNullOrWhiteSpace(r.ActorId) || string.IsNullOrWhiteSpace(r.Reason) ||
+                    r.IssuedUtc > DateTimeOffset.MaxValue.AddDays(-1) ||
+                    r.ExpiresUtc != r.IssuedUtc.AddDays(1))) ||
+            grants.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != grants.Count ||
+            grants.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != grants.Count ||
+            grants.SelectMany(g => g.Renewals).Select(r => r.RequestId).Distinct().Count() !=
+                grants.Sum(g => g.Renewals.Count)) return null;
+        return grants;
     }
 
     private void Persist(List<Grant> grants)
