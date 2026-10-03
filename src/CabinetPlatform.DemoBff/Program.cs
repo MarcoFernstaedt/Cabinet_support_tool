@@ -23,7 +23,7 @@ builder.Services.AddHttpClient("server-login", (provider, client) =>
     client.BaseAddress = RequireHttpsRoot(provider.GetRequiredService<IConfiguration>()["DemoBff:ServerBaseUrl"]);
     client.Timeout = TimeSpan.FromSeconds(10);
     client.MaxResponseContentBufferSize = 8192;
-});
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddRateLimiter(o =>
 {
     o.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -78,6 +78,11 @@ app.MapPost("/login", async (HttpContext ctx, IAntiforgery antiforgery, IHttpCli
         if (response.StatusCode != HttpStatusCode.OK) return Results.Unauthorized();
         using var json = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(ctx.RequestAborted), cancellationToken: ctx.RequestAborted);
         var root = json.RootElement;
+        if (!root.TryGetProperty("mustChangePassword", out var mustChange) || mustChange.ValueKind != JsonValueKind.False ||
+            !root.TryGetProperty("role", out var role) || role.ValueKind != JsonValueKind.String ||
+            role.GetString() is not ("Tier1" or "Tier2" or "Supervisor") ||
+            !root.TryGetProperty("userId", out var userId) || !userId.TryGetGuid(out var id) || id == Guid.Empty)
+            return Results.Unauthorized();
         var token = root.GetProperty("accessToken").GetString();
         var expiry = root.GetProperty("expiresAtUtc").GetDateTimeOffset();
         if (string.IsNullOrWhiteSpace(token) || expiry <= DateTimeOffset.UtcNow) return Results.Unauthorized();
@@ -90,7 +95,7 @@ app.MapPost("/login", async (HttpContext ctx, IAntiforgery antiforgery, IHttpCli
         });
         return Results.Redirect("/", permanent: false, preserveMethod: false);
     }
-    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException or InvalidDataException)
+    catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException or InvalidOperationException or InvalidDataException or FormatException)
     {
         return Results.Unauthorized();
     }
