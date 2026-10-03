@@ -392,6 +392,20 @@ public sealed class OfficeEnrollmentStoreTests
         Assert.False(store.HasDurableRevocation("device"));
     }
 
+    [Fact]
+    public void Readback_rejects_offset_renewal_date_that_overflows_local_addition()
+    {
+        using var fixture = new Fixture();
+        using var store = fixture.Open();
+        Assert.True(store.Redeem(fixture.Token, "device", fixture.Key));
+        Assert.True(store.Revoke("device"));
+        var original = System.Text.Json.JsonSerializer.Deserialize<List<OfficeEnrollmentStore.Grant>>(File.ReadAllText(fixture.File))!;
+        var issued = new DateTimeOffset(9999, 12, 31, 1, 0, 0, TimeSpan.FromHours(14));
+        var invalid = new OfficeEnrollmentStore.Renewal(Guid.NewGuid(), "actor", "reason", issued, issued);
+        File.WriteAllText(fixture.File, System.Text.Json.JsonSerializer.Serialize(new[] { original[0] with { Renewals = [invalid] } }));
+        Assert.False(store.HasDurableRevocation("device"));
+    }
+
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private sealed class Clock : TimeProvider
     {

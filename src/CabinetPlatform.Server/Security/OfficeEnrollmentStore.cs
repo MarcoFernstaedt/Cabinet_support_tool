@@ -214,7 +214,7 @@ public sealed class OfficeEnrollmentStore : IDisposable
                 (g.KeyDestroyed && !g.Revoked) || g.Renewals is null || g.Renewals.Count > 30 ||
                 g.Renewals.Any(r => r is null || r.RequestId == Guid.Empty ||
                     string.IsNullOrWhiteSpace(r.ActorId) || string.IsNullOrWhiteSpace(r.Reason) ||
-                    r.IssuedUtc > DateTimeOffset.MaxValue.AddDays(-1) ||
+                    r.IssuedUtc.Ticks > DateTime.MaxValue.Ticks - TimeSpan.TicksPerDay ||
                     r.ExpiresUtc != r.IssuedUtc.AddDays(1))) ||
             grants.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != grants.Count ||
             grants.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != grants.Count ||
