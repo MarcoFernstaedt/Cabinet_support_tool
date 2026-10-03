@@ -107,6 +107,14 @@ class AbsentServicePreflightTests(unittest.TestCase):
         self.assertNotIn('SECRET_SENTINEL', result.stdout + result.stderr)
         self.assertEqual(json.loads(result.stdout)['gaps'], ['INVALID_EVIDENCE'])
 
+    def test_help_cannot_bypass_no_go(self):
+        result = subprocess.run([sys.executable, '-B', str(TOOL), '--help'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        report = json.loads(result.stdout)
+        self.assertEqual(report['decision'], 'NO_GO')
+        self.assertEqual(report['gaps'], ['INVALID_EVIDENCE'])
+
     def test_size_growth_after_fstat_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'evidence.json'

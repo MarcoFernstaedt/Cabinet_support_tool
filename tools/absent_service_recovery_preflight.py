@@ -93,7 +93,7 @@ def assess(value):
 
 
 def main():
-    parser = SafeArgumentParser(description=__doc__, allow_abbrev=False)
+    parser = SafeArgumentParser(description=__doc__, allow_abbrev=False, add_help=False)
     parser.add_argument('--evidence', required=True)
     try:
         args = parser.parse_args()
