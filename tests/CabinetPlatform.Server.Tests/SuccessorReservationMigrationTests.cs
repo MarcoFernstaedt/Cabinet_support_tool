@@ -10,6 +10,22 @@ namespace CabinetPlatform.Server.Tests;
 public sealed class SuccessorReservationMigrationTests
 {
     [Fact]
+    public void Intent_target_models_retain_earlier_cabinet_read_grants()
+    {
+        using var sqlite = new SqliteSupportDbContext(
+            new DbContextOptionsBuilder<SqliteSupportDbContext>().UseSqlite("Data Source=:memory:").Options);
+        using var postgres = new PostgresSupportDbContext(
+            new DbContextOptionsBuilder<PostgresSupportDbContext>().UseNpgsql("Host=localhost;Database=unused;Username=unused;Password=unused").Options);
+        foreach (SupportDbContext db in new SupportDbContext[] { sqlite, postgres })
+        {
+            var assembly = db.GetService<IMigrationsAssembly>();
+            var intent = assembly.Migrations.Single(m => m.Value.Name == "SuccessorIssuanceIntent");
+            var migration = assembly.CreateMigration(intent.Value, db.Database.ProviderName!);
+            Assert.NotNull(migration.TargetModel.FindEntityType(typeof(CabinetReadGrant)));
+        }
+    }
+
+    [Fact]
     public async Task Upgrade_and_downgrade_preserve_predecessor_history()
     {
         using var connection = new SqliteConnection("Data Source=:memory:");
