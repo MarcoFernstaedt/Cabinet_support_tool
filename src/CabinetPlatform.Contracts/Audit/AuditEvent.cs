@@ -255,4 +255,8 @@ public enum AuditEvent
     ReserveSuccessorIdentity = 145,
     /// <summary>A Supervisor recorded non-activating successor issuance intent.</summary>
     RecordSuccessorIssuanceIntent = 146,
+    /// <summary>A Supervisor gave one user read access to one cabinet.</summary>
+    GrantCabinetRead = 147,
+    /// <summary>A Supervisor withdrew one user's read access to one cabinet.</summary>
+    RevokeCabinetRead = 148,
 }
