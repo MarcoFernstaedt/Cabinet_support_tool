@@ -444,6 +444,21 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                     b.ToTable("CabinetLinkProbes");
                 });
 
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.CabinetReadGrant", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("CabinetId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("UserId", "CabinetId");
+
+                    b.HasIndex("CabinetId");
+
+                    b.ToTable("CabinetReadGrants");
+                });
+
             modelBuilder.Entity("CabinetPlatform.Server.Domain.Client", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1156,6 +1171,25 @@ namespace CabinetPlatform.Server.Data.Migrations.Sqlite
                         .IsRequired();
 
                     b.Navigation("Site");
+                });
+
+            modelBuilder.Entity("CabinetPlatform.Server.Domain.CabinetReadGrant", b =>
+                {
+                    b.HasOne("CabinetPlatform.Server.Domain.Cabinet", "Cabinet")
+                        .WithMany()
+                        .HasForeignKey("CabinetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("CabinetPlatform.Server.Domain.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Cabinet");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("CabinetPlatform.Server.Domain.ConnectivityAlert", b =>
