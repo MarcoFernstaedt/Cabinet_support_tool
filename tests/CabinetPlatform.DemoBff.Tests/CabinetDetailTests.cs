@@ -159,13 +159,14 @@ public sealed class CabinetDetailTests : IDisposable
     }
 
     [Fact]
-    public async Task Oversized_upstream_body_is_denied_without_rendering()
+    public async Task Oversized_valid_upstream_body_is_denied_without_rendering()
     {
-        _factory.DetailBody = new string('x', 9000);
+        _factory.DetailBody = $$"""{"cabinetId":"{{CabinetId}}","hostname":"host-delta","friendlyName":"Cabinet Gamma","siteName":"Site Beta","clientName":"Client Alpha","padding":"{{new string('x', 9000)}}"}""";
+        Assert.True(Encoding.UTF8.GetByteCount(_factory.DetailBody) > 8192);
         using var client = Client();
         using var response = await Get(client, $"/cabinets/{CabinetId}", SignedInCookie());
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        Assert.DoesNotContain("xxx", await response.Content.ReadAsStringAsync());
+        Assert.DoesNotContain("Cabinet Gamma", await response.Content.ReadAsStringAsync());
     }
 
     [Fact]
