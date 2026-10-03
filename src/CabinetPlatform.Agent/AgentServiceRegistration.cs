@@ -39,7 +39,8 @@ public static class AgentServiceRegistration
         AddActions(services);
         services.AddSingleton<Connectivity.IConnectivityProbe, Connectivity.ConnectivityProbe>();
         services.AddSingleton<Connectivity.ISourceFirewallCheck, Connectivity.WindowsSourceFirewallCheck>();
-        services.AddHostedService<Connectivity.ConnectivityWorker>();
+        // Historical connectivity code remains readable, but no shipping service
+        // can sample a cached peer plan. Keep the read-only firewall reader for its successor.
 
         return services;
     }

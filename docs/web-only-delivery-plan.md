@@ -35,7 +35,7 @@ Each W item requires its own reviewed UI/API/Agent slice where needed, automated
 - **W05 (#8) Crash investigation:** independent bounded Event Viewer, WER and historical lifecycle clues; never infer crash cause or crash-time process presence. Verify native service-context WER/Security access and termination.
 - **W06 (#9) Process/service diagnosis:** bounded process sample and separately retained service inventory; no controls or false PID joins.
 - **W07 (#10) Fleet/site health:** global pagination, fresh vs stale vs unknown, standalone sites and fleet latency.
-- **W08 (#11) Connectivity incident correlation:** exact retained interval and separately timed health/firewall clue; failed ping does not prove firewall cause.
+- **W08 (#11) Connectivity incident correlation:** existing peer-ICMP intervals and alerts are **historical only**, never a source for new scheduled cabinet-to-cabinet probes. The replacement requires separately timed read-only firewall configuration clues and network-quality evidence designed in a future slice; old failed ping did not prove firewall cause. Do not rename old ping counters as firewall evidence.
 - **W09 (#12) Network history:** bounded cursor and receipt/observation times with uncertain gaps, not invented outage duration.
 - **W10 (#13) Storage/SMART:** cabinet-bound trend, unknown legacy receipt/source provenance, Windows collection and representative queries.
 - **W11 (#14) Restricted log explorer:** **blocked** pending fixed owned sink/source, reparse/ACL-safe native handles, privacy/redaction/retention approval and bounded typed ingestion; never use a ZIP or generic log proxy as substitute.

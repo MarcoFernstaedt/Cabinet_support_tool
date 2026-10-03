@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.Extensions.DependencyInjection;
 using CabinetPlatform.Agent.Transport;
 using CabinetPlatform.Console.Core.Tests;
 using CabinetPlatform.Contracts.Auth;
@@ -33,6 +34,56 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
     }
 
     [Fact]
+    public async Task Supervisor_cannot_configure_new_peer_targets()
+    {
+        var site = Guid.NewGuid().ToString();
+        var source = await _host.CreateCabinetAsync("retired-source", site: site);
+        var target = await _host.CreateCabinetAsync("retired-target", site: site);
+        using var support = await SupportAsync();
+        using var response = await support.PutAsJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new
+        {
+            reason = "Attempt to re-enable retired probes", targets = new[] { new { cabinetId = target.Id, address = "192.168.50.20" } }
+        });
+        Assert.Equal(HttpStatusCode.Gone, response.StatusCode);
+        using var agent = Agent(source);
+        var plan = await agent.GetFromJsonAsync<CabinetPlatform.Contracts.Telemetry.ConnectivityPlan>("/api/agent/connectivity/plan", AgentJson.SerializerOptions);
+        Assert.Empty(plan!.Targets);
+    }
+
+    [Fact]
+    public async Task Existing_persisted_peer_configuration_is_not_dispatched_to_agent()
+    {
+        var site = Guid.NewGuid().ToString();
+        var source = await _host.CreateCabinetAsync("cached-source", site: site);
+        var target = await _host.CreateCabinetAsync("cached-target", site: site);
+        var previousRevision = Guid.NewGuid();
+        using (var scope = _host.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<CabinetPlatform.Server.Data.SupportDbContext>();
+            db.ConnectivityConfigurations.Add(new CabinetPlatform.Server.Domain.ConnectivityConfiguration
+            {
+                SourceCabinetId = source.Id, SiteId = source.SiteId, ConfigurationId = previousRevision,
+                TargetsJson = System.Text.Json.JsonSerializer.Serialize(new[] { new { cabinetId = target.Id, address = "192.168.50.20", isSync = false } }),
+                StatesJson = "[]", UpdatedUtc = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+        using var agent = Agent(source);
+        var plan = await agent.GetFromJsonAsync<CabinetPlatform.Contracts.Telemetry.ConnectivityPlan>("/api/agent/connectivity/plan", AgentJson.SerializerOptions);
+        Assert.Empty(plan!.Targets);
+        Assert.Equal(Guid.Empty, plan.ConfigurationId);
+        using var support = await SupportAsync();
+        using var refused = await support.PutAsJsonAsync($"/api/connectivity/cabinets/{source.Id}/targets", new
+        {
+            reason = "Attempt to replace retained configuration", targets = Array.Empty<object>()
+        });
+        Assert.Equal(HttpStatusCode.Gone, refused.StatusCode);
+        using var scopeAfter = _host.Services.CreateScope();
+        var dbAfter = scopeAfter.ServiceProvider.GetRequiredService<CabinetPlatform.Server.Data.SupportDbContext>();
+        Assert.Equal(previousRevision, (await dbAfter.ConnectivityConfigurations.FindAsync(source.Id))!.ConfigurationId);
+    }
+
+    [Fact(Skip = "Historical peer-ICMP generation scenario; retired configuration cannot schedule new probes")]
     public async Task Real_sampler_durable_outbox_agent_http_and_console_api_show_failure_then_recovery()
     {
         var site = Guid.NewGuid().ToString();
@@ -102,7 +153,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
 
-    [Theory]
+    [Theory(Skip = "Historical configuration validation superseded by unconditional 410 retirement")]
     [InlineData("other-site", HttpStatusCode.NotFound)]
     [InlineData("other-client", HttpStatusCode.NotFound)]
     [InlineData("inactive", HttpStatusCode.NotFound)]
@@ -151,7 +202,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         Assert.Equal(HttpStatusCode.Forbidden, pendingPlan.StatusCode);
     }
 
-    [Theory]
+    [Theory(Skip = "Historical ingestion fixture relied on newly configuring retired peer probes")]
     [InlineData("wrong-source", HttpStatusCode.BadRequest)]
     [InlineData("wrong-target", HttpStatusCode.Conflict)]
     [InlineData("wrong-revision", HttpStatusCode.Conflict)]
@@ -195,7 +246,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         Assert.Equal("Unknown", Assert.Single(status.Links).Condition);
     }
 
-    [Fact]
+    [Fact(Skip = "Historical peer evidence fixture relied on newly configuring retired peer probes")]
     public async Task Lost_http_acknowledgment_replays_real_durable_summary_without_duplicate_incident_or_evidence()
     {
         var site = Guid.NewGuid().ToString();
@@ -266,7 +317,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         TrailingFailures = 3, MaximumFailureRun = 3, LastFailureUtc = last
     };
 
-    [Fact]
+    [Fact(Skip = "Historical target dispatch is retired")]
     public async Task Changing_target_topology_removes_dispatch_and_refuses_late_evidence()
     {
         var site = Guid.NewGuid().ToString();
@@ -297,7 +348,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         Assert.Empty(status.RecentEvidence);
     }
 
-    [Fact]
+    [Fact(Skip = "Historical peer incident fixture relied on newly configuring retired peer probes")]
     public async Task Three_misses_form_one_incident_and_success_recovers_without_replay_reopening()
     {
         string site = Guid.NewGuid().ToString();
@@ -345,7 +396,7 @@ public sealed class ConnectivityTransportTests : IClassFixture<DiagnosticConsole
         Assert.Equal(3, state.GetProperty("recentEvidence")[1].GetProperty("summary").GetProperty("failureCount").GetInt32());
     }
 
-    [Fact]
+    [Fact(Skip = "Retired behavior: supervisor cannot issue targets; new refusal tests cover this")]
     public async Task Supervisor_pins_registered_same_site_targets_and_agent_receives_bounded_plan()
     {
         string site = Guid.NewGuid().ToString();

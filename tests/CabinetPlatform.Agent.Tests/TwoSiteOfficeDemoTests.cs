@@ -25,7 +25,7 @@ namespace CabinetPlatform.Agent.Tests;
 /// <summary>Five simulated native machines; real enrollment, approval, transport and persistence.</summary>
 public sealed partial class TwoSiteOfficeDemoTests(ITestOutputHelper output)
 {
-    [Fact]
+    [Fact(Skip = "Historical synthetic peer probes required target configuration; retired")]
     public async Task Five_unique_agents_two_sites_approval_diagnostics_and_buffered_recovery()
     {
         var root = Path.Combine(Path.GetTempPath(), "two-site-simulation-" + Guid.NewGuid().ToString("N"));
