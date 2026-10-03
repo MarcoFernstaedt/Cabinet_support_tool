@@ -670,6 +670,62 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(new { PredecessorCabinetId = id, SuccessorMachineId = machineId, ReservationOnly = true });
     }
 
+    /// <summary>Record a proposed key-hash commitment; never issue or activate a credential.</summary>
+    [HttpPost("{id:guid}/successor-issuance-intent")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<IActionResult> RecordSuccessorIssuanceIntent(
+        Guid id, [FromBody] SuccessorIssuanceIntentRequest request, CancellationToken ct)
+    {
+        if (request.RequestId == Guid.Empty || request.ProposedKeyHash is not { Length: 64 } hash ||
+            hash.Any(c => !Uri.IsHexDigit(c) || char.IsLower(c)))
+            return BadRequest(new { Reason = "A request ID and uppercase SHA-256 key commitment are required." });
+
+        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+        // Share predecessor write lock with reservation and retirement. The journal
+        // is read freshly even on idempotent retries; SQL alone cannot attest it.
+        int locked = await _db.Cabinets.Where(c => c.Id == id && !c.IsActive)
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.IsActive, c => c.IsActive), ct);
+        if (locked == 0)
+            return await _db.Cabinets.AsNoTracking().AnyAsync(c => c.Id == id, ct)
+                ? Conflict(new { Reason = "Predecessor must be retired and revoked." }) : NotFound();
+        var predecessor = await _db.Cabinets.AsNoTracking().SingleAsync(c => c.Id == id, ct);
+        if (!_officeEnrollment.HasDurableRevocation(predecessor.MachineId))
+            return Conflict(new { Reason = "Predecessor must be retired and revoked." });
+        var reservation = await _db.SuccessorReservations.AsNoTracking()
+            .SingleOrDefaultAsync(r => r.PredecessorCabinetId == id, ct);
+        if (reservation is null) return Conflict(new { Reason = "Successor identity must be reserved." });
+        var existing = await _db.SuccessorIssuanceIntents.AsNoTracking()
+            .SingleOrDefaultAsync(i => i.PredecessorCabinetId == id, ct);
+        if (existing is not null)
+        {
+            if (existing.ReservationId != reservation.Id ||
+                existing.RequestId != request.RequestId || existing.ProposedKeyHash != hash)
+                return Conflict(new { Reason = "Issuance intent is bound to another request or commitment." });
+            await transaction.CommitAsync(ct);
+            return Ok(new { existing.RequestId, reservation.SuccessorMachineId, IntentOnly = true });
+        }
+        if (await _db.SuccessorIssuanceIntents.AsNoTracking().AnyAsync(i => i.RequestId == request.RequestId, ct))
+            return Conflict(new { Reason = "Request ID belongs to another predecessor." });
+        _db.SuccessorIssuanceIntents.Add(new Domain.SuccessorIssuanceIntent
+        {
+            PredecessorCabinetId = id, ReservationId = reservation.Id,
+            RequestId = request.RequestId, ProposedKeyHash = hash,
+            RequestedByUserId = CurrentUser.UserId, RequestedUtc = _timeProvider.GetUtcNow()
+        });
+        _audit.Enqueue(new AuditRecord
+        {
+            Event = AuditEvent.RecordSuccessorIssuanceIntent, EventKind = AuditEventKind.Caused,
+            Result = AuditResult.Success, ActorType = ActorType.User,
+            ActorId = CurrentUser.UserId.ToString(), ActorDisplayName = CurrentUser.Username,
+            CabinetId = id, CabinetHostname = predecessor.Hostname,
+            Details = new { PredecessorCabinetId = id, reservation.SuccessorMachineId,
+                request.RequestId, IntentOnly = true }
+        });
+        await _db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+        return Ok(new { request.RequestId, reservation.SuccessorMachineId, IntentOnly = true });
+    }
+
     /// <summary>Withdraws service eligibility, retaining identity and historical records.</summary>
     [HttpPost("{id:guid}/retire")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
