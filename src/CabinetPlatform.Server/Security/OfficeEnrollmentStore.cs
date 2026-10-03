@@ -120,6 +120,38 @@ public sealed class OfficeEnrollmentStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Conservative readback for successor *preparation*, not credential issuance.
+    /// A disabled store, absent grant, lost/corrupt journal or disagreement with the
+    /// in-process tombstone is never evidence of revocation.
+    /// </summary>
+    public bool HasDurableRevocation(string machineId)
+    {
+        if (!Enabled || !IsMachineId(machineId)) return false;
+        lock (_gate)
+        {
+            var expected = _grants.SingleOrDefault(g => g.MachineId == machineId);
+            if (expected is not { Revoked: true, KeyDestroyed: true }) return false;
+            try
+            {
+                if (new FileInfo(_options.StateFile).Length > 4 * 1024 * 1024) return false;
+                var saved = JsonSerializer.Deserialize<List<Grant>>(File.ReadAllText(_options.StateFile));
+                if (saved is null || saved.Count > 100 || saved.Any(g => g is null ||
+                    !IsMachineId(g.MachineId) || !IsKey(g.TokenHash) || !IsKey(g.KeyHash)) ||
+                    saved.Select(g => g.MachineId).Distinct(StringComparer.Ordinal).Count() != saved.Count ||
+                    saved.Select(g => g.TokenHash).Distinct(StringComparer.OrdinalIgnoreCase).Count() != saved.Count)
+                    return false;
+                var actual = saved.SingleOrDefault(g => g.MachineId == machineId);
+                return actual is { Revoked: true, KeyDestroyed: true } &&
+                    actual.TokenHash == expected.TokenHash && actual.KeyHash == expected.KeyHash;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return false;
+            }
+        }
+    }
+
     /// <summary>Called only after a Supervisor request has locked and verified an active cabinet.</summary>
     public DateTimeOffset? Renew(string machineId, Guid requestId, string actorId, string reason)
     {

@@ -589,6 +589,33 @@ public sealed class CabinetsController : SupportControllerBase
         return Ok(PagedResult<SmartReadingDto>.Create(items, query.Page, query.PageSize, total));
     }
 
+    /// <summary>
+    /// Read-only predecessor check for a future, separately reviewed successor flow.
+    /// This does not reserve a successor identity, enroll a device, or issue a key.
+    /// </summary>
+    [HttpGet("{id:guid}/successor-preparation")]
+    [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
+    public async Task<IActionResult> SuccessorPreparation(Guid id, CancellationToken ct)
+    {
+        var predecessor = await _db.Cabinets.AsNoTracking()
+            .Where(c => c.Id == id)
+            .Select(c => new { c.Id, c.MachineId, c.IsActive })
+            .SingleOrDefaultAsync(ct);
+        if (predecessor is null) return NotFound();
+        // The legacy shared-key mode cannot attest per-device revocation. An
+        // inactive SQL row alone never authorizes reuse of a hardware identity.
+        if (predecessor.IsActive || !_officeEnrollment.HasDurableRevocation(predecessor.MachineId))
+        {
+            await _audit.WriteDenialAsync(AuditEvent.ViewCabinetLatest,
+                "Successor preparation blocked: retirement or durable device revocation unverified.",
+                id, new { Operation = "SuccessorPreparation" }, null, ct);
+            return Conflict(new { Reason = "Predecessor retirement and device revocation must be verified." });
+        }
+        await _audit.WriteAsync(Observed(AuditEvent.ViewCabinetLatest,
+            new { Operation = "SuccessorPreparation", PredecessorCabinetId = id }, id), ct);
+        return Ok(new { PredecessorCabinetId = id, PreparationOnly = true });
+    }
+
     /// <summary>Withdraws service eligibility, retaining identity and historical records.</summary>
     [HttpPost("{id:guid}/retire")]
     [Authorize(Policy = AuthorizationPolicies.RequireSupervisor)]
