@@ -53,6 +53,9 @@ public class SupportDbContext : DbContext
     /// <summary>Approved cabinets.</summary>
     public DbSet<Cabinet> Cabinets => Set<Cabinet>();
 
+    /// <summary>Exact staff/cabinet read authority for the isolated demo surface.</summary>
+    public DbSet<CabinetReadGrant> CabinetReadGrants => Set<CabinetReadGrant>();
+
     /// <summary>Agents waiting for a Supervisor decision.</summary>
     public DbSet<PendingRegistration> PendingRegistrations => Set<PendingRegistration>();
 
@@ -199,6 +202,16 @@ public class SupportDbContext : DbContext
             // opening seven thousand inventory documents.
             e.HasIndex(x => x.PendingSecurityUpdateCount);
             e.HasIndex(x => x.AutoStartServicesStoppedCount);
+        });
+
+        b.Entity<CabinetReadGrant>(e =>
+        {
+            e.HasKey(x => new { x.UserId, x.CabinetId });
+            e.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Cabinet).WithMany().HasForeignKey(x => x.CabinetId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => x.CabinetId);
         });
 
         b.Entity<EventLogView>(e =>
