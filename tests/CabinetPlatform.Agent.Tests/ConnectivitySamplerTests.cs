@@ -56,7 +56,12 @@ public sealed class ConnectivitySamplerTests
         try
         {
             for (int i = 0; i < 9; i++)
+            {
                 await sampler.SampleAsync(now.AddMinutes(i), default).WaitAsync(TimeSpan.FromSeconds(2));
+                // Task.Run may still be queued after the 25 ms scheduling budget expires.
+                // Observe the native read entering before asserting that later runs do not overlap it.
+                if (i == 2) await native.Started.WaitAsync(TimeSpan.FromSeconds(2));
+            }
             Assert.Equal(3, saved.Count);
             Assert.Equal(FirewallReadStatus.Unavailable, saved[0].SourceFirewallCheck?.Status);
             Assert.Equal(FirewallReadStatus.Unavailable, saved[2].SourceFirewallCheck?.Status);
@@ -68,11 +73,15 @@ public sealed class ConnectivitySamplerTests
     private sealed class BlockingFirewallCheck : ISourceFirewallCheck
     {
         private readonly ManualResetEventSlim _release = new();
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Started => _started.Task;
         public int Calls;
         public SourceFirewallCheck Read(DateTimeOffset observedUtc, CancellationToken ct)
         {
             Interlocked.Increment(ref Calls);
-            _release.Wait(TimeSpan.FromSeconds(3));
+            _started.TrySetResult();
+            // Model an uninterruptible native read until the test releases it.
+            _release.Wait();
             return new() { ObservedUtc = observedUtc, Status = FirewallReadStatus.Read };
         }
         public void Release() => _release.Set();
