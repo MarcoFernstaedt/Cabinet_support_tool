@@ -110,6 +110,11 @@ public sealed class PerformancePanelTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, revoked.StatusCode);
         Assert.Equal(2, _factory.Calls);
         _factory.Status = HttpStatusCode.OK;
+        // The same valid, extension-bearing JSON is accepted below the client
+        // cap; rejection above it must be due to buffering, not schema checks.
+        _factory.Body = $$"""{"cabinetId":"{{Id}}","state":"missing","padding":"{{new string('x', 7000)}}"}""";
+        using var withinLimit = await Get(client, $"/cabinets/{Id}/performance", cookie);
+        Assert.Equal(HttpStatusCode.OK, withinLimit.StatusCode);
         _factory.Body = $$"""{"cabinetId":"{{Id}}","state":"missing","padding":"{{new string('x', 9000)}}"}""";
         using var oversized = await Get(client, $"/cabinets/{Id}/performance", cookie);
         Assert.Equal(HttpStatusCode.NotFound, oversized.StatusCode);

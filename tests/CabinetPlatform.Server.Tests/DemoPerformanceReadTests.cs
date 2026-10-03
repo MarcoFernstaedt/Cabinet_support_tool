@@ -1,13 +1,67 @@
 using System.Net;
+using System.Data.Common;
 using System.Text.Json;
 using CabinetPlatform.Contracts.Auth;
 using CabinetPlatform.Server.Domain;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace CabinetPlatform.Server.Tests;
 
 public sealed class DemoPerformanceReadTests
 {
+    [Fact]
+    public async Task Revocation_before_raw_sample_selection_does_not_disclose_the_sample()
+    {
+        var pause = new PauseHeartbeatSelection();
+        using var factory = new SupportApiFactory { CommandInterceptor = pause };
+        var (reader, user) = await TestClient.CreateUserClientAsync(factory, Role.Tier1, "performance-race-reader");
+        var cabinet = await TestClient.CreateApprovedCabinetAsync(factory, "performance-race-machine", user.Id);
+        await factory.WithDbAsync(async db =>
+        {
+            db.CabinetReadGrants.Add(new CabinetReadGrant { UserId = user.Id, CabinetId = cabinet.Id });
+            db.Heartbeats.Add(new Heartbeat { CabinetId = cabinet.Id, CollectedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-2),
+                ReceivedUtc = DateTimeOffset.UtcNow.AddMinutes(-1), CpuPercent = 73 });
+            await db.SaveChangesAsync();
+        });
+
+        pause.Armed = true;
+        var pending = reader.GetAsync($"/api/demo/cabinets/{cabinet.Id}/performance");
+        await pause.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        try
+        {
+            await factory.WithDbAsync(db => db.CabinetReadGrants
+                .Where(g => g.UserId == user.Id && g.CabinetId == cabinet.Id).ExecuteDeleteAsync());
+        }
+        finally
+        {
+            pause.Release.TrySetResult();
+        }
+        using var response = await pending.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private sealed class PauseHeartbeatSelection : DbCommandInterceptor
+    {
+        public bool Armed { get; set; }
+        private int _paused;
+        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (Armed && command.CommandText.Contains("Heartbeats", StringComparison.Ordinal)
+                && Interlocked.CompareExchange(ref _paused, 1, 0) == 0)
+            {
+                Reached.TrySetResult();
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            }
+            return result;
+        }
+    }
+
     [Fact]
     public async Task Exact_grant_reads_latest_raw_sample_with_collection_and_receipt_provenance()
     {

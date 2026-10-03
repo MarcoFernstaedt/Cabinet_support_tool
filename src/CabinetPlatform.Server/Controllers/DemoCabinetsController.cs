@@ -19,20 +19,25 @@ public sealed class DemoCabinetsController(SupportDbContext db, TimeProvider clo
     public async Task<IActionResult> LatestPerformance(Guid id, CancellationToken ct)
     {
         var userId = CurrentUser.UserId;
-        // Authorization is evaluated at each request against the live exact grant.
-        // Do not infer entitlement from role, site, or the presence of a sample.
-        var granted = await db.CabinetReadGrants.AsNoTracking().AnyAsync(g =>
-            g.UserId == userId && g.CabinetId == id &&
-            g.User!.IsActive && !g.User.MustChangePassword && g.Cabinet!.IsActive, ct);
-        if (!granted) return NotFound();
-
+        // Evaluate the exact live grant in the same SQL statement that selects
+        // the raw sample: a revoked grant must not authorize a later read.
         var sample = await db.Heartbeats.AsNoTracking()
-            .Where(h => h.CabinetId == id && !h.IsAggregated)
+            .Where(h => h.CabinetId == id && !h.IsAggregated && db.CabinetReadGrants.Any(g =>
+                g.UserId == userId && g.CabinetId == id &&
+                g.User!.IsActive && !g.User.MustChangePassword && g.Cabinet!.IsActive))
             .OrderByDescending(h => h.CollectedAtUtc).ThenByDescending(h => h.ReceivedUtc)
             .Select(h => new { h.CollectedAtUtc, h.ReceivedUtc, h.CpuPercent, h.RamUsedPercent, h.MinFreeDiskPercent })
             .FirstOrDefaultAsync(ct);
         if (sample is null)
+        {
+            // Only an empty selection needs a second query to distinguish a
+            // granted cabinet without raw samples from an ineligible reader.
+            var granted = await db.CabinetReadGrants.AsNoTracking().AnyAsync(g =>
+                g.UserId == userId && g.CabinetId == id &&
+                g.User!.IsActive && !g.User.MustChangePassword && g.Cabinet!.IsActive, ct);
+            if (!granted) return NotFound();
             return Ok(new DemoPerformance(id, "missing", null, null, null, null, null));
+        }
 
         var now = clock.GetUtcNow();
         static double? Percent(double? value) => value is >= 0 and <= 100 && double.IsFinite(value.Value) ? value : null;

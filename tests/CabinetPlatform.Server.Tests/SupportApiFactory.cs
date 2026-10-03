@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -28,6 +29,7 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
 
     // Legacy maintenance scenarios opt in here, never in product code.
     public string? ExecutionMode { get; set; } = "Maintenance";
+    public DbCommandInterceptor? CommandInterceptor { get; set; }
     private DbConnection? _connection;
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -87,7 +89,11 @@ public sealed class SupportApiFactory : WebApplicationFactory<Program>
             _connection.Open();
 
             services.AddSingleton(_connection);
-            services.AddDbContext<SqliteSupportDbContext>(options => options.UseSqlite(connectionString));
+            services.AddDbContext<SqliteSupportDbContext>(options =>
+            {
+                options.UseSqlite(connectionString);
+                if (CommandInterceptor is not null) options.AddInterceptors(CommandInterceptor);
+            });
             services.AddScoped<SupportDbContext>(sp => sp.GetRequiredService<SqliteSupportDbContext>());
 
             // Background sweeps are driven by hand in the tests that cover
