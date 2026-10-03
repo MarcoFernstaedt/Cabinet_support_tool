@@ -99,7 +99,7 @@ function renderCabinet(id) {
   contextHead.append(el("span", "eyebrow", "SITE CONTEXT"), el("span", "soft-pill", "DEMO · SYNTHETIC"));
   context.append(contextHead);
   const facts = el("dl", "facts");
-  for (const [name, value] of [["Client", `${client.name} · ${client.id}`], ["Site", `${site.name} · ${site.id}`], ["Region", site.region], ["Cabinet", cabinet.id], ["Site role", cabinet.role], ["Cabinet type", cabinet.type], ["Placement", cabinet.location], ["Scanner family", "Not specified"]]) {
+  for (const [name, value] of [["Client", `${client.name} · ${client.id}`], ["Site", `${site.name} · ${site.id}`], ["Region", site.region], ["Cabinet", cabinet.id], ["Site role", cabinet.role], ["Cabinet type", cabinet.type], ["Department", cabinet.department || "Not assigned"], ["Placement", cabinet.location], ["Scanner family", "Not specified"]]) {
     const item = el("div"); item.append(el("dt", "", name), el("dd", "", value)); facts.append(item);
   }
   context.append(facts);
@@ -193,10 +193,12 @@ function renderOnboarding() {
   const clientInput = el("select", "search"); clientInput.id = "client-name"; clientInput.required = true;
   for (const item of demoClients) { const option = el("option", "", item.name); option.value = item.name; clientInput.append(option); }
   const newClientOption = el("option", "", "+ Create new demo client"); newClientOption.value = "__new"; clientInput.append(newClientOption);
-  const newClient = el("input", "search"); newClient.id = "new-client"; newClient.placeholder = "New synthetic client name"; newClient.maxLength = 60; newClient.hidden = true;
+  const newClientLabel = el("label", "field-label", "New client name"); newClientLabel.htmlFor = "new-client"; newClientLabel.hidden = true;
+  const newClient = el("input", "search"); newClient.id = "new-client"; newClient.placeholder = "New demo client name"; newClient.maxLength = 60; newClient.hidden = true;
   const siteLabel = el("label", "field-label", "Site name (required · demo selection)"); siteLabel.htmlFor = "site-name";
   const siteInput = el("select", "search"); siteInput.id = "site-name"; siteInput.required = true;
-  const newSite = el("input", "search"); newSite.id = "new-site"; newSite.placeholder = "New synthetic site name"; newSite.maxLength = 60; newSite.hidden = true;
+  const newSiteLabel = el("label", "field-label", "New site name"); newSiteLabel.htmlFor = "new-site"; newSiteLabel.hidden = true;
+  const newSite = el("input", "search"); newSite.id = "new-site"; newSite.placeholder = "New demo site name"; newSite.maxLength = 60; newSite.hidden = true;
   function updateSites() {
     siteInput.replaceChildren();
     const selectedClient = demoClients.find(item => item.name === clientInput.value);
@@ -204,10 +206,10 @@ function renderOnboarding() {
       const option = el("option", "", item.name); option.value = item.name; siteInput.append(option);
     }
     const option = el("option", "", "+ Create new demo site"); option.value = "__new"; siteInput.append(option);
-    newClient.hidden = clientInput.value !== "__new";
+    newClient.hidden = newClientLabel.hidden = clientInput.value !== "__new";
     updateNewSite();
   }
-  function updateNewSite() { newSite.hidden = siteInput.value !== "__new"; }
+  function updateNewSite() { newSite.hidden = newSiteLabel.hidden = siteInput.value !== "__new"; }
   clientInput.addEventListener("change", updateSites);
   siteInput.addEventListener("change", updateNewSite);
   updateSites();
@@ -221,11 +223,12 @@ function renderOnboarding() {
     option.value = item.id; cabinet.append(option);
   }
   const newCabinetOption = el("option", "", "+ Assign new demo cabinet"); newCabinetOption.value = "__new"; cabinet.append(newCabinetOption);
+  const newCabinetLabel = el("label", "field-label", "New cabinet ID"); newCabinetLabel.htmlFor = "new-cabinet"; newCabinetLabel.hidden = true;
   const newCabinet = el("input", "search"); newCabinet.id = "new-cabinet"; newCabinet.placeholder = "CAB-06"; newCabinet.maxLength = 6; newCabinet.hidden = true;
   const cabinetType = el("select", "search"); cabinetType.id = "cabinet-type";
   for (const name of ["Sync", "Satellite"]) { const option = el("option", "", name); option.value = name; cabinetType.append(option); }
   const typeLabel = el("label", "field-label", "Cabinet type / site role (Sync or Satellite)"); typeLabel.htmlFor = "cabinet-type";
-  cabinet.addEventListener("change", () => { newCabinet.hidden = cabinet.value !== "__new"; });
+  cabinet.addEventListener("change", () => { newCabinet.hidden = newCabinetLabel.hidden = cabinet.value !== "__new"; });
   const stage = el("button", "choice", "Stage manual request"); stage.id = "stage-request"; stage.type = "button";
   const approve = el("button", "choice", "Simulate approval"); approve.id = "approve-request"; approve.type = "button";
   const reset = el("button", "choice", "Start another demo request"); reset.id = "reset-request"; reset.type = "button";
@@ -250,9 +253,10 @@ function renderOnboarding() {
     const selectedClient = demoClients.find(item => item.name === clientName);
     const selectedSite = demoSites.find(item => item.name === siteName && item.clientId === selectedClient?.id);
     const existingCabinet = cabinetFor(cabinetId);
+    const sameName = (a, b) => a.toLocaleLowerCase() === b.toLocaleLowerCase();
     if (!clientName || !siteName || !/^CAB-\d{2}$/.test(cabinetId) || clientName.length > 60 || siteName.length > 60 ||
-        (clientInput.value === "__new" && selectedClient) ||
-        (siteInput.value === "__new" && demoSites.some(item => item.name === siteName)) ||
+        (clientInput.value === "__new" && demoClients.some(item => sameName(item.name, clientName))) ||
+        (siteInput.value === "__new" && demoSites.some(item => item.clientId === selectedClient?.id && sameName(item.name, siteName))) ||
         (siteInput.value !== "__new" && !selectedSite) ||
         (cabinet.value === "__new" && existingCabinet) ||
         (cabinet.value !== "__new" && (!selectedSite || !selectedSite.cabinets.some(item => item.id === cabinetId)))) {
@@ -268,12 +272,13 @@ function renderOnboarding() {
     const approvedClient = demoClients.find(item => item.name === request.client);
     if (request.newSite) demoSites.push({ id: `ST-${demoSites.length + 301}`, clientId: approvedClient.id, name: request.site, region: "Synthetic site", cabinets: [] });
     const approvedSite = demoSites.find(item => item.clientId === approvedClient.id && item.name === request.site);
-    if (request.newCabinet) approvedSite.cabinets.push({ id: request.cabinetId, name: "New demo cabinet", role: request.type, type: request.type, location: request.department || "Unassigned demo zone", firewall: "Unknown (sample)", event: "No retained sample event", ip: "192.0.2.99", peer: "None specified", ping: "Not observed", driver: "Driver inventory: unknown (sample)" });
+    if (request.newCabinet) approvedSite.cabinets.push({ id: request.cabinetId, name: "New demo cabinet", role: request.type, type: request.type, department: request.department, location: "Unassigned demo zone", firewall: "Unknown (sample)", event: "No retained sample event", ip: "192.0.2.99", peer: "None specified", ping: "Not observed", driver: "Driver inventory: unknown (sample)" });
+    else approvedSite.cabinets.find(item => item.id === request.cabinetId).department = request.department;
     request.status = "Demo approved"; update();
   });
   reset.addEventListener("click", () => { if (request?.status !== "Demo approved") return; demoRequest = null; renderOnboarding(); });
   role.addEventListener("change", update);
-  panel.append(staffLabel, staffTier, staffBoundary, roleLabel, role, guidance, clientLabel, clientInput, newClient, siteLabel, siteInput, newSite, departmentLabel, department, cabinetLabel, cabinet, newCabinet, typeLabel, cabinetType, stage, approve, reset, state, boundary);
+  panel.append(staffLabel, staffTier, staffBoundary, roleLabel, role, guidance, clientLabel, clientInput, newClientLabel, newClient, siteLabel, siteInput, newSiteLabel, newSite, departmentLabel, department, cabinetLabel, cabinet, newCabinetLabel, newCabinet, typeLabel, cabinetType, stage, approve, reset, state, boundary);
   view.append(panel);
   update();
 }

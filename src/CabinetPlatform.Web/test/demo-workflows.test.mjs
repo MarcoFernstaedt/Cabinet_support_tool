@@ -23,6 +23,11 @@ test('synthetic client and site identities are unique; Sync and Satellite have e
   assert.ok(cabinets.some(c => c.role === 'Satellite' && c.type === 'Satellite'));
   assert.ok(cabinets.every(c => ['Sync', 'Satellite'].includes(c.role)));
   assert.ok(cabinets.every(c => ['Sync', 'Satellite'].includes(c.type)));
+  for (const site of sites) for (const cabinet of site.cabinets) {
+    if (cabinet.peer !== 'None specified') assert.ok(site.cabinets.some(peer => peer.id === cabinet.peer), 'demo ping peer must be at the same site');
+  }
+  assert.equal(sites[0].cabinets[0].name, 'Triage cabinet');
+  assert.equal(sites[0].cabinets[1].name, 'Treatment cabinet');
 });
 
 test('finder filters client, site and cabinet IDs and workspace links sample evidence per cabinet', async () => {
@@ -55,6 +60,7 @@ test('mock Tier 1 stages manual onboarding, Tier 2 reviews and only Supervisor c
     assert.equal(d.querySelector('#client-name').required, true);
     assert.equal(d.querySelector('#site-name').required, true);
     assert.equal(d.querySelector('#department').required, false);
+    for (const id of ['new-client', 'new-site', 'new-cabinet']) assert.ok(d.getElementById(id).labels.length, `${id} has an accessible label`);
     d.querySelector('#client-name').value = 'Veterinary Emergency Group (VEG)';
     d.querySelector('#site-name').value = 'VEG Phoenix';
     d.querySelector('#department').value = 'Demo reception';
@@ -72,6 +78,9 @@ test('mock Tier 1 stages manual onboarding, Tier 2 reviews and only Supervisor c
     assert.equal(d.querySelector('#approve-request').disabled, false);
     d.querySelector('#approve-request').click();
     assert.match(d.querySelector('#onboarding-state').textContent, /Demo approved/);
+    route('#cabinet/CAB-01');
+    assert.match(d.querySelector('.context').textContent, /Department.*Demo reception/s);
+    route('#onboarding');
     assert.equal(d.querySelector('#approve-request').disabled, true);
     assert.match(d.querySelector('#onboarding-boundary').textContent, /no account.*no authentication.*no server/i);
   } finally { dom.window.close(); }
@@ -132,6 +141,46 @@ test('onboarding rejects cross-client site assignment', async () => {
     d.querySelector('#site-name').value = 'VEG Phoenix';
     d.querySelector('#stage-request').click();
     assert.match(d.querySelector('#onboarding-state').textContent, /Choose a client and site matching/);
+  } finally { dom.window.close(); }
+});
+
+test('a site name may repeat under another client', async () => {
+  const { dom, d, route } = await page();
+  try {
+    route('#onboarding');
+    d.querySelector('#client-name').value = 'Cedar Learning (synthetic)';
+    d.querySelector('#client-name').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#site-name').value = '__new';
+    d.querySelector('#site-name').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#new-site').value = 'VEG Phoenix';
+    d.querySelector('#onboarding-cabinet').value = '__new';
+    d.querySelector('#onboarding-cabinet').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#new-cabinet').value = 'CAB-06';
+    d.querySelector('#stage-request').click();
+    assert.match(d.querySelector('#onboarding-state').textContent, /Pending supervisor approval/);
+    d.querySelector('#role-view').value = 'Supervisor';
+    d.querySelector('#role-view').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#approve-request').click();
+    route('#finder');
+    assert.match(d.querySelector('.site-list').textContent, /Cedar Learning \(synthetic\) \/ VEG Phoenix.*CAB-06/s);
+  } finally { dom.window.close(); }
+});
+
+test('case-variant client name is refused before staging', async () => {
+  const { dom, d, route } = await page();
+  try {
+    route('#onboarding');
+    d.querySelector('#client-name').value = '__new';
+    d.querySelector('#client-name').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#new-client').value = 'veterinary emergency group (veg)';
+    d.querySelector('#site-name').value = '__new';
+    d.querySelector('#site-name').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#new-site').value = 'Another site';
+    d.querySelector('#onboarding-cabinet').value = '__new';
+    d.querySelector('#onboarding-cabinet').dispatchEvent(new dom.window.Event('change'));
+    d.querySelector('#new-cabinet').value = 'CAB-06';
+    d.querySelector('#stage-request').click();
+    assert.match(d.querySelector('#onboarding-state').textContent, /unique new demo identities/);
   } finally { dom.window.close(); }
 });
 
