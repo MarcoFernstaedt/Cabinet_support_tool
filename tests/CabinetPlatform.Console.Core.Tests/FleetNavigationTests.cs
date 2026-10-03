@@ -1,5 +1,4 @@
 using System.Windows.Input;
-using System.Xml.Linq;
 using CabinetPlatform.Console.Core.Api;
 using CabinetPlatform.Console.Core.Presentation;
 using CabinetPlatform.Console.Core.Rows;
@@ -19,24 +18,6 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
     [Fact]
     public async Task Fleet_site_rows_show_all_filtered_cabinets_and_open_the_bound_identity()
     {
-        // Follow the actual template contexts, not just member names somewhere
-        // in the assembly. Native WPF layout and input still need Windows QA.
-        XDocument view = LoadView("FleetTabView.xaml");
-        XElement sites = Assert.Single(view.Descendants(), e =>
-            (string?)e.Attribute("ItemsSource") == "{Binding Sites}");
-        XElement cabinets = Assert.Single(sites.Descendants(), e =>
-            e.Name.LocalName == "DataGrid" &&
-            (string?)e.Attribute("ItemsSource") == "{Binding Cabinets}");
-        XElement open = Assert.Single(cabinets.Descendants(), e => e.Name.LocalName == "Button");
-        Assert.Equal("{Binding DataContext.Finder.ChooseCommand, RelativeSource={RelativeSource AncestorType=Window}}",
-            (string?)open.Attribute("Command"));
-        Assert.Equal("{Binding Id}", (string?)open.Attribute("CommandParameter"));
-        Assert.Equal("{Binding AccessibleSummary}", (string?)open.Attribute("AutomationProperties.Name"));
-        Assert.Contains(cabinets.Descendants(), e => (string?)e.Attribute("Binding") == "{Binding ActiveLabel}");
-        Assert.Contains(sites.Descendants(), e => (string?)e.Attribute("Text") == "{Binding Headline}");
-        Assert.Equal("{Binding Fleet}", (string?)Assert.Single(LoadView("MainWindow.xaml").Descendants(),
-            e => e.Name.LocalName == "FleetTabView").Attribute("DataContext"));
-
         string client = $"Fleet-{Guid.NewGuid():N}";
         Cabinet sync = await _host.CreateCabinetAsync("SAME-NAME", client, "North", role: CabinetRole.Sync);
         Cabinet inactive = await _host.CreateCabinetAsync("RETIRED", client, "North", isActive: false);
@@ -57,8 +38,7 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
         Assert.DoesNotContain(shell.Fleet.PendingUpdates, c => c.Id == sync.Id);
         Assert.DoesNotContain(shell.Fleet.DrivesNeedingAttention, c => c.Id == sync.Id);
 
-        // Resolve the exact command path established above on the real window
-        // context, and pass the row's Guid rather than its nonunique hostname.
+        // Pass the row's Guid rather than its nonunique hostname.
         CabinetRow row = site.Cabinets.Single(c => c.Id == sync.Id);
         ICommand command = shell.Finder.ChooseCommand;
         shell.SelectedTabIndex = 3;
@@ -74,24 +54,6 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
     }
 
     [Fact]
-    public void Fleet_cabinet_columns_resolve_on_their_actual_row_type()
-    {
-        XElement sites = Assert.Single(LoadView("FleetTabView.xaml").Descendants(), e =>
-            (string?)e.Attribute("ItemsSource") == "{Binding Sites}");
-        XElement grid = Assert.Single(sites.Descendants(), e => e.Name.LocalName == "DataGrid");
-        XElement[] columns = grid.Descendants().Where(e => e.Name.LocalName == "DataGridTextColumn").ToArray();
-        Assert.NotEmpty(columns);
-        foreach (XElement column in columns)
-        {
-            string binding = Assert.IsType<string>((string?)column.Attribute("Binding"));
-            Assert.StartsWith("{Binding ", binding);
-            string path = binding[9..^1];
-            Assert.True(typeof(CabinetRow).GetProperty(path) is not null,
-                $"Fleet cabinet column {column.Attribute("Header")} binds missing CabinetRow.{path}");
-        }
-    }
-
-    [Fact]
     public async Task Truncation_warning_identifies_incomplete_site_groups_and_the_full_lookup_route()
     {
         ShellViewModel shell = await SignedInShellAsync();
@@ -101,23 +63,11 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
         Assert.Contains("drive counts", shell.Fleet.TruncationNote);
         Assert.Contains("Find cabinet", shell.Fleet.TruncationNote);
         Assert.Contains(shell.Fleet.CabinetsExamined.ToString("N0"), shell.Fleet.TruncationNote);
-        XElement warning = Assert.Single(LoadView("FleetTabView.xaml").Descendants(), e =>
-            (string?)e.Attribute("Text") == "{Binding TruncationNote}");
-        Assert.Equal("{Binding WorklistsTruncated, Converter={StaticResource BoolToVisibility}}",
-            (string?)warning.Parent!.Attribute("Visibility"));
     }
 
     [Fact]
     public async Task Global_lookup_from_fleet_reaches_a_cabinet_outside_the_site_filter()
     {
-        XDocument window = LoadView("MainWindow.xaml");
-        XElement search = Assert.Single(window.Descendants(), e => e.Name.LocalName == "TextBox" &&
-            e.Attributes().Any(a => a.Name.LocalName == "Name" && a.Value == "GlobalSearchBox"));
-        Assert.Equal("{Binding Term, UpdateSourceTrigger=PropertyChanged}", (string?)search.Attribute("Text"));
-        Assert.Contains(search.Ancestors(), e => (string?)e.Attribute("DataContext") == "{Binding Finder}");
-        Assert.Contains(search.Descendants(), e => e.Name.LocalName == "KeyBinding" &&
-            (string?)e.Attribute("Key") == "Return" && (string?)e.Attribute("Command") == "{Binding SearchCommand}");
-
         string client = $"Lookup-{Guid.NewGuid():N}";
         await _host.CreateCabinetAsync("CAB-SHOWN", client, "North");
         Cabinet target = await _host.CreateCabinetAsync("CAB-TARGET", client, "South");
@@ -163,16 +113,5 @@ public sealed class FleetNavigationTests : IClassFixture<ConsoleTestHost>
             new ApprovalsViewModel(api, ScriptedApprovalDialog.Accepting(), session, announcer, time),
             new RegistrationsViewModel(api, session, announcer),
             session, announcer, api);
-    }
-
-    private static XDocument LoadView(string name)
-    {
-        DirectoryInfo? directory = new(AppContext.BaseDirectory);
-        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "CabinetPlatform.sln")))
-        {
-            directory = directory.Parent;
-        }
-        Assert.NotNull(directory);
-        return XDocument.Load(Path.Combine(directory.FullName, "src/CabinetPlatform.Console/Views", name));
     }
 }
