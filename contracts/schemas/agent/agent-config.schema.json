@@ -17,8 +17,15 @@
   ],
   "properties": {
     "cabinetId": {
-      "description": "This cabinet's ID. Set locally until enrollment (milestone 2) issues the real one.",
-      "$ref": "../common.schema.json#/$defs/uuid"
+      "description": "Only for the local test harness before enrollment. Once enrolled, the cabinet ID comes from the agent's certificate and this is ignored.",
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "readOnlyMode": {
       "description": "When true every write operation is rejected with read_only_mode, whatever the server sends.",
@@ -79,14 +86,26 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "host"
+        "host",
+        "port"
       ],
       "properties": {
         "host": {
-          "description": "The platform server's host name, also the name resolved by DNS tests.",
+          "description": "The platform server's agent API host name, also the name resolved by DNS tests. Its TLS certificate must chain to platform-ca.pem in the agent's data folder.",
           "anyOf": [
             {
               "$ref": "../common.schema.json#/$defs/hostname"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "port": {
+          "description": "The agent API port. null until configured.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/port"
             },
             {
               "type": "null"

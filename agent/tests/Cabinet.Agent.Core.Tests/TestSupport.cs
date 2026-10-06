@@ -19,7 +19,7 @@ public static class Fixtures
         CabinetId = Cabinet, ReadOnlyMode = readOnly, CabinetRole = null,
         Scanner = new ScannerConfig { HardwareIds = scanner ?? Array.Empty<string>() },
         SyncCabinet = new SyncCabinetConfig { Address = sync },
-        PlatformServer = new PlatformServerConfig { Host = platform },
+        PlatformServer = new PlatformServerConfig { Host = platform, Port = null },
         AllowedTcpPorts = ports ?? Array.Empty<int>(), LocalHarness = false,
     };
 

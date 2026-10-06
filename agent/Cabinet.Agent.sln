@@ -25,6 +25,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.Harness", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.Windows.Tests", "tests\Cabinet.Agent.Windows.Tests\Cabinet.Agent.Windows.Tests.csproj", "{C95EFDE5-9BA1-47C1-A0FA-75BF37D25C7B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.TestAgent", "tests\Cabinet.Agent.TestAgent\Cabinet.Agent.TestAgent.csproj", "{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -70,6 +72,10 @@ Global
 		{C95EFDE5-9BA1-47C1-A0FA-75BF37D25C7B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C95EFDE5-9BA1-47C1-A0FA-75BF37D25C7B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C95EFDE5-9BA1-47C1-A0FA-75BF37D25C7B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{75B2273C-96C1-49F6-BFA1-69ABD37759C7} = {218CA183-15FB-4CC2-80BA-32ABA5253FE3}
@@ -81,5 +87,6 @@ Global
 		{C0BA5CF7-238E-46CB-871D-94FC351693B3} = {218CA183-15FB-4CC2-80BA-32ABA5253FE3}
 		{013730FD-4B5F-40CB-AC04-8EDA6E29834F} = {218CA183-15FB-4CC2-80BA-32ABA5253FE3}
 		{C95EFDE5-9BA1-47C1-A0FA-75BF37D25C7B} = {CD273665-652A-403A-ACD7-DD1052371F0E}
+		{DD23C0B6-CA52-4F0E-B4CA-52757D57B6D4} = {CD273665-652A-403A-ACD7-DD1052371F0E}
 	EndGlobalSection
 EndGlobal

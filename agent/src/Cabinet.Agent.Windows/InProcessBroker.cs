@@ -68,4 +68,6 @@ public static class AgentPaths
     public static string Logs => Path.Combine(DataRoot, "logs");
     public static string HarnessInbox => Path.Combine(DataRoot, "harness", "inbox");
     public static string HarnessOutbox => Path.Combine(DataRoot, "harness", "outbox");
+    /// <summary>The CA the platform server's certificate must chain to. Installed with the agent; only administrators can change it.</summary>
+    public static string PlatformCa => Path.Combine(DataRoot, "platform-ca.pem");
 }

@@ -1,6 +1,8 @@
 # Cabinet agent
 
-The agent from docs/spec/04-agent-spec.md, built to Milestone 1: every read operation, run locally from a command file. It does not connect to the server yet; that comes in Milestone 2.
+The agent from docs/spec/04-agent-spec.md, built through Milestone 2. It runs every read operation, either locally from a command file or from the platform server.
+
+To connect it, the agent first enrolls with a one-time bootstrap token. It keeps its private key non-exportable in the Windows machine key store, and trusts only the platform CA the installer places on the cabinet. Once approved, it sends heartbeats every 60 seconds, long-polls for commands and renews its certificate. Every server command still goes through the agent's own six checks.
 
 ## Two services
 
@@ -54,6 +56,12 @@ $cfg = "$env:ProgramData\Mashura\CabinetAgent\agent-config.json"
 & $h make --config $cfg --operation peripheral.status --out scanner.json
 & $h drop --commands scanner.json
 & $h probe-broker                                     # prints OK: your account cannot open the broker pipe
+```
+
+To connect the cabinet to a platform server (see server/README.md for the server side):
+
+```powershell
+./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile platform-ca.pem -BootstrapToken <token>
 ```
 
 Once the client supplies the scanner and sync details, reinstall with them:

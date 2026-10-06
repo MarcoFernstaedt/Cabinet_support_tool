@@ -105,3 +105,22 @@ Decided here, open to change:
 - **Package verification codes** (hash_mismatch, signature_invalid, publisher_not_trusted, verification_failed) are produced only by package.install, built in a later milestone, so Milestone 1 cannot test them yet.
 - **Broker scope.** The broker runs eventlog.channels, eventlog.query, eventlog.get, updates.status, disk.smart and files.list. updates.status moved there after the installed-service test showed Windows Update refuses the network service's restricted account. Everything else runs in the network process without administrator rights. files.list refuses a path that goes through a junction or symbolic link.
 - **Local harness inbox.** Off by default. When localHarness is on, the network service also runs command files that an administrator drops into an admin-only folder, through the full checks and the real broker pipe. This exists for testing on a cabinet without a server.
+
+## Choices made in Milestone 2 (confirm or change)
+
+- **Approval before the console exists.** Approving cabinets, creating bootstrap tokens and issuing read commands is done with the `platform-admin` command line, run by a named person (`--as`). Every action is audited, and approval needs an Admin. Milestone 3 moves these to the console with sign-in and step-up. The CLI cannot issue write operations.
+- **Users table now.** The audit log and commands need a person's ID, so a minimal users table (username, name, role, status) exists from this milestone. Milestone 3 adds passwords, two-factor and sessions.
+- **Audit log account.** The spec asks for audit entries in the same transaction as the action, and for a database account that can only insert into the audit table. Both hold this way:
+  - The server's account cannot touch the audit table directly. It calls `audit_append()`, which runs as `cabinet_audit_writer`, a role that can only insert entries and move the chain head.
+  - Triggers refuse UPDATE, DELETE and TRUNCATE on the table, even from its owner.
+- **Certificate issuing without a library.** Node's built-in crypto plus a small DER encoder issues the certificates. This avoids about ten extra packages, and the signing step is the single function `signTbs`, which matches a KMS sign call. openssl verifies the output in the tests.
+- **Agent certificates.** They are ECDSA P-256 and valid for 90 days:
+  - The subject and SAN URI carry the cabinet ID, and the certificate is usable for TLS client authentication only.
+  - The agent renews in the last 30 days, and the server refuses renewal earlier, so a stolen certificate cannot extend itself.
+  - The key stays the same across renewals.
+- **Agent key storage.** The key is created by the network service in the Windows machine key store (software key storage provider), non-exportable. TPM-backed storage could follow if every cabinet has a TPM.
+- **Server trust on the agent.** The agent trusts only the platform CA file the installer copies, not the Windows root store. In development, the same development CA signs the agent API's own TLS certificate.
+- **Command delivery.** A command is handed to the agent once. If that response is lost, the command simply expires. Re-delivering it would be refused by the agent as a replay anyway.
+- **Bootstrap tokens.** Tokens are single-use and expire after 7 days, and only a hash is stored. The agent deletes its token file once the server has accepted it. If a token is consumed but the response is lost, the cabinet needs a new token.
+- **Events** are stored as they arrive, with duplicates ignored. Turning them into alerts is Milestone 4.
+- **Proactive drive replacement (from the client).** The goal includes warning early enough to send a client a new hard drive before a crash. Milestone 4's drive monitor should therefore raise "Drive failing" on worsening SMART counters (new reallocated or pending sectors, uncorrectable errors, high wear), not only on Windows' own failure prediction. It should show the trend per drive.

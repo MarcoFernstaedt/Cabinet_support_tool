@@ -19,11 +19,13 @@ public sealed record SyncCabinetConfig
 public sealed record PlatformServerConfig
 {
     public required string? Host { get; init; }
+    public required int? Port { get; init; }
 }
 
 public sealed record AgentConfig
 {
-    public required Guid CabinetId { get; init; }
+    /// <summary>Local harness only, before enrollment. An enrolled agent uses the cabinet ID from its certificate.</summary>
+    public required Guid? CabinetId { get; init; }
     public required bool ReadOnlyMode { get; init; }
     public required CabinetRole? CabinetRole { get; init; }
     public required ScannerConfig Scanner { get; init; }

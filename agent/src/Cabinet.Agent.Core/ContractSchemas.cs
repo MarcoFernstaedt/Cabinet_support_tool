@@ -41,6 +41,7 @@ public sealed class ContractSchemas
     public static string Local(string name) => $"{BaseId}agent/{name}.schema.json";
     public static string Params(string operation) => $"{BaseId}operations/{operation}.schema.json#/$defs/params";
     public static string Output(string operation) => $"{BaseId}operations/{operation}.schema.json#/$defs/output";
+    public static string CommonDef(string name) => $"{BaseId}common.schema.json#/$defs/{name}";
     public static string CommandProperty(string property) => $"{BaseId}envelopes/command.schema.json#/properties/{property}";
 
     /// <summary>Validates <paramref name="instance"/> against the schema at <paramref name="schemaRef"/>.</summary>

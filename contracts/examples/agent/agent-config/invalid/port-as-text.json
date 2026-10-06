@@ -1,0 +1,17 @@
+{
+  "cabinetId": null,
+  "readOnlyMode": false,
+  "cabinetRole": null,
+  "scanner": {
+    "hardwareIds": []
+  },
+  "syncCabinet": {
+    "address": null
+  },
+  "platformServer": {
+    "host": "diag.mashura.example",
+    "port": "8443; rm -rf"
+  },
+  "allowedTcpPorts": [],
+  "localHarness": false
+}

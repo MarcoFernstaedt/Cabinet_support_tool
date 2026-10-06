@@ -80,16 +80,24 @@ public static class Program
     private static byte[] Serialize(IEnumerable<Command> commands) =>
         JsonSerializer.SerializeToUtf8Bytes(commands, new JsonSerializerOptions(ContractJson.Options) { WriteIndented = true });
 
-    private static int Sample(Dictionary<string, string> options)
+    /// <summary>The configuration, with the enrolled cabinet ID when this machine has enrolled.</summary>
+    private static AgentConfig LoadConfig(Dictionary<string, string> options)
     {
         AgentConfig config = AgentConfigLoader.Load(Required(options, "config"));
+        Guid? enrolled = File.Exists(Path.Combine(AgentPaths.State, "identity.json")) ? new Cabinet.Agent.Core.Server.IdentityStore(AgentPaths.State).LoadIdentity()?.CabinetId : null;
+        return config with { CabinetId = enrolled ?? config.CabinetId };
+    }
+
+    private static int Sample(Dictionary<string, string> options)
+    {
+        AgentConfig config = LoadConfig(options);
         Output(options, Serialize(CommandFile.EveryRead(config, DateTimeOffset.UtcNow)));
         return 0;
     }
 
     private static int Make(Dictionary<string, string> options)
     {
-        AgentConfig config = AgentConfigLoader.Load(Required(options, "config"));
+        AgentConfig config = LoadConfig(options);
         using JsonDocument parameters = JsonDocument.Parse(options.GetValueOrDefault("params", "{}"));
         Output(options, Serialize(new[] { CommandFile.Make(config, Required(options, "operation"), parameters.RootElement.Clone(), DateTimeOffset.UtcNow) }));
         return 0;
@@ -97,7 +105,7 @@ public static class Program
 
     private static async Task<int> RunAsync(Dictionary<string, string> options)
     {
-        AgentConfig config = AgentConfigLoader.Load(Required(options, "config"));
+        AgentConfig config = LoadConfig(options);
         byte[] file = await File.ReadAllBytesAsync(Required(options, "commands"));
         TimeProvider clock = TimeProvider.System;
         string state = Directory.CreateTempSubdirectory("cabinet-harness-").FullName;

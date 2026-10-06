@@ -17,7 +17,7 @@ public sealed class ReadOperationTests
     {
         CabinetId = Guid.Parse("9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d"), ReadOnlyMode = false, CabinetRole = CabinetRole.Standalone,
         Scanner = new ScannerConfig { HardwareIds = ["USB\\VID_1234&PID_5678"] },
-        SyncCabinet = new SyncCabinetConfig { Address = "127.0.0.1" }, PlatformServer = new PlatformServerConfig { Host = "localhost" },
+        SyncCabinet = new SyncCabinetConfig { Address = "127.0.0.1" }, PlatformServer = new PlatformServerConfig { Host = "localhost", Port = null },
         AllowedTcpPorts = [135], LocalHarness = false,
     };
 

@@ -9,7 +9,8 @@
     "address": "\\\\evil\\share"
   },
   "platformServer": {
-    "host": null
+    "host": null,
+    "port": null
   },
   "allowedTcpPorts": [],
   "localHarness": false

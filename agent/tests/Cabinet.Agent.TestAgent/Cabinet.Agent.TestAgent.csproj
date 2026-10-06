@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    TEST ONLY. Runs the real enrollment and connection code (Cabinet.Agent.Core)
+    on any OS with an in-memory key and two portable operations, so the server's
+    end-to-end test can drive a genuine agent on Linux CI. Never deployed.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Cabinet.Agent.TestAgent</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj" />
+  </ItemGroup>
+</Project>

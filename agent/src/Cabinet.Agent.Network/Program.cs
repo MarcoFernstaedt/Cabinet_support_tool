@@ -1,8 +1,10 @@
 using System.Runtime.Versioning;
 using System.Security.Principal;
+using System.Security.Cryptography.X509Certificates;
 using System.ServiceProcess;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
+using Cabinet.Agent.Core.Server;
 using Cabinet.Agent.Windows;
 
 [assembly: SupportedOSPlatform("windows")]
@@ -50,13 +52,33 @@ public sealed class NetworkService : ServiceBase
         _stop = new CancellationTokenSource();
         TimeProvider clock = TimeProvider.System;
         BrokerClient broker = BrokerPipeClient.Create();
-        var processor = new CommandProcessor(
-            new CommandValidator(config,
-                new ReplayStore(Path.Combine(AgentPaths.State, "replay.log"), clock),
-                new RateLimiter(Path.Combine(AgentPaths.State, "writes.log"), clock), clock),
-            NetworkOperations.Registry(config, broker, clock), clock);
-        _work = Task.WhenAll(WatchBrokerAsync(broker, _stop.Token), config.LocalHarness ? InboxAsync(processor, _stop.Token) : Task.CompletedTask);
-        _log.Write($"Network service {SystemOperations.AgentVersion} started for cabinet {config.CabinetId}; read-only mode {(config.ReadOnlyMode ? "on" : "off")}; local harness {(config.LocalHarness ? "on" : "off")}.");
+        // One replay store and one set of limits for every way a command can arrive.
+        var replay = new ReplayStore(Path.Combine(AgentPaths.State, "replay.log"), clock);
+        var limits = new RateLimiter(Path.Combine(AgentPaths.State, "writes.log"), clock);
+        CommandProcessor ProcessorFor(AgentConfig c) =>
+            new(new CommandValidator(c, replay, limits, clock), NetworkOperations.Registry(c, broker, clock), clock);
+        var identityStore = new IdentityStore(AgentPaths.State);
+
+        var work = new List<Task> { WatchBrokerAsync(broker, _stop.Token) };
+        if (config.LocalHarness)
+            work.Add(InboxAsync(() => ProcessorFor(config with { CabinetId = identityStore.LoadIdentity()?.CabinetId ?? config.CabinetId }), _stop.Token));
+        if (config.PlatformServer is { Host: { } host, Port: { } port } && File.Exists(AgentPaths.PlatformCa))
+        {
+            var ca = X509Certificate2.CreateFromPem(File.ReadAllText(AgentPaths.PlatformCa));
+            var system = new SystemOperations(config);
+            var connection = new AgentConnection(new AgentConnectionOptions
+            {
+                ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
+                ProcessorFor = ProcessorFor,
+                Fingerprints = () => Fingerprints.Read(system.SystemInfoAsync(new EmptyParams(), CancellationToken.None).GetAwaiter().GetResult()),
+                AgentVersion = SystemOperations.AgentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = _log.Write,
+            });
+            work.Add(Task.Run(() => connection.RunAsync(_stop.Token)));
+            _log.Write($"Connecting to the platform server at {host}:{port}.");
+        }
+        else _log.Write("No platform server configured (platformServer host and port, and platform-ca.pem); running locally only.");
+        _work = Task.WhenAll(work);
+        _log.Write($"Network service {SystemOperations.AgentVersion} started; read-only mode {(config.ReadOnlyMode ? "on" : "off")}; local harness {(config.LocalHarness ? "on" : "off")}.");
     }
 
     protected override void OnStop()
@@ -80,7 +102,7 @@ public sealed class NetworkService : ServiceBase
     }
 
     /// <summary>The local harness inbox: *.json command files, results written to the outbox under the same name.</summary>
-    private async Task InboxAsync(CommandProcessor processor, CancellationToken token)
+    private async Task InboxAsync(Func<CommandProcessor> processorFor, CancellationToken token)
     {
         while (!token.IsCancellationRequested)
         {
@@ -100,7 +122,7 @@ public sealed class NetworkService : ServiceBase
                     string outPath = Path.Combine(AgentPaths.HarnessOutbox, Path.GetFileNameWithoutExtension(name) + ".result.json");
                     try
                     {
-                        var entries = await CommandFile.RunAsync(bytes, processor, token).ConfigureAwait(false);
+                        var entries = await CommandFile.RunAsync(bytes, processorFor(), token).ConfigureAwait(false);
                         await File.WriteAllBytesAsync(outPath, CommandFile.Write(entries), token).ConfigureAwait(false);
                         foreach (var e in entries)
                             _log.Write(e.Result is { } r ? $"Harness: command {r.CommandId} {r.Status}{(r.Error is null ? "" : " " + r.Error.Code)}." : $"Harness: entry {e.Index} dropped.");

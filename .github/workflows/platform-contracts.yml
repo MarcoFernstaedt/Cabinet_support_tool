@@ -6,6 +6,16 @@ on:
 jobs:
   contracts-server-agent:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-not-a-secret
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_ADMIN_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -17,11 +27,13 @@ jobs:
       - name: Contracts (schemas, examples, generated types)
         working-directory: contracts
         run: npm ci && npm test && npm run check-generated && npm audit --audit-level=low
-      - name: Server builds and validates against the contracts
-        working-directory: server
-        run: npm ci && npm test && npm audit --audit-level=low
       - name: Agent builds (Windows projects compile here too)
         run: dotnet build agent/Cabinet.Agent.sln -c Release
+      - name: Server (database, audit chain, agent API over mutual TLS, and a real agent end to end)
+        working-directory: server
+        env:
+          TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net8.0/Cabinet.Agent.TestAgent.dll
+        run: npm ci && npm test && npm audit --audit-level=low
       - name: Agent contracts and core (validation, replay, rate limits, broker protocol)
         run: |
           dotnet test agent/tests/Cabinet.Agent.Contracts.Tests -c Release --no-build
@@ -95,6 +107,85 @@ jobs:
           Write-Host "Result codes on resend: $codes"
           if (@($codes).Count -ne 1 -or $codes -ne 'replayed') { throw "Expected every command to be refused as replayed, got: $codes" }
           # The harness exits 1 because nothing succeeded, which is the expected outcome here.
+          exit 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Start PostgreSQL and the platform server (development issuing key)
+        shell: pwsh
+        run: |
+          $pg = Get-Service -Name postgresql*
+          Set-Service -InputObject $pg -Status Running
+          $psql = Join-Path $env:PGBIN 'psql.exe'
+          $env:PGPASSWORD = 'root'
+          & $psql -U postgres -c 'CREATE DATABASE cabinet'
+          Push-Location contracts; npm ci; Pop-Location
+          Push-Location server; npm ci; npm run build; Pop-Location
+          $env:DATABASE_OWNER_URL = 'postgres://postgres:root@localhost:5432/cabinet'
+          node server/dist/src/cli.js migrate
+          & $psql -U postgres -d cabinet -c "CREATE ROLE cabinet_app_ci LOGIN PASSWORD 'ci-only-not-a-secret'; GRANT cabinet_app TO cabinet_app_ci;"
+          "DATABASE_URL=postgres://cabinet_app_ci:ci-only-not-a-secret@localhost:5432/cabinet" | Out-File -Append $env:GITHUB_ENV
+          "DEV_PKI_DIR=$env:RUNNER_TEMP\dev-pki" | Out-File -Append $env:GITHUB_ENV
+          $env:DATABASE_URL = 'postgres://cabinet_app_ci:ci-only-not-a-secret@localhost:5432/cabinet'
+          $env:DEV_PKI_DIR = "$env:RUNNER_TEMP\dev-pki"
+          $env:AGENT_API_PORT = '8443'
+          $env:AGENT_API_HOSTNAMES = 'localhost'
+          Start-Process -FilePath node -ArgumentList 'server/dist/src/main.js' -RedirectStandardOutput "$env:RUNNER_TEMP\server.log" -RedirectStandardError "$env:RUNNER_TEMP\server.err" -NoNewWindow
+          for ($i = 0; $i -lt 30 -and -not (Test-Path "$env:DEV_PKI_DIR\dev-agent-api.cert.pem"); $i++) { Start-Sleep 1 }
+          Start-Sleep 2
+          node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
+      - name: The installed agent enrolls, is approved and comes online
+        shell: pwsh
+        run: |
+          $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
+          ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
+            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token
+          $request = $null
+          for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
+          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
+          if (-not $request) { Get-Content "$env:RUNNER_TEMP\server.log" -Tail 30; throw 'No enrollment request arrived.' }
+          if (Test-Path "$env:ProgramData\Mashura\CabinetAgent\state\bootstrap-token") { throw 'The bootstrap token was not deleted after use.' }
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone
+          $online = $null
+          for ($i = 0; $i -lt 60 -and -not $online; $i++) { Start-Sleep 2; $online = node server/dist/src/cli.js cabinets | Select-String ' online ' }
+          node server/dist/src/cli.js cabinets
+          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
+          if (-not $online) { throw 'The cabinet did not come online.' }
+          "CABINET_ID=$((($online.Line) -split ' ')[0])" | Out-File -Append $env:GITHUB_ENV
+      - name: Commands from the server run on the real cabinet, through the broker, and come back
+        shell: pwsh
+        run: |
+          $ids = @{}
+          foreach ($op in @(
+              @('system.info', '{}'), @('peripheral.status', '{}'), @('disk.smart', '{}'), @('updates.status', '{}'),
+              @('eventlog.query', '{"log":"System","levels":["error","warning"],"pageSize":5}'),
+              @('network.test', '{"target":"sync_cabinet","method":"tcp","port":135}'))) {
+            $ids[$op[0]] = (node server/dist/src/cli.js issue $env:CABINET_ID $op[0] $op[1] --as ci.admin | Select-Object -Last 1).Trim()
+          }
+          $failed = @()
+          foreach ($op in $ids.Keys) {
+            $record = $null
+            for ($i = 0; $i -lt 60; $i++) {
+              $record = node server/dist/src/cli.js command $ids[$op] | Out-String | ConvertFrom-Json
+              if ($record.status -notin @('queued', 'delivered')) { break }
+              Start-Sleep 2
+            }
+            Write-Host ("{0,-20} {1} {2}" -f $op, $record.status, $record.result.error.code)
+            if ($record.status -ne 'succeeded') { $failed += $op }
+          }
+          if ($failed) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30; throw "Did not succeed through the server: $($failed -join ', ')" }
+      - name: A revoked cabinet is refused, and the audit chain is intact
+        shell: pwsh
+        run: |
+          node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin
+          $refused = $false
+          for ($i = 0; $i -lt 45 -and -not $refused; $i++) {
+            Start-Sleep 2
+            $refused = Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Pattern 'refused this cabinet' -SimpleMatch -Quiet
+          }
+          if (-not $refused) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20; throw 'The revoked cabinet was not refused.' }
+          node server/dist/src/cli.js audit-verify
+          if ($LASTEXITCODE -ne 0) { throw 'The audit chain is broken.' }
           exit 0
       - name: Uninstall
         if: always()

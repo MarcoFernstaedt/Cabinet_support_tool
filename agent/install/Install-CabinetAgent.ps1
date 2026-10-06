@@ -12,6 +12,9 @@
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -EnableLocalHarness
 .EXAMPLE
+  .\Install-CabinetAgent.ps1 -PlatformServerHost diag.mashura.example -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapToken <token>
+  Connects to the platform server. The token comes from platform-admin token create; it works once and is deleted after use.
+.EXAMPLE
   .\Install-CabinetAgent.ps1 -ScannerHardwareId 'USB\VID_1234&PID_5678' -SyncCabinetAddress 10.20.0.15 -AllowedTcpPort 1433 -ReadOnly
 #>
 [CmdletBinding()]
@@ -23,6 +26,9 @@ param(
     [string[]] $ScannerHardwareId = @(),
     [string] $SyncCabinetAddress,
     [string] $PlatformServerHost,
+    [ValidateRange(1, 65535)] [int] $PlatformServerPort,
+    [string] $PlatformCaFile,
+    [ValidatePattern('^[A-Za-z0-9_-]{32,128}$')] [string] $BootstrapToken,
     [ValidateRange(1, 65535)] [int[]] $AllowedTcpPort = @(),
     [switch] $EnableLocalHarness
 )
@@ -100,7 +106,10 @@ $config = [ordered]@{
     cabinetRole     = if ($CabinetRole) { $CabinetRole } else { $null }
     scanner         = [ordered]@{ hardwareIds = @($ScannerHardwareId) }
     syncCabinet     = [ordered]@{ address = if ($SyncCabinetAddress) { $SyncCabinetAddress } else { $null } }
-    platformServer  = [ordered]@{ host = if ($PlatformServerHost) { $PlatformServerHost } else { $null } }
+    platformServer  = [ordered]@{
+        host = if ($PlatformServerHost) { $PlatformServerHost } else { $null }
+        port = if ($PlatformServerPort) { $PlatformServerPort } else { $null }
+    }
     allowedTcpPorts = @($AllowedTcpPort)
     localHarness    = [bool]$EnableLocalHarness
 }
@@ -113,7 +122,18 @@ $fileAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule('
 $fileAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($networkAccount, 'Read', 'Allow')))
 Set-Acl -Path $configPath -AclObject $fileAcl
 
-# 5. Start.
+# 5. Platform server trust and the one-time bootstrap token.
+if ($PlatformCaFile) {
+    $caPath = Join-Path $dataDir 'platform-ca.pem'
+    Copy-Item -Path $PlatformCaFile -Destination $caPath -Force
+    Set-Acl -Path $caPath -AclObject $fileAcl   # administrators change it; the network service only reads it
+}
+if ($BootstrapToken) {
+    # The state folder admits only SYSTEM, administrators and the network service, which deletes the token once the server accepts it.
+    [IO.File]::WriteAllText((Join-Path $dataDir 'state\bootstrap-token'), $BootstrapToken, (New-Object Text.UTF8Encoding($false)))
+}
+
+# 6. Start.
 Start-Service -Name $broker
 Start-Service -Name $network
 Get-Service -Name $broker, $network | Format-Table -AutoSize Name, Status, StartType

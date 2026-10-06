@@ -11,7 +11,8 @@
     "address": "10.20.0.15"
   },
   "platformServer": {
-    "host": "diag.mashura.example"
+    "host": "diag.mashura.example",
+    "port": 8443
   },
   "allowedTcpPorts": [
     443,

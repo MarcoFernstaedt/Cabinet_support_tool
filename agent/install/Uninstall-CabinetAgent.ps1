@@ -13,5 +13,12 @@ foreach ($name in 'CabinetAgentNetwork', 'CabinetAgentBroker') {
     }
 }
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramFiles 'Mashura\CabinetAgent')
-if ($RemoveData) { Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramData 'Mashura\CabinetAgent') }
+if ($RemoveData) {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramData 'Mashura\CabinetAgent')
+    # The cabinet's private key, in the machine key store. Without it the old certificate is useless.
+    $provider = [Security.Cryptography.CngProvider]::MicrosoftSoftwareKeyStorageProvider
+    if ([Security.Cryptography.CngKey]::Exists('Mashura.CabinetAgent', $provider, [Security.Cryptography.CngKeyOpenOptions]::MachineKey)) {
+        [Security.Cryptography.CngKey]::Open('Mashura.CabinetAgent', $provider, [Security.Cryptography.CngKeyOpenOptions]::MachineKey).Delete()
+    }
+}
 Write-Host 'Cabinet agent removed.'

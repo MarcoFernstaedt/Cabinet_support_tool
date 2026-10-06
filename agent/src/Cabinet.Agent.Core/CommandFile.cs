@@ -71,10 +71,12 @@ public static class CommandFile
             throw new CommandFileException("That operation is not in the catalog.");
         if (!ContractSchemas.Instance.IsValid(ContractSchemas.Params(operation), parameters))
             throw new CommandFileException("Those parameters do not match the operation's schema.");
+        if (config.CabinetId is not Guid cabinetId)
+            throw new CommandFileException("This agent has no cabinet ID yet: enroll it, or set cabinetId in the configuration for local testing.");
         DateTimeOffset issued = new(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second, TimeSpan.Zero);
         return new Command
         {
-            CommandId = Guid.NewGuid(), CabinetId = config.CabinetId, Operation = operation, Params = parameters,
+            CommandId = Guid.NewGuid(), CabinetId = cabinetId, Operation = operation, Params = parameters,
             IssuedBy = Guid.Empty, IssuedAt = issued, ExpiresAt = issued.AddSeconds(entry.ExpirySeconds),
         };
     }
