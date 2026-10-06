@@ -92,7 +92,10 @@ jobs:
           & $harness drop --commands "$env:RUNNER_TEMP\commands.json" --out "$env:RUNNER_TEMP\replayed.json"
           $results = Get-Content "$env:RUNNER_TEMP\replayed.json" | ConvertFrom-Json
           $codes = $results | ForEach-Object { $_.result.error.code } | Sort-Object -Unique
-          if ($codes -ne 'replayed') { throw "Expected every command to be refused as replayed, got: $codes" }
+          Write-Host "Result codes on resend: $codes"
+          if (@($codes).Count -ne 1 -or $codes -ne 'replayed') { throw "Expected every command to be refused as replayed, got: $codes" }
+          # The harness exits 1 because nothing succeeded, which is the expected outcome here.
+          exit 0
       - name: Uninstall
         if: always()
         shell: pwsh
