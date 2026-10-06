@@ -296,7 +296,7 @@ public static class NetworkOperations
             .Register<EmptyParams, SystemInfoOutput>(Catalog.SystemInfo, system.SystemInfoAsync)
             .Register<DevicesListParams, DevicesListOutput>(Catalog.DevicesList, devices.DevicesListAsync)
             .Register<EmptyParams, DriversListOutput>(Catalog.DriversList, devices.DriversListAsync)
-            .Register<EmptyParams, PeripheralStatusOutput>(Catalog.PeripheralStatus, devices.PeripheralStatusAsync)
+            .Register<PeripheralStatusParams, PeripheralStatusOutput>(Catalog.PeripheralStatus, devices.PeripheralStatusAsync)
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);

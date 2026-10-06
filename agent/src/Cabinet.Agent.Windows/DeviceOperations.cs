@@ -125,12 +125,12 @@ public sealed class DeviceOperations
     /// The fingerprint scanner and the automated troubleshooting checklist
     /// (docs/spec/04-agent-spec.md peripheral.status, widened in milestone 1).
     /// </summary>
-    public async Task<PeripheralStatusOutput> PeripheralStatusAsync(EmptyParams _, CancellationToken token)
+    public async Task<PeripheralStatusOutput> PeripheralStatusAsync(PeripheralStatusParams p, CancellationToken token)
     {
         var devices = ReadDevices();
         var facts = new ScannerFacts
         {
-            ConfiguredHardwareIds = _config.Scanner.HardwareIds, Devices = devices, BiometricServiceState = BiometricService(),
+            ConfiguredHardwareIds = p.HardwareIds ?? _config.Scanner.HardwareIds, Devices = devices, BiometricServiceState = BiometricService(),
         };
         DeviceFacts? scanner = facts.ConfiguredHardwareIds.Count > 0 ? ScannerChecklist.Find(facts) : null;
         if (scanner is not null)

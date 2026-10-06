@@ -38,6 +38,20 @@
         "port": {
           "description": "TCP only; must also be in the agent's local allowed-port list.",
           "$ref": "../common.schema.json#/$defs/port"
+        },
+        "syncAddress": {
+          "description": "The site's sync cabinet as set in the console. The agent accepts it only if it is a private IPv4 address on one of the cabinet's own connected networks.",
+          "$ref": "../common.schema.json#/$defs/ipv4"
+        },
+        "syncPorts": {
+          "description": "TCP ports the site's settings allow for the sync cabinet, at most 4. Used only with target sync_cabinet.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/port"
+          }
         }
       },
       "allOf": [
@@ -81,6 +95,36 @@
             "not": {
               "required": [
                 "dnsServerIndex"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "const": "sync_cabinet"
+              }
+            }
+          },
+          "then": {
+            "type": "object"
+          },
+          "else": {
+            "type": "object",
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "syncAddress"
+                  ]
+                },
+                {
+                  "required": [
+                    "syncPorts"
+                  ]
+                }
               ]
             }
           }

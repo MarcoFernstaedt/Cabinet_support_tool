@@ -1,0 +1,9 @@
+{
+  "target": "sync_cabinet",
+  "method": "tcp",
+  "port": 1433,
+  "syncAddress": "10.20.0.15",
+  "syncPorts": [
+    1433
+  ]
+}

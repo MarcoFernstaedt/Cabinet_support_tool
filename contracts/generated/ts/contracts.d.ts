@@ -850,9 +850,15 @@ export interface DriversListOutput {
 }
 
 /**
- * Operations that take no parameters accept only an empty object.
+ * The scanner's hardware IDs as set in the console (fleet default or per cabinet). When absent, the agent uses its local configuration.
  */
-export interface PeripheralStatusParams {}
+export interface PeripheralStatusParams {
+  /**
+   * @minItems 1
+   * @maxItems 16
+   */
+  hardwareIds?: [string, ...string[]];
+}
 
 /**
  * The fingerprint scanner, found by the hardware IDs in the agent's local configuration, with an automated troubleshooting checklist. When no IDs are configured, candidates lists likely scanners so support can identify the right one.
@@ -1054,6 +1060,17 @@ export interface NetworkTestParams {
    * TCP only; must also be in the agent's local allowed-port list.
    */
   port?: number;
+  /**
+   * The site's sync cabinet as set in the console. The agent accepts it only if it is a private IPv4 address on one of the cabinet's own connected networks.
+   */
+  syncAddress?: string;
+  /**
+   * TCP ports the site's settings allow for the sync cabinet, at most 4. Used only with target sync_cabinet.
+   *
+   * @minItems 1
+   * @maxItems 4
+   */
+  syncPorts?: [number, ...number[]];
 }
 
 export interface NetworkTestOutput {

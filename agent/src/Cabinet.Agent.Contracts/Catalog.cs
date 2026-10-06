@@ -49,7 +49,7 @@ public static class Catalog
         Read<EventlogGetParams, EventlogGetOutput>(EventlogGet),
         Read<DevicesListParams, DevicesListOutput>(DevicesList),
         Read<EmptyParams, DriversListOutput>(DriversList),
-        Read<EmptyParams, PeripheralStatusOutput>(PeripheralStatus),
+        Read<PeripheralStatusParams, PeripheralStatusOutput>(PeripheralStatus),
         Read<EmptyParams, UpdatesStatusOutput>(UpdatesStatus),
         Read<EmptyParams, DiskSmartOutput>(DiskSmart),
         Read<FilesListParams, FilesListOutput>(FilesList),

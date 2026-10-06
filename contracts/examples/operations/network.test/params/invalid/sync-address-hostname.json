@@ -1,0 +1,5 @@
+{
+  "target": "sync_cabinet",
+  "method": "ping",
+  "syncAddress": "evil.example.com"
+}

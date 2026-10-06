@@ -58,8 +58,9 @@ public sealed class NetworkTester
                 name = null;
                 break;
             case NetworkTestTarget.SyncCabinet:
-                (address, name) = Parse(_config.SyncCabinet.Address);
-                if (address is null && name is null) throw new OperationFailedException("unavailable", "The sync cabinet's address is not configured on this cabinet yet.");
+                // The site's setting from the console (already checked to be on this cabinet's network), else the local configuration.
+                (address, name) = Parse(p.SyncAddress ?? _config.SyncCabinet.Address);
+                if (address is null && name is null) throw new OperationFailedException("unavailable", "The sync cabinet's address is not set for this site or cabinet yet.");
                 break;
             default:
                 (address, name) = Parse(_config.PlatformServer.Host);

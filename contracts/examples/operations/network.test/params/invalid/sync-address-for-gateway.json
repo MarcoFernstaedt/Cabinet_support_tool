@@ -1,0 +1,5 @@
+{
+  "target": "gateway",
+  "method": "ping",
+  "syncAddress": "10.20.0.15"
+}

@@ -38,8 +38,12 @@ public sealed class CommandValidator
     private readonly TimeProvider _clock;
     private readonly ContractSchemas _schemas = ContractSchemas.Instance;
 
-    public CommandValidator(AgentConfig config, ReplayStore replay, RateLimiter limits, TimeProvider clock)
+    private readonly Func<IReadOnlyList<LocalNetwork>> _localNetworks;
+
+    /// <param name="localNetworks">The cabinet's connected IPv4 networks; defaults to what the operating system reports.</param>
+    public CommandValidator(AgentConfig config, ReplayStore replay, RateLimiter limits, TimeProvider clock, Func<IReadOnlyList<LocalNetwork>>? localNetworks = null)
     {
+        _localNetworks = localNetworks ?? LocalNetwork.Current;
         _config = config;
         _replay = replay;
         _limits = limits;
@@ -121,14 +125,23 @@ public sealed class CommandValidator
         return new ValidationOutcome.Accepted(new ValidatedCommand(command, entry));
     }
 
-    /// <summary>Rules from the local configuration. TCP tests only to ports this cabinet allows.</summary>
+    /// <summary>
+    /// Rules the schema cannot know. TCP tests only to ports this cabinet allows
+    /// locally, or, for the sync cabinet only, to the few ports its site's settings
+    /// list. A sync address supplied by the server must be a private address on one
+    /// of this cabinet's own networks, so a compromised server cannot aim tests elsewhere.
+    /// </summary>
     private string? LocalPolicy(CatalogEntry entry, JsonElement parameters)
     {
-        if (entry.Name == Catalog.NetworkTest)
+        if (entry.Name != Catalog.NetworkTest) return null;
+        var p = parameters.Deserialize<NetworkTestParams>(ContractJson.Options)!;
+        if (p.SyncAddress is { } address && !LocalNetwork.IsPrivateOnLocalNetwork(address, _localNetworks()))
+            return "The sync cabinet address from the server is not a private address on this cabinet's own network.";
+        if (p.Method == NetworkTestMethod.Tcp)
         {
-            var p = parameters.Deserialize<NetworkTestParams>(ContractJson.Options)!;
-            if (p.Method == NetworkTestMethod.Tcp && !_config.AllowedTcpPorts.Contains(p.Port!.Value))
-                return "TCP tests are allowed only to ports in this cabinet's local configuration.";
+            bool allowed = _config.AllowedTcpPorts.Contains(p.Port!.Value) ||
+                           (p.Target == NetworkTestTarget.SyncCabinet && p.SyncPorts?.Contains(p.Port.Value) == true);
+            if (!allowed) return "TCP tests are allowed only to ports in this cabinet's configuration or its site's sync ports.";
         }
         return null;
     }

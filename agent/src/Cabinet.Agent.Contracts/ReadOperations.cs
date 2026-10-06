@@ -141,6 +141,11 @@ public sealed record DriversListOutput
     public required bool Truncated { get; init; }
 }
 
+public sealed record PeripheralStatusParams
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<string>? HardwareIds { get; init; }
+}
+
 public sealed record PeripheralDriver
 {
     public required string Name { get; init; }
@@ -293,6 +298,8 @@ public sealed record NetworkTestParams
     public required NetworkTestMethod Method { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? DnsServerIndex { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Port { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? SyncAddress { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<int>? SyncPorts { get; init; }
 }
 
 public sealed record NetworkTestOutput
