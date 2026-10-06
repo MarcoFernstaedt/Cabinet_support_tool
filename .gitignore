@@ -51,3 +51,4 @@ node_modules/
 server/dist/
 agent/out/
 server/.dev-pki/
+console/dist/

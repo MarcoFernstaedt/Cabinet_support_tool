@@ -1,6 +1,9 @@
 # Platform server
 
-The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. This is Milestone 2: the database, and the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel. The console API arrives in Milestone 3.
+The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Built through Milestone 3:
+- the database;
+- the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel;
+- the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console.
 
 ## What is here
 
@@ -35,6 +38,26 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. This
   - `platform-admin audit-verify` finds the first changed entry.
 - **The development issuing key** refuses to run when `NODE_ENV=production`. The KMS key replaces the one function in `src/runtime.ts`.
 
+## Console API
+
+The console listener runs when `CONSOLE_ORIGIN` is set. It is meant to sit behind the internal reverse proxy, reachable only on the internal network or VPN. It takes these environment variables:
+
+| Variable | Purpose |
+| --- | --- |
+| `CONSOLE_ORIGIN` | The console's exact origin. State-changing requests must carry it. |
+| `CONSOLE_SECRET_KEY` | 32 random bytes, base64. Encrypts authenticator secrets; keep it in the secret store. |
+| `CONSOLE_PORT`, `CONSOLE_HOST` | The listener (default 127.0.0.1:8080). |
+| `CONSOLE_STATIC_DIR` | The built console (default `../console/dist`). |
+| `CONSOLE_TRUST_PROXY=1` | Read the client address from the proxy. |
+
+Security behaviour:
+- **Passwords** are hashed with Argon2id.
+- **Authenticator codes** follow RFC 6238. Their secrets are encrypted with AES-256-GCM, and a code cannot be used twice.
+- **Sessions** are stored on the server. The cookie is HttpOnly, Secure and SameSite=Strict, and sessions expire after 30 minutes idle or 12 hours at most.
+- **Lockout:** 5 failed attempts lock the account for 15 minutes. There are also per-address limits.
+- **Step-up tokens** are bound to one action and one target, valid for 2 minutes, and work once.
+- **Roles** are checked on every route.
+
 ## Run it locally
 
 ```bash
@@ -44,9 +67,11 @@ npm ci && npm run build && npm run admin -- migrate
 psql cabinet -c "CREATE ROLE cabinet_app_dev LOGIN PASSWORD '<choose one>'; GRANT cabinet_app TO cabinet_app_dev;"
 export DATABASE_URL=postgres://cabinet_app_dev:<password>@localhost/cabinet
 export DEV_PKI_DIR=$HOME/.cabinet-dev-pki AGENT_API_HOSTNAMES=localhost,<this machine's name or IP>
-npm start                                                           # agent API on :8443
+export CONSOLE_ORIGIN=http://localhost:8080 CONSOLE_PORT=8080 CONSOLE_SECRET_KEY=$(openssl rand -base64 32)
+(cd ../console && npm ci && npm run build)
+npm start                                                           # agent API on :8443, console on http://localhost:8080
 
-npm run admin -- user add --username you --name "Your Name" --role admin
+npm run admin -- user add --username you --name "Your Name" --role admin   # prints a temporary password; sign in at the console
 npm run admin -- token create --as you        # give this and $DEV_PKI_DIR/dev-issuing-ca.cert.pem to the cabinet installer
 npm run admin -- pending
 npm run admin -- approve <requestId> --as you --client "Client" --site "Site" --cabinet "Cabinet 1" --role standalone

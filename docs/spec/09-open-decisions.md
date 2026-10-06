@@ -127,3 +127,22 @@ Decided here, open to change:
 - **Bootstrap tokens.** Tokens are single-use and expire after 7 days, and only a hash is stored. The agent deletes its token file once the server has accepted it. If a token is consumed but the response is lost, the cabinet needs a new token.
 - **Events** are stored as they arrive, with duplicates ignored. Turning them into alerts is Milestone 4.
 - **Proactive drive replacement (from the client).** The goal includes warning early enough to send a client a new hard drive before a crash. Milestone 4's drive monitor should therefore raise "Drive failing" on worsening SMART counters (new reallocated or pending sectors, uncorrectable errors, high wear), not only on Windows' own failure prediction. It should show the trend per drive.
+
+## Choices made in Milestone 3 (confirm or change)
+
+- **Scanner hardware IDs from the console (client request).**
+  - An Admin sets a fleet default, and Tier 2 or Admin can set a per-cabinet override. Each change needs step-up and is audited.
+  - The server puts the IDs into every `peripheral.status` command. The cabinet's local configuration remains the fallback.
+  - The scanner check lists likely scanners with a one-click "Use as this cabinet's scanner".
+- **Sync cabinet from the console (client request, "guarded console setting").**
+  - An Admin sets each site's sync address (private IPv4 only) and up to 4 TCP ports, with step-up and an audit entry.
+  - The server puts them into sync-cabinet network tests, replacing anything the browser sent.
+  - Each cabinet still refuses an address that is not a private address on one of its own connected networks (/16 or narrower). So a compromised server can test only hosts on the cabinet's own LAN, on at most 4 ports, within the existing 10-tests-per-minute limit.
+  - This relaxes the spec's "TCP ports only from local configuration" rule for the sync cabinet alone; the client chose it.
+- **Creating accounts.** Users are created with the `platform-admin` CLI until the Users admin screen arrives in Milestone 6. The CLI prints a temporary password, which must be changed at first sign-in.
+- **Authenticator setup** shows the key as text (grouped in fours) and an `otpauth://` link, not a QR code, to avoid adding a QR library. A QR code can be added if wanted.
+- **Approval moved into the console.** Pending cabinets, install tokens and revoking cabinets now use the console with step-up. The CLI still works.
+- **Audit action names.** The log records `cabinet.view` when a cabinet is opened, `eventlog.browse` when a log is read, and `eventlog.entry.open` when an entry is opened in full. Sign-in steps are `auth.*`, and settings changes are `settings.scanner`, `cabinet.scanner` and `site.sync`.
+- **The live stream** carries command results for now. Major alerts and claims join it in Milestone 4.
+- **Getting-started tour** (client request). It opens at first sign-in and can be re-run from the Account page.
+- **Not yet in the cabinet view:** the Alerts and Software sections, and the issue mapping and fleet counts in event detail, arrive with Milestones 4 and 5.

@@ -29,11 +29,18 @@ jobs:
         run: npm ci && npm test && npm run check-generated && npm audit --audit-level=low
       - name: Agent builds (Windows projects compile here too)
         run: dotnet build agent/Cabinet.Agent.sln -c Release
-      - name: Server (database, audit chain, agent API over mutual TLS, and a real agent end to end)
+      - name: Console builds (strict TypeScript)
+        working-directory: console
+        run: npm ci && npm run build && npm audit --audit-level=low
+      - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net8.0/Cabinet.Agent.TestAgent.dll
-        run: npm ci && npm test && npm audit --audit-level=low
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+          npm audit --audit-level=low
       - name: Agent contracts and core (validation, replay, rate limits, broker protocol)
         run: |
           dotnet test agent/tests/Cabinet.Agent.Contracts.Tests -c Release --no-build
