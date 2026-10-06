@@ -21,7 +21,7 @@ public static class ServiceNames
 /// The broker's end of the local pipe. Three locks, each enough alone:
 /// the pipe's access list admits only the network service's account (and
 /// SYSTEM, which owns it) and denies network logons; every connection's
-/// caller is checked again by identity before a byte is read; and every
+/// caller process is checked again by its token's account before a byte is read; and every
 /// request is validated by <see cref="BrokerRequestHandler"/>.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -102,24 +102,46 @@ public sealed class BrokerPipeServer
         }
     }
 
-    /// <summary>Checks the connected caller's account by briefly taking its identity (identification level only: it cannot act as the caller).</summary>
+    /// <summary>
+    /// Reads the connected caller's account from its process token: the
+    /// client process ID comes from the pipe itself, and the broker (SYSTEM)
+    /// opens that process's token for query only. No impersonation is used.
+    /// </summary>
     private bool CallerIsAllowed(NamedPipeServerStream pipe)
     {
-        SecurityIdentifier? caller = null;
-        try
-        {
-            pipe.RunAsClient(() =>
-            {
-                using WindowsIdentity identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
-                caller = identity.User;
-            });
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
-        {
-            return false;
-        }
-        return caller is not null && caller.Equals(_callerSid);
+        SecurityIdentifier? caller = CallerSid(pipe);
+        if (caller is not null && caller.Equals(_callerSid)) return true;
+        _log($"Caller account was {(caller?.Value ?? "unreadable")}.");
+        return false;
     }
+
+    internal static SecurityIdentifier? CallerSid(NamedPipeServerStream pipe)
+    {
+        if (!NativeMethods.GetNamedPipeClientProcessId(pipe.SafePipeHandle, out uint pid)) return null;
+        using Microsoft.Win32.SafeHandles.SafeProcessHandle process = NativeMethods.OpenProcess(NativeMethods.ProcessQueryLimitedInformation, false, pid);
+        if (process.IsInvalid) return null;
+        if (!NativeMethods.OpenProcessToken(process, NativeMethods.TokenQuery, out Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token)) return null;
+        using (token)
+        using (var identity = new WindowsIdentity(token.DangerousGetHandle()))
+            return identity.User;
+    }
+}
+
+internal static class NativeMethods
+{
+    public const uint ProcessQueryLimitedInformation = 0x1000;
+    public const uint TokenQuery = 0x0008;
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool GetNamedPipeClientProcessId(Microsoft.Win32.SafeHandles.SafePipeHandle pipe, out uint clientProcessId);
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+    public static extern Microsoft.Win32.SafeHandles.SafeProcessHandle OpenProcess(uint access, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool inherit, uint processId);
+
+    [System.Runtime.InteropServices.DllImport("advapi32.dll", SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    public static extern bool OpenProcessToken(Microsoft.Win32.SafeHandles.SafeProcessHandle process, uint access, out Microsoft.Win32.SafeHandles.SafeAccessTokenHandle token);
 }
 
 /// <summary>The network process's end: connects with identification-level impersonation only, and checks the pipe is owned by SYSTEM or Administrators so a squatting process cannot pose as the broker.</summary>

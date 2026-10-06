@@ -101,6 +101,18 @@ public sealed class BrokerPipeAccessTests
     }
 
     [Fact]
+    public async Task The_caller_account_is_read_from_the_client_process_token()
+    {
+        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        Task accept = server.WaitForConnectionAsync();
+        using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
+        await client.ConnectAsync(5000);
+        await accept;
+        Assert.Equal(Me, BrokerPipeServer.CallerSid(server));
+    }
+
+    [Fact]
     public void The_access_list_admits_only_the_network_service_and_system_and_denies_network_logons()
     {
         PipeSecurity security = BrokerPipeServer.Security(ServiceNames.NetworkServiceSid);
