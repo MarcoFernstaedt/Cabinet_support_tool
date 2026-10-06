@@ -115,7 +115,9 @@ jobs:
         shell: pwsh
         run: |
           $pg = Get-Service -Name postgresql*
-          Set-Service -InputObject $pg -Status Running
+          # The runner ships PostgreSQL disabled; it must be enabled before it can start.
+          Set-Service -InputObject $pg -StartupType Automatic -Status Running
+          for ($i = 0; $i -lt 30; $i++) { & (Join-Path $env:PGBIN 'pg_isready.exe') -h localhost; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 1 }
           $psql = Join-Path $env:PGBIN 'psql.exe'
           $env:PGPASSWORD = 'root'
           & $psql -U postgres -c 'CREATE DATABASE cabinet'
