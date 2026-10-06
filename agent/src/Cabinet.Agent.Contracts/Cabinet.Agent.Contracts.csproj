@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    C# mirror of contracts/schemas. The JSON Schemas are the source of truth;
+    tests/Cabinet.Agent.Contracts.Tests proves these types match them.
+    Portable net8.0 so the contract tests run on Linux CI; the Windows agent
+    projects (milestone 1) reference it.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Cabinet.Agent.Contracts</RootNamespace>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,23 @@
+{
+  "change": "create",
+  "before": null,
+  "after": {
+    "name": "MashuraDiag Sync",
+    "displayGroup": null,
+    "direction": "in",
+    "action": "allow",
+    "protocol": "TCP",
+    "localPorts": "1433",
+    "remotePorts": "Any",
+    "localAddresses": "Any",
+    "remoteAddresses": "Any",
+    "programPath": null,
+    "profiles": [
+      "domain"
+    ],
+    "enabled": true,
+    "createdByPlatform": true
+  },
+  "snapshotId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "safetyNetDeadline": "2026-10-04T19:05:00Z"
+}

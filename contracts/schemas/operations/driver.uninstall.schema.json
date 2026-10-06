@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/driver.uninstall.schema.json",
+  "title": "driver.uninstall",
+  "description": "Remove one third-party driver by its published name (oemNN.inf).",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publishedName": {
+          "type": "string",
+          "pattern": "^[Oo][Ee][Mm][0-9]{1,5}\\.[Ii][Nn][Ff]$"
+        }
+      },
+      "required": [
+        "publishedName"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publishedName": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "rebootRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "publishedName",
+        "removed",
+        "rebootRequired"
+      ]
+    }
+  }
+}

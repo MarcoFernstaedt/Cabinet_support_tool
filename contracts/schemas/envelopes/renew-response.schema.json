@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/renew-response.schema.json",
+  "title": "renew-response",
+  "description": "The renewed certificate.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "certificate": {
+      "type": "string",
+      "maxLength": 16384,
+      "pattern": "^(-----BEGIN CERTIFICATE-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END CERTIFICATE-----\\r?\\n?)+$"
+    },
+    "caChain": {
+      "type": "string",
+      "maxLength": 16384,
+      "pattern": "^(-----BEGIN CERTIFICATE-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END CERTIFICATE-----\\r?\\n?)+$"
+    },
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "certificate",
+    "caChain",
+    "serverTime"
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.info.schema.json",
+  "title": "system.info",
+  "description": "Hostname, OS, uptime, agent version, read-only mode, cabinet role and serial number.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostname": {
+          "$ref": "../common.schema.json#/$defs/hostname"
+        },
+        "osVersion": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "osBuild": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "uptimeSeconds": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "agentVersion": {
+          "$ref": "../common.schema.json#/$defs/agentVersion"
+        },
+        "readOnlyMode": {
+          "type": "boolean"
+        },
+        "cabinetRole": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/cabinetRole"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serialNumber": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        }
+      },
+      "required": [
+        "hostname",
+        "osVersion",
+        "osBuild",
+        "uptimeSeconds",
+        "agentVersion",
+        "readOnlyMode",
+        "cabinetRole",
+        "serialNumber"
+      ]
+    }
+  }
+}

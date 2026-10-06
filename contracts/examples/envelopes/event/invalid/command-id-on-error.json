@@ -1,0 +1,20 @@
+{
+  "eventId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "kind": "error",
+  "occurredAt": "2026-10-04T19:00:00Z",
+  "source": {
+    "log": "System",
+    "source": "Service Control Manager",
+    "eventId": 7031,
+    "level": "error",
+    "recordId": 99811
+  },
+  "severityHint": "minor",
+  "detail": {
+    "message": "The Print Spooler service terminated unexpectedly.",
+    "fields": {
+      "param1": "Print Spooler"
+    }
+  },
+  "commandId": "4c1b2a3d-9e8f-4a7b-b6c5-d4e3f2a1b0c9"
+}

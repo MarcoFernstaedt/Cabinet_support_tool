@@ -1,0 +1,5 @@
+{
+  "packageId": "https://evil.example/x.msi",
+  "packageType": "msi",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

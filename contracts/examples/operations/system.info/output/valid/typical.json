@@ -1,0 +1,10 @@
+{
+  "hostname": "CAB-PHX-01",
+  "osVersion": "Windows 10 IoT Enterprise LTSC 2021",
+  "osBuild": "19044.4651",
+  "uptimeSeconds": 86400,
+  "agentVersion": "2.0.0",
+  "readOnlyMode": false,
+  "cabinetRole": "sync",
+  "serialNumber": "5CG1234XYZ"
+}

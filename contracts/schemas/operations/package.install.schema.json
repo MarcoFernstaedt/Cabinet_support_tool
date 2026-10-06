@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/package.install.schema.json",
+  "title": "package.install",
+  "description": "Install one approved library package: a signed driver package or a signed MSI. The only way files reach a cabinet.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packageId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "packageType": {
+          "type": "string",
+          "enum": [
+            "driver",
+            "msi"
+          ]
+        },
+        "sha256": {
+          "$ref": "../common.schema.json#/$defs/sha256"
+        }
+      },
+      "required": [
+        "packageId",
+        "packageType",
+        "sha256"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "packageId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "packageType": {
+          "type": "string",
+          "enum": [
+            "driver",
+            "msi"
+          ]
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "hash": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "not_run"
+              ]
+            },
+            "signature": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "not_run"
+              ]
+            },
+            "publisher": {
+              "type": "string",
+              "enum": [
+                "passed",
+                "failed",
+                "not_run"
+              ]
+            }
+          },
+          "required": [
+            "hash",
+            "signature",
+            "publisher"
+          ]
+        },
+        "signer": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "installed": {
+          "type": "boolean"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rebootRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "packageId",
+        "packageType",
+        "checks",
+        "signer",
+        "installed",
+        "exitCode",
+        "rebootRequired"
+      ]
+    }
+  }
+}

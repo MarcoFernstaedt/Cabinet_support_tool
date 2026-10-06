@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/heartbeat.schema.json",
+  "title": "heartbeat",
+  "description": "Sent every 60 seconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "agentVersion": {
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "uptimeSeconds": {
+      "$ref": "../common.schema.json#/$defs/count"
+    },
+    "readOnlyMode": {
+      "type": "boolean"
+    },
+    "clockSkewSeconds": {
+      "description": "Agent clock minus the last server time seen; provisional field.",
+      "type": "number",
+      "minimum": -86400,
+      "maximum": 86400
+    }
+  },
+  "required": [
+    "agentVersion",
+    "uptimeSeconds",
+    "readOnlyMode"
+  ]
+}

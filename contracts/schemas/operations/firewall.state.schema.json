@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.state.schema.json",
+  "title": "firewall.state",
+  "description": "Profiles, every rule, and saved snapshots.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profiles": {
+          "type": "array",
+          "maxItems": 3,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/firewallProfileState"
+          },
+          "minItems": 3
+        },
+        "rules": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/reportedFirewallRule"
+          }
+        },
+        "rulesTruncated": {
+          "type": "boolean"
+        },
+        "snapshots": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "snapshotId": {
+                "$ref": "../common.schema.json#/$defs/uuid"
+              },
+              "takenAt": {
+                "$ref": "../common.schema.json#/$defs/timestamp"
+              },
+              "commandId": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/uuid"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "snapshotId",
+              "takenAt",
+              "commandId"
+            ]
+          }
+        }
+      },
+      "required": [
+        "profiles",
+        "rules",
+        "rulesTruncated",
+        "snapshots"
+      ]
+    }
+  }
+}

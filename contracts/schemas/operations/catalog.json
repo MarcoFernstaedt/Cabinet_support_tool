@@ -1,0 +1,26 @@
+{
+  "$comment": "The agent operation catalog (docs/spec/04-agent-spec.md). The agent compiles this list in; the server cannot add to it. expirySeconds follows docs/spec/02-security-model.md control 5. rateClass maps to the agent's local limits.",
+  "version": 1,
+  "operations": [
+    { "name": "system.info", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "eventlog.channels", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "eventlog.query", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "eventlog.get", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "devices.list", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "drivers.list", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "peripheral.status", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "updates.status", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "disk.smart", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "files.list", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "network.config", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "network.test", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "network_test" },
+    { "name": "firewall.state", "kind": "read", "minimumRole": "tier1", "stepUp": false, "expirySeconds": 300, "rateClass": "read" },
+    { "name": "network.setIp", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write", "safetyNet": true },
+    { "name": "network.setDns", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write", "safetyNet": true },
+    { "name": "firewall.setProfile", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write", "safetyNet": true },
+    { "name": "firewall.setRule", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write", "safetyNet": true },
+    { "name": "firewall.restore", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write", "safetyNet": true },
+    { "name": "package.install", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write" },
+    { "name": "driver.uninstall", "kind": "write", "minimumRole": "tier2", "stepUp": true, "expirySeconds": 120, "rateClass": "write" }
+  ]
+}

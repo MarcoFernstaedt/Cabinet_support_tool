@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.setIp.schema.json",
+  "title": "network.setIp",
+  "description": "Set one adapter to DHCP, or to a static IPv4 address with prefix length and gateway.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaceIndex",
+        "mode"
+      ],
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "dhcp",
+            "static"
+          ]
+        },
+        "address": {
+          "$ref": "../common.schema.json#/$defs/ipv4"
+        },
+        "prefixLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "gateway": {
+          "$ref": "../common.schema.json#/$defs/ipv4"
+        }
+      },
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "static"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "address",
+          "prefixLength",
+          "gateway"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "address"
+              ]
+            },
+            {
+              "required": [
+                "prefixLength"
+              ]
+            },
+            {
+              "required": [
+                "gateway"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "before": {
+          "$ref": "../common.schema.json#/$defs/ipv4Settings"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/ipv4Settings"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "interfaceIndex",
+        "before",
+        "after",
+        "safetyNetDeadline"
+      ]
+    }
+  }
+}

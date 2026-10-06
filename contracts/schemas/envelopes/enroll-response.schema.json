@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/enroll-response.schema.json",
+  "title": "enroll-response",
+  "description": "Reply to an enrollment request: it waits in the pending queue.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requestId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "status": {
+      "const": "pending"
+    },
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "requestId",
+    "status",
+    "serverTime"
+  ]
+}

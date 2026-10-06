@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.config.schema.json",
+  "title": "network.config",
+  "description": "Every network adapter with addressing, gateway and DNS.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adapters": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "interfaceIndex": {
+                "$ref": "../common.schema.json#/$defs/interfaceIndex"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "description": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "ethernet",
+                  "wifi",
+                  "other"
+                ]
+              },
+              "connected": {
+                "type": "boolean"
+              },
+              "linkSpeedBps": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "macAddress": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/macAddress"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "ipv4": {
+                "$ref": "../common.schema.json#/$defs/ipv4Settings"
+              },
+              "ipv6Addresses": {
+                "type": "array",
+                "maxItems": 16,
+                "items": {
+                  "$ref": "../common.schema.json#/$defs/ipAddress"
+                }
+              },
+              "dns": {
+                "$ref": "../common.schema.json#/$defs/dnsSettings"
+              },
+              "dnsSuffix": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            },
+            "required": [
+              "interfaceIndex",
+              "name",
+              "description",
+              "type",
+              "connected",
+              "linkSpeedBps",
+              "macAddress",
+              "ipv4",
+              "ipv6Addresses",
+              "dns",
+              "dnsSuffix"
+            ]
+          }
+        }
+      },
+      "required": [
+        "adapters"
+      ]
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/enroll-status.schema.json",
+  "title": "enroll-status",
+  "description": "GET /agent/v1/enroll/{requestId}: pending, rejected, or the issued certificate.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "requestId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "rejected",
+        "issued"
+      ]
+    },
+    "certificate": {
+      "type": "string",
+      "maxLength": 16384,
+      "pattern": "^(-----BEGIN CERTIFICATE-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END CERTIFICATE-----\\r?\\n?)+$"
+    },
+    "caChain": {
+      "type": "string",
+      "maxLength": 16384,
+      "pattern": "^(-----BEGIN CERTIFICATE-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END CERTIFICATE-----\\r?\\n?)+$"
+    },
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "requestId",
+    "status",
+    "serverTime"
+  ],
+  "if": {
+    "properties": {
+      "status": {
+        "const": "issued"
+      }
+    },
+    "type": "object"
+  },
+  "then": {
+    "required": [
+      "certificate",
+      "caChain",
+      "cabinetId"
+    ]
+  },
+  "else": {
+    "not": {
+      "anyOf": [
+        {
+          "required": [
+            "certificate"
+          ]
+        },
+        {
+          "required": [
+            "caChain"
+          ]
+        },
+        {
+          "required": [
+            "cabinetId"
+          ]
+        }
+      ]
+    }
+  }
+}

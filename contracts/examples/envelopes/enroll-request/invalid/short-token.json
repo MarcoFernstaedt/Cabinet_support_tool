@@ -1,0 +1,16 @@
+{
+  "csr": "-----BEGIN CERTIFICATE REQUEST-----\nMIIBVjCB/QIBADAbMRkwFwYDVQQDDBBDQUItUEhYLTAxLWFnZW50\n-----END CERTIFICATE REQUEST-----\n",
+  "bootstrapToken": "abc",
+  "fingerprints": {
+    "hostname": "CAB-PHX-01",
+    "serialNumber": "5CG1234XYZ",
+    "macAddresses": [
+      "00-1B-21-3A-4F-5C"
+    ],
+    "provisionedClient": "Valley Emergency Group",
+    "provisionedSite": "Phoenix",
+    "onlineSince": "2026-10-04T19:00:00Z",
+    "osVersion": "Windows 10 IoT Enterprise LTSC 2021",
+    "agentVersion": "2.0.0"
+  }
+}

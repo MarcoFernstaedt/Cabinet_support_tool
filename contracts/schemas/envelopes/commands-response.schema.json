@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/commands-response.schema.json",
+  "title": "commands-response",
+  "description": "Long-poll response: waiting commands for this cabinet, or an empty list after up to 25 seconds.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "commands": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "$ref": "command.schema.json"
+      }
+    }
+  },
+  "required": [
+    "serverTime",
+    "commands"
+  ]
+}

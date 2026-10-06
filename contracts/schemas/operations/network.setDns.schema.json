@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.setDns.schema.json",
+  "title": "network.setDns",
+  "description": "Set one adapter's DNS servers (up to four IPv4), or return it to automatic DNS.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaceIndex",
+        "mode"
+      ],
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "static"
+          ]
+        },
+        "servers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/ipv4"
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "static"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "servers"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "servers"
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "before": {
+          "$ref": "../common.schema.json#/$defs/dnsSettings"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/dnsSettings"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "interfaceIndex",
+        "before",
+        "after",
+        "safetyNetDeadline"
+      ]
+    }
+  }
+}

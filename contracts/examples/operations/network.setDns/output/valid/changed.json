@@ -1,0 +1,14 @@
+{
+  "interfaceIndex": 12,
+  "before": {
+    "automatic": true,
+    "servers": []
+  },
+  "after": {
+    "automatic": false,
+    "servers": [
+      "192.0.2.10"
+    ]
+  },
+  "safetyNetDeadline": "2026-10-04T19:05:00Z"
+}

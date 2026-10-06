@@ -1,0 +1,16 @@
+{
+  "drives": [
+    {
+      "model": null,
+      "serialNumber": null,
+      "health": "healthy",
+      "predictFailure": null,
+      "temperatureCelsius": null,
+      "powerOnHours": null,
+      "reallocatedSectors": null,
+      "pendingSectors": null,
+      "uncorrectableErrors": null,
+      "wearPercent": 140
+    }
+  ]
+}

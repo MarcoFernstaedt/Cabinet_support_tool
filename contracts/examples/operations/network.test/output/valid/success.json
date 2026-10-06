@@ -1,0 +1,9 @@
+{
+  "target": "gateway",
+  "method": "ping",
+  "resolvedTarget": "192.0.2.1",
+  "success": true,
+  "latencyMs": 1.2,
+  "resolvedAddresses": [],
+  "error": null
+}

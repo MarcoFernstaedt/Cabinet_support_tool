@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/event.schema.json",
+  "title": "event",
+  "description": "Agent-originated event: detected errors and changes (docs/spec/03-protocol.md).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "error",
+        "firewall_changed",
+        "smart_warning",
+        "agent_status",
+        "security"
+      ]
+    },
+    "occurredAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log": {
+          "$ref": "../common.schema.json#/$defs/allowedLog"
+        },
+        "source": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "eventId": {
+          "$ref": "../common.schema.json#/$defs/eventId"
+        },
+        "level": {
+          "$ref": "../common.schema.json#/$defs/eventLevel"
+        },
+        "recordId": {
+          "$ref": "../common.schema.json#/$defs/recordId"
+        },
+        "hardwareId": {
+          "$ref": "../common.schema.json#/$defs/hardwareId"
+        },
+        "deviceInstanceId": {
+          "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+        }
+      },
+      "required": [
+        "log",
+        "source",
+        "eventId",
+        "level",
+        "recordId"
+      ]
+    },
+    "commandId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "severityHint": {
+      "type": "string",
+      "enum": [
+        "major",
+        "minor"
+      ]
+    },
+    "detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "$ref": "../common.schema.json#/$defs/longText"
+        },
+        "fields": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "pattern": "^[A-Za-z][A-Za-z0-9_.]{0,63}$",
+            "type": "string"
+          },
+          "additionalProperties": {
+            "allOf": [
+              {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              {
+                "maxLength": 1024,
+                "type": "string"
+              }
+            ]
+          }
+        }
+      },
+      "required": []
+    }
+  },
+  "required": [
+    "eventId",
+    "kind",
+    "occurredAt",
+    "severityHint",
+    "detail"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "error"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "source"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "firewall_changed"
+          }
+        },
+        "type": "object"
+      },
+      "else": {
+        "not": {
+          "required": [
+            "commandId"
+          ]
+        }
+      }
+    }
+  ]
+}

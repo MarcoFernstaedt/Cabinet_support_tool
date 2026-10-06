@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/enroll-request.schema.json",
+  "title": "enroll-request",
+  "description": "POST /agent/v1/enroll: the only call accepted without a client certificate.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "csr": {
+      "type": "string",
+      "maxLength": 8192,
+      "pattern": "^-----BEGIN CERTIFICATE REQUEST-----\\r?\\n[A-Za-z0-9+/=\\r\\n]+-----END CERTIFICATE REQUEST-----\\r?\\n?$"
+    },
+    "bootstrapToken": {
+      "type": "string",
+      "minLength": 32,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "fingerprints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hostname": {
+          "$ref": "../common.schema.json#/$defs/hostname"
+        },
+        "serialNumber": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "macAddresses": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/macAddress"
+          }
+        },
+        "provisionedClient": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "provisionedSite": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "onlineSince": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "osVersion": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "agentVersion": {
+          "$ref": "../common.schema.json#/$defs/agentVersion"
+        }
+      },
+      "required": [
+        "hostname",
+        "serialNumber",
+        "macAddresses",
+        "provisionedClient",
+        "provisionedSite",
+        "onlineSince",
+        "osVersion",
+        "agentVersion"
+      ]
+    }
+  },
+  "required": [
+    "csr",
+    "bootstrapToken",
+    "fingerprints"
+  ]
+}

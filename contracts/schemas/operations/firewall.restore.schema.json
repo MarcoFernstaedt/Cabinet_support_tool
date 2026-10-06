@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.restore.schema.json",
+  "title": "firewall.restore",
+  "description": "Put back one firewall snapshot the agent saved itself.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        }
+      },
+      "required": [
+        "snapshotId"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "restoredSnapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "preRestoreSnapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "restoredAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "restoredSnapshotId",
+        "preRestoreSnapshotId",
+        "restoredAt",
+        "safetyNetDeadline"
+      ]
+    }
+  }
+}

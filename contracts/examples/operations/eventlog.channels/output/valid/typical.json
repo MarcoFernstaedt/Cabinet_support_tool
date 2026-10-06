@@ -1,0 +1,18 @@
+{
+  "channels": [
+    {
+      "log": "System",
+      "enabled": true,
+      "entryCount": 18234,
+      "sizeBytes": 20975616,
+      "newestEntryAt": "2026-10-04T19:00:00Z"
+    },
+    {
+      "log": "Microsoft-Windows-DNS-Client/Operational",
+      "enabled": false,
+      "entryCount": null,
+      "sizeBytes": null,
+      "newestEntryAt": null
+    }
+  ]
+}

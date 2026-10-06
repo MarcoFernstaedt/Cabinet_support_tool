@@ -1,0 +1,6 @@
+{
+  "profile": "public",
+  "enabled": true,
+  "defaultInbound": "block",
+  "defaultOutbound": "allow"
+}

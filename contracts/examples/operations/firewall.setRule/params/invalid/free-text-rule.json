@@ -1,0 +1,4 @@
+{
+  "change": "create",
+  "rule": "dir=in action=allow protocol=any"
+}

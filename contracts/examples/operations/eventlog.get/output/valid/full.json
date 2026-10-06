@@ -1,0 +1,25 @@
+{
+  "log": "System",
+  "recordId": 99811,
+  "time": "2026-10-04T19:00:00Z",
+  "level": "error",
+  "source": "Service Control Manager",
+  "eventId": 7031,
+  "taskCategory": null,
+  "keywords": [
+    "Classic"
+  ],
+  "opcode": "Info",
+  "processId": 812,
+  "threadId": 1408,
+  "computer": "CAB-PHX-01",
+  "message": "The Print Spooler service terminated unexpectedly.\r\nIt has done this 1 time(s).",
+  "eventData": [
+    {
+      "name": "param1",
+      "value": "Print Spooler"
+    }
+  ],
+  "deviceInstanceId": null,
+  "rawXml": "<Event xmlns=\"http://schemas.microsoft.com/win/2004/08/events/event\"><System><EventID>7031</EventID></System></Event>"
+}

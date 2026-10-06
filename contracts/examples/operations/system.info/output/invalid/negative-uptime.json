@@ -1,0 +1,10 @@
+{
+  "hostname": "CAB",
+  "osVersion": "x",
+  "osBuild": "x",
+  "uptimeSeconds": -1,
+  "agentVersion": "2.0.0",
+  "readOnlyMode": false,
+  "cabinetRole": "sync",
+  "serialNumber": null
+}

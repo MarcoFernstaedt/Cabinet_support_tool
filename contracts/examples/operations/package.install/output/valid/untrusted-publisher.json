@@ -1,0 +1,13 @@
+{
+  "packageId": "4c1b2a3d-9e8f-4a7b-b6c5-d4e3f2a1b0c9",
+  "packageType": "msi",
+  "checks": {
+    "hash": "passed",
+    "signature": "passed",
+    "publisher": "failed"
+  },
+  "signer": "Unknown Ltd",
+  "installed": false,
+  "exitCode": null,
+  "rebootRequired": false
+}

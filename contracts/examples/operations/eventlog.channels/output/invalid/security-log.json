@@ -1,0 +1,11 @@
+{
+  "channels": [
+    {
+      "log": "Security",
+      "enabled": true,
+      "entryCount": 1,
+      "sizeBytes": 1,
+      "newestEntryAt": "2026-10-04T19:00:00Z"
+    }
+  ]
+}

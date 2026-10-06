@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.test.schema.json",
+  "title": "network.test",
+  "description": "A ping, DNS lookup or TCP test to one of four fixed target kinds. No free-form targets.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "method"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "dns_server",
+            "sync_cabinet",
+            "platform_server"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "ping",
+            "dns",
+            "tcp"
+          ]
+        },
+        "dnsServerIndex": {
+          "description": "Which configured DNS server (0-3) when target is dns_server.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "port": {
+          "description": "TCP only; must also be in the agent's local allowed-port list.",
+          "$ref": "../common.schema.json#/$defs/port"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "tcp"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "port"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "port"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "dns_server"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "dnsServerIndex"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "dnsServerIndex"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "dns_server",
+            "sync_cabinet",
+            "platform_server"
+          ]
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "ping",
+            "dns",
+            "tcp"
+          ]
+        },
+        "resolvedTarget": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipAddress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "latencyMs": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 600000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "resolvedAddresses": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/ipAddress"
+          }
+        },
+        "error": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        }
+      },
+      "required": [
+        "target",
+        "method",
+        "resolvedTarget",
+        "success",
+        "latencyMs",
+        "resolvedAddresses",
+        "error"
+      ]
+    }
+  }
+}

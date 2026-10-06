@@ -1,0 +1,10 @@
+{
+  "configured": false,
+  "connected": false,
+  "name": null,
+  "status": null,
+  "errorCode": null,
+  "errorText": null,
+  "hardwareIds": [],
+  "driver": null
+}

@@ -1,0 +1,16 @@
+{
+  "log": "Application",
+  "levels": [
+    "error",
+    "critical"
+  ],
+  "from": "2026-10-03T00:00:00Z",
+  "to": "2026-10-04T19:00:00Z",
+  "source": "Application Error",
+  "eventIds": [
+    1000,
+    1001
+  ],
+  "beforeRecordId": 99812,
+  "pageSize": 100
+}

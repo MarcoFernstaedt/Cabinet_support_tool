@@ -1,0 +1,19 @@
+{
+  "path": "C:\\ProgramData",
+  "page": 1,
+  "entries": [
+    {
+      "name": "Mashura",
+      "type": "directory",
+      "sizeBytes": null,
+      "modifiedAt": "2026-10-04T19:00:00Z"
+    },
+    {
+      "name": "log.txt",
+      "type": "file",
+      "sizeBytes": 2048,
+      "modifiedAt": "2026-10-04T19:00:00Z"
+    }
+  ],
+  "hasMore": false
+}

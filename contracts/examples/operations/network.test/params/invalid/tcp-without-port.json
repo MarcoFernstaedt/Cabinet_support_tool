@@ -1,0 +1,4 @@
+{
+  "target": "sync_cabinet",
+  "method": "tcp"
+}

@@ -1,0 +1,28 @@
+{
+  "interfaceIndex": 12,
+  "before": {
+    "dhcp": true,
+    "addresses": [
+      {
+        "address": "192.0.2.50",
+        "prefixLength": 24
+      }
+    ],
+    "gateways": [
+      "192.0.2.1"
+    ]
+  },
+  "after": {
+    "dhcp": false,
+    "addresses": [
+      {
+        "address": "192.0.2.21",
+        "prefixLength": 24
+      }
+    ],
+    "gateways": [
+      "192.0.2.1"
+    ]
+  },
+  "safetyNetDeadline": "2026-10-04T19:05:00Z"
+}

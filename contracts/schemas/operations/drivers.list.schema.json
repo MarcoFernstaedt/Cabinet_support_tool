@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/drivers.list.schema.json",
+  "title": "drivers.list",
+  "description": "Installed third-party and inbox drivers with signer and version.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drivers": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "publishedName": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "originalName": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "version": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "date": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              },
+              "provider": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "className": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "signer": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            },
+            "required": [
+              "publishedName",
+              "originalName",
+              "version",
+              "date",
+              "provider",
+              "className",
+              "signer"
+            ]
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "drivers",
+        "truncated"
+      ]
+    }
+  }
+}

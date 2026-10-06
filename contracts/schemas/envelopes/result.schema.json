@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/result.schema.json",
+  "title": "result",
+  "description": "Result envelope: the answer to one command. output is present only when succeeded; error only when failed or rejected. The server validates output against the operation's output schema using its own command record.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "commandId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "rejected"
+      ]
+    },
+    "startedAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "finishedAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "output": {
+      "type": "object"
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/rejectionCode"
+            },
+            {
+              "$ref": "../common.schema.json#/$defs/failureCode"
+            }
+          ]
+        },
+        "message": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/shortText"
+            },
+            {
+              "maxLength": 1024,
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    }
+  },
+  "required": [
+    "commandId",
+    "status",
+    "startedAt",
+    "finishedAt"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "succeeded"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "output"
+        ],
+        "not": {
+          "required": [
+            "error"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "rejected"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "error"
+        ],
+        "not": {
+          "required": [
+            "output"
+          ]
+        },
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "$ref": "../common.schema.json#/$defs/rejectionCode"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "required": [
+          "error"
+        ],
+        "not": {
+          "required": [
+            "output"
+          ]
+        },
+        "properties": {
+          "error": {
+            "properties": {
+              "code": {
+                "$ref": "../common.schema.json#/$defs/failureCode"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    }
+  ]
+}

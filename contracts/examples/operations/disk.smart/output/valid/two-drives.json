@@ -1,0 +1,28 @@
+{
+  "drives": [
+    {
+      "model": "NVMe 256GB",
+      "serialNumber": "S4X1",
+      "health": "healthy",
+      "predictFailure": false,
+      "temperatureCelsius": 38,
+      "powerOnHours": 14210,
+      "reallocatedSectors": 0,
+      "pendingSectors": 0,
+      "uncorrectableErrors": 0,
+      "wearPercent": 4
+    },
+    {
+      "model": null,
+      "serialNumber": null,
+      "health": "unknown",
+      "predictFailure": null,
+      "temperatureCelsius": null,
+      "powerOnHours": null,
+      "reallocatedSectors": null,
+      "pendingSectors": null,
+      "uncorrectableErrors": null,
+      "wearPercent": null
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+  "target": "platform_server",
+  "method": "tcp",
+  "port": 0
+}

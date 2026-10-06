@@ -1,0 +1,24 @@
+{
+  "change": "create",
+  "rule": {
+    "name": "MashuraDiag Client",
+    "direction": "in",
+    "action": "allow",
+    "protocol": "tcp",
+    "localPorts": [
+      {
+        "from": 1433,
+        "to": 1433
+      }
+    ],
+    "remoteAddresses": [
+      "192.0.2.0/24"
+    ],
+    "profiles": [
+      "domain",
+      "private"
+    ],
+    "enabled": true,
+    "programPath": "C:\\Program Files\\Cubex\\CubexClient.exe"
+  }
+}

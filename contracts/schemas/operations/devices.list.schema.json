@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/devices.list.schema.json",
+  "title": "devices.list",
+  "description": "Every Plug and Play device; optionally only those with problems.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "problemsOnly": {
+          "type": "boolean"
+        }
+      },
+      "required": []
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "devices": {
+          "type": "array",
+          "maxItems": 5000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "instanceId": {
+                "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+              },
+              "class": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "status": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "errorCode": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "errorText": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "hardwareIds": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "$ref": "../common.schema.json#/$defs/hardwareId"
+                }
+              },
+              "driver": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "name": {
+                        "$ref": "../common.schema.json#/$defs/shortText"
+                      },
+                      "version": {
+                        "$ref": "../common.schema.json#/$defs/nullableShortText"
+                      },
+                      "provider": {
+                        "$ref": "../common.schema.json#/$defs/nullableShortText"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "version",
+                      "provider"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "instanceId",
+              "class",
+              "name",
+              "status",
+              "errorCode",
+              "errorText",
+              "hardwareIds",
+              "driver"
+            ]
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "truncated"
+      ]
+    }
+  }
+}

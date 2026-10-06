@@ -1,0 +1,14 @@
+{
+  "drivers": [
+    {
+      "publishedName": "oem42.inf",
+      "originalName": "fpreader.inf",
+      "version": "3.1.0.7",
+      "date": "2025-06-01T00:00:00Z",
+      "provider": "Example Biometrics",
+      "className": "Biometric",
+      "signer": "Microsoft Windows Hardware Compatibility Publisher"
+    }
+  ],
+  "truncated": false
+}

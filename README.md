@@ -4,6 +4,19 @@ An internal Cabinet Support product. Staff use a browser-based support Console t
 
 Production release is blocked while the audited defects are repaired and Windows lab testing is completed. See the [current build tracker](docs/build-tracker.md) and [release gates](docs/readiness.md). Passing automated tests does not establish that a cabinet is safe to deploy.
 
+## Rebuild to the platform specification
+
+The platform is being rebuilt to the specification in [docs/spec](docs/spec/00-README.md), one milestone at a time ([build plan](docs/spec/08-build-plan.md)). The new layout lives at the repository root:
+
+| Folder | What | Status |
+|---|---|---|
+| `contracts/` | JSON Schemas for every message and operation, examples, generated TypeScript types | Milestone 0 done |
+| `server/` | Node 22 + TypeScript (+ Fastify from milestone 2) | Builds and validates against the contracts |
+| `agent/` | C# agent solution; `Cabinet.Agent.Contracts` and its schema tests | Contract types done; services from milestone 1 |
+| `console/` | React + TypeScript + Vite | Starts in milestone 3 |
+
+Standing rules for the rebuild are in [CLAUDE.md](CLAUDE.md). The existing `src/`, `tests/` and `tools/` (C# Server, Windows Agent, current web Console demo) keep working until a milestone replaces them; see the [gap analysis](docs/spec-gap-analysis.md).
+
 ## Where it runs
 
 Mashura hosts the support API, its database and the target same-origin web Console. Staff use a browser. Each customer cabinet runs a Windows Agent service that initiates outbound connections to the API.

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.setRule.schema.json",
+  "title": "firewall.setRule",
+  "description": "Create, change, enable, disable or delete one rule using structured fields. Created rules are named MashuraDiag....",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "change"
+      ],
+      "properties": {
+        "change": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "enable",
+            "disable",
+            "delete"
+          ]
+        },
+        "ruleName": {
+          "description": "The existing rule to change (all changes except create).",
+          "$ref": "../common.schema.json#/$defs/shortText",
+          "minLength": 1,
+          "type": "string"
+        },
+        "rule": {
+          "$ref": "../common.schema.json#/$defs/firewallRule"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "create"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "rule"
+            ],
+            "not": {
+              "required": [
+                "ruleName"
+              ]
+            },
+            "properties": {
+              "rule": {
+                "properties": {
+                  "name": {
+                    "pattern": "^MashuraDiag[ ._-][A-Za-z0-9 ._()-]{1,116}$",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "const": "update"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "ruleName",
+              "rule"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "change": {
+                "enum": [
+                  "enable",
+                  "disable",
+                  "delete"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "ruleName"
+            ],
+            "not": {
+              "required": [
+                "rule"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "type": "string",
+          "enum": [
+            "create",
+            "update",
+            "enable",
+            "disable",
+            "delete"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/reportedFirewallRule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/reportedFirewallRule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "change",
+        "before",
+        "after",
+        "snapshotId",
+        "safetyNetDeadline"
+      ]
+    }
+  }
+}

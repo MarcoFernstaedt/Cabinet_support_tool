@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.setProfile.schema.json",
+  "title": "firewall.setProfile",
+  "description": "Turn one profile on or off and set its default actions. Turning off needs a duration (default 60, max 480 minutes); no limit is Admin only and checked by the server.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "enabled",
+        "defaultInbound",
+        "defaultOutbound"
+      ],
+      "properties": {
+        "profile": {
+          "$ref": "../common.schema.json#/$defs/firewallProfile"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "defaultInbound": {
+          "$ref": "../common.schema.json#/$defs/firewallAction"
+        },
+        "defaultOutbound": {
+          "$ref": "../common.schema.json#/$defs/firewallAction"
+        },
+        "durationMinutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 480
+        },
+        "noTimeLimit": {
+          "const": true
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": false
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "oneOf": [
+          {
+            "required": [
+              "durationMinutes"
+            ],
+            "not": {
+              "required": [
+                "noTimeLimit"
+              ]
+            }
+          },
+          {
+            "required": [
+              "noTimeLimit"
+            ],
+            "not": {
+              "required": [
+                "durationMinutes"
+              ]
+            }
+          }
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "durationMinutes"
+              ]
+            },
+            {
+              "required": [
+                "noTimeLimit"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "$ref": "../common.schema.json#/$defs/firewallProfile"
+        },
+        "before": {
+          "$ref": "../common.schema.json#/$defs/firewallProfileState"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/firewallProfileState"
+        },
+        "snapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      },
+      "required": [
+        "profile",
+        "before",
+        "after",
+        "snapshotId",
+        "safetyNetDeadline"
+      ]
+    }
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/updates.status.schema.json",
+  "title": "updates.status",
+  "description": "Installed update history, pending updates, last check and last install result.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "lastCheckAt": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "lastInstallAt": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "lastInstallResult": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "succeeded",
+                "succeeded_with_errors",
+                "failed",
+                "aborted",
+                "in_progress",
+                "unknown"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "installed": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "kb": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "installedAt": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              },
+              "result": {
+                "type": "string",
+                "enum": [
+                  "succeeded",
+                  "succeeded_with_errors",
+                  "failed",
+                  "aborted",
+                  "in_progress",
+                  "unknown"
+                ]
+              },
+              "errorCode": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "title",
+              "kb",
+              "installedAt",
+              "result",
+              "errorCode"
+            ]
+          }
+        },
+        "pending": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "kb": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "classification": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "isSecurity": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title",
+              "kb",
+              "classification",
+              "isSecurity"
+            ]
+          }
+        }
+      },
+      "required": [
+        "lastCheckAt",
+        "lastInstallAt",
+        "lastInstallResult",
+        "installed",
+        "pending"
+      ]
+    }
+  }
+}

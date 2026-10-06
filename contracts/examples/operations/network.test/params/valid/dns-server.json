@@ -1,0 +1,5 @@
+{
+  "target": "dns_server",
+  "method": "dns",
+  "dnsServerIndex": 1
+}

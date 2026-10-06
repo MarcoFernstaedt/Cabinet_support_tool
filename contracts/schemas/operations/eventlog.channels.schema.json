@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/eventlog.channels.schema.json",
+  "title": "eventlog.channels",
+  "description": "Every allowed log with entry count, size, newest entry time and whether it is turned on.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "type": "array",
+          "maxItems": 13,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "log": {
+                "$ref": "../common.schema.json#/$defs/allowedLog"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "entryCount": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "sizeBytes": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "newestEntryAt": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              }
+            },
+            "required": [
+              "log",
+              "enabled",
+              "entryCount",
+              "sizeBytes",
+              "newestEntryAt"
+            ]
+          }
+        }
+      },
+      "required": [
+        "channels"
+      ]
+    }
+  }
+}

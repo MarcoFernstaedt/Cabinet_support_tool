@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/files.list.schema.json",
+  "title": "files.list",
+  "description": "One directory on the C drive at a time: names, sizes and dates. Listing only, never contents.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "description": "Absolute path on C:. No relative segments, alternate streams, UNC or device paths.",
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[Cc]:\\\\(?!.*(^|\\\\)\\.{1,2}(\\\\|$))[^\\u0000-\\u001f\\u007f<>:\"/|?*]*$"
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000,
+          "default": 1
+        },
+        "pageSize": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "directory"
+                ]
+              },
+              "sizeBytes": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "modifiedAt": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              }
+            },
+            "required": [
+              "name",
+              "type",
+              "sizeBytes",
+              "modifiedAt"
+            ]
+          }
+        },
+        "hasMore": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "path",
+        "page",
+        "entries",
+        "hasMore"
+      ]
+    }
+  }
+}

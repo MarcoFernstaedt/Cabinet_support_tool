@@ -1,0 +1,22 @@
+{
+  "lastCheckAt": "2026-10-04T19:00:00Z",
+  "lastInstallAt": "2026-09-20T03:00:00Z",
+  "lastInstallResult": "succeeded",
+  "installed": [
+    {
+      "title": "2026-09 Cumulative Update for Windows 10",
+      "kb": "KB5049999",
+      "installedAt": "2026-09-20T03:00:00Z",
+      "result": "succeeded",
+      "errorCode": null
+    }
+  ],
+  "pending": [
+    {
+      "title": "Security Intelligence Update",
+      "kb": null,
+      "classification": "Definition Updates",
+      "isSecurity": true
+    }
+  ]
+}

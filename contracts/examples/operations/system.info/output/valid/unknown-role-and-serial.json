@@ -1,0 +1,10 @@
+{
+  "hostname": "HP-EDGE",
+  "osVersion": "Windows 11 Pro",
+  "osBuild": "26100.2033",
+  "uptimeSeconds": 0,
+  "agentVersion": "2.0.0-beta.1",
+  "readOnlyMode": true,
+  "cabinetRole": null,
+  "serialNumber": null
+}

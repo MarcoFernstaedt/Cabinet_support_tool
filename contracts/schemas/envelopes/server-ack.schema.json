@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/server-ack.schema.json",
+  "title": "server-ack",
+  "description": "Response to heartbeat, results and events. Every response carries the server's own time so the agent can detect drift.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  },
+  "required": [
+    "serverTime"
+  ]
+}

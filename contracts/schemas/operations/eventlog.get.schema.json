@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/eventlog.get.schema.json",
+  "title": "eventlog.get",
+  "description": "Full detail of one event log entry.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log": {
+          "$ref": "../common.schema.json#/$defs/allowedLog"
+        },
+        "recordId": {
+          "$ref": "../common.schema.json#/$defs/recordId"
+        }
+      },
+      "required": [
+        "log",
+        "recordId"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log": {
+          "$ref": "../common.schema.json#/$defs/allowedLog"
+        },
+        "recordId": {
+          "$ref": "../common.schema.json#/$defs/recordId"
+        },
+        "time": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "level": {
+          "$ref": "../common.schema.json#/$defs/eventLevel"
+        },
+        "source": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "eventId": {
+          "$ref": "../common.schema.json#/$defs/eventId"
+        },
+        "taskCategory": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "keywords": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/shortText"
+          }
+        },
+        "opcode": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "processId": {
+          "$ref": "../common.schema.json#/$defs/nullableCount"
+        },
+        "threadId": {
+          "$ref": "../common.schema.json#/$defs/nullableCount"
+        },
+        "computer": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "message": {
+          "$ref": "../common.schema.json#/$defs/longText"
+        },
+        "eventData": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "value": {
+                "allOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/longText"
+                  },
+                  {
+                    "maxLength": 4096,
+                    "type": "string"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ]
+          }
+        },
+        "deviceInstanceId": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rawXml": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/longText"
+            },
+            {
+              "maxLength": 65536,
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "log",
+        "recordId",
+        "time",
+        "level",
+        "source",
+        "eventId",
+        "taskCategory",
+        "keywords",
+        "opcode",
+        "processId",
+        "threadId",
+        "computer",
+        "message",
+        "eventData",
+        "deviceInstanceId",
+        "rawXml"
+      ]
+    }
+  }
+}

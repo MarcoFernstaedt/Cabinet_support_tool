@@ -1,0 +1,4 @@
+{
+  "target": "dns_server",
+  "method": "ping"
+}

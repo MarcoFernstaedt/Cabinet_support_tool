@@ -1,0 +1,5 @@
+{
+  "target": "gateway",
+  "method": "ping",
+  "host": "8.8.8.8"
+}

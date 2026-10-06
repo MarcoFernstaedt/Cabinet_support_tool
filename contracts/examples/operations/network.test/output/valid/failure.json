@@ -1,0 +1,9 @@
+{
+  "target": "sync_cabinet",
+  "method": "tcp",
+  "resolvedTarget": null,
+  "success": false,
+  "latencyMs": null,
+  "resolvedAddresses": [],
+  "error": "Sync cabinet address is not configured."
+}

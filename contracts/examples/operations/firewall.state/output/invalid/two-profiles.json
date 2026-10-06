@@ -1,0 +1,21 @@
+{
+  "profiles": [
+    {
+      "profile": "domain",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "private",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    }
+  ],
+  "rules": [],
+  "rulesTruncated": false,
+  "snapshots": []
+}

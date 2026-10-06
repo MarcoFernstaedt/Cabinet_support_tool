@@ -1,0 +1,7 @@
+{
+  "profile": "domain",
+  "enabled": true,
+  "defaultInbound": "block",
+  "defaultOutbound": "allow",
+  "durationMinutes": 60
+}

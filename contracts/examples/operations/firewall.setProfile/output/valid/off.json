@@ -1,0 +1,19 @@
+{
+  "profile": "domain",
+  "before": {
+    "profile": "domain",
+    "enabled": true,
+    "defaultInbound": "block",
+    "defaultOutbound": "allow",
+    "reenableAt": null
+  },
+  "after": {
+    "profile": "domain",
+    "enabled": false,
+    "defaultInbound": "block",
+    "defaultOutbound": "allow",
+    "reenableAt": "2026-10-04T19:05:00Z"
+  },
+  "snapshotId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "safetyNetDeadline": "2026-10-04T19:05:00Z"
+}

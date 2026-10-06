@@ -1,0 +1,15 @@
+{
+  "log": "System",
+  "entries": [
+    {
+      "recordId": 99811,
+      "time": "2026-10-04T19:00:00Z",
+      "level": "error",
+      "source": "Service Control Manager",
+      "eventId": 7031,
+      "firstLine": "The Print Spooler service terminated unexpectedly."
+    }
+  ],
+  "nextBeforeRecordId": 99811,
+  "truncated": false
+}

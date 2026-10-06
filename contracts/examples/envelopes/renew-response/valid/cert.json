@@ -1,0 +1,5 @@
+{
+  "certificate": "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUQ2FiaW5ldERpYWdub3N0aWNz\n-----END CERTIFICATE-----\n",
+  "caChain": "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUQ2FiaW5ldERpYWdub3N0aWNz\n-----END CERTIFICATE-----\n",
+  "serverTime": "2026-10-04T19:00:00Z"
+}

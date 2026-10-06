@@ -1,0 +1,7 @@
+{
+  "interfaceIndex": 12,
+  "mode": "static",
+  "servers": [
+    "dns.example.com"
+  ]
+}

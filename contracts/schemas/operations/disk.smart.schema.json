@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/disk.smart.schema.json",
+  "title": "disk.smart",
+  "description": "Drive health, failure prediction and reliability counters.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drives": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "serialNumber": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "health": {
+                "type": "string",
+                "enum": [
+                  "healthy",
+                  "warning",
+                  "failing",
+                  "unknown"
+                ]
+              },
+              "predictFailure": {
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "temperatureCelsius": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -40,
+                    "maximum": 150
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "powerOnHours": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "reallocatedSectors": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "pendingSectors": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "uncorrectableErrors": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "wearPercent": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "model",
+              "serialNumber",
+              "health",
+              "predictFailure",
+              "temperatureCelsius",
+              "powerOnHours",
+              "reallocatedSectors",
+              "pendingSectors",
+              "uncorrectableErrors",
+              "wearPercent"
+            ]
+          }
+        }
+      },
+      "required": [
+        "drives"
+      ]
+    }
+  }
+}

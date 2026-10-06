@@ -1,0 +1,53 @@
+{
+  "profiles": [
+    {
+      "profile": "domain",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "private",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "public",
+      "enabled": false,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": "2026-10-04T19:05:00Z"
+    }
+  ],
+  "rules": [
+    {
+      "name": "MashuraDiag Sync TCP 1433",
+      "displayGroup": null,
+      "direction": "in",
+      "action": "allow",
+      "protocol": "TCP",
+      "localPorts": "1433",
+      "remotePorts": "Any",
+      "localAddresses": "Any",
+      "remoteAddresses": "LocalSubnet",
+      "programPath": null,
+      "profiles": [
+        "domain",
+        "private"
+      ],
+      "enabled": true,
+      "createdByPlatform": true
+    }
+  ],
+  "rulesTruncated": false,
+  "snapshots": [
+    {
+      "snapshotId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+      "takenAt": "2026-10-04T19:00:00Z",
+      "commandId": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d"
+    }
+  ]
+}

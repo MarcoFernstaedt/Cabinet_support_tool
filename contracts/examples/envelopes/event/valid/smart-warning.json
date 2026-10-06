@@ -1,0 +1,12 @@
+{
+  "eventId": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d",
+  "kind": "smart_warning",
+  "occurredAt": "2026-10-04T19:00:00Z",
+  "severityHint": "major",
+  "detail": {
+    "message": "Drive predicts failure.",
+    "fields": {
+      "model": "NVMe 256GB"
+    }
+  }
+}

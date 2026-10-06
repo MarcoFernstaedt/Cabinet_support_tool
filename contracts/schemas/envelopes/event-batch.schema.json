@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/event-batch.schema.json",
+  "title": "event-batch",
+  "description": "Events sent together, up to 100 per request.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "$ref": "event.schema.json"
+      }
+    }
+  },
+  "required": [
+    "events"
+  ]
+}

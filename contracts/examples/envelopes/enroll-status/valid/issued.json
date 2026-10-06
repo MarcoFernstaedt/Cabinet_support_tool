@@ -1,0 +1,8 @@
+{
+  "requestId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+  "status": "issued",
+  "certificate": "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUQ2FiaW5ldERpYWdub3N0aWNz\n-----END CERTIFICATE-----\n",
+  "caChain": "-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIUQ2FiaW5ldERpYWdub3N0aWNz\n-----END CERTIFICATE-----\n",
+  "cabinetId": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d",
+  "serverTime": "2026-10-04T19:00:00Z"
+}

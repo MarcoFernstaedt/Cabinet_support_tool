@@ -1,0 +1,542 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/common.schema.json",
+  "title": "Common definitions",
+  "description": "Shared building blocks for every envelope and operation. All times are UTC ISO 8601 with a trailing Z (docs/spec/03-protocol.md).",
+  "$defs": {
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "timestamp": {
+      "description": "UTC time, ISO 8601, always ending in Z.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,7})?Z$"
+    },
+    "shortText": {
+      "description": "A single line of text with no control characters.",
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "nonEmptyShortText": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/shortText"
+        },
+        {
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "longText": {
+      "description": "Multi-line text such as an event message, size-capped.",
+      "type": "string",
+      "maxLength": 32768,
+      "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+    },
+    "nullableShortText": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/shortText"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableCount": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/count"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "ipv4": {
+      "type": "string",
+      "maxLength": 15,
+      "pattern": "^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}$"
+    },
+    "ipv4Cidr": {
+      "type": "string",
+      "maxLength": 18,
+      "pattern": "^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(\\.(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])){3}/([0-9]|[12][0-9]|3[0-2])$"
+    },
+    "ipAddress": {
+      "description": "IPv4 or IPv6 address as reported by Windows (read operations only).",
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 45,
+      "pattern": "^[0-9A-Fa-f:.%]+$"
+    },
+    "prefixLength": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 128
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "interfaceIndex": {
+      "description": "Windows network interface index.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "macAddress": {
+      "type": "string",
+      "pattern": "^[0-9A-Fa-f]{2}([-:][0-9A-Fa-f]{2}){5}$"
+    },
+    "sha256": {
+      "description": "Lower-case hex SHA-256 digest.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "agentVersion": {
+      "description": "Semantic version of the agent.",
+      "type": "string",
+      "maxLength": 64,
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z.-]{1,32})?$"
+    },
+    "hostname": {
+      "description": "Windows computer name or DNS host name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,62})(\\.[A-Za-z0-9]([A-Za-z0-9-]{0,62}))*$"
+    },
+    "hardwareId": {
+      "description": "Plug and Play hardware ID such as USB\\VID_1234&PID_5678.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9\\\\&_.#{}=,+ -]+$"
+    },
+    "deviceInstanceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^[A-Za-z0-9\\\\&_.#{}=,+ -]+$"
+    },
+    "eventLevel": {
+      "type": "string",
+      "enum": [
+        "critical",
+        "error",
+        "warning",
+        "information",
+        "verbose"
+      ]
+    },
+    "allowedLog": {
+      "description": "The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.",
+      "type": "string",
+      "enum": [
+        "System",
+        "Application",
+        "Setup",
+        "Microsoft-Windows-Kernel-PnP/Configuration",
+        "Microsoft-Windows-DriverFrameworks-UserMode/Operational",
+        "Microsoft-Windows-Kernel-WHEA/Errors",
+        "Microsoft-Windows-Storage-Storport/Operational",
+        "Microsoft-Windows-Ntfs/Operational",
+        "Microsoft-Windows-NetworkProfile/Operational",
+        "Microsoft-Windows-Dhcp-Client/Admin",
+        "Microsoft-Windows-DNS-Client/Operational",
+        "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall",
+        "Microsoft-Windows-WindowsUpdateClient/Operational"
+      ]
+    },
+    "eventId": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "recordId": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "cabinetRole": {
+      "type": "string",
+      "enum": [
+        "sync",
+        "satellite",
+        "standalone"
+      ]
+    },
+    "operationName": {
+      "description": "Every operation in the agent catalog (contracts/schemas/operations/catalog.json).",
+      "type": "string",
+      "enum": [
+        "system.info",
+        "eventlog.channels",
+        "eventlog.query",
+        "eventlog.get",
+        "devices.list",
+        "drivers.list",
+        "peripheral.status",
+        "updates.status",
+        "disk.smart",
+        "files.list",
+        "network.config",
+        "network.test",
+        "firewall.state",
+        "network.setIp",
+        "network.setDns",
+        "firewall.setProfile",
+        "firewall.setRule",
+        "firewall.restore",
+        "package.install",
+        "driver.uninstall"
+      ]
+    },
+    "rejectionCode": {
+      "description": "Why the agent refused a command without running it (docs/spec/03-protocol.md).",
+      "type": "string",
+      "enum": [
+        "unknown_operation",
+        "invalid_params",
+        "expired",
+        "replayed",
+        "wrong_cabinet",
+        "read_only_mode",
+        "rate_limited",
+        "hash_mismatch",
+        "signature_invalid",
+        "publisher_not_trusted",
+        "verification_failed"
+      ]
+    },
+    "failureCode": {
+      "description": "Why a command that started did not succeed. Provisional set, see docs/spec/09-open-decisions.md.",
+      "type": "string",
+      "enum": [
+        "execution_failed",
+        "timeout",
+        "not_found",
+        "unavailable",
+        "safety_net_rollback"
+      ]
+    },
+    "firewallProfile": {
+      "type": "string",
+      "enum": [
+        "domain",
+        "private",
+        "public"
+      ]
+    },
+    "firewallAction": {
+      "type": "string",
+      "enum": [
+        "allow",
+        "block"
+      ]
+    },
+    "firewallDirection": {
+      "type": "string",
+      "enum": [
+        "in",
+        "out"
+      ]
+    },
+    "firewallProtocol": {
+      "type": "string",
+      "enum": [
+        "any",
+        "tcp",
+        "udp",
+        "icmpv4"
+      ]
+    },
+    "portRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/port"
+        },
+        "to": {
+          "$ref": "#/$defs/port"
+        }
+      }
+    },
+    "windowsProgramPath": {
+      "description": "Absolute local path to a program file. No relative segments, UNC, device or wildcard paths.",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 260,
+      "pattern": "^[A-Za-z]:\\\\(?!.*(^|\\\\)\\.{1,2}(\\\\|$))[^\\u0000-\\u001f\\u007f<>:\"/|?*]+\\.[Ee][Xx][Ee]$"
+    },
+    "firewallRule": {
+      "description": "One Windows firewall rule, as structured fields only. No free-text rule strings.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "direction",
+        "action",
+        "protocol",
+        "enabled",
+        "profiles"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._()-]*$"
+        },
+        "direction": {
+          "$ref": "#/$defs/firewallDirection"
+        },
+        "action": {
+          "$ref": "#/$defs/firewallAction"
+        },
+        "protocol": {
+          "$ref": "#/$defs/firewallProtocol"
+        },
+        "localPorts": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/portRange"
+          }
+        },
+        "remotePorts": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/portRange"
+          }
+        },
+        "localAddresses": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ipv4"
+              },
+              {
+                "$ref": "#/$defs/ipv4Cidr"
+              }
+            ]
+          }
+        },
+        "remoteAddresses": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ipv4"
+              },
+              {
+                "$ref": "#/$defs/ipv4Cidr"
+              }
+            ]
+          }
+        },
+        "programPath": {
+          "$ref": "#/$defs/windowsProgramPath"
+        },
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/firewallProfile"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "reportedFirewallRule": {
+      "description": "A firewall rule as read back from Windows. Wider than firewallRule because existing rules may use features the platform never writes.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "direction",
+        "action",
+        "enabled",
+        "createdByPlatform"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/shortText"
+        },
+        "displayGroup": {
+          "$ref": "#/$defs/nullableShortText"
+        },
+        "direction": {
+          "$ref": "#/$defs/firewallDirection"
+        },
+        "action": {
+          "$ref": "#/$defs/firewallAction"
+        },
+        "protocol": {
+          "$ref": "#/$defs/shortText"
+        },
+        "localPorts": {
+          "$ref": "#/$defs/shortText"
+        },
+        "remotePorts": {
+          "$ref": "#/$defs/shortText"
+        },
+        "localAddresses": {
+          "$ref": "#/$defs/shortText"
+        },
+        "remoteAddresses": {
+          "$ref": "#/$defs/shortText"
+        },
+        "programPath": {
+          "$ref": "#/$defs/nullableShortText"
+        },
+        "profiles": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/firewallProfile"
+          }
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "createdByPlatform": {
+          "description": "True for rules whose name starts with MashuraDiag.",
+          "type": "boolean"
+        }
+      }
+    },
+    "firewallProfileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile",
+        "enabled",
+        "defaultInbound",
+        "defaultOutbound",
+        "reenableAt"
+      ],
+      "properties": {
+        "profile": {
+          "$ref": "#/$defs/firewallProfile"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "defaultInbound": {
+          "$ref": "#/$defs/firewallAction"
+        },
+        "defaultOutbound": {
+          "$ref": "#/$defs/firewallAction"
+        },
+        "reenableAt": {
+          "description": "When a temporarily disabled profile turns itself back on; null when no timer is running.",
+          "$ref": "#/$defs/nullableTimestamp"
+        }
+      }
+    },
+    "ipv4Settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dhcp",
+        "addresses",
+        "gateways"
+      ],
+      "properties": {
+        "dhcp": {
+          "type": "boolean"
+        },
+        "addresses": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "address",
+              "prefixLength"
+            ],
+            "properties": {
+              "address": {
+                "$ref": "#/$defs/ipv4"
+              },
+              "prefixLength": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 32
+              }
+            }
+          }
+        },
+        "gateways": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          }
+        }
+      }
+    },
+    "dnsSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "automatic",
+        "servers"
+      ],
+      "properties": {
+        "automatic": {
+          "type": "boolean"
+        },
+        "servers": {
+          "type": "array",
+          "maxItems": 4,
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          }
+        }
+      }
+    },
+    "emptyParams": {
+      "description": "Operations that take no parameters accept only an empty object.",
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    }
+  }
+}
