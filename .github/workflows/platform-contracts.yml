@@ -111,7 +111,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Start PostgreSQL and the platform server (development issuing key)
+      - name: Platform server, enrollment, commands and revocation end to end
+        # One step: the Windows runner ends processes a step started when that step finishes, server included.
         shell: pwsh
         run: |
           $pg = Get-Service -Name postgresql*
@@ -136,9 +137,6 @@ jobs:
           for ($i = 0; $i -lt 30 -and -not (Test-Path "$env:DEV_PKI_DIR\dev-agent-api.cert.pem"); $i++) { Start-Sleep 1 }
           Start-Sleep 2
           node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
-      - name: The installed agent enrolls, is approved and comes online
-        shell: pwsh
-        run: |
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
             -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token
@@ -153,10 +151,7 @@ jobs:
           node server/dist/src/cli.js cabinets
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
           if (-not $online) { throw 'The cabinet did not come online.' }
-          "CABINET_ID=$((($online.Line) -split ' ')[0])" | Out-File -Append $env:GITHUB_ENV
-      - name: Commands from the server run on the real cabinet, through the broker, and come back
-        shell: pwsh
-        run: |
+          $env:CABINET_ID = (($online.Line) -split ' ')[0]
           $ids = @{}
           foreach ($op in @(
               @('system.info', '{}'), @('peripheral.status', '{}'), @('disk.smart', '{}'), @('updates.status', '{}'),
@@ -176,9 +171,6 @@ jobs:
             if ($record.status -ne 'succeeded') { $failed += $op }
           }
           if ($failed) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30; throw "Did not succeed through the server: $($failed -join ', ')" }
-      - name: A revoked cabinet is refused, and the audit chain is intact
-        shell: pwsh
-        run: |
           node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin
           $refused = $false
           for ($i = 0; $i -lt 45 -and -not $refused; $i++) {
