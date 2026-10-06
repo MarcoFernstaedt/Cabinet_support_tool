@@ -3,6 +3,7 @@ import { h, clear, toast, roleLabel, loading, errorBox } from "./ui.js";
 import { dashboardView, cabinetsView, cabinetView, sitesView, siteView, alertsView, activityView, auditView } from "./views-support.js";
 import { enrollmentView, staffView } from "./views-admin.js";
 import { settingsView } from "./views-settings.js";
+import { startTour, tourDone } from "./tour.js";
 
 const app = document.getElementById("app");
 const ctx = {
@@ -48,6 +49,8 @@ export function parseHash() {
   const [path, query = ""] = raw.split("?");
   return { path, query: Object.fromEntries(new URLSearchParams(query)) };
 }
+ctx.currentPath = () => parseHash().path;
+ctx.startTour = () => startTour(ctx);
 ctx.navigate = (path, query) => {
   const q = query ? new URLSearchParams(Object.entries(query).filter(([, v]) => v !== "" && v != null)).toString() : "";
   location.hash = `#${path}${q ? `?${q}` : ""}`;
@@ -292,6 +295,8 @@ function start(session) {
   clear(app);
   if (!location.hash || location.hash === "#") location.hash = "#/";
   render();
+  // First sign-in (after any required password change): show the getting-started tour once.
+  if (!session.user.mustChangePassword && !tourDone(session.user.id)) setTimeout(() => ctx.session && startTour(ctx), 700);
 }
 
 // --- Boot -------------------------------------------------------------------------------

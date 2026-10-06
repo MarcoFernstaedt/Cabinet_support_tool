@@ -39,6 +39,11 @@ export async function settingsView({ ctx }) {
       onSelect: v => { ctx.applyTheme(v); ctx.rerender(); },
     }))));
 
+  const tour = card("Getting started", [
+    h("p", { class: "muted" }, "A one-minute guided tour of the Console: where things are, how diagnostics work" + (ctx.isAdmin ? ", and how to onboard a new cabinet." : ".")),
+    h("button", { class: "btn primary", onclick: () => ctx.startTour() }, "Take the tour"),
+  ]);
+
   const account = card("Account", [
     facts([
       ["Name", s.user.displayName], ["Username", s.user.username], ["Role", roleLabel(s.user.role)],
@@ -58,5 +63,5 @@ export async function settingsView({ ctx }) {
 
   return h("div", { class: "page narrow-wide" },
     h("header", { class: "page-head" }, h("div", null, h("p", { class: "eyebrow" }, "Preferences"), h("h1", null, "Settings"))),
-    dataSource, appearance, account, agent);
+    dataSource, tour, appearance, account, agent);
 }

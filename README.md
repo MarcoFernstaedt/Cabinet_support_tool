@@ -66,6 +66,7 @@ Read the [current source-versus-live tracker](docs/build-tracker.md) for impleme
 
 1. [Web Console: sign-in, roles, Live/Demo and security model](docs/web-console.md)
 1. [Live Agent setup on a real Windows PC](docs/live-agent-setup.md)
+1. [Platform specification](docs/spec/00-README.md) and [gap analysis against the current build](docs/spec-gap-analysis.md)
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
 3. [Release gates](docs/readiness.md), [Agent-only demo package](docs/independent-demo-kit.md), and [Windows demo checks](docs/testing.md). The static browser preview uses sample data; it is not a connected or accepted Console.

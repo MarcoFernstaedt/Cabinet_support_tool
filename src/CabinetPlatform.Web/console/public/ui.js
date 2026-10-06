@@ -49,7 +49,10 @@ export function ago(value) {
 export function dateTime(value) {
   if (!value) return "—";
   const d = new Date(value);
-  return Number.isFinite(d.getTime()) ? d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
+  // Spec: full date and time to the second, in the viewer's zone, with the zone named.
+  return Number.isFinite(d.getTime())
+    ? d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short" })
+    : "—";
 }
 export const pct = v => (typeof v === "number" && Number.isFinite(v) ? `${Math.round(v * 10) / 10}%` : "—");
 export function bytes(v) {

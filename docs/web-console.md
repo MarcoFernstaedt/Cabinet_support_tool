@@ -12,12 +12,16 @@ The Console opens on a sign-in page; nothing else is reachable without an accoun
 - **Everyone else.** Administrators create accounts under **Administration → Staff accounts** with a generated temporary password. Each person sets their own password at first sign-in.
 - **Forgotten password or lockout.** An administrator can unlock an account or deactivate it and create a new one. There is no self-service reset.
 
+## Getting-started tour
+
+After a person's first sign-in (and password change), a short guided tour spotlights each part of the Console: dashboard, search, cabinets, sites, diagnostics, alerts and audit log, plus cabinet onboarding and staff accounts for administrators, and Live/Demo. **Settings → Getting started → Take the tour** runs it again. Whether someone has seen it is remembered per browser.
+
 ## Live and Demo modes
 
 **Settings → Data source** switches each signed-in user between:
 
 - **Live:** only real cabinets and agents, from the Cabinet Server. See [live Agent setup](live-agent-setup.md) to connect a real Windows PC such as the HP lab laptop.
-- **Demo:** a built-in sample fleet (6 cabinets, 3 sites, pending enrollments, alerts, staff, event logs and process lists) **shown together with your real cabinets**. Real items carry a **● LIVE** badge, are listed first, and keep their real data: opening a LIVE cabinet, running a diagnostic on it or reading its event logs talks to the real Agent through the Server. Sample items live only in your session: approvals, new staff, diagnostics and alert notes on them never reach the Server and vanish at sign-out. A new staff account created in Demo mode is always a sample account. If the Server is unreachable, Demo still shows the sample fleet.
+- **Demo:** a built-in sample fleet (6 cabinets, 3 sites, pending enrollments, alerts, staff, event logs and process lists) **shown together with your real cabinets**. Real items carry a **● LIVE** badge, are listed first, and keep their real data: opening a LIVE cabinet, running a diagnostic on it or reading its event logs talks to the real Agent through the Server. Sample items live only in your session: approvals, new staff, diagnostics and alert notes on them never reach the Server and vanish at sign-out. **Agent onboarding works in both modes:** a real Agent waiting for approval appears in Enrollment with a ● LIVE badge, and approving it from Demo mode enrolls it on the real Server. A new staff account created in Demo mode is always a sample account. If the Server is unreachable, Demo still shows the sample fleet.
 
 A banner and a "Demo data" badge stay on screen in Demo mode. The same role rules apply: support users still can't open administrator pages. Set `CONSOLE_DEMO=disabled` to remove Demo mode from a Console.
 

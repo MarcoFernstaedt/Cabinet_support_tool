@@ -170,7 +170,9 @@ const FRIENDLY_ACTION = {
 
 async function requestDiagnostic(cabinet, ctx, preset) {
   const [catalog, views] = await Promise.all([get("/api/actions/catalog"), get("/api/event-log-views", { pageSize: 100 })]);
-  const usable = catalog.filter(a => !a.requiresApproval && !a.isDisruptive && a.action !== "CollectEventLogs");
+  // GetHistoricalProcessEvidence reads the Windows Security log, which the
+  // platform spec forbids (docs/spec/02-security-model.md), so it is not offered.
+  const usable = catalog.filter(a => !a.requiresApproval && !a.isDisruptive && !["CollectEventLogs", "GetHistoricalProcessEvidence"].includes(a.action));
   if (!usable.length) return toast("No diagnostics are available for this cabinet.", "error");
   const fields = [
     { name: "action", label: "Diagnostic", type: "select", required: true, value: preset ?? usable[0].action, options: usable.map(a => ({ value: a.action, label: a.displayName })) },

@@ -354,3 +354,26 @@ table.clickable tbody tr:hover, table.clickable tbody tr:focus-visible { backgro
 .chip.live { background: var(--ok-bg); color: var(--ok); letter-spacing: 0.04em; font-size: 11px; }
 .callout.live { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
 .auth-help { margin: 14px 0 0; text-align: center; }
+
+/* Getting-started tour */
+.tour-layer { position: fixed; inset: 0; z-index: 200; }
+.tour-spotlight {
+  position: fixed; border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgb(3 8 14 / 0.62), 0 0 0 3px var(--accent);
+  transition: all 0.25s ease;
+}
+.tour-spotlight[hidden] { display: block !important; top: 50%; left: 50%; width: 0; height: 0; box-shadow: 0 0 0 9999px rgb(3 8 14 / 0.62); }
+.tour-card {
+  position: fixed; width: min(400px, calc(100vw - 24px)); padding: 20px 22px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--line-strong); box-shadow: var(--shadow); color: var(--text); outline: none;
+}
+.tour-card.centered { top: 50% !important; left: 50% !important; transform: translate(-50%, -50%); width: min(480px, calc(100vw - 24px)); }
+.tour-card h2 { font-size: 18px; margin-bottom: 8px; }
+.tour-card p { margin: 0 0 10px; color: var(--text-2); }
+.tour-card .eyebrow { margin-bottom: 4px; }
+.tour-progress { display: flex; gap: 4px; margin-bottom: 12px; }
+.tour-progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--surface-3); }
+.tour-progress span.done { background: color-mix(in srgb, var(--accent) 45%, var(--surface-3)); }
+.tour-progress span.on { background: var(--accent); }
+.tour-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+.tour-actions .spacer { flex: 1; }

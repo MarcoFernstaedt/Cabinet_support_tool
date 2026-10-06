@@ -1,0 +1,49 @@
+# Cabinet Diagnostics Platform: Build Specs
+
+These files are the build specification for the Mashura cabinet diagnostics platform. They are written to be coded from directly, by you or by a coding agent.
+
+## Order to go through them
+
+Read them in number order, 00 through 11. Files 01 and 02 give the shape and the security rules everything else follows; 03 through 07 are the component specs; 08 is the build order; 09 lists choices to confirm; 10 is how to hand the work to a coding agent; 11 is the summary for your head of development.
+
+## Files
+
+- 01-architecture.md: the three components, request flow, cabinet roles, what is in and out of scope
+- 02-security-model.md: the threat model and every security control, in one place
+- 03-protocol.md: the contract between agent and server: message formats, polling, replay protection
+- 04-agent-spec.md: the Windows service on each cabinet, with the full operation catalog
+- 05-server-spec.md: the Node server: agent API, console API, enrollment, alerts engine, audit log, the platform database
+- 06-console-spec.md: the React web console: navigation, views, alerts, admin screens
+- 07-upgrade-channel.md: signed remote agent upgrades and staged rollout
+- 08-build-plan.md: milestones in build order, with what "done" means for each
+- 09-open-decisions.md: choices still to make, each with a recommended default
+- 10-coding-agent-handoff.md: setup, standing instructions and one ready-to-paste prompt per milestone
+- 11-security-review-brief.md: what the platform can and cannot do to a cabinet, worst cases, remaining risks and rollout gates, written for approval
+
+## Stack
+
+- Agent: C# on .NET 8, running as a Windows service on Windows 10 and 11
+- Server: Node.js 22 LTS with TypeScript and the Fastify framework
+- Console: React with TypeScript, built with Vite, served as static files
+- Contracts: JSON Schema files shared by all three, the single source of truth for every operation
+- Platform database: PostgreSQL, holding the support team accounts, fleet records, alerts and activity logs. Not the cabinet application's database, which the platform never touches.
+
+## Why Node instead of ASP.NET Core
+
+Both are secure when used with discipline, so neither wins on security alone. ASP.NET Core's real advantages are mature built-in authentication and client-certificate handling, and sharing C# types with the agent. Node's real advantages are your existing fluency and one language across server and console. Security comes more from how well you know the framework than from the framework, so Node is the better pick here, with three conditions:
+
+- Every route validates its input against a schema before any handler code runs. Fastify does this natively.
+- Dependencies stay minimal, pinned by lockfile, and checked with npm audit on every build.
+- The operation contracts live in shared JSON Schema files, so the agent and server cannot silently drift apart.
+
+## Why plain React instead of Next.js
+
+No genuine benefit here, and a real cost. Next.js earns its keep with search engine visibility and server rendering, and this is an internal console behind a login, so neither matters. Next.js also adds a second server-side runtime with its own attack surface; in 2025 its middleware had an authentication bypass flaw (CVE-2025-29927). A static React app talking to one API keeps the attack surface to a single server you control.
+
+## Ground rules for whoever writes the code
+
+- The agent never executes anything not in its operation catalog. No shell, no eval, no generic run command, ever.
+- No general file transfer. Files reach a cabinet only as signed packages from the approved library.
+- External programs the agent calls are launched with argument arrays, never a composed command string.
+- Every security decision is enforced on the server or the agent, never only in the console.
+- Anything not specified here is a question, not a guess. Add it to 09-open-decisions.md.

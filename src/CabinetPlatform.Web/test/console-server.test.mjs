@@ -444,3 +444,36 @@ test("the agent server address is shown only to administrators", async t => {
   }
   assert.throws(() => createConsoleServer({ upstream: UPSTREAM, publicOrigin: "http://127.0.0.1:1", agentServerUrl: "http://plain.example" }));
 });
+
+test("agent onboarding works in Demo mode: real pending agents are listed and approved on the Server", async t => {
+  const REG = "4c1b2a3d-9e8f-4a7b-b6c5-d4e3f2a1b0c9";
+  let approved = null;
+  const s = await start(call => {
+    const p = call.url.pathname;
+    if (p === "/api/auth/login") return [200, loginBody()];
+    if (p === "/api/registrations/pending") return [200, page(approved ? [] : [{ id: REG, machineId: "HP-UUID-1", hostname: "HP-EDGE", status: "Pending", firstSeenUtc: new Date().toISOString(), lastSeenUtc: new Date().toISOString() }])];
+    if (p === `/api/registrations/${REG}/approve`) { approved = call.body; return [200, { id: REG, status: "Approved" }]; }
+    if (p === "/api/fleet/health") return [200, { totalCabinets: 0, pendingRegistrations: approved ? 0 : 1, healthy: 0, disks: {}, agentVersions: [] }];
+    return [200, page([])];
+  });
+  t.after(s.close);
+  await s.login();
+  await switchMode(s, "demo");
+
+  const pending = (await s.req("GET", "/api/registrations/pending?status=Pending")).json;
+  assert.equal(pending.items[0].id, REG, "the real agent is listed first");
+  assert.equal(pending.items[0].source, "live");
+  assert.equal(pending.totalCount, 3, "1 real + 2 sample");
+  assert.equal((await s.req("GET", "/api/fleet/health")).json.pendingRegistrations, 3);
+
+  const body = { clientName: "Mashura Lab", siteName: "Office", role: "Standalone", approvalReason: "Machine ID verified" };
+  const r = await s.req("POST", `/api/registrations/${REG}/approve`, { body, headers: { "x-csrf-token": s.jar.csrf } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(approved, body, "approval reached the real Server unchanged");
+
+  // Approving a sample registration stays in the sandbox.
+  const sample = pending.items.find(i => i.source !== "live");
+  const calls = s.calls.length;
+  assert.equal((await s.req("POST", `/api/registrations/${sample.id}/approve`, { body, headers: { "x-csrf-token": s.jar.csrf } })).status, 200);
+  assert.equal(s.calls.length, calls);
+});
