@@ -2,18 +2,30 @@ import { get, post, request, setCsrf, onSessionExpired } from "./api.js";
 import { h, clear, toast, roleLabel, loading, errorBox } from "./ui.js";
 import { dashboardView, cabinetsView, cabinetView, sitesView, siteView, alertsView, activityView, auditView } from "./views-support.js";
 import { enrollmentView, staffView } from "./views-admin.js";
+import { settingsView } from "./views-settings.js";
 
 const app = document.getElementById("app");
-const ctx = { session: null, get isAdmin() { return ctx.session?.user.role === "Supervisor"; } };
+const ctx = {
+  session: null,
+  get isAdmin() { return ctx.session?.user.role === "Supervisor"; },
+  get isDemo() { return ctx.session?.mode === "demo"; },
+};
 
 // --- Theme ---------------------------------------------------------------------
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  try { localStorage.setItem("console-theme", theme); } catch { /* storage unavailable */ }
+// "dark", "light" or "system" (follow the operating system).
+function applyTheme(choice, persist = true) {
+  const resolved = choice === "system" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : choice;
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.themeChoice = choice;
+  if (persist) try { localStorage.setItem("console-theme", choice); } catch { /* storage unavailable */ }
 }
 let savedTheme = null;
 try { savedTheme = localStorage.getItem("console-theme"); } catch { /* storage unavailable */ }
-applyTheme(savedTheme ?? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+applyTheme(["dark", "light", "system"].includes(savedTheme) ? savedTheme : "dark", false);
+matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => {
+  if (document.documentElement.dataset.themeChoice === "system") applyTheme("system", false);
+});
+ctx.applyTheme = applyTheme;
 
 // --- Routing --------------------------------------------------------------------
 const routes = [
@@ -28,6 +40,7 @@ const routes = [
   { re: /^\/admin\/enrollment$/, view: enrollmentView, nav: "enrollment", title: "Cabinet enrollment", admin: true },
   { re: /^\/admin\/staff$/, view: staffView, nav: "staff", title: "Staff accounts", admin: true },
   { re: /^\/account$/, view: accountView, nav: "account", title: "My account" },
+  { re: /^\/settings$/, view: settingsView, nav: "settings", title: "Settings" },
 ];
 
 export function parseHash() {
@@ -96,6 +109,8 @@ function ensureShell() {
         h("div", { class: "nav-label" }, "Administration"),
         navItem("enrollment", "#/admin/enrollment", "Enrollment", "＋", "badge-enrollment"),
         navItem("staff", "#/admin/staff", "Staff accounts", "☺")) : null,
+      h("nav", { "aria-label": "Preferences" },
+        navItem("settings", "#/settings", "Settings", "⚙")),
       h("div", { class: "sidebar-foot" },
         h("a", { class: "user-card", href: "#/account", dataset: { nav: "account" } },
           h("span", { class: "avatar", "aria-hidden": "true" }, initials(user.displayName)),
@@ -106,8 +121,13 @@ function ensureShell() {
         h("form", { class: "search", role: "search", onsubmit: e => { e.preventDefault(); ctx.navigate("/cabinets", { search: search.value.trim() }); } }, search),
         h("div", { class: "top-actions" },
           h("button", { class: "btn ghost", title: "Toggle light/dark theme", "aria-label": "Toggle theme", onclick: () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark") }, "◐"),
+          ctx.isDemo ? h("a", { class: "mode-pill", href: "#/settings", title: "Demo mode: sample data. Click to change." }, "Demo data") : null,
           h("span", { class: `role-pill ${ctx.isAdmin ? "admin" : ""}` }, roleLabel(user.role)),
           h("button", { class: "btn ghost", onclick: signOut }, "Sign out"))),
+      ctx.isDemo ? h("div", { class: "demo-banner", role: "note" },
+        h("strong", null, "Demo mode"),
+        h("span", null, " — you are looking at a sample fleet. Changes stay in this session and never reach the support server."),
+        h("button", { class: "btn small", onclick: () => ctx.setMode("live") }, "Switch to live data")) : null,
       h("main", { id: "main", tabindex: "-1" })));
   clear(app).append(shell);
   document.addEventListener("click", e => { if (e.target.closest(".sidebar a")) document.body.classList.remove("nav-open"); });
@@ -142,6 +162,16 @@ async function refreshBadges() {
   badgeTimer = setTimeout(refreshBadges, 30_000);
 }
 ctx.refreshBadges = refreshBadges;
+
+// Switching data source rebuilds the shell so every view, badge and banner
+// reflects the new source; nothing from the previous mode is reused.
+ctx.setMode = async mode => {
+  const session = await post("/auth/mode", { mode });
+  setSession(session);
+  clear(app);
+  toast(mode === "demo" ? "Demo mode on. You are viewing sample data." : "Live mode on. You are viewing real cabinets.", "success");
+  if (location.hash === "#/" || location.hash === "") render(); else location.hash = "#/";
+};
 
 // --- Authentication ----------------------------------------------------------------
 async function signOut() {

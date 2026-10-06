@@ -36,7 +36,9 @@ One command starts the Server, the web Console and three simulated cabinet agent
 tools/demo/start-web-console-demo.sh
 ```
 
-Open `http://127.0.0.1:4180`, sign in as `admin` with the printed one-time password, set your own password, approve the waiting cabinets under **Enrollment**, add support staff under **Staff accounts**, then sign in as them to work the fleet. The full walkthrough, role matrix and security model are in [docs/web-console.md](docs/web-console.md).
+**Real machine:** to put the Windows Agent on a real PC (e.g. the HP lab laptop) and see its actual event logs, processes and health, follow [live Agent setup](docs/live-agent-setup.md) (`tools/live/start-web-console-live.sh --tailscale`, `tools/live/build-agent-package.sh`, then `Install-CabinetAgent.ps1` on the PC). **Sample data:** any signed-in user can switch to **Settings → Demo** for a built-in sample fleet that never touches the Server.
+
+For the simulated-agent rehearsal: open `http://127.0.0.1:4180`, sign in as `admin` with the printed one-time password, set your own password, approve the waiting cabinets under **Enrollment**, add support staff under **Staff accounts**, then sign in as them to work the fleet. The full walkthrough, role matrix and security model are in [docs/web-console.md](docs/web-console.md).
 
 ## Build and test
 
@@ -61,6 +63,7 @@ Do not run the agent, network changes, updates or process controls on a producti
 Read the [current source-versus-live tracker](docs/build-tracker.md) for implemented behavior, incomplete wiring and verification limits.
 
 1. [Web Console: demo, roles and security model](docs/web-console.md)
+1. [Live Agent setup on a real Windows PC](docs/live-agent-setup.md)
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
 3. [Release gates](docs/readiness.md), [Agent-only demo package](docs/independent-demo-kit.md), and [Windows demo checks](docs/testing.md). The static browser preview uses sample data; it is not a connected or accepted Console.

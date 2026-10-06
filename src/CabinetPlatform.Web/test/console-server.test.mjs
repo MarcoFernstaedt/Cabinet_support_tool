@@ -293,3 +293,114 @@ test("HTTPS origins use a __Host- Secure cookie and HSTS", async t => {
   assert.match(raw, /Set-Cookie: __Host-cabinet-console=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; SameSite=Strict; Secure/i);
   assert.match(raw, /Strict-Transport-Security: max-age=31536000/i);
 });
+
+// --- Demo mode -------------------------------------------------------------------------
+const switchMode = (s, mode) => s.req("POST", "/auth/mode", { body: { mode }, headers: { "x-csrf-token": s.jar.csrf } });
+
+test("demo mode serves sandbox data without contacting the Server", async t => {
+  const s = await start(okLogin());
+  t.after(s.close);
+  const login = await s.login();
+  assert.equal(login.json.mode, "live");
+  assert.equal(login.json.demoAvailable, true);
+  assert.equal((await s.req("POST", "/auth/mode", { body: { mode: "demo" } })).status, 403, "needs CSRF");
+  const switched = await switchMode(s, "demo");
+  assert.equal(switched.status, 200);
+  assert.equal(switched.json.mode, "demo");
+  assert.equal((await s.req("GET", "/auth/session")).json.mode, "demo");
+
+  const before = s.calls.length;
+  const health = await s.req("GET", "/api/fleet/health");
+  assert.equal(health.status, 200);
+  assert.equal(health.json.totalCabinets, 6);
+  const cabinets = await s.req("GET", "/api/cabinets?pageSize=25&isActive=true");
+  assert.equal(cabinets.json.items.length, 6);
+  const id = cabinets.json.items[0].id;
+  for (const path of [`/api/cabinets/${id}`, `/api/cabinets/${id}/heartbeats?fromUtc=${new Date(Date.now() - 86400000).toISOString()}`, "/api/fleet/sites",
+    "/api/connectivity-alerts", "/api/actions", "/api/actions/catalog", "/api/event-log-views", "/api/audit", "/api/registrations/pending", "/api/users", "/api/auth/me"])
+    assert.equal((await s.req("GET", path)).status, 200, path);
+
+  // Admin decision inside the sandbox.
+  const pending = await s.req("GET", "/api/registrations/pending");
+  assert.equal(pending.json.items.length, 2);
+  const approve = await s.req("POST", `/api/registrations/${pending.json.items[0].id}/approve`, { body: { clientName: "Valley Emergency Group", siteName: "Mesa", role: "Sync", approvalReason: "ok" }, headers: { "x-csrf-token": s.jar.csrf } });
+  assert.equal(approve.status, 200);
+  assert.equal((await s.req("GET", "/api/fleet/health")).json.totalCabinets, 7);
+
+  // Diagnostics complete in the sandbox.
+  const action = await s.req("POST", "/api/actions", { body: { action: "GetProcessList", cabinetId: id, reason: "test", parameters: {} }, headers: { "x-csrf-token": s.jar.csrf } });
+  assert.equal(action.status, 201);
+  assert.equal(action.json.status, "Dispatched");
+  assert.equal(s.calls.length, before, "no Server calls in demo mode");
+
+  const back = await switchMode(s, "live");
+  assert.equal(back.json.mode, "live");
+  await s.req("GET", "/api/fleet/health");
+  assert.equal(s.calls.length, before + 1, "live mode reaches the Server again");
+});
+
+test("demo sandboxes are per session and keep administrator rules", async t => {
+  const s = await start(okLogin("Tier1"));
+  t.after(s.close);
+  await s.login();
+  await switchMode(s, "demo");
+  assert.equal((await s.req("GET", "/api/users")).status, 403);
+  assert.equal((await s.req("GET", "/api/registrations/pending")).status, 403);
+  assert.equal((await s.req("GET", "/api/cabinets")).status, 200);
+
+  const firstCookie = s.jar.cookie, firstCsrf = s.jar.csrf;
+  const cab = (await s.req("GET", "/api/cabinets")).json.items[0];
+  await s.req("POST", `/api/actions`, { body: { action: "GetProcessList", cabinetId: cab.id, reason: "mine", parameters: {} }, headers: { "x-csrf-token": firstCsrf } });
+  const mine = (await s.req("GET", "/api/actions")).json.totalCount;
+
+  await s.login(); // a second, independent session
+  await switchMode(s, "demo");
+  const theirs = (await s.req("GET", "/api/actions")).json.totalCount;
+  assert.equal(theirs, mine - 1, "another session does not see this session's demo changes");
+  assert.equal((await s.req("GET", "/api/actions", { cookie: false, headers: { cookie: firstCookie } })).status, 401, "re-login replaced the first session");
+});
+
+test("demo mode can be disabled for a production Console", async t => {
+  const s = await start(okLogin(), { demoEnabled: false });
+  t.after(s.close);
+  const login = await s.login();
+  assert.equal(login.json.demoAvailable, false);
+  assert.equal((await switchMode(s, "demo")).status, 403);
+  assert.equal((await switchMode(s, "bogus")).status, 400);
+});
+
+test("a must-change-password session cannot switch to demo", async t => {
+  const s = await start(c => c.url.pathname === "/api/auth/login" ? [200, loginBody({ mustChangePassword: true })] : [200, {}]);
+  t.after(s.close);
+  await s.login();
+  assert.equal((await switchMode(s, "demo")).status, 403);
+});
+
+test("every allowlisted route has a Demo-mode answer", async () => {
+  const { ROUTES } = await import("../console/console-server.mjs");
+  const { createDemoSandbox } = await import("../console/demo-sandbox.mjs");
+  const box = createDemoSandbox({ user: { id: ID, username: "ada", displayName: "Ada", role: "Supervisor" } });
+  const q = new URLSearchParams();
+  const seeded = box.handle("GET", "/api/actions", q)[1].items.find(a => a.action === "GetProcessList");
+  const action = seeded.id, cab = seeded.cabinetId; // the cabinet that already has saved diagnostics
+  const site = box.handle("GET", "/api/fleet/sites", q)[1].items[0].id;
+  const events = box.handle("GET", "/api/actions", q)[1].items.find(a => a.action === "RunEventLogView").id;
+  const sample = { cabinets: cab, sites: site, actions: action, "process-results": action, "event-log-results": events, site };
+  for (const route of ROUTES.filter(r => r.method === "GET")) {
+    // Build a concrete path from the pattern, filling each GUID by the segment before it.
+    const parts = route.regex.source.replace(/^\^|\$$/g, "").replaceAll("\\/", "/").split("/");
+    const path = parts.map((p, i) => p.startsWith("[0-9a-fA-F]") ? (sample[parts[i - 1]] ?? cab) : p).join("/");
+    if (path.includes("/search/clients/")) continue; // hierarchy lookup is not modelled in the sandbox
+    const [status] = box.handle("GET", path, q);
+    assert.equal(status, 200, `${route.method} ${path}`);
+  }
+});
+
+test("the agent server address is shown only to administrators", async t => {
+  for (const [role, expected] of [["Supervisor", "https://agents.example.ts.net:8446"], ["Tier1", null]]) {
+    const s = await start(okLogin(role), { agentServerUrl: "https://agents.example.ts.net:8446" });
+    t.after(s.close);
+    assert.equal((await s.login()).json.agentServerUrl, expected, role);
+  }
+  assert.throws(() => createConsoleServer({ upstream: UPSTREAM, publicOrigin: "http://127.0.0.1:1", agentServerUrl: "http://plain.example" }));
+});

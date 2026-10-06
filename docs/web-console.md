@@ -4,6 +4,15 @@ The web Console replaces the retired Windows (WPF) support console. It keeps the
 
 Source: `src/CabinetPlatform.Web/console/` (server: `console-server.mjs`, browser app: `public/`). No build step and no runtime npm dependencies.
 
+## Live and Demo modes
+
+**Settings → Data source** switches each signed-in user between:
+
+- **Live:** real cabinets and agents through the Cabinet Server. See [live Agent setup](live-agent-setup.md) to connect a real Windows PC such as the HP lab laptop.
+- **Demo:** a built-in sample fleet (6 cabinets, 3 sites, pending enrollments, alerts, staff, event logs and process lists). Demo data is generated inside the Console for your session only. Approvals, new staff, diagnostics and alert notes made in Demo mode never reach the Server, its database or its audit log, and they vanish at sign-out. A banner and a "Demo data" badge stay on screen the whole time. The same role rules apply: support users still can't open administrator pages.
+
+Set `CONSOLE_DEMO=disabled` to remove Demo mode from a Console.
+
 ## Quick start: full demo on one machine
 
 Requirements: .NET 8 SDK and Node.js 20+.
@@ -12,7 +21,7 @@ Requirements: .NET 8 SDK and Node.js 20+.
 tools/demo/start-web-console-demo.sh
 ```
 
-This builds and starts, all on loopback only:
+This is the full onboarding rehearsal against a real Server with simulated agents. (For a quick sample fleet, Demo mode in Settings needs no setup.) It builds and starts, all on loopback only:
 
 | Process | Address | Notes |
 |---|---|---|
@@ -62,6 +71,8 @@ Tests: `cd src/CabinetPlatform.Web && npm test` (see `test/console-server.test.m
 
 ## Running against your own Server
 
+For a real Agent on a Windows PC, `tools/live/start-web-console-live.sh --tailscale` sets all of this up. See [live Agent setup](live-agent-setup.md). To run the Console by hand:
+
 ```text
 CONSOLE_UPSTREAM=https://cabinet-server.internal \
 CONSOLE_PUBLIC_ORIGIN=https://support.example.org \
@@ -74,6 +85,8 @@ node src/CabinetPlatform.Web/console/console-server.mjs
 | `CONSOLE_HOST` / `CONSOLE_PORT` | `127.0.0.1` / `4180` | Listen address. Non-loopback requires TLS. |
 | `CONSOLE_PUBLIC_ORIGIN` | `http(s)://host:port` | Exact origin browsers use. Set it when behind an HTTPS reverse proxy. |
 | `CONSOLE_TLS_CERT` / `CONSOLE_TLS_KEY` | — | PEM files to serve HTTPS directly. |
+| `CONSOLE_DEMO` | `enabled` | `disabled` removes Demo mode. |
+| `CONSOLE_AGENT_SERVER_URL` | — | HTTPS address Agents use for the Server; shown to administrators in Settings. |
 
 Behind a reverse proxy (for example Tailscale Serve or an internal load balancer), bind the Console to `127.0.0.1`, terminate TLS at the proxy, preserve the `Host` header and set `CONSOLE_PUBLIC_ORIGIN` to the HTTPS URL.
 

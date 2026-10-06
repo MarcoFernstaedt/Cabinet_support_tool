@@ -12,6 +12,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createDemoSandbox } from "./demo-sandbox.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const G = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
@@ -224,8 +225,14 @@ export function createConsoleServer({
   clock = () => Date.now(),
   staticDir = join(here, "public"),
   tls = null,
+  demoEnabled = true,
+  agentServerUrl = null,
   log = () => {},
 } = {}) {
+  // The HTTPS address Windows Agents use to reach the Server. Not a secret;
+  // shown to administrators in Settings to make agent installs copy-paste.
+  if (agentServerUrl !== null && !/^https:\/\/[^/?#@\s]+\/?$/.test(agentServerUrl))
+    throw Error("CONSOLE_AGENT_SERVER_URL must be a bare https:// origin");
   const api = validateUpstream(upstream);
   const origin = validatePublicOrigin(publicOrigin);
   const secure = origin.startsWith("https:");
@@ -279,7 +286,11 @@ export function createConsoleServer({
     };
   }
 
-  const publicSession = s => ({ user: s.user, csrfToken: s.csrf, expiresAt: new Date(Math.min(s.absoluteExpires, s.refreshExpires)).toISOString() });
+  const publicSession = s => ({
+    user: s.user, csrfToken: s.csrf, mode: s.mode ?? "live", demoAvailable: demoEnabled,
+    agentServerUrl: s.user.role === "Supervisor" ? agentServerUrl : null,
+    expiresAt: new Date(Math.min(s.absoluteExpires, s.refreshExpires)).toISOString(),
+  });
 
   async function ensureFresh(s) {
     if (s.accessExpires - clock() > LIMITS.refreshBeforeExpiryMs) return true;
@@ -355,6 +366,12 @@ export function createConsoleServer({
     if (query.length > LIMITS.queryParams || query.some(([k, v]) => !/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(k) || v.length > LIMITS.queryValueLength))
       return send(res, 400, { title: "Invalid query." });
     const body = req.method === "GET" ? undefined : (await readBody(req)) ?? {};
+    if (s.mode === "demo") {
+      // Demo data never touches the Server. Same route allowlist and role
+      // checks as live mode have already run above.
+      const [status, data] = s.sandbox.handle(req.method, url.pathname, url.searchParams, body);
+      return send(res, status === 204 ? 200 : status, data ?? {});
+    }
     if (!(await ensureFresh(s))) { sessions.remove(key); setCookie(res, "", true); return send(res, 401, { title: "Your session has ended. Sign in again." }); }
     const r = await upstreamCall(req.method, url.pathname, { bearer: s.accessToken, body, query });
     if (r.status === 401) { sessions.remove(key); setCookie(res, "", true); return send(res, 401, { title: "Your session has ended. Sign in again." }); }
@@ -417,6 +434,17 @@ export function createConsoleServer({
       return send(res, 200, {});
     }
     if (url.pathname === "/auth/change-password" && req.method === "POST") return changePassword(req, res, s, key);
+    if (url.pathname === "/auth/mode" && req.method === "POST") {
+      const body = await readBody(req);
+      const mode = body?.mode;
+      if (mode !== "live" && mode !== "demo") return send(res, 400, { title: "Mode must be live or demo." });
+      if (mode === "demo" && !demoEnabled) return send(res, 403, { title: "Demo mode is disabled on this Console." });
+      if (s.user.mustChangePassword) return send(res, 403, { title: "Change your password to continue." });
+      if (mode === "demo") s.sandbox ??= createDemoSandbox({ user: s.user, clock });
+      s.mode = mode;
+      log(`mode ${s.user.username} -> ${mode}`);
+      return send(res, 200, publicSession(s));
+    }
     if (url.pathname.startsWith("/api/")) return proxy(req, res, url, s, key);
     return send(res, 404, { title: "Not found" });
   }
@@ -447,8 +475,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const publicOrigin = env.CONSOLE_PUBLIC_ORIGIN ?? `${tls ? "https" : "http"}://${host === "::1" ? "[::1]" : host}:${port}`;
   if (!env.CONSOLE_UPSTREAM) { console.error("Set CONSOLE_UPSTREAM to the Cabinet Server origin."); process.exit(1); }
   const extraHosts = publicOrigin.startsWith("http://127.0.0.1:") ? [`localhost:${port}`] : [];
+  const demoEnabled = (env.CONSOLE_DEMO ?? "enabled").toLowerCase() !== "disabled";
   const { server, origin } = createConsoleServer({
-    upstream: env.CONSOLE_UPSTREAM, publicOrigin, extraHosts, tls,
+    upstream: env.CONSOLE_UPSTREAM, publicOrigin, extraHosts, tls, demoEnabled,
+    agentServerUrl: env.CONSOLE_AGENT_SERVER_URL || null,
     log: line => console.log(`[console] ${new Date().toISOString()} ${line}`),
   });
   server.listen(port, host, () => console.log(`[console] Cabinet Support Console on ${origin} -> ${env.CONSOLE_UPSTREAM}`));

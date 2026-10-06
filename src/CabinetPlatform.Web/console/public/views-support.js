@@ -47,6 +47,12 @@ export async function dashboardView({ ctx }) {
     pageHead("Overview", `Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, ${first}`,
       `Fleet snapshot generated ${ago(health.generatedUtc)}. Health reflects each cabinet's last check-in, not a live probe.`,
       h("button", { class: "btn", onclick: () => ctx.rerender() }, "↻ Refresh")),
+    !ctx.isDemo && health.totalCabinets === 0 && health.pendingRegistrations === 0
+      ? h("div", { class: "callout info" },
+        h("span", null, h("strong", null, "No cabinets are connected yet. "),
+          ctx.isAdmin ? "Install the Windows Agent on a cabinet PC or lab laptop; it will appear under Enrollment for approval." : "An administrator needs to install and approve an Agent first."),
+        h("a", { href: "#/settings" }, ctx.isAdmin ? "Agent setup and Demo mode →" : "Try Demo mode in Settings →"))
+      : null,
     ctx.isAdmin && health.pendingRegistrations > 0
       ? h("a", { class: "callout", href: "#/admin/enrollment" },
         h("strong", null, `${health.pendingRegistrations} cabinet${health.pendingRegistrations === 1 ? "" : "s"} waiting for enrollment approval`),
@@ -61,7 +67,7 @@ export async function dashboardView({ ctx }) {
       statTile("Unknown", health.unknown, { tone: "unknown", href: "#/cabinets?health=Unknown", note: `${health.noMeasurement} never measured` })),
     h("div", { class: "grid-2" },
       card("Needs attention", table({
-        rows: attention, emptyText: "Every active cabinet is healthy.",
+        rows: attention, emptyText: health.totalCabinets ? "Every active cabinet is healthy." : "No cabinets to show yet.",
         onRow: c => ctx.navigate(`/cabinets/${c.id}`),
         columns: [
           { label: "Cabinet", render: c => h("a", { href: `#/cabinets/${c.id}` }, cabinetName(c)) },
