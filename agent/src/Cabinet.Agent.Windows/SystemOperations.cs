@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 namespace Cabinet.Agent.Windows;
 
-/// <summary>system.info, updates.status, network.config and firewall.state. None need administrator rights.</summary>
+/// <summary>system.info, network.config and firewall.state (network process), and updates.status (broker: Windows Update refuses the restricted network account).</summary>
 [SupportedOSPlatform("windows")]
 public sealed class SystemOperations(AgentConfig config)
 {
@@ -60,7 +60,7 @@ public sealed class SystemOperations(AgentConfig config)
     }
 
     /// <summary>Windows Update history and pending updates from the Windows Update Agent, using its cached search (no download).</summary>
-    public Task<UpdatesStatusOutput> UpdatesStatusAsync(EmptyParams _, CancellationToken token)
+    public static Task<UpdatesStatusOutput> UpdatesStatusAsync(EmptyParams _, CancellationToken token)
     {
         object? session = null;
         try
@@ -297,7 +297,6 @@ public static class NetworkOperations
             .Register<DevicesListParams, DevicesListOutput>(Catalog.DevicesList, devices.DevicesListAsync)
             .Register<EmptyParams, DriversListOutput>(Catalog.DriversList, devices.DriversListAsync)
             .Register<EmptyParams, PeripheralStatusOutput>(Catalog.PeripheralStatus, devices.PeripheralStatusAsync)
-            .Register<EmptyParams, UpdatesStatusOutput>(Catalog.UpdatesStatus, system.UpdatesStatusAsync)
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);

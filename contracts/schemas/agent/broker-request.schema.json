@@ -21,12 +21,13 @@
       ]
     },
     "operation": {
-      "description": "Operations the broker performs: reads that need administrator rights. Write operations are added in milestone 5.",
+      "description": "Operations the broker performs: reads that need administrator rights (Windows Update refuses the network service's restricted account). Write operations are added in a later milestone.",
       "type": "string",
       "enum": [
         "eventlog.channels",
         "eventlog.query",
         "eventlog.get",
+        "updates.status",
         "disk.smart",
         "files.list"
       ]
@@ -171,6 +172,27 @@
         "properties": {
           "params": {
             "$ref": "../operations/files.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "updates.status"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/updates.status.schema.json#/$defs/params"
           }
         }
       }

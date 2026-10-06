@@ -5,7 +5,7 @@ using Cabinet.Agent.Core.Helpers;
 
 namespace Cabinet.Agent.Windows;
 
-/// <summary>files.list and disk.smart: reads that need the broker's rights.</summary>
+/// <summary>The reads that need the broker's rights: event logs, Windows Update, disk health and files.list.</summary>
 [SupportedOSPlatform("windows")]
 public static class BrokerReadOperations
 {
@@ -16,6 +16,7 @@ public static class BrokerReadOperations
         .Register<EmptyParams, EventlogChannelsOutput>(Catalog.EventlogChannels, EventLogOperations.ChannelsAsync)
         .Register<EventlogQueryParams, EventlogQueryOutput>(Catalog.EventlogQuery, EventLogOperations.QueryAsync)
         .Register<EventlogGetParams, EventlogGetOutput>(Catalog.EventlogGet, EventLogOperations.GetAsync)
+        .Register<EmptyParams, UpdatesStatusOutput>(Catalog.UpdatesStatus, SystemOperations.UpdatesStatusAsync)
         .Register<EmptyParams, DiskSmartOutput>(Catalog.DiskSmart, DiskSmartAsync)
         .Register<FilesListParams, FilesListOutput>(Catalog.FilesList, FilesListAsync);
 

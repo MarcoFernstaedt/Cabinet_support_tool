@@ -7,13 +7,13 @@ The agent from docs/spec/04-agent-spec.md, built to Milestone 1: every read oper
 | Service | Account | What it does |
 | --- | --- | --- |
 | `CabinetAgentNetwork` | `NT SERVICE\CabinetAgentNetwork` (virtual account, not an administrator, one privilege) | Validates commands and runs the reads that need no rights. Refuses to start as an administrator. |
-| `CabinetAgentBroker` | LocalSystem | Runs reads that need administrator rights: event logs, SMART and files.list. Has no network code. |
+| `CabinetAgentBroker` | LocalSystem | Runs reads that need administrator rights: event logs, Windows Update status, SMART and files.list. Has no network code. |
 
 They talk over the named pipe `Mashura.CabinetAgent.Broker`. Each of three locks is enough on its own:
 
 1. The pipe's access list admits only the network service's account and SYSTEM, and denies network logons.
 2. Every caller's account is checked again before the broker reads a byte.
-3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the five broker reads and their parameter schemas.
+3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the six broker reads and their parameter schemas.
 
 ## Command checks
 

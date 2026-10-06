@@ -58,7 +58,7 @@ public sealed class BrokerRequestHandler
     /// <summary>The only operations the broker performs in this version. Must match the schema's list.</summary>
     public static readonly IReadOnlyList<string> Operations = new[]
     {
-        Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.DiskSmart, Catalog.FilesList,
+        Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
     };
 
     private readonly OperationRegistry _registry;
