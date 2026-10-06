@@ -171,8 +171,17 @@ public sealed class BrokerClient
         }
         await using (stream.ConfigureAwait(false))
         {
-            await BrokerFraming.WriteAsync(stream, payload, token).ConfigureAwait(false);
-            byte[]? reply = await BrokerFraming.ReadAsync(stream, BrokerFraming.MaxResponseBytes, token).ConfigureAwait(false);
+            byte[]? reply;
+            try
+            {
+                await BrokerFraming.WriteAsync(stream, payload, token).ConfigureAwait(false);
+                reply = await BrokerFraming.ReadAsync(stream, BrokerFraming.MaxResponseBytes, token).ConfigureAwait(false);
+            }
+            catch (IOException)
+            {
+                // The broker closed the pipe, which it does when it refuses the caller.
+                throw new OperationFailedException("unavailable", "The broker closed the connection without a valid answer.");
+            }
             if (reply is null || !StrictJson.TryParse(reply, BrokerFraming.MaxResponseBytes, out JsonDocument? doc))
                 throw new OperationFailedException("unavailable", "The broker closed the connection without a valid answer.");
             using (doc)

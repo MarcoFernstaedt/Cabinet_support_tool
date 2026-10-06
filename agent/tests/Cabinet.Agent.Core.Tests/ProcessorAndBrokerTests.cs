@@ -254,6 +254,22 @@ public sealed class BrokerProtocolTests
     }
 
     [Fact]
+    public async Task A_broker_that_hangs_up_before_reading_is_reported_as_unavailable()
+    {
+        string name = "cabinet-test-" + Guid.NewGuid().ToString("N");
+        var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        Task hangUp = Task.Run(async () => { await server.WaitForConnectionAsync(); server.Dispose(); });
+        var client = new BrokerClient(async t =>
+        {
+            var pipe = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+            await pipe.ConnectAsync(5000, t);
+            await hangUp;
+            return pipe;
+        });
+        Assert.False(await client.PingAsync(default));
+    }
+
+    [Fact]
     public async Task An_unreachable_broker_is_reported_as_unavailable()
     {
         var client = new BrokerClient(_ => throw new TimeoutException());
