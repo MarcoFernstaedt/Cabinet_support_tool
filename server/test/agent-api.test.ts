@@ -1,0 +1,250 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { request as httpsRequest } from "node:https";
+import { randomUUID, X509Certificate } from "node:crypto";
+import type { FastifyInstance } from "fastify";
+import { CommandNotifier } from "../src/agent-api/notifier.js";
+import { buildAgentApi } from "../src/agent-api/server.js";
+import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
+import type { IssuingKey } from "../src/pki/x509.js";
+import { issueCommand, commandRecord } from "../src/services/commands.js";
+import { approveEnrollment, createBootstrapToken } from "../src/services/enrollment.js";
+import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
+import { verifyAuditChain } from "../src/db/db.js";
+import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
+import { csrFor, ecKey, tempDir, type TestKey } from "./helpers.js";
+
+let db: TestDatabase;
+let key: IssuingKey;
+let api: FastifyInstance;
+let notifier: CommandNotifier;
+let port: number;
+let admin: string;
+let foreignKey: IssuingKey;
+
+interface Identity { key: TestKey; certPem: string; }
+interface Reply { status: number; body: any; }
+
+function call(method: string, path: string, body?: unknown, identity?: Identity, raw?: { data: string | Buffer; type?: string }): Promise<Reply> {
+  return new Promise((resolve, reject) => {
+    const data = raw ? raw.data : body === undefined ? undefined : JSON.stringify(body);
+    const req = httpsRequest({ host: "127.0.0.1", port, path, method, servername: "localhost", ca: key.certificatePem,
+      ...(identity ? { key: identity.key.keyPem, cert: identity.certPem } : {}),
+      headers: data === undefined ? {} : { "content-type": raw?.type ?? "application/json", "content-length": Buffer.byteLength(data) } }, res => {
+      let text = "";
+      res.on("data", d => (text += d));
+      res.on("end", () => { let parsed: unknown = text; try { parsed = JSON.parse(text); } catch { /* not JSON */ } resolve({ status: res.statusCode!, body: parsed }); });
+    });
+    req.on("error", reject);
+    if (data !== undefined) req.write(data);
+    req.end();
+  });
+}
+
+const fingerprints = (hostname = "CAB-TEST-01") => ({
+  hostname, serialNumber: "5CG1234XYZ", macAddresses: ["00-11-22-33-44-55"], provisionedClient: null, provisionedSite: null,
+  onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 10 IoT Enterprise LTSC 21H2", agentVersion: "0.2.0",
+});
+
+/** Enrolls and approves one cabinet, returning its identity. */
+async function enrolledCabinet(name = "Cabinet " + randomUUID().slice(0, 8)): Promise<Identity & { cabinetId: string }> {
+  const agentKey = ecKey();
+  const { token } = await createBootstrapToken(db.app, admin);
+  const enrolled = await call("POST", "/agent/v1/enroll", { csr: csrFor(agentKey), bootstrapToken: token, fingerprints: fingerprints() });
+  assert.equal(enrolled.status, 202, JSON.stringify(enrolled.body));
+  const { cabinetId } = await approveEnrollment(db.app, key, enrolled.body.requestId, { clientName: "Test Client", siteName: "Main", cabinetName: name, role: "standalone" }, admin);
+  const status = await call("GET", `/agent/v1/enroll/${enrolled.body.requestId}`);
+  return { key: agentKey, certPem: status.body.certificate, cabinetId };
+}
+
+const heartbeat = { agentVersion: "0.2.0", uptimeSeconds: 100, readOnlyMode: false };
+
+test.before(async () => {
+  db = await createTestDatabase();
+  const dir = tempDir();
+  key = await developmentIssuingKey(dir);
+  foreignKey = await developmentIssuingKey(tempDir());
+  notifier = new CommandNotifier(db.appUrl);
+  await notifier.start();
+  api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 1500, enrollPerHour: 1000, logger: false });
+  await api.listen({ host: "127.0.0.1", port: 0 });
+  port = (api.server.address() as { port: number }).port;
+  admin = randomUUID();
+  await db.app.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'admin.test', 'Admin Test', 'admin')", [admin]);
+});
+test.after(async () => { await api.close(); await notifier.stop(); await db.drop(); });
+
+test("health answers without a certificate", async () => {
+  assert.deepEqual((await call("GET", "/health")).body, { status: "ok" });
+});
+
+test("a machine without a certificate is refused on every agent route", async () => {
+  for (const [method, path, body] of [["GET", "/agent/v1/commands"], ["POST", "/agent/v1/heartbeat", heartbeat], ["POST", "/agent/v1/results", {}],
+    ["POST", "/agent/v1/events", { events: [] }], ["POST", "/agent/v1/renew", { csr: "x" }]] as const) {
+    const r = await call(method, path, body);
+    assert.equal(r.status, 401, `${method} ${path}`);
+    assert.deepEqual(r.body, { error: "certificate_refused" });
+  }
+});
+
+test("a certificate from another CA, even for a real cabinet ID, is refused", async () => {
+  const real = await enrolledCabinet();
+  const forgedKey = ecKey();
+  const { issueAgentCertificate } = await import("../src/pki/issuing.js");
+  const forged = await issueAgentCertificate(foreignKey, csrFor(forgedKey), real.cabinetId);
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: forgedKey, certPem: forged.pem })).status, 401);
+});
+
+test("enrollment: a cabinet enrolls, is approved, picks up its certificate and stays online", async () => {
+  const agentKey = ecKey();
+  const { token } = await createBootstrapToken(db.app, admin);
+  const enrolled = await call("POST", "/agent/v1/enroll", { csr: csrFor(agentKey), bootstrapToken: token, fingerprints: fingerprints("CAB-ENROLL") });
+  assert.equal(enrolled.status, 202);
+  assert.equal(enrolled.body.status, "pending");
+  assert.equal((await call("GET", `/agent/v1/enroll/${enrolled.body.requestId}`)).body.status, "pending");
+
+  const { cabinetId } = await approveEnrollment(db.app, key, enrolled.body.requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU 1", role: "sync" }, admin);
+  const issued = await call("GET", `/agent/v1/enroll/${enrolled.body.requestId}`);
+  assert.equal(issued.body.status, "issued");
+  assert.equal(issued.body.cabinetId, cabinetId);
+  assert.equal(issued.body.caChain, key.certificatePem);
+  assert.ok(new X509Certificate(issued.body.certificate).subject.includes(cabinetId));
+
+  const me = { key: agentKey, certPem: issued.body.certificate };
+  const hb = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, clockSkewSeconds: 1.5 }, me);
+  assert.equal(hb.status, 200);
+  assert.match(hb.body.serverTime, /Z$/);
+  const cabinet = (await listCabinets(db.app)).find(c => c.id === cabinetId)!;
+  assert.equal(cabinet.online, true);
+  assert.equal(cabinet.role, "sync");
+  assert.equal((await verifyAuditChain(db.app)).ok, true);
+});
+
+test("a bootstrap token works once, and bad tokens all get the same answer", async () => {
+  const { token } = await createBootstrapToken(db.app, admin);
+  const body = (t: string) => ({ csr: csrFor(ecKey()), bootstrapToken: t, fingerprints: fingerprints() });
+  assert.equal((await call("POST", "/agent/v1/enroll", body(token))).status, 202);
+  const reused = await call("POST", "/agent/v1/enroll", body(token));
+  const unknown = await call("POST", "/agent/v1/enroll", body("A".repeat(43)));
+  assert.deepEqual([reused.status, reused.body], [403, { error: "enrollment_refused" }]);
+  assert.deepEqual([unknown.status, unknown.body], [403, { error: "enrollment_refused" }]);
+  const expired = await createBootstrapToken(db.app, admin, -1);
+  assert.equal((await call("POST", "/agent/v1/enroll", body(expired.token))).status, 403);
+});
+
+test("malformed, hostile and oversized enrollment bodies are refused before anything reads them", async () => {
+  const { token } = await createBootstrapToken(db.app, admin);
+  const good = { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: fingerprints() };
+  const cases: [unknown, number][] = [
+    [{ ...good, extra: "<script>" }, 400],
+    [{ ...good, fingerprints: { ...good.fingerprints, hostname: "evil;rm -rf" } }, 400],
+    [{ ...good, csr: "-----BEGIN CERTIFICATE REQUEST-----\nAAAA\n-----END CERTIFICATE REQUEST-----\n" }, 400],
+    [{ ...good, bootstrapToken: "short" }, 400],
+    [[], 400],
+    [{ __proto__: { polluted: true }, ...good, constructor: { prototype: { x: 1 } } }, 400],
+  ];
+  for (const [body, status] of cases) assert.equal((await call("POST", "/agent/v1/enroll", body)).status, status, JSON.stringify(body).slice(0, 80));
+  assert.equal((await call("POST", "/agent/v1/enroll", undefined, undefined, { data: "not json" })).status, 400);
+  assert.equal((await call("POST", "/agent/v1/enroll", undefined, undefined, { data: "a=b", type: "application/x-www-form-urlencoded" })).status, 415);
+  assert.equal((await call("POST", "/agent/v1/enroll", undefined, undefined, { data: JSON.stringify({ pad: "x".repeat(1_100_000) }) })).status, 413);
+  // The token was never consumed by the failures above.
+  assert.equal((await call("POST", "/agent/v1/enroll", good)).status, 202);
+  assert.equal((await call("GET", "/agent/v1/enroll/not-a-uuid")).status, 404);
+  assert.equal((await call("GET", `/agent/v1/enroll/${randomUUID()}`)).status, 404);
+});
+
+test("enrollment is rate-limited per address", async () => {
+  const limited = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, tempDir(), ["localhost"]), enrollPerHour: 2, logger: false });
+  await limited.listen({ host: "127.0.0.1", port: 0 });
+  const saved = port;
+  port = (limited.server.address() as { port: number }).port;
+  try {
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) statuses.push((await call("POST", "/agent/v1/enroll", { nope: 1 })).status);
+    assert.deepEqual(statuses, [400, 400, 429, 429]);
+  } finally { port = saved; await limited.close(); }
+});
+
+test("the long poll hands over a command as soon as it is issued, and the result is stored", async () => {
+  const cab = await enrolledCabinet();
+  const poll = call("GET", "/agent/v1/commands", undefined, cab);
+  await new Promise(r => setTimeout(r, 200));
+  const started = Date.now();
+  const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
+  const got = await poll;
+  assert.equal(got.status, 200);
+  assert.ok(Date.now() - started < 1400, "woken by the notification, not the timeout");
+  assert.equal(got.body.commands.length, 1);
+  assert.equal(got.body.commands[0].commandId, command.commandId);
+  assert.equal((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands.length, 0, "delivered only once");
+
+  const output = { hostname: "CAB-TEST-01", osVersion: "Windows 10", osBuild: "19044.1", uptimeSeconds: 5, agentVersion: "0.2.0", readOnlyMode: false, cabinetRole: "standalone", serialNumber: null };
+  const result = { commandId: command.commandId, status: "succeeded", startedAt: "2026-10-06T12:00:00Z", finishedAt: "2026-10-06T12:00:01Z", output };
+  assert.equal((await call("POST", "/agent/v1/results", { ...result, output: { ...output, hostname: 7 } }, cab)).status, 400, "output is checked against the operation");
+  assert.equal((await call("POST", "/agent/v1/results", result, cab)).status, 200);
+  assert.equal((await commandRecord(db.app, command.commandId))!.status, "succeeded");
+  assert.equal((await call("POST", "/agent/v1/results", result, cab)).status, 409, "one result per command");
+});
+
+test("a cabinet cannot see or answer another cabinet's commands", async () => {
+  const a = await enrolledCabinet();
+  const b = await enrolledCabinet();
+  const command = await issueCommand(db.app, admin, a.cabinetId, "devices.list", { problemsOnly: true });
+  assert.equal((await call("GET", "/agent/v1/commands", undefined, b)).body.commands.length, 0);
+  const result = { commandId: command.commandId, status: "failed", startedAt: "2026-10-06T12:00:00Z", finishedAt: "2026-10-06T12:00:01Z", error: { code: "timeout", message: "x" } };
+  assert.equal((await call("POST", "/agent/v1/results", result, b)).status, 404);
+});
+
+test("the long poll returns empty after its time limit, and expired commands are never delivered", async () => {
+  const cab = await enrolledCabinet();
+  const started = Date.now();
+  const r = await call("GET", "/agent/v1/commands", undefined, cab);
+  assert.deepEqual(r.body.commands, []);
+  assert.ok(Date.now() - started >= 1400);
+  const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
+  await asOwner(db, c => c.query("UPDATE commands SET issued_at = now() - interval '10 minutes', expires_at = now() - interval '5 minutes' WHERE id = $1", [command.commandId]));
+  assert.deepEqual((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands, []);
+  assert.equal((await commandRecord(db.app, command.commandId))!.status, "expired");
+});
+
+test("issuing refuses unknown operations, bad parameters and (for now) writes", async () => {
+  const cab = await enrolledCabinet();
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "shell.run", {}), /not a catalog operation/);
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "eventlog.query", { log: "Security" }), /schema/);
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "network.setDns", { interfaceIndex: 1, mode: "automatic" }), /milestone 5/);
+  await assert.rejects(issueCommand(db.app, admin, randomUUID(), "system.info", {}), /no such active cabinet/);
+});
+
+test("a revoked cabinet is refused on its next connection", async () => {
+  const cab = await enrolledCabinet();
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 200);
+  await revokeCabinet(db.app, cab.cabinetId, admin);
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 401);
+  const refusals = await db.app.query("SELECT 1 FROM audit_log WHERE action = 'agent.connection_refused'");
+  assert.ok(refusals.rowCount! >= 1, "a refused certificate is audited");
+});
+
+test("events are stored once even when the agent retries", async () => {
+  const cab = await enrolledCabinet();
+  const event = { eventId: randomUUID(), kind: "smart_warning", occurredAt: "2026-10-06T12:00:00Z", severityHint: "major",
+    detail: { message: "Drive 0 reports 12 reallocated sectors.", fields: { reallocatedSectors: "12" } } };
+  for (let i = 0; i < 2; i++) assert.equal((await call("POST", "/agent/v1/events", { events: [event] }, cab)).status, 200);
+  assert.equal((await db.app.query("SELECT 1 FROM events WHERE event_id = $1", [event.eventId])).rowCount, 1);
+  assert.equal((await call("POST", "/agent/v1/events", { events: [{ ...event, kind: "run_this" }] }, cab)).status, 400);
+});
+
+test("renewal is refused until the certificate is near expiry, then the new certificate works", async () => {
+  const cab = await enrolledCabinet();
+  const newKey = ecKey();
+  assert.deepEqual((await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab)).body, { error: "renew_too_early" });
+  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = now() + interval '10 days' WHERE cabinet_id = $1", [cab.cabinetId]));
+  const renewed = await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab);
+  assert.equal(renewed.status, 200);
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
+});
+
+test("unknown paths are 404 and the package and update downloads do not exist yet", async () => {
+  const cab = await enrolledCabinet();
+  for (const path of ["/agent/v1/packages/x", "/agent/v1/updates/1.0.0", "/agent/v1/files", "/admin"])
+    assert.equal((await call("GET", path, undefined, cab)).status, 404, path);
+});

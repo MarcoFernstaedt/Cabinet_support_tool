@@ -50,3 +50,4 @@ tools/demo-agent/.demo-agent-state.json
 node_modules/
 server/dist/
 agent/out/
+server/.dev-pki/
