@@ -84,3 +84,24 @@ The spec did not pin these down. Each has a working default in contracts/schemas
 - **Enrollment request.** Fingerprints also include osVersion and agentVersion. The bootstrap token is 32–128 URL-safe characters; the CSR is PEM, at most 8 KB.
 - **IPv6.** Reported read-only by network.config; the write operations stay IPv4 as specified.
 - **Expiry windows.** 5 minutes for reads and 2 minutes for writes are recorded in the catalog. Comparing issuedAt and expiresAt is the job of the server and agent, since JSON Schema cannot compare two fields.
+
+## Choices made in Milestone 1 (confirm or change)
+
+Still waiting on the client:
+
+- **Fingerprint scanner hardware IDs and driver details.** Not yet known. The agent finds the scanner by the hardware IDs in its local configuration (scanner.hardwareIds). Until they are set, peripheral.status reports "not configured" and lists **candidates**: Biometric-class devices and devices named fingerprint or biometric, with their hardware IDs, so support can read the right ID off a real cabinet. The spec's handoff asks for these before Milestone 1 is finished.
+- **Sync cabinet address and ports.** Not yet known. syncCabinet.address is empty, so tests to the sync cabinet report unavailable. Ping and DNS tests work to the gateway, the DNS servers and the platform server; TCP tests are refused until a port is in allowedTcpPorts.
+
+Decided here, open to change:
+
+- **Readable event logs widened from 13 to 41 channels.** The client asked for "every log that could be important, from hardware to program logs". The list (contracts/schemas/common.schema.json allowedLog) covers hardware errors, devices and drivers, USB and biometrics, storage, network, time, updates, Defender, task scheduler, group policy and print administration. Channels that record sign-ins, credentials, remote sessions, typed commands or printed document names are excluded and a test fails if one is added: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD, WMI-Activity and PrintService/Operational. Channels missing on a Windows build are reported as available: false. Channel names still need confirming on a real cabinet.
+- **Scanner troubleshooting checklist.** peripheral.status now also returns eight automated checks, each pass, warn, fail or unknown with a plain-language next step: device present, no Windows device error, driver installed, driver signed, USB selective suspend, reconnects in the last 24 hours (Kernel-PnP event 410; more than 3 warns), USB controller or hub errors, and the Windows Biometric Service. It also returns the USB port location, which changes when the scanner moves to a different port.
+- **Malformed commands.** A command whose ID cannot be read (not JSON, too large, too deep, duplicate property names) gets no result: there is nothing to address it to. It is logged and dropped. A readable command with a malformed envelope is rejected as invalid_params.
+- **Clock skew.** 2 minutes. A command is expired when it expires before it was issued, lives longer than the catalog allows, was issued more than 2 minutes in the future, or is more than 2 minutes past its expiry. Command IDs are remembered until expiry plus 2 minutes, on disk.
+- **Replay versus later checks.** A command ID is recorded once it passes step 4, so resending a command that failed a later check is still a replay.
+- **TCP port allow list.** Checked at step 5 and rejected as invalid_params, so nothing runs.
+- **Read and network-test limits** are checked at step 6 alongside the write limit. Only the write log survives a restart.
+- **Write operations** return failed / unavailable until the milestones that build them.
+- **Package verification codes** (hash_mismatch, signature_invalid, publisher_not_trusted, verification_failed) are produced only by package.install, built in a later milestone, so Milestone 1 cannot test them yet.
+- **Broker scope.** The broker runs eventlog.channels, eventlog.query, eventlog.get, disk.smart and files.list. Everything else runs in the network process without administrator rights. files.list refuses a path that goes through a junction or symbolic link.
+- **Local harness inbox.** Off by default. When localHarness is on, the network service also runs command files that an administrator drops into an admin-only folder, through the full checks and the real broker pipe. This exists for testing on a cabinet without a server.
