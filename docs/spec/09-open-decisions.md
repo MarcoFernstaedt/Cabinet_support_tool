@@ -118,7 +118,10 @@ Decided here, open to change:
   - The subject and SAN URI carry the cabinet ID, and the certificate is usable for TLS client authentication only.
   - The agent renews in the last 30 days, and the server refuses renewal earlier, so a stolen certificate cannot extend itself.
   - The key stays the same across renewals.
-- **Agent key storage.** The key is created by the network service in the Windows machine key store (software key storage provider), non-exportable. TPM-backed storage could follow if every cabinet has a TPM.
+- **Agent key storage.** The installer generates the key on the cabinet, as an administrator, in the Windows machine key store (software key storage provider), non-exportable.
+  - Its access list admits only SYSTEM, administrators and the network service.
+  - The network service only opens the key and never creates one. Windows refuses machine-key creation to the restricted service account, which the installed-service test showed.
+  - TPM-backed storage could follow if every cabinet has a TPM.
 - **Server trust on the agent.** The agent trusts only the platform CA file the installer copies, not the Windows root store. In development, the same development CA signs the agent API's own TLS certificate.
 - **Command delivery.** A command is handed to the agent once. If that response is lost, the command simply expires. Re-delivering it would be refused by the agent as a replay anyway.
 - **Bootstrap tokens.** Tokens are single-use and expire after 7 days, and only a hash is stored. The agent deletes its token file once the server has accepted it. If a token is consumed but the response is lost, the cabinet needs a new token.

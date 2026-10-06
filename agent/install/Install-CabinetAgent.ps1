@@ -76,6 +76,11 @@ Invoke-Sc @('sidtype', $network, 'unrestricted')
 Invoke-Sc @('privs', $network, 'SeChangeNotifyPrivilege')
 foreach ($name in $broker, $network) { Invoke-Sc @('failure', $name, 'reset=', '86400', 'actions=', 'restart/60000/restart/60000/restart/300000') }
 
+# The cabinet's private key: generated here, on the cabinet, in the machine key store, non-exportable.
+# Only the network service (and SYSTEM and administrators) may use it; the service cannot create machine keys itself.
+& (Join-Path $programDir 'Cabinet.Agent.Harness\cabinet-harness.exe') provision-key
+if ($LASTEXITCODE -ne 0) { throw 'Creating the cabinet key failed.' }
+
 # 3. Data folder: SYSTEM and Administrators own it; the network service gets only what it needs.
 function New-Rule([string] $Account, [string] $Rights, [bool] $Inherit = $true) {
     $flags = if ($Inherit) { 'ContainerInherit,ObjectInherit' } else { 'None' }

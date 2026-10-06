@@ -28,6 +28,9 @@ public static class Program
           drop     --commands <commands.json> [--wait <seconds>]
                    Hands the file to the installed services' inbox (localHarness must be on)
                    and prints the results, so commands travel through the real broker pipe.
+          provision-key
+                   Run by the installer: creates the cabinet's non-exportable machine key and lets
+                   only the network service (plus SYSTEM and administrators) use it.
           probe-broker
                    Tries to open the installed broker's pipe as the current account.
                    Exits 0 when Windows refuses (the expected result), 1 if it connects.
@@ -46,6 +49,7 @@ public static class Program
                 "run" => await RunAsync(options),
                 "drop" => await DropAsync(options),
                 "probe-broker" => await ProbeAsync(),
+                "provision-key" => ProvisionKey(),
                 _ => Fail(Usage),
             };
         }
@@ -140,6 +144,13 @@ public static class Program
             return doc.RootElement.EnumerateArray().All(e => e.TryGetProperty("result", out var r) && r.GetProperty("status").GetString() == "succeeded") ? 0 : 1;
         }
         return Fail("No result arrived. Is the network service running with localHarness turned on?");
+    }
+
+    private static int ProvisionKey()
+    {
+        bool created = CngAgentKeyStore.Provision(ServiceNames.NetworkServiceSid.Value);
+        Console.WriteLine(created ? "Created the cabinet's key." : "The cabinet's key already exists; its access list was reset.");
+        return 0;
     }
 
     private static async Task<int> ProbeAsync()

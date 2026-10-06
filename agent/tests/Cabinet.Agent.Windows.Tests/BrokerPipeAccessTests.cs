@@ -127,3 +127,32 @@ public sealed class BrokerPipeAccessTests
             Assert.DoesNotContain(allowed, s => s.IsWellKnown(everyone));
     }
 }
+
+public sealed class KeyStoreTests
+{
+    [Fact]
+    public void The_provisioned_key_is_non_exportable_and_usable_for_the_granted_account()
+    {
+        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        string me = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
+        try
+        {
+            Assert.True(CngAgentKeyStore.Provision(me, name));
+            Assert.False(CngAgentKeyStore.Provision(me, name), "a second run keeps the same key");
+            var store = new CngAgentKeyStore(name);
+            Assert.True(store.IsNonExportable());
+            string csr = store.CreateSigningRequestPem();
+            Assert.StartsWith("-----BEGIN CERTIFICATE REQUEST-----", csr);
+            using var key = System.Security.Cryptography.CngKey.Open(name, System.Security.Cryptography.CngProvider.MicrosoftSoftwareKeyStorageProvider, System.Security.Cryptography.CngKeyOpenOptions.MachineKey);
+            Assert.ThrowsAny<System.Security.Cryptography.CryptographicException>(() => key.Export(System.Security.Cryptography.CngKeyBlobFormat.EccPrivateBlob));
+        }
+        finally { CngAgentKeyStore.Delete(name); }
+    }
+
+    [Fact]
+    public void The_agent_never_creates_a_key_itself()
+    {
+        var store = new CngAgentKeyStore("Mashura.CabinetAgent.Missing." + Guid.NewGuid().ToString("N"));
+        Assert.Throws<System.Security.Cryptography.CryptographicException>(() => store.CreateSigningRequestPem());
+    }
+}
