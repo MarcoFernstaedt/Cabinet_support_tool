@@ -566,6 +566,46 @@
       "type": "object",
       "additionalProperties": false,
       "maxProperties": 0
+    },
+    "symptomMatch": {
+      "description": "What a symptom rule matches: structured fields only, all of which must agree (docs/spec/05-server-spec.md). The phrase is a plain case-insensitive substring of the message; there are no regular expressions.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "error",
+            "firewall_changed",
+            "smart_warning",
+            "agent_status",
+            "security",
+            "scanner"
+          ]
+        },
+        "log": {
+          "$ref": "#/$defs/allowedLog"
+        },
+        "source": {
+          "$ref": "#/$defs/nonEmptyShortText"
+        },
+        "eventId": {
+          "$ref": "#/$defs/eventId"
+        },
+        "level": {
+          "$ref": "#/$defs/eventLevel"
+        },
+        "hardwareId": {
+          "$ref": "#/$defs/hardwareId"
+        },
+        "phrase": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]*[^\\u0000-\\u001f\\u007f ][^\\u0000-\\u001f\\u007f]*$"
+        }
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ import { atLeast, useSession } from "../lib/session";
 import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
+import { useAlertNews } from "../lib/commands";
 
 export function useLoad<T>(path: string | null): { data: T | null; problem: string | null; reload: () => void } {
   const [data, setData] = useState<T | null>(null);
@@ -20,10 +21,17 @@ export function useLoad<T>(path: string | null): { data: T | null; problem: stri
   return { data, problem, reload: () => setTick(t => t + 1) };
 }
 
-interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; }
+interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
+
+/** Open alerts in words, major first. */
+export function AlertCount({ open, major }: { open: number; major?: number }) {
+  if (open === 0) return <Badge tone="ok">None open</Badge>;
+  return <>{major ? <Badge tone="crit">{major} major</Badge> : null} <Badge tone="info">{open} open</Badge></>;
+}
 
 export function FleetHome() {
-  const { data, problem } = useLoad<ClientRow[]>("/api/fleet/clients");
+  const { data, problem, reload } = useLoad<ClientRow[]>("/api/fleet/clients");
+  useAlertNews(reload);
   return (
     <div className="page">
       <h1>Fleet</h1>
@@ -33,12 +41,13 @@ export function FleetHome() {
       {data && data.length > 0 && (
         <table className="table">
           <caption className="sr-only">Clients</caption>
-          <thead><tr><th scope="col">Client</th><th scope="col">Sites</th><th scope="col">Cabinets</th><th scope="col">Offline</th></tr></thead>
+          <thead><tr><th scope="col">Client</th><th scope="col">Sites</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{data.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/clients/${c.id}`}>{c.name}</Link></th>
               <td>{c.sites}</td><td>{c.cabinets}</td>
               <td>{c.offline > 0 ? <Badge tone="warn">{c.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td>
+              <td><AlertCount open={c.openAlerts} major={c.openMajor} /></td>
             </tr>))}
           </tbody>
         </table>
@@ -47,25 +56,28 @@ export function FleetHome() {
   );
 }
 
-interface ClientDetail { id: string; name: string; writePaused: boolean; sites: { id: string; name: string; cabinets: number; offline: number }[]; }
+interface ClientDetail { id: string; name: string; writePaused: boolean; sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
 
 export function ClientPage({ id }: { id: string }) {
-  const { data, problem } = useLoad<ClientDetail>(`/api/fleet/clients/${id}`);
+  const { data, problem, reload } = useLoad<ClientDetail>(`/api/fleet/clients/${id}`);
+  useAlertNews(reload);
   const total = data?.sites.reduce((n, s) => n + s.cabinets, 0) ?? 0;
   const offline = data?.sites.reduce((n, s) => n + s.offline, 0) ?? 0;
+  const alerts = data?.sites.reduce((n, s) => n + s.openAlerts, 0) ?? 0;
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: data?.name ?? "Client" }]} />
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
         <h1>{data.name}</h1>
-        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span></div>
+        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> open alerts</span></div>
         <table className="table">
           <caption className="sr-only">Sites of {data.name}</caption>
-          <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th></tr></thead>
+          <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{data.sites.map(s => (
             <tr key={s.id}><th scope="row"><Link to={`/sites/${s.id}`}>{s.name}</Link></th><td>{s.cabinets}</td>
-              <td>{s.offline > 0 ? <Badge tone="warn">{s.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td></tr>))}
+              <td>{s.offline > 0 ? <Badge tone="warn">{s.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td>
+              <td><AlertCount open={s.openAlerts} major={s.openMajor} /></td></tr>))}
           </tbody>
         </table>
       </>)}
@@ -73,7 +85,7 @@ export function ClientPage({ id }: { id: string }) {
   );
 }
 
-export interface CabinetRow { id: string; name: string; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; }
+export interface CabinetRow { id: string; name: string; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
 interface SiteDetail { id: string; name: string; client: { id: string; name: string }; sync: { address: string | null; ports: number[] }; cabinets: CabinetRow[]; }
 
 export const roleLabel = (r: string) => ({ sync: "Sync", satellite: "Satellite", standalone: "Standalone" } as Record<string, string>)[r] ?? r;
@@ -81,6 +93,7 @@ export const roleLabel = (r: string) => ({ sync: "Sync", satellite: "Satellite",
 export function SitePage({ id }: { id: string }) {
   const { me } = useSession();
   const { data, problem, reload } = useLoad<SiteDetail>(`/api/fleet/sites/${id}`);
+  useAlertNews(reload);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, ...(data ? [{ label: data.client.name, to: `/clients/${data.client.id}` }] : []), { label: data?.name ?? "Site" }]} />
@@ -89,12 +102,13 @@ export function SitePage({ id }: { id: string }) {
         <h1>{data.name}</h1>
         <table className="table">
           <caption className="sr-only">Cabinets at {data.name}</caption>
-          <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th></tr></thead>
+          <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{data.cabinets.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
               <td>{roleLabel(c.role)}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
               <td>{c.agentVersion ?? "unknown"}</td><td>{c.readOnly ? "Yes" : "No"}</td>
+              <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>
             </tr>))}
           </tbody>
         </table>

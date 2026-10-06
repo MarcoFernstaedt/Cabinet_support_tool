@@ -1,6 +1,6 @@
 # Cabinet agent
 
-The agent from docs/spec/04-agent-spec.md, built through Milestone 2. It runs every read operation, either locally from a command file or from the platform server.
+The agent from docs/spec/04-agent-spec.md, built through Milestone 4. It runs every read operation, either locally from a command file or from the platform server, and watches the cabinet in the background.
 
 To connect it, the agent first enrolls with a one-time bootstrap token. It keeps its private key non-exportable in the Windows machine key store, and trusts only the platform CA the installer places on the cabinet. Once approved, it sends heartbeats every 60 seconds, long-polls for commands and renews its certificate. Every server command still goes through the agent's own six checks.
 
@@ -16,6 +16,19 @@ They talk over the named pipe `Mashura.CabinetAgent.Broker`. Each of three locks
 1. The pipe's access list admits only the network service's account and SYSTEM, and denies network logons.
 2. Every caller's account is checked again before the broker reads a byte.
 3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the six broker reads and their parameter schemas.
+
+## Background monitors
+
+The network service runs these on its own and queues what they find (`src/Cabinet.Agent.Core/Monitoring`). They only read; none of them can change the cabinet.
+
+| Monitor | How often | Raises |
+| --- | --- | --- |
+| Event logs | every 2 minutes, through the broker | each new Error or Critical entry in an allowed log |
+| Fingerprint scanner | every 60 seconds | when the scanner is disconnected, has no driver or shows a device error, and again when it recovers |
+| Drive health | daily, through the broker | early signs of failure (SMART counters, wear, heat), and again only if they get worse |
+| Firewall | every 5 minutes, and at once on a firewall-log change event | any change to profiles or rules |
+
+Events wait in `State\events.jsonl` (at most 5,000, oldest dropped first) and are sent oldest first, 100 at a time, with backoff while the server is unreachable. The scanner's hardware IDs come from the console with each heartbeat answer and are kept in `State\monitor-settings.json`.
 
 ## Command checks
 
@@ -81,6 +94,8 @@ dotnet test agent/tests/Cabinet.Agent.Contracts.Tests   # any OS
 dotnet test agent/tests/Cabinet.Agent.Core.Tests        # any OS
 dotnet test agent/tests/Cabinet.Agent.Windows.Tests     # Windows, as an administrator
 ```
+
+The monitors' logic (the event queue, scanner states, drive trends, firewall differences and event-log bookmarks) is tested on any OS with hostile and damaged input. The Windows tests read each monitor's real source and check that every event it raises passes the contract.
 
 The `agent-windows` CI job runs the Windows tests. It then installs both services and checks the following:
 

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/alert-filter.schema.json",
+  "title": "alert-filter",
+  "description": "The Alerts list's filters, from the query string.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "severity": {
+      "type": "string",
+      "enum": [
+        "major",
+        "minor"
+      ]
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "open",
+        "claimed",
+        "resolved",
+        "active"
+      ]
+    },
+    "issueTypeId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "unrecognized": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false"
+      ]
+    },
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "siteId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "claimedBy": {
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        {
+          "const": "me"
+        }
+      ]
+    }
+  },
+  "required": []
+}

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
 using Cabinet.Agent.Contracts;
+using Cabinet.Agent.Core.Monitoring;
 
 namespace Cabinet.Agent.Core.Server;
 
@@ -38,6 +40,11 @@ public sealed class AgentConnectionOptions
     public required string AgentVersion { get; init; }
     public required Func<long> UptimeSeconds { get; init; }
     public required Action<string> Log { get; init; }
+    /// <summary>Events from the background monitors, waiting to be sent.</summary>
+    public EventQueue? Events { get; init; }
+    /// <summary>Settings the server sends with each heartbeat answer, kept for the monitors.</summary>
+    public MonitorSettings? Settings { get; init; }
+    public TimeSpan EventSendInterval { get; init; } = TimeSpan.FromSeconds(15);
     public TimeSpan EnrollPollInterval { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan RenewCheckInterval { get; init; } = TimeSpan.FromHours(6);
@@ -203,6 +210,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             HeartbeatLoopAsync(api, stop.Token),
             CommandLoopAsync(api, processor, stop.Token),
             RenewLoopAsync(api, certificate, identity, stop.Token),
+            EventLoopAsync(api, stop.Token),
         };
         Task<Ended> first = await Task.WhenAny(loops).ConfigureAwait(false);
         stop.Cancel();
@@ -218,10 +226,11 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             try
             {
                 double? skew = api.LastServerTime is { } t ? Math.Clamp(Math.Round((t.Local - t.Server).TotalSeconds, 1), -86_400, 86_400) : null;
-                await api.HeartbeatAsync(new Heartbeat
+                HeartbeatResponse answer = await api.HeartbeatAsync(new Heartbeat
                 {
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
                 }, token).ConfigureAwait(false);
+                o.Settings?.Apply(answer);
                 if (!online) o.Log("Connected to the platform server.");
                 online = true;
                 await Delay(o.HeartbeatInterval, token).ConfigureAwait(false);
@@ -259,6 +268,44 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             catch (AgentApiException) { await Delay(backoff.Next(), token).ConfigureAwait(false); }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
         }
+        return Ended.Cancelled;
+    }
+
+    /// <summary>
+    /// Sends queued events oldest first, at most 100 at a time (docs/spec/03-protocol.md).
+    /// The queue keeps them until the server has accepted them, so an outage only delays them.
+    /// </summary>
+    private async Task<Ended> EventLoopAsync(AgentApiClient api, CancellationToken token)
+    {
+        if (o.Events is null) return await Idle(token).ConfigureAwait(false);
+        var backoff = new Backoff();
+        while (!token.IsCancellationRequested)
+        {
+            var batch = o.Events.Peek(EventQueue.MaxBatch);
+            try
+            {
+                if (batch.Count == 0) { await Delay(o.EventSendInterval, token).ConfigureAwait(false); continue; }
+                var events = batch.Select(e => JsonSerializer.Deserialize<AgentEvent>(e.Json, ContractJson.Options)!).ToList();
+                await api.PostEventsAsync(new EventBatch { Events = events }, token).ConfigureAwait(false);
+                o.Events.Acknowledge(batch.Select(e => e.Id));
+                backoff.Reset();
+            }
+            catch (AgentApiException e) when (e.CertificateRefused) { return Ended.CertificateRefused; }
+            catch (AgentApiException e) when (e.Status == HttpStatusCode.BadRequest)
+            {
+                // The server's contract check refused the batch; keeping it would block every later event.
+                o.Log($"The server refused {batch.Count} queued event(s) as malformed; they were dropped.");
+                o.Events.Acknowledge(batch.Select(e => e.Id));
+            }
+            catch (AgentApiException) { await Delay(backoff.Next(), token).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
+        }
+        return Ended.Cancelled;
+    }
+
+    private static async Task<Ended> Idle(CancellationToken token)
+    {
+        try { await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false); } catch (OperationCanceledException) { }
         return Ended.Cancelled;
     }
 

@@ -6,34 +6,41 @@ const online = (status: string, last: Date | null): boolean => status === "activ
 
 export interface CabinetRow {
   id: string; name: string; role: string; status: string; online: boolean; lastHeartbeatAt: string | null;
-  agentVersion: string | null; readOnly: boolean | null; hostname: string | null;
+  agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number;
 }
 
-function cabinetRow(r: { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; read_only: boolean | null; hostname: string | null }): CabinetRow {
+function cabinetRow(r: { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string }): CabinetRow {
   return { id: r.id, name: r.name, role: r.role, status: r.status, online: online(r.status, r.last_heartbeat_at), lastHeartbeatAt: r.last_heartbeat_at?.toISOString() ?? null,
-    agentVersion: r.agent_version, readOnly: r.read_only, hostname: r.hostname };
+    agentVersion: r.agent_version, readOnly: r.read_only, hostname: r.hostname, openAlerts: Number(r.open_alerts) };
 }
 
-const CABINET_COLUMNS = "k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.read_only, k.hostname";
+const OPEN_ALERTS = "(SELECT count(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved')";
+const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.read_only, k.hostname, ${OPEN_ALERTS} AS open_alerts`;
 
 export async function clients(db: Queryable) {
-  const rows = (await db.query<{ id: string; name: string; sites: string; cabinets: string; offline: string }>(
+  const rows = (await db.query<{ id: string; name: string; sites: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT c.id, c.name, count(DISTINCT s.id) AS sites,
             count(k.id) FILTER (WHERE k.status = 'active') AS cabinets,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved') AS open_alerts,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved' AND a.severity = 'major') AS open_major,
             count(k.id) FILTER (WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $1))) AS offline
        FROM clients c LEFT JOIN sites s ON s.client_id = c.id LEFT JOIN cabinets k ON k.site_id = s.id
       GROUP BY c.id ORDER BY c.name`, [OFFLINE_AFTER_MS / 1000])).rows;
-  return rows.map(r => ({ id: r.id, name: r.name, sites: Number(r.sites), cabinets: Number(r.cabinets), offline: Number(r.offline) }));
+  return rows.map(r => ({ id: r.id, name: r.name, sites: Number(r.sites), cabinets: Number(r.cabinets), offline: Number(r.offline),
+    openAlerts: Number(r.open_alerts), openMajor: Number(r.open_major) }));
 }
 
 export async function client(db: Queryable, id: string) {
   const c = (await db.query<{ id: string; name: string; write_paused: boolean }>("SELECT id, name, write_paused FROM clients WHERE id = $1", [id])).rows[0];
   if (!c) return null;
-  const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string }>(
+  const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT s.id, s.name, count(k.id) FILTER (WHERE k.status = 'active') AS cabinets,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved') AS open_alerts,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved' AND a.severity = 'major') AS open_major,
             count(k.id) FILTER (WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $2))) AS offline
        FROM sites s LEFT JOIN cabinets k ON k.site_id = s.id WHERE s.client_id = $1 GROUP BY s.id ORDER BY s.name`, [id, OFFLINE_AFTER_MS / 1000])).rows;
-  return { id: c.id, name: c.name, writePaused: c.write_paused, sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline) })) };
+  return { id: c.id, name: c.name, writePaused: c.write_paused, sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
+    openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
 }
 
 export async function site(db: Queryable, id: string) {
@@ -47,6 +54,13 @@ export async function site(db: Queryable, id: string) {
 export async function fleetScannerIds(db: Queryable): Promise<string[] | null> {
   const r = (await db.query<{ value: string[] }>("SELECT value FROM settings WHERE key = 'scanner.hardwareIds'")).rows[0];
   return r?.value ?? null;
+}
+
+/** The scanner hardware IDs a cabinet's watcher should look for: its own if set, else the fleet default. */
+export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<string[] | null> {
+  const own = (await db.query<{ ids: string[] | null }>("SELECT scanner_hardware_ids AS ids FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.ids ?? null;
+  const ids = own ?? await fleetScannerIds(db);
+  return ids && ids.length > 0 ? [...new Set(ids)].slice(0, 16) : null;
 }
 
 export async function cabinet(db: Queryable, id: string) {

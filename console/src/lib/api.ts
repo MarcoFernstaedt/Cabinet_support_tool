@@ -2,7 +2,7 @@
 // checks every permission, so nothing here is a security boundary.
 
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly code: string) { super(code); }
+  constructor(readonly status: number, readonly code: string, readonly data: Record<string, unknown> = {}) { super(code); }
 }
 
 const MESSAGES: Record<string, string> = {
@@ -23,6 +23,12 @@ const MESSAGES: Record<string, string> = {
   writes_unavailable: "Changes to cabinets arrive in a later release.",
   origin_refused: "The request came from an unexpected page. Reload the console.",
   server_error: "The server hit an error. Try again.",
+  already_claimed: "Someone else claimed this alert first.",
+  already_resolved: "This alert is already resolved.",
+  claim_first: "Claim the alert before resolving it. Only the person who claimed it (or an Admin) can resolve it.",
+  rule_too_broad: "Keep at least one of the source, event ID, hardware ID or a message phrase, so the rule cannot swallow unrelated errors.",
+  rule_impossible: "Log, source, event ID and level only apply to event log errors.",
+  not_live: "That rule is not live.",
 };
 
 export const describeError = (e: unknown): string =>
@@ -47,7 +53,7 @@ export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?
   if (!response.ok) {
     const code = (data as { error?: string } | null)?.error ?? "server_error";
     if (response.status === 401 && (code === "signed_out" || code === "sign_in_incomplete") && !path.startsWith("/api/auth/")) signedOutListeners.forEach(fn => fn());
-    throw new ApiError(response.status, code);
+    throw new ApiError(response.status, code, (data ?? {}) as Record<string, unknown>);
   }
   return data as T;
 }

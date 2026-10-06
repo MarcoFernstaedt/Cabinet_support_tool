@@ -18,4 +18,4 @@ export declare const BASE_ID: string;
 export declare function readSchemas(dir?: string, prefix?: string): { file: string; id: string; schema: Record<string, unknown> }[];
 export declare function readCatalog(): { version: number; operations: CatalogEntry[] };
 export declare function createAjv(): ContractAjv;
-export declare function ref(file: string, def?: "params" | "output"): string;
+export declare function ref(file: string, def?: string): string;

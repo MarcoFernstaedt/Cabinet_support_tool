@@ -46,6 +46,7 @@ public static class ExampleData
             "event-batch" => typeof(EventBatch),
             "heartbeat" => typeof(Heartbeat),
             "server-ack" => typeof(ServerAck),
+            "heartbeat-response" => typeof(HeartbeatResponse),
             "commands-response" => typeof(CommandsResponse),
             "enroll-request" => typeof(EnrollRequest),
             "enroll-response" => typeof(EnrollResponse),

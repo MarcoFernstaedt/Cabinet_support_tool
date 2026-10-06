@@ -15,6 +15,7 @@ import { ROLE_RANK, type Role } from "../services/console-commands.js";
 import { authRoutes } from "./auth-routes.js";
 import { fleetRoutes } from "./fleet-routes.js";
 import { adminRoutes } from "./admin-routes.js";
+import { alertRoutes } from "./alert-routes.js";
 import { ResultStream } from "./stream.js";
 
 export interface ConsoleApiOptions {
@@ -78,7 +79,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   });
 
   app.setErrorHandler((error, request, reply) => {
-    if (error instanceof Refused) return reply.code(error.status).send({ error: error.code });
+    if (error instanceof Refused) return reply.code(error.status).send({ ...error.extra, error: error.code });
     if (error instanceof ContractError) return reply.code(400).send({ error: "invalid_request", issues: error.issues });
     const status = (error as { statusCode?: number }).statusCode;
     if (status && status >= 400 && status < 500) return reply.code(status).send({ error: "invalid_request" });
@@ -112,6 +113,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(authRoutes, { ...o, guards });
   await app.register(fleetRoutes, { ...o, guards });
   await app.register(adminRoutes, { ...o, guards });
+  await app.register(alertRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {
     const user = await guards.role(request, "tier1");
     o.stream.attach(user, request, reply, () => loadSession(o.pool, cookie(request), o.policy));

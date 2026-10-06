@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.ServiceProcess;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
+using Cabinet.Agent.Core.Monitoring;
 using Cabinet.Agent.Core.Server;
 using Cabinet.Agent.Windows;
 
@@ -16,7 +17,8 @@ namespace Cabinet.Agent.Network;
 /// configuration, refuses to run with administrator rights, keeps checking
 /// that the broker answers, and (only when localHarness is on) runs command
 /// files an administrator drops into its inbox, through the full checks and
-/// the real broker pipe. The server connection arrives in milestone 2.
+/// the real broker pipe. From milestone 2 it connects to the platform server;
+/// from milestone 4 it runs the background monitors and sends what they find.
 /// </summary>
 public sealed class NetworkService : ServiceBase
 {
@@ -60,6 +62,14 @@ public sealed class NetworkService : ServiceBase
         var identityStore = new IdentityStore(AgentPaths.State);
 
         var work = new List<Task> { WatchBrokerAsync(broker, _stop.Token) };
+        // The monitors run whether or not a server is configured, so events wait in the queue until one is.
+        var events = new EventQueue(Path.Combine(AgentPaths.State, "events.jsonl"));
+        var settings = new MonitorSettings(Path.Combine(AgentPaths.State, "monitor-settings.json"), config.Scanner.HardwareIds);
+        var monitors = new MonitorHost(WindowsMonitors.Sources(config, broker), settings, events, AgentPaths.State, clock, _log.Write);
+        work.Add(Task.Run(() => monitors.RunAsync(_stop.Token)).ContinueWith(t =>
+        {
+            if (t.IsFaulted) _log.Write($"The monitors stopped: {t.Exception!.InnerException?.GetType().Name}.");
+        }, TaskScheduler.Default));
         if (config.LocalHarness)
             work.Add(InboxAsync(() => ProcessorFor(config with { CabinetId = identityStore.LoadIdentity()?.CabinetId ?? config.CabinetId }), _stop.Token));
         if (config.PlatformServer is { Host: { } host, Port: { } port } && File.Exists(AgentPaths.PlatformCa))
@@ -69,7 +79,7 @@ public sealed class NetworkService : ServiceBase
             var connection = new AgentConnection(new AgentConnectionOptions
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
-                ProcessorFor = ProcessorFor,
+                ProcessorFor = ProcessorFor, Events = events, Settings = settings,
                 Fingerprints = () => Fingerprints.Read(system.SystemInfoAsync(new EmptyParams(), CancellationToken.None).GetAwaiter().GetResult()),
                 AgentVersion = SystemOperations.AgentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = _log.Write,
             });

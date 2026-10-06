@@ -1,9 +1,10 @@
 # Platform server
 
-The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Built through Milestone 3:
+The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Built through Milestone 4:
 - the database;
 - the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel;
-- the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console.
+- the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console;
+- issue types, symptom rules and the alerts engine: correlation, site-wide patterns, claims, Map to issue with Admin approval, rule history and rollback, and offline alerts.
 
 ## What is here
 
@@ -12,7 +13,7 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Buil
 | `migrations/` | Versioned SQL, applied in order. An applied migration can never change; add a new one. |
 | `src/db/` | Pool, transactions, the audit helper and chain verification, and the migration runner |
 | `src/pki/` | A small DER codec, CSR checks and certificate issuing. All signing goes through `IssuingKey.signTbs`. |
-| `src/services/` | Enrollment and approval, cabinet authentication, heartbeats and renewal, commands, events |
+| `src/services/` | Enrollment and approval, cabinet authentication, heartbeats and renewal, commands, events, rules and alerts |
 | `src/agent-api/` | The agent listener: TLS terminated by Node, client certificates checked against the database on every request |
 | `src/cli.ts` | `platform-admin`, the operator tool until the console exists |
 
@@ -37,6 +38,18 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Buil
   - The table refuses UPDATE, DELETE and TRUNCATE, even from its owner.
   - `platform-admin audit-verify` finds the first changed entry.
 - **The development issuing key** refuses to run when `NODE_ENV=production`. The KMS key replaces the one function in `src/runtime.ts`.
+
+## Alerts engine
+
+Each new event is checked against the live symptom rules in the transaction that stores it (`src/services/alerts.ts`, `src/services/rules.ts`):
+- **Matching** uses structured fields only (event type, log, source, event ID, level, hardware ID) and a plain, case-insensitive phrase. There are no regular expressions, so no rule can stall the server. The same match is also built as parameterized SQL for the 30-day fleet preview, and a test checks both forms agree.
+- **Built-in rules:** scanner events → Fingerprint scanner problem, SMART warnings → Drive failing, firewall changes without a platform command → Unexpected firewall change.
+- **Anything unmatched** is a minor unrecognized alert, grouped by log, source and event ID.
+- **Correlation:** one active alert per issue per cabinet, with occurrences and first and last seen. The same issue on two or more cabinets at a site within an hour is flagged as a site-wide pattern.
+- **Claims are atomic** (`UPDATE … WHERE state = 'open'`). The loser is told who won, and both outcomes are audited.
+- **Rules:** a Tier 2 user's rule is a proposal until an Admin approves it; an Admin's goes live at once. Both need step-up, and every change is kept in `symptom_rule_history` and the audit log.
+- **Offline:** a job every minute raises Cabinet offline past the threshold (`alerts.offlineDays`, default 5) and resolves it when the cabinet is back.
+- **Live stream:** new major alerts go to every signed-in console, and claims and resolutions go to everyone (PostgreSQL `NOTIFY alerts`).
 
 ## Console API
 
@@ -91,3 +104,5 @@ On the cabinet, in an elevated PowerShell:
 `npm test` needs a PostgreSQL where `TEST_DATABASE_ADMIN_URL` (default `postgres://platform_owner:dev-only-local@localhost:5432/postgres`) can create databases. Each test file gets its own database.
 
 The end-to-end test runs the real agent connection code against the server when `TEST_AGENT_DLL` points at the built `agent/tests/Cabinet.Agent.TestAgent`, as CI does.
+
+It also drives the agent's background monitors through the test agent, which reads simulated devices and event-log entries from `<stateDir>/simulate`. A forced scanner disconnect must raise Fingerprint scanner problem, and an unrecognized error, once mapped and approved, must raise its issue the next time. `test/console-alerts-e2e.test.ts` does the same in real browsers: one Tier 2 user maps the error, an Admin approves it, and three consoles race to claim the major alert it raises.

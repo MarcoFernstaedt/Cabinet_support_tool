@@ -1,5 +1,6 @@
-// Running a cabinet operation: issue it, then wait for its result. Results arrive on the
-// live stream; a slow poll covers a dropped stream.
+// The live stream, and running a cabinet operation: issue it, then wait for its result.
+// Results arrive on the live stream; a slow poll covers a dropped stream. The same stream
+// carries new major alerts and every alert's claim and resolution.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, describeError } from "./api";
 
@@ -11,18 +12,46 @@ export interface CommandResult<T = unknown> {
 }
 
 type Waiter = () => void;
-const StreamContext = createContext<{ wake: Map<string, Waiter> }>({ wake: new Map() });
+
+/** An alert change announced on the live stream. */
+export interface AlertNews {
+  change: "created" | "claimed" | "resolved" | "open";
+  alertId: string; severity: "major" | "minor"; title: string; state: string; sitePattern: boolean;
+  cabinet: { id: string; name: string }; site: { id: string; name: string }; client: { id: string; name: string };
+  claimedBy: { id: string; name: string } | null;
+}
+type AlertListener = (news: AlertNews) => void;
+
+const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener> }>({ wake: new Map(), alerts: new Set() });
 
 export function CommandStream({ children }: { children: ReactNode }) {
   const wake = useRef(new Map<string, Waiter>()).current;
+  const alerts = useRef(new Set<AlertListener>()).current;
   useEffect(() => {
     const source = new EventSource("/api/stream");
     source.addEventListener("result", e => {
       try { const { commandId } = JSON.parse((e as MessageEvent<string>).data) as { commandId: string }; wake.get(commandId)?.(); } catch { /* ignore */ }
     });
+    source.addEventListener("alert", e => {
+      let news: AlertNews;
+      try { news = JSON.parse((e as MessageEvent<string>).data) as AlertNews; } catch { return; }
+      alerts.forEach(fn => fn(news));
+    });
     return () => source.close();
-  }, [wake]);
-  return <StreamContext.Provider value={{ wake }}>{children}</StreamContext.Provider>;
+  }, [wake, alerts]);
+  return <StreamContext.Provider value={{ wake, alerts }}>{children}</StreamContext.Provider>;
+}
+
+/** Calls fn for every alert change on the live stream while the component is mounted. */
+export function useAlertNews(fn: AlertListener): void {
+  const { alerts } = useContext(StreamContext);
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => {
+    const listener: AlertListener = n => latest.current(n);
+    alerts.add(listener);
+    return () => { alerts.delete(listener); };
+  }, [alerts]);
 }
 
 const TERMINAL = new Set(["succeeded", "failed", "rejected", "expired"]);

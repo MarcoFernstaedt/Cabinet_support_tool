@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/rule-preview.schema.json",
+  "title": "rule-preview",
+  "description": "Asks how many events across the fleet in the last 30 days a rule would have matched, and on how many cabinets.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "match": {
+      "$ref": "../common.schema.json#/$defs/symptomMatch"
+    }
+  },
+  "required": [
+    "match"
+  ]
+}

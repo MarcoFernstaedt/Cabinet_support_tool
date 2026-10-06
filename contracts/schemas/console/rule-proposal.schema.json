@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/rule-proposal.schema.json",
+  "title": "rule-proposal",
+  "description": "Map to issue: a new symptom rule for an issue type. A Tier 2 user's rule waits for an Admin; an Admin's goes live at once.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issueTypeId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "match": {
+      "$ref": "../common.schema.json#/$defs/symptomMatch"
+    },
+    "regroup": {
+      "description": "Move matching open unrecognized alerts under the issue when the rule goes live.",
+      "type": "boolean"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "issueTypeId",
+    "match",
+    "regroup",
+    "stepUpToken"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "match": {
+    "log": "System",
+    "pattern": ".*(a+)+$"
+  }
+}

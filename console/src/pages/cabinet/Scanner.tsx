@@ -9,6 +9,7 @@ import { fullTime } from "../../lib/time";
 import { Link } from "../../lib/router";
 import { Badge, KeyValues, OperationPanel, OUTCOME_LABEL, OUTCOME_TONE, StepUpDialog } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
+import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
 
 const CHECK_NAME: Record<string, string> = {
   device_present: "Scanner plugged in", no_device_error: "No Windows device error", driver_installed: "Driver installed", driver_signed: "Driver signed",
@@ -24,6 +25,7 @@ export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail
       run={status} onRun={rerun} buttonLabel="Check the scanner">
       {out => <ScannerResult out={out} cabinet={cabinet} onUse={() => { onSettingsChanged(); rerun(); }} />}
     </OperationPanel>
+    <CabinetAlerts cabinetId={cabinet.id} issueTypeId={SCANNER_ISSUE} title="Scanner alerts" />
     <ScannerIds cabinet={cabinet} onSaved={() => { onSettingsChanged(); rerun(); }} />
   </>);
 }

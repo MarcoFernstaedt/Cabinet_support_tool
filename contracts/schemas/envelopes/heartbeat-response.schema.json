@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/heartbeat-response.schema.json",
+  "title": "heartbeat-response",
+  "description": "The server's answer to a heartbeat: its time, and the settings the agent's background monitors use. Data only; the server can never send a command this way.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "serverTime",
+    "scanner"
+  ],
+  "properties": {
+    "serverTime": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardwareIds"
+      ],
+      "properties": {
+        "hardwareIds": {
+          "description": "The scanner's hardware IDs set in the console for this cabinet (its own, else the fleet default); null when none.",
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "../common.schema.json#/$defs/hardwareId"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

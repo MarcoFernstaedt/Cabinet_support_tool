@@ -1,0 +1,7 @@
+{
+  "match": {
+    "kind": "error",
+    "log": "Application",
+    "phrase": "fingerprint"
+  }
+}

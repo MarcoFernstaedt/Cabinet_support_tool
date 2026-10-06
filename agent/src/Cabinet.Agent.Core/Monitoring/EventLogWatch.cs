@@ -1,0 +1,71 @@
+using Cabinet.Agent.Contracts;
+
+namespace Cabinet.Agent.Core.Monitoring;
+
+/// <summary>
+/// The event log watcher: Error and Critical entries from the allowed logs become
+/// events. Each log has a bookmark (the newest record already reported), so an entry
+/// is reported once, and its event ID is derived from the log and record, so even a
+/// lost bookmark cannot make the server count it twice.
+/// </summary>
+public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<EventlogQueryParams, CancellationToken, Task<EventlogQueryOutput>> query)
+{
+    public const int PageSize = 100;
+    public const int MaxPagesPerLook = 5;
+    /// <summary>How far back the first look at a log goes, so problems from just before the install are seen.</summary>
+    public static readonly TimeSpan FirstLookBack = TimeSpan.FromHours(24);
+
+    public sealed class State
+    {
+        public Dictionary<string, Bookmark> Logs { get; set; } = new();
+    }
+
+    public sealed class Bookmark
+    {
+        public long RecordId { get; set; }
+        public DateTimeOffset Time { get; set; }
+    }
+
+    public async Task<IReadOnlyList<AgentEvent>> CheckAsync(string log, DateTimeOffset now, CancellationToken token)
+    {
+        State state = store.Load();
+        state.Logs.TryGetValue(log, out Bookmark? mark);
+        // A small overlap guards against clock steps; the record bookmark removes the repeats.
+        DateTimeOffset from = mark is null ? now - FirstLookBack : mark.Time - TimeSpan.FromMinutes(5);
+        var fresh = new List<EventSummary>();
+        long? before = null;
+        for (int page = 0; page < MaxPagesPerLook; page++)
+        {
+            var output = await query(new EventlogQueryParams
+            {
+                Log = log, Levels = new[] { EventLevel.Critical, EventLevel.Error }, From = from, BeforeRecordId = before, PageSize = PageSize,
+            }, token).ConfigureAwait(false);
+            var newer = output.Entries.Where(e => mark is null || e.RecordId > mark.RecordId).ToList();
+            fresh.AddRange(newer);
+            if (newer.Count < output.Entries.Count || output.NextBeforeRecordId is null) break;
+            before = output.NextBeforeRecordId;
+        }
+        var ordered = fresh.GroupBy(e => e.RecordId).Select(g => g.First()).OrderBy(e => e.RecordId).ToList();
+        if (ordered.Count > 0)
+        {
+            state.Logs[log] = new Bookmark { RecordId = ordered[^1].RecordId, Time = ordered.Max(e => e.Time) };
+            store.Save(state);
+        }
+        else if (mark is null)
+        {
+            state.Logs[log] = new Bookmark { RecordId = 0, Time = now };
+            store.Save(state);
+        }
+        return ordered.Select(e => ToEvent(log, e)).ToList();
+    }
+
+    public static AgentEvent ToEvent(string log, EventSummary e) => new()
+    {
+        EventId = EventIds.For($"eventlog|{log}|{e.RecordId}|{e.Time.ToUnixTimeMilliseconds()}"),
+        Kind = EventKind.Error,
+        OccurredAt = e.Time,
+        Source = new EventSource { Log = log, Source = e.Source, EventId = e.EventId, Level = e.Level, RecordId = e.RecordId },
+        SeverityHint = e.Level == EventLevel.Critical ? SeverityHint.Major : SeverityHint.Minor,
+        Detail = new EventDetail { Message = e.FirstLine },
+    };
+}

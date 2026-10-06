@@ -20,7 +20,12 @@
         "cabinet.revoke",
         "settings.scanner",
         "cabinet.scanner",
-        "site.sync"
+        "site.sync",
+        "rule.propose",
+        "rule.approve",
+        "rule.reject",
+        "rule.disable",
+        "rule.rollback"
       ]
     },
     "target": {

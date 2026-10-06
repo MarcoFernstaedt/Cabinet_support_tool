@@ -122,6 +122,88 @@ export interface DnsSettings {
 }
 
 /**
+ * What a symptom rule matches: structured fields only, all of which must agree (docs/spec/05-server-spec.md). The phrase is a plain case-insensitive substring of the message; there are no regular expressions.
+ */
+export interface SymptomMatch {
+  kind?: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner";
+  /**
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
+   */
+  log?:
+    | "System"
+    | "Application"
+    | "Setup"
+    | "HardwareEvents"
+    | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
+    | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
+    | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
+    | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
+    | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
+    | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
+    | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
+    | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
+    | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
+  source?: string;
+  eventId?: number;
+  level?: "critical" | "error" | "warning" | "information" | "verbose";
+  /**
+   * Plug and Play hardware ID such as USB\VID_1234&PID_5678.
+   */
+  hardwareId?: string;
+  phrase?: string;
+}
+
+/**
+ * The Alerts list's filters, from the query string.
+ */
+export interface AlertFilter {
+  severity?: "major" | "minor";
+  state?: "open" | "claimed" | "resolved" | "active";
+  issueTypeId?: string;
+  unrecognized?: "true" | "false";
+  clientId?: string;
+  siteId?: string;
+  cabinetId?: string;
+  claimedBy?: string | "me";
+}
+
+/**
+ * Resolve a claimed alert, with an optional note on what fixed it.
+ */
+export interface AlertResolve {
+  note?: string;
+}
+
+/**
  * Approve a pending cabinet: where it belongs and what it is called.
  */
 export interface ApproveEnrollment {
@@ -177,6 +259,64 @@ export interface CommandRequest {
 }
 
 /**
+ * From the query string: an event log entry read from a cabinet, to show which issue it maps to and how many other cabinets reported it.
+ */
+export interface EventLookup {
+  cabinetId: string;
+  /**
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
+   */
+  log:
+    | "System"
+    | "Application"
+    | "Setup"
+    | "HardwareEvents"
+    | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
+    | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
+    | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
+    | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
+    | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
+    | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
+    | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
+    | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
+    | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
+  /**
+   * A single line of text with no control characters.
+   */
+  source: string;
+  eventId: string;
+}
+
+/**
  * Username and password, the first sign-in step.
  */
 export interface LoginRequest {
@@ -193,6 +333,48 @@ export interface PasswordChange {
    * At least 12 characters.
    */
   newPassword: string;
+}
+
+/**
+ * The rules list's filters, from the query string.
+ */
+export interface RuleFilter {
+  state?: "proposed" | "live" | "disabled" | "expired" | "rejected";
+  issueTypeId?: string;
+}
+
+/**
+ * Asks how many events across the fleet in the last 30 days a rule would have matched, and on how many cabinets.
+ */
+export interface RulePreview {
+  match: SymptomMatch;
+}
+
+/**
+ * Map to issue: a new symptom rule for an issue type. A Tier 2 user's rule waits for an Admin; an Admin's goes live at once.
+ */
+export interface RuleProposal {
+  issueTypeId: string;
+  match: SymptomMatch;
+  /**
+   * Move matching open unrecognized alerts under the issue when the rule goes live.
+   */
+  regroup: boolean;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Put a rule back to one of its earlier versions.
+ */
+export interface RuleRollback {
+  version: number;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -231,7 +413,12 @@ export interface StepUpRequest {
     | "cabinet.revoke"
     | "settings.scanner"
     | "cabinet.scanner"
-    | "site.sync";
+    | "site.sync"
+    | "rule.propose"
+    | "rule.approve"
+    | "rule.reject"
+    | "rule.disable"
+    | "rule.rollback";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -381,11 +568,11 @@ export interface EventBatch {
 }
 
 /**
- * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md).
+ * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record.
  */
 export interface Event {
   eventId: string;
-  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security";
+  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner";
   /**
    * UTC time, ISO 8601, always ending in Z.
    */
@@ -460,6 +647,36 @@ export interface Event {
     fields?: {
       [k: string]: string | undefined;
     };
+  };
+  device?: {
+    /**
+     * @minItems 1
+     * @maxItems 16
+     */
+    hardwareIds: [string, ...string[]];
+    deviceInstanceId?: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    name?: string;
+    state: "disconnected" | "device_error" | "driver_missing" | "recovered";
+    problemCode?: number;
+  };
+}
+
+/**
+ * The server's answer to a heartbeat: its time, and the settings the agent's background monitors use. Data only; the server can never send a command this way.
+ */
+export interface HeartbeatResponse {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  serverTime: string;
+  scanner: {
+    /**
+     * The scanner's hardware IDs set in the console for this cabinet (its own, else the fleet default); null when none.
+     */
+    hardwareIds: [string, ...string[]] | null;
   };
 }
 

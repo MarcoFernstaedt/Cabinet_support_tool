@@ -4,6 +4,9 @@ import type { EventlogChannelsOutput, EventlogGetOutput, EventlogQueryOutput } f
 import { useOperation } from "../../lib/commands";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
+import { MapToIssue } from "../../components/MapToIssue";
+import { useLoad } from "../Fleet";
+import { atLeast, useSession } from "../../lib/session";
 
 type Level = "critical" | "error" | "warning" | "information" | "verbose";
 const LEVELS: Level[] = ["critical", "error", "warning", "information", "verbose"];
@@ -170,8 +173,28 @@ function EntryDetail({ cabinetId, log, recordId, onBack }: { cabinetId: string; 
           </table>
         </>)}
         <details><summary>Raw event XML</summary><pre className="xml">{e.rawXml}</pre></details>
-        <p className="muted small">Which issue this maps to, and how many other cabinets reported it, arrive with alerts (milestone 4).</p>
+        <SeenElsewhere cabinetId={cabinetId} log={log} source={e.source} eventId={e.eventId} />
       </>)}
+    </section>
+  );
+}
+
+/** Which issue this error maps to, how many other cabinets reported it in the last 30 days, and Map to issue. */
+function SeenElsewhere({ cabinetId, log, source, eventId }: { cabinetId: string; log: string; source: string; eventId: number }) {
+  const { me } = useSession();
+  const [mapping, setMapping] = useState(false);
+  const q = new URLSearchParams({ cabinetId, log, source, eventId: String(eventId) });
+  const { data, problem, reload } = useLoad<{ otherCabinets: number; events: number; issueName: string | null; days: number }>(`/api/events/lookup?${q.toString()}`);
+  return (
+    <section aria-labelledby="mapping-heading">
+      <h3 id="mapping-heading">Across the fleet</h3>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {data && (<>
+        <p>{data.issueName ? <>Maps to <Badge tone="info">{data.issueName}</Badge></> : <>Not mapped to an issue yet.</>}</p>
+        <p>{data.otherCabinets === 0 ? "No other cabinet" : `${data.otherCabinets} other ${data.otherCabinets === 1 ? "cabinet" : "cabinets"}`} reported this source and event ID in the last {data.days} days.</p>
+      </>)}
+      {atLeast(me, "tier2") && <button className="btn" onClick={() => setMapping(true)}>Map to issue</button>}
+      <MapToIssue open={mapping} initial={{ log, source, eventId }} onClose={() => { setMapping(false); reload(); }} />
     </section>
   );
 }

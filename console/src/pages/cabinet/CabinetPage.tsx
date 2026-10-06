@@ -10,6 +10,7 @@ import { EventLogs } from "./EventLogs";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
 import { History } from "./History";
+import { CabinetAlerts, MonitorEvents } from "./CabinetAlerts";
 
 export interface CabinetDetail extends CabinetRow {
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
@@ -19,7 +20,7 @@ export interface CabinetDetail extends CabinetRow {
 }
 
 export const SECTIONS = [
-  ["overview", "Overview"], ["events", "Event logs"], ["scanner", "Fingerprint scanner"], ["devices", "Devices and drivers"],
+  ["overview", "Overview"], ["alerts", "Alerts"], ["events", "Event logs"], ["scanner", "Fingerprint scanner"], ["devices", "Devices and drivers"],
   ["updates", "Windows updates"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["files", "Files"], ["history", "Command history"],
 ] as const;
 export type SectionId = (typeof SECTIONS)[number][0];
@@ -40,7 +41,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
           <li key={s.id}>
             <Link to={`/cabinets/${s.id}/${current}`} aria-current={s.id === cabinet.id ? "page" : undefined} className={s.id === cabinet.id ? "current" : ""}>
               <span className="name">{s.name}</span>
-              <span className="meta">{roleLabel(s.role)} · <OnlineBadge online={s.online} /></span>
+              <span className="meta">{roleLabel(s.role)} · <OnlineBadge online={s.online} />{s.openAlerts > 0 && <> · {s.openAlerts} {s.openAlerts === 1 ? "alert" : "alerts"}</>}</span>
             </Link>
           </li>))}
         </ul>
@@ -68,6 +69,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
 
 function Section({ current, cabinet, reload }: { current: SectionId; cabinet: CabinetDetail; reload: () => void }): ReactNode {
   switch (current) {
+    case "alerts": return <><CabinetAlerts cabinetId={cabinet.id} /><MonitorEvents cabinetId={cabinet.id} /></>;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;
     case "devices": return <DevicesDrivers cabinetId={cabinet.id} />;
@@ -88,6 +90,7 @@ function Overview({ cabinet }: { cabinet: CabinetDetail }) {
       <h2 id="overview-heading">Overview</h2>
       <KeyValues rows={[
         ["Status", <OnlineBadge online={cabinet.online} />],
+        ["Open alerts", cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"],
         ["Last heard from", <>{fullTime(cabinet.lastHeartbeatAt)} <span className="muted">({ago(cabinet.lastHeartbeatAt)})</span></>],
         ["Windows host name", cabinet.hostname],
         ["Serial number", cabinet.serialNumber],

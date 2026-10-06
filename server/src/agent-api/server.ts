@@ -12,6 +12,8 @@ import { storeResult, takeQueuedCommands } from "../services/commands.js";
 import { enrollmentStatus, submitEnrollment } from "../services/enrollment.js";
 import { Refused } from "../services/errors.js";
 import { storeEvents } from "../services/events.js";
+import { resolveOfflineFor } from "../services/alerts.js";
+import { scannerIdsFor } from "../services/fleet.js";
 import type { CommandNotifier } from "./notifier.js";
 
 export interface AgentApiOptions {
@@ -138,8 +140,11 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     });
 
     scoped.post("/agent/v1/heartbeat", async request => {
-      await recordHeartbeat(o.pool, request.cabinet!.id, envelopes.heartbeat.parse(request.body));
-      return { serverTime: serverTime() };
+      const cabinetId = request.cabinet!.id;
+      await recordHeartbeat(o.pool, cabinetId, envelopes.heartbeat.parse(request.body));
+      await resolveOfflineFor(o.pool, cabinetId);
+      // The answer carries the settings the agent's monitors use: data only, never a command.
+      return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: await scannerIdsFor(o.pool, cabinetId) } });
     });
 
     scoped.post("/agent/v1/events", async request => {

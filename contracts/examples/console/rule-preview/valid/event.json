@@ -1,0 +1,9 @@
+{
+  "match": {
+    "kind": "error",
+    "log": "System",
+    "source": "Microsoft-Windows-Kernel-PnP",
+    "eventId": 219,
+    "level": "error"
+  }
+}

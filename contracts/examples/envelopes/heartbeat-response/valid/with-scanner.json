@@ -1,0 +1,8 @@
+{
+  "serverTime": "2026-10-06T12:00:00Z",
+  "scanner": {
+    "hardwareIds": [
+      "USB\\VID_1234&PID_5678"
+    ]
+  }
+}

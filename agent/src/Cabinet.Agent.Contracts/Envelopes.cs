@@ -37,7 +37,18 @@ public sealed record Result
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ResultError? Error { get; init; }
 }
 
-public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security }
+public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security, Scanner }
+
+public enum ScannerState { Disconnected, DeviceError, DriverMissing, Recovered }
+
+public sealed record ScannerDevice
+{
+    public required IReadOnlyList<string> HardwareIds { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? DeviceInstanceId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Name { get; init; }
+    public required ScannerState State { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public long? ProblemCode { get; init; }
+}
 public enum SeverityHint { Major, Minor }
 
 public sealed record EventSource
@@ -66,6 +77,7 @@ public sealed record AgentEvent
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? CommandId { get; init; }
     public required SeverityHint SeverityHint { get; init; }
     public required EventDetail Detail { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ScannerDevice? Device { get; init; }
 }
 
 public sealed record EventBatch
@@ -84,6 +96,18 @@ public sealed record Heartbeat
 public sealed record ServerAck
 {
     public required DateTimeOffset ServerTime { get; init; }
+}
+
+public sealed record HeartbeatScanner
+{
+    public required IReadOnlyList<string>? HardwareIds { get; init; }
+}
+
+/// <summary>The server's answer to a heartbeat: its time and the settings the background monitors use. Data only.</summary>
+public sealed record HeartbeatResponse
+{
+    public required DateTimeOffset ServerTime { get; init; }
+    public required HeartbeatScanner Scanner { get; init; }
 }
 
 public sealed record CommandsResponse

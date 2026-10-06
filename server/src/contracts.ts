@@ -27,6 +27,15 @@ import type {
   SyncSettings,
   ApproveEnrollment,
   StepUpOnly,
+  HeartbeatResponse,
+  SymptomMatch,
+  RulePreview,
+  RuleProposal,
+  RuleRollback,
+  AlertResolve,
+  AlertFilter,
+  EventLookup,
+  RuleFilter,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -87,6 +96,12 @@ export const envelopes = {
   enrollStatus: validator<EnrollStatus>("enroll-status", envelope("enroll-status")),
   renewRequest: validator<RenewRequest>("renew-request", envelope("renew-request")),
   renewResponse: validator<RenewResponse>("renew-response", envelope("renew-response")),
+  heartbeatResponse: validator<HeartbeatResponse>("heartbeat-response", envelope("heartbeat-response")),
+} as const;
+
+/** Shared definitions checked on their own, such as a stored rule's match. */
+export const commonDefs = {
+  symptomMatch: validator<SymptomMatch>("symptomMatch", ref("common.schema.json", "symptomMatch")),
 } as const;
 
 const consoleBody = (file: string) => ref(`console/${file}.schema.json`);
@@ -102,6 +117,13 @@ export const consoleBodies = {
   sync: validator<SyncSettings>("sync-settings", consoleBody("sync-settings")),
   approve: validator<ApproveEnrollment>("approve-enrollment", consoleBody("approve-enrollment")),
   stepUpOnly: validator<StepUpOnly>("step-up-only", consoleBody("step-up-only")),
+  rulePreview: validator<RulePreview>("rule-preview", consoleBody("rule-preview")),
+  ruleProposal: validator<RuleProposal>("rule-proposal", consoleBody("rule-proposal")),
+  ruleRollback: validator<RuleRollback>("rule-rollback", consoleBody("rule-rollback")),
+  alertResolve: validator<AlertResolve>("alert-resolve", consoleBody("alert-resolve")),
+  alertFilter: validator<AlertFilter>("alert-filter", consoleBody("alert-filter")),
+  eventLookup: validator<EventLookup>("event-lookup", consoleBody("event-lookup")),
+  ruleFilter: validator<RuleFilter>("rule-filter", consoleBody("rule-filter")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

@@ -25,7 +25,7 @@ public sealed class DeviceOperations
         _clock = clock;
     }
 
-    internal static List<DeviceFacts> ReadDevices()
+    public static List<DeviceFacts> ReadDevices()
     {
         var drivers = Wmi.Query(Wmi.CimV2, "SELECT DeviceID, InfName, DriverName, DriverVersion, DriverDate, DriverProviderName, Signer FROM Win32_PnPSignedDriver")
             .Where(r => r.Text("DeviceID") is not null)

@@ -86,6 +86,7 @@ public sealed class ContractTests
         new object[] { typeof(FirewallProtocol), "common.schema.json", "/$defs/firewallProtocol/enum" },
         new object[] { typeof(ResultStatus), "envelopes/result.schema.json", "/properties/status/enum" },
         new object[] { typeof(EventKind), "envelopes/event.schema.json", "/properties/kind/enum" },
+        new object[] { typeof(ScannerState), "envelopes/event.schema.json", "/properties/device/properties/state/enum" },
         new object[] { typeof(SeverityHint), "envelopes/event.schema.json", "/properties/severityHint/enum" },
         new object[] { typeof(EnrollState), "envelopes/enroll-status.schema.json", "/properties/status/enum" },
         new object[] { typeof(NetworkTestTarget), "operations/network.test.schema.json", "/$defs/params/properties/target/enum" },

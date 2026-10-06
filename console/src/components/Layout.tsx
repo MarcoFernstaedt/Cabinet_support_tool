@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { atLeast, roleName, useSession } from "../lib/session";
+import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 
 interface Hit { kind: "client" | "site" | "cabinet"; id: string; name: string; context: string; }
 
@@ -48,7 +49,8 @@ export function Layout({ children }: { children: ReactNode }) {
   const { me, signOut } = useSession();
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
-  const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : "fleet";
+  const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") ? "alerts"
+    : path.startsWith("/issues") ? "issues" : "fleet";
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
@@ -56,6 +58,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <Link to="/" className="brand"><span aria-hidden="true">▣</span> Cabinet Diagnostics</Link>
         <nav aria-label="Main">
           <Link to="/" aria-current={section === "fleet" ? "page" : undefined}>Fleet</Link>
+          <AlertBadge current={section === "alerts"} />
+          <Link to="/issues" aria-current={section === "issues" ? "page" : undefined}>Issues</Link>
           {atLeast(me, "admin") && <Link to="/admin" aria-current={section === "admin" ? "page" : undefined}>Admin</Link>}
         </nav>
         <JumpControl />
@@ -65,6 +69,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <main id="main" ref={main} tabIndex={-1}>{children}</main>
+      <MajorAlertToasts />
     </>
   );
 }

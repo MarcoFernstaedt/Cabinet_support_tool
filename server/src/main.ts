@@ -1,4 +1,4 @@
-// Starts the agent API. The console API listener arrives in milestone 3.
+// Starts the agent API, the console API when configured, and the offline alert job.
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/db.js";
 import { CommandNotifier } from "./agent-api/notifier.js";
@@ -7,6 +7,7 @@ import { agentApiTls, issuingKey } from "./runtime.js";
 import { buildConsoleApi } from "./console-api/server.js";
 import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
+import { checkOffline } from "./services/alerts.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
@@ -26,5 +27,10 @@ if (config.console) {
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
+// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs.
+const offlineJob = setInterval(() => {
+  checkOffline(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
+}, 60_000);
+
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => { void (async () => { await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });
+  process.once(signal, () => { void (async () => { clearInterval(offlineJob); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });

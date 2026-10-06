@@ -1,0 +1,6 @@
+{
+  "match": {
+    "log": "Security",
+    "eventId": 4625
+  }
+}

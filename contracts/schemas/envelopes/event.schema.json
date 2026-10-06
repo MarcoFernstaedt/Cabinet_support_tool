@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/event.schema.json",
   "title": "event",
-  "description": "Agent-originated event: detected errors and changes (docs/spec/03-protocol.md).",
+  "description": "Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -16,7 +16,8 @@
         "firewall_changed",
         "smart_warning",
         "agent_status",
-        "security"
+        "security",
+        "scanner"
       ]
     },
     "occurredAt": {
@@ -94,6 +95,44 @@
         }
       },
       "required": []
+    },
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardwareIds",
+        "state"
+      ],
+      "properties": {
+        "hardwareIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/hardwareId"
+          }
+        },
+        "deviceInstanceId": {
+          "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+        },
+        "name": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "disconnected",
+            "device_error",
+            "driver_missing",
+            "recovered"
+          ]
+        },
+        "problemCode": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
     }
   },
   "required": [
@@ -132,6 +171,30 @@
         "not": {
           "required": [
             "commandId"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "scanner"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "device"
+        ]
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "required": [
+            "device"
           ]
         }
       }

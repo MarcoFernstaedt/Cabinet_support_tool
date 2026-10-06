@@ -10,6 +10,8 @@ import { ClientPage, FleetHome, SitePage } from "./pages/Fleet";
 import { CabinetPage } from "./pages/cabinet/CabinetPage";
 import { AdminHome, AuditLog, InstallTokens, PendingCabinets, ScannerDefault } from "./pages/admin/Admin";
 import { Account } from "./pages/Account";
+import { AlertsPage } from "./pages/alerts/Alerts";
+import { IssuesPage } from "./pages/alerts/Issues";
 
 export function App() {
   const [stage, setStage] = useState<Stage | "loading">("loading");
@@ -66,5 +68,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/scanner", path)) return <ScannerDefault />;
   if (match("/admin/audit", path)) return <AuditLog />;
   if (match("/account", path)) return <Account onTour={onTour} />;
+  if (match("/alerts", path)) return <AlertsPage />;
+  if (match("/issues", path)) return <IssuesPage />;
   return <FleetHome />;
 }

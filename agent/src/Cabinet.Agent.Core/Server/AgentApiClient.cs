@@ -72,8 +72,11 @@ public sealed class AgentApiClient : IDisposable
     public Task<EnrollStatus> EnrollStatusAsync(Guid requestId, CancellationToken token) =>
         SendAsync<EnrollStatus>(HttpMethod.Get, $"/agent/v1/enroll/{requestId:D}", null, "enroll-status", token);
 
-    public Task<ServerAck> HeartbeatAsync(Heartbeat heartbeat, CancellationToken token) =>
-        SendAsync<ServerAck>(HttpMethod.Post, "/agent/v1/heartbeat", heartbeat, "server-ack", token);
+    public Task<HeartbeatResponse> HeartbeatAsync(Heartbeat heartbeat, CancellationToken token) =>
+        SendAsync<HeartbeatResponse>(HttpMethod.Post, "/agent/v1/heartbeat", heartbeat, "heartbeat-response", token);
+
+    public Task<ServerAck> PostEventsAsync(EventBatch batch, CancellationToken token) =>
+        SendAsync<ServerAck>(HttpMethod.Post, "/agent/v1/events", batch, "server-ack", token);
 
     public Task<ServerAck> PostResultAsync(Result result, CancellationToken token) =>
         SendAsync<ServerAck>(HttpMethod.Post, "/agent/v1/results", result, "server-ack", token);
