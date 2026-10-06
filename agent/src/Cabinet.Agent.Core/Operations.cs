@@ -99,7 +99,7 @@ public static class OperationRunner
         }
     }
 
-    internal static string Truncate(string message)
+    public static string Truncate(string message)
     {
         string clean = new(message.Where(c => !char.IsControl(c)).ToArray());
         return clean.Length <= 256 ? clean : clean[..256];

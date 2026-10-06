@@ -98,3 +98,42 @@ public sealed class PinningTests
         Assert.ThrowsAny<Exception>(() => stranger.WithPrivateKey(issued.ExportCertificatePem()));
     }
 }
+
+public sealed class ConnectionFailureTests
+{
+    private sealed class BrokenKeyStore : IAgentKeyStore
+    {
+        public int Calls;
+        public string CreateSigningRequestPem() { Calls++; throw new System.Security.Cryptography.CryptographicException("Access is denied."); }
+        public X509Certificate2 WithPrivateKey(string certificatePem) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task An_unexpected_failure_is_logged_and_retried_not_swallowed()
+    {
+        using var dir = new TempDir();
+        var store = new IdentityStore(dir.Path);
+        File.WriteAllText(store.TokenPath, new string('A', 43));
+        var keys = new BrokenKeyStore();
+        var log = new List<string>();
+        using var ca = X509Certificate2.CreateFromPem(CertificateRequestPem());
+        var connection = new AgentConnection(new AgentConnectionOptions
+        {
+            ServerUri = new Uri("https://localhost:1"), PlatformCa = ca, Keys = keys, Store = store, Config = Fixtures.Config(),
+            ProcessorFor = _ => throw new NotSupportedException(), Fingerprints = () => throw new NotSupportedException(),
+            AgentVersion = "0.2.0", UptimeSeconds = () => 1, Log = m => { lock (log) log.Add(m); },
+            Backoff = new Backoff(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20)),
+        });
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await connection.RunAsync(stop.Token);
+        lock (log) Assert.Contains(log, m => m.Contains("CryptographicException") && m.Contains("retrying"));
+        Assert.True(keys.Calls >= 2, "it tried again");
+    }
+
+    private static string CertificateRequestPem()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        using var ca = new CertificateRequest("CN=CA", key, HashAlgorithmName.SHA256).CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        return ca.ExportCertificatePem();
+    }
+}

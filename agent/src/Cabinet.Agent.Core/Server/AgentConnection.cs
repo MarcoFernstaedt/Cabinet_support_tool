@@ -55,13 +55,34 @@ public sealed class AgentConnection(AgentConnectionOptions o)
 {
     private enum Ended { Cancelled, CertificateRefused, Renewed }
 
+    /// <summary>Runs until <paramref name="token"/> is cancelled, then returns normally.</summary>
     public async Task RunAsync(CancellationToken token)
     {
+        try { await RunLoopAsync(token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RunLoopAsync(CancellationToken token)
+    {
+        var failures = new Backoff();
         while (!token.IsCancellationRequested)
         {
-            AgentIdentity? identity = o.Store.LoadIdentity() ?? await EnrollAsync(token).ConfigureAwait(false);
-            if (identity is null) return;
-            Ended ended = await OnlineAsync(identity, token).ConfigureAwait(false);
+            Ended ended;
+            try
+            {
+                AgentIdentity? identity = o.Store.LoadIdentity() ?? await EnrollAsync(token).ConfigureAwait(false);
+                if (identity is null) return;
+                ended = await OnlineAsync(identity, token).ConfigureAwait(false);
+                failures.Reset();
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+            catch (Exception e)
+            {
+                // Anything unexpected (the key store, the disk, a bug) is reported and retried, never left to end the connection silently.
+                o.Log($"The server connection stopped on an unexpected error ({e.GetType().Name}: {OperationRunner.Truncate(e.Message)}); retrying.");
+                await Delay(failures.Next(), token).ConfigureAwait(false);
+                continue;
+            }
             if (ended == Ended.CertificateRefused)
             {
                 if (o.Store.LoadToken() is not null)

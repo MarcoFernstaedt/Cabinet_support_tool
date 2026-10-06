@@ -73,7 +73,10 @@ public sealed class NetworkService : ServiceBase
                 Fingerprints = () => Fingerprints.Read(system.SystemInfoAsync(new EmptyParams(), CancellationToken.None).GetAwaiter().GetResult()),
                 AgentVersion = SystemOperations.AgentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = _log.Write,
             });
-            work.Add(Task.Run(() => connection.RunAsync(_stop.Token)));
+            work.Add(Task.Run(() => connection.RunAsync(_stop.Token)).ContinueWith(t =>
+            {
+                if (t.IsFaulted) _log.Write($"The server connection ended: {t.Exception!.InnerException?.GetType().Name}.");
+            }, TaskScheduler.Default));
             _log.Write($"Connecting to the platform server at {host}:{port}.");
         }
         else _log.Write("No platform server configured (platformServer host and port, and platform-ca.pem); running locally only.");
