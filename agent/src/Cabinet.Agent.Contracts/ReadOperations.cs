@@ -21,6 +21,7 @@ public sealed record ChannelInfo
 {
     public required string Log { get; init; }
     public required bool Enabled { get; init; }
+    public required bool Available { get; init; }
     public required long? EntryCount { get; init; }
     public required long? SizeBytes { get; init; }
     public required DateTimeOffset? NewestEntryAt { get; init; }
@@ -158,6 +159,33 @@ public sealed record PeripheralStatusOutput
     public required string? ErrorText { get; init; }
     public required IReadOnlyList<string> HardwareIds { get; init; }
     public required PeripheralDriver? Driver { get; init; }
+    public required string? LocationInfo { get; init; }
+    public required IReadOnlyList<PeripheralCheck> Checks { get; init; }
+    public required IReadOnlyList<PeripheralCandidate> Candidates { get; init; }
+}
+
+public enum PeripheralCheckId
+{
+    DevicePresent, NoDeviceError, DriverInstalled, DriverSigned, UsbPowerSaving, RecentReconnects, UsbControllerErrors, BiometricService,
+}
+
+public enum PeripheralCheckOutcome { Pass, Warn, Fail, Unknown }
+
+public sealed record PeripheralCheck
+{
+    public required PeripheralCheckId Check { get; init; }
+    public required PeripheralCheckOutcome Outcome { get; init; }
+    public required string Summary { get; init; }
+}
+
+public sealed record PeripheralCandidate
+{
+    public required string InstanceId { get; init; }
+    public required string Name { get; init; }
+    public required string? Class { get; init; }
+    public required bool Connected { get; init; }
+    public required string? Status { get; init; }
+    public required IReadOnlyList<string> HardwareIds { get; init; }
 }
 
 public enum UpdateResult { Succeeded, SucceededWithErrors, Failed, Aborted, InProgress, Unknown }

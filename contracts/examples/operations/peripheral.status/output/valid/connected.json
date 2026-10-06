@@ -13,5 +13,49 @@
     "version": "3.1.0.7",
     "date": "2025-06-01T00:00:00Z",
     "signer": "Microsoft Windows Hardware Compatibility Publisher"
-  }
+  },
+  "locationInfo": "Port_#0002.Hub_#0003",
+  "candidates": [],
+  "checks": [
+    {
+      "check": "device_present",
+      "outcome": "pass",
+      "summary": "Fingerprint Reader is connected."
+    },
+    {
+      "check": "no_device_error",
+      "outcome": "pass",
+      "summary": "Windows reports no problem with the device."
+    },
+    {
+      "check": "driver_installed",
+      "outcome": "pass",
+      "summary": "Driver oem42.inf 3.1.0.7 is installed."
+    },
+    {
+      "check": "driver_signed",
+      "outcome": "pass",
+      "summary": "Driver is signed by Microsoft Windows Hardware Compatibility Publisher."
+    },
+    {
+      "check": "usb_power_saving",
+      "outcome": "warn",
+      "summary": "USB selective suspend is enabled for this device; Windows may power it off when idle."
+    },
+    {
+      "check": "recent_reconnects",
+      "outcome": "warn",
+      "summary": "Disconnected and reconnected 5 times in the last 24 hours."
+    },
+    {
+      "check": "usb_controller_errors",
+      "outcome": "pass",
+      "summary": "No USB controller or hub reports a problem."
+    },
+    {
+      "check": "biometric_service",
+      "outcome": "pass",
+      "summary": "Windows Biometric Service is running."
+    }
+  ]
 }

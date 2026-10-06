@@ -1,0 +1,7 @@
+{
+  "log": "Microsoft-Windows-Biometrics/Operational",
+  "levels": [
+    "error",
+    "warning"
+  ]
+}

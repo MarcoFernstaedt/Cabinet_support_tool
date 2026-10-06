@@ -13,7 +13,7 @@
       "properties": {
         "channels": {
           "type": "array",
-          "maxItems": 13,
+          "maxItems": 64,
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -32,6 +32,10 @@
               },
               "newestEntryAt": {
                 "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              },
+              "available": {
+                "description": "False when this channel does not exist on this Windows build.",
+                "type": "boolean"
               }
             },
             "required": [
@@ -39,7 +43,8 @@
               "enabled",
               "entryCount",
               "sizeBytes",
-              "newestEntryAt"
+              "newestEntryAt",
+              "available"
             ]
           }
         }

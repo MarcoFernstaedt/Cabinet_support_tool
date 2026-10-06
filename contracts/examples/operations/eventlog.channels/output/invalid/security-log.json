@@ -5,7 +5,8 @@
       "enabled": true,
       "entryCount": 1,
       "sizeBytes": 1,
-      "newestEntryAt": "2026-10-04T19:00:00Z"
+      "newestEntryAt": "2026-10-04T19:00:00Z",
+      "available": true
     }
   ]
 }

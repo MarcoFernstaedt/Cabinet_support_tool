@@ -75,6 +75,112 @@
               "type": "null"
             }
           ]
+        },
+        "locationInfo": {
+          "description": "Where Windows sees it plugged in, e.g. Port_#0002.Hub_#0003. Changes when it moves to another USB port.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/shortText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "check",
+              "outcome",
+              "summary"
+            ],
+            "properties": {
+              "check": {
+                "type": "string",
+                "enum": [
+                  "device_present",
+                  "no_device_error",
+                  "driver_installed",
+                  "driver_signed",
+                  "usb_power_saving",
+                  "recent_reconnects",
+                  "usb_controller_errors",
+                  "biometric_service"
+                ]
+              },
+              "outcome": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "warn",
+                  "fail",
+                  "unknown"
+                ]
+              },
+              "summary": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              }
+            }
+          }
+        },
+        "candidates": {
+          "description": "Likely fingerprint scanners: biometric-class devices and USB devices named as fingerprint or biometric readers.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "instanceId",
+              "name",
+              "class",
+              "connected",
+              "status",
+              "hardwareIds"
+            ],
+            "properties": {
+              "instanceId": {
+                "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "class": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/shortText"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "connected": {
+                "type": "boolean"
+              },
+              "status": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/shortText"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "hardwareIds": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "$ref": "../common.schema.json#/$defs/hardwareId"
+                }
+              }
+            }
+          }
         }
       },
       "required": [
@@ -85,8 +191,12 @@
         "errorCode",
         "errorText",
         "hardwareIds",
-        "driver"
-      ]
+        "driver",
+        "locationInfo",
+        "checks",
+        "candidates"
+      ],
+      "description": "The fingerprint scanner, found by the hardware IDs in the agent's local configuration, with an automated troubleshooting checklist. When no IDs are configured, candidates lists likely scanners so support can identify the right one."
     }
   }
 }

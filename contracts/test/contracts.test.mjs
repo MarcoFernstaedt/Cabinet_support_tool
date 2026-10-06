@@ -103,6 +103,21 @@ test("no schema allows the Security log or a generic command", () => {
   assert.ok(!/"commandLine"|"arguments"|"script"/.test(text), "no schema may carry command lines, installer arguments or scripts");
 });
 
+test("logs that record sign-ins, credentials, sessions, typed commands or document names are never readable", () => {
+  const logs = JSON.parse(readFileSync(join(SCHEMA_DIR, "common.schema.json"), "utf8")).$defs.allowedLog.enum.map(l => l.toLowerCase());
+  assert.equal(new Set(logs).size, logs.length, "no duplicate log names");
+  // Substring checks, so a channel added later under any of these providers fails too.
+  const forbidden = [
+    "powershell", "sysmon", "terminalservices", "remotedesktop", "winlogon", "user profile", "authentication",
+    "ntlm", "kerberos", "capi2", "aad", "printservice/operational", "wmi-activity", "forwardedevents", "shell-core", "bitlocker",
+    "credential", "logon", "crypto",
+  ];
+  for (const word of forbidden)
+    assert.ok(!logs.some(l => l.includes(word)), `no allowed log may contain "${word}"`);
+  // "Security" appears inside the firewall channel's name ("With Advanced Security"), so check providers, not substrings.
+  assert.ok(!logs.some(l => l === "security" || l.startsWith("microsoft-windows-security")), "no Security log of any kind");
+});
+
 test("hostile size and shape inputs are rejected quickly", () => {
   const validate = ajv.getSchema(ref("envelopes/command.schema.json"));
   const base = JSON.parse(readFileSync(join(EXAMPLES, "envelopes/command/valid/eventlog-query.json"), "utf8"));

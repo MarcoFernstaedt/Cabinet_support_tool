@@ -260,22 +260,51 @@ export interface Event {
   occurredAt: string;
   source?: {
     /**
-     * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+     * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
      */
     log:
       | "System"
       | "Application"
       | "Setup"
+      | "HardwareEvents"
       | "Microsoft-Windows-Kernel-PnP/Configuration"
+      | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
       | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+      | "Microsoft-Windows-UserPnp/DeviceInstall"
+      | "Microsoft-Windows-DeviceSetupManager/Admin"
+      | "Microsoft-Windows-DeviceSetupManager/Operational"
+      | "Microsoft-Windows-Biometrics/Operational"
+      | "Microsoft-Windows-CodeIntegrity/Operational"
       | "Microsoft-Windows-Kernel-WHEA/Errors"
+      | "Microsoft-Windows-Kernel-WHEA/Operational"
+      | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+      | "Microsoft-Windows-Kernel-Boot/Operational"
+      | "Microsoft-Windows-Kernel-IO/Operational"
+      | "Microsoft-Windows-Diagnostics-Performance/Operational"
+      | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
       | "Microsoft-Windows-Storage-Storport/Operational"
+      | "Microsoft-Windows-Storage-Storport/Health"
+      | "Microsoft-Windows-Storage-ClassPnP/Operational"
+      | "Microsoft-Windows-StorageSpaces-Driver/Operational"
       | "Microsoft-Windows-Ntfs/Operational"
+      | "Microsoft-Windows-Partition/Diagnostic"
       | "Microsoft-Windows-NetworkProfile/Operational"
+      | "Microsoft-Windows-NCSI/Operational"
+      | "Microsoft-Windows-TCPIP/Operational"
       | "Microsoft-Windows-Dhcp-Client/Admin"
+      | "Microsoft-Windows-Dhcp-Client/Operational"
       | "Microsoft-Windows-DNS-Client/Operational"
+      | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+      | "Microsoft-Windows-SMBClient/Connectivity"
+      | "Microsoft-Windows-SMBClient/Operational"
       | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-      | "Microsoft-Windows-WindowsUpdateClient/Operational";
+      | "Microsoft-Windows-Time-Service/Operational"
+      | "Microsoft-Windows-WindowsUpdateClient/Operational"
+      | "Microsoft-Windows-Bits-Client/Operational"
+      | "Microsoft-Windows-TaskScheduler/Operational"
+      | "Microsoft-Windows-PrintService/Admin"
+      | "Microsoft-Windows-Windows Defender/Operational"
+      | "Microsoft-Windows-GroupPolicy/Operational";
     /**
      * A single line of text with no control characters.
      */
@@ -417,51 +446,113 @@ export interface EventlogChannelsParams {}
 
 export interface EventlogChannelsOutput {
   /**
-   * @maxItems 13
+   * @maxItems 64
    */
   channels: {
     /**
-     * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+     * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
      */
     log:
       | "System"
       | "Application"
       | "Setup"
+      | "HardwareEvents"
       | "Microsoft-Windows-Kernel-PnP/Configuration"
+      | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
       | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+      | "Microsoft-Windows-UserPnp/DeviceInstall"
+      | "Microsoft-Windows-DeviceSetupManager/Admin"
+      | "Microsoft-Windows-DeviceSetupManager/Operational"
+      | "Microsoft-Windows-Biometrics/Operational"
+      | "Microsoft-Windows-CodeIntegrity/Operational"
       | "Microsoft-Windows-Kernel-WHEA/Errors"
+      | "Microsoft-Windows-Kernel-WHEA/Operational"
+      | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+      | "Microsoft-Windows-Kernel-Boot/Operational"
+      | "Microsoft-Windows-Kernel-IO/Operational"
+      | "Microsoft-Windows-Diagnostics-Performance/Operational"
+      | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
       | "Microsoft-Windows-Storage-Storport/Operational"
+      | "Microsoft-Windows-Storage-Storport/Health"
+      | "Microsoft-Windows-Storage-ClassPnP/Operational"
+      | "Microsoft-Windows-StorageSpaces-Driver/Operational"
       | "Microsoft-Windows-Ntfs/Operational"
+      | "Microsoft-Windows-Partition/Diagnostic"
       | "Microsoft-Windows-NetworkProfile/Operational"
+      | "Microsoft-Windows-NCSI/Operational"
+      | "Microsoft-Windows-TCPIP/Operational"
       | "Microsoft-Windows-Dhcp-Client/Admin"
+      | "Microsoft-Windows-Dhcp-Client/Operational"
       | "Microsoft-Windows-DNS-Client/Operational"
+      | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+      | "Microsoft-Windows-SMBClient/Connectivity"
+      | "Microsoft-Windows-SMBClient/Operational"
       | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-      | "Microsoft-Windows-WindowsUpdateClient/Operational";
+      | "Microsoft-Windows-Time-Service/Operational"
+      | "Microsoft-Windows-WindowsUpdateClient/Operational"
+      | "Microsoft-Windows-Bits-Client/Operational"
+      | "Microsoft-Windows-TaskScheduler/Operational"
+      | "Microsoft-Windows-PrintService/Admin"
+      | "Microsoft-Windows-Windows Defender/Operational"
+      | "Microsoft-Windows-GroupPolicy/Operational";
     enabled: boolean;
     entryCount: number | null;
     sizeBytes: number | null;
     newestEntryAt: string | null;
+    /**
+     * False when this channel does not exist on this Windows build.
+     */
+    available: boolean;
   }[];
 }
 
 export interface EventlogQueryParams {
   /**
-   * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
    */
   log:
     | "System"
     | "Application"
     | "Setup"
+    | "HardwareEvents"
     | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
     | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
     | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
     | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
     | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
     | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
     | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
     | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
     | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-    | "Microsoft-Windows-WindowsUpdateClient/Operational";
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
   /**
    * @minItems 1
    * @maxItems 5
@@ -493,22 +584,51 @@ export interface EventlogQueryParams {
 
 export interface EventlogQueryOutput {
   /**
-   * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
    */
   log:
     | "System"
     | "Application"
     | "Setup"
+    | "HardwareEvents"
     | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
     | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
     | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
     | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
     | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
     | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
     | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
     | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
     | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-    | "Microsoft-Windows-WindowsUpdateClient/Operational";
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
   /**
    * @maxItems 500
    */
@@ -532,43 +652,101 @@ export interface EventlogQueryOutput {
 
 export interface EventlogGetParams {
   /**
-   * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
    */
   log:
     | "System"
     | "Application"
     | "Setup"
+    | "HardwareEvents"
     | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
     | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
     | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
     | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
     | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
     | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
     | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
     | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
     | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-    | "Microsoft-Windows-WindowsUpdateClient/Operational";
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
   recordId: number;
 }
 
 export interface EventlogGetOutput {
   /**
-   * The event logs the agent may read (docs/spec/04-agent-spec.md). The Security log is never readable and is deliberately absent.
+   * The event logs the agent may read, compiled in (docs/spec/04-agent-spec.md, widened in milestone 1 to every channel useful for diagnosis; see docs/spec/09-open-decisions.md). Logs that record sign-ins, credentials, remote sessions, script or command text, or printed document names are never readable: Security, PowerShell, Sysmon, Winlogon, User Profile, TerminalServices, NTLM, Kerberos, CAPI2, AAD and PrintService/Operational are deliberately absent.
    */
   log:
     | "System"
     | "Application"
     | "Setup"
+    | "HardwareEvents"
     | "Microsoft-Windows-Kernel-PnP/Configuration"
+    | "Microsoft-Windows-Kernel-PnP/Driver Watchdog"
     | "Microsoft-Windows-DriverFrameworks-UserMode/Operational"
+    | "Microsoft-Windows-UserPnp/DeviceInstall"
+    | "Microsoft-Windows-DeviceSetupManager/Admin"
+    | "Microsoft-Windows-DeviceSetupManager/Operational"
+    | "Microsoft-Windows-Biometrics/Operational"
+    | "Microsoft-Windows-CodeIntegrity/Operational"
     | "Microsoft-Windows-Kernel-WHEA/Errors"
+    | "Microsoft-Windows-Kernel-WHEA/Operational"
+    | "Microsoft-Windows-Kernel-Power/Thermal-Operational"
+    | "Microsoft-Windows-Kernel-Boot/Operational"
+    | "Microsoft-Windows-Kernel-IO/Operational"
+    | "Microsoft-Windows-Diagnostics-Performance/Operational"
+    | "Microsoft-Windows-Resource-Exhaustion-Detector/Operational"
     | "Microsoft-Windows-Storage-Storport/Operational"
+    | "Microsoft-Windows-Storage-Storport/Health"
+    | "Microsoft-Windows-Storage-ClassPnP/Operational"
+    | "Microsoft-Windows-StorageSpaces-Driver/Operational"
     | "Microsoft-Windows-Ntfs/Operational"
+    | "Microsoft-Windows-Partition/Diagnostic"
     | "Microsoft-Windows-NetworkProfile/Operational"
+    | "Microsoft-Windows-NCSI/Operational"
+    | "Microsoft-Windows-TCPIP/Operational"
     | "Microsoft-Windows-Dhcp-Client/Admin"
+    | "Microsoft-Windows-Dhcp-Client/Operational"
     | "Microsoft-Windows-DNS-Client/Operational"
+    | "Microsoft-Windows-WLAN-AutoConfig/Operational"
+    | "Microsoft-Windows-SMBClient/Connectivity"
+    | "Microsoft-Windows-SMBClient/Operational"
     | "Microsoft-Windows-Windows Firewall With Advanced Security/Firewall"
-    | "Microsoft-Windows-WindowsUpdateClient/Operational";
+    | "Microsoft-Windows-Time-Service/Operational"
+    | "Microsoft-Windows-WindowsUpdateClient/Operational"
+    | "Microsoft-Windows-Bits-Client/Operational"
+    | "Microsoft-Windows-TaskScheduler/Operational"
+    | "Microsoft-Windows-PrintService/Admin"
+    | "Microsoft-Windows-Windows Defender/Operational"
+    | "Microsoft-Windows-GroupPolicy/Operational";
   recordId: number;
   /**
    * UTC time, ISO 8601, always ending in Z.
@@ -673,6 +851,9 @@ export interface DriversListOutput {
  */
 export interface PeripheralStatusParams {}
 
+/**
+ * The fingerprint scanner, found by the hardware IDs in the agent's local configuration, with an automated troubleshooting checklist. When no IDs are configured, candidates lists likely scanners so support can identify the right one.
+ */
 export interface PeripheralStatusOutput {
   configured: boolean;
   connected: boolean;
@@ -693,6 +874,48 @@ export interface PeripheralStatusOutput {
     date: string | null;
     signer: string | null;
   } | null;
+  /**
+   * Where Windows sees it plugged in, e.g. Port_#0002.Hub_#0003. Changes when it moves to another USB port.
+   */
+  locationInfo: string | null;
+  /**
+   * @maxItems 16
+   */
+  checks: {
+    check:
+      | "device_present"
+      | "no_device_error"
+      | "driver_installed"
+      | "driver_signed"
+      | "usb_power_saving"
+      | "recent_reconnects"
+      | "usb_controller_errors"
+      | "biometric_service";
+    outcome: "pass" | "warn" | "fail" | "unknown";
+    /**
+     * A single line of text with no control characters.
+     */
+    summary: string;
+  }[];
+  /**
+   * Likely fingerprint scanners: biometric-class devices and USB devices named as fingerprint or biometric readers.
+   *
+   * @maxItems 32
+   */
+  candidates: {
+    instanceId: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    class: string | null;
+    connected: boolean;
+    status: string | null;
+    /**
+     * @maxItems 32
+     */
+    hardwareIds: string[];
+  }[];
 }
 
 /**
