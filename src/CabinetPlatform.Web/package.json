@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test",
     "start": "node server.mjs",
-    "demo": "node demo-server.mjs"
+    "demo": "node demo-server.mjs",
+    "console": "node console/console-server.mjs"
   },
   "devDependencies": {
     "jsdom": "^26.1.0"

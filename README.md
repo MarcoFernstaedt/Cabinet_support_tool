@@ -23,10 +23,20 @@ Physical cabinet sensors, drawer opening, lock release and cubie opening remain 
 1. `CabinetPlatform.Contracts` defines the messages shared across processes.
 2. `CabinetPlatform.Agent` collects machine information and performs named Windows actions through typed gateways.
 3. `CabinetPlatform.Server` owns support authorization, device registration, topology, approvals and result storage.
-4. `CabinetPlatform.Web` is a loopback-only synthetic-data preview, not an approved staff deployment.
+4. `CabinetPlatform.Web` holds the **web Console** (`console/`): a secure backend-for-frontend and browser app for support staff and administrators, wired to the real Server API. See [web Console](docs/web-console.md). The older loopback-only preview pages in the same folder remain for reference.
 5. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
 
 `CabinetPlatform.Console.Core` remains temporarily as a test dependency for Agent and Server safety regressions. The WPF executable and native shell harness are retired; neither is a product milestone or fallback. Move the remaining Core tests to Agent/Server test projects before removing Core.
+
+## Web Console demo
+
+One command starts the Server, the web Console and three simulated cabinet agents on this machine with synthetic data (needs the .NET 8 SDK and Node.js 20+):
+
+```text
+tools/demo/start-web-console-demo.sh
+```
+
+Open `http://127.0.0.1:4180`, sign in as `admin` with the printed one-time password, set your own password, approve the waiting cabinets under **Enrollment**, add support staff under **Staff accounts**, then sign in as them to work the fleet. The full walkthrough, role matrix and security model are in [docs/web-console.md](docs/web-console.md).
 
 ## Build and test
 
@@ -50,6 +60,7 @@ Do not run the agent, network changes, updates or process controls on a producti
 
 Read the [current source-versus-live tracker](docs/build-tracker.md) for implemented behavior, incomplete wiring and verification limits.
 
+1. [Web Console: demo, roles and security model](docs/web-console.md)
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)
 3. [Release gates](docs/readiness.md), [Agent-only demo package](docs/independent-demo-kit.md), and [Windows demo checks](docs/testing.md). The static browser preview uses sample data; it is not a connected or accepted Console.

@@ -44,3 +44,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# Simulated demo agent identities (synthetic, per machine)
+tools/demo-agent/.demo-agent-state.json

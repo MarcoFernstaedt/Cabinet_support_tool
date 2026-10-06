@@ -1,3 +1,9 @@
+# Cabinet Support web
+
+**The web Console lives in [`console/`](console/).** See [docs/web-console.md](../../docs/web-console.md) for the one-command demo, roles and security model. Run it with `npm run console` (set `CONSOLE_UPSTREAM` first).
+
+The rest of this file documents the earlier loopback-only preview pages, kept for reference.
+
 # Local browser sign-in for the Event Viewer preview
 
 ## Mashura-inspired operator Demo (static; no backend or login)
