@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The local test harness (docs/spec/08-build-plan.md milestone 1): feeds commands from a file. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Cabinet.Agent.Harness</RootNamespace>
+    <AssemblyName>cabinet-harness</AssemblyName>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cabinet.Agent.Windows\Cabinet.Agent.Windows.csproj" />
+  </ItemGroup>
+</Project>

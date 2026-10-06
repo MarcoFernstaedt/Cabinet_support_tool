@@ -20,5 +20,80 @@ jobs:
       - name: Server builds and validates against the contracts
         working-directory: server
         run: npm ci && npm test && npm audit --audit-level=low
-      - name: Agent C# types match the contracts
-        run: dotnet test agent/Cabinet.Agent.sln -c Release -m:1
+      - name: Agent builds (Windows projects compile here too)
+        run: dotnet build agent/Cabinet.Agent.sln -c Release
+      - name: Agent contracts and core (validation, replay, rate limits, broker protocol)
+        run: |
+          dotnet test agent/tests/Cabinet.Agent.Contracts.Tests -c Release --no-build
+          dotnet test agent/tests/Cabinet.Agent.Core.Tests -c Release --no-build
+
+  agent-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build agent/Cabinet.Agent.sln -c Release
+      - name: Core tests on Windows
+        run: dotnet test agent/tests/Cabinet.Agent.Core.Tests -c Release --no-build
+      - name: Broker pipe access and every read operation on real Windows
+        run: dotnet test agent/tests/Cabinet.Agent.Windows.Tests -c Release --no-build --logger "console;verbosity=normal"
+      - name: Publish and install both services
+        shell: pwsh
+        run: |
+          ./agent/install/Publish-CabinetAgent.ps1
+          ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
+          Start-Sleep -Seconds 10
+          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log"
+      - name: Services run with the intended accounts
+        shell: pwsh
+        run: |
+          $services = Get-CimInstance Win32_Service -Filter "Name='CabinetAgentBroker' OR Name='CabinetAgentNetwork'"
+          $services | Format-Table Name, State, StartName
+          if (($services | Where-Object Name -eq 'CabinetAgentBroker').StartName -ne 'LocalSystem') { throw 'The broker must run as LocalSystem.' }
+          if (($services | Where-Object Name -eq 'CabinetAgentNetwork').StartName -ne 'NT SERVICE\CabinetAgentNetwork') { throw 'The network service must run as its virtual account.' }
+          if (($services | Where-Object State -ne 'Running')) { throw 'Both services must be running.' }
+          if (-not (Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Pattern 'The broker answers' -SimpleMatch -Quiet)) { throw 'The network service could not reach the broker.' }
+      - name: Other accounts cannot reach the installed broker (this step runs as an administrator)
+        shell: pwsh
+        run: |
+          & "$env:ProgramFiles\Mashura\CabinetAgent\Cabinet.Agent.Harness\cabinet-harness.exe" probe-broker
+          if ($LASTEXITCODE -ne 0) { throw 'An administrator account could open the broker pipe.' }
+      - name: Every read operation through the installed services and the real pipe
+        shell: pwsh
+        run: |
+          $harness = "$env:ProgramFiles\Mashura\CabinetAgent\Cabinet.Agent.Harness\cabinet-harness.exe"
+          $config = "$env:ProgramData\Mashura\CabinetAgent\agent-config.json"
+          & $harness sample --config $config --out "$env:RUNNER_TEMP\commands.json"
+          & $harness drop --commands "$env:RUNNER_TEMP\commands.json" --out "$env:RUNNER_TEMP\results.json"
+          $commands = Get-Content "$env:RUNNER_TEMP\commands.json" | ConvertFrom-Json
+          $results = Get-Content "$env:RUNNER_TEMP\results.json" | ConvertFrom-Json
+          $failed = @()
+          for ($i = 0; $i -lt $commands.Count; $i++) {
+            $op = $commands[$i].operation; $r = $results[$i].result
+            Write-Host ("{0,-20} {1,-10} {2} {3}" -f $op, $r.status, $r.error.code, $r.error.message)
+            # The sample asks eventlog.get for record 1, which is usually overwritten; a real record is fetched below.
+            if ($r.status -ne 'succeeded' -and -not ($op -eq 'eventlog.get' -and $r.error.code -eq 'not_found')) { $failed += $op }
+          }
+          $newest = ($results | Where-Object { $_.result.output.log -eq 'System' -and $_.result.output.entries } | Select-Object -First 1).result.output.entries[0].recordId
+          & $harness make --config $config --operation eventlog.get --params "{`"log`":`"System`",`"recordId`":$newest}" --out "$env:RUNNER_TEMP\get.json"
+          & $harness drop --commands "$env:RUNNER_TEMP\get.json" --out "$env:RUNNER_TEMP\get-result.json"
+          $get = (Get-Content "$env:RUNNER_TEMP\get-result.json" | ConvertFrom-Json)[0].result
+          Write-Host ("eventlog.get #{0}: {1} ({2} event data fields)" -f $newest, $get.status, $get.output.eventData.Count)
+          if ($get.status -ne 'succeeded') { $failed += 'eventlog.get' }
+          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 40
+          if ($failed) { throw "Did not succeed through the services: $($failed -join ', ')" }
+      - name: The same commands again are refused as replays
+        shell: pwsh
+        run: |
+          $harness = "$env:ProgramFiles\Mashura\CabinetAgent\Cabinet.Agent.Harness\cabinet-harness.exe"
+          & $harness drop --commands "$env:RUNNER_TEMP\commands.json" --out "$env:RUNNER_TEMP\replayed.json"
+          $results = Get-Content "$env:RUNNER_TEMP\replayed.json" | ConvertFrom-Json
+          $codes = $results | ForEach-Object { $_.result.error.code } | Sort-Object -Unique
+          if ($codes -ne 'replayed') { throw "Expected every command to be refused as replayed, got: $codes" }
+      - name: Uninstall
+        if: always()
+        shell: pwsh
+        run: ./agent/install/Uninstall-CabinetAgent.ps1 -RemoveData

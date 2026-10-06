@@ -49,3 +49,4 @@ tools/demo-agent/.demo-agent-state.json
 # Node packages and build output for the spec rebuild (contracts/, server/, console/)
 node_modules/
 server/dist/
+agent/out/

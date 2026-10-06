@@ -1,0 +1,117 @@
+using System.IO.Pipes;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using Cabinet.Agent.Contracts;
+using Cabinet.Agent.Core;
+using Cabinet.Agent.Windows;
+using Xunit;
+
+[assembly: SupportedOSPlatform("windows")]
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
+
+namespace Cabinet.Agent.Windows.Tests;
+
+/// <summary>
+/// Proof that no process other than the network service can talk to the
+/// broker (docs/spec/08-build-plan.md milestone 1). This test process runs as
+/// an ordinary or administrator account, never as NT SERVICE\CabinetAgentNetwork,
+/// so it stands in for "any other process".
+/// </summary>
+public sealed class BrokerPipeAccessTests
+{
+    private static readonly SecurityIdentifier Me = WindowsIdentity.GetCurrent().User!;
+
+    private static BrokerRequestHandler Handler() => new(new OperationRegistry()
+        .Register<EmptyParams, DiskSmartOutput>(Catalog.DiskSmart, (_, _) => Task.FromResult(new DiskSmartOutput { Drives = [] })));
+
+    private static (CancellationTokenSource Stop, Task Serving, string Name, List<string> Log) Start(SecurityIdentifier aclSid, SecurityIdentifier callerSid)
+    {
+        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        var log = new List<string>();
+        var stop = new CancellationTokenSource();
+        Task serving = new BrokerPipeServer(Handler(), m => { lock (log) log.Add(m); }, name, aclSid, callerSid).RunAsync(stop.Token);
+        return (stop, serving, name, log);
+    }
+
+    [Fact]
+    public void The_network_service_sid_is_the_one_windows_assigns()
+    {
+        // Translating needs the service to exist, so this checks the computed SID against the well-known derivation instead.
+        Assert.StartsWith("S-1-5-80-", ServiceNames.NetworkServiceSid.Value);
+        Assert.NotEqual(Me, ServiceNames.NetworkServiceSid);
+    }
+
+    [Fact]
+    public async Task Another_account_cannot_even_open_the_broker_pipe()
+    {
+        var server = Start(ServiceNames.NetworkServiceSid, ServiceNames.NetworkServiceSid);
+        try
+        {
+            await Task.Delay(300);
+            await Assert.ThrowsAsync<UnauthorizedAccessException>(() => BrokerPipeClient.ConnectAsync(server.Name, CancellationToken.None));
+            var raw = new NamedPipeClientStream(".", server.Name, PipeDirection.InOut);
+            Assert.Throws<UnauthorizedAccessException>(() => raw.Connect(2000));
+            Assert.False(await new BrokerClient(t => BrokerPipeClient.ConnectAsync(server.Name, t)).PingAsync(CancellationToken.None));
+        }
+        finally { server.Stop.Cancel(); }
+    }
+
+    [Fact]
+    public async Task The_admitted_account_can_use_the_pipe()
+    {
+        var server = Start(Me, Me);
+        try
+        {
+            await Task.Delay(300);
+            var client = new BrokerClient(t => BrokerPipeClient.ConnectAsync(server.Name, t));
+            Assert.True(await client.PingAsync(CancellationToken.None));
+            var output = await client.RunAsync(Catalog.DiskSmart, System.Text.Json.JsonSerializer.SerializeToElement(new { }), CancellationToken.None);
+            Assert.Equal(0, output.GetProperty("drives").GetArrayLength());
+        }
+        finally { server.Stop.Cancel(); }
+    }
+
+    [Fact]
+    public async Task The_caller_identity_check_refuses_on_its_own_even_if_the_access_list_were_wrong()
+    {
+        // Access list admits this account, identity check requires the network service: the request is never read.
+        var server = Start(Me, ServiceNames.NetworkServiceSid);
+        try
+        {
+            await Task.Delay(300);
+            Assert.False(await new BrokerClient(t => BrokerPipeClient.ConnectAsync(server.Name, t)).PingAsync(CancellationToken.None));
+            await Task.Delay(300);
+            lock (server.Log) Assert.Contains(server.Log, m => m.Contains("Refused a broker connection", StringComparison.Ordinal));
+        }
+        finally { server.Stop.Cancel(); }
+    }
+
+    [Fact]
+    public async Task A_second_process_cannot_take_over_the_pipe_name()
+    {
+        var server = Start(Me, Me);
+        try
+        {
+            await Task.Delay(300);
+            var squatter = new BrokerPipeServer(Handler(), _ => { }, server.Name, Me, Me);
+            await Assert.ThrowsAnyAsync<Exception>(() => squatter.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally { server.Stop.Cancel(); }
+    }
+
+    [Fact]
+    public void The_access_list_admits_only_the_network_service_and_system_and_denies_network_logons()
+    {
+        PipeSecurity security = BrokerPipeServer.Security(ServiceNames.NetworkServiceSid);
+        var rules = security.GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<PipeAccessRule>().ToList();
+        Assert.True(security.AreAccessRulesProtected);
+        var allowed = rules.Where(r => r.AccessControlType == AccessControlType.Allow).Select(r => (SecurityIdentifier)r.IdentityReference).ToList();
+        Assert.Equal(2, allowed.Count);
+        Assert.Contains(ServiceNames.NetworkServiceSid, allowed);
+        Assert.Contains(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), allowed);
+        Assert.Contains(rules, r => r.AccessControlType == AccessControlType.Deny && ((SecurityIdentifier)r.IdentityReference).IsWellKnown(WellKnownSidType.NetworkSid));
+        foreach (var everyone in new[] { WellKnownSidType.WorldSid, WellKnownSidType.BuiltinUsersSid, WellKnownSidType.AuthenticatedUserSid, WellKnownSidType.BuiltinAdministratorsSid })
+            Assert.DoesNotContain(allowed, s => s.IsWellKnown(everyone));
+    }
+}

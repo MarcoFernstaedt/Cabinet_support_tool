@@ -106,15 +106,10 @@
           ]
         },
         "rawXml": {
-          "allOf": [
-            {
-              "$ref": "../common.schema.json#/$defs/longText"
-            },
-            {
-              "maxLength": 65536,
-              "type": "string"
-            }
-          ]
+          "description": "The event's XML, capped at 64 KB. Same character rules as longText, with a larger limit.",
+          "type": "string",
+          "maxLength": 65536,
+          "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
         }
       },
       "required": [

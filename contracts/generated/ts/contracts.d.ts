@@ -782,6 +782,9 @@ export interface EventlogGetOutput {
     value: string;
   }[];
   deviceInstanceId: string | null;
+  /**
+   * The event's XML, capped at 64 KB. Same character rules as longText, with a larger limit.
+   */
   rawXml: string;
 }
 

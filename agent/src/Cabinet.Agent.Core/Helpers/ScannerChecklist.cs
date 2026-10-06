@@ -74,7 +74,7 @@ public static class ScannerChecklist
     }
 
     /// <summary>The device whose hardware IDs include a configured one; a connected match wins over a remembered one.</summary>
-    internal static DeviceFacts? Find(ScannerFacts facts) =>
+    public static DeviceFacts? Find(ScannerFacts facts) =>
         facts.Devices
             .Where(d => d.HardwareIds.Any(id => facts.ConfiguredHardwareIds.Contains(id, StringComparer.OrdinalIgnoreCase)))
             .OrderByDescending(d => d.Present)

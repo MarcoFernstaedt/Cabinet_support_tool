@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    The Windows side of the agent: read-operation executors and the
+    locked-down broker pipe. Compiles on Linux (EnableWindowsTargeting) so CI
+    catches build errors everywhere; it runs and is tested on Windows only.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Cabinet.Agent.Windows</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- WMI: devices, drivers, BIOS serial, disk health and services. No standard-library equivalent. -->
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <!-- System.Diagnostics.Eventing.Reader: the only managed reader for modern event log channels. -->
+    <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cabinet.Agent.Windows.Tests" />
+  </ItemGroup>
+</Project>

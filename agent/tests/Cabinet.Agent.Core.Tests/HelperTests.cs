@@ -407,3 +407,47 @@ public sealed class ConfigAndStoreTests
         Assert.False(new RateLimiter(dir.File("writes"), clock).TryTake(RateClass.Write, clock.Now));
     }
 }
+
+public sealed class SmartDecoderTests
+{
+    private static byte[] Table(params (byte Id, long Raw)[] attributes)
+    {
+        var table = new byte[2 + 30 * 12];
+        for (int i = 0; i < attributes.Length; i++)
+        {
+            int o = 2 + i * 12;
+            table[o] = attributes[i].Id;
+            for (int b = 0; b < 6; b++) table[o + 5 + b] = (byte)(attributes[i].Raw >> (8 * b));
+        }
+        return table;
+    }
+
+    [Fact]
+    public void Attributes_decode_from_the_vendor_table()
+    {
+        var raw = SmartDecoder.RawValues(Table((5, 12), (9, 20_000), (194, 0x0000_2200_0029), (197, 1)));
+        Assert.Equal(12, SmartDecoder.Value(raw, SmartDecoder.ReallocatedSectors));
+        Assert.Equal(20_000, SmartDecoder.Value(raw, SmartDecoder.PowerOnHours));
+        Assert.Equal(41, SmartDecoder.TemperatureCelsius(raw));
+        Assert.Null(SmartDecoder.Value(raw, SmartDecoder.Uncorrectable));
+    }
+
+    [Fact]
+    public void Short_empty_and_implausible_tables_do_not_throw()
+    {
+        Assert.Empty(SmartDecoder.RawValues(null));
+        Assert.Empty(SmartDecoder.RawValues(new byte[7]));
+        Assert.Null(SmartDecoder.TemperatureCelsius(SmartDecoder.RawValues(Table((194, 200)))));
+        Assert.Single(SmartDecoder.RawValues(Table((5, 1), (5, 99))));
+    }
+
+    [Theory]
+    [InlineData(0, false, 0L, 0L, DriveHealth.Healthy)]
+    [InlineData(0, true, 0L, 0L, DriveHealth.Failing)]
+    [InlineData(2, false, 0L, 0L, DriveHealth.Failing)]
+    [InlineData(1, false, 0L, 0L, DriveHealth.Warning)]
+    [InlineData(0, false, 3L, 0L, DriveHealth.Warning)]
+    [InlineData(null, null, null, null, DriveHealth.Unknown)]
+    public void Health_combines_windows_status_and_smart(int? status, bool? predict, long? realloc, long? pending, DriveHealth expected) =>
+        Assert.Equal(expected, SmartDecoder.Health(status, predict, realloc, pending));
+}
