@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/step-up-request.schema.json",
+  "title": "step-up-request",
+  "description": "Asks for a step-up token for one action on one target, with a fresh authenticator code (docs/spec/02-security-model.md control 8).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "description": "A 6-digit authenticator code.",
+      "type": "string",
+      "pattern": "^[0-9]{6}$"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "enrollment.approve",
+        "enrollment.reject",
+        "token.create",
+        "cabinet.revoke",
+        "settings.scanner",
+        "cabinet.scanner",
+        "site.sync"
+      ]
+    },
+    "target": {
+      "description": "The ID the action applies to, or 'fleet'.",
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        {
+          "const": "fleet"
+        }
+      ]
+    }
+  },
+  "required": [
+    "code",
+    "action",
+    "target"
+  ]
+}

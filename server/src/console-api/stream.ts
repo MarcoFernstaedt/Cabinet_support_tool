@@ -1,0 +1,59 @@
+// The live stream (Server-Sent Events): one per signed-in tab, carrying the results of
+// commands that user issued. Major alerts and claims join it in milestone 4.
+import type { FastifyReply, FastifyRequest } from "fastify";
+import pg from "pg";
+import type { SessionUser } from "../auth/sessions.js";
+
+interface Subscriber { userId: string; reply: FastifyReply; }
+
+export class ResultStream {
+  private readonly subscribers = new Set<Subscriber>();
+  private client: pg.Client | null = null;
+  private stopped = false;
+
+  constructor(private readonly connectionString: string, private readonly pool: pg.Pool) {}
+
+  async start(): Promise<void> {
+    const client = new pg.Client({ connectionString: this.connectionString });
+    client.on("notification", msg => { if (msg.channel === "command_results" && msg.payload) void this.deliver(msg.payload); });
+    client.on("error", () => { if (!this.stopped) setTimeout(() => void this.start().catch(() => undefined), 1000); });
+    await client.connect();
+    await client.query("LISTEN command_results");
+    this.client = client;
+  }
+
+  private async deliver(payload: string): Promise<void> {
+    const [commandId, issuedBy] = payload.split(" ");
+    if (!commandId || !issuedBy) return;
+    const row = (await this.pool.query<{ status: string; cabinet_id: string; operation: string }>(
+      "SELECT status, cabinet_id, operation FROM commands WHERE id = $1", [commandId])).rows[0];
+    if (!row) return;
+    const data = JSON.stringify({ commandId, cabinetId: row.cabinet_id, operation: row.operation, status: row.status });
+    for (const s of this.subscribers) if (s.userId === issuedBy) s.reply.raw.write(`event: result\ndata: ${data}\n\n`);
+  }
+
+  attach(user: SessionUser, request: FastifyRequest, reply: FastifyReply, stillValid: () => Promise<SessionUser | null>): void {
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "keep-alive", "X-Content-Type-Options": "nosniff",
+    });
+    reply.raw.write(": connected\n\n");
+    const subscriber = { userId: user.userId, reply };
+    this.subscribers.add(subscriber);
+    // A comment every 25 s keeps proxies from closing the stream; the session is re-checked each time.
+    const ping = setInterval(() => {
+      void stillValid().then(u => {
+        if (!u || u.stage !== "complete") { reply.raw.end(); return; }
+        reply.raw.write(": ping\n\n");
+      });
+    }, 25_000);
+    request.raw.on("close", () => { clearInterval(ping); this.subscribers.delete(subscriber); });
+  }
+
+  get count(): number { return this.subscribers.size; }
+
+  async stop(): Promise<void> {
+    this.stopped = true;
+    for (const s of this.subscribers) s.reply.raw.end();
+    await this.client?.end().catch(() => undefined);
+  }
+}

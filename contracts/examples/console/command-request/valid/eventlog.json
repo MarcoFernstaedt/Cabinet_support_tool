@@ -1,0 +1,6 @@
+{
+  "operation": "eventlog.query",
+  "params": {
+    "log": "System"
+  }
+}

@@ -13,7 +13,7 @@ export const MAX_COMMANDS_PER_POLL = 50;
  * sign-in (milestone 3); write operations need step-up and the safety
  * controls of milestone 5, so they are refused here for now.
  */
-export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: string, operation: string, params: unknown): Promise<Command> {
+export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: string, operation: string, params: unknown, auditAction = "command.issue"): Promise<Command> {
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
   if (entry.kind !== "read") throw new Refused("writes_unavailable", 403, "write operations arrive in milestone 5");
@@ -31,7 +31,7 @@ export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: str
     };
     await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')`,
       [command.commandId, cabinetId, operation, safeJson(params), userId, command.issuedAt, command.expiresAt]);
-    await audit(c, { actorKind: "user", actorId: userId, action: "command.issue", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
+    await audit(c, { actorKind: "user", actorId: userId, action: auditAction, targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
       details: { commandId: command.commandId, operation, params } });
     return command;
   });

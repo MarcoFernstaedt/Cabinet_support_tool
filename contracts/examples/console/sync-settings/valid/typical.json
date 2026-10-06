@@ -1,0 +1,7 @@
+{
+  "address": "10.20.0.15",
+  "ports": [
+    1433
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

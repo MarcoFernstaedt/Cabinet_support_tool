@@ -122,6 +122,138 @@ export interface DnsSettings {
 }
 
 /**
+ * Approve a pending cabinet: where it belongs and what it is called.
+ */
+export interface ApproveEnrollment {
+  client: string;
+  site: string;
+  cabinet: string;
+  role: "sync" | "satellite" | "standalone";
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * An authenticator code: the second sign-in step, or confirming authenticator setup.
+ */
+export interface CodeRequest {
+  /**
+   * A 6-digit authenticator code.
+   */
+  code: string;
+}
+
+/**
+ * Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema.
+ */
+export interface CommandRequest {
+  /**
+   * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+   */
+  operation:
+    | "system.info"
+    | "eventlog.channels"
+    | "eventlog.query"
+    | "eventlog.get"
+    | "devices.list"
+    | "drivers.list"
+    | "peripheral.status"
+    | "updates.status"
+    | "disk.smart"
+    | "files.list"
+    | "network.config"
+    | "network.test"
+    | "firewall.state"
+    | "network.setIp"
+    | "network.setDns"
+    | "firewall.setProfile"
+    | "firewall.setRule"
+    | "firewall.restore"
+    | "package.install"
+    | "driver.uninstall";
+  params: {};
+}
+
+/**
+ * Username and password, the first sign-in step.
+ */
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+/**
+ * Change the signed-in user's password.
+ */
+export interface PasswordChange {
+  currentPassword: string;
+  /**
+   * At least 12 characters.
+   */
+  newPassword: string;
+}
+
+/**
+ * The fingerprint scanner's hardware IDs: the fleet default, or one cabinet's override (null removes the override).
+ */
+export interface ScannerSettings {
+  hardwareIds: [string, ...string[]] | null;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * An action that needs nothing but its step-up token.
+ */
+export interface StepUpOnly {
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Asks for a step-up token for one action on one target, with a fresh authenticator code (docs/spec/02-security-model.md control 8).
+ */
+export interface StepUpRequest {
+  /**
+   * A 6-digit authenticator code.
+   */
+  code: string;
+  action:
+    | "enrollment.approve"
+    | "enrollment.reject"
+    | "token.create"
+    | "cabinet.revoke"
+    | "settings.scanner"
+    | "cabinet.scanner"
+    | "site.sync";
+  /**
+   * The ID the action applies to, or 'fleet'.
+   */
+  target: string | "fleet";
+}
+
+/**
+ * A site's sync cabinet: a private IPv4 address and at most 4 TCP ports. Each cabinet also refuses an address that is not on its own network.
+ */
+export interface SyncSettings {
+  address: string | null;
+  /**
+   * @maxItems 4
+   */
+  ports: number[];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Command envelope: one operation for one cabinet, issued by one person (docs/spec/03-protocol.md).
  */
 export interface Command {

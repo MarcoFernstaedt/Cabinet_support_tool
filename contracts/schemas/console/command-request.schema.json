@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/command-request.schema.json",
+  "title": "command-request",
+  "description": "Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "operation": {
+      "$ref": "../common.schema.json#/$defs/operationName"
+    },
+    "params": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "operation",
+    "params"
+  ]
+}

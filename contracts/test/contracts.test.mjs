@@ -61,7 +61,7 @@ test("every envelope and every operation has a valid example, and every operatio
     for (const def of ["params", "output"]) assert.ok(has(`operations/${name}/${def}`, "valid"), `${name} ${def} needs a valid example`);
     assert.ok(has(`operations/${name}/params`, "invalid"), `${name} params needs a hostile example`);
   }
-  for (const { file } of readSchemas().filter(s => s.file.startsWith("envelopes/") || s.file.startsWith("agent/"))) {
+  for (const { file } of readSchemas().filter(s => s.file.startsWith("envelopes/") || s.file.startsWith("agent/") || s.file.startsWith("console/"))) {
     assert.ok(has(file.slice(0, -12), "valid"), `${file} needs a valid example`);
     assert.ok(has(file.slice(0, -12), "invalid"), `${file} needs a hostile example`);
   }

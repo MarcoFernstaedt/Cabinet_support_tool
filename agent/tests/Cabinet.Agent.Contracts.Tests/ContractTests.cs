@@ -29,7 +29,7 @@ public sealed class ContractTests
     }
 
     [Theory]
-    [MemberData(nameof(ExampleData.Valid), MemberType = typeof(ExampleData))]
+    [MemberData(nameof(ExampleData.ValidForAgent), MemberType = typeof(ExampleData))]
     public void Valid_examples_round_trip_through_the_csharp_types(string target, string name)
     {
         JsonElement original = Load(target, "valid", name);

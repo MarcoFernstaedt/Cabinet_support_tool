@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/scanner-settings.schema.json",
+  "title": "scanner-settings",
+  "description": "The fingerprint scanner's hardware IDs: the fleet default, or one cabinet's override (null removes the override).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hardwareIds": {
+      "anyOf": [
+        {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/hardwareId"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "hardwareIds",
+    "stepUpToken"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "operation": "shell.run",
+  "params": {
+    "command": "whoami"
+  }
+}

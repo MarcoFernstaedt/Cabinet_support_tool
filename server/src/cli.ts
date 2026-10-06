@@ -1,7 +1,8 @@
 // platform-admin: operator commands for milestone 2, before the console exists.
 // Approval and command issuing move to the console with sign-in and step-up in
 // milestone 3; this tool still names the person acting (--as) and audits it all.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { hashPassword } from "./auth/passwords.js";
 import { parseArgs } from "node:util";
 import pg from "pg";
 import { loadConfig } from "./config.js";
@@ -16,7 +17,8 @@ import { issuingKey } from "./runtime.js";
 const USAGE = `platform-admin <command> [options]
 
   migrate                                   apply migrations (uses DATABASE_OWNER_URL)
-  user add --username u --name "N" --role tier1|tier2|admin
+  user add --username u --name "N" --role tier1|tier2|admin   prints a one-time temporary password
+  user reset-password --username u --as <admin>             new temporary password; ends the user's sessions
   token create --as <admin>                 one-time bootstrap token for one cabinet (valid 7 days)
   pending                                   enrollment requests waiting for approval
   approve <requestId> --as <admin> --client C --site S --cabinet N --role sync|satellite|standalone
@@ -63,12 +65,32 @@ async function main(argv: string[]): Promise<void> {
       case "user add": {
         if (!values.username || !values.name || !values.role || !(values.role in ROLE_RANK)) throw new Refused("usage", 2, USAGE);
         const id = randomUUID();
+        const temporary = randomBytes(12).toString("base64url");
+        const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
-          await c.query("INSERT INTO users (id, username, name, role) VALUES ($1, $2, $3, $4)", [id, values.username, values.name, values.role]);
+          await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, true)",
+            [id, values.username, values.name, values.role, hash]);
           await audit(c, { actorKind: "system", actorId: "platform-admin", action: "user.create", targetKind: "user", targetId: id, outcome: "succeeded",
             details: { username: values.username, role: values.role } });
         });
         console.log(`User ${values.username} (${values.role}) created: ${id}`);
+        console.log(`Temporary password (shown once; must be changed at first sign-in): ${temporary}`);
+        return;
+      }
+      case "user reset-password": {
+        if (!values.username) throw new Refused("usage", 2, USAGE);
+        const adminId = await userId(pool, values.as, "admin");
+        const temporary = randomBytes(12).toString("base64url");
+        const hash = await hashPassword(temporary);
+        await transaction(pool, async c => {
+          const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = true, failed_logins = 0, locked_until = NULL WHERE username = $1 RETURNING id",
+            [values.username, hash]);
+          const target = r.rows[0];
+          if (!target) throw new Refused("not_found", 1, "no such user");
+          await c.query("DELETE FROM sessions WHERE user_id = $1", [target.id]);
+          await audit(c, { actorKind: "user", actorId: adminId, action: "user.password.reset", targetKind: "user", targetId: target.id, outcome: "succeeded" });
+        });
+        console.log(`Temporary password for ${values.username} (shown once): ${temporary}`);
         return;
       }
       case "token create": {

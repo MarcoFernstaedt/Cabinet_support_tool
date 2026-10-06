@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/login-request.schema.json",
+  "title": "login-request",
+  "description": "Username and password, the first sign-in step.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "username": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9._-]+$"
+    },
+    "password": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "username",
+    "password"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment.schema.json",
+  "title": "approve-enrollment",
+  "description": "Approve a pending cabinet: where it belongs and what it is called.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "client": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "site": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "cabinet": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "role": {
+      "$ref": "../common.schema.json#/$defs/cabinetRole"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "client",
+    "site",
+    "cabinet",
+    "role",
+    "stepUpToken"
+  ]
+}

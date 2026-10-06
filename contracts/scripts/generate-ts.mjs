@@ -43,6 +43,7 @@ export async function generate() {
     if (schema.type === "object" && def !== "emptyParams") targets.push([pascal(def), `${BASE_ID}common.schema.json#/$defs/${def}`]);
   for (const { file } of readSchemas()) {
     if (file.startsWith("envelopes/")) targets.push([pascal(file.slice(10, -12)), BASE_ID + file]);
+    if (file.startsWith("console/")) targets.push([pascal(file.slice(8, -12)), BASE_ID + file]);
   }
   for (const op of catalog.operations) {
     for (const def of ["params", "output"])

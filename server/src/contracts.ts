@@ -18,6 +18,15 @@ import type {
   RenewResponse,
   Result,
   ServerAck,
+  LoginRequest,
+  CodeRequest,
+  PasswordChange,
+  StepUpRequest,
+  CommandRequest,
+  ScannerSettings,
+  SyncSettings,
+  ApproveEnrollment,
+  StepUpOnly,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -78,6 +87,21 @@ export const envelopes = {
   enrollStatus: validator<EnrollStatus>("enroll-status", envelope("enroll-status")),
   renewRequest: validator<RenewRequest>("renew-request", envelope("renew-request")),
   renewResponse: validator<RenewResponse>("renew-response", envelope("renew-response")),
+} as const;
+
+const consoleBody = (file: string) => ref(`console/${file}.schema.json`);
+
+/** Console request bodies. */
+export const consoleBodies = {
+  login: validator<LoginRequest>("login-request", consoleBody("login-request")),
+  code: validator<CodeRequest>("code-request", consoleBody("code-request")),
+  passwordChange: validator<PasswordChange>("password-change", consoleBody("password-change")),
+  stepUp: validator<StepUpRequest>("step-up-request", consoleBody("step-up-request")),
+  command: validator<CommandRequest>("command-request", consoleBody("command-request")),
+  scanner: validator<ScannerSettings>("scanner-settings", consoleBody("scanner-settings")),
+  sync: validator<SyncSettings>("sync-settings", consoleBody("sync-settings")),
+  approve: validator<ApproveEnrollment>("approve-enrollment", consoleBody("approve-enrollment")),
+  stepUpOnly: validator<StepUpOnly>("step-up-only", consoleBody("step-up-only")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */
