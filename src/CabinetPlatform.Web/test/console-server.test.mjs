@@ -297,46 +297,86 @@ test("HTTPS origins use a __Host- Secure cookie and HSTS", async t => {
 // --- Demo mode -------------------------------------------------------------------------
 const switchMode = (s, mode) => s.req("POST", "/auth/mode", { body: { mode }, headers: { "x-csrf-token": s.jar.csrf } });
 
-test("demo mode serves sandbox data without contacting the Server", async t => {
-  const s = await start(okLogin());
+const HP = "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d";
+const page = items => ({ items, page: 1, pageSize: 50, totalCount: items.length, totalPages: 1, hasMore: false });
+// A fake Server with one real enrolled PC, as the HP would look.
+const realFleet = call => {
+  const p = call.url.pathname;
+  if (p === "/api/auth/login") return [200, loginBody()];
+  if (p === "/api/cabinets") return [200, page([{ id: HP, hostname: "HP-EDGE", friendlyName: "HP lab laptop", health: "Healthy", clientName: "Lab", siteName: "Office" }])];
+  if (p === `/api/cabinets/${HP}`) return [200, { cabinet: { id: HP, hostname: "HP-EDGE" } }];
+  if (p === `/api/cabinets/${HP}/event-log-results/latest`) return [200, { actionId: ID, state: "complete", entries: [{ channel: "System", level: "error", eventId: 41 }] }];
+  if (p === "/api/actions" && call.method === "POST") return [201, { id: ID, action: call.body.action, cabinetId: HP, status: "Approved" }];
+  if (p === "/api/fleet/health") return [200, { totalCabinets: 1, healthy: 1, warning: 0, critical: 0, offline: 0, unknown: 0, staleAfterHours: 24, disks: { healthy: 1, watch: 0, failing: 0, unknown: 0 }, agentVersions: [{ version: "1.0.0", cabinetCount: 1 }] }];
+  if (p === "/api/event-log-views") return [200, page([{ id: "11111111-2222-4333-8444-555555555555", displayName: "Recent errors and warnings", logNames: ["Application", "System"] }])];
+  if (p === "/api/users") return [200, page([{ id: ID, username: "ada", displayName: "Ada Admin", role: "Supervisor", isActive: true }])];
+  return [200, page([])];
+};
+
+test("demo mode shows the sample fleet together with real cabinets", async t => {
+  const s = await start(realFleet);
   t.after(s.close);
   const login = await s.login();
   assert.equal(login.json.mode, "live");
   assert.equal(login.json.demoAvailable, true);
   assert.equal((await s.req("POST", "/auth/mode", { body: { mode: "demo" } })).status, 403, "needs CSRF");
   const switched = await switchMode(s, "demo");
-  assert.equal(switched.status, 200);
   assert.equal(switched.json.mode, "demo");
-  assert.equal((await s.req("GET", "/auth/session")).json.mode, "demo");
 
+  const cabinets = (await s.req("GET", "/api/cabinets?pageSize=25")).json;
+  assert.equal(cabinets.totalCount, 7, "6 sample + 1 real");
+  assert.equal(cabinets.items[0].id, HP, "real cabinets first");
+  assert.equal(cabinets.items[0].source, "live");
+  assert.ok(cabinets.items.slice(1).every(c => c.source === undefined), "sample cabinets are not tagged live");
+
+  const health = (await s.req("GET", "/api/fleet/health")).json;
+  assert.equal(health.totalCabinets, 7);
+  assert.equal(health.liveCabinets, 1);
+  assert.equal(health.staleAfterHours, 24, "thresholds are not summed");
+
+  // The real cabinet's detail and event logs come from the Server.
+  const detail = await s.req("GET", `/api/cabinets/${HP}`);
+  assert.equal(detail.json.source, "live");
+  assert.equal(s.calls.at(-1).url.pathname, `/api/cabinets/${HP}`);
+  const events = await s.req("GET", `/api/cabinets/${HP}/event-log-results/latest`);
+  assert.equal(events.json.entries[0].eventId, 41);
+
+  // A diagnostic on the real cabinet is a real request, using the real view.
+  const views = (await s.req("GET", "/api/event-log-views")).json.items;
+  assert.equal(views[0].displayName, "Recent errors and warnings");
+  const run = await s.req("POST", "/api/actions", { body: { action: "RunEventLogView", cabinetId: HP, reason: "demo", parameters: { eventLogViewId: views[0].id } }, headers: { "x-csrf-token": s.jar.csrf } });
+  assert.equal(run.status, 201);
+  assert.equal(s.calls.at(-1).url.pathname, "/api/actions");
+  assert.equal(s.calls.at(-1).body.cabinetId, HP);
+
+  // Sample cabinets stay in the sandbox, and can run the same real view.
+  const sample = cabinets.items[1];
   const before = s.calls.length;
-  const health = await s.req("GET", "/api/fleet/health");
-  assert.equal(health.status, 200);
-  assert.equal(health.json.totalCabinets, 6);
-  const cabinets = await s.req("GET", "/api/cabinets?pageSize=25&isActive=true");
-  assert.equal(cabinets.json.items.length, 6);
-  const id = cabinets.json.items[0].id;
-  for (const path of [`/api/cabinets/${id}`, `/api/cabinets/${id}/heartbeats?fromUtc=${new Date(Date.now() - 86400000).toISOString()}`, "/api/fleet/sites",
-    "/api/connectivity-alerts", "/api/actions", "/api/actions/catalog", "/api/event-log-views", "/api/audit", "/api/registrations/pending", "/api/users", "/api/auth/me"])
-    assert.equal((await s.req("GET", path)).status, 200, path);
+  assert.equal((await s.req("GET", `/api/cabinets/${sample.id}`)).status, 200);
+  const sampleRun = await s.req("POST", "/api/actions", { body: { action: "RunEventLogView", cabinetId: sample.id, reason: "demo", parameters: { eventLogViewId: views[0].id } }, headers: { "x-csrf-token": s.jar.csrf } });
+  assert.equal(sampleRun.status, 201);
+  assert.equal(sampleRun.json.parameters.eventLogViewId, views[0].id);
+  // New staff in demo mode are sample accounts only.
+  assert.equal((await s.req("POST", "/api/users", { body: { username: "demo.user", displayName: "Demo User", role: "Tier1", initialPassword: "Temp-Pass-1234!" }, headers: { "x-csrf-token": s.jar.csrf } })).status, 201);
+  assert.equal(s.calls.length, before, "sample cabinets and new demo staff never reach the Server");
 
-  // Admin decision inside the sandbox.
-  const pending = await s.req("GET", "/api/registrations/pending");
-  assert.equal(pending.json.items.length, 2);
-  const approve = await s.req("POST", `/api/registrations/${pending.json.items[0].id}/approve`, { body: { clientName: "Valley Emergency Group", siteName: "Mesa", role: "Sync", approvalReason: "ok" }, headers: { "x-csrf-token": s.jar.csrf } });
-  assert.equal(approve.status, 200);
-  assert.equal((await s.req("GET", "/api/fleet/health")).json.totalCabinets, 7);
-
-  // Diagnostics complete in the sandbox.
-  const action = await s.req("POST", "/api/actions", { body: { action: "GetProcessList", cabinetId: id, reason: "test", parameters: {} }, headers: { "x-csrf-token": s.jar.csrf } });
-  assert.equal(action.status, 201);
-  assert.equal(action.json.status, "Dispatched");
-  assert.equal(s.calls.length, before, "no Server calls in demo mode");
+  // Your own account appears once, as the real one.
+  const users = (await s.req("GET", "/api/users")).json.items;
+  assert.equal(users.filter(u => u.id === ID).length, 1);
 
   const back = await switchMode(s, "live");
   assert.equal(back.json.mode, "live");
-  await s.req("GET", "/api/fleet/health");
-  assert.equal(s.calls.length, before + 1, "live mode reaches the Server again");
+  assert.equal((await s.req("GET", "/api/cabinets")).json.totalCount, 1, "live mode shows only real cabinets");
+});
+
+test("demo mode still works when the Server cannot list cabinets", async t => {
+  const s = await start(c => c.url.pathname === "/api/auth/login" ? [200, loginBody()] : [503, { title: "down" }]);
+  t.after(s.close);
+  await s.login();
+  await switchMode(s, "demo");
+  const cabinets = await s.req("GET", "/api/cabinets");
+  assert.equal(cabinets.status, 200);
+  assert.equal(cabinets.json.totalCount, 6);
 });
 
 test("demo sandboxes are per session and keep administrator rules", async t => {

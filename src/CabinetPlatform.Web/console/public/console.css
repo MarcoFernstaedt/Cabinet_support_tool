@@ -350,3 +350,7 @@ table.clickable tbody tr:hover, table.clickable tbody tr:focus-visible { backgro
 }
 .callout.info { background: var(--info-bg); color: var(--info); border-color: color-mix(in srgb, var(--info) 35%, transparent); }
 .callout.info a { color: var(--info); font-weight: 600; }
+
+.chip.live { background: var(--ok-bg); color: var(--ok); letter-spacing: 0.04em; font-size: 11px; }
+.callout.live { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.auth-help { margin: 14px 0 0; text-align: center; }

@@ -76,6 +76,8 @@ export function healthBadge(status = "Unknown") {
   return h("span", { class: `badge health-${String(status).toLowerCase()}` }, h("span", { "aria-hidden": "true" }, HEALTH_ICON[status] ?? "?"), " ", status);
 }
 export const chip = (text, kind = "") => h("span", { class: `chip ${kind}` }, text);
+// In Demo mode, real items from the support server carry source: "live".
+export const liveChip = item => item?.source === "live" ? h("span", { class: "chip live", title: "A real cabinet or record from the support server" }, "● LIVE") : null;
 
 export function statTile(label, value, { tone = "", href, note } = {}) {
   const body = [h("span", { class: "stat-label" }, label), h("strong", { class: "stat-value" }, value), note ? h("span", { class: "stat-note" }, note) : null];

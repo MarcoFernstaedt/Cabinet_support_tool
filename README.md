@@ -23,22 +23,24 @@ Physical cabinet sensors, drawer opening, lock release and cubie opening remain 
 1. `CabinetPlatform.Contracts` defines the messages shared across processes.
 2. `CabinetPlatform.Agent` collects machine information and performs named Windows actions through typed gateways.
 3. `CabinetPlatform.Server` owns support authorization, device registration, topology, approvals and result storage.
-4. `CabinetPlatform.Web` holds the **web Console** (`console/`): a secure backend-for-frontend and browser app for support staff and administrators, wired to the real Server API. See [web Console](docs/web-console.md). The older loopback-only preview pages in the same folder remain for reference.
-5. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
+4. `CabinetPlatform.Web` is the **web Console**: a sign-in page, then a secure backend-for-frontend and browser app for support staff and administrators, wired to the real Server API, with a Live/Demo switch. See [web Console](docs/web-console.md). The earlier preview pages are kept under `legacy-preview/`.
+5. `CabinetPlatform.DemoBff` is an earlier minimal password demo, superseded by the web Console and kept for its tests.
+6. `CabinetPlatform.WebHost` currently provides a fail-closed Entra sign-in boundary, not yet an authorized cabinet-data BFF. Integrating it with the web Console is a release gate.
 
 `CabinetPlatform.Console.Core` remains temporarily as a test dependency for Agent and Server safety regressions. The WPF executable and native shell harness are retired; neither is a product milestone or fallback. Move the remaining Core tests to Agent/Server test projects before removing Core.
 
-## Web Console demo
+## Quick start: demo with a real PC (e.g. the HP)
 
-One command starts the Server, the web Console and three simulated cabinet agents on this machine with synthetic data (needs the .NET 8 SDK and Node.js 20+):
+Needs the .NET 8 SDK, Node.js 20+ and Tailscale on a Linux host, and the Windows PC on the same tailnet. Full guide: [live Agent setup](docs/live-agent-setup.md).
 
-```text
-tools/demo/start-web-console-demo.sh
-```
+1. **Server and Console.** Run `tools/live/start-web-console-live.sh --tailscale`. Open the printed Console address. It starts on the **sign-in page**: sign in as `admin` with the printed one-time password, then set your own.
+2. **Agent on the PC.** Run `tools/live/build-agent-package.sh`, copy the folder to the PC, and in an elevated PowerShell run the printed `Install-CabinetAgent.ps1` command. Paste the agent key from the secrets file when prompted.
+3. **Approve it.** In the Console go to **Administration → Enrollment**, check the machine ID and approve.
+4. **Demo.** Go to **Settings → Data source → Demo**. The sample fleet appears alongside your PC, which is marked **● LIVE**. Open the PC, then **Run diagnostic → Run an event log view → Recent errors and warnings**: the Events tab shows the PC's real Windows event log entries. Processes, services, disks, network and updates are real too.
 
-**Real machine:** to put the Windows Agent on a real PC (e.g. the HP lab laptop) and see its actual event logs, processes and health, follow [live Agent setup](docs/live-agent-setup.md) (`tools/live/start-web-console-live.sh --tailscale`, `tools/live/build-agent-package.sh`, then `Install-CabinetAgent.ps1` on the PC). **Sample data:** any signed-in user can switch to **Settings → Demo** for a built-in sample fleet that never touches the Server.
+**Without a PC:** `tools/demo/start-web-console-demo.sh` runs everything on one machine with simulated agents, a good rehearsal of the onboarding flow.
 
-For the simulated-agent rehearsal: open `http://127.0.0.1:4180`, sign in as `admin` with the printed one-time password, set your own password, approve the waiting cabinets under **Enrollment**, add support staff under **Staff accounts**, then sign in as them to work the fleet. The full walkthrough, role matrix and security model are in [docs/web-console.md](docs/web-console.md).
+Roles, Live/Demo modes and the security model are in [docs/web-console.md](docs/web-console.md).
 
 ## Build and test
 
@@ -62,7 +64,7 @@ Do not run the agent, network changes, updates or process controls on a producti
 
 Read the [current source-versus-live tracker](docs/build-tracker.md) for implemented behavior, incomplete wiring and verification limits.
 
-1. [Web Console: demo, roles and security model](docs/web-console.md)
+1. [Web Console: sign-in, roles, Live/Demo and security model](docs/web-console.md)
 1. [Live Agent setup on a real Windows PC](docs/live-agent-setup.md)
 1. [Product requirements](docs/requirements.md)
 2. [Architecture and data flow](docs/architecture.md)

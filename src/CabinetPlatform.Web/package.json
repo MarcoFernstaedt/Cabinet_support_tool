@@ -1,13 +1,14 @@
 {
-  "name": "cabinet-support-web-preview",
+  "name": "cabinet-support-web",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "start": "node server.mjs",
-    "demo": "node demo-server.mjs",
-    "console": "node console/console-server.mjs"
+    "start": "node console/console-server.mjs",
+    "console": "node console/console-server.mjs",
+    "legacy:preview": "node legacy-preview/server.mjs",
+    "legacy:static-demo": "node legacy-preview/demo-server.mjs"
   },
   "devDependencies": {
     "jsdom": "^26.1.0"

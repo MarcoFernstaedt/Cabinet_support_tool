@@ -3,7 +3,7 @@
 // ctx.isAdmin. The Server enforces every permission; hiding is presentation only.
 import { get, post, patch, put } from "./api.js";
 import {
-  h, clear, ago, dateTime, pct, bytes, duration, splitWords, healthBadge, chip, statTile, card, facts,
+  h, clear, ago, dateTime, pct, bytes, duration, splitWords, healthBadge, chip, liveChip, statTile, card, facts,
   empty, loading, errorBox, table, pager, toast, formDialog,
 } from "./ui.js";
 import { percentChart } from "./chart.js";
@@ -40,7 +40,9 @@ export async function dashboardView({ ctx }) {
     get("/api/actions", { pageSize: 6 }),
   ]);
   const order = { Critical: 0, Offline: 1, Warning: 2, Unknown: 3, Healthy: 4 };
-  const attention = cabinets.items.filter(c => c.health !== "Healthy").sort((a, b) => order[a.health] - order[b.health]).slice(0, 8);
+  // In Demo mode real cabinets are always listed first, whatever their health.
+  const attention = cabinets.items.filter(c => c.health !== "Healthy" || c.source === "live")
+    .sort((a, b) => (b.source === "live") - (a.source === "live") || order[a.health] - order[b.health]).slice(0, 8);
   const first = ctx.session.user.displayName.split(" ")[0];
 
   return h("div", { class: "page" },
@@ -52,6 +54,11 @@ export async function dashboardView({ ctx }) {
         h("span", null, h("strong", null, "No cabinets are connected yet. "),
           ctx.isAdmin ? "Install the Windows Agent on a cabinet PC or lab laptop; it will appear under Enrollment for approval." : "An administrator needs to install and approve an Agent first."),
         h("a", { href: "#/settings" }, ctx.isAdmin ? "Agent setup and Demo mode →" : "Try Demo mode in Settings →"))
+      : null,
+    ctx.isDemo && health.liveCabinets
+      ? h("a", { class: "callout live", href: "#/cabinets" },
+        h("span", null, h("strong", null, `${health.liveCabinets} real cabinet${health.liveCabinets === 1 ? "" : "s"} `), "shown alongside the sample fleet. Look for the ", h("strong", null, "● LIVE"), " badge — its data and diagnostics are real."),
+        h("span", null, "Open cabinets →"))
       : null,
     ctx.isAdmin && health.pendingRegistrations > 0
       ? h("a", { class: "callout", href: "#/admin/enrollment" },
@@ -70,7 +77,7 @@ export async function dashboardView({ ctx }) {
         rows: attention, emptyText: health.totalCabinets ? "Every active cabinet is healthy." : "No cabinets to show yet.",
         onRow: c => ctx.navigate(`/cabinets/${c.id}`),
         columns: [
-          { label: "Cabinet", render: c => h("a", { href: `#/cabinets/${c.id}` }, cabinetName(c)) },
+          { label: "Cabinet", render: c => h("span", { class: "row gap" }, h("a", { href: `#/cabinets/${c.id}` }, cabinetName(c)), liveChip(c)) },
           { label: "Site", render: c => `${c.clientName} · ${c.siteName}` },
           { label: "Health", render: c => healthBadge(c.health) },
           { label: "Last check-in", render: c => ago(c.lastCheckInUtc) },
@@ -122,7 +129,7 @@ export async function cabinetsView({ query, ctx }) {
         rows: data.items, caption: "Cabinets", emptyText: filters.search ? `No cabinets match “${filters.search}”.` : "No cabinets are enrolled yet. Approve a pending agent under Enrollment to add one.",
         onRow: c => ctx.navigate(`/cabinets/${c.id}`),
         columns: [
-          { label: "Cabinet", render: c => h("div", { class: "cell-stack" }, h("a", { href: `#/cabinets/${c.id}` }, cabinetName(c)), h("small", null, c.hostname)) },
+          { label: "Cabinet", render: c => h("div", { class: "cell-stack" }, h("span", { class: "row gap" }, h("a", { href: `#/cabinets/${c.id}` }, cabinetName(c)), liveChip(c)), h("small", null, c.hostname)) },
           { label: "Client · Site", render: c => h("div", { class: "cell-stack" }, h("span", null, c.clientName), h("small", null, [c.siteName, c.departmentName].filter(Boolean).join(" · "))) },
           { label: "Role", render: c => chip(c.role) },
           { label: "Health", render: c => c.isActive ? healthBadge(c.health) : chip("Retired", "muted") },
@@ -167,7 +174,7 @@ async function requestDiagnostic(cabinet, ctx, preset) {
   if (!usable.length) return toast("No diagnostics are available for this cabinet.", "error");
   const fields = [
     { name: "action", label: "Diagnostic", type: "select", required: true, value: preset ?? usable[0].action, options: usable.map(a => ({ value: a.action, label: a.displayName })) },
-    { name: "view", label: "Event log view (for “Run an event log view”)", type: "select", value: views.items[0]?.id, options: views.items.map(v => ({ value: v.id, label: v.displayName })) },
+    { name: "view", label: "Event log view (for “Run an event log view”)", type: "select", value: (views.items.find(v => v.displayName === "Recent errors and warnings") ?? views.items[0])?.id, options: views.items.map(v => ({ value: v.id, label: v.displayName })) },
     { name: "reason", label: "Reason", type: "textarea", required: true, placeholder: "e.g. Ticket 1042 – user reports dispensing UI freezing", maxlength: 500 },
     { name: "ticket", label: "Ticket reference", maxlength: 64 },
   ];
@@ -235,7 +242,7 @@ export async function cabinetView({ params: [id, tabParam], ctx }) {
     h("header", { class: "cabinet-head" },
       h("div", { class: "cabinet-title" },
         h("h1", null, cabinetName(c)),
-        h("div", { class: "row gap wrap" }, c.isActive ? healthBadge(c.health) : chip("Retired", "muted"), chip(c.role), c.departmentName ? chip(c.departmentName) : null,
+        h("div", { class: "row gap wrap" }, liveChip(detail), c.isActive ? healthBadge(c.health) : chip("Retired", "muted"), chip(c.role), c.departmentName ? chip(c.departmentName) : null,
           h("span", { class: "muted" }, `${c.hostname} · last check-in ${ago(c.lastCheckInUtc)}`))),
       h("div", { class: "page-actions" },
         c.isActive ? h("button", { class: "btn primary", onclick: () => requestDiagnostic(c, ctx) }, "Run diagnostic") : null,
@@ -561,7 +568,7 @@ function alertsTable(rows, ctx) {
   return table({
     rows, emptyText: "No connectivity alerts.",
     columns: [
-      { label: "Source cabinet", render: a => h("a", { href: `#/cabinets/${a.sourceCabinetId}` }, a.sourceName || "Cabinet") },
+      { label: "Source cabinet", render: a => h("span", { class: "row gap" }, h("a", { href: `#/cabinets/${a.sourceCabinetId}` }, a.sourceName || "Cabinet"), liveChip(a)) },
       { label: "Target", render: a => h("a", { href: `#/cabinets/${a.targetCabinetId}` }, "Sync cabinet") },
       { label: "Site", render: a => `${a.clientName} · ${a.siteName}` },
       { label: "Evidence", render: a => a.incidentEvidence ? `${a.incidentEvidence.failureCount} no-reply / ${a.incidentEvidence.successCount} replies` : "—" },

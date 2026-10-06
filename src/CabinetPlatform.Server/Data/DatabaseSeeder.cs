@@ -151,6 +151,20 @@ public sealed class DatabaseSeeder
 
         var defaults = new[]
         {
+            // The first view to reach for on an unfamiliar machine: everything
+            // Windows itself judged a warning or worse, from the two logs that
+            // explain most support calls. No source or id filter, so it works
+            // on any Windows PC, not only one running the cabinet software.
+            new SeededView(
+                "Recent errors and warnings",
+                "Every warning, error and critical event from the Application and System logs.",
+                new[] { EventLogName.Application, EventLogName.System },
+                Array.Empty<string>(),
+                Array.Empty<int>(),
+                EventLogLevel.Warning,
+                DefaultWindowHours: 24,
+                MaximumEntries: 200),
+
             new SeededView(
                 "CUBEX application errors",
                 "Errors and warnings from the CUBEX and ZIMBIS application stack.",

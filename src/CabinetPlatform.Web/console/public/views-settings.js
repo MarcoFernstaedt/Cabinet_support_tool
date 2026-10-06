@@ -23,7 +23,7 @@ export async function settingsView({ ctx }) {
       choice({
         name: "mode", value: "demo", current: mode, title: "Demo",
         description: s.demoAvailable
-          ? "A sample fleet for training and sales demos. Nothing you do is saved or sent to the support server."
+          ? "A sample fleet for training and sales demos, shown alongside your real cabinets (marked LIVE). Changes to sample items are never saved; actions on LIVE cabinets are real."
           : "Disabled on this Console by its administrator.",
         disabled: !s.demoAvailable,
         onSelect: v => ctx.setMode(v).catch(err => toast(err.title ?? "Could not switch.", "error")),
@@ -53,7 +53,7 @@ export async function settingsView({ ctx }) {
       ? facts([["Server address for agents", h("code", null, s.agentServerUrl)], ["Agent key", "The value of AGENT_KEY in the live secrets file on the server host. Never share it in chat or email."]])
       : h("p", { class: "notice" }, "The agent server address is not configured on this Console (CONSOLE_AGENT_SERVER_URL)."),
     h("p", null, "Full steps: ", h("code", null, "docs/live-agent-setup.md"), " in the repository."),
-    mode === "demo" ? h("p", null, chip("Demo mode", "warn"), " Switch to Live to see agents you install.") : null,
+    mode === "demo" ? h("p", null, chip("Demo mode", "warn"), " Agents you install also appear here, marked ● LIVE.") : null,
   ]) : null;
 
   return h("div", { class: "page narrow-wide" },

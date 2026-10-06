@@ -126,7 +126,7 @@ function ensureShell() {
           h("button", { class: "btn ghost", onclick: signOut }, "Sign out"))),
       ctx.isDemo ? h("div", { class: "demo-banner", role: "note" },
         h("strong", null, "Demo mode"),
-        h("span", null, " — you are looking at a sample fleet. Changes stay in this session and never reach the support server."),
+        h("span", null, " — sample cabinets are shown alongside your real ones (marked ● LIVE). Changes to sample cabinets stay in this session; diagnostics and decisions on LIVE items are real."),
         h("button", { class: "btn small", onclick: () => ctx.setMode("live") }, "Switch to live data")) : null,
       h("main", { id: "main", tabindex: "-1" })));
   clear(app).append(shell);
@@ -219,10 +219,12 @@ function renderLogin(message) {
     }
   } },
   h("h1", null, "Sign in"),
+  h("p", { class: "muted" }, "Use the account your administrator created for you."),
   message ? h("p", { class: "notice" }, message) : null,
   h("div", { class: "field" }, h("label", { for: "username" }, "Username"), user),
   h("div", { class: "field" }, h("label", { for: "password" }, "Password"), pass),
-  errorEl, button);
+  errorEl, button,
+  h("p", { class: "hint auth-help" }, "Forgot your password or locked out? Ask a Cabinet Support administrator to unlock your account."));
   clear(app).append(authFrame(form));
   user.focus();
 }

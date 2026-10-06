@@ -46,6 +46,14 @@ public sealed class EventLogViewTests : IClassFixture<SupportApiFactory>
         Assert.Contains("Windows Update client", names);
         Assert.Contains("Disk and storage", names);
         Assert.Contains("Service control manager", names);
+        Assert.Contains("Recent errors and warnings", names);
+
+        // The general view has no source or id filter, so it returns results on
+        // any Windows machine rather than only one running the cabinet stack.
+        EventLogViewDto general = views.Items.Single(v => v.DisplayName == "Recent errors and warnings");
+        Assert.Empty(general.Sources);
+        Assert.Empty(general.EventIds);
+        Assert.Equal(EventLogLevel.Warning, general.MinimumLevel);
 
         // The sharpest filter is the event id list: the ids that mean a disk is
         // retrying reads are worth more than every warning the disk stack emits.

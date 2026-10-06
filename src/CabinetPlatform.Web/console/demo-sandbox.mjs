@@ -1,11 +1,11 @@
-// Demo mode: an in-memory, per-session imitation of the Cabinet Server API.
+// Demo mode: an in-memory, per-session sample fleet in the shape of the
+// Cabinet Server API.
 //
-// When a signed-in user switches the Console to Demo mode, every allowlisted
-// /api call is answered here instead of by the Server. Responses use the same
-// shapes as the Server's contracts, so the UI is identical. Changes made in
-// demo mode (approvals, new staff, diagnostics, alert notes) live only in this
-// session's sandbox and vanish on sign-out. Nothing reaches the real Server,
-// its database or its audit log.
+// In Demo mode the Console shows these sample cabinets *together with* the
+// real ones (see demoDispatch in console-server.mjs): requests about a sample
+// item are answered here, requests about a real item go to the Server, and
+// lists are merged. Changes to sample items (approvals, new staff, diagnostics,
+// alert notes) live only in this session's sandbox and vanish at sign-out.
 import { randomUUID } from "node:crypto";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -112,6 +112,10 @@ export function createDemoSandbox({ user, clock = () => Date.now() }) {
   ];
   const actions = [];
   const audit = [];
+  // Saved event log views. In Demo mode the real Server's views replace these,
+  // so one view list works for both sample and real cabinets.
+  let views = VIEWS;
+  const viewById = id => views.find(v => v.id === id) ?? VIEWS.find(v => v.id === id);
   const actorName = () => me.displayName;
 
   function log(event, { cabinet, result = "Success", reason, actor = "user" } = {}) {
@@ -268,9 +272,9 @@ export function createDemoSandbox({ user, clock = () => Date.now() }) {
   }
   function eventResult(c, a) {
     const v = actionView(a);
-    const view = VIEWS.find(x => x.id === a.parameters.eventLogViewId) ?? VIEWS[0];
+    const view = viewById(a.parameters.eventLogViewId) ?? VIEWS[0];
     const state = v.status === "Completed" ? "complete" : v.status === "Expired" ? "failed" : "pending";
-    const channels = view.logNames;
+    const channels = (view.logNames?.length ? view.logNames : ["Application", "System"]).map(String);
     const entries = state !== "complete" ? [] : Array.from({ length: 14 }, (_, i) => EVENT_SOURCES[(i * 3 + c.index) % EVENT_SOURCES.length])
       .filter(([channel]) => channels.includes(channel))
       .map(([channel, provider, eventId, level, message], i) => ({ channel, provider, level, eventId, occurredAt: iso(a.requested - (i + 1) * 53 * MIN), message }));
@@ -379,13 +383,13 @@ export function createDemoSandbox({ user, clock = () => Date.now() }) {
     if (!c || !c.active) return problem(404, "Cabinet not found.");
     if (!CATALOG.some(x => x.action === b.action)) return problem(400, "That diagnostic is not available.");
     if (!reason) return problem(400, "A reason is required.");
-    const parameters = b.action === "RunEventLogView" ? { eventLogViewId: VIEWS.some(v => v.id === b.parameters?.eventLogViewId) ? b.parameters.eventLogViewId : VIEWS[0].id } : {};
+    const parameters = b.action === "RunEventLogView" ? { eventLogViewId: viewById(String(b.parameters?.eventLogViewId ?? "").toLowerCase())?.id ?? views[0].id } : {};
     const a = { id: randomUUID(), action: b.action, cabinetId: c.id, parameters, reason, ticket: text(b.ticketReference, 64), by: users[0], requested: clock() };
     actions.push(a);
     log("RequestAction", { cabinet: c, reason });
     return [201, actionView(a)];
   });
-  on("GET", "/api/event-log-views", q => [200, paged(VIEWS, q)]);
+  on("GET", "/api/event-log-views", q => [200, paged(views, q)]);
   on("GET", "/api/connectivity-alerts", q => {
     const siteId = q.get("siteId"), includeResolved = q.get("includeResolved") === "true";
     return [200, paged(alerts.filter(a => (includeResolved || a.status !== "Resolved") && (!siteId || a.source.siteId === siteId)).sort((a, b) => b.received - a.received).map(alertDto), q)];
@@ -497,7 +501,15 @@ export function createDemoSandbox({ user, clock = () => Date.now() }) {
     return [204];
   });
 
+  const owned = () => [cabinets, sites, actions, alerts, registrations, users.slice(1), VIEWS].flatMap(list => list.map(x => x.id));
   return {
+    // True when an ID belongs to this sandbox. The signed-in user's own
+    // account is real, so it is never owned here.
+    owns: id => owned().includes(String(id).toLowerCase()),
+    useViews(list) {
+      const valid = list.filter(v => typeof v?.id === "string" && typeof v.displayName === "string");
+      if (valid.length) views = valid.map(v => ({ ...v, id: v.id.toLowerCase() }));
+    },
     handle(method, path, query, body) {
       for (const r of routes) {
         if (r.method !== method) continue;

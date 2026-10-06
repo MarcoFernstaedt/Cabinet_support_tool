@@ -1,6 +1,6 @@
 # Live setup: real Agent on a Windows PC (e.g. the HP lab laptop)
 
-This connects the real Windows Agent to a real Cabinet Server so the web Console shows that machine's actual health, services, processes and Windows event logs. For sample data, use **Settings → Data source → Demo** in the Console instead; demo data never touches this Server.
+This connects the real Windows Agent to a real Cabinet Server so the web Console shows that machine's actual health, services, processes and Windows event logs. In **Settings → Data source → Demo**, the PC appears alongside a sample fleet, marked **● LIVE**, and its data stays real. That makes it a good demo: a full-looking fleet with one real machine you can open and inspect.
 
 ```text
  Windows PC (HP)                 Linux server host (on your tailnet)
@@ -81,7 +81,7 @@ The default check-in is every 60 seconds (`-CheckInSeconds` to change it, minimu
 
 Open the cabinet and use the tabs. Overview, Performance, Services, Storage, Network, Updates and System come from the Agent's regular check-ins. Click **Run diagnostic** to see:
 
-- **Run an event log view.** Real Application/System events from the PC that match a saved view (e.g. "CUBEX application errors"; administrators can tailor views). Results appear on the **Events** tab.
+- **Run an event log view → Recent errors and warnings.** The PC's real Application and System warnings, errors and critical events from the last 24 hours. Results appear on the **Events** tab. The other saved views (e.g. "CUBEX application errors") filter for cabinet software, so they may be empty on a laptop.
 - **View process list.** The PC's actual processes with CPU and memory, on the **Processes** tab.
 - Firewall, display and scheduled-update reads are also available.
 

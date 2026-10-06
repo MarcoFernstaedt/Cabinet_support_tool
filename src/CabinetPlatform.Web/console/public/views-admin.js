@@ -2,7 +2,7 @@
 // The Server's Supervisor policy is authoritative; the BFF refuses these
 // routes for support tiers too.
 import { get, post, patch } from "./api.js";
-import { h, ago, dateTime, chip, card, facts, empty, table, toast, formDialog, roleLabel } from "./ui.js";
+import { h, ago, dateTime, chip, liveChip, card, facts, empty, table, toast, formDialog, roleLabel } from "./ui.js";
 
 const ROLES = ["Sync", "Satellite", "Standalone"];
 
@@ -36,7 +36,7 @@ export async function enrollmentView({ query, ctx }) {
 function registrationCard(r, status, sites, ctx) {
   return h("article", { class: "enroll-card" },
     h("div", { class: "enroll-main" },
-      h("div", { class: "row gap wrap" }, h("h2", null, r.hostname), chip(r.status, r.status === "Pending" ? "warn" : r.status === "Approved" ? "ok" : "crit")),
+      h("div", { class: "row gap wrap" }, h("h2", null, r.hostname), liveChip(r), chip(r.status, r.status === "Pending" ? "warn" : r.status === "Approved" ? "ok" : "crit")),
       facts([
         ["Machine ID", h("code", null, r.machineId)],
         ["Operating system", r.osVersion ?? "—"],
@@ -120,7 +120,7 @@ export async function staffView({ ctx }) {
     card(null, table({
       rows, emptyText: "No staff accounts.",
       columns: [
-        { label: "Name", render: u => h("div", { class: "cell-stack" }, h("strong", null, u.displayName, u.id === me ? " (you)" : ""), h("small", null, u.username)) },
+        { label: "Name", render: u => h("div", { class: "cell-stack" }, h("span", { class: "row gap" }, h("strong", null, u.displayName, u.id === me ? " (you)" : ""), liveChip(u)), h("small", null, u.username)) },
         { label: "Role", render: u => chip(roleLabel(u.role), u.role === "Supervisor" ? "admin" : "") },
         { label: "Status", render: statusChips },
         { label: "Last sign-in", render: u => u.lastLoginUtc ? h("span", { title: dateTime(u.lastLoginUtc) }, ago(u.lastLoginUtc)) : "Never" },

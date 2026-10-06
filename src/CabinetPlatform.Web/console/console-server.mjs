@@ -78,6 +78,33 @@ export const ROUTES = [
   ["POST", `/api/cabinets/${G}/retire`, { supervisor: true }],
 ].map(([method, pattern, flags = {}]) => ({ method, regex: new RegExp(`^${pattern}$`), ...flags }));
 
+const GUIDS = new RegExp(G, "g");
+const tagLive = item => (item && typeof item === "object" ? { ...item, source: "live" } : item);
+const TIME_KEYS = ["timestampUtc", "requestedUtc", "receivedUtc", "firstSeenUtc"];
+
+// Real items first (or newest first for time-ordered feeds), counts summed.
+export function mergePages(real, demo) {
+  const seen = new Set(real.items.map(i => i?.id));
+  let items = [...real.items.map(tagLive), ...demo.items.filter(i => !seen.has(i?.id))];
+  const key = TIME_KEYS.find(k => items.length && items.every(i => typeof i?.[k] === "string"));
+  if (key) items.sort((a, b) => String(b[key]).localeCompare(String(a[key])));
+  const totalCount = (real.totalCount ?? 0) + (demo.totalCount ?? 0);
+  const pageSize = Math.max(real.pageSize ?? 0, demo.pageSize ?? 0) || items.length;
+  const totalPages = Math.max(real.totalPages ?? 0, demo.totalPages ?? 0);
+  return { ...demo, items, totalCount, pageSize, totalPages, hasMore: Boolean(real.hasMore || demo.hasMore) };
+}
+
+export function mergeHealth(real, demo) {
+  const out = { ...demo };
+  for (const [k, v] of Object.entries(real)) if (typeof v === "number" && typeof demo[k] === "number" && !/Hours$/.test(k)) out[k] = v + demo[k];
+  out.disks = Object.fromEntries(Object.keys(demo.disks ?? {}).map(k => [k, (demo.disks[k] ?? 0) + (real.disks?.[k] ?? 0)]));
+  const versions = new Map();
+  for (const v of [...(real.agentVersions ?? []), ...(demo.agentVersions ?? [])]) versions.set(v.version, (versions.get(v.version) ?? 0) + v.cabinetCount);
+  out.agentVersions = [...versions].map(([version, cabinetCount]) => ({ version, cabinetCount }));
+  out.liveCabinets = real.totalCabinets ?? 0;
+  return out;
+}
+
 export function matchRoute(method, path) {
   return ROUTES.find(r => r.method === method && r.regex.test(path)) ?? null;
 }
@@ -366,21 +393,57 @@ export function createConsoleServer({
     if (query.length > LIMITS.queryParams || query.some(([k, v]) => !/^[A-Za-z][A-Za-z0-9]{0,39}$/.test(k) || v.length > LIMITS.queryValueLength))
       return send(res, 400, { title: "Invalid query." });
     const body = req.method === "GET" ? undefined : (await readBody(req)) ?? {};
-    if (s.mode === "demo") {
-      // Demo data never touches the Server. Same route allowlist and role
-      // checks as live mode have already run above.
-      const [status, data] = s.sandbox.handle(req.method, url.pathname, url.searchParams, body);
-      return send(res, status === 204 ? 200 : status, data ?? {});
-    }
-    if (!(await ensureFresh(s))) { sessions.remove(key); setCookie(res, "", true); return send(res, 401, { title: "Your session has ended. Sign in again." }); }
-    const r = await upstreamCall(req.method, url.pathname, { bearer: s.accessToken, body, query });
-    if (r.status === 401) { sessions.remove(key); setCookie(res, "", true); return send(res, 401, { title: "Your session has ended. Sign in again." }); }
+    const result = s.mode === "demo" ? await demoDispatch(req.method, url, body, s) : await live(req.method, url.pathname, url.searchParams, body, s);
+    if (result.ended) { sessions.remove(key); setCookie(res, "", true); return send(res, 401, { title: "Your session has ended. Sign in again." }); }
+    return send(res, result.status, result.data);
+  }
+
+  // One call to the Server on the session's behalf. Returns { status, data }
+  // ready to send, or { ended: true } when the Server no longer accepts the session.
+  async function live(method, path, searchParams, body, s) {
+    if (!(await ensureFresh(s))) return { ended: true };
+    const r = await upstreamCall(method, path, { bearer: s.accessToken, body, query: [...searchParams] });
+    if (r.status === 401) return { ended: true };
     if (r.status >= 200 && r.status < 300) {
-      if (!r.text) return send(res, r.status === 204 ? 200 : r.status, {});
-      try { return send(res, r.status, JSON.parse(r.text)); } catch { return send(res, 502, { title: "Unexpected response from the support server." }); }
+      if (!r.text) return { status: r.status === 204 ? 200 : r.status, data: {} };
+      try { return { status: r.status, data: JSON.parse(r.text) }; } catch { return { status: 502, data: { title: "Unexpected response from the support server." } }; }
     }
-    if (r.status >= 300 && r.status < 400) return send(res, 502, { title: "Unexpected response from the support server." });
-    return send(res, r.status, problemFrom(r.status, r.text));
+    if (r.status >= 300 && r.status < 400) return { status: 502, data: { title: "Unexpected response from the support server." } };
+    return { status: r.status, data: problemFrom(r.status, r.text) };
+  }
+
+  // Demo mode = the session's sample fleet *plus* the real fleet. A request
+  // about one thing (a cabinet, registration, action, alert, user, site) goes
+  // to whichever side owns that ID, so real cabinets keep real diagnostics and
+  // event logs. Lists are merged, real items first and tagged source:"live".
+  // New things that are not tied to a real cabinet (e.g. a new staff account)
+  // are created only in the sandbox.
+  async function demoDispatch(method, url, body, s) {
+    const box = s.sandbox;
+    const sandbox = () => { const [status, data] = box.handle(method, url.pathname, url.searchParams, body); return { status: status === 204 ? 200 : status, data: data ?? {} }; };
+    const ids = [
+      ...(url.pathname.match(GUIDS) ?? []),
+      ...["cabinetId", "siteId", "sourceCabinetId"].map(k => url.searchParams.get(k)).filter(Boolean),
+      ...(typeof body?.cabinetId === "string" ? [body.cabinetId] : []),
+    ].map(v => v.toLowerCase());
+    const tagged = async promise => { const r = await promise; if (r.data && typeof r.data === "object" && !Array.isArray(r.data) && r.status < 300) r.data = { ...r.data, source: "live" }; return r; };
+    if (ids.length) return ids.some(id => box.owns(id)) ? sandbox() : tagged(live(method, url.pathname, url.searchParams, body, s));
+    if (method !== "GET") return sandbox();
+    if (url.pathname === "/api/auth/me") return live(method, url.pathname, url.searchParams, body, s);
+
+    const demo = sandbox();
+    let real;
+    try { real = await live(method, url.pathname, url.searchParams, body, s); }
+    catch (e) { log(`demo merge: live unavailable for ${url.pathname}: ${e.message}`); return demo; }
+    if (real.ended) return real;
+    if (real.status !== 200) return demo; // the sample fleet still works if the Server is down
+
+    if (url.pathname === "/api/actions/catalog") return real;
+    if (url.pathname === "/api/event-log-views") { box.useViews(real.data.items ?? []); return real; }
+    if (url.pathname === "/api/fleet/health") return { status: 200, data: mergeHealth(real.data, demo.data) };
+    if (Array.isArray(real.data) && Array.isArray(demo.data)) return { status: 200, data: [...real.data.map(tagLive), ...demo.data] };
+    if (Array.isArray(real.data?.items) && Array.isArray(demo.data?.items)) return { status: 200, data: mergePages(real.data, demo.data) };
+    return demo.status === 200 ? demo : real;
   }
 
   async function handle(req, res) {

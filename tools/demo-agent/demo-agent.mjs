@@ -158,7 +158,9 @@ function eventView(action) {
   const def = JSON.parse(action.parameters.eventLogViewDefinition);
   const channels = [...(def.logNames ?? []).map(String), ...(def.channelNames ?? [])];
   const sources = def.sources?.length ? def.sources : ["Application Error", "Service Control Manager", "MashuraCabinetService"];
-  const levels = ["Error", "Warning", "Information"];
+  // Honour the view's minimum level the way the real Agent's query does.
+  const rank = { Verbose: 1, Information: 2, Warning: 3, Error: 4, Critical: 5 };
+  const levels = ["Error", "Warning", "Information", "Critical"].filter(l => rank[l] >= (rank[def.minimumLevel] ?? 0));
   const max = Math.min(def.maximumEntries ?? 50, 12);
   const entries = Array.from({ length: max }, (_, i) => {
     const channel = channels[i % channels.length];

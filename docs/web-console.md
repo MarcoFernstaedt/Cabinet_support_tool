@@ -4,14 +4,22 @@ The web Console replaces the retired Windows (WPF) support console. It keeps the
 
 Source: `src/CabinetPlatform.Web/console/` (server: `console-server.mjs`, browser app: `public/`). No build step and no runtime npm dependencies.
 
+## Signing in
+
+The Console opens on a sign-in page; nothing else is reachable without an account.
+
+- **First administrator.** The Server creates `admin` the first time its database is created, with a one-time password the launch scripts generate and print. The first sign-in requires choosing a new password before anything else opens.
+- **Everyone else.** Administrators create accounts under **Administration → Staff accounts** with a generated temporary password. Each person sets their own password at first sign-in.
+- **Forgotten password or lockout.** An administrator can unlock an account or deactivate it and create a new one. There is no self-service reset.
+
 ## Live and Demo modes
 
 **Settings → Data source** switches each signed-in user between:
 
-- **Live:** real cabinets and agents through the Cabinet Server. See [live Agent setup](live-agent-setup.md) to connect a real Windows PC such as the HP lab laptop.
-- **Demo:** a built-in sample fleet (6 cabinets, 3 sites, pending enrollments, alerts, staff, event logs and process lists). Demo data is generated inside the Console for your session only. Approvals, new staff, diagnostics and alert notes made in Demo mode never reach the Server, its database or its audit log, and they vanish at sign-out. A banner and a "Demo data" badge stay on screen the whole time. The same role rules apply: support users still can't open administrator pages.
+- **Live:** only real cabinets and agents, from the Cabinet Server. See [live Agent setup](live-agent-setup.md) to connect a real Windows PC such as the HP lab laptop.
+- **Demo:** a built-in sample fleet (6 cabinets, 3 sites, pending enrollments, alerts, staff, event logs and process lists) **shown together with your real cabinets**. Real items carry a **● LIVE** badge, are listed first, and keep their real data: opening a LIVE cabinet, running a diagnostic on it or reading its event logs talks to the real Agent through the Server. Sample items live only in your session: approvals, new staff, diagnostics and alert notes on them never reach the Server and vanish at sign-out. A new staff account created in Demo mode is always a sample account. If the Server is unreachable, Demo still shows the sample fleet.
 
-Set `CONSOLE_DEMO=disabled` to remove Demo mode from a Console.
+A banner and a "Demo data" badge stay on screen in Demo mode. The same role rules apply: support users still can't open administrator pages. Set `CONSOLE_DEMO=disabled` to remove Demo mode from a Console.
 
 ## Quick start: full demo on one machine
 
