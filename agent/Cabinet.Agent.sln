@@ -11,6 +11,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{CD273665
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.Contracts.Tests", "tests\Cabinet.Agent.Contracts.Tests\Cabinet.Agent.Contracts.Tests.csproj", "{69FE3E89-42F8-4A0B-8A8B-EDEA5D2664EC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.Core", "src\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj", "{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cabinet.Agent.Core.Tests", "tests\Cabinet.Agent.Core.Tests\Cabinet.Agent.Core.Tests.csproj", "{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -28,9 +32,19 @@ Global
 		{69FE3E89-42F8-4A0B-8A8B-EDEA5D2664EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{69FE3E89-42F8-4A0B-8A8B-EDEA5D2664EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{69FE3E89-42F8-4A0B-8A8B-EDEA5D2664EC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{75B2273C-96C1-49F6-BFA1-69ABD37759C7} = {218CA183-15FB-4CC2-80BA-32ABA5253FE3}
 		{69FE3E89-42F8-4A0B-8A8B-EDEA5D2664EC} = {CD273665-652A-403A-ACD7-DD1052371F0E}
+		{16F7D45B-C59E-4288-B94A-3A0F89D1D3A9} = {218CA183-15FB-4CC2-80BA-32ABA5253FE3}
+		{2535B4A3-4CF1-403C-AA44-0F7F0FB3466D} = {CD273665-652A-403A-ACD7-DD1052371F0E}
 	EndGlobalSection
 EndGlobal

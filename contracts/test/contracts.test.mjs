@@ -32,7 +32,7 @@ function examples() {
 function schemaFor(target) {
   const parts = target.split("/");
   if (parts[0] === "operations") return ref(`operations/${parts[1]}.schema.json`, parts[2]);
-  return ref(`envelopes/${parts[1]}.schema.json`);
+  return ref(`${parts[0]}/${parts[1]}.schema.json`);
 }
 
 const all = examples();
@@ -61,8 +61,19 @@ test("every envelope and every operation has a valid example, and every operatio
     for (const def of ["params", "output"]) assert.ok(has(`operations/${name}/${def}`, "valid"), `${name} ${def} needs a valid example`);
     assert.ok(has(`operations/${name}/params`, "invalid"), `${name} params needs a hostile example`);
   }
-  for (const { file } of readSchemas().filter(s => s.file.startsWith("envelopes/")))
-    assert.ok(has(`envelopes/${file.slice(10, -12)}`, "valid"), `${file} needs a valid example`);
+  for (const { file } of readSchemas().filter(s => s.file.startsWith("envelopes/") || s.file.startsWith("agent/"))) {
+    assert.ok(has(file.slice(0, -12), "valid"), `${file} needs a valid example`);
+    assert.ok(has(file.slice(0, -12), "invalid"), `${file} needs a hostile example`);
+  }
+});
+
+test("the broker accepts only read operations that exist in the catalog", () => {
+  const request = JSON.parse(readFileSync(join(SCHEMA_DIR, "agent", "broker-request.schema.json"), "utf8"));
+  for (const op of request.properties.operation.enum) {
+    const entry = readCatalog().operations.find(o => o.name === op);
+    assert.ok(entry, `${op} must be in the catalog`);
+    assert.equal(entry.kind, "read", `${op}: write operations reach the broker only from milestone 5`);
+  }
 });
 
 test("the catalog, the operation name list and the operation files agree", () => {

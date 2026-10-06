@@ -48,6 +48,9 @@ public static class ExampleData
             "enroll-status" => typeof(EnrollStatus),
             "renew-request" => typeof(RenewRequest),
             "renew-response" => typeof(RenewResponse),
+            "agent-config" => typeof(AgentConfig),
+            "broker-request" => typeof(BrokerRequest),
+            "broker-response" => typeof(BrokerResponse),
             _ => throw new InvalidOperationException($"No C# type for {target}"),
         };
     }

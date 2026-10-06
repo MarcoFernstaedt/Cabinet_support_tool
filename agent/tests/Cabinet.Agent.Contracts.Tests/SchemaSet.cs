@@ -47,7 +47,7 @@ public sealed class SchemaSet
         string[] parts = target.Split('/');
         return parts[0] == "operations"
             ? $"{BaseId}operations/{parts[1]}.schema.json#/$defs/{parts[2]}"
-            : $"{BaseId}envelopes/{parts[1]}.schema.json";
+            : $"{BaseId}{parts[0]}/{parts[1]}.schema.json";
     }
 
     public EvaluationResults Evaluate(string schemaId, JsonElement instance)

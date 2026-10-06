@@ -1,0 +1,21 @@
+{
+  "cabinetId": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d",
+  "readOnlyMode": true,
+  "cabinetRole": "sync",
+  "scanner": {
+    "hardwareIds": [
+      "USB\\VID_1234&PID_5678"
+    ]
+  },
+  "syncCabinet": {
+    "address": "10.20.0.15"
+  },
+  "platformServer": {
+    "host": "diag.mashura.example"
+  },
+  "allowedTcpPorts": [
+    443,
+    1433
+  ],
+  "localHarness": true
+}

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/agent-config.schema.json",
+  "title": "agent-config",
+  "description": "The agent's local protected configuration (docs/spec/04-agent-spec.md). Written at install time into a folder only administrators and SYSTEM can change; the network service can only read it. The server can never change it. Holds no secrets.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cabinetId",
+    "readOnlyMode",
+    "cabinetRole",
+    "scanner",
+    "syncCabinet",
+    "platformServer",
+    "allowedTcpPorts",
+    "localHarness"
+  ],
+  "properties": {
+    "cabinetId": {
+      "description": "This cabinet's ID. Set locally until enrollment (milestone 2) issues the real one.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "readOnlyMode": {
+      "description": "When true every write operation is rejected with read_only_mode, whatever the server sends.",
+      "type": "boolean"
+    },
+    "cabinetRole": {
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/cabinetRole"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scanner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hardwareIds"
+      ],
+      "properties": {
+        "hardwareIds": {
+          "description": "USB hardware IDs that identify the fingerprint scanner. Empty until collected; peripheral.status then lists candidates.",
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/hardwareId"
+          }
+        }
+      }
+    },
+    "syncCabinet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address"
+      ],
+      "properties": {
+        "address": {
+          "description": "The site's sync cabinet, as an IPv4 address or host name. null until known; tests to it then report unavailable.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipv4"
+            },
+            {
+              "$ref": "../common.schema.json#/$defs/hostname"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "platformServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "host"
+      ],
+      "properties": {
+        "host": {
+          "description": "The platform server's host name, also the name resolved by DNS tests.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/hostname"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "allowedTcpPorts": {
+      "description": "The only ports network.test may try over TCP. Empty means TCP tests are refused.",
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/port"
+      }
+    },
+    "localHarness": {
+      "description": "When true the network service also reads command files from its local inbox folder, which only administrators can write. Off in production.",
+      "type": "boolean"
+    }
+  }
+}

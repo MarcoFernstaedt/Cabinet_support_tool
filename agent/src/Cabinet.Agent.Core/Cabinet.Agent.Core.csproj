@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Everything in the agent that does not touch Windows: command validation,
+    replay and rate limits, local configuration, the broker pipe protocol and
+    the pure helpers the Windows executors use. Portable so its tests run on
+    Linux CI.
+  -->
+  <PropertyGroup>
+    <RootNamespace>Cabinet.Agent.Core</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- JsonSchema.Net: .NET has no JSON Schema validator, and every input must be
+         validated against the shared draft 2020-12 schemas before anything else
+         reads it. The same package the contract tests already prove agrees with Ajv. -->
+    <PackageReference Include="JsonSchema.Net" Version="9.4.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cabinet.Agent.Contracts\Cabinet.Agent.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The shared schemas are compiled into the agent, so a cabinet validates with
+         exactly the files the server uses and nothing on disk can change them. -->
+    <EmbeddedResource Include="..\..\..\contracts\schemas\**\*.schema.json" LogicalName="schemas/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />
+  </ItemGroup>
+</Project>

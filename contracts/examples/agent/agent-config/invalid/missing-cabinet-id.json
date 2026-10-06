@@ -1,0 +1,15 @@
+{
+  "readOnlyMode": false,
+  "cabinetRole": null,
+  "scanner": {
+    "hardwareIds": []
+  },
+  "syncCabinet": {
+    "address": null
+  },
+  "platformServer": {
+    "host": null
+  },
+  "allowedTcpPorts": [],
+  "localHarness": false
+}
