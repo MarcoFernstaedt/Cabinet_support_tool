@@ -68,6 +68,9 @@ public sealed class AgentConnection(AgentConnectionOptions o)
 {
     private enum Ended { Cancelled, CertificateRefused, Renewed }
 
+    /// <summary>Completed (and replaced) each time the heartbeat reaches the server after losing it, so waiting senders retry at once.</summary>
+    private TaskCompletionSource _reconnected = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     /// <summary>Runs until <paramref name="token"/> is cancelled, then returns normally.</summary>
     public async Task RunAsync(CancellationToken token)
     {
@@ -244,7 +247,12 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
                 }, token).ConfigureAwait(false);
                 o.Settings?.Apply(answer);
-                if (!online) o.Log("Connected to the platform server.");
+                if (!online)
+                {
+                    o.Log("Connected to the platform server.");
+                    o.Backoff.Reset();
+                    Interlocked.Exchange(ref _reconnected, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+                }
                 online = true;
                 await Delay(o.HeartbeatInterval, token).ConfigureAwait(false);
             }
@@ -304,6 +312,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
         var backoff = new Backoff();
         while (!token.IsCancellationRequested)
         {
+            Task reconnected = Volatile.Read(ref _reconnected).Task;
             var batch = o.Events.Peek(EventQueue.MaxBatch);
             try
             {
@@ -320,7 +329,13 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                 o.Log($"The server refused {batch.Count} queued event(s) as malformed; they were dropped.");
                 o.Events.Acknowledge(batch.Select(e => e.Id));
             }
-            catch (AgentApiException) { await Delay(backoff.Next(), token).ConfigureAwait(false); }
+            catch (AgentApiException)
+            {
+                // Wait out the backoff, but send at once when the heartbeat finds the server again: after an outage
+                // the queued events (a safety-net rollback among them) should not sit behind a long backoff.
+                if (await Task.WhenAny(Delay(backoff.Next(), token), reconnected).ConfigureAwait(false) == reconnected) backoff.Reset();
+                token.ThrowIfCancellationRequested();
+            }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
         }
         return Ended.Cancelled;

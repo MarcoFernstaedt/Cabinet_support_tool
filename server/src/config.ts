@@ -1,5 +1,6 @@
 // Configuration from environment variables only (docs/spec/05-server-spec.md "Operations").
 // Secrets (database passwords) live in the environment or a secret store, never in the repository.
+import { fileURLToPath } from "node:url";
 
 export interface Config {
   databaseUrl: string;
@@ -26,7 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: required(env, "DATABASE_URL"),
     agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean), longPollSeconds },
     tls: {},
-    packages: { dir: env.PACKAGE_DIR ?? new URL("../../../data/packages", import.meta.url).pathname, maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
+    packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
   };
   if (!(config.packages.maxBytes > 0 && config.packages.maxBytes <= 2 * 1024 * 1024 * 1024)) throw new Error("PACKAGE_MAX_MB must be 1 to 2048.");
   // A different trusted publisher list is for tests only; production always uses contracts/trust, the list the agent compiles in.
@@ -43,7 +44,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (!Number.isInteger(consolePort) || consolePort < 1 || consolePort > 65535) throw new Error("CONSOLE_PORT must be a port number.");
     config.console = {
       host: env.CONSOLE_HOST ?? "127.0.0.1", port: consolePort, origin: env.CONSOLE_ORIGIN,
-      secretKey: required(env, "CONSOLE_SECRET_KEY"), staticDir: env.CONSOLE_STATIC_DIR ?? new URL("../../../console/dist", import.meta.url).pathname,
+      secretKey: required(env, "CONSOLE_SECRET_KEY"), staticDir: env.CONSOLE_STATIC_DIR ?? fileURLToPath(new URL("../../../console/dist", import.meta.url)),
       trustProxy: env.CONSOLE_TRUST_PROXY === "1",
     };
   }
