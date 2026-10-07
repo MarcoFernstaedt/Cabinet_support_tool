@@ -21,6 +21,8 @@
     <!-- The shared schemas are compiled into the agent, so a cabinet validates with
          exactly the files the server uses and nothing on disk can change them. -->
     <EmbeddedResource Include="..\..\..\contracts\schemas\**\*.schema.json" LogicalName="schemas/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The trusted publisher list and its pinned roots: compiled in, so only a signed agent upgrade can change them. -->
+    <EmbeddedResource Include="..\..\..\contracts\trust\*.json;..\..\..\contracts\trust\*.pem" LogicalName="trust/%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />

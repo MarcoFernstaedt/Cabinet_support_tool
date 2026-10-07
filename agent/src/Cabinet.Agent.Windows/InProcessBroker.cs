@@ -70,4 +70,14 @@ public static class AgentPaths
     public static string HarnessOutbox => Path.Combine(DataRoot, "harness", "outbox");
     /// <summary>The CA the platform server's certificate must chain to. Installed with the agent; only administrators can change it.</summary>
     public static string PlatformCa => Path.Combine(DataRoot, "platform-ca.pem");
+    /// <summary>The broker's own state: only SYSTEM and administrators can write here; the network service may read.</summary>
+    public static string Broker => Path.Combine(DataRoot, "broker");
+    /// <summary>Firewall snapshots, timers and the journal of platform changes.</summary>
+    public static string BrokerFirewall => Path.Combine(Broker, "firewall");
+    /// <summary>Changes waiting for the safety net.</summary>
+    public static string SafetyNet => Path.Combine(Broker, "safety-net.json");
+    /// <summary>Where packages are checked and installed from: SYSTEM and administrators only, emptied after every install.</summary>
+    public static string Staging => Path.Combine(DataRoot, "staging");
+    /// <summary>Where the network service downloads a package; the broker copies it out before checking it.</summary>
+    public static string Downloads => Path.Combine(DataRoot, "downloads");
 }

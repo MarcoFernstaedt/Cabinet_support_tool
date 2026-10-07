@@ -10,7 +10,30 @@ namespace Cabinet.Agent.Core;
 /// </summary>
 public sealed class OperationFailedException(string code, string message) : Exception(message)
 {
-    public string Code { get; } = Catalog.FailureCodes.Contains(code) ? code : "execution_failed";
+    /// <summary>A failure code, or one of the package refusals (hash, signature, publisher), which are reported as rejections.</summary>
+    public string Code { get; } = Catalog.FailureCodes.Contains(code) || PackageRefusals.Contains(code) ? code : "execution_failed";
+
+    public static readonly IReadOnlyList<string> PackageRefusals = new[] { "hash_mismatch", "signature_invalid", "publisher_not_trusted", "verification_failed" };
+}
+
+/// <summary>
+/// The platform command an operation is running for. Writes need it: the safety net, firewall
+/// snapshots and firewall-change attribution all record which command made a change.
+/// </summary>
+public static class OperationContext
+{
+    private static readonly AsyncLocal<Guid?> Current = new();
+
+    public static Guid? CommandId => Current.Value;
+
+    /// <summary>Sets the command for the code that runs inside <paramref name="body"/> (and the tasks it starts).</summary>
+    public static async Task<T> RunAsync<T>(Guid? commandId, Func<Task<T>> body)
+    {
+        Guid? previous = Current.Value;
+        Current.Value = commandId;
+        try { return await body().ConfigureAwait(false); }
+        finally { Current.Value = previous; }
+    }
 }
 
 /// <summary>

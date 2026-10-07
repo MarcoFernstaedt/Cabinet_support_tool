@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/trusted-publishers.schema.json",
+  "title": "trusted-publishers",
+  "description": "The signers the platform accepts for driver packages and MSI installers (docs/spec/04-agent-spec.md). A signer is trusted only when its certificate's common name and organization match an entry exactly and its chain ends at that entry's pinned root. Compiled into the agent; only a signed agent upgrade can change the agent's copy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "roots",
+    "publishers"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "roots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256",
+          "file"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "sha256": {
+            "description": "SHA-256 of the root certificate (DER), lower-case hex.",
+            "$ref": "../common.schema.json#/$defs/sha256"
+          },
+          "file": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,64}\\.pem$"
+          }
+        }
+      }
+    },
+    "publishers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "commonName",
+          "organization",
+          "root",
+          "packageTypes",
+          "reason"
+        ],
+        "properties": {
+          "name": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "commonName": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "organization": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "root": {
+            "$ref": "../common.schema.json#/$defs/sha256"
+          },
+          "packageTypes": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "driver",
+                "msi"
+              ]
+            }
+          },
+          "reason": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          }
+        }
+      }
+    }
+  }
+}

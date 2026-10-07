@@ -1,0 +1,8 @@
+{
+  "operation": "network.setDns",
+  "params": {
+    "interfaceIndex": 12,
+    "mode": "automatic"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

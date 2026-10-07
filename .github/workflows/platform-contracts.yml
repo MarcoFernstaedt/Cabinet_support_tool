@@ -57,7 +57,54 @@ jobs:
         run: dotnet build agent/Cabinet.Agent.sln -c Release
       - name: Core tests on Windows
         run: dotnet test agent/tests/Cabinet.Agent.Core.Tests -c Release --no-build
-      - name: Broker pipe access and every read operation on real Windows
+      - name: Prepare real package fixtures (a driver signed through Microsoft, tampered, impostor and unsigned copies, a Microsoft MSI)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fx = Join-Path $env:RUNNER_TEMP 'package-fixtures'
+          New-Item -ItemType Directory -Force $fx | Out-Null
+          $chosen = $null
+          $folders = Get-WindowsDriver -Online | Where-Object { $_.Driver -like 'oem*.inf' } | ForEach-Object { Split-Path $_.OriginalFileName } | Sort-Object -Unique
+          foreach ($folder in $folders) {
+            $cat = Get-ChildItem $folder -Filter *.cat -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $cat) { continue }
+            $sig = Get-AuthenticodeSignature $cat.FullName
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notlike 'CN=Microsoft Windows Hardware Compatibility Publisher*') { continue }
+            $size = (Get-ChildItem $folder -Recurse -File | Measure-Object Length -Sum).Sum
+            if (-not $chosen -or $size -lt $chosen.Size) { $chosen = @{ Folder = $folder; Size = $size } }
+          }
+          if (-not $chosen) { throw 'No third-party driver signed through Microsoft is installed on this runner.' }
+          Write-Host "Driver fixture: $($chosen.Folder) ($($chosen.Size) bytes)"
+          Get-ChildItem $chosen.Folder -Recurse -File | Format-Table Name, Length
+          Compress-Archive -Path (Join-Path $chosen.Folder '*') -DestinationPath "$fx\oem-driver.zip"
+          # The same package with one byte changed in the middle of a driver binary.
+          $t = Join-Path $env:RUNNER_TEMP 'tampered'
+          Copy-Item $chosen.Folder $t -Recurse
+          $bin = Get-ChildItem $t -Recurse -File | Where-Object { $_.Extension -in '.sys', '.dll' } | Sort-Object Length -Descending | Select-Object -First 1
+          $bytes = [IO.File]::ReadAllBytes($bin.FullName); $mid = [int]($bytes.Length / 2); $bytes[$mid] = $bytes[$mid] -bxor 0xFF
+          [IO.File]::WriteAllBytes($bin.FullName, $bytes)
+          Compress-Archive -Path "$t\*" -DestinationPath "$fx\tampered-driver.zip"
+          # A package whose catalog is unsigned, and the same signed by an impostor certificate carrying Microsoft's publisher name.
+          $i = Join-Path $env:RUNNER_TEMP 'impostor'
+          New-Item -ItemType Directory $i | Out-Null
+          Set-Content "$i\impostor.inf" "[Version]`r`nSignature=`"`$WINDOWS NT`$`"`r`nClass=System`r`nCatalogFile=impostor.cat`r`n" -Encoding Ascii
+          Copy-Item "$env:windir\System32\version.dll" "$i\impostor.dll"
+          New-FileCatalog -Path $i -CatalogFilePath "$i\impostor.cat" -CatalogVersion 2.0 | Out-Null
+          $u = Join-Path $env:RUNNER_TEMP 'unsigned'
+          Copy-Item $i $u -Recurse
+          Compress-Archive -Path "$u\*" -DestinationPath "$fx\unsigned-driver.zip"
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject 'CN=Microsoft Windows Hardware Compatibility Publisher, O=Microsoft Corporation' -CertStoreLocation Cert:\CurrentUser\My
+          Set-AuthenticodeSignature -FilePath "$i\impostor.cat" -Certificate $cert -HashAlgorithm SHA256 | Format-List Status, StatusMessage
+          Compress-Archive -Path "$i\*" -DestinationPath "$fx\impostor-driver.zip"
+          # A Microsoft-signed MSI from the Windows Installer cache (checked only, never installed).
+          $msi = Get-ChildItem "$env:windir\Installer\*.msi" -Force -ErrorAction SilentlyContinue | Sort-Object Length |
+            Where-Object { $s = Get-AuthenticodeSignature $_.FullName; $s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like 'CN=Microsoft Corporation*' } | Select-Object -First 1
+          if (-not $msi) { throw 'No Microsoft-signed MSI is cached on this runner.' }
+          Write-Host "MSI fixture: $($msi.FullName) ($($msi.Length) bytes)"
+          Copy-Item $msi.FullName "$fx\microsoft.msi"
+          Get-ChildItem $fx | Format-Table Name, Length
+          Add-Content -Path $env:GITHUB_ENV -Value "PACKAGE_FIXTURES=$fx" -Encoding Ascii
+      - name: Broker pipe access, every read operation, the write operations and real packages on Windows
         run: dotnet test agent/tests/Cabinet.Agent.Windows.Tests -c Release --no-build --logger "console;verbosity=normal"
       - name: Publish and install both services
         shell: pwsh

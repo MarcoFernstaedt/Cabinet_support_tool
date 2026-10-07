@@ -12,6 +12,8 @@ public sealed class MonitorSources
     /// <summary>The allowed logs present on this cabinet.</summary>
     public Func<CancellationToken, Task<IReadOnlyList<string>>>? Logs { get; init; }
     public Func<EventlogQueryParams, CancellationToken, Task<EventlogQueryOutput>>? Query { get; init; }
+    /// <summary>The platform command whose change left the firewall with this fingerprint (from the broker's journal).</summary>
+    public Func<string, Guid?>? PlatformFirewallChange { get; init; }
 }
 
 public sealed class MonitorIntervals
@@ -37,6 +39,12 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
     private readonly ScannerWatch _scanner = new();
     private readonly SemaphoreSlim _firewallNow = new(0, 1);
 
+    /// <summary>Looks at the firewall now instead of waiting (after a platform change, so it is attributed promptly).</summary>
+    public void FirewallNow()
+    {
+        try { if (_firewallNow.CurrentCount == 0) _firewallNow.Release(); } catch (SemaphoreFullException) { }
+    }
+
     private string? State(string name) => stateDir is null ? null : Path.Combine(stateDir, name);
 
     public Task RunAsync(CancellationToken token)
@@ -50,7 +58,7 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         }
         if (sources.Firewall is not null)
         {
-            var watch = new FirewallWatch(new StateFile<FirewallWatch.State>(State("firewall-state.json")));
+            var watch = new FirewallWatch(new StateFile<FirewallWatch.State>(State("firewall-state.json")), sources.PlatformFirewallChange);
             loops.Add(FirewallLoopAsync(watch, token));
             if (sources.Query is not null)
             {

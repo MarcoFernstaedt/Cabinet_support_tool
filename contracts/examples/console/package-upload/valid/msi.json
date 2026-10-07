@@ -1,0 +1,9 @@
+{
+  "name": "Scanner service",
+  "version": "2.0",
+  "vendor": "Scanner Vendor",
+  "packageType": "msi",
+  "hardwareIds": [],
+  "notes": "Needed for model B readers.",
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

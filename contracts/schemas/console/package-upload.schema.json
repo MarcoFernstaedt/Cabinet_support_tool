@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/package-upload.schema.json",
+  "title": "package-upload",
+  "description": "Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._+-]*$"
+    },
+    "vendor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "packageType": {
+      "type": "string",
+      "enum": [
+        "driver",
+        "msi"
+      ]
+    },
+    "hardwareIds": {
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/hardwareId"
+      }
+    },
+    "notes": {
+      "allOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        {
+          "type": "string",
+          "maxLength": 256
+        }
+      ]
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "vendor",
+    "packageType",
+    "hardwareIds",
+    "stepUpToken"
+  ]
+}

@@ -49,27 +49,33 @@ public static class BrokerFraming
 
 /// <summary>
 /// The broker's side: validates every request again itself against
-/// agent/broker-request.schema.json (which admits only the broker's own read
+/// agent/broker-request.schema.json (which admits only the broker's own
 /// operations and their parameter schemas), runs it, and answers. Never throws
-/// on bad input.
+/// on bad input. Writes run with their command ID, and a confirm reports whether
+/// the safety net kept or rolled back that command's change.
 /// </summary>
 public sealed class BrokerRequestHandler
 {
-    /// <summary>The only operations the broker performs in this version. Must match the schema's list.</summary>
+    /// <summary>The only operations the broker performs: reads that need administrator rights, and every write. Must match the schema's list.</summary>
     public static readonly IReadOnlyList<string> Operations = new[]
     {
         Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
+        Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallSetRule, Catalog.FirewallRestore,
+        Catalog.PackageInstall, Catalog.DriverUninstall,
     };
 
     private readonly OperationRegistry _registry;
     private readonly TimeSpan _timeout;
+    private readonly Func<Guid, SafetyNetStatus>? _confirm;
 
-    public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null)
+    /// <param name="confirm">Answers a confirm from the safety net; null when this broker makes no changes.</param>
+    public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null, Func<Guid, SafetyNetStatus>? confirm = null)
     {
         foreach (string name in registry.Names)
             if (!Operations.Contains(name)) throw new ArgumentException($"The broker may not run {name}.");
         _registry = registry;
         _timeout = timeout ?? OperationRunner.DefaultTimeout;
+        _confirm = confirm;
     }
 
     /// <returns>The response bytes, or null when the request is unreadable and the connection should just close.</returns>
@@ -93,8 +99,21 @@ public sealed class BrokerRequestHandler
                     Output = JsonSerializer.SerializeToElement(new { broker = "ok" }),
                 });
 
-            var (output, error) = await OperationRunner.RunAsync(_registry, request.Operation!, request.Params!.Value, _timeout, token)
-                .ConfigureAwait(false);
+            if (request.Kind == BrokerRequestKind.Confirm)
+            {
+                SafetyNetStatus status = _confirm?.Invoke(request.CommandId!.Value)
+                    ?? new SafetyNetStatus { CommandId = request.CommandId!.Value, State = SafetyNetState.Unknown };
+                return Serialize(new BrokerResponse
+                {
+                    RequestId = requestId, Status = BrokerStatus.Succeeded, Output = JsonSerializer.SerializeToElement(status, ContractJson.Options),
+                });
+            }
+
+            // Writes take longer (an MSI install, a driver package): they get a longer limit.
+            TimeSpan limit = Catalog.TryGet(request.Operation, out CatalogEntry entry) && entry.Kind == OperationKind.Write
+                ? TimeSpan.FromMinutes(15) : _timeout;
+            var (output, error) = await OperationContext.RunAsync(request.CommandId, () =>
+                OperationRunner.RunAsync(_registry, request.Operation!, request.Params!.Value, limit, token)).ConfigureAwait(false);
             return Serialize(error is null
                 ? new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Succeeded, Output = output }
                 : new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Failed, Error = error });
@@ -135,9 +154,13 @@ public sealed class BrokerClient
     /// <summary>Runs one broker operation and returns its output, already checked against the output schema.</summary>
     public async Task<JsonElement> RunAsync(string operation, JsonElement parameters, CancellationToken token)
     {
+        bool write = Catalog.TryGet(operation, out CatalogEntry entry) && entry.Kind == OperationKind.Write;
+        if (write && OperationContext.CommandId is null)
+            throw new OperationFailedException("execution_failed", "A write reached the broker without its command.");
         BrokerResponse response = await SendAsync(new BrokerRequest
         {
             RequestId = Guid.NewGuid(), Kind = BrokerRequestKind.Operation, Operation = operation, Params = parameters,
+            CommandId = write ? OperationContext.CommandId : null,
         }, token).ConfigureAwait(false);
         if (response.Status == BrokerStatus.Failed)
             throw new OperationFailedException(response.Error!.Code, response.Error.Message);
@@ -146,11 +169,21 @@ public sealed class BrokerClient
         return response.Output.Value;
     }
 
+    /// <summary>Tells the broker the server was reached after the command's change; the answer says whether the change is kept.</summary>
+    public async Task<SafetyNetStatus> ConfirmAsync(Guid commandId, CancellationToken token)
+    {
+        BrokerResponse response = await SendAsync(new BrokerRequest { RequestId = Guid.NewGuid(), Kind = BrokerRequestKind.Confirm, CommandId = commandId }, token)
+            .ConfigureAwait(false);
+        if (response.Status == BrokerStatus.Failed || !ContractSchemas.Instance.IsValid(ContractSchemas.Local("safety-net-status"), response.Output!.Value))
+            throw new OperationFailedException("execution_failed", "The broker's safety-net answer does not match its contract.");
+        return response.Output.Value.Deserialize<SafetyNetStatus>(ContractJson.Options)!;
+    }
+
     /// <summary>Registers every broker operation in <paramref name="registry"/> as a forward to the broker.</summary>
     public void RegisterForwarders(OperationRegistry registry)
     {
         foreach (string operation in BrokerRequestHandler.Operations)
-            registry.RegisterRaw(operation, (p, t) => RunAsync(operation, p, t));
+            if (!registry.Has(operation)) registry.RegisterRaw(operation, (p, t) => RunAsync(operation, p, t));
     }
 
     private async Task<BrokerResponse> SendAsync(BrokerRequest request, CancellationToken token)

@@ -5,6 +5,8 @@ using System.ServiceProcess;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
 using Cabinet.Agent.Core.Monitoring;
+using Cabinet.Agent.Core.Packages;
+using Cabinet.Agent.Core.Writes;
 using Cabinet.Agent.Core.Server;
 using Cabinet.Agent.Windows;
 
@@ -57,15 +59,23 @@ public sealed class NetworkService : ServiceBase
         // One replay store and one set of limits for every way a command can arrive.
         var replay = new ReplayStore(Path.Combine(AgentPaths.State, "replay.log"), clock);
         var limits = new RateLimiter(Path.Combine(AgentPaths.State, "writes.log"), clock);
+        var packages = new PackageDownloads(AgentPaths.Downloads);
         CommandProcessor ProcessorFor(AgentConfig c) =>
-            new(new CommandValidator(c, replay, limits, clock), NetworkOperations.Registry(c, broker, clock), clock);
+            new(new CommandValidator(c, replay, limits, clock), NetworkOperations.Registry(c, broker, clock, packages), clock);
         var identityStore = new IdentityStore(AgentPaths.State);
 
         var work = new List<Task> { WatchBrokerAsync(broker, _stop.Token) };
         // The monitors run whether or not a server is configured, so events wait in the queue until one is.
         var events = new EventQueue(Path.Combine(AgentPaths.State, "events.jsonl"));
         var settings = new MonitorSettings(Path.Combine(AgentPaths.State, "monitor-settings.json"), config.Scanner.HardwareIds);
-        var monitors = new MonitorHost(WindowsMonitors.Sources(config, broker), settings, events, AgentPaths.State, clock, _log.Write);
+        // The broker's journal of its own firewall changes lets the change detector attribute them (read-only here).
+        var firewallJournal = new FirewallStore(AgentPaths.BrokerFirewall);
+        var sources = WindowsMonitors.Sources(config, broker);
+        var monitors = new MonitorHost(new MonitorSources
+        {
+            Devices = sources.Devices, Drives = sources.Drives, Firewall = sources.Firewall, Logs = sources.Logs, Query = sources.Query,
+            PlatformFirewallChange = hash => { try { return firewallJournal.CommandFor(hash); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; } },
+        }, settings, events, AgentPaths.State, clock, _log.Write);
         work.Add(Task.Run(() => monitors.RunAsync(_stop.Token)).ContinueWith(t =>
         {
             if (t.IsFaulted) _log.Write($"The monitors stopped: {t.Exception!.InnerException?.GetType().Name}.");
@@ -79,7 +89,8 @@ public sealed class NetworkService : ServiceBase
             var connection = new AgentConnection(new AgentConnectionOptions
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
-                ProcessorFor = ProcessorFor, Events = events, Settings = settings,
+                ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages,
+                ConfirmSafetyNet = broker.ConfirmAsync, AfterWrite = monitors.FirewallNow,
                 Fingerprints = () => Fingerprints.Read(system.SystemInfoAsync(new EmptyParams(), CancellationToken.None).GetAwaiter().GetResult()),
                 AgentVersion = SystemOperations.AgentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = _log.Write,
             });

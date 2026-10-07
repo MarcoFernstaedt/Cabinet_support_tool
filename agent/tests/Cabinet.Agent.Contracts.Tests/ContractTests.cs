@@ -89,6 +89,8 @@ public sealed class ContractTests
         new object[] { typeof(ScannerState), "envelopes/event.schema.json", "/properties/device/properties/state/enum" },
         new object[] { typeof(SeverityHint), "envelopes/event.schema.json", "/properties/severityHint/enum" },
         new object[] { typeof(EnrollState), "envelopes/enroll-status.schema.json", "/properties/status/enum" },
+        new object[] { typeof(BrokerRequestKind), "agent/broker-request.schema.json", "/properties/kind/enum" },
+        new object[] { typeof(SafetyNetState), "agent/safety-net-status.schema.json", "/properties/state/enum" },
         new object[] { typeof(NetworkTestTarget), "operations/network.test.schema.json", "/$defs/params/properties/target/enum" },
         new object[] { typeof(NetworkTestMethod), "operations/network.test.schema.json", "/$defs/params/properties/method/enum" },
         new object[] { typeof(UpdateResult), "operations/updates.status.schema.json", "/$defs/output/properties/installed/items/properties/result/enum" },

@@ -45,6 +45,12 @@ public sealed class AgentConnectionOptions
     /// <summary>Settings the server sends with each heartbeat answer, kept for the monitors.</summary>
     public MonitorSettings? Settings { get; init; }
     public TimeSpan EventSendInterval { get; init; } = TimeSpan.FromSeconds(15);
+    /// <summary>Downloads packages for package.install while online.</summary>
+    public Packages.PackageDownloads? Packages { get; init; }
+    /// <summary>Tells the broker the server was reached after a safety-net change; null when this agent makes no changes.</summary>
+    public Func<Guid, CancellationToken, Task<SafetyNetStatus>>? ConfirmSafetyNet { get; init; }
+    /// <summary>Called after every successful write (the firewall change detector looks at once, to attribute it).</summary>
+    public Action? AfterWrite { get; init; }
     public TimeSpan EnrollPollInterval { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan RenewCheckInterval { get; init; } = TimeSpan.FromHours(6);
@@ -203,6 +209,13 @@ public sealed class AgentConnection(AgentConnectionOptions o)
     {
         using X509Certificate2 certificate = o.Keys.WithPrivateKey(identity.CertificatePem);
         using var api = new AgentApiClient(o.ServerUri, o.PlatformCa, certificate);
+        if (o.Packages is not null) o.Packages.Client = api;
+        try { return await LoopsAsync(api, certificate, identity, token).ConfigureAwait(false); }
+        finally { if (o.Packages is not null) o.Packages.Client = null; }
+    }
+
+    private async Task<Ended> LoopsAsync(AgentApiClient api, X509Certificate2 certificate, AgentIdentity identity, CancellationToken token)
+    {
         CommandProcessor processor = o.ProcessorFor(o.Config with { CabinetId = identity.CabinetId });
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
         var loops = new[]
@@ -261,7 +274,17 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     var (result, dropped) = await processor.ProcessAsync(command, token).ConfigureAwait(false);
                     if (result is null) { o.Log($"Dropped a command from the server: {dropped}"); continue; }
                     o.Log($"Command {result.CommandId} {result.Status.ToString().ToLowerInvariant()}{(result.Error is null ? "" : " " + result.Error.Code)}.");
-                    await PostResultAsync(api, result, token).ConfigureAwait(false);
+                    if (result.Status == ResultStatus.Succeeded && result.Output is { } output && output.TryGetProperty("safetyNetDeadline", out JsonElement d) &&
+                        d.TryGetDateTimeOffset(out DateTimeOffset deadline) && o.ConfirmSafetyNet is not null)
+                    {
+                        o.AfterWrite?.Invoke();
+                        if (await DeliverUnderSafetyNetAsync(api, result, deadline, token).ConfigureAwait(false)) return Ended.CertificateRefused;
+                    }
+                    else
+                    {
+                        if (result.Status == ResultStatus.Succeeded && result.Output is not null && o.ConfirmSafetyNet is not null) o.AfterWrite?.Invoke();
+                        await PostResultAsync(api, result, token).ConfigureAwait(false);
+                    }
                 }
             }
             catch (AgentApiException e) when (e.CertificateRefused) { return Ended.CertificateRefused; }
@@ -307,6 +330,73 @@ public sealed class AgentConnection(AgentConnectionOptions o)
     {
         try { await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false); } catch (OperationCanceledException) { }
         return Ended.Cancelled;
+    }
+
+    /// <summary>
+    /// The safety net, network side: the change stays only if this agent reaches the server within the window.
+    /// Delivering the result is that proof, and only then is the broker told to keep the change. If the server
+    /// cannot be reached in time the broker rolls the change back by itself, and the result reports that once
+    /// the agent is connected again, with a security event.
+    /// </summary>
+    /// <returns>True when the server refused the certificate.</returns>
+    private async Task<bool> DeliverUnderSafetyNetAsync(AgentApiClient api, Result result, DateTimeOffset deadline, CancellationToken token)
+    {
+        bool reached = false;
+        while (!token.IsCancellationRequested && DateTimeOffset.UtcNow < deadline - TimeSpan.FromSeconds(3))
+        {
+            try { await api.PostResultAsync(result, token).ConfigureAwait(false); reached = true; break; }
+            catch (AgentApiException e) when (e.CertificateRefused) { break; }
+            catch (AgentApiException e) when (e.Status is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Conflict)
+            {
+                reached = true; // the server answered, so it is reachable; it just did not want this result
+                break;
+            }
+            catch (AgentApiException) { await Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false); }
+        }
+
+        if (reached)
+        {
+            SafetyNetStatus? status = null;
+            for (int attempt = 0; attempt < 5 && status is null && !token.IsCancellationRequested; attempt++)
+            {
+                try { status = await o.ConfirmSafetyNet!(result.CommandId, token).ConfigureAwait(false); }
+                catch (OperationFailedException) { await Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false); }
+            }
+            if (status?.State == SafetyNetState.RolledBack)
+                SafetyNetEvent(result.CommandId, "The server was reached too late: the change had already been rolled back by the safety net.");
+            else o.Log($"Command {result.CommandId}: the server was reached; the change is kept.");
+            return false;
+        }
+
+        // Not reached in time: the broker rolls back at the deadline (and again at start-up, if it was not running).
+        o.Log($"Command {result.CommandId}: the server was not reached in time; the safety net rolls the change back.");
+        TimeSpan wait = deadline + TimeSpan.FromSeconds(15) - DateTimeOffset.UtcNow;
+        if (wait > TimeSpan.Zero) await Delay(wait, token).ConfigureAwait(false);
+        SafetyNetEvent(result.CommandId, "The cabinet could not reach the server within the safety-net window after this change, so the change was rolled back.");
+        var rolledBack = result with
+        {
+            Status = ResultStatus.Failed, Output = null, FinishedAt = DateTimeOffset.UtcNow,
+            Error = new ResultError { Code = "safety_net_rollback", Message = "The change was rolled back because the cabinet could not reach the server within the safety-net window." },
+        };
+        var backoff = new Backoff();
+        while (!token.IsCancellationRequested)
+        {
+            try { await api.PostResultAsync(rolledBack, token).ConfigureAwait(false); return false; }
+            catch (AgentApiException e) when (e.CertificateRefused) { return true; }
+            catch (AgentApiException e) when (e.Status is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Conflict) { return false; }
+            catch (AgentApiException) { await Delay(backoff.Next(), token).ConfigureAwait(false); }
+        }
+        return false;
+    }
+
+    private void SafetyNetEvent(Guid commandId, string message)
+    {
+        o.Log($"Command {commandId}: {message}");
+        o.Events?.Enqueue(new AgentEvent
+        {
+            EventId = EventIds.For($"safety-net|{commandId}"), Kind = EventKind.Security, OccurredAt = DateTimeOffset.UtcNow, SeverityHint = SeverityHint.Major,
+            Detail = new EventDetail { Message = message, Fields = new Dictionary<string, string> { ["commandId"] = commandId.ToString("D"), ["check"] = "safety_net_rollback" } },
+        });
     }
 
     /// <summary>Delivers a result, retrying network failures; a result the server will not take (already answered, unknown) is not retried.</summary>

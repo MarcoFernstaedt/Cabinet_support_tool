@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "roots": [
+    {
+      "name": "x",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "file": "x.pem"
+    }
+  ],
+  "publishers": [
+    {
+      "name": "Any",
+      "commonName": "*",
+      "organization": "*",
+      "packageTypes": [
+        "msi"
+      ],
+      "reason": "x"
+    }
+  ]
+}

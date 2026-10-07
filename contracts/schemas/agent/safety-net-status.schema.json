@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/safety-net-status.schema.json",
+  "title": "safety-net-status",
+  "description": "The broker's answer to a confirm: whether the change made by that command is now kept, was already rolled back because the server was not reached in time, or was never under the safety net.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "commandId",
+    "state"
+  ],
+  "properties": {
+    "commandId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "kept",
+        "rolled_back",
+        "unknown"
+      ]
+    },
+    "rolledBackAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  }
+}

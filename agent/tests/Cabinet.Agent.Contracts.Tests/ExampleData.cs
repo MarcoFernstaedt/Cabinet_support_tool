@@ -56,6 +56,8 @@ public static class ExampleData
             "agent-config" => typeof(AgentConfig),
             "broker-request" => typeof(BrokerRequest),
             "broker-response" => typeof(BrokerResponse),
+            "safety-net-status" => typeof(SafetyNetStatus),
+            "trusted-publishers" => typeof(TrustedPublishers),
             _ => throw new InvalidOperationException($"No C# type for {target}"),
         };
     }

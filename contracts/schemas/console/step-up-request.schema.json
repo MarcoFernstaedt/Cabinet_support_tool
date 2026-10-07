@@ -25,7 +25,19 @@
         "rule.approve",
         "rule.reject",
         "rule.disable",
-        "rule.rollback"
+        "rule.rollback",
+        "network.setIp",
+        "network.setDns",
+        "firewall.setProfile",
+        "firewall.setRule",
+        "firewall.restore",
+        "package.install",
+        "driver.uninstall",
+        "package.upload",
+        "package.approve",
+        "package.retire",
+        "writes.pause",
+        "writes.resume"
       ]
     },
     "target": {

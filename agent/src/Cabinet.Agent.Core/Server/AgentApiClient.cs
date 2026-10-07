@@ -84,6 +84,46 @@ public sealed class AgentApiClient : IDisposable
     public Task<RenewResponse> RenewAsync(RenewRequest request, CancellationToken token) =>
         SendAsync<RenewResponse>(HttpMethod.Post, "/agent/v1/renew", request, "renew-response", token);
 
+    /// <summary>
+    /// Downloads an approved package to <paramref name="destination"/>, streaming it to disk. The server serves it only while a
+    /// package.install command for this cabinet is open. The size is capped; the hash is checked again by the broker.
+    /// </summary>
+    public async Task DownloadPackageAsync(Guid packageId, string destination, long maxBytes, CancellationToken token)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/agent/v1/packages/{packageId:D}");
+        request.Headers.Accept.Clear();
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+        HttpResponseMessage response;
+        try { response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false); }
+        catch (HttpRequestException e) { throw new AgentApiException(null, "unreachable", $"The platform server could not be reached ({e.HttpRequestError})."); }
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+                throw new AgentApiException(response.StatusCode, "download_refused", $"The platform server refused the package download ({(int)response.StatusCode}).");
+            if (response.Content.Headers.ContentLength is > 0 and var length && length > maxBytes)
+                throw new AgentApiException(response.StatusCode, "too_large", "The package is larger than any package may be.");
+            string temp = destination + ".part";
+            try
+            {
+                await using (Stream body = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false))
+                await using (var file = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    byte[] buffer = new byte[81920];
+                    long total = 0;
+                    int n;
+                    while ((n = await body.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
+                    {
+                        total += n;
+                        if (total > maxBytes) throw new AgentApiException(response.StatusCode, "too_large", "The package is larger than any package may be.");
+                        await file.WriteAsync(buffer.AsMemory(0, n), token).ConfigureAwait(false);
+                    }
+                }
+                File.Move(temp, destination, overwrite: true);
+            }
+            finally { if (File.Exists(temp)) File.Delete(temp); }
+        }
+    }
+
     /// <summary>The long poll. Returns each command as its raw JSON, so the agent's own six checks see exactly what the server sent.</summary>
     public async Task<IReadOnlyList<byte[]>> CommandsAsync(CancellationToken token)
     {

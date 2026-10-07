@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "roots": [
+    {
+      "name": "Microsoft Root Certificate Authority 2010",
+      "sha256": "df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e",
+      "file": "microsoft-root-2010.pem"
+    },
+    {
+      "name": "Microsoft Root Certificate Authority 2011",
+      "sha256": "847df6a78497943f27fc72eb93f9a637320a02b561d0a91b09e87a7807ed7c61",
+      "file": "microsoft-root-2011.pem"
+    }
+  ],
+  "publishers": [
+    {
+      "name": "Microsoft Windows Hardware Compatibility Publisher",
+      "commonName": "Microsoft Windows Hardware Compatibility Publisher",
+      "organization": "Microsoft Corporation",
+      "root": "df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e",
+      "packageTypes": [
+        "driver"
+      ],
+      "reason": "Microsoft signs every third-party driver for Windows 10 and 11 this way, including the fingerprint scanner vendor's."
+    },
+    {
+      "name": "Microsoft Windows",
+      "commonName": "Microsoft Windows",
+      "organization": "Microsoft Corporation",
+      "root": "df545bf919a2439c36983b54cdfc903dfa4f37d3996d8d84b4c31eec6f3c163e",
+      "packageTypes": [
+        "driver"
+      ],
+      "reason": "Drivers that ship with Windows itself."
+    },
+    {
+      "name": "Microsoft Corporation",
+      "commonName": "Microsoft Corporation",
+      "organization": "Microsoft Corporation",
+      "root": "847df6a78497943f27fc72eb93f9a637320a02b561d0a91b09e87a7807ed7c61",
+      "packageTypes": [
+        "msi"
+      ],
+      "reason": "Microsoft installers, such as runtime redistributables a vendor driver needs."
+    }
+  ]
+}

@@ -228,7 +228,7 @@ export interface CodeRequest {
 }
 
 /**
- * Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema.
+ * Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema. A write operation also carries a step-up token for that operation on that cabinet.
  */
 export interface CommandRequest {
   /**
@@ -256,6 +256,10 @@ export interface CommandRequest {
     | "package.install"
     | "driver.uninstall";
   params: {};
+  /**
+   * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
+   */
+  stepUpToken?: string;
 }
 
 /**
@@ -322,6 +326,25 @@ export interface EventLookup {
 export interface LoginRequest {
   username: string;
   password: string;
+}
+
+/**
+ * Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.
+ */
+export interface PackageUpload {
+  name: string;
+  version: string;
+  vendor: string;
+  packageType: "driver" | "msi";
+  /**
+   * @maxItems 16
+   */
+  hardwareIds: string[];
+  notes?: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -418,7 +441,19 @@ export interface StepUpRequest {
     | "rule.approve"
     | "rule.reject"
     | "rule.disable"
-    | "rule.rollback";
+    | "rule.rollback"
+    | "network.setIp"
+    | "network.setDns"
+    | "firewall.setProfile"
+    | "firewall.setRule"
+    | "firewall.restore"
+    | "package.install"
+    | "driver.uninstall"
+    | "package.upload"
+    | "package.approve"
+    | "package.retire"
+    | "writes.pause"
+    | "writes.resume";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -434,6 +469,18 @@ export interface SyncSettings {
    * @maxItems 4
    */
   ports: number[];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Pauses or resumes write operations fleet-wide or for one client. Reads keep working.
+ */
+export interface WritePause {
+  paused: boolean;
+  reason?: string;
   /**
    * A one-time step-up token bound to this exact action.
    */

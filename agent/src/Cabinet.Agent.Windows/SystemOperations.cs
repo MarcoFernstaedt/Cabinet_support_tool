@@ -8,6 +8,7 @@ using System.Runtime.Versioning;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
 using Cabinet.Agent.Core.Helpers;
+using Cabinet.Agent.Core.Writes;
 using Microsoft.Win32;
 
 namespace Cabinet.Agent.Windows;
@@ -203,7 +204,7 @@ public sealed class SystemOperations(AgentConfig config)
     }
 
     /// <summary>DNS servers typed in by hand are stored as NameServer on the interface; DHCP-supplied ones are not.</summary>
-    private static bool HasStaticDns(string interfaceId)
+    internal static bool HasStaticDns(string interfaceId)
     {
         if (!Guid.TryParse(interfaceId, out Guid id)) return false;
         try
@@ -214,72 +215,23 @@ public sealed class SystemOperations(AgentConfig config)
         catch (Exception e) when (e is System.Security.SecurityException or UnauthorizedAccessException or IOException) { return false; }
     }
 
-    /// <summary>Firewall profiles and every rule, read through the Windows Firewall policy object.</summary>
+    /// <summary>
+    /// Firewall profiles and every rule, read through the Windows Firewall policy object, with the snapshots
+    /// the broker saved and any timer that will turn a profile back on (read from the broker's folder).
+    /// </summary>
     public Task<FirewallStateOutput> FirewallStateAsync(EmptyParams _, CancellationToken token)
     {
-        object? policy = null;
-        try
+        FirewallStateOutput state = FirewallCom.Read(token);
+        var store = new FirewallStore(AgentPaths.BrokerFirewall);
+        IReadOnlyList<FirewallStore.Timer> timers;
+        IReadOnlyList<FirewallSnapshotInfo> snapshots;
+        try { timers = store.TimersList(); snapshots = store.Snapshots(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { timers = []; snapshots = []; }
+        return Task.FromResult(state with
         {
-            Type type = Type.GetTypeFromProgID("HNetCfg.FwPolicy2", throwOnError: false)
-                ?? throw new OperationFailedException("unavailable", "Windows Firewall is not available on this cabinet.");
-            policy = Activator.CreateInstance(type)!;
-            dynamic fw = policy;
-            var profiles = new List<FirewallProfileState>();
-            foreach (var (bit, profile) in new[] { (1, FirewallProfile.Domain), (2, FirewallProfile.Private), (4, FirewallProfile.Public) })
-                profiles.Add(new FirewallProfileState
-                {
-                    Profile = profile, Enabled = (bool)fw.FirewallEnabled[bit],
-                    DefaultInbound = (int)fw.DefaultInboundAction[bit] == 1 ? FirewallAction.Allow : FirewallAction.Block,
-                    DefaultOutbound = (int)fw.DefaultOutboundAction[bit] == 1 ? FirewallAction.Allow : FirewallAction.Block,
-                    ReenableAt = null, // timers belong to firewall.setProfile (a later milestone)
-                });
-
-            var rules = new List<ReportedFirewallRule>();
-            bool truncated = false;
-            foreach (dynamic rule in (IEnumerable)fw.Rules)
-            {
-                token.ThrowIfCancellationRequested();
-                if (rules.Count == 10_000) { truncated = true; break; }
-                string name = EventText.ShortText((string?)rule.Name);
-                if (name.Length == 0) continue;
-                int protocol = (int)rule.Protocol;
-                int mask = (int)rule.Profiles;
-                rules.Add(new ReportedFirewallRule
-                {
-                    Name = name,
-                    DisplayGroup = Field((string?)rule.Grouping),
-                    Direction = (int)rule.Direction == 2 ? FirewallDirection.Out : FirewallDirection.In,
-                    Action = (int)rule.Action == 1 ? FirewallAction.Allow : FirewallAction.Block,
-                    Protocol = protocol switch { 6 => "TCP", 17 => "UDP", 1 => "ICMPv4", 58 => "ICMPv6", 256 => "Any", _ => protocol.ToString(CultureInfo.InvariantCulture) },
-                    LocalPorts = protocol is 6 or 17 ? Field((string?)rule.LocalPorts) : null,
-                    RemotePorts = protocol is 6 or 17 ? Field((string?)rule.RemotePorts) : null,
-                    LocalAddresses = Field((string?)rule.LocalAddresses),
-                    RemoteAddresses = Field((string?)rule.RemoteAddresses),
-                    ProgramPath = Field((string?)rule.ApplicationName),
-                    Profiles = new[] { (1, FirewallProfile.Domain), (2, FirewallProfile.Private), (4, FirewallProfile.Public) }
-                        .Where(p => (mask & p.Item1) != 0).Select(p => p.Item2).ToList(),
-                    Enabled = (bool)rule.Enabled,
-                    CreatedByPlatform = name.StartsWith("MashuraDiag", StringComparison.Ordinal),
-                });
-            }
-            return Task.FromResult(new FirewallStateOutput { Profiles = profiles, Rules = rules, RulesTruncated = truncated, Snapshots = [] });
-        }
-        catch (COMException)
-        {
-            throw new OperationFailedException("unavailable", "Windows Firewall did not answer.");
-        }
-        finally
-        {
-            if (policy is not null && Marshal.IsComObject(policy)) Marshal.FinalReleaseComObject(policy);
-        }
-    }
-
-    /// <summary>A firewall text field: long lists are cut with a marker rather than failing the whole listing.</summary>
-    private static string? Field(string? text)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return null;
-        string clean = EventText.ShortText(text, 10_000);
-        return clean.Length <= 256 ? clean : EventText.Cap(clean, 253) + "...";
+            Profiles = state.Profiles.Select(p => p with { ReenableAt = timers.FirstOrDefault(t => t.Profile == p.Profile)?.ReenableAt }).ToList(),
+            Snapshots = snapshots.Take(20).ToList(),
+        });
     }
 }
 
@@ -287,7 +239,8 @@ public sealed class SystemOperations(AgentConfig config)
 [SupportedOSPlatform("windows")]
 public static class NetworkOperations
 {
-    public static OperationRegistry Registry(AgentConfig config, BrokerClient broker, TimeProvider clock)
+    /// <param name="packages">Downloads packages for package.install before the broker checks and installs them.</param>
+    public static OperationRegistry Registry(AgentConfig config, BrokerClient broker, TimeProvider clock, Core.Packages.PackageDownloads? packages = null)
     {
         var system = new SystemOperations(config);
         var devices = new DeviceOperations(config, broker, clock);
@@ -300,6 +253,7 @@ public static class NetworkOperations
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);
+        packages?.Register(registry, broker.RunAsync);
         broker.RegisterForwarders(registry);
         return registry;
     }

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/broker-request.schema.json",
   "title": "broker-request",
-  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, path to run or script.",
+  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, a path to run, a file path or a script. package.install names a package ID only; the broker finds the downloaded file itself.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,11 +17,12 @@
       "type": "string",
       "enum": [
         "ping",
-        "operation"
+        "operation",
+        "confirm"
       ]
     },
     "operation": {
-      "description": "Operations the broker performs: reads that need administrator rights (Windows Update refuses the network service's restricted account). Write operations are added in a later milestone.",
+      "description": "Operations the broker performs: reads that need administrator rights, and every write operation.",
       "type": "string",
       "enum": [
         "eventlog.channels",
@@ -29,11 +30,22 @@
         "eventlog.get",
         "updates.status",
         "disk.smart",
-        "files.list"
+        "files.list",
+        "network.setIp",
+        "network.setDns",
+        "firewall.setProfile",
+        "firewall.setRule",
+        "firewall.restore",
+        "package.install",
+        "driver.uninstall"
       ]
     },
     "params": {
       "type": "object"
+    },
+    "commandId": {
+      "description": "The platform command a write belongs to. Required for writes, so the safety net and firewall attribution know which command made a change; and for confirm.",
+      "$ref": "../common.schema.json#/$defs/uuid"
     }
   },
   "allOf": [
@@ -68,6 +80,57 @@
               ]
             }
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "confirm"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "commandId"
+        ]
+      },
+      "else": {
+        "if": {
+          "type": "object",
+          "properties": {
+            "operation": {
+              "enum": [
+                "network.setIp",
+                "network.setDns",
+                "firewall.setProfile",
+                "firewall.setRule",
+                "firewall.restore",
+                "package.install",
+                "driver.uninstall"
+              ]
+            }
+          },
+          "required": [
+            "operation"
+          ]
+        },
+        "then": {
+          "type": "object",
+          "required": [
+            "commandId"
+          ]
+        },
+        "else": {
+          "type": "object",
+          "not": {
+            "required": [
+              "commandId"
+            ]
+          }
         }
       }
     },
@@ -193,6 +256,153 @@
         "properties": {
           "params": {
             "$ref": "../operations/updates.status.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "network.setIp"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.setIp.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "network.setDns"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.setDns.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "firewall.setProfile"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/firewall.setProfile.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "firewall.setRule"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/firewall.setRule.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "firewall.restore"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/firewall.restore.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "package.install"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/package.install.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "driver.uninstall"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/driver.uninstall.schema.json#/$defs/params"
           }
         }
       }

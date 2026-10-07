@@ -67,13 +67,32 @@ test("every envelope and every operation has a valid example, and every operatio
   }
 });
 
-test("the broker accepts only read operations that exist in the catalog", () => {
+test("the broker accepts only catalog operations, every write goes through it, and each is routed to its parameter schema", () => {
   const request = JSON.parse(readFileSync(join(SCHEMA_DIR, "agent", "broker-request.schema.json"), "utf8"));
-  for (const op of request.properties.operation.enum) {
-    const entry = readCatalog().operations.find(o => o.name === op);
-    assert.ok(entry, `${op} must be in the catalog`);
-    assert.equal(entry.kind, "read", `${op}: write operations reach the broker only from milestone 5`);
+  const brokerOps = request.properties.operation.enum;
+  for (const op of brokerOps) assert.ok(opNames.includes(op), `${op} must be in the catalog`);
+  for (const w of catalog.operations.filter(o => o.kind === "write")) assert.ok(brokerOps.includes(w.name), `${w.name} needs administrator rights, so it runs in the broker`);
+  const routed = request.allOf.filter(c => c.if?.properties?.operation?.const).map(c => c.if.properties.operation.const);
+  assert.deepEqual([...routed].sort(), [...brokerOps].sort(), "every broker operation's params are checked");
+  assert.ok(!JSON.stringify(request).includes('"path"'), "a broker request never carries a file path");
+});
+
+test("the trusted publisher list is valid, short, and pins roots whose files match their hashes", async () => {
+  const { createHash, X509Certificate } = await import("node:crypto");
+  const trustDir = join(SCHEMA_DIR, "..", "trust");
+  const list = JSON.parse(readFileSync(join(trustDir, "trusted-publishers.json"), "utf8"));
+  const validate = ajv.getSchema(ref("agent/trusted-publishers.schema.json"));
+  assert.equal(validate(list), true, JSON.stringify(validate.errors));
+  for (const root of list.roots) {
+    const cert = new X509Certificate(readFileSync(join(trustDir, root.file)));
+    assert.equal(createHash("sha256").update(cert.raw).digest("hex"), root.sha256, `${root.name}: file and pin agree`);
+    assert.ok(cert.ca && cert.checkIssued(cert), `${root.name} is a self-signed CA`);
   }
+  for (const p of list.publishers) {
+    assert.ok(list.roots.some(r => r.sha256 === p.root), `${p.name}: its root is listed`);
+    assert.ok(!/[*?]/.test(p.commonName + p.organization), `${p.name}: names are exact, never wildcards`);
+  }
+  assert.ok(list.publishers.length <= 10, "shorter is safer (docs/spec/09-open-decisions.md)");
 });
 
 test("the catalog, the operation name list and the operation files agree", () => {

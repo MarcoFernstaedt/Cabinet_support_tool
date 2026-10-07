@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/command-request.schema.json",
   "title": "command-request",
-  "description": "Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema.",
+  "description": "Run one catalog operation on the cabinet in the URL. Parameters are validated again against the operation's own schema. A write operation also carries a step-up token for that operation on that cabinet.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -11,6 +11,11 @@
     },
     "params": {
       "type": "object"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
     }
   },
   "required": [

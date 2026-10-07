@@ -37,12 +37,13 @@ public sealed class CommandProcessor
                     Error = new ResultError { Code = r.Rejection.Code, Message = r.Rejection.Message },
                 }), null);
             case ValidationOutcome.Accepted a:
-                var (output, error) = await OperationRunner.RunAsync(
-                    _registry, a.Command.Entry.Name, a.Command.Command.Params, Timeout, cancellation).ConfigureAwait(false);
+                var (output, error) = await OperationContext.RunAsync(a.Command.Command.CommandId, () => OperationRunner.RunAsync(
+                    _registry, a.Command.Entry.Name, a.Command.Command.Params, Timeout, cancellation)).ConfigureAwait(false);
                 return (Checked(new Result
                 {
                     CommandId = a.Command.Command.CommandId,
-                    Status = error is null ? ResultStatus.Succeeded : ResultStatus.Failed,
+                    // A package that fails its hash, signature or publisher check was refused, not attempted.
+                    Status = error is null ? ResultStatus.Succeeded : Catalog.RejectionCodes.Contains(error.Code) ? ResultStatus.Rejected : ResultStatus.Failed,
                     StartedAt = started, FinishedAt = _clock.GetUtcNow(), Output = output, Error = error,
                 }), null);
             default:
