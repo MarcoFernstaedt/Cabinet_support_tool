@@ -169,7 +169,13 @@ test("SMART warnings raise Drive failing; outside firewall changes raise Unexpec
   assert.equal((smart.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.drive);
   const outside = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "major", detail: { message: "1 removed" } });
   assert.equal((outside.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.firewall);
-  const ours = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "minor", commandId: randomUUID(), detail: {} });
+  // A change only counts as the platform's when it names a firewall write this cabinet was sent; a made-up command ID is an outside change.
+  const madeUp = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "minor", commandId: randomUUID(), detail: {} });
+  assert.equal((madeUp.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.firewall);
+  const commandId = randomUUID();
+  await asOwner(db, c => c.query(`INSERT INTO commands (id, cabinet_id, operation, params, status, issued_by, issued_at, expires_at)
+    SELECT $1, $2, 'firewall.setRule', '{"change":"delete","ruleName":"MashuraDiag x"}', 'succeeded', id, now(), now() + interval '5 minutes' FROM users LIMIT 1`, [commandId, cab.b]));
+  const ours = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "minor", commandId, detail: {} });
   assert.deepEqual(ours.outcomes, [{ kind: "platform_change" }]);
 });
 

@@ -6,6 +6,8 @@ export interface Config {
   agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds: number };
   tls: { certFile?: string; keyFile?: string };
   devPkiDir?: string;
+  /** The software library: where approved packages are stored (read-only files), and the size limit. */
+  packages: { dir: string; maxBytes: number; trustDir?: string };
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: boolean };
 }
 
@@ -24,7 +26,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     databaseUrl: required(env, "DATABASE_URL"),
     agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean), longPollSeconds },
     tls: {},
+    packages: { dir: env.PACKAGE_DIR ?? new URL("../../../data/packages", import.meta.url).pathname, maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
   };
+  if (!(config.packages.maxBytes > 0 && config.packages.maxBytes <= 2 * 1024 * 1024 * 1024)) throw new Error("PACKAGE_MAX_MB must be 1 to 2048.");
+  // A different trusted publisher list is for tests only; production always uses contracts/trust, the list the agent compiles in.
+  if (env.PACKAGE_TRUST_DIR) {
+    if (env.NODE_ENV === "production") throw new Error("PACKAGE_TRUST_DIR is for tests and refuses to run in production.");
+    config.packages.trustDir = env.PACKAGE_TRUST_DIR;
+  }
   if (env.AGENT_TLS_CERT_FILE) config.tls.certFile = env.AGENT_TLS_CERT_FILE;
   if (env.AGENT_TLS_KEY_FILE) config.tls.keyFile = env.AGENT_TLS_KEY_FILE;
   if (env.DEV_PKI_DIR) config.devPkiDir = env.DEV_PKI_DIR;

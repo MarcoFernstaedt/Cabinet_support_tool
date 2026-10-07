@@ -15,6 +15,8 @@ import { storeEvents } from "../services/events.js";
 import { resolveOfflineFor } from "../services/alerts.js";
 import { scannerIdsFor } from "../services/fleet.js";
 import type { CommandNotifier } from "./notifier.js";
+import { createReadStream } from "node:fs";
+import { downloadablePath, type PackageStore } from "../services/packages.js";
 
 export interface AgentApiOptions {
   pool: pg.Pool;
@@ -22,6 +24,8 @@ export interface AgentApiOptions {
   notifier: CommandNotifier;
   tls: { certPem: string; keyPem: string };
   longPollMs?: number;
+  /** The software library's store, for package downloads; omitted where no packages exist (some tests). */
+  packages?: PackageStore;
   /** Enrollment submissions allowed per source address per hour. */
   enrollPerHour?: number;
   logger?: boolean;
@@ -150,6 +154,16 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     scoped.post("/agent/v1/events", async request => {
       await storeEvents(o.pool, request.cabinet!.id, envelopes.eventBatch.parse(request.body));
       return { serverTime: serverTime() };
+    });
+
+    // The only file download on this API: an approved package, while this cabinet has an open package.install command for it.
+    scoped.get<{ Params: { packageId: string } }>("/agent/v1/packages/:packageId", async (request, reply) => {
+      if (!o.packages || !UUID.test(request.params.packageId)) return reply.code(404).send({ error: "not_found" });
+      const file = await downloadablePath(o.pool, o.packages, request.cabinet!.id, request.params.packageId.toLowerCase());
+      if (!file) return reply.code(404).send({ error: "not_found" });
+      await transaction(o.pool, c => audit(c, { actorKind: "agent", actorId: request.cabinet!.id, action: "package.download", targetKind: "cabinet", targetId: request.cabinet!.id,
+        outcome: "succeeded", details: { packageId: request.params.packageId.toLowerCase(), size: file.size } }));
+      return reply.type("application/octet-stream").header("Content-Length", String(file.size)).header("Cache-Control", "no-store").send(createReadStream(file.path));
     });
 
     scoped.post("/agent/v1/renew", async request => {

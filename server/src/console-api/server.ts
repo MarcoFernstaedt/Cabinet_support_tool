@@ -16,6 +16,8 @@ import { authRoutes } from "./auth-routes.js";
 import { fleetRoutes } from "./fleet-routes.js";
 import { adminRoutes } from "./admin-routes.js";
 import { alertRoutes } from "./alert-routes.js";
+import { writeRoutes } from "./write-routes.js";
+import type { PackageStore } from "../services/packages.js";
 import { ResultStream } from "./stream.js";
 
 export interface ConsoleApiOptions {
@@ -25,6 +27,8 @@ export interface ConsoleApiOptions {
   /** The console's exact origin, e.g. https://cabinets.mashura.internal. State-changing requests must carry it. */
   origin: string;
   stream: ResultStream;
+  /** The software library's store; omitted in tests that do not upload packages. */
+  packages?: PackageStore;
   /** The built console (console/dist). Omitted in API-only tests. */
   staticDir?: string;
   policy?: SessionPolicy;
@@ -114,6 +118,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(fleetRoutes, { ...o, guards });
   await app.register(adminRoutes, { ...o, guards });
   await app.register(alertRoutes, { ...o, guards });
+  await app.register(writeRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {
     const user = await guards.role(request, "tier1");
     o.stream.attach(user, request, reply, () => loadSession(o.pool, cookie(request), o.policy));

@@ -36,6 +36,8 @@ import type {
   AlertFilter,
   EventLookup,
   RuleFilter,
+  PackageUpload,
+  WritePause,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -124,6 +126,8 @@ export const consoleBodies = {
   alertFilter: validator<AlertFilter>("alert-filter", consoleBody("alert-filter")),
   eventLookup: validator<EventLookup>("event-lookup", consoleBody("event-lookup")),
   ruleFilter: validator<RuleFilter>("rule-filter", consoleBody("rule-filter")),
+  packageUpload: validator<PackageUpload>("package-upload", consoleBody("package-upload")),
+  writePause: validator<WritePause>("write-pause", consoleBody("write-pause")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

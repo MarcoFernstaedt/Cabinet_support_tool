@@ -101,18 +101,22 @@ public sealed class FirewallCom : IFirewallControl
         return 0;
     });
 
-    private static IEnumerable<dynamic> Named(dynamic fw, string name)
+    /// <summary>The rules with this exact name. Typed as object so LINQ binds statically, not through dynamic dispatch.</summary>
+    private static List<object> Named(object policy, string name)
     {
+        dynamic fw = policy;
+        var found = new List<object>();
         foreach (dynamic rule in (IEnumerable)fw.Rules)
-            if (string.Equals((string?)rule.Name, name, StringComparison.Ordinal)) yield return rule;
+            if (string.Equals((string?)rule.Name, name, StringComparison.Ordinal)) found.Add((object)rule);
+        return found;
     }
 
-    public int CountRules(string name) => WithPolicy(fw => Named(fw, name).Count());
+    public int CountRules(string name) => WithPolicy(fw => Named((object)fw, name).Count);
 
     public ReportedFirewallRule? ReadRule(string name) => WithPolicy(fw =>
     {
-        dynamic? rule = Named(fw, name).FirstOrDefault();
-        return rule is null ? null : Report(rule);
+        object? rule = Named((object)fw, name).FirstOrDefault();
+        return rule is null ? null : (ReportedFirewallRule?)Report((dynamic)rule);
     });
 
     public void CreateRule(FirewallRule rule) => WithPolicy<int>(fw =>
@@ -133,13 +137,13 @@ public sealed class FirewallCom : IFirewallControl
 
     public void UpdateRule(string name, FirewallRule rule) => WithPolicy<int>(fw =>
     {
-        dynamic r = Named(fw, name).Single();
+        dynamic r = Named((object)fw, name).Single();
         Apply(r, rule);
         if (rule.Name != name) r.Name = rule.Name;
         return 0;
     });
 
-    public void SetRuleEnabled(string name, bool enabled) => WithPolicy<int>(fw => { Named(fw, name).Single().Enabled = enabled; return 0; });
+    public void SetRuleEnabled(string name, bool enabled) => WithPolicy<int>(fw => { dynamic r = Named((object)fw, name).Single(); r.Enabled = enabled; return 0; });
 
     public void DeleteRule(string name) => WithPolicy<int>(fw => { fw.Rules.Remove(name); return 0; });
 

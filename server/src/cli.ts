@@ -1,6 +1,6 @@
-// platform-admin: operator commands for milestone 2, before the console exists.
-// Approval and command issuing move to the console with sign-in and step-up in
-// milestone 3; this tool still names the person acting (--as) and audits it all.
+// platform-admin: operator commands on the server host. The console is the normal way to do
+// all of this, with sign-in and step-up; this tool names the person acting (--as), applies the
+// same checks (write pauses and limits, the two-person rule) and audits everything as "via cli".
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "./auth/passwords.js";
 import { parseArgs } from "node:util";
@@ -13,6 +13,12 @@ import { commandRecord, issueCommand } from "./services/commands.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "./services/enrollment.js";
 import { Refused } from "./services/errors.js";
 import { issuingKey } from "./runtime.js";
+import { readFile } from "node:fs/promises";
+import { createReadStream, mkdirSync } from "node:fs";
+import { TrustList } from "./packages/trust.js";
+import { PackageRefused, verifyPackage } from "./packages/verify.js";
+import { approvePackage, receiveUpload, retirePackage, startUpload } from "./services/packages.js";
+import { catalog, isOperationName } from "./contracts.js";
 
 const USAGE = `platform-admin <command> [options]
 
@@ -25,13 +31,19 @@ const USAGE = `platform-admin <command> [options]
   reject <requestId> --as <admin>
   cabinets                                  every cabinet, with online status
   revoke <cabinetId> --as <admin>
-  issue <cabinetId> <operation> [paramsJson] --as <user>    a read operation
+  issue <cabinetId> <operation> [paramsJson] --as <user> [--write]   --write is required for a write operation
+  package verify <file> --type driver|msi   run the server's package checks on a file (no database needed)
+  package upload <file> --type driver|msi --name N --version V --vendor X [--hardware-id ID] --as <admin>
+  package approve <packageId> --as <admin>  a different Admin than the uploader
+  package retire <packageId> --as <admin>
+  writes pause|resume [--client <clientId>] [--reason R] --as <admin>
+  user resume-writes --username u --as <admin>               after a user went over their write limit
   command <commandId>                       a command's status and result
   audit-verify                              recompute the audit hash chain`;
 
 const ROLE_RANK: Record<string, number> = { tier1: 1, tier2: 2, admin: 3 };
 
-async function userId(pool: pg.Pool, username: string | undefined, minimumRole: "tier1" | "admin"): Promise<string> {
+async function userId(pool: pg.Pool, username: string | undefined, minimumRole: "tier1" | "tier2" | "admin"): Promise<string> {
   if (!username) throw new Refused("usage", 2, "--as <username> is required");
   const row = (await pool.query<{ id: string; role: string }>("SELECT id, role FROM users WHERE username = $1 AND status = 'active'", [username])).rows[0];
   if (!row) throw new Refused("usage", 2, `no active user ${username}`);
@@ -43,7 +55,8 @@ async function main(argv: string[]): Promise<void> {
   const { positionals, values } = parseArgs({
     args: argv, allowPositionals: true, strict: true,
     options: { as: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
-      client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" } },
+      client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
+      version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" } },
   });
   const [command, ...rest] = positionals;
   if (!command) { console.log(USAGE); return; }
@@ -58,10 +71,74 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
+  if (command === "package" && rest[0] === "verify") {
+    if (!rest[1] || (values.type !== "driver" && values.type !== "msi")) throw new Refused("usage", 2, USAGE);
+    try {
+      const v = verifyPackage(await readFile(rest[1]), values.type, TrustList.fromFolder(process.env.PACKAGE_TRUST_DIR || undefined));
+      console.log(`accepted  ${v.signer}  sha256 ${v.sha256}  ${v.size} bytes  ${v.detail}`);
+    } catch (e) {
+      if (!(e instanceof PackageRefused)) throw e;
+      console.log(`refused  ${e.code}  ${e.message}`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   const config = loadConfig();
   const pool = createPool(config.databaseUrl, 2);
   try {
-    switch (command === "user" || command === "token" ? `${command} ${rest.shift()}` : command) {
+    switch (["user", "token", "package", "writes"].includes(command) ? `${command} ${rest.shift()}` : command) {
+      case "package upload": {
+        if (!rest[0] || !values.name || !values.version || !values.vendor || (values.type !== "driver" && values.type !== "msi")) throw new Refused("usage", 2, USAGE);
+        const adminId = await userId(pool, values.as, "admin");
+        mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
+        const store = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
+        const id = await startUpload(pool, adminId, { name: values.name, version: values.version, vendor: values.vendor, packageType: values.type,
+          hardwareIds: values["hardware-id"] ?? [] }, null);
+        const p = await receiveUpload(pool, store, adminId, id, createReadStream(rest[0]));
+        console.log(`${p.id}  ${p.state}  ${p.signer}  sha256 ${p.sha256}`);
+        return;
+      }
+      case "package approve":
+        if (!rest[0]) throw new Refused("usage", 2, USAGE);
+        await approvePackage(pool, await userId(pool, values.as, "admin"), rest[0], null);
+        console.log("Approved.");
+        return;
+      case "package retire":
+        if (!rest[0]) throw new Refused("usage", 2, USAGE);
+        await retirePackage(pool, await userId(pool, values.as, "admin"), rest[0], null);
+        console.log("Retired.");
+        return;
+      case "writes pause":
+      case "writes resume": {
+        const adminId = await userId(pool, values.as, "admin");
+        const paused = command === "writes" && positionals[1] === "pause";
+        await transaction(pool, async c => {
+          if (values.client) {
+            const r = await c.query("UPDATE clients SET write_paused = $2, write_pause_reason = $3 WHERE id = $1", [values.client, paused, paused ? values.reason ?? null : null]);
+            if (r.rowCount !== 1) throw new Refused("not_found", 1, "no such client");
+          } else {
+            await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('writes.paused', $1, $2)
+                           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`,
+              [JSON.stringify({ paused, reason: values.reason ?? null, by: adminId, at: new Date().toISOString() }), adminId]);
+          }
+          await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded",
+            details: { scope: values.client ? "client" : "fleet", clientId: values.client ?? null, reason: values.reason ?? null, via: "cli" } });
+        });
+        console.log(paused ? "Writes paused." : "Writes resumed.");
+        return;
+      }
+      case "user resume-writes": {
+        if (!values.username) throw new Refused("usage", 2, USAGE);
+        const adminId = await userId(pool, values.as, "admin");
+        await transaction(pool, async c => {
+          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = false, writes_paused_reason = NULL WHERE username = $1 RETURNING id", [values.username]);
+          if (!r.rows[0]) throw new Refused("not_found", 1, "no such user");
+          await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: r.rows[0].id, outcome: "succeeded", details: { via: "cli" } });
+        });
+        console.log(`Writes resumed for ${values.username}.`);
+        return;
+      }
       case "user add": {
         if (!values.username || !values.name || !values.role || !(values.role in ROLE_RANK)) throw new Refused("usage", 2, USAGE);
         const id = randomUUID();
@@ -130,7 +207,10 @@ async function main(argv: string[]): Promise<void> {
         if (!cabinetId || !operation) throw new Refused("usage", 2, USAGE);
         let parsed: unknown;
         try { parsed = JSON.parse(params ?? "{}"); } catch { throw new Refused("usage", 2, "paramsJson is not JSON"); }
-        const command = await issueCommand(pool, await userId(pool, values.as, "tier1"), cabinetId, operation, parsed);
+        const isWrite = isOperationName(operation) && catalog.get(operation)!.kind === "write";
+        if (isWrite && !values.write) throw new Refused("usage", 2, `${operation} changes the cabinet; add --write to confirm`);
+        const command = await issueCommand(pool, await userId(pool, values.as, isWrite ? "tier2" : "tier1"), cabinetId, operation, parsed, "command.issue",
+          isWrite ? { viaCli: true } : undefined);
         console.log(command.commandId);
         return;
       }

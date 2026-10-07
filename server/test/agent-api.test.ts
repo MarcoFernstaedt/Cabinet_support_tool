@@ -207,11 +207,11 @@ test("the long poll returns empty after its time limit, and expired commands are
   assert.equal((await commandRecord(db.app, command.commandId))!.status, "expired");
 });
 
-test("issuing refuses unknown operations, bad parameters and (for now) writes", async () => {
+test("issuing refuses unknown operations, bad parameters, and writes without a step-up token", async () => {
   const cab = await enrolledCabinet();
   await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "shell.run", {}), /not a catalog operation/);
   await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "eventlog.query", { log: "Security" }), /schema/);
-  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "network.setDns", { interfaceIndex: 1, mode: "automatic" }), /milestone 5/);
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "network.setDns", { interfaceIndex: 1, mode: "automatic" }), /step-up token/);
   await assert.rejects(issueCommand(db.app, admin, randomUUID(), "system.info", {}), /no such active cabinet/);
 });
 

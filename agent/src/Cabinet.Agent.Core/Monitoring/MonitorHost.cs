@@ -111,7 +111,7 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
             {
                 if (watch.Check(await sources.Firewall!(token).ConfigureAwait(false), clock.GetUtcNow()) is { } e)
                 {
-                    log("The firewall configuration changed outside the platform.");
+                    log(e.CommandId is { } cmd ? $"The firewall configuration changed through the platform (command {cmd})." : "The firewall configuration changed outside the platform.");
                     Add(e);
                 }
             }

@@ -225,6 +225,109 @@ jobs:
             if ($record.status -ne 'succeeded') { $failed += $op }
           }
           if ($failed) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30; throw "Did not succeed through the server: $($failed -join ', ')" }
+
+          # ---- Milestone 5: writes, the safety net, firewall timers and packages, on real Windows through the installed services ----
+          function Wait-Command($id, $seconds = 180) {
+            for ($i = 0; $i -lt $seconds / 2; $i++) {
+              $r = node server/dist/src/cli.js command $id | Out-String | ConvertFrom-Json
+              if ($r.status -notin @('queued', 'delivered')) { return $r }
+              Start-Sleep 2
+            }
+            return $r
+          }
+          function Expect($r, $status, $code) {
+            Write-Host ("  -> {0} {1} {2}" -f $r.status, $r.result.error.code, $r.result.error.message)
+            if ($r.status -ne $status -or ($code -and $r.result.error.code -ne $code)) {
+              Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Tail 30; Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30
+              throw "Expected $status $code"
+            }
+          }
+          $cli = 'server/dist/src/cli.js'
+          node $cli user add --username ci.tier2 --name "CI Tier 2" --role tier2 | Out-Null
+          node $cli user add --username ci.admin2 --name "CI Second Admin" --role admin | Out-Null
+          $sql = { param($q) (& $psql -U postgres -d cabinet -tAc $q).Trim() }
+
+          Write-Host 'The server checks real files: a driver signed through Microsoft and a Microsoft MSI pass; tampered, impostor and unsigned ones are refused.'
+          foreach ($f in @(@('oem-driver.zip', 'driver', 'accepted'), @('microsoft.msi', 'msi', 'accepted'), @('tampered-driver.zip', 'driver', 'refused  signature_invalid'),
+                           @('impostor-driver.zip', 'driver', 'refused  publisher_not_trusted'), @('unsigned-driver.zip', 'driver', 'refused  signature_invalid'))) {
+            $out = node $cli package verify "$env:PACKAGE_FIXTURES\$($f[0])" --type $f[1]
+            Write-Host "  $($f[0]): $out"
+            if (-not "$out".StartsWith($f[2])) { throw "The server's check of $($f[0]) should give '$($f[2])'." }
+          }
+
+          $firewallAlerts = (& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.key = 'firewall'")
+          Write-Host 'A firewall rule through the platform: created, kept because the result was delivered, attributed to its command, then deleted.'
+          $id = (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"create","rule":{"name":"MashuraDiag CI 9","direction":"out","action":"block","protocol":"tcp","remotePorts":[{"from":9,"to":9}],"remoteAddresses":["203.0.113.9"],"profiles":["domain","private","public"],"enabled":true}}' --as ci.tier2 --write | Select-Object -Last 1).Trim()
+          Expect (Wait-Command $id) 'succeeded'
+          if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The rule is not in Windows Firewall.' }
+          for ($i = 0; $i -lt 45 -and (& $sql "SELECT count(*) FROM firewall_changes WHERE command_id = '$id' AND event_id IS NOT NULL") -ne '1'; $i++) { Start-Sleep 2 }
+          if ((& $sql "SELECT count(*) FROM firewall_changes WHERE command_id = '$id' AND event_id IS NOT NULL") -ne '1') { throw 'The change was not attributed to its command.' }
+          if ((& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.key = 'firewall'") -ne $firewallAlerts) { throw 'A platform change raised an unexpected-change alert.' }
+          Start-Sleep 125
+          if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The confirmed rule was rolled back.' }
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"delete","ruleName":"MashuraDiag CI 9"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          if (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue) { throw 'The rule was not deleted.' }
+
+          Write-Host 'Network writes that change nothing on this runner: DHCP on a DHCP adapter, automatic DNS on an automatic adapter.'
+          $nic = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setIp "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"dhcp`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setDns "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"automatic`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+
+          Write-Host 'A bad change nobody confirms is undone: a firewall rule and a DNS change sent through the local harness (no server confirms them).'
+          $harness = "$env:ProgramFiles\Mashura\CabinetAgent\Cabinet.Agent.Harness\cabinet-harness.exe"
+          $config = "$env:ProgramData\Mashura\CabinetAgent\agent-config.json"
+          $servers = ($nic.DNSServer | Where-Object AddressFamily -eq 2).ServerAddresses | Select-Object -First 4
+          & $harness make --config $config --operation firewall.setRule --params '{"change":"create","rule":{"name":"MashuraDiag CI unconfirmed","direction":"out","action":"block","protocol":"tcp","remotePorts":[{"from":7,"to":7}],"profiles":["domain","private","public"],"enabled":true}}' --out "$env:RUNNER_TEMP\unconfirmed-rule.json"
+          & $harness drop --commands "$env:RUNNER_TEMP\unconfirmed-rule.json" --out "$env:RUNNER_TEMP\unconfirmed-rule-result.json"
+          $dnsParams = @{ interfaceIndex = $nic.InterfaceIndex; mode = 'static'; servers = @($servers) } | ConvertTo-Json -Compress
+          & $harness make --config $config --operation network.setDns --params $dnsParams --out "$env:RUNNER_TEMP\unconfirmed-dns.json"
+          & $harness drop --commands "$env:RUNNER_TEMP\unconfirmed-dns.json" --out "$env:RUNNER_TEMP\unconfirmed-dns-result.json"
+          Get-Content "$env:RUNNER_TEMP\unconfirmed-rule-result.json", "$env:RUNNER_TEMP\unconfirmed-dns-result.json"
+          if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI unconfirmed' -ErrorAction SilentlyContinue)) { throw 'The unconfirmed rule was not created.' }
+          $key = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\$((Get-NetAdapter -InterfaceIndex $nic.InterfaceIndex).InterfaceGuid)"
+          if (-not (Get-ItemProperty $key).NameServer) { throw 'The unconfirmed DNS change was not made.' }
+
+          Write-Host 'A firewall profile turned off for one minute comes back on, even though the broker restarts in between (a reboot keeps the timer the same way).'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setProfile '{"profile":"public","enabled":false,"defaultInbound":"block","defaultOutbound":"allow","durationMinutes":1}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          if ((Get-NetFirewallProfile -Name Public).Enabled) { throw 'The public profile was not turned off.' }
+          Stop-Service CabinetAgentBroker -Force; Start-Sleep 20; Start-Service CabinetAgentBroker; Start-Service CabinetAgentNetwork
+          Start-Sleep 140
+          if (-not (Get-NetFirewallProfile -Name Public).Enabled) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Tail 30; throw 'The public profile did not come back on.' }
+          if (Get-NetFirewallRule -DisplayName 'MashuraDiag CI unconfirmed' -ErrorAction SilentlyContinue) { throw 'The unconfirmed rule was not rolled back.' }
+          if ((Get-ItemProperty $key).NameServer) { throw 'The unconfirmed DNS change was not rolled back.' }
+          Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Pattern 'rolled back', 'on again' -SimpleMatch | ForEach-Object { Write-Host "  $($_.Line)" }
+
+          Write-Host 'Packages: the driver signed through Microsoft is uploaded, approved by a second Admin, downloaded, checked again and installed by pnputil.'
+          $up = node $cli package upload "$env:PACKAGE_FIXTURES\oem-driver.zip" --type driver --name "CI driver" --version 1 --vendor Microsoft --as ci.admin
+          Write-Host "  $up"
+          $pkg = ($up -split '\s+')[0]; $sha = ($up -split 'sha256 ')[1].Trim()
+          node $cli package approve $pkg --as ci.admin2
+          $r = Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$pkg`",`"packageType`":`"driver`",`"sha256`":`"$sha`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim() 600
+          Expect $r 'succeeded'
+          Write-Host "  installed: $($r.result.output.installed) signer: $($r.result.output.signer) exit $($r.result.output.exitCode)"
+          if ($r.result.output.signer -ne 'Microsoft Windows Hardware Compatibility Publisher') { throw 'Unexpected signer.' }
+          Write-Host 'The server refuses the tampered, impostor and unsigned packages on upload...'
+          foreach ($bad in @('tampered-driver.zip', 'impostor-driver.zip', 'unsigned-driver.zip')) {
+            node $cli package upload "$env:PACKAGE_FIXTURES\$bad" --type driver --name "CI $bad" --version 1 --vendor x --as ci.admin
+            if ($LASTEXITCODE -eq 0) { throw "The server accepted $bad." }
+          }
+          Write-Host '...and when they are forced past the server (approved by hand in the database), the agent refuses each itself.'
+          $data = (Resolve-Path 'data/packages').Path
+          foreach ($bad in @(@('tampered-driver.zip', 'signature_invalid'), @('impostor-driver.zip', 'publisher_not_trusted'), @('unsigned-driver.zip', 'signature_invalid'))) {
+            $hash = (Get-FileHash "$env:PACKAGE_FIXTURES\$($bad[0])" -Algorithm SHA256).Hash.ToLower()
+            Copy-Item "$env:PACKAGE_FIXTURES\$($bad[0])" "$data\$hash.pkg" -Force
+            $forced = [guid]::NewGuid().ToString()
+            & $psql -U postgres -d cabinet -c "INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at) SELECT '$forced', 'Forced $($bad[0])', '1', 'x', 'driver', 'approved', '$hash', 1, 'forced', a.id, b.id, now() FROM users a, users b WHERE a.username = 'ci.admin' AND b.username = 'ci.admin2'" | Out-Null
+            Write-Host "  $($bad[0])"
+            Expect (Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$forced`",`"packageType`":`"driver`",`"sha256`":`"$hash`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'rejected' $bad[1]
+          }
+          if (Get-ChildItem "$env:ProgramData\Mashura\CabinetAgent\staging" -Force) { throw 'The staging folder was not emptied.' }
+          Write-Host 'driver.uninstall reaches pnputil (a published name that does not exist is reported, nothing is removed).'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID driver.uninstall '{"publishedName":"oem9999.inf"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'failed' 'not_found'
+          $writes = & $sql "SELECT count(*) FROM audit_log WHERE action = 'command.write'"
+          Write-Host "Write commands in the audit log: $writes"
+          if ([int]$writes -lt 13) { throw 'Not every write is in the audit log.' }
+
           node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin
           $refused = $false
           for ($i = 0; $i -lt 45 -and -not $refused; $i++) {

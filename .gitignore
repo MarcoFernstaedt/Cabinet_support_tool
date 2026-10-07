@@ -52,3 +52,6 @@ server/dist/
 agent/out/
 server/.dev-pki/
 console/dist/
+
+# The software library's stored packages (server/PACKAGE_DIR default)
+/data/

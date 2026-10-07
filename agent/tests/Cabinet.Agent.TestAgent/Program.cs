@@ -16,7 +16,7 @@ using Cabinet.Agent.TestAgent;
 //   events-<log>.json   a JSON array of EventSummary for that log (the event log watcher's view)
 // Writes run through the agent's real broker logic (safety net, snapshots, timers, package checks) over an
 // in-memory firewall and network. TEST_SAFETY_NET_SECONDS shortens the safety-net window; TEST_TRUST_DIR
-// replaces the trusted publisher list (so tests can sign packages with their own CA).
+// replaces the trusted publisher list (so tests can sign packages with their own CA); TEST_READ_ONLY=1 installs it read-only.
 if (args.Length is < 3 or > 4) { Console.Error.WriteLine("usage: test-agent <serverUrl> <platformCaPem> <stateDir> [contractsDir]"); return 2; }
 string? examples = args.Length == 4 ? Path.Combine(args[3], "examples", "operations") : null;
 var server = new Uri(args[0]);
@@ -26,7 +26,7 @@ Directory.CreateDirectory(state);
 var clock = TimeProvider.System;
 var config = new AgentConfig
 {
-    CabinetId = null, ReadOnlyMode = false, CabinetRole = null, Scanner = new ScannerConfig { HardwareIds = [] },
+    CabinetId = null, ReadOnlyMode = Environment.GetEnvironmentVariable("TEST_READ_ONLY") == "1", CabinetRole = null, Scanner = new ScannerConfig { HardwareIds = [] },
     SyncCabinet = new SyncCabinetConfig { Address = null }, PlatformServer = new PlatformServerConfig { Host = server.Host, Port = server.Port },
     AllowedTcpPorts = [], LocalHarness = false,
 };
@@ -123,7 +123,13 @@ static class ExampleRegistry
     {
         var broker = installer.Register(writes.Register(new OperationRegistry()));
         packages.Register(registry, (op, p, t) => broker.TryGet(op, out var h) ? h(p, t) : throw new InvalidOperationException());
-        foreach (string op in broker.Names.Where(n => !registry.Has(n))) { broker.TryGet(op, out var h); registry.RegisterRaw(op, h); }
+        // TEST_WRITE_DELAY_MS makes a write take as long as a real one can (netsh, WMI), so a test can cut the link mid-command.
+        int delay = int.TryParse(Environment.GetEnvironmentVariable("TEST_WRITE_DELAY_MS"), out int ms) ? ms : 0;
+        foreach (string op in broker.Names.Where(n => !registry.Has(n)))
+        {
+            broker.TryGet(op, out var h);
+            registry.RegisterRaw(op, async (p, t) => { if (delay > 0) await Task.Delay(delay, t); return await h(p, t); });
+        }
         return registry;
     }
 

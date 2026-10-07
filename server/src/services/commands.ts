@@ -1,28 +1,60 @@
 // Commands: issued by a person, delivered on the cabinet's long poll, answered by a result.
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { catalog, isOperationName, operations, type Command, type Result } from "../contracts.js";
+import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
+import { consumeStepUpToken } from "../auth/stepup.js";
+import { checkWriteAllowed, WriteLimitReached } from "./writes.js";
 import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
+export interface WriteAuthority {
+  /** The one-time step-up token for this operation on this cabinet (the console). */
+  stepUpToken?: string;
+  /** The operator CLI on the server host issues writes without step-up; recorded as such in the audit log. */
+  viaCli?: boolean;
+}
+
 /**
- * Records a command and its audit entry together (docs/spec/05-server-spec.md
- * "Issuing a command" steps 1, 5 and 6). Role checks arrive with console
- * sign-in (milestone 3); write operations need step-up and the safety
- * controls of milestone 5, so they are refused here for now.
+ * Records a command and its audit entry together (docs/spec/05-server-spec.md "Issuing a command").
+ * A write also needs its authority (a step-up token for this operation on this cabinet, or the operator
+ * CLI), and passes the fleet safety controls in the same transaction.
  */
-export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: string, operation: string, params: unknown, auditAction = "command.issue"): Promise<Command> {
+export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: string, operation: string, params: unknown, auditAction = "command.issue",
+  write?: WriteAuthority): Promise<Command> {
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
-  if (entry.kind !== "read") throw new Refused("writes_unavailable", 403, "write operations arrive in milestone 5");
+  if (entry.kind === "write" && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "a write needs a step-up token for this exact action");
+  if (entry.kind === "read" && write?.stepUpToken) throw new Refused("invalid_request", 400, "reads take no step-up token");
   if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
+  try {
+    return await issueInTransaction(pool, userId, cabinetId, operation, params, auditAction, entry, write);
+  } catch (e) {
+    if (e instanceof WriteLimitReached) await recordLimitPause(pool, userId);
+    throw e;
+  }
+}
+
+async function recordLimitPause(pool: pg.Pool, userId: string): Promise<void> {
+  // The refused command's transaction rolled back; the pause itself must stick.
+  await transaction(pool, async c => {
+    const r = await c.query("UPDATE users SET writes_paused = true, writes_paused_reason = coalesce(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND NOT writes_paused", [userId]);
+    if (r.rowCount === 1) await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
+  });
+}
+
+async function issueInTransaction(pool: pg.Pool, userId: string, cabinetId: string, operation: OperationName, params: unknown, auditAction: string,
+  entry: CatalogEntry, write?: WriteAuthority): Promise<Command> {
   return transaction(pool, async c => {
     const cabinet = (await c.query("SELECT 1 FROM cabinets WHERE id = $1 AND status = 'active'", [cabinetId])).rows[0];
     if (!cabinet) throw new Refused("not_found", 404, "no such active cabinet");
     const user = (await c.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active'", [userId])).rows[0];
     if (!user) throw new Refused("forbidden", 403, "unknown or disabled user");
+    if (entry.kind === "write") {
+      if (write?.stepUpToken) await consumeStepUpToken(c, write.stepUpToken, userId, operation, cabinetId);
+      await checkWriteAllowed(c, userId, cabinetId);
+    }
     // Second precision keeps the timestamps identical on both sides of the wire.
     const issuedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
     const command: Command = {
@@ -31,8 +63,8 @@ export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: str
     };
     await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')`,
       [command.commandId, cabinetId, operation, safeJson(params), userId, command.issuedAt, command.expiresAt]);
-    await audit(c, { actorKind: "user", actorId: userId, action: auditAction, targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
-      details: { commandId: command.commandId, operation, params } });
+    await audit(c, { actorKind: "user", actorId: userId, action: entry.kind === "write" ? "command.write" : auditAction, targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
+      details: { commandId: command.commandId, operation, params, ...(write?.viaCli ? { via: "cli" } : {}) } });
     return command;
   });
 }
@@ -69,6 +101,13 @@ export async function storeResult(pool: pg.Pool, cabinetId: string, result: Resu
         throw new Refused("invalid_output", 400, "the output does not match the operation's output schema");
     }
     await c.query("UPDATE commands SET status = $2, result = $3, result_at = now() WHERE id = $1", [result.commandId, result.status, safeJson(result)]);
+    // A firewall write's before and after go into the cabinet's firewall history as a change made through the platform.
+    if (result.status === "succeeded" && command.operation.startsWith("firewall.") && command.operation !== "firewall.state") {
+      const out = result.output as { before?: unknown; after?: unknown };
+      await c.query(`INSERT INTO firewall_changes (cabinet_id, command_id, explained, operation, before, after, detail, occurred_at) VALUES ($1, $2, true, $3, $4, $5, $6, $7)`,
+        [cabinetId, result.commandId, command.operation, out.before === undefined ? null : safeJson(out.before), out.after === undefined ? null : safeJson(out.after),
+         safeJson(out), result.finishedAt]);
+    }
     await audit(c, { actorKind: "agent", actorId: cabinetId, action: "command.result", targetKind: "command", targetId: result.commandId, outcome: "succeeded",
       details: { operation: command.operation, status: result.status, ...(result.error ? { error: result.error.code } : {}) } });
   });

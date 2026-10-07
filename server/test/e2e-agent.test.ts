@@ -6,7 +6,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { connect, createServer } from "node:net";
+import { TrustList } from "../src/packages/trust.js";
+import { approvePackage, receiveUpload, startUpload } from "../src/services/packages.js";
+import { pe, TestPki, zip } from "./package-pki.js";
+import { asOwner } from "./database.js";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { CommandNotifier } from "../src/agent-api/notifier.js";
@@ -171,4 +177,160 @@ test("the agent's monitors: a forced scanner disconnect raises Fingerprint scann
   }
 
   function require_(name: string): string { return readFileSync(join(state, name), "utf8"); }
+});
+
+// ---- Milestone 5: writes through a real agent --------------------------------------------------
+
+/** A TCP relay between the agent and the agent API, so a test can cut the cabinet off from the server mid-command. */
+function relay(targetPort: number) {
+  let open = true;
+  const sockets = new Set<import("node:net").Socket>();
+  const server = createServer(client => {
+    if (!open) { client.destroy(); return; }
+    const upstream = connect(targetPort, "127.0.0.1");
+    sockets.add(client); sockets.add(upstream);
+    client.pipe(upstream); upstream.pipe(client);
+    const end = () => { client.destroy(); upstream.destroy(); sockets.delete(client); sockets.delete(upstream); };
+    client.on("error", end); upstream.on("error", end); client.on("close", end); upstream.on("close", end);
+  });
+  return {
+    listen: () => new Promise<number>(r => server.listen(0, "127.0.0.1", () => r((server.address() as { port: number }).port))),
+    cut: () => { open = false; for (const s of sockets) s.destroy(); },
+    restore: () => { open = true; },
+    close: () => new Promise<void>(r => { open = false; for (const s of sockets) s.destroy(); server.close(() => r()); }),
+  };
+}
+
+async function startAgent(o: { db: TestDatabase; api: FastifyInstance; port: number; key: Awaited<ReturnType<typeof developmentIssuingKey>>; dir: string; admin: string; name: string; env?: Record<string, string> }) {
+  const state = join(o.dir, `agent-${o.name}`);
+  mkdirSync(state);
+  writeFileSync(join(state, "bootstrap-token"), (await createBootstrapToken(o.db.app, o.admin)).token);
+  const lines: string[] = [];
+  const started = Date.now();
+  const agent = spawn("dotnet", [dll!, `https://localhost:${o.port}`, join(o.dir, "platform-ca.pem"), state], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...o.env } });
+  agent.stdout!.on("data", d => lines.push(...String(d).split("\n").filter(Boolean)));
+  agent.stderr!.on("data", d => lines.push(...String(d).split("\n").filter(Boolean)));
+  const until = async (what: string, check: () => boolean | Promise<boolean>, ms = 30_000): Promise<void> => {
+    for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 200))) if (await check()) return;
+    assert.fail(`timed out waiting for ${what}. Agent log:\n${lines.join("\n")}`);
+  };
+  await until("the enrollment request", () => lines.some(l => l.includes("waiting for an administrator")));
+  const [pending] = await pendingRequests(o.db.app);
+  const { cabinetId } = await approveEnrollment(o.db.app, o.key, pending!.id, { clientName: "E2E Client", siteName: "Lab", cabinetName: `Cabinet ${o.name}`, role: "standalone" }, o.admin);
+  await until("enrollment", () => lines.some(l => l.includes(`Enrolled as cabinet ${cabinetId}`)));
+  // The firewall change detector's first look (its baseline) is 10 s after start; changes before it are not reported.
+  await new Promise(r => setTimeout(r, Math.max(0, started + 12_000 - Date.now())));
+  return { agent, cabinetId, lines, until };
+}
+
+test("writes through a real agent: kept when delivered, rolled back when the server is unreachable, packages checked again on the cabinet, read-only refuses every write",
+  { skip: !dll && "set TEST_AGENT_DLL to run", timeout: 240_000 }, async () => {
+  const db: TestDatabase = await createTestDatabase();
+  const dir = tempDir();
+  const key = await developmentIssuingKey(dir);
+  writeFileSync(join(dir, "platform-ca.pem"), key.certificatePem);
+  const pki = new TestPki();
+  const vendor = pki.signer("Scanner Vendor Inc", "Scanner Vendor");
+  const trustDir = pki.trustFolder([{ cn: "Scanner Vendor Inc", o: "Scanner Vendor", types: ["driver"] }]);
+  const store = { dir: tempDir(), maxBytes: 1024 * 1024, trust: TrustList.fromFolder(trustDir) };
+  const notifier = new CommandNotifier(db.appUrl);
+  await notifier.start();
+  const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, packages: store, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
+  await api.listen({ host: "127.0.0.1", port: 0 });
+  const apiPort = (api.server.address() as { port: number }).port;
+  const link = relay(apiPort);
+  const port = await link.listen();
+  const [admin, admin2, tier2] = [randomUUID(), randomUUID(), randomUUID()];
+  await db.app.query(`INSERT INTO users (id, username, name, role) VALUES ($1, 'e2e.admin', 'E2E Admin', 'admin'), ($2, 'e2e.admin2', 'Second Admin', 'admin'), ($3, 'e2e.tier2', 'E2E Tier 2', 'tier2')`, [admin, admin2, tier2]);
+  const agents: ChildProcess[] = [];
+  const result = async (commandId: string) => commandRecord(db.app, commandId);
+  try {
+    const a = await startAgent({ db, api, port, key, dir, admin, name: "a", env: { TEST_SAFETY_NET_SECONDS: "6", TEST_TRUST_DIR: trustDir, TEST_WRITE_DELAY_MS: "3000" } });
+    agents.push(a.agent);
+    const done = (id: string) => async () => !["queued", "delivered"].includes((await result(id))!.status);
+
+    // 1. A firewall rule: delivered in time, so the agent keeps it; the change detector attributes it to the command.
+    const rule = { change: "create", rule: { name: "MashuraDiag Sync 1433", direction: "in", action: "allow", protocol: "tcp", localPorts: [{ from: 1433, to: 1433 }], profiles: ["domain", "private"], enabled: true } };
+    const create = await issueCommand(db.app, tier2, a.cabinetId, "firewall.setRule", rule, "command.issue", { viaCli: true });
+    await a.until("the rule's result", done(create.commandId));
+    const created = (await result(create.commandId))!;
+    assert.equal(created.status, "succeeded", JSON.stringify(created.result));
+    await a.until("the change to be kept", () => a.lines.some(l => l.includes(`Command ${create.commandId}: the server was reached; the change is kept.`)));
+    await a.until("the firewall change event, attributed", async () =>
+      (await db.app.query("SELECT 1 FROM firewall_changes WHERE command_id = $1 AND event_id IS NOT NULL", [create.commandId])).rows.length > 0, 30_000);
+    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM alerts WHERE issue_type_id = $1", [ISSUE.firewall])).rows[0].n, 0, "a platform change raises no alert");
+
+    // 2. Cut the cabinet off while the next change is being made: the safety net rolls it back, and the result says so once it is back.
+    const disable = await issueCommand(db.app, tier2, a.cabinetId, "firewall.setRule", { change: "disable", ruleName: "MashuraDiag Sync 1433" }, "command.issue", { viaCli: true });
+    await a.until("delivery", async () => (await result(disable.commandId))!.status !== "queued", 10_000);
+    link.cut();
+    await a.until("the rollback", () => a.lines.some(l => l.includes(`Command ${disable.commandId}: the server was not reached in time`)), 30_000);
+    await new Promise(r => setTimeout(r, 20_000));
+    link.restore();
+    await a.until("the rolled-back result", done(disable.commandId), 120_000);
+    const rolled = (await result(disable.commandId))!;
+    assert.equal(rolled.status, "failed");
+    assert.equal(rolled.result!.error!.code, "safety_net_rollback");
+    const state = await issueCommand(db.app, tier2, a.cabinetId, "firewall.state", {});
+    await a.until("firewall.state", done(state.commandId));
+    const fw = (await result(state.commandId))!.result!.output as { rules: { name: string; enabled: boolean }[]; snapshots: unknown[] };
+    assert.equal(fw.rules.find(r => r.name === "MashuraDiag Sync 1433")!.enabled, true, "the disable was undone");
+    assert.ok(fw.snapshots.length >= 2);
+    await a.until("the safety-net security event", async () =>
+      (await db.app.query("SELECT 1 FROM events WHERE cabinet_id = $1 AND kind = 'security' AND detail->'fields'->>'commandId' = $2", [a.cabinetId, disable.commandId])).rows.length > 0, 30_000);
+
+    // 3. A package: checked by the server, approved by a second Admin, downloaded and checked again by the agent, installed.
+    const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nCatalogFile=scanner.cat\r\n");
+    const SYS = pe("scanner driver");
+    const good = zip([["scanner.inf", INF], ["x64/scanner.sys", SYS], ["scanner.cat", pki.catalog(vendor, [INF, SYS])]]);
+    const goodFile = join(dir, "good.zip"); writeFileSync(goodFile, good);
+    const packageId = await startUpload(db.app, admin, { name: "Scanner driver", version: "1.0", vendor: "Scanner Vendor", packageType: "driver", hardwareIds: [] }, null);
+    const uploaded = await receiveUpload(db.app, store, admin, packageId, createReadStream(goodFile));
+    await approvePackage(db.app, admin2, packageId, null);
+    const install = await issueCommand(db.app, tier2, a.cabinetId, "package.install", { packageId, packageType: "driver", sha256: uploaded.sha256! }, "command.issue", { viaCli: true });
+    await a.until("the install", done(install.commandId), 60_000);
+    const installed = (await result(install.commandId))!;
+    assert.equal(installed.status, "succeeded", JSON.stringify(installed.result));
+    assert.equal((installed.result!.output as { signer: string }).signer, "Scanner Vendor Inc");
+
+    // ...and one forced past the server (approved by hand, file swapped for a tampered one): the agent refuses it.
+    const tampered = zip([["scanner.inf", INF], ["x64/scanner.sys", pe("evil")], ["scanner.cat", pki.catalog(vendor, [INF, SYS])]]);
+    const sha = createHash("sha256").update(tampered).digest("hex");
+    writeFileSync(join(store.dir, `${sha}.pkg`), tampered);
+    const forced = randomUUID();
+    await asOwner(db, c => c.query(`INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at)
+      VALUES ($1, 'Forced', '1', 'x', 'driver', 'approved', $2, $3, 'forced', $4, $5, now())`, [forced, sha, tampered.length, admin, admin2]));
+    const bad = await issueCommand(db.app, tier2, a.cabinetId, "package.install", { packageId: forced, packageType: "driver", sha256: sha }, "command.issue", { viaCli: true });
+    await a.until("the refusal", done(bad.commandId), 60_000);
+    const refused = (await result(bad.commandId))!;
+    assert.equal(refused.status, "rejected");
+    assert.equal(refused.result!.error!.code, "signature_invalid");
+
+    // 4. A read-only cabinet refuses every write, whatever the server sends.
+    const ro = await startAgent({ db, api, port, key, dir, admin, name: "ro", env: { TEST_READ_ONLY: "1" } });
+    agents.push(ro.agent);
+    await db.app.query("UPDATE cabinets SET read_only = NULL WHERE id = $1", [ro.cabinetId]); // let the server send them, to prove the agent's own check
+    const writes: [string, unknown][] = [
+      ["network.setIp", { interfaceIndex: 12, mode: "dhcp" }], ["network.setDns", { interfaceIndex: 12, mode: "automatic" }],
+      ["firewall.setProfile", { profile: "public", enabled: true, defaultInbound: "block", defaultOutbound: "allow" }],
+      ["firewall.setRule", { change: "delete", ruleName: "x" }], ["firewall.restore", { snapshotId: randomUUID() }],
+      ["package.install", { packageId, packageType: "driver", sha256: uploaded.sha256! }], ["driver.uninstall", { publishedName: "oem1.inf" }],
+    ];
+    for (const [op, params] of writes) {
+      const c = await issueCommand(db.app, tier2, ro.cabinetId, op, params, "command.issue", { viaCli: true });
+      await ro.until(`${op} refused`, done(c.commandId));
+      const r = (await result(c.commandId))!;
+      assert.deepEqual([op, r.status, r.result!.error!.code], [op, "rejected", "read_only_mode"]);
+    }
+    const audit = (await db.app.query<{ action: string; n: number }>("SELECT action, count(*)::int AS n FROM audit_log WHERE action IN ('command.write', 'command.result', 'package.download') GROUP BY action")).rows;
+    assert.ok(audit.find(r => r.action === "command.write")!.n >= 11, "every write is in the audit log");
+    assert.ok(audit.find(r => r.action === "package.download")!.n >= 2);
+    assert.equal((await verifyAuditChain(db.app)).ok, true);
+  } finally {
+    for (const ag of agents) ag.kill("SIGINT");
+    await link.close();
+    await api.close();
+    await notifier.stop();
+    await db.drop();
+  }
 });

@@ -52,7 +52,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/cabinets/:id/commands", async (request, reply) => {
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.command.parse(request.body);
-    const command = await issueFromConsole(o.pool, u, id(request), body.operation, body.params);
+    const command = await issueFromConsole(o.pool, u, id(request), body.operation, body.params, body.stepUpToken);
     return reply.code(202).send({ commandId: command.commandId, expiresAt: command.expiresAt });
   });
 

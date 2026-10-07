@@ -8,13 +8,17 @@ import { buildConsoleApi } from "./console-api/server.js";
 import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
 import { checkOffline } from "./services/alerts.js";
+import { TrustList } from "./packages/trust.js";
+import { mkdirSync } from "node:fs";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
 const key = await issuingKey(config);
+mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
+const packages = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
 const notifier = new CommandNotifier(config.databaseUrl);
 await notifier.start();
-const app = await buildAgentApi({ pool, issuingKey: key, notifier, tls: await agentApiTls(config, key), longPollMs: config.agentApi.longPollSeconds * 1000 });
+const app = await buildAgentApi({ pool, issuingKey: key, notifier, packages, tls: await agentApiTls(config, key), longPollMs: config.agentApi.longPollSeconds * 1000 });
 await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
 
 let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
@@ -23,7 +27,7 @@ if (config.console) {
   stream = new ResultStream(config.databaseUrl, pool);
   await stream.start();
   consoleApp = await buildConsoleApi({ pool, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-    stream, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy });
+    stream, packages, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy });
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
