@@ -324,9 +324,11 @@ jobs:
           if (Get-ChildItem "$env:ProgramData\Mashura\CabinetAgent\staging" -Force) { throw 'The staging folder was not emptied.' }
           Write-Host 'driver.uninstall reaches pnputil (a published name that does not exist is reported, nothing is removed).'
           Expect (Wait-Command (node $cli issue $env:CABINET_ID driver.uninstall '{"publishedName":"oem9999.inf"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'failed' 'not_found'
-          $writes = & $sql "SELECT count(*) FROM audit_log WHERE action = 'command.write'"
-          Write-Host "Write commands in the audit log: $writes"
-          if ([int]$writes -lt 13) { throw 'Not every write is in the audit log.' }
+          # Every write command the server sent has its command.write entry, by the person who issued it (the harness's local writes never touch the server).
+          $writes = & $sql "SELECT count(*) FROM commands WHERE operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall')"
+          $missing = & $sql "SELECT count(*) FROM commands c WHERE c.operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall') AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'command.write' AND a.details->>'commandId' = c.id::text AND a.actor_id = c.issued_by::text)"
+          Write-Host "Write commands: $writes; without their audit entry: $missing"
+          if ([int]$writes -lt 10 -or [int]$missing -ne 0) { throw 'Not every write is in the audit log.' }
 
           node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin
           $refused = $false
