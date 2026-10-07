@@ -309,7 +309,10 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     // 4. A read-only cabinet refuses every write, whatever the server sends.
     const ro = await startAgent({ db, api, port, key, dir, admin, name: "ro", env: { TEST_READ_ONLY: "1" } });
     agents.push(ro.agent);
-    await db.app.query("UPDATE cabinets SET read_only = NULL WHERE id = $1", [ro.cabinetId]); // let the server send them, to prove the agent's own check
+    // The server refuses writes to a cabinet that reports read-only...
+    await ro.until("the read-only heartbeat", async () => (await db.app.query("SELECT read_only FROM cabinets WHERE id = $1", [ro.cabinetId])).rows[0]?.read_only === true);
+    await assert.rejects(issueCommand(db.app, tier2, ro.cabinetId, "firewall.setRule", { change: "delete", ruleName: "x" }, "command.issue", { viaCli: true }), /read-only/);
+    // ...and when a server sends them anyway (queued straight into the database here), the agent refuses each one itself.
     const writes: [string, unknown][] = [
       ["network.setIp", { interfaceIndex: 12, mode: "dhcp" }], ["network.setDns", { interfaceIndex: 12, mode: "automatic" }],
       ["firewall.setProfile", { profile: "public", enabled: true, defaultInbound: "block", defaultOutbound: "allow" }],
@@ -317,15 +320,16 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
       ["package.install", { packageId, packageType: "driver", sha256: uploaded.sha256! }], ["driver.uninstall", { publishedName: "oem1.inf" }],
     ];
     for (const [op, params] of writes) {
-      // The agent's heartbeat (every 2 s here) reports read-only again, so clear it right before each issue.
-      await db.app.query("UPDATE cabinets SET read_only = NULL WHERE id = $1", [ro.cabinetId]);
-      const c = await issueCommand(db.app, tier2, ro.cabinetId, op, params, "command.issue", { viaCli: true });
+      const c = { commandId: randomUUID() };
+      await asOwner(db, k => k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
+        VALUES ($1, $2, $3, $4, $5, now(), now() + interval '60 seconds', 'queued')`, [c.commandId, ro.cabinetId, op, JSON.stringify(params), tier2]));
       await ro.until(`${op} refused`, done(c.commandId));
       const r = (await result(c.commandId))!;
       assert.deepEqual([op, r.status, r.result!.error!.code], [op, "rejected", "read_only_mode"]);
     }
     const audit = (await db.app.query<{ action: string; n: number }>("SELECT action, count(*)::int AS n FROM audit_log WHERE action IN ('command.write', 'command.result', 'package.download') GROUP BY action")).rows;
-    assert.ok(audit.find(r => r.action === "command.write")!.n >= 11, "every write is in the audit log");
+    // The four writes this test issued through the server (the read-only ones were queued around it on purpose).
+    assert.equal(audit.find(r => r.action === "command.write")!.n, 4, "every write is in the audit log");
     assert.ok(audit.find(r => r.action === "package.download")!.n >= 2);
     assert.equal((await verifyAuditChain(db.app)).ok, true);
   } finally {
