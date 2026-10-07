@@ -245,12 +245,17 @@ test("writes in the console: library upload and two-person approval, install, fi
     assert.equal((await verifyAuditChain(db.app)).ok, true);
     assert.deepEqual(problems, []);
   } finally {
+    // Each step is named, and reported if it stalls, so a hung teardown says where it is.
+    const step = async (name: string, fn: () => Promise<unknown>) => {
+      const slow = setTimeout(() => console.error(`teardown: ${name} has taken over 15 s`), 15_000);
+      try { await fn(); } catch (e) { console.error(`teardown: ${name} failed: ${(e as Error).message}`); } finally { clearTimeout(slow); }
+    };
     agent.kill("SIGINT");
-    await browser.close();
-    await consoleApi.close();
-    await stream.stop();
-    await agentApi.close();
-    await notifier.stop();
-    await db.drop();
+    await step("browser", () => browser.close());
+    await step("result stream", () => stream.stop()); // ends the open event streams first, so the console API can close
+    await step("console API", () => consoleApi.close());
+    await step("agent API", () => agentApi.close());
+    await step("notifier", () => notifier.stop());
+    await step("database", () => db.drop());
   }
 });

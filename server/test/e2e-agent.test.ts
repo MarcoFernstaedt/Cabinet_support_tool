@@ -317,6 +317,8 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
       ["package.install", { packageId, packageType: "driver", sha256: uploaded.sha256! }], ["driver.uninstall", { publishedName: "oem1.inf" }],
     ];
     for (const [op, params] of writes) {
+      // The agent's heartbeat (every 2 s here) reports read-only again, so clear it right before each issue.
+      await db.app.query("UPDATE cabinets SET read_only = NULL WHERE id = $1", [ro.cabinetId]);
       const c = await issueCommand(db.app, tier2, ro.cabinetId, op, params, "command.issue", { viaCli: true });
       await ro.until(`${op} refused`, done(c.commandId));
       const r = (await result(c.commandId))!;

@@ -34,6 +34,7 @@ jobs:
         run: npm ci && npm run build && npm audit --audit-level=low
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
+        timeout-minutes: 15
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net8.0/Cabinet.Agent.TestAgent.dll
         run: |
