@@ -10,6 +10,8 @@ import { Link } from "../../lib/router";
 import { Badge, KeyValues, OperationPanel, OUTCOME_LABEL, OUTCOME_TONE, StepUpDialog } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
+import { PackageList, type LibraryPackage } from "./Software";
+import { useLoad } from "../Fleet";
 
 const CHECK_NAME: Record<string, string> = {
   device_present: "Scanner plugged in", no_device_error: "No Windows device error", driver_installed: "Driver installed", driver_signed: "Driver signed",
@@ -27,7 +29,23 @@ export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail
     </OperationPanel>
     <CabinetAlerts cabinetId={cabinet.id} issueTypeId={SCANNER_ISSUE} title="Scanner alerts" />
     <ScannerIds cabinet={cabinet} onSaved={() => { onSettingsChanged(); rerun(); }} />
+    <ScannerDrivers cabinet={cabinet} />
   </>);
+}
+
+/** Approved driver packages for this cabinet's scanner hardware IDs, with Install (Tier 2 and Admin). */
+function ScannerDrivers({ cabinet }: { cabinet: CabinetDetail }) {
+  const { data, problem } = useLoad<LibraryPackage[]>("/api/packages");
+  const ids = new Set((cabinet.scanner.effective ?? []).map(h => h.toUpperCase()));
+  const drivers = (data ?? []).filter(p => p.type === "driver" && p.hardwareIds.some(h => ids.has(h.toUpperCase())));
+  return (
+    <section className="panel" aria-labelledby="scanner-drivers-heading">
+      <h3 id="scanner-drivers-heading">Scanner drivers from the software library</h3>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {ids.size === 0 ? <p className="muted">Set the scanner's hardware IDs to see matching driver packages.</p>
+        : data && <PackageList cabinet={cabinet} packages={drivers} empty="No approved driver package lists this scanner's hardware IDs." />}
+    </section>
+  );
 }
 
 function ScannerResult({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabinet: CabinetDetail; onUse: () => void }) {

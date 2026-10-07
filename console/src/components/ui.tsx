@@ -44,7 +44,7 @@ export function OperationPanel<T>({ title, description, run, onRun, buttonLabel 
   );
 }
 
-function ResultProblem({ result }: { result: CommandResult }) {
+export function ResultProblem({ result }: { result: CommandResult }) {
   const label = result.status === "rejected" ? "The cabinet refused this command" : result.status === "expired" ? "No answer" : "The operation failed";
   return (
     <div className="notice crit" role="alert">
@@ -108,3 +108,19 @@ export function KeyValues({ rows }: { rows: [string, ReactNode][] }) {
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="empty muted">{children}</p>;
 }
+
+/** A write's progress and answer, under the control that started it. */
+export function WriteOutcome<T>({ run, done }: { run: Run<T>; done: (output: T) => ReactNode }) {
+  if (run.state === "idle") return null;
+  return (
+    <div aria-live="polite" className="write-outcome">
+      {run.state === "running" && <p className="muted" role="status">Sent. Waiting for the cabinet to make the change…</p>}
+      {run.state === "done" && run.problem && <p className="error" role="alert">{run.problem}</p>}
+      {run.state === "done" && run.result && run.result.status !== "succeeded" && <ResultProblem result={run.result} />}
+      {run.state === "done" && run.result?.status === "succeeded" && run.result.output !== undefined && <div className="notice ok" role="status">{done(run.result.output)}</div>}
+    </div>
+  );
+}
+
+/** The safety net, in words, for confirmations of network and firewall changes. */
+export const SAFETY_NET_NOTE = "If the cabinet cannot reach the server within 2 minutes after the change, it puts the old settings back by itself.";

@@ -56,10 +56,14 @@ export function useAlertNews(fn: AlertListener): void {
 
 const TERMINAL = new Set(["succeeded", "failed", "rejected", "expired"]);
 
-export function useRunner() {
+interface Issued { commandId: string; expiresAt: string }
+
+/** Issuing and waiting, separately: a write's confirmation dialog awaits the issue (so a refusal shows there), then waits in the background. */
+export function useCommands() {
   const { wake } = useContext(StreamContext);
-  return useCallback(async <T,>(cabinetId: string, operation: string, params: Record<string, unknown>): Promise<CommandResult<T>> => {
-    const { commandId, expiresAt } = await api<{ commandId: string; expiresAt: string }>("POST", `/api/cabinets/${cabinetId}/commands`, { operation, params });
+  const issue = useCallback((cabinetId: string, operation: string, params: Record<string, unknown>, stepUpToken?: string) =>
+    api<Issued>("POST", `/api/cabinets/${cabinetId}/commands`, { operation, params, ...(stepUpToken ? { stepUpToken } : {}) }), []);
+  const wait = useCallback(async <T,>({ commandId, expiresAt }: Issued): Promise<CommandResult<T>> => {
     const deadline = new Date(expiresAt).getTime() + 30_000;
     while (Date.now() < deadline) {
       const record = await api<{ status: string; result: { status: string; output?: T; error?: { code: string; message: string }; finishedAt?: string } | null }>("GET", `/api/commands/${commandId}`);
@@ -77,6 +81,13 @@ export function useRunner() {
     }
     return { status: "expired", error: { code: "expired", message: "The cabinet did not answer before the command expired. It may be offline." } };
   }, [wake]);
+  return { issue, wait };
+}
+
+export function useRunner() {
+  const { issue, wait } = useCommands();
+  return useCallback(async <T,>(cabinetId: string, operation: string, params: Record<string, unknown>): Promise<CommandResult<T>> =>
+    wait<T>(await issue(cabinetId, operation, params)), [issue, wait]);
 }
 
 export interface Run<T> { state: "idle" | "running" | "done"; result: CommandResult<T> | null; problem: string | null; at: string | null; }
@@ -97,4 +108,22 @@ export function useOperation<T>(cabinetId: string, operation: string) {
     }
   }, [run, cabinetId, operation]);
   return { ...state, start };
+}
+
+/**
+ * One write operation: begin() issues it with a step-up token and throws if the server refuses (the dialog shows why);
+ * the answer is then awaited in the background and kept here.
+ */
+export function useWrite<T>(cabinetId: string, operation: string) {
+  const { issue, wait } = useCommands();
+  const [state, setState] = useState<Run<T>>({ state: "idle", result: null, problem: null, at: null });
+  const begin = useCallback(async (params: Record<string, unknown>, stepUpToken: string, after?: (r: CommandResult<T>) => void) => {
+    const issued = await issue(cabinetId, operation, params, stepUpToken);
+    setState(s => ({ ...s, state: "running", problem: null }));
+    void wait<T>(issued).then(
+      result => { setState({ state: "done", result, problem: null, at: new Date().toISOString() }); after?.(result); },
+      e => setState({ state: "done", result: null, problem: describeError(e), at: new Date().toISOString() }));
+  }, [issue, wait, cabinetId, operation]);
+  const clear = useCallback(() => setState({ state: "idle", result: null, problem: null, at: null }), []);
+  return { ...state, begin, clear };
 }

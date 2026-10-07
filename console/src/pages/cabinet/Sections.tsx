@@ -1,16 +1,20 @@
-// The read-only diagnostic sections of the cabinet view.
+// The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for Tier 2 and Admin.
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
   NetworkTestOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
+import type { CabinetDetail } from "./CabinetPage";
+import { AdapterEdit, Countdown, FirewallHistory, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites } from "./Writes";
 
-export function DevicesDrivers({ cabinetId }: { cabinetId: string }) {
+export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
+  const cabinetId = cabinet.id;
   const devices = useOperation<DevicesListOutput>(cabinetId, "devices.list");
   const drivers = useOperation<DriversListOutput>(cabinetId, "drivers.list");
   const [problemsOnly, setProblemsOnly] = useState(true);
   const [filter, setFilter] = useState("");
+  const uninstall = useDriverUninstall(cabinet, () => void drivers.start());
   useEffect(() => { void devices.start({ problemsOnly: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (<>
     <OperationPanel title="Devices" description="Plug and Play devices, with Windows error codes in plain words." run={devices}
@@ -44,13 +48,14 @@ export function DevicesDrivers({ cabinetId }: { cabinetId: string }) {
       {out => (
         <table className="table compact">
           <caption className="sr-only">Drivers</caption>
-          <thead><tr><th scope="col">Published name</th><th scope="col">Original name</th><th scope="col">Class</th><th scope="col">Version</th><th scope="col">Provider</th><th scope="col">Signer</th></tr></thead>
+          <thead><tr><th scope="col">Published name</th><th scope="col">Original name</th><th scope="col">Class</th><th scope="col">Version</th><th scope="col">Provider</th><th scope="col">Signer</th>{uninstall.allowed && <th scope="col"><span className="sr-only">Actions</span></th>}</tr></thead>
           <tbody>{out.drivers.map(d => (
             <tr key={d.publishedName}><th scope="row">{d.publishedName}</th><td>{d.originalName ?? "—"}</td><td>{d.className ?? "—"}</td>
-              <td>{d.version ?? "—"}</td><td>{d.provider ?? "—"}</td><td>{d.signer ?? <Badge tone="warn">Unsigned</Badge>}</td></tr>))}
+              <td>{d.version ?? "—"}</td><td>{d.provider ?? "—"}</td><td>{d.signer ?? <Badge tone="warn">Unsigned</Badge>}</td>{uninstall.allowed && <td>{uninstall.button(d)}</td>}</tr>))}
           </tbody>
         </table>)}
     </OperationPanel>
+    {uninstall.outcome}{uninstall.dialog}
   </>);
 }
 
@@ -107,8 +112,10 @@ export function DriveHealth({ cabinetId }: { cabinetId: string }) {
   );
 }
 
-export function Network({ cabinetId }: { cabinetId: string }) {
+export function Network({ cabinet }: { cabinet: CabinetDetail }) {
+  const cabinetId = cabinet.id;
   const config = useOperation<NetworkConfigOutput>(cabinetId, "network.config");
+  const adapterWrites = useAdapterWrites(cabinet, () => void config.start());
   useEffect(() => { void config.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const dnsCount = Math.min(4, Math.max(0, ...(config.result?.output?.adapters.filter(a => a.connected).map(a => a.dns.servers.length) ?? [0])));
   return (<>
@@ -121,8 +128,10 @@ export function Network({ cabinetId }: { cabinetId: string }) {
             ["Addressing", a.ipv4.dhcp ? "DHCP" : "Static"], ["IPv4", a.ipv4.addresses.map(x => `${x.address}/${x.prefixLength}`).join(", ") || null],
             ["Gateway", a.ipv4.gateways.join(", ") || null], ["DNS servers", `${a.dns.servers.join(", ") || "none"} (${a.dns.automatic ? "automatic" : "set by hand"})`],
             ["DNS suffix", a.dnsSuffix]]} />
+          <AdapterEdit key={`${a.interfaceIndex}-${config.at}`} cabinet={cabinet} adapter={a} writes={adapterWrites} />
         </article>))}</div>}
     </OperationPanel>
+    {adapterWrites.outcome}{adapterWrites.dialog}
     <section className="panel" aria-labelledby="tests-heading">
       <h2 id="tests-heading">Connectivity tests</h2>
       <p className="muted small">Each test goes only to one of these targets; the sync cabinet's address and ports come from the site's settings.</p>
@@ -166,15 +175,20 @@ function SyncTcpTest({ cabinetId }: { cabinetId: string }) {
   );
 }
 
-export function Firewall({ cabinetId }: { cabinetId: string }) {
-  const op = useOperation<FirewallStateOutput>(cabinetId, "firewall.state");
+export function Firewall({ cabinet }: { cabinet: CabinetDetail }) {
+  const op = useOperation<FirewallStateOutput>(cabinet.id, "firewall.state");
   const [filter, setFilter] = useState({ text: "", direction: "any", action: "any", enabled: "any" });
+  const [changes, setChanges] = useState(0);
+  const changed = () => { setChanges(n => n + 1); void op.start(); };
+  const allowed = useCanWrite(cabinet);
+  const rules = useRuleWrites(cabinet, changed);
+  const profileWrite = useProfileWrite(cabinet, changed);
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <OperationPanel title="Firewall" description="Profiles and every rule. Changing the firewall arrives with write operations (milestone 5)." run={op} onRun={() => void op.start()}>
+  return (<>
+    <OperationPanel title="Firewall" description="Profiles and every rule. Rules the platform created are marked." run={op} onRun={() => void op.start()}>
       {out => {
         const f = filter.text.toLowerCase();
-        const rules = out.rules.filter(r => (!f || r.name.toLowerCase().includes(f) || (r.localPorts ?? "").includes(f) || (r.remotePorts ?? "").includes(f))
+        const shown = out.rules.filter(r => (!f || r.name.toLowerCase().includes(f) || (r.localPorts ?? "").includes(f) || (r.remotePorts ?? "").includes(f))
           && (filter.direction === "any" || r.direction === filter.direction) && (filter.action === "any" || r.action === filter.action)
           && (filter.enabled === "any" || String(r.enabled) === filter.enabled));
         return (<>
@@ -183,7 +197,11 @@ export function Firewall({ cabinetId }: { cabinetId: string }) {
               <h3>{p.profile[0]!.toUpperCase() + p.profile.slice(1)} profile</h3>
               <p>{p.enabled ? <Badge tone="ok">On</Badge> : <Badge tone="warn">Off</Badge>}</p>
               <KeyValues rows={[["Inbound default", p.defaultInbound], ["Outbound default", p.defaultOutbound]]} />
+              {!p.enabled && p.reenableAt && <p className="small"><Countdown until={p.reenableAt} /></p>}
+              <ProfileControl key={`${p.profile}-${op.at}`} cabinet={cabinet} profile={p} write={profileWrite} />
             </article>))}</div>
+          {allowed && <div className="row gap"><button className="btn" onClick={rules.add}>Add a rule…</button></div>}
+          {rules.editor}
           <div className="row gap wrap filters">
             <label className="field inline"><span>Name or port</span><input value={filter.text} onChange={e => setFilter(x => ({ ...x, text: e.target.value }))} /></label>
             {(["direction", "action", "enabled"] as const).map(k => (
@@ -192,21 +210,26 @@ export function Firewall({ cabinetId }: { cabinetId: string }) {
                   <option value="any">Any</option>
                   {(k === "direction" ? ["in", "out"] : k === "action" ? ["allow", "block"] : ["true", "false"]).map(v => <option key={v} value={v}>{v === "true" ? "Enabled" : v === "false" ? "Disabled" : v}</option>)}
                 </select></label>))}
-            <span className="muted small">{rules.length} of {out.rules.length} rules</span>
+            <span className="muted small">{shown.length} of {out.rules.length} rules</span>
           </div>
           <ul className="rules" aria-label="Firewall rules">
-            {rules.slice(0, 500).map((r, i) => (
+            {shown.slice(0, 500).map((r, i) => (
               <li key={i}><strong>{r.name}</strong> {r.createdByPlatform && <Badge tone="info">Platform</Badge>}{" "}
                 <Badge tone={r.enabled ? "ok" : "off"}>{r.enabled ? "Enabled" : "Disabled"}</Badge>{" "}
                 <span>{r.direction === "in" ? "Inbound" : "Outbound"} · {r.action} · {r.protocol ?? "any"}{r.localPorts ? ` · local ${r.localPorts}` : ""}{r.remotePorts ? ` · remote ${r.remotePorts}` : ""}</span>
                 {r.programPath && <div className="muted small wrap">{r.programPath}</div>}
+                {allowed && rules.actions(r)}
               </li>))}
           </ul>
-          {rules.length > 500 && <p className="muted small">Showing the first 500 matches; narrow the filter to see more.</p>}
+          {shown.length > 500 && <p className="muted small">Showing the first 500 matches; narrow the filter to see more.</p>}
         </>);
       }}
     </OperationPanel>
-  );
+    {profileWrite.outcome}{rules.outcome}
+    {op.result?.output && <Snapshots cabinet={cabinet} state={op.result.output} onChanged={changed} />}
+    <FirewallHistory cabinet={cabinet} version={changes} />
+    {rules.dialog}{profileWrite.dialog}
+  </>);
 }
 
 export function Files({ cabinetId }: { cabinetId: string }) {

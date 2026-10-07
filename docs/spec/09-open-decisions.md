@@ -165,4 +165,35 @@ Decided here, open to change:
 - **Offline threshold alert.** A built-in issue type, Cabinet offline (minor, per the default above), raised by a job that runs every minute when a cabinet has been silent longer than `alerts.offlineDays` (default 5). It resolves itself on the next heartbeat. The setting has no console screen until Milestone 6's Settings.
 - **Live stream.** New major alerts go to every signed-in console, and every claim and resolution goes to everyone, so each console shows who has what. New minor alerts are not pushed; they appear when a list is opened.
 - **Left for Milestone 6, as the build plan places them there:** creating and editing issue types, the suppressions screen (the engine already honours a live suppression rule), and the offline-threshold setting screen.
-- **Firewall change attribution.** A change that carries a platform command's ID is not an alert. Recording it in the firewall history arrives with Milestone 5's writes.
+- **Firewall change attribution.** A change that carries a platform command's ID is not an alert. Milestone 5 records it in the firewall history.
+
+## Choices made in Milestone 5 (confirm or change)
+
+- **Trusted publisher list: Microsoft only for now** (`contracts/trust/trusted-publishers.json`), still waiting on the scanner vendor's details (see "Trusted publisher list" above). The entries:
+  - "Microsoft Windows Hardware Compatibility Publisher" and "Microsoft Windows", for drivers. Both are pinned to the Microsoft Root Certificate Authority 2010.
+  - "Microsoft Corporation", for MSI installers, pinned to the Microsoft Root Certificate Authority 2011.
+
+  A publisher matches only on its exact name and organization *and* a chain to its pinned root. Adding the scanner vendor is one entry plus its root certificate file.
+- **Only SHA-256 or stronger signatures are accepted.** SHA-1 is accepted only as the per-file hash inside a driver catalog, because Windows still writes those.
+- **The server ignores certificate validity dates when it checks an upload.** Signed packages outlive their signing certificates. On the cabinet, Windows' own WinVerifyTrust check runs after the agent's checks and handles timestamps. It does not check revocation (cabinets may be offline), and it fetches nothing from the internet.
+- **MSI extended signatures.** The server checks an MSI's Authenticode signature over its contents. It does not check the separate `MsiDigitalSignatureEx` pre-hash; WinVerifyTrust checks it on the cabinet.
+- **The safety net** is 2 minutes for every network and firewall write.
+  - The broker records each change before making it, and keeps it only when the network service confirms it delivered the result to the server.
+  - Otherwise the broker puts the old settings back, newest change first. This still happens after a restart or reboot, because the record is on disk and checked at startup.
+  - The command then reports `safety_net_rollback`, and a security event is raised.
+
+  Package installs and driver uninstalls have no safety net, because they cannot be rolled back safely.
+- **Firewall snapshots.** The cabinet keeps the last 20 snapshots, taken with `netsh advfirewall export` before every firewall write. A restore saves the current firewall first, so it can be undone too.
+- **Profile timers.** Turning a profile off needs a duration (1 minute to 8 hours, 60 minutes by default in the console). Only an Admin may choose no limit. The timer is kept on disk by the broker and survives a restart or reboot. The broker checks it every 5 seconds and at startup.
+- **Firewall rules the platform creates** must be named `MashuraDiag …`, and are put in the group "Mashura cabinet diagnostics". Editing or deleting any rule needs its exact name, and is refused if two rules share that name.
+- **The write pause and limits.**
+  - Writes can be paused fleet-wide or per client. A paused cabinet still accepts diagnostics.
+  - A user who goes over their hourly limit (20 by default) has their writes paused until an Admin resumes them.
+  - The pause and resume controls are on the command line (`platform-admin writes pause|resume`, `user resume-writes`) until Milestone 6's Fleet safety screen.
+  - The console shows the pause banner now.
+- **Command-line writes skip step-up.** `platform-admin issue … --write` needs a Tier 2 or Admin account, is audited with `via: "cli"`, and still obeys every pause, limit and read-only check. It exists for operators on the server itself and for CI.
+- **Package downloads.** A cabinet can download a package only while it has a delivered `package.install` command for it that is under 30 minutes old. Each download is audited. Packages are stored read-only, named by their SHA-256.
+- **The Windows CI shows these on real Windows:**
+  - A reboot is shown by stopping and restarting the broker service.
+  - The "bad change" rollback is shown with a firewall rule and a DNS change sent through the local harness, which no server confirms.
+

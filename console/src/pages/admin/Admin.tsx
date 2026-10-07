@@ -16,6 +16,7 @@ export function AdminHome() {
         <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>Approve or reject cabinets asking to join{data ? ` (${data.length} waiting)` : ""}.</span></Link></li>
         <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Create a one-time install token and get the files the installer needs.</span></Link></li>
         <li><Link to="/admin/scanner"><strong>Scanner default</strong><span>The fingerprint scanner's hardware IDs for the whole fleet.</span></Link></li>
+        <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
         <li><Link to="/admin/audit"><strong>Audit log</strong><span>Who opened which cabinet, and every action, with exact times.</span></Link></li>
       </ul>
       <p className="muted small">Users, clients and sites, fleet safety controls and settings arrive in milestone 6. Until then, accounts are created with the platform-admin tool.</p>

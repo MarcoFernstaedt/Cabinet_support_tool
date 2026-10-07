@@ -2,7 +2,7 @@
 
 The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, built by Vite into static files. The platform server serves those files from the same origin as the console API. The console holds no secrets, and every permission check happens on the server.
 
-## What's in this release (Milestone 4)
+## What's in this release (Milestone 5)
 
 - **Sign-in.** Password, then the authenticator code.
   - Tier 2 and Admin set up an authenticator at first sign-in.
@@ -16,14 +16,21 @@ The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, 
   - **Devices and drivers**
   - **Windows updates**
   - **Drive health**
-  - **Network:** adapter settings, with one-button tests to the gateway, DNS servers, the sync cabinet and the platform server.
-  - **Firewall:** read-only for now.
+  - **Network:** adapter settings, with one-button tests to the gateway, DNS servers, the sync cabinet and the platform server. Edit IP settings and Edit DNS (Tier 2 and Admin).
+  - **Firewall:** profiles with a countdown while one is temporarily off, and every rule with filters. Tier 2 and Admin can turn a profile off for a set time, turn it on, and add, edit, enable, disable or delete rules with a structured form. Snapshots can be restored, and the firewall history shows every change: through the platform (and by whom) or from outside.
+  - **Software:** approved packages that match the cabinet's hardware, with Install (Tier 2 and Admin). The answer names the exact check that failed, if one did.
   - **Files**
   - **Command history**
+- **Write actions** (Milestone 5) appear only for Tier 2 and Admin, and only on cabinets that accept changes while writes are not paused.
+  - Each one opens a confirmation that says exactly what will change on which cabinet, then asks for the authenticator code. Network and IP changes show the old and new values side by side, and explain the 2-minute safety net.
+  - Devices and drivers can uninstall a third-party driver.
+  - The fingerprint scanner section lists approved driver packages for the scanner's hardware IDs.
+  - A banner shows on every page while writes are paused fleet-wide, and on a client's cabinets while that client is paused.
+  - The server checks all of this again; hiding a button is never the protection.
 - **Settings in the console**, each confirmed with the authenticator code:
   - **Scanner hardware IDs:** a fleet default (Admin) and a per-cabinet override (Tier 2 and Admin).
   - **Each site's sync cabinet address and ports** (Admin). Cabinets accept only a private address on their own network.
-- **Admin.** Pending cabinets (approve or reject), install tokens with the platform CA file, the scanner default, and the audit log.
+- **Admin.** Pending cabinets (approve or reject), install tokens with the platform CA file, the scanner default, the audit log, and the software library: upload a driver package or MSI (the server checks it on arrival), approve another Admin's upload, retire a package.
 - **Alerts** (Milestone 4).
   - The top bar shows how many major alerts are open and unclaimed. New major alerts appear on every console at once, with "Claim and open cabinet", and are announced to screen readers.
   - The Alerts area lists every alert, with filters for severity, issue, state and "claimed by me". It also has an Unrecognized errors view and an Offline view that goes from clients to sites to cabinets.

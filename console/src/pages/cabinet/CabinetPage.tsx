@@ -11,6 +11,8 @@ import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "
 import { Scanner } from "./Scanner";
 import { History } from "./History";
 import { CabinetAlerts, MonitorEvents } from "./CabinetAlerts";
+import { Software } from "./Software";
+import { WritePauseBanner } from "../../lib/writes";
 
 export interface CabinetDetail extends CabinetRow {
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
@@ -21,7 +23,7 @@ export interface CabinetDetail extends CabinetRow {
 
 export const SECTIONS = [
   ["overview", "Overview"], ["alerts", "Alerts"], ["events", "Event logs"], ["scanner", "Fingerprint scanner"], ["devices", "Devices and drivers"],
-  ["updates", "Windows updates"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["files", "Files"], ["history", "Command history"],
+  ["updates", "Windows updates"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["software", "Software"], ["files", "Files"], ["history", "Command history"],
 ] as const;
 export type SectionId = (typeof SECTIONS)[number][0];
 
@@ -60,6 +62,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             ))}
           </nav>
         </header>
+        <WritePauseBanner clientId={cabinet.client.id} clientOnly />
         {!cabinet.online && <div className="notice warn" role="status">This cabinet has not been heard from {ago(cabinet.lastHeartbeatAt)}. Diagnostics will wait for it to come back, and expire if it does not.</div>}
         <Section current={current} cabinet={cabinet} reload={reload} />
       </div>
@@ -72,11 +75,12 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "alerts": return <><CabinetAlerts cabinetId={cabinet.id} /><MonitorEvents cabinetId={cabinet.id} /></>;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;
-    case "devices": return <DevicesDrivers cabinetId={cabinet.id} />;
+    case "devices": return <DevicesDrivers cabinet={cabinet} />;
     case "updates": return <Updates cabinetId={cabinet.id} />;
     case "drives": return <DriveHealth cabinetId={cabinet.id} />;
-    case "network": return <Network cabinetId={cabinet.id} />;
-    case "firewall": return <Firewall cabinetId={cabinet.id} />;
+    case "network": return <Network cabinet={cabinet} />;
+    case "firewall": return <Firewall cabinet={cabinet} />;
+    case "software": return <Software cabinet={cabinet} />;
     case "files": return <Files cabinetId={cabinet.id} />;
     case "history": return <History cabinetId={cabinet.id} />;
     default: return <Overview cabinet={cabinet} />;

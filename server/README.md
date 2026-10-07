@@ -4,7 +4,8 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Buil
 - the database;
 - the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel;
 - the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console;
-- issue types, symptom rules and the alerts engine: correlation, site-wide patterns, claims, Map to issue with Admin approval, rule history and rollback, and offline alerts.
+- issue types, symptom rules and the alerts engine: correlation, site-wide patterns, claims, Map to issue with Admin approval, rule history and rollback, and offline alerts;
+- write commands with step-up, the write pause and per-user limits, the software library with its own package checks and two-person approval, package downloads, and the firewall change history (Milestone 5).
 
 ## What is here
 
@@ -50,6 +51,26 @@ Each new event is checked against the live symptom rules in the transaction that
 - **Rules:** a Tier 2 user's rule is a proposal until an Admin approves it; an Admin's goes live at once. Both need step-up, and every change is kept in `symptom_rule_history` and the audit log.
 - **Offline:** a job every minute raises Cabinet offline past the threshold (`alerts.offlineDays`, default 5) and resolves it when the cabinet is back.
 - **Live stream:** new major alerts go to every signed-in console, and claims and resolutions go to everyone (PostgreSQL `NOTIFY alerts`).
+
+## Writes and the software library
+
+- **Every write command** goes through the same checks, inside the transaction that records it (`src/services/writes.ts`):
+  - a step-up token for exactly that operation and cabinet;
+  - the fleet-wide pause, then the client's pause;
+  - the cabinet not installed read-only;
+  - the user's own pause, then their hourly limit. Going over the limit pauses that user's writes until an Admin resumes them.
+
+  Each write is audited as `command.write`.
+- **Package checks on upload** (`src/packages/`) use Node's standard library only:
+  - A bounded ASN.1 reader, the CMS signature check, the driver catalog's member list, a ZIP reader with size, CRC and path checks, the PE Authenticode hash, and a compound-file reader for the MSI hash.
+  - A driver package is a ZIP with its `.inf`, the catalog it names, and files whose hashes the catalog lists. An MSI is checked against its embedded signature.
+  - The signer must be on `contracts/trust/trusted-publishers.json` for that package type, with a chain to its pinned root.
+  - `platform-admin package verify <file> --type driver|msi` runs the same checks on a file without a database.
+- **The library.**
+  - A package is stored as `<sha256>.pkg`, read-only, under `PACKAGE_DIR` (default `data/packages`, at most `PACKAGE_MAX_MB`, default 500).
+  - The Admin who uploaded it can never approve it (a database CHECK enforces this as well). Retiring is final; changing a package means uploading a new version.
+- **Downloads.** `GET /agent/v1/packages/:id` serves an approved package only while that cabinet has a delivered `package.install` command for it that is under 30 minutes old. Each download is audited.
+- **Firewall history** (`firewall_changes`) records every successful firewall write. It also records every firewall change a cabinet reports: marked as the platform's when it names one of that cabinet's own firewall commands, otherwise unexplained.
 
 ## Console API
 

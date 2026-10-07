@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, onSignedOut } from "./lib/api";
 import { CommandStream } from "./lib/commands";
+import { WriteStatusProvider } from "./lib/writes";
 import { Router, match, useRouter } from "./lib/router";
 import { SessionContext, type Me } from "./lib/session";
 import { Layout } from "./components/Layout";
@@ -9,6 +10,7 @@ import { PasswordChange, SignIn, TotpSetup, TotpStep, type Stage } from "./pages
 import { ClientPage, FleetHome, SitePage } from "./pages/Fleet";
 import { CabinetPage } from "./pages/cabinet/CabinetPage";
 import { AdminHome, AuditLog, InstallTokens, PendingCabinets, ScannerDefault } from "./pages/admin/Admin";
+import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
 import { Account } from "./pages/Account";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
@@ -47,8 +49,10 @@ export function App() {
     <SessionContext.Provider value={{ me, refresh, signOut }}>
       <Router>
         <CommandStream>
-          <Layout><Pages onTour={() => setTour(true)} /></Layout>
-          {tour && <Tour onClose={() => setTour(false)} />}
+          <WriteStatusProvider>
+            <Layout><Pages onTour={() => setTour(true)} /></Layout>
+            {tour && <Tour onClose={() => setTour(false)} />}
+          </WriteStatusProvider>
         </CommandStream>
       </Router>
     </SessionContext.Provider>
@@ -67,6 +71,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/tokens", path)) return <InstallTokens />;
   if (match("/admin/scanner", path)) return <ScannerDefault />;
   if (match("/admin/audit", path)) return <AuditLog />;
+  if (match("/admin/software", path)) return <SoftwareLibrary />;
   if (match("/account", path)) return <Account onTour={onTour} />;
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;

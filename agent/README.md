@@ -1,6 +1,6 @@
 # Cabinet agent
 
-The agent from docs/spec/04-agent-spec.md, built through Milestone 4. It runs every read operation, either locally from a command file or from the platform server, and watches the cabinet in the background.
+The agent from docs/spec/04-agent-spec.md, built through Milestone 5. It runs every read and write operation, either locally from a command file or from the platform server, and watches the cabinet in the background.
 
 To connect it, the agent first enrolls with a one-time bootstrap token. It keeps its private key non-exportable in the Windows machine key store, and trusts only the platform CA the installer places on the cabinet. Once approved, it sends heartbeats every 60 seconds, long-polls for commands and renews its certificate. Every server command still goes through the agent's own six checks.
 
@@ -9,13 +9,35 @@ To connect it, the agent first enrolls with a one-time bootstrap token. It keeps
 | Service | Account | What it does |
 | --- | --- | --- |
 | `CabinetAgentNetwork` | `NT SERVICE\CabinetAgentNetwork` (virtual account, not an administrator, one privilege) | Validates commands and runs the reads that need no rights. Refuses to start as an administrator. |
-| `CabinetAgentBroker` | LocalSystem | Runs reads that need administrator rights: event logs, Windows Update status, SMART and files.list. Has no network code. |
+| `CabinetAgentBroker` | LocalSystem | Runs reads that need administrator rights (event logs, Windows Update status, SMART and files.list), and every write. Has no network code. |
 
 They talk over the named pipe `Mashura.CabinetAgent.Broker`. Each of three locks is enough on its own:
 
 1. The pipe's access list admits only the network service's account and SYSTEM, and denies network logons.
 2. Every caller's account is checked again before the broker reads a byte.
-3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the six broker reads and their parameter schemas.
+3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the six broker reads, the seven writes (each with its command ID) and the safety-net confirmation, with their parameter schemas.
+
+## Writes (Milestone 5)
+
+All writes run in the broker (`src/Cabinet.Agent.Core/Writes`, `src/Cabinet.Agent.Core/Packages`, with the Windows parts in `src/Cabinet.Agent.Windows`).
+
+- **Network and firewall writes** go through WMI and the firewall COM API. `netsh` is used only to export and import whole-firewall snapshots. Programs are launched only from System32 by full path, with argument arrays.
+- **The safety net.**
+  - Each network or firewall change is recorded in `Broker\safety-net.json` before it is made.
+  - The network service confirms it only after the server has accepted the result. Without confirmation within 2 minutes, the broker puts the old settings back, newest first. This holds across a restart or reboot.
+  - The command then reports `safety_net_rollback`, and a security event is raised.
+- **Firewall.**
+  - The last 20 snapshots are kept, along with profile timers that turn a profile back on (also across a reboot).
+  - A journal ties each change to its command, so the firewall monitor reports it as the platform's change, not an outside one.
+- **Packages.**
+  - The network service downloads an approved package into `Downloads`. The broker copies it into `Staging`, which only SYSTEM and Administrators can reach, and checks it there in order:
+    1. the SHA-256 hash;
+    2. the signature (the driver catalog or the MSI's own), and that every driver file is listed in the catalog;
+    3. the publisher, against the trusted list built into the agent;
+    4. Windows' own WinVerifyTrust.
+  - Only after every check passes does it run `pnputil /add-driver … /install` or `msiexec /i … /qn /norestart`.
+  - The staging folder is always emptied. A failed check reports exactly which one (`hash_mismatch`, `signature_invalid`, `publisher_not_trusted`).
+- **Read-only cabinets** refuse every write in the command checks, before anything reaches the broker.
 
 ## Background monitors
 

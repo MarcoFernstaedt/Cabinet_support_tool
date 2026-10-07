@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { atLeast, roleName, useSession } from "../lib/session";
 import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
+import { WritePauseBanner } from "../lib/writes";
 
 interface Hit { kind: "client" | "site" | "cabinet"; id: string; name: string; context: string; }
 
@@ -68,6 +69,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <button className="btn ghost small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </header>
+      <WritePauseBanner />
       <main id="main" ref={main} tabIndex={-1}>{children}</main>
       <MajorAlertToasts />
     </>

@@ -20,7 +20,20 @@ const MESSAGES: Record<string, string> = {
   invalid_address: "The sync cabinet must have a private IPv4 address (10.x, 172.16-31.x or 192.168.x).",
   name_taken: "A cabinet with that name already exists at that site.",
   not_pending: "That request is no longer waiting for approval.",
-  writes_unavailable: "Changes to cabinets arrive in a later release.",
+  writes_paused: "Changes to cabinets are paused. Diagnostics still work.",
+  writes_paused_for_you: "Your changes are paused because you reached your hourly limit. An Admin can resume them.",
+  write_limit_reached: "That was over your hourly limit for changes, so your changes are now paused until an Admin resumes them.",
+  read_only_cabinet: "This cabinet was installed read-only and accepts no changes.",
+  package_not_approved: "That package is not approved (it may have been retired).",
+  same_person: "Another Admin must approve this: the Admin who uploaded a package cannot approve it.",
+  version_exists: "That name and version already exist. Changing a package means uploading a new version.",
+  not_uploading: "This package is not waiting for your upload.",
+  too_large: "The file is larger than the package size limit.",
+  hash_mismatch: "The file does not match its expected hash.",
+  signature_invalid: "Refused: the package is unsigned, or was changed after it was signed.",
+  publisher_not_trusted: "Refused: the package is signed by a publisher that is not on the trusted list.",
+  verification_failed: "Refused: the package could not be checked.",
+  unavailable: "The server has no package store configured.",
   origin_refused: "The request came from an unexpected page. Reload the console.",
   server_error: "The server hit an error. Try again.",
   already_claimed: "Someone else claimed this alert first.",
@@ -31,8 +44,14 @@ const MESSAGES: Record<string, string> = {
   not_live: "That rule is not live.",
 };
 
-export const describeError = (e: unknown): string =>
-  e instanceof ApiError ? MESSAGES[e.code] ?? `The server refused this (${e.code}).` : "The server could not be reached.";
+export const describeError = (e: unknown): string => {
+  if (!(e instanceof ApiError)) return "The server could not be reached.";
+  const base = MESSAGES[e.code] ?? `The server refused this (${e.code}).`;
+  // Which fields a contract check refused, so a form can be corrected.
+  const issues = Array.isArray(e.data.issues) ? (e.data.issues as { path?: string; rule?: string }[]).slice(0, 3).map(i => `${i.path ?? ""} (${i.rule ?? "invalid"})`) : [];
+  const reason = typeof e.data.reason === "string" ? e.data.reason : "";
+  return [base, issues.length ? `Check: ${issues.join(", ")}.` : "", reason && !base.includes(reason) ? reason : ""].filter(Boolean).join(" ");
+};
 
 /** Listeners told when the session has ended, so the app can return to sign-in. */
 const signedOutListeners = new Set<() => void>();
@@ -55,5 +74,16 @@ export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?
     if (response.status === 401 && (code === "signed_out" || code === "sign_in_incomplete") && !path.startsWith("/api/auth/")) signedOutListeners.forEach(fn => fn());
     throw new ApiError(response.status, code, (data ?? {}) as Record<string, unknown>);
   }
+  return data as T;
+}
+
+/** Sends a file as the raw request body (package uploads), with the same error handling as api(). */
+export async function upload<T>(path: string, file: Blob): Promise<T> {
+  let response: Response;
+  try { response = await fetch(path, { method: "PUT", credentials: "same-origin", headers: { Accept: "application/json", "Content-Type": "application/octet-stream" }, body: file }); }
+  catch { throw new ApiError(0, "unreachable"); }
+  let data: unknown = null;
+  try { data = await response.json(); } catch { data = null; }
+  if (!response.ok) throw new ApiError(response.status, (data as { error?: string } | null)?.error ?? "server_error", (data ?? {}) as Record<string, unknown>);
   return data as T;
 }
