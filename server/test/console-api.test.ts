@@ -266,3 +266,26 @@ test("signing out ends the session", async () => {
   assert.equal((await call("POST", "/api/auth/logout", {}, cookie)).status, 200);
   assert.equal((await call("GET", "/api/auth/me", undefined, cookie)).status, 401);
 });
+
+test("live streams that end at once, or are cut off, leave no subscriber or timer behind", async () => {
+  const { request } = await import("node:http");
+  const cookie = await signIn(await account("tier1"));
+  await app.listen({ host: "127.0.0.1", port: 0 });
+  const port = (app.server.address() as { port: number }).port;
+  const open = (): Promise<() => void> => new Promise((resolve, reject) => {
+    const req = request({ host: "127.0.0.1", port, path: "/api/stream", headers: { cookie } }, res => resolve(() => { res.destroy(); req.destroy(); }));
+    req.on("error", reject);
+    req.end();
+  });
+  // Some clients wait for the stream to open and then drop it; others give up before the server even attaches.
+  const opened = await Promise.all(Array.from({ length: 10 }, open));
+  assert.equal(stream.count, 10);
+  for (const drop of opened) drop();
+  for (let i = 0; i < 10; i++) {
+    const req = request({ host: "127.0.0.1", port, path: "/api/stream", headers: { cookie } });
+    req.on("error", () => undefined);
+    req.end(() => req.destroy());
+  }
+  for (let i = 0; i < 50 && stream.count > 0; i++) await new Promise(r => setTimeout(r, 100));
+  assert.equal(stream.count, 0);
+});

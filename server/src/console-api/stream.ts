@@ -6,7 +6,7 @@ import pg from "pg";
 import type { SessionUser } from "../auth/sessions.js";
 import { alertById } from "../services/alerts.js";
 
-interface Subscriber { userId: string; reply: FastifyReply; }
+interface Subscriber { userId: string; reply: FastifyReply; close: () => void; }
 
 export class ResultStream {
   private readonly subscribers = new Set<Subscriber>();
@@ -56,23 +56,26 @@ export class ResultStream {
       "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "keep-alive", "X-Content-Type-Options": "nosniff",
     });
     reply.raw.write(": connected\n\n");
-    const subscriber = { userId: user.userId, reply };
-    this.subscribers.add(subscriber);
     // A comment every 25 s keeps proxies from closing the stream; the session is re-checked each time.
     const ping = setInterval(() => {
       void stillValid().then(u => {
         if (!u || u.stage !== "complete") { reply.raw.end(); return; }
         reply.raw.write(": ping\n\n");
-      });
+      }, () => reply.raw.end());
     }, 25_000);
-    request.raw.on("close", () => { clearInterval(ping); this.subscribers.delete(subscriber); });
+    const subscriber = { userId: user.userId, reply, close: () => { clearInterval(ping); this.subscribers.delete(subscriber); } };
+    this.subscribers.add(subscriber);
+    // Every way the stream can end clears its timer, including a client that left before these listeners were attached.
+    request.raw.on("close", subscriber.close);
+    reply.raw.on("close", subscriber.close);
+    if (request.raw.destroyed || reply.raw.destroyed || request.raw.socket?.destroyed) subscriber.close();
   }
 
   get count(): number { return this.subscribers.size; }
 
   async stop(): Promise<void> {
     this.stopped = true;
-    for (const s of this.subscribers) s.reply.raw.end();
+    for (const s of [...this.subscribers]) { s.close(); s.reply.raw.end(); }
     await this.client?.end().catch(() => undefined);
   }
 }
