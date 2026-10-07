@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/suppression-create.schema.json",
+  "title": "suppression-create",
+  "description": "An Admin marks a known harmless event as ignore. A written reason is required; it expires after 90 days unless renewed.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "match": {
+      "$ref": "../common.schema.json#/$defs/symptomMatch"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "match",
+    "reason",
+    "stepUpToken"
+  ]
+}

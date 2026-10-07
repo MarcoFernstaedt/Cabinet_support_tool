@@ -218,6 +218,36 @@ export interface ApproveEnrollment {
 }
 
 /**
+ * The audit log search, from the query string: by user, cabinet, action and date range, newest first.
+ */
+export interface AuditFilter {
+  user?: string;
+  cabinet?: string;
+  action?: string;
+  /**
+   * A date or UTC time from the query string.
+   */
+  from?: string;
+  /**
+   * A date or UTC time from the query string.
+   */
+  to?: string;
+  before?: string;
+  limit?: string;
+}
+
+/**
+ * Changes a cabinet's role at its site.
+ */
+export interface CabinetRole {
+  role: "sync" | "satellite" | "standalone";
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * An authenticator code: the second sign-in step, or confirming authenticator setup.
  */
 export interface CodeRequest {
@@ -321,11 +351,35 @@ export interface EventLookup {
 }
 
 /**
+ * Creates or edits an issue type.
+ */
+export interface IssueType {
+  name: string;
+  severity: "major" | "minor";
+  description: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Username and password, the first sign-in step.
  */
 export interface LoginRequest {
   username: string;
   password: string;
+}
+
+/**
+ * Creates or renames a client or site.
+ */
+export interface NameChange {
+  name: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -356,6 +410,26 @@ export interface PasswordChange {
    * At least 12 characters.
    */
   newPassword: string;
+}
+
+/**
+ * An Admin changes platform settings. Only the settings sent change.
+ */
+export interface PlatformSettings {
+  offlineAlertDays?: number;
+  sessionIdleMinutes?: number;
+  sessionAbsoluteHours?: number;
+  requireTotpForAll?: boolean;
+  retention?: {
+    eventsDays?: number;
+    commandsDays?: number;
+    alertsDays?: number;
+    firewallDays?: number;
+  };
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -412,6 +486,36 @@ export interface ScannerSettings {
 }
 
 /**
+ * The security alerts list's filter, from the query string.
+ */
+export interface SecurityAlertFilter {
+  state?: "open" | "resolved" | "all";
+}
+
+/**
+ * An Admin closes a security alert, saying what was found.
+ */
+export interface SecurityAlertResolve {
+  note: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Creates a site in a client.
+ */
+export interface SiteCreate {
+  clientId: string;
+  name: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * An action that needs nothing but its step-up token.
  */
 export interface StepUpOnly {
@@ -453,11 +557,42 @@ export interface StepUpRequest {
     | "package.approve"
     | "package.retire"
     | "writes.pause"
-    | "writes.resume";
+    | "writes.resume"
+    | "user.create"
+    | "user.update"
+    | "user.delete"
+    | "user.password.reset"
+    | "user.totp.reset"
+    | "user.resume_writes"
+    | "client.create"
+    | "client.rename"
+    | "client.remove"
+    | "site.create"
+    | "site.rename"
+    | "site.remove"
+    | "cabinet.role"
+    | "issue_type.create"
+    | "issue_type.update"
+    | "settings.update"
+    | "security_alert.resolve"
+    | "rule.suppress"
+    | "rule.renew";
   /**
    * The ID the action applies to, or 'fleet'.
    */
   target: string | "fleet";
+}
+
+/**
+ * An Admin marks a known harmless event as ignore. A written reason is required; it expires after 90 days unless renewed.
+ */
+export interface SuppressionCreate {
+  match: SymptomMatch;
+  reason: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -469,6 +604,39 @@ export interface SyncSettings {
    * @maxItems 4
    */
   ports: number[];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * An Admin creates an account. The server makes a temporary password, shown once.
+ */
+export interface UserCreate {
+  username: string;
+  name: string;
+  role: "tier1" | "tier2" | "admin";
+  /**
+   * Write commands allowed per hour before the user's writes pause.
+   */
+  writeLimit?: number;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * An Admin changes an account's role, hourly write limit or status. At least one change.
+ */
+export interface UserUpdate {
+  role?: "tier1" | "tier2" | "admin";
+  /**
+   * Write commands allowed per hour before the user's writes pause.
+   */
+  writeLimit?: number;
+  status?: "active" | "disabled";
   /**
    * A one-time step-up token bound to this exact action.
    */

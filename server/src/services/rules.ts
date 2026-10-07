@@ -249,3 +249,57 @@ async function regroupOpen(c: pg.PoolClient, ruleId: string, issueTypeId: string
   }
   return found.length;
 }
+
+// ---- Suppressions (docs/spec/05-server-spec.md "Protecting the rules") ---------------------
+
+export const SUPPRESSION_DAYS = 90;
+
+/** Admin only, with a written reason; live at once and expiring after 90 days unless renewed. */
+export async function createSuppression(pool: pg.Pool, u: Actor, m: SymptomMatch, reason: string, stepUpToken: string) {
+  if (u.role !== "admin") throw new Refused("forbidden", 403, "suppressions are Admin only");
+  checkUserMatch(m);
+  return transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, u.userId, "rule.suppress", "fleet");
+    const r = (await c.query<{ id: string; expires_at: Date }>(
+      `INSERT INTO symptom_rules (kind, state, match, proposed_by, approved_by, reason, expires_at)
+       VALUES ('suppress', 'live', $1, $2, $2, $3, now() + make_interval(days => $4)) RETURNING id, expires_at`,
+      [safeJson(m), u.userId, reason, SUPPRESSION_DAYS])).rows[0]!;
+    await history(c, r.id, "created", u.userId);
+    await audit(c, { actorKind: "user", actorId: u.userId, action: "rule.suppress", targetKind: "rule", targetId: r.id, outcome: "succeeded",
+      details: { match: m, reason, expiresAt: r.expires_at.toISOString() } });
+    return { ruleId: r.id, expiresAt: r.expires_at.toISOString() };
+  });
+}
+
+export async function renewSuppression(pool: pg.Pool, adminId: string, ruleId: string, stepUpToken: string) {
+  return transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, adminId, "rule.renew", ruleId);
+    const r = (await c.query<{ expires_at: Date }>(
+      `UPDATE symptom_rules SET expires_at = now() + make_interval(days => $2), updated_at = now()
+        WHERE id = $1 AND kind = 'suppress' AND state = 'live' RETURNING expires_at`, [ruleId, SUPPRESSION_DAYS])).rows[0];
+    if (!r) throw new Refused("not_live", 409, "that suppression is not live");
+    await history(c, ruleId, "renewed", adminId);
+    await audit(c, { actorKind: "user", actorId: adminId, action: "rule.renew", targetKind: "rule", targetId: ruleId, outcome: "succeeded",
+      details: { expiresAt: r.expires_at.toISOString() } });
+    return { ruleId, expiresAt: r.expires_at.toISOString() };
+  });
+}
+
+/** Marks live rules past their expiry as expired, with history and audit. The engine already ignores them from that moment. */
+export async function expireRules(pool: pg.Pool): Promise<number> {
+  return transaction(pool, async c => {
+    const ids = (await c.query<{ id: string }>(
+      "UPDATE symptom_rules SET state = 'expired', updated_at = now() WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= now() RETURNING id")).rows;
+    for (const { id } of ids) {
+      await history(c, id, "expired", null);
+      await audit(c, { actorKind: "system", actorId: "rule-expiry", action: "rule.expire", targetKind: "rule", targetId: id, outcome: "succeeded" });
+    }
+    return ids.length;
+  });
+}
+
+/** Every live suppression, soonest to expire first, for the Admin screen. */
+export async function listSuppressions(db: Queryable) {
+  const rows = (await db.query<RuleRow>(`${RULE_SELECT} WHERE r.kind = 'suppress' AND r.state = 'live' ORDER BY r.expires_at NULLS LAST LIMIT 500`)).rows;
+  return rows.map(ruleView);
+}

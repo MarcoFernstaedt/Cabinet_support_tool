@@ -4,7 +4,8 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passwords.js";
-import { createSession, endSession, nextStage, setStage, DEFAULT_POLICY, type SessionUser } from "../auth/sessions.js";
+import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
+import { noteSignInNetwork, raiseSecurityAlertNow } from "../services/security.js";
 import { issueStepUpToken } from "../auth/stepup.js";
 import * as totp from "../auth/totp.js";
 import { Refused } from "../services/errors.js";
@@ -15,7 +16,6 @@ export const LOCK_MINUTES = 15;
 const ADDRESS_FAILURES_PER_15_MIN = 30;
 
 export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
-  const policy = o.policy ?? DEFAULT_POLICY;
   const now = o.now ?? Date.now;
   const addressFailures = new Map<string, number[]>();
 
@@ -23,10 +23,16 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   const noteAddressFailure = (ip: string): void => { const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(ip, r); };
 
   /** A wrong password or code counts against the account; enough of them lock it for a while. */
-  const recordFailure = async (userId: string): Promise<void> => {
-    await o.pool.query(`UPDATE users SET failed_logins = failed_logins + 1,
+  /** Counts a failed password or code; the failure that locks the account also raises a security alert to Admins. */
+  const recordFailure = async (userId: string, kind: "failed_logins" | "failed_step_ups", source: string): Promise<void> => {
+    const r = (await o.pool.query<{ failed_logins: number; username: string }>(`UPDATE users SET failed_logins = failed_logins + 1,
                           locked_until = CASE WHEN failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
-                        WHERE id = $1`, [userId, MAX_FAILURES, LOCK_MINUTES]);
+                        WHERE id = $1 RETURNING failed_logins, username`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
+    if (r && r.failed_logins === MAX_FAILURES)
+      await raiseSecurityAlertNow(o.pool, { kind, signature: `${kind}|${userId}`, userId,
+        title: kind === "failed_logins" ? `Repeated failed sign-ins on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`
+                                        : `Repeated failed step-up codes on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`,
+        detail: { failures: r.failed_logins, source } });
   };
 
   const describe = (u: SessionUser) => ({
@@ -44,14 +50,17 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (user?.locked) return reply.code(429).send({ error: "account_locked" });
     if (!user || !ok) {
       noteAddressFailure(request.ip);
-      if (user) await recordFailure(user.id);
+      if (user) await recordFailure(user.id, "failed_logins", request.ip);
       await transaction(o.pool, c => audit(c, { actorKind: user ? "user" : "system", actorId: user?.id ?? "console", action: "auth.login", outcome: "refused",
         details: { username: body.username, source: request.ip } }));
       return reply.code(401).send({ error: "invalid_credentials" });
     }
-    const stage = nextStage({ totpEnabled: user.totp_enabled, role: user.role, mustChangePassword: user.must_change_password }, false);
+    const settings = await o.guards.settings.get();
+    const policy = await o.guards.policy();
+    const stage = nextStage({ totpEnabled: user.totp_enabled, role: user.role, mustChangePassword: user.must_change_password }, false, settings.requireTotpForAll);
     const id = await transaction(o.pool, async c => {
       await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
+      await noteSignInNetwork(c, user.id, body.username, request.ip);
       if (stage === "complete") await c.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
       await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded", details: { stage, source: request.ip } });
       return createSession(c, user.id, stage, request.ip, policy);
@@ -71,7 +80,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     const step = totp.verify(o.secrets.open(row.totp_secret_enc), code, now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
     if (step === null) {
-      await recordFailure(u.userId);
+      await recordFailure(u.userId, "failed_logins", request.ip);
       await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp", outcome: "refused", details: { source: request.ip } }));
       return reply.code(401).send({ error: "invalid_code" });
     }
@@ -117,7 +126,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const body = consoleBodies.passwordChange.parse(request.body);
     const row = (await o.pool.query<{ password_hash: string }>("SELECT password_hash FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (!(await verifyPassword(row.password_hash, body.currentPassword))) {
-      await recordFailure(u.userId);
+      await recordFailure(u.userId, "failed_logins", request.ip);
       return reply.code(401).send({ error: "invalid_credentials" });
     }
     if (body.newPassword.length < MIN_PASSWORD_LENGTH || body.newPassword === body.currentPassword || body.newPassword.toLowerCase().includes(u.username))
@@ -161,7 +170,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     const step = totp.verify(o.secrets.open(row.totp_secret_enc), body.code, now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
     if (step === null) {
-      await recordFailure(u.userId);
+      await recordFailure(u.userId, "failed_step_ups", request.ip);
       await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "refused", details: { action: body.action, target: body.target } }));
       return reply.code(401).send({ error: "invalid_code" });
     }

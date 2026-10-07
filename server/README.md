@@ -5,7 +5,8 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Buil
 - the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel;
 - the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console;
 - issue types, symptom rules and the alerts engine: correlation, site-wide patterns, claims, Map to issue with Admin approval, rule history and rollback, and offline alerts;
-- write commands with step-up, the write pause and per-user limits, the software library with its own package checks and two-person approval, package downloads, and the firewall change history (Milestone 5).
+- write commands with step-up, the write pause and per-user limits, the software library with its own package checks and two-person approval, package downloads, and the firewall change history (Milestone 5);
+- administration (Milestone 6): accounts, presence, per-person activity, the audit log search and chain check, clients and sites, issue types and suppressions, fleet safety, settings, retention, and security alerts.
 
 ## What is here
 
@@ -71,6 +72,18 @@ Each new event is checked against the live symptom rules in the transaction that
   - The Admin who uploaded it can never approve it (a database CHECK enforces this as well). Retiring is final; changing a package means uploading a new version.
 - **Downloads.** `GET /agent/v1/packages/:id` serves an approved package only while that cabinet has a delivered `package.install` command for it that is under 30 minutes old. Each download is audited.
 - **Firewall history** (`firewall_changes`) records every successful firewall write. It also records every firewall change a cabinet reports: marked as the platform's when it names one of that cabinet's own firewall commands, otherwise unexplained.
+
+## Administration and security alerts
+
+- **Accounts** (`src/services/users.ts`):
+  - Every change needs a step-up token for that account.
+  - Resets, disabling, deleting and role changes end the person's sessions.
+  - The last active Admin cannot be removed; account changes are serialized so a race cannot remove it either.
+  - Promotion needs an authenticator.
+- **Security alerts** (`src/services/security.ts`) go to Admins only, folded by signature, and are pushed on the live stream.
+  - Triggers: the write limit (`commands.ts`), locking after failed sign-ins or step-ups (`auth-routes.ts`), a new sign-in network, the audit chain check (`maintenance.ts`), the agent's security events and refused packages (`events.ts`, `commands.ts`), and refused certificates (`agent-api/server.ts`).
+- **Daily jobs** (`src/services/maintenance.ts`): the audit chain check and retention. **Every minute:** offline alerts and expiring suppressions.
+- **Settings** (`src/services/settings.ts`) are read through a 5-second cache on every request, because session timeouts come from them.
 
 ## Console API
 

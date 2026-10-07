@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/platform-settings.schema.json",
+  "title": "platform-settings",
+  "description": "An Admin changes platform settings. Only the settings sent change.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "offlineAlertDays": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 90
+    },
+    "sessionIdleMinutes": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 240
+    },
+    "sessionAbsoluteHours": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 24
+    },
+    "requireTotpForAll": {
+      "type": "boolean"
+    },
+    "retention": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "eventsDays": {
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 3650
+        },
+        "commandsDays": {
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 3650
+        },
+        "alertsDays": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3650
+        },
+        "firewallDays": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3650
+        }
+      }
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "stepUpToken"
+  ],
+  "minProperties": 2
+}

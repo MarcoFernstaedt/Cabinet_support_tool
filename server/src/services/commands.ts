@@ -1,4 +1,5 @@
 // Commands: issued by a person, delivered on the cabinet's long poll, answered by a result.
+import { raiseSecurityAlert } from "./security.js";
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
@@ -36,11 +37,22 @@ export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: str
   }
 }
 
+/** The agent's package refusals, and which security alert each raises. */
+const REFUSED_PACKAGE: Record<string, "signature_failure" | "package_refused"> = {
+  signature_invalid: "signature_failure", hash_mismatch: "package_refused", publisher_not_trusted: "package_refused", verification_failed: "package_refused",
+};
+
 async function recordLimitPause(pool: pg.Pool, userId: string): Promise<void> {
   // The refused command's transaction rolled back; the pause itself must stick.
   await transaction(pool, async c => {
     const r = await c.query("UPDATE users SET writes_paused = true, writes_paused_reason = coalesce(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND NOT writes_paused", [userId]);
-    if (r.rowCount === 1) await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
+    if (r.rowCount === 1) {
+      await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
+      const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [userId])).rows[0];
+      await raiseSecurityAlert(c, { kind: "write_volume", signature: `write_volume|${userId}`, userId,
+        title: `Unusual write volume from ${who?.username ?? "a user"}: over ${who?.write_limit ?? "the"} writes in an hour; their writes are paused`,
+        detail: { writeLimit: who?.write_limit ?? null } });
+    }
   });
 }
 
@@ -107,6 +119,13 @@ export async function storeResult(pool: pg.Pool, cabinetId: string, result: Resu
       await c.query(`INSERT INTO firewall_changes (cabinet_id, command_id, explained, operation, before, after, detail, occurred_at) VALUES ($1, $2, true, $3, $4, $5, $6, $7)`,
         [cabinetId, result.commandId, command.operation, out.before === undefined ? null : safeJson(out.before), out.after === undefined ? null : safeJson(out.after),
          safeJson(out), result.finishedAt]);
+    }
+    // A package the cabinet refused (its own checks found it changed, unsigned or from an unlisted publisher) is a security alert.
+    if (command.operation === "package.install" && result.error && REFUSED_PACKAGE[result.error.code]) {
+      const kind = REFUSED_PACKAGE[result.error.code]!;
+      await raiseSecurityAlert(c, { kind, signature: `${kind}|${cabinetId}`, cabinetId,
+        title: kind === "signature_failure" ? "A cabinet refused a package whose signature failed its check" : "A cabinet refused a package from the software library",
+        detail: { commandId: result.commandId, code: result.error.code, message: result.error.message } });
     }
     await audit(c, { actorKind: "agent", actorId: cabinetId, action: "command.result", targetKind: "command", targetId: result.commandId, outcome: "succeeded",
       details: { operation: command.operation, status: result.status, ...(result.error ? { error: result.error.code } : {}) } });

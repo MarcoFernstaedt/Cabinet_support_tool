@@ -1,4 +1,4 @@
-// Admin screens for this release: pending cabinets, install tokens, the scanner default and the audit log.
+// Admin home, pending cabinets, install tokens and the scanner default. The other admin screens are in their own files.
 import { useState } from "react";
 import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
@@ -13,13 +13,19 @@ export function AdminHome() {
     <div className="page">
       <h1>Admin</h1>
       <ul className="tiles">
+        <li><Link to="/admin/security"><strong>Security alerts</strong><span>Unusual write volume, failed sign-ins, new networks, audit chain, agent and certificate problems.</span></Link></li>
+        <li><Link to="/admin/users"><strong>Users</strong><span>Create accounts, change roles and write limits, reset passwords and authenticators.</span></Link></li>
+        <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in, their role, last activity and the cabinet they have open.</span></Link></li>
+        <li><Link to="/admin/audit"><strong>Audit log</strong><span>Search by person, cabinet, action and date; verify the chain.</span></Link></li>
+        <li><Link to="/admin/safety"><strong>Fleet safety</strong><span>Pause changes fleet-wide or per client; resume people paused by their limit.</span></Link></li>
         <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>Approve or reject cabinets asking to join{data ? ` (${data.length} waiting)` : ""}.</span></Link></li>
         <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Create a one-time install token and get the files the installer needs.</span></Link></li>
-        <li><Link to="/admin/scanner"><strong>Scanner default</strong><span>The fingerprint scanner's hardware IDs for the whole fleet.</span></Link></li>
+        <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Create, rename and remove clients and sites.</span></Link></li>
+        <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Create and edit issue types; review, renew and disable suppressions.</span></Link></li>
         <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
-        <li><Link to="/admin/audit"><strong>Audit log</strong><span>Who opened which cabinet, and every action, with exact times.</span></Link></li>
+        <li><Link to="/admin/scanner"><strong>Scanner default</strong><span>The fingerprint scanner's hardware IDs for the whole fleet.</span></Link></li>
+        <li><Link to="/admin/settings"><strong>Settings</strong><span>Offline alerts, sign-in timeouts, two-factor for everyone, how long data is kept.</span></Link></li>
       </ul>
-      <p className="muted small">Users, clients and sites, fleet safety controls and settings arrive in milestone 6. Until then, accounts are created with the platform-admin tool.</p>
     </div>
   );
 }
@@ -135,37 +141,6 @@ export function ScannerDefault() {
           try { await api("PUT", "/api/settings/scanner", { hardwareIds: pending ?? null, stepUpToken: token }); setSaved(true); setText(null); reload(); }
           catch (e) { setProblem(describeError(e)); }
         }} />
-    </div>
-  );
-}
-
-interface AuditRow { seq: number; at: string; actor: string; action: string; targetKind: string | null; targetId: string | null; outcome: string; details: Record<string, unknown>; }
-
-export function AuditLog() {
-  const params = new URLSearchParams(window.location.search);
-  const [cabinet, setCabinet] = useState(params.get("cabinet") ?? "");
-  const [query, setQuery] = useState(params.get("cabinet") ? `?cabinet=${params.get("cabinet")}` : "");
-  const { data, problem } = useLoad<AuditRow[]>(`/api/admin/audit${query}`);
-  return (
-    <div className="page">
-      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Audit log" }]} />
-      <h1>Audit log</h1>
-      <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setQuery(cabinet.trim() ? `?cabinet=${encodeURIComponent(cabinet.trim())}` : ""); }}>
-        <label className="field"><span>Cabinet ID (optional)</span><input value={cabinet} size={38} onChange={e => setCabinet(e.target.value)} /></label>
-        <button className="btn">Show</button>
-      </form>
-      {problem && <p className="error" role="alert">{problem}</p>}
-      {data && (data.length === 0 ? <Empty>No entries.</Empty> : (
-        <table className="table compact">
-          <caption className="sr-only">Audit entries, newest first</caption>
-          <thead><tr><th scope="col">#</th><th scope="col">Time</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Target</th><th scope="col">Outcome</th><th scope="col">Details</th></tr></thead>
-          <tbody>{data.map(r => (
-            <tr key={r.seq}><td>{r.seq}</td><td>{fullTime(r.at)}</td><td>{r.actor}</td><td><code>{r.action}</code></td>
-              <td>{r.targetKind ? <>{r.targetKind} {r.targetKind === "cabinet" && r.targetId ? <Link to={`/cabinets/${r.targetId}`}><code>{r.targetId.slice(0, 8)}</code></Link> : <code>{r.targetId?.slice(0, 8)}</code>}</> : "—"}</td>
-              <td><Badge tone={r.outcome === "succeeded" ? "ok" : "warn"}>{r.outcome}</Badge></td>
-              <td className="wrap small"><code>{Object.keys(r.details).length ? JSON.stringify(r.details) : ""}</code></td></tr>))}
-          </tbody>
-        </table>))}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { Link, useRouter } from "../lib/router";
 import { atLeast, roleName, useSession } from "../lib/session";
 import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 import { WritePauseBanner } from "../lib/writes";
+import { AdminLink, SecurityToasts } from "./SecurityCenter";
 
 interface Hit { kind: "client" | "site" | "cabinet"; id: string; name: string; context: string; }
 
@@ -61,7 +62,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <Link to="/" aria-current={section === "fleet" ? "page" : undefined}>Fleet</Link>
           <AlertBadge current={section === "alerts"} />
           <Link to="/issues" aria-current={section === "issues" ? "page" : undefined}>Issues</Link>
-          {atLeast(me, "admin") && <Link to="/admin" aria-current={section === "admin" ? "page" : undefined}>Admin</Link>}
+          {atLeast(me, "admin") && <AdminLink current={section === "admin"} />}
         </nav>
         <JumpControl />
         <div className="user">
@@ -72,6 +73,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <WritePauseBanner />
       <main id="main" ref={main} tabIndex={-1}>{children}</main>
       <MajorAlertToasts />
+      {atLeast(me, "admin") && <SecurityToasts />}
     </>
   );
 }

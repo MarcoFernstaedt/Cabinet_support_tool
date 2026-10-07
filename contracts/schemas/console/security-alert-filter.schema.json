@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/security-alert-filter.schema.json",
+  "title": "security-alert-filter",
+  "description": "The security alerts list's filter, from the query string.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "type": "string",
+      "enum": [
+        "open",
+        "resolved",
+        "all"
+      ]
+    }
+  },
+  "required": []
+}

@@ -14,7 +14,7 @@ const WriteStatusContext = createContext<{ status: WriteStatus | null; reload: (
 
 export function WriteStatusProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<WriteStatus | null>(null);
-  const reload = useCallback(() => { api<WriteStatus>("GET", "/api/writes/status").then(setStatus, () => undefined); }, []);
+  const reload = useCallback(() => { api<WriteStatus>("GET", "/api/writes/status", undefined, { background: true }).then(setStatus, () => undefined); }, []);
   useEffect(() => { reload(); const t = setInterval(reload, 60_000); return () => clearInterval(t); }, [reload]);
   return <WriteStatusContext.Provider value={{ status, reload }}>{children}</WriteStatusContext.Provider>;
 }

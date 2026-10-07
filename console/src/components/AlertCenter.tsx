@@ -9,7 +9,7 @@ import { Link, useRouter } from "../lib/router";
 /** The count of open (unclaimed) major alerts, kept current by the live stream. */
 export function AlertBadge({ current }: { current: boolean }) {
   const [count, setCount] = useState<number | null>(null);
-  const load = useCallback(() => { api<{ openMajor: number }>("GET", "/api/alerts/summary").then(s => setCount(s.openMajor), () => undefined); }, []);
+  const load = useCallback(() => { api<{ openMajor: number }>("GET", "/api/alerts/summary", undefined, { background: true }).then(s => setCount(s.openMajor), () => undefined); }, []);
   useEffect(() => { load(); const t = setInterval(load, 60_000); return () => clearInterval(t); }, [load]);
   useAlertNews(load);
   return (

@@ -29,7 +29,7 @@ export interface AuditEntry {
   actorKind: "user" | "agent" | "system";
   actorId: string;
   action: string;
-  targetKind?: "cabinet" | "site" | "user" | "enrollment" | "command" | "token" | "alert" | "rule";
+  targetKind?: "cabinet" | "site" | "client" | "user" | "enrollment" | "command" | "token" | "alert" | "rule" | "issue_type" | "package" | "security_alert";
   targetId?: string;
   outcome: "succeeded" | "failed" | "refused";
   /** Request details with secrets removed. Callers never put tokens, keys or passwords here. */
@@ -51,21 +51,26 @@ export function safeJson(value: unknown): string {
 export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; }
 
 /** Recomputes every entry's hash from its stored fields and the previous hash. */
-export async function verifyAuditChain(db: Queryable): Promise<ChainCheck> {
-  const rows = (await db.query<{ seq: string; input_tail: string; prev_hash: string; hash: string }>(
-    `SELECT seq, prev_hash, hash,
-            audit_hash_input('', seq, at, actor_kind, actor_id, action, target_kind, target_id, outcome, details) AS input_tail
-       FROM audit_log ORDER BY seq`)).rows;
+export async function verifyAuditChain(db: Queryable, batch = 10_000): Promise<ChainCheck> {
+  // The log is kept forever, so it is read in batches rather than all at once.
   let previous = "0".repeat(64);
   let expectedSeq = 1;
-  for (const row of rows) {
-    const seq = Number(row.seq);
-    // The stored input starts with the previous hash; recompute it with the hash this check carried forward.
-    const input = previous + row.input_tail;
-    const hash = createHash("sha256").update(input, "utf8").digest("hex");
-    if (seq !== expectedSeq || row.prev_hash !== previous || row.hash !== hash) return { ok: false, entries: rows.length, firstBadSeq: seq };
-    previous = row.hash;
-    expectedSeq++;
+  let entries = 0;
+  for (;;) {
+    const rows = (await db.query<{ seq: string; input_tail: string; prev_hash: string; hash: string }>(
+      `SELECT seq, prev_hash, hash,
+              audit_hash_input('', seq, at, actor_kind, actor_id, action, target_kind, target_id, outcome, details) AS input_tail
+         FROM audit_log WHERE seq >= $1 ORDER BY seq LIMIT $2`, [expectedSeq, batch])).rows;
+    for (const row of rows) {
+      const seq = Number(row.seq);
+      entries++;
+      // The stored input starts with the previous hash; recompute it with the hash this check carried forward.
+      const input = previous + row.input_tail;
+      const hash = createHash("sha256").update(input, "utf8").digest("hex");
+      if (seq !== expectedSeq || row.prev_hash !== previous || row.hash !== hash) return { ok: false, entries, firstBadSeq: seq };
+      previous = row.hash;
+      expectedSeq++;
+    }
+    if (rows.length < batch) return { ok: true, entries };
   }
-  return { ok: true, entries: rows.length };
 }

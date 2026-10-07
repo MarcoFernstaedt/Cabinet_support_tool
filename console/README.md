@@ -2,7 +2,7 @@
 
 The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, built by Vite into static files. The platform server serves those files from the same origin as the console API. The console holds no secrets, and every permission check happens on the server.
 
-## What's in this release (Milestone 5)
+## What's in this release (Milestone 6)
 
 - **Sign-in.** Password, then the authenticator code.
   - Tier 2 and Admin set up an authenticator at first sign-in.
@@ -30,7 +30,19 @@ The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, 
 - **Settings in the console**, each confirmed with the authenticator code:
   - **Scanner hardware IDs:** a fleet default (Admin) and a per-cabinet override (Tier 2 and Admin).
   - **Each site's sync cabinet address and ports** (Admin). Cabinets accept only a private address on their own network.
-- **Admin.** Pending cabinets (approve or reject), install tokens with the platform CA file, the scanner default, the audit log, and the software library: upload a driver package or MSI (the server checks it on arrival), approve another Admin's upload, retire a package.
+- **Admin.** Each change is confirmed with the authenticator code, and the server enforces every rule.
+  - Pending cabinets (approve or reject), and install tokens with the platform CA file.
+  - The scanner default.
+  - The software library: upload a driver package or MSI (the server checks it on arrival), approve another Admin's upload, retire a package.
+  - **Milestone 6:**
+    - **Users:** create (a temporary password shown once), change role, set the hourly change limit, disable, reset password or authenticator, delete. Each person has an activity page: the cabinets they opened and everything they did.
+    - **Online now:** who is active, their role and the cabinet they have open.
+    - **Audit log:** search by person, cabinet, action and date, and verify the chain. Each cabinet has a "Who opened this cabinet" link for Admins.
+    - **Clients and sites:** create, rename, remove. Admins change a cabinet's role on its overview.
+    - **Issue types and suppressions:** create and edit issue types; create, renew and disable suppressions.
+    - **Fleet safety:** pause or resume changes fleet-wide or per client, and resume people paused by their limit.
+    - **Security alerts:** a count on the Admin link, new ones announced as they happen, and closing one with a note.
+    - **Settings:** offline alerts, sign-in timeouts, two-factor for everyone, retention.
 - **Alerts** (Milestone 4).
   - The top bar shows how many major alerts are open and unclaimed. New major alerts appear on every console at once, with "Claim and open cabinet", and are announced to screen readers.
   - The Alerts area lists every alert, with filters for severity, issue, state and "claimed by me". It also has an Unrecognized errors view and an Offline view that goes from clients to sites to cabinets.

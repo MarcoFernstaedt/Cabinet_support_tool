@@ -1,7 +1,10 @@
 // The cabinet view (docs/spec/06-console-spec.md "Cabinet view"): the name stays visible at
 // the top with its client, site and role beneath; a sidebar switches to the site's other
 // cabinets; each section runs read diagnostics on demand.
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { api } from "../../lib/api";
+import { atLeast, useSession } from "../../lib/session";
+import { useStepUp } from "../../components/StepUp";
 import { Link, useRouter } from "../../lib/router";
 import { ago, duration, fullTime } from "../../lib/time";
 import { useLoad, roleLabel, type CabinetRow } from "../Fleet";
@@ -28,6 +31,7 @@ export const SECTIONS = [
 export type SectionId = (typeof SECTIONS)[number][0];
 
 export function CabinetPage({ id, section }: { id: string; section: string }) {
+  const { me } = useSession();
   const { data: cabinet, problem, reload } = useLoad<CabinetDetail>(`/api/fleet/cabinets/${id}`);
   const heading = useRef<HTMLHeadingElement>(null);
   const current = (SECTIONS.find(([k]) => k === section)?.[0] ?? "overview") as SectionId;
@@ -55,6 +59,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link> · <Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link> · {roleLabel(cabinet.role)}
             {" "}<OnlineBadge online={cabinet.online} />
             {cabinet.readOnly && <> <Badge tone="info">Read-only cabinet</Badge></>}
+            {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&cabinetName=${encodeURIComponent(cabinet.name)}&action=cabinet.view`}>Who opened this cabinet</Link></>}
           </p>
           <nav aria-label="Cabinet sections" className="tabs">
             {SECTIONS.map(([key, label]) => (
@@ -83,17 +88,19 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "software": return <Software cabinet={cabinet} />;
     case "files": return <Files cabinetId={cabinet.id} />;
     case "history": return <History cabinetId={cabinet.id} />;
-    default: return <Overview cabinet={cabinet} />;
+    default: return <Overview cabinet={cabinet} onChanged={reload} />;
   }
 }
 
-function Overview({ cabinet }: { cabinet: CabinetDetail }) {
+function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: () => void }) {
   const { navigate } = useRouter();
+  const { me } = useSession();
   return (
     <section className="panel" aria-labelledby="overview-heading">
       <h2 id="overview-heading">Overview</h2>
       <KeyValues rows={[
         ["Status", <OnlineBadge online={cabinet.online} />],
+        ["Role", atLeast(me, "admin") ? <RoleChange cabinet={cabinet} onChanged={onChanged} /> : roleLabel(cabinet.role)],
         ["Open alerts", cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"],
         ["Last heard from", <>{fullTime(cabinet.lastHeartbeatAt)} <span className="muted">({ago(cabinet.lastHeartbeatAt)})</span></>],
         ["Windows host name", cabinet.hostname],
@@ -109,5 +116,23 @@ function Overview({ cabinet }: { cabinet: CabinetDetail }) {
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
       </div>
     </section>
+  );
+}
+
+/** An Admin changes the cabinet's role at its site (sync, satellite or standalone), with step-up. */
+function RoleChange({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: () => void }) {
+  const [role, setRole] = useState(cabinet.role);
+  const step = useStepUp();
+  return (
+    <span className="row gap">
+      <label className="sr-only" htmlFor="cabinet-role">Role</label>
+      <select id="cabinet-role" value={role} onChange={e => setRole(e.target.value)}>
+        {["sync", "satellite", "standalone"].map(r => <option key={r} value={r}>{roleLabel(r)}</option>)}
+      </select>
+      {role !== cabinet.role && <button className="btn small primary" onClick={() => step.ask("cabinet.role", cabinet.id,
+        <p>Change <strong>{cabinet.name}</strong> from {roleLabel(cabinet.role)} to {roleLabel(role)}.</p>,
+        async t => { await api("PUT", `/api/admin/cabinets/${cabinet.id}/role`, { role, stepUpToken: t }); onChanged(); })}>Save role</button>}
+      {step.dialog}
+    </span>
   );
 }

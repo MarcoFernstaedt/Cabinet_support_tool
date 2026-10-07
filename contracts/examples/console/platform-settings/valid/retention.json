@@ -1,0 +1,6 @@
+{
+  "retention": {
+    "eventsDays": 120
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

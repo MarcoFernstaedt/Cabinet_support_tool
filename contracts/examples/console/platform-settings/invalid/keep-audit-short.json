@@ -1,0 +1,6 @@
+{
+  "retention": {
+    "auditDays": 30
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

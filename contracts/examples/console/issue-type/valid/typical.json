@@ -1,0 +1,6 @@
+{
+  "name": "Printer offline",
+  "severity": "minor",
+  "description": "The label printer stopped answering.",
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

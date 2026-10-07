@@ -197,3 +197,55 @@ Decided here, open to change:
   - A reboot is shown by stopping and restarting the broker service.
   - The "bad change" rollback is shown with a firewall rule and a DNS change sent through the local harness, which no server confirms.
 
+
+## Question from Milestone 6 (needs an answer)
+
+- **The agent's self-check of its own files.** The spec names "an agent reporting a failed self-check" as a security alert trigger (05-server-spec.md, 03-protocol.md), but 04-agent-spec.md does not say what the self-check covers or when it runs.
+  - The server is ready: a security event with `check: "self_check"` raises the alert, and a test proves it.
+  - The agent does not run a self-check yet.
+  - Default until decided: build it with Milestone 7's signed updater. The updater already has to verify the agent's own files against their signed hashes, and would then also check them at start-up and once a day.
+
+## Choices made in Milestone 6 (confirm or change)
+
+- **Security alerts are their own list, for Admins only.** Most of them concern people, not cabinets, so they are not cabinet alerts.
+  - Repeats fold into one open alert with a count, so a flood stays one line.
+  - Admins see a count on the Admin link, and new ones appear at once on their consoles.
+  - Closing one needs a note on what was found, and the authenticator code.
+- **When each trigger fires:**
+  - **Unusual write volume:** going over the person's hourly limit, which also pauses their writes.
+  - **Repeated failed sign-ins or step-ups:** the 5th failure, the one that locks the account for 15 minutes.
+  - **Sign-in from a new network:** a correct password from an IPv4 /24 or IPv6 /64 the account has not used before. The account's first sign-in sets the baseline. Addresses come from the reverse proxy.
+  - **Audit chain break:** found by the daily check or an Admin's "Verify the chain".
+  - **Agent problems:**
+    - A failed self-check (see the question above).
+    - A refused package: hash mismatch, unlisted publisher or a failed check.
+    - A signature failure.
+
+    These come from the agent's security events and from its package.install results. A safety-net rollback is reported as an event but is not on the spec's list, so it raises no security alert.
+  - **Certificates:** a connection with a revoked, expired, removed, mismatched or unknown certificate.
+    - Folded per reason.
+    - Counted at most once an hour per certificate and every 10 seconds per reason, so certificates tried from the internet cannot flood the database.
+    - A caller with no certificate at all is only logged.
+- **Accounts.**
+  - Deleting an account keeps its history; it can never sign in again.
+  - A role change also ends the person's sessions. The spec names password and authenticator resets and disabling; a new role taking effect at once is the safer reading.
+  - Nobody changes their own role, disables or deletes themselves.
+  - Changes to accounts run one at a time, so two Admins demoting each other at once still leave one Admin.
+  - Promotion to Tier 2 or Admin needs an authenticator already set up. A new Tier 2 or Admin account sets one up at first sign-in.
+- **Background requests no longer count as activity.**
+  - Before this milestone, the live stream's re-check and the console's badge polls refreshed the session, so an unattended console never timed out and everyone looked online. Now they check the session without refreshing it.
+  - "Online now" means a person did something in the last 5 minutes.
+- **Settings in the console:**
+  - offline alert threshold, 1 to 90 days;
+  - idle timeout, 5 to 240 minutes, and absolute timeout, 1 to 24 hours;
+  - require two-factor for every account. Turning it on signs out everyone without an authenticator; they set one up at their next sign-in.
+  - retention: events and command results 7 to 3,650 days; resolved alerts and firewall history 30 to 3,650 days.
+- **Retention runs daily.**
+  - It deletes old events, resolved alerts and firewall history.
+  - It clears old command results; the command itself (who ran what, when) stays.
+  - It removes expired sessions and step-up tokens.
+  - The audit log is never pruned. The chain check reads it in batches, so its size does not matter.
+- **Clients and sites** are removed only when no active or pending cabinet is left. They are kept, marked removed, with their history, and their names can be used again.
+- **Suppressions** are created on the Issue types and suppressions screen: match fields plus a written reason of at least 10 characters. A job checks every minute and marks expired ones, with history.
+- **"Who opened this cabinet"** is a link on the cabinet page for Admins. It opens the audit log filtered to that cabinet's views. The audit search also takes a family of actions such as `user.`.
+- **Cabinet role** (sync, satellite, standalone) is changed by an Admin on the cabinet's overview.

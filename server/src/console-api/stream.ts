@@ -1,12 +1,12 @@
 // The live stream (Server-Sent Events): one per signed-in tab. It carries the results of
 // commands that user issued, every new major alert (to everyone signed in), and each
-// alert's claim and resolution, so every console shows who has what.
+// alert's claim and resolution, so every console shows who has what. Security alerts go to Admins only.
 import type { FastifyReply, FastifyRequest } from "fastify";
 import pg from "pg";
 import type { SessionUser } from "../auth/sessions.js";
 import { alertById } from "../services/alerts.js";
 
-interface Subscriber { userId: string; reply: FastifyReply; close: () => void; }
+interface Subscriber { userId: string; role: SessionUser["role"]; reply: FastifyReply; close: () => void; }
 
 export class ResultStream {
   private readonly subscribers = new Set<Subscriber>();
@@ -20,11 +20,13 @@ export class ResultStream {
     client.on("notification", msg => {
       if (msg.channel === "command_results" && msg.payload) void this.deliver(msg.payload);
       if (msg.channel === "alerts" && msg.payload) void this.deliverAlert(msg.payload);
+      if (msg.channel === "security_alerts" && msg.payload) this.deliverSecurity(msg.payload);
     });
     client.on("error", () => { if (!this.stopped) setTimeout(() => void this.start().catch(() => undefined), 1000); });
     await client.connect();
     await client.query("LISTEN command_results");
     await client.query("LISTEN alerts");
+    await client.query("LISTEN security_alerts");
     this.client = client;
   }
 
@@ -36,6 +38,15 @@ export class ResultStream {
     if (!row) return;
     const data = JSON.stringify({ commandId, cabinetId: row.cabinet_id, operation: row.operation, status: row.status });
     for (const s of this.subscribers) if (s.userId === issuedBy) s.reply.raw.write(`event: result\ndata: ${data}\n\n`);
+  }
+
+  /** Security alerts (new ones and repeats) go to Admins only; a role change ends that person's sessions, and so their streams. */
+  private deliverSecurity(payload: string): void {
+    let p: { id?: unknown; created?: unknown; kind?: unknown; title?: unknown };
+    try { p = JSON.parse(payload) as typeof p; } catch { return; }
+    if (typeof p.id !== "string" || typeof p.title !== "string") return;
+    const data = JSON.stringify({ id: p.id, created: p.created === true, kind: p.kind, title: p.title });
+    for (const s of this.subscribers) if (s.role === "admin") s.reply.raw.write(`event: security\ndata: ${data}\n\n`);
   }
 
   /** New major alerts go to everyone; claims and resolutions of any alert too, so lists and the badge stay current. */
@@ -63,7 +74,7 @@ export class ResultStream {
         reply.raw.write(": ping\n\n");
       }, () => reply.raw.end());
     }, 25_000);
-    const subscriber = { userId: user.userId, reply, close: () => { clearInterval(ping); this.subscribers.delete(subscriber); } };
+    const subscriber = { userId: user.userId, role: user.role, reply, close: () => { clearInterval(ping); this.subscribers.delete(subscriber); } };
     this.subscribers.add(subscriber);
     // Every way the stream can end clears its timer, including a client that left before these listeners were attached.
     request.raw.on("close", subscriber.close);

@@ -72,10 +72,10 @@ export async function approveEnrollment(pool: pg.Pool, key: IssuingKey, requestI
     const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
       "SELECT csr, fingerprints FROM enrollment_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
-    await c.query("INSERT INTO clients (id, name) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING", [randomUUID(), approval.clientName]);
-    const client = (await c.query<{ id: string }>("SELECT id FROM clients WHERE name = $1", [approval.clientName])).rows[0]!;
-    await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3) ON CONFLICT (client_id, name) DO NOTHING", [randomUUID(), client.id, approval.siteName]);
-    const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2", [client.id, approval.siteName])).rows[0]!;
+    await c.query("INSERT INTO clients (id, name) VALUES ($1, $2) ON CONFLICT (name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), approval.clientName]);
+    const client = (await c.query<{ id: string }>("SELECT id FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
+    await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3) ON CONFLICT (client_id, name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), client.id, approval.siteName]);
+    const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
     const cabinetId = randomUUID();
     try {
       await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version)

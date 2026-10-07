@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/site-create.schema.json",
+  "title": "site-create",
+  "description": "Creates a site in a client.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "clientId",
+    "name",
+    "stepUpToken"
+  ]
+}

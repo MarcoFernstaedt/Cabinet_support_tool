@@ -1,0 +1,9 @@
+{
+  "match": {
+    "log": "System",
+    "source": "Kernel-Power",
+    "eventId": 109
+  },
+  "reason": "Logged on every planned restart; harmless.",
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

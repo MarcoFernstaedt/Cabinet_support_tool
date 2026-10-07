@@ -222,3 +222,10 @@ main:focus { outline: none; }
 .packages > li { margin: 8px 0; }
 details > summary { cursor: pointer; color: var(--accent); margin: 8px 0; }
 .dialog .table { margin: 8px 0; }
+
+/* Milestone 6: admin screens */
+.toasts.security { right: auto; left: 16px; }
+.inline-form { display: inline-flex; }
+.picker { position: relative; }
+.picker .jump-results { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 280px; }
+.security-list > li { margin: 10px 0; }

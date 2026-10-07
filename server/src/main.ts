@@ -1,4 +1,6 @@
 // Starts the agent API, the console API when configured, and the offline alert job.
+import { scheduleDailyJobs } from "./services/maintenance.js";
+import { expireRules } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/db.js";
 import { CommandNotifier } from "./agent-api/notifier.js";
@@ -34,7 +36,11 @@ if (config.console) {
 // Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs.
 const offlineJob = setInterval(() => {
   checkOffline(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
+  expireRules(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rule expiry failed"));
 }, 60_000);
 
+// The daily audit chain check (a break raises a security alert) and retention.
+const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message));
+
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => { void (async () => { clearInterval(offlineJob); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });
+  process.once(signal, () => { void (async () => { clearInterval(offlineJob); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });

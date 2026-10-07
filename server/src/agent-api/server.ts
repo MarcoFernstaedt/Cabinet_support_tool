@@ -17,6 +17,7 @@ import { scannerIdsFor } from "../services/fleet.js";
 import type { CommandNotifier } from "./notifier.js";
 import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
+import { raiseSecurityAlert } from "../services/security.js";
 
 export interface AgentApiOptions {
   pool: pg.Pool;
@@ -72,26 +73,55 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   /** Every route except enrollment and health needs a certificate this server issued to an active cabinet. */
   const requireCabinet = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const socket = request.raw.socket as TLSSocket;
-    const peer = socket.authorized ? socket.getPeerCertificate() : null;
-    const serial = peer?.serialNumber?.toUpperCase() ?? "";
+    // The certificate the caller presented, whether or not it chains to our CA (empty when none was presented).
+    const peer = socket.getPeerCertificate();
+    const serial = /^[0-9A-Fa-f]{2,64}$/.test(peer?.serialNumber ?? "") ? peer.serialNumber.toUpperCase() : "";
     const subject = typeof peer?.subject?.CN === "string" ? peer.subject.CN : "";
-    const cabinet = peer && serial ? await authenticate(o.pool, serial, subject) : null;
+    const cabinet = socket.authorized && serial ? await authenticate(o.pool, serial, subject) : null;
     if (!cabinet) {
-      await noteRefusal(request, socket.authorized ? `serial ${serial}` : "no valid certificate", serial);
+      await noteRefusal(request, socket.authorized, serial, subject);
       return reply.code(401).send({ error: "certificate_refused" });
     }
     request.cabinet = cabinet;
   };
 
-  /** Logs a refused connection; a certificate signed by our CA but not accepted (revoked, unknown) is also audited, at most hourly per serial. */
-  const noteRefusal = async (request: FastifyRequest, reason: string, serial: string): Promise<void> => {
-    request.log.warn({ reason, remote: request.ip }, "agent connection refused");
+  /** Why a presented certificate was not accepted: not ours, revoked, expired, for a removed cabinet, naming another cabinet, or not on record. */
+  const refusalReason = async (authorized: boolean, serial: string, subject: string): Promise<{ reason: string; cabinetId: string | null }> => {
+    if (!authorized) return { reason: "unknown", cabinetId: null };
+    const row = (await o.pool.query<{ cabinet_id: string; revoked: boolean; expired: boolean; active: boolean }>(
+      `SELECT c.cabinet_id, c.revoked_at IS NOT NULL AS revoked, c.not_after <= now() AS expired, k.status = 'active' AS active
+         FROM cabinet_certificates c JOIN cabinets k ON k.id = c.cabinet_id WHERE c.serial = $1`, [serial])).rows[0];
+    if (!row) return { reason: "unknown", cabinetId: null };
+    const reason = row.revoked ? "revoked" : row.expired ? "expired" : !row.active ? "removed" : row.cabinet_id !== subject ? "mismatched" : "unknown";
+    return { reason, cabinetId: row.cabinet_id };
+  };
+
+  /**
+   * Logs a refused connection. A presented certificate that is not accepted (revoked, or unknown to this platform) is
+   * also audited and raises a security alert, at most hourly per serial and every 10 s per reason, so someone trying
+   * certificates from the internet cannot flood the database. A caller with no certificate at all is only logged.
+   */
+  const noteRefusal = async (request: FastifyRequest, authorized: boolean, serial: string, subject: string): Promise<void> => {
+    request.log.warn({ authorized, serial, remote: request.ip }, "agent connection refused");
     if (!serial) return;
-    const last = refusedLogged.get(serial) ?? 0;
-    if (Date.now() - last < 3_600_000) return;
-    refusedLogged.set(serial, Date.now());
-    await transaction(o.pool, c => audit(c, { actorKind: "agent", actorId: serial, action: "agent.connection_refused", outcome: "refused",
-      details: { certificateSerial: serial, source: request.ip } })).catch(() => undefined);
+    const now = Date.now();
+    if (now - (refusedLogged.get(serial) ?? 0) < 3_600_000) return;
+    if (refusedLogged.size > 10_000) refusedLogged.clear();
+    refusedLogged.set(serial, now);
+    try {
+      const { reason, cabinetId } = await refusalReason(authorized, serial, subject);
+      if (now - (refusedLogged.get(`reason|${reason}`) ?? 0) < 10_000) return;
+      refusedLogged.set(`reason|${reason}`, now);
+      await transaction(o.pool, async c => {
+        await audit(c, { actorKind: "agent", actorId: serial, action: "agent.connection_refused", outcome: "refused",
+          details: { certificateSerial: serial, reason, source: request.ip } });
+        await raiseSecurityAlert(c, { kind: "certificate", signature: `certificate|${reason}`, cabinetId: reason === "unknown" ? null : cabinetId,
+          title: reason === "revoked" ? "A cabinet connected with a revoked certificate"
+            : reason === "unknown" ? "A connection presented a certificate this platform did not issue or has no record of"
+            : `A cabinet connected with a certificate that is not accepted (${reason})`,
+          detail: { certificateSerial: serial, reason, source: request.ip, cabinetId } });
+      });
+    } catch { /* a refused connection must never fail the refusal */ }
   };
 
   app.get("/health", async () => ({ status: "ok" }));

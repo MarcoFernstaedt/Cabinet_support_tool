@@ -7,7 +7,8 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import type pg from "pg";
 import { ContractError } from "../contracts.js";
-import { loadSession, COOKIE, type SessionPolicy, type SessionUser } from "../auth/sessions.js";
+import { loadSession, policyFrom, COOKIE, type SessionPolicy, type SessionUser } from "../auth/sessions.js";
+import { SettingsCache } from "../services/settings.js";
 import type { SecretBox } from "../auth/secrets.js";
 import type { IssuingKey } from "../pki/x509.js";
 import { Refused } from "../services/errors.js";
@@ -19,6 +20,7 @@ import { alertRoutes } from "./alert-routes.js";
 import { writeRoutes } from "./write-routes.js";
 import type { PackageStore } from "../services/packages.js";
 import { ResultStream } from "./stream.js";
+import { manageRoutes } from "./manage-routes.js";
 
 export interface ConsoleApiOptions {
   pool: pg.Pool;
@@ -31,7 +33,10 @@ export interface ConsoleApiOptions {
   packages?: PackageStore;
   /** The built console (console/dist). Omitted in API-only tests. */
   staticDir?: string;
+  /** Fixed session timeouts for tests; otherwise they come from the platform settings. */
   policy?: SessionPolicy;
+  /** The platform settings, read through a short cache; made here when not given. */
+  settings?: SettingsCache;
   trustProxy?: boolean;
   logger?: boolean;
   now?: () => number;
@@ -46,6 +51,10 @@ export interface Guards {
   session: (request: FastifyRequest) => Promise<SessionUser>;
   /** A fully signed-in user with at least this role. */
   role: (request: FastifyRequest, minimum: Role) => Promise<SessionUser>;
+  /** The session timeouts in force now. */
+  policy: () => Promise<SessionPolicy>;
+  /** The platform settings (session timeouts, require two-factor, retention, offline threshold). */
+  settings: SettingsCache;
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -99,9 +108,14 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
     return undefined;
   };
 
+  const settings = o.settings ?? new SettingsCache(o.pool);
+  const policy = async (): Promise<SessionPolicy> => o.policy ?? policyFrom(await settings.get());
   const guards: Guards = {
+    policy,
+    settings,
     async session(request) {
-      const user = await loadSession(o.pool, cookie(request), o.policy);
+      // The console marks its background polls; they check the session without counting as the person's activity.
+      const user = await loadSession(o.pool, cookie(request), await policy(), request.headers["x-background"] !== "1");
       if (!user) throw new Refused("signed_out", 401, "no live session");
       request.user = user;
       return user;
@@ -119,9 +133,10 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(adminRoutes, { ...o, guards });
   await app.register(alertRoutes, { ...o, guards });
   await app.register(writeRoutes, { ...o, guards });
+  await app.register(manageRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {
     const user = await guards.role(request, "tier1");
-    o.stream.attach(user, request, reply, () => loadSession(o.pool, cookie(request), o.policy));
+    o.stream.attach(user, request, reply, async () => loadSession(o.pool, cookie(request), await policy(), false));
     return reply;
   });
   app.get("/api/health", async () => ({ status: "ok" }));

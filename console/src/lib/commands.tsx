@@ -22,11 +22,16 @@ export interface AlertNews {
 }
 type AlertListener = (news: AlertNews) => void;
 
-const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener> }>({ wake: new Map(), alerts: new Set() });
+/** A security alert, new or repeated, announced to Admins on the live stream. */
+export interface SecurityNews { id: string; created: boolean; kind: string; title: string; }
+type SecurityListener = (news: SecurityNews) => void;
+
+const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener>; security: Set<SecurityListener> }>({ wake: new Map(), alerts: new Set(), security: new Set() });
 
 export function CommandStream({ children }: { children: ReactNode }) {
   const wake = useRef(new Map<string, Waiter>()).current;
   const alerts = useRef(new Set<AlertListener>()).current;
+  const security = useRef(new Set<SecurityListener>()).current;
   useEffect(() => {
     const source = new EventSource("/api/stream");
     source.addEventListener("result", e => {
@@ -37,9 +42,15 @@ export function CommandStream({ children }: { children: ReactNode }) {
       try { news = JSON.parse((e as MessageEvent<string>).data) as AlertNews; } catch { return; }
       alerts.forEach(fn => fn(news));
     });
+    // Sent to Admins only; the server decides who receives it.
+    source.addEventListener("security", e => {
+      let news: SecurityNews;
+      try { news = JSON.parse((e as MessageEvent<string>).data) as SecurityNews; } catch { return; }
+      security.forEach(fn => fn(news));
+    });
     return () => source.close();
-  }, [wake, alerts]);
-  return <StreamContext.Provider value={{ wake, alerts }}>{children}</StreamContext.Provider>;
+  }, [wake, alerts, security]);
+  return <StreamContext.Provider value={{ wake, alerts, security }}>{children}</StreamContext.Provider>;
 }
 
 /** Calls fn for every alert change on the live stream while the component is mounted. */
@@ -52,6 +63,18 @@ export function useAlertNews(fn: AlertListener): void {
     alerts.add(listener);
     return () => { alerts.delete(listener); };
   }, [alerts]);
+}
+
+/** Calls fn for every security alert announced on the live stream (Admins only) while the component is mounted. */
+export function useSecurityNews(fn: SecurityListener): void {
+  const { security } = useContext(StreamContext);
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => {
+    const listener: SecurityListener = n => latest.current(n);
+    security.add(listener);
+    return () => { security.delete(listener); };
+  }, [security]);
 }
 
 const TERMINAL = new Set(["succeeded", "failed", "rejected", "expired"]);

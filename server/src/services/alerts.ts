@@ -2,6 +2,7 @@
 // Each new event is checked against the live rules; a match raises or updates the issue's alert,
 // anything else becomes a minor unrecognized alert. Repeats fold into one active alert per
 // cabinet; the same issue on several cabinets at one site within an hour is a site-wide pattern.
+import { platformSettings } from "./settings.js";
 import type pg from "pg";
 import type { AlertFilter, Event } from "../contracts.js";
 import { audit, transaction, type Queryable } from "../db/db.js";
@@ -222,8 +223,7 @@ export async function resolveAlert(pool: pg.Pool, user: { userId: string; role: 
 // ---- Offline ---------------------------------------------------------------------------
 
 export async function offlineAlertDays(db: Queryable): Promise<number> {
-  const r = (await db.query<{ value: unknown }>("SELECT value FROM settings WHERE key = 'alerts.offlineDays'")).rows[0];
-  return typeof r?.value === "number" && r.value > 0 && r.value <= 365 ? r.value : DEFAULT_OFFLINE_ALERT_DAYS;
+  return (await platformSettings(db)).offlineAlertDays;
 }
 
 /**

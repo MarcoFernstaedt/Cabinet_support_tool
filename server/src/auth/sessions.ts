@@ -23,16 +23,20 @@ export async function createSession(db: Queryable, userId: string, stage: Stage,
   return id;
 }
 
-/** The session and its user, if the session is live; touching it extends the idle window. */
-export async function loadSession(db: Queryable, id: string | undefined, policy = DEFAULT_POLICY): Promise<SessionUser | null> {
+/**
+ * The session and its user, if the session is live. A person's own request touches it, extending the idle
+ * window; background checks (the live stream's re-check, polling a badge) pass touch = false, so an unattended
+ * console still times out and presence shows real activity.
+ */
+export async function loadSession(db: Queryable, id: string | undefined, policy = DEFAULT_POLICY, touch = true): Promise<SessionUser | null> {
   if (!id || id.length !== 43 || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+  const live = `s.id_hash = $1 AND u.id = s.user_id AND u.status = 'active'
+        AND s.expires_at > now() AND s.last_activity_at > now() - make_interval(mins => $2)`;
+  const columns = "s.stage, u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed";
   const row = (await db.query<{ stage: Stage; user_id: string; username: string; name: string; role: SessionUser["role"]; totp_enabled: boolean;
     must_change_password: boolean; tour_completed: boolean }>(
-    `UPDATE sessions s SET last_activity_at = now()
-       FROM users u
-      WHERE s.id_hash = $1 AND u.id = s.user_id AND u.status = 'active'
-        AND s.expires_at > now() AND s.last_activity_at > now() - make_interval(mins => $2)
-      RETURNING s.stage, u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed`,
+    touch ? `UPDATE sessions s SET last_activity_at = now() FROM users u WHERE ${live} RETURNING ${columns}`
+          : `SELECT ${columns} FROM sessions s, users u WHERE ${live}`,
     [hashId(id), policy.idleMinutes])).rows[0];
   if (!row) return null;
   return { sessionHash: hashId(id), stage: row.stage, userId: row.user_id, username: row.username, name: row.name, role: row.role,
@@ -47,10 +51,13 @@ export const endSession = (db: Queryable, sessionHash: Buffer) => db.query("DELE
 /** Ends every session of a user: after a password or authenticator reset, or disabling the account. */
 export const endAllSessions = (db: Queryable, userId: string) => db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
 
-/** The next stage a signed-in user must pass before using the console. */
-export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePassword: boolean }, passedTotp: boolean): Stage {
+/** The next stage a signed-in user must pass before using the console. An Admin setting can require an authenticator for every account. */
+export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePassword: boolean }, passedTotp: boolean, requireTotpForAll = false): Stage {
   if (u.totpEnabled && !passedTotp) return "totp";
-  if (!u.totpEnabled && (u.role === "tier2" || u.role === "admin")) return "totp_setup";
+  if (!u.totpEnabled && (u.role === "tier2" || u.role === "admin" || requireTotpForAll)) return "totp_setup";
   if (u.mustChangePassword) return "password_change";
   return "complete";
 }
+
+export const policyFrom = (s: { sessionIdleMinutes: number; sessionAbsoluteHours: number }): SessionPolicy =>
+  ({ idleMinutes: s.sessionIdleMinutes, absoluteHours: s.sessionAbsoluteHours });

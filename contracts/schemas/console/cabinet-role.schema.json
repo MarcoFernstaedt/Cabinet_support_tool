@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/cabinet-role.schema.json",
+  "title": "cabinet-role",
+  "description": "Changes a cabinet's role at its site.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "role": {
+      "$ref": "../common.schema.json#/$defs/cabinetRole"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "role",
+    "stepUpToken"
+  ]
+}

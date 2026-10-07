@@ -37,7 +37,26 @@
         "package.approve",
         "package.retire",
         "writes.pause",
-        "writes.resume"
+        "writes.resume",
+        "user.create",
+        "user.update",
+        "user.delete",
+        "user.password.reset",
+        "user.totp.reset",
+        "user.resume_writes",
+        "client.create",
+        "client.rename",
+        "client.remove",
+        "site.create",
+        "site.rename",
+        "site.remove",
+        "cabinet.role",
+        "issue_type.create",
+        "issue_type.update",
+        "settings.update",
+        "security_alert.resolve",
+        "rule.suppress",
+        "rule.renew"
       ]
     },
     "target": {

@@ -18,7 +18,7 @@ const MESSAGES: Record<string, string> = {
   not_found: "Not found.",
   invalid_request: "The request was not accepted. Check the values and try again.",
   invalid_address: "The sync cabinet must have a private IPv4 address (10.x, 172.16-31.x or 192.168.x).",
-  name_taken: "A cabinet with that name already exists at that site.",
+  name_taken: "That name is already used here.",
   not_pending: "That request is no longer waiting for approval.",
   writes_paused: "Changes to cabinets are paused. Diagnostics still work.",
   writes_paused_for_you: "Your changes are paused because you reached your hourly limit. An Admin can resume them.",
@@ -34,6 +34,12 @@ const MESSAGES: Record<string, string> = {
   publisher_not_trusted: "Refused: the package is signed by a publisher that is not on the trusted list.",
   verification_failed: "Refused: the package could not be checked.",
   unavailable: "The server has no package store configured.",
+  username_taken: "That username is already used.",
+  totp_required: "This person must set up an authenticator before becoming Tier 2 or Admin.",
+  last_admin: "This is the last active Admin account; it cannot be removed, disabled or demoted.",
+  not_yourself: "Ask another Admin to change your own role, disable or delete your account.",
+  has_cabinets: "It still has active or pending cabinets. Move or remove them first.",
+  not_paused: "This person's changes are not paused.",
   origin_refused: "The request came from an unexpected page. Reload the console.",
   server_error: "The server hit an error. Try again.",
   already_claimed: "Someone else claimed this alert first.",
@@ -57,8 +63,12 @@ export const describeError = (e: unknown): string => {
 const signedOutListeners = new Set<() => void>();
 export const onSignedOut = (fn: () => void): (() => void) => { signedOutListeners.add(fn); return () => signedOutListeners.delete(fn); };
 
-export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, credentials: "same-origin", headers: { Accept: "application/json" } };
+/**
+ * background: a poll the person did not ask for (a badge refreshing). The server checks the session but does not
+ * count it as activity, so an unattended console still times out and "online now" shows real activity.
+ */
+export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?: unknown, opts: { background?: boolean } = {}): Promise<T> {
+  const init: RequestInit = { method, credentials: "same-origin", headers: { Accept: "application/json", ...(opts.background ? { "X-Background": "1" } : {}) } };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
