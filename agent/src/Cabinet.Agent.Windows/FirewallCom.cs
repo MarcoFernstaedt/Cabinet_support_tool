@@ -160,7 +160,10 @@ public sealed class FirewallCom : IFirewallControl
         }
         r.LocalAddresses = rule.LocalAddresses is { Count: > 0 } la ? string.Join(',', la) : "*";
         r.RemoteAddresses = rule.RemoteAddresses is { Count: > 0 } ra ? string.Join(',', ra) : "*";
-        r.ApplicationName = rule.ProgramPath ?? null;
+        // A dynamic null goes to COM as VT_EMPTY, which Windows takes as an empty program path and then refuses the rule;
+        // set a path only when there is one, and clear an existing one with a real null string.
+        if (rule.ProgramPath is not null) r.ApplicationName = rule.ProgramPath;
+        else if ((string?)r.ApplicationName is not null) r.ApplicationName = new BStrWrapper(null);
         r.Profiles = rule.Profiles.Count == 0 ? 0x7FFFFFFF : rule.Profiles.Sum(Bit);
         r.Enabled = rule.Enabled;
     }
