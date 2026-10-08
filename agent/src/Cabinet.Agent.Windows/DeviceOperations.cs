@@ -132,7 +132,7 @@ public sealed class DeviceOperations
         {
             ConfiguredHardwareIds = p.HardwareIds ?? _config.Scanner.HardwareIds, Devices = devices, BiometricServiceState = BiometricService(),
         };
-        DeviceFacts? scanner = facts.ConfiguredHardwareIds.Count > 0 ? ScannerChecklist.Find(facts) : null;
+        DeviceFacts? scanner = ScannerChecklist.Find(facts);
         if (scanner is not null)
         {
             facts = facts with

@@ -57,6 +57,7 @@ import type {
   ReleaseCreate,
   RolloutStart,
   CabinetInOffice,
+  SyncPorts,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -170,6 +171,7 @@ export const consoleBodies = {
   releaseCreate: validator<ReleaseCreate>("release-create", consoleBody("release-create")),
   rolloutStart: validator<RolloutStart>("rollout-start", consoleBody("rollout-start")),
   cabinetInOffice: validator<CabinetInOffice>("cabinet-in-office", consoleBody("cabinet-in-office")),
+  syncPorts: validator<SyncPorts>("sync-ports", consoleBody("sync-ports")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

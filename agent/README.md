@@ -67,7 +67,7 @@ The network service runs these on its own and queues what they find (`src/Cabine
 | Drive health | daily, through the broker | early signs of failure (SMART counters, wear, heat), and again only if they get worse |
 | Firewall | every 5 minutes, and at once on a firewall-log change event | any change to profiles or rules |
 
-Events wait in `State\events.jsonl` (at most 5,000, oldest dropped first) and are sent oldest first, 100 at a time, with backoff while the server is unreachable. The scanner's hardware IDs come from the console with each heartbeat answer and are kept in `State\monitor-settings.json`.
+Events wait in `State\events.jsonl` (at most 5,000, oldest dropped first) and are sent oldest first, 100 at a time, with backoff while the server is unreachable. The scanner's hardware IDs come from the console with each heartbeat answer (the cabinet's, else its site's, else its client's, else the fleet's) and are kept in `State\monitor-settings.json`. An ID can be a vendor prefix (`USB\VID_1234` matches any model from that vendor). With none set anywhere, the scanner is the Biometric-class device, found automatically, so a swapped scanner is followed.
 
 ## Command checks
 

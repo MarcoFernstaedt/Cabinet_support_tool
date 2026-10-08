@@ -4,7 +4,8 @@ import type pg from "pg";
 import { catalog, isOperationName, type Command } from "../contracts.js";
 import { issueCommand } from "./commands.js";
 import { Refused } from "./errors.js";
-import { fleetScannerIds } from "./fleet.js";
+import { scannerIdsFor } from "./fleet.js";
+import { syncForCabinet } from "./device-settings.js";
 
 export const ROLE_RANK = { tier1: 1, tier2: 2, admin: 3 } as const;
 export type Role = keyof typeof ROLE_RANK;
@@ -33,19 +34,18 @@ export async function issueFromConsole(pool: pg.Pool, user: { userId: string; ro
     filled.sha256 = p.sha256;
   }
   if (operation === "peripheral.status" && filled.hardwareIds === undefined) {
-    const row = (await pool.query<{ scanner_hardware_ids: string[] | null }>("SELECT scanner_hardware_ids FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
-    const ids = row?.scanner_hardware_ids ?? (await fleetScannerIds(pool));
-    if (ids && ids.length > 0) filled.hardwareIds = ids;
+    const ids = await scannerIdsFor(pool, cabinetId);
+    if (ids) filled.hardwareIds = ids;
   }
   if (operation === "network.test") {
-    // Only the site's own setting may name the sync cabinet; anything the browser sent is replaced.
+    // Only the console's settings may name the sync cabinet (the site's address; the site's, else the client's, else the fleet's ports);
+    // anything the browser sent is replaced.
     delete filled.syncAddress;
     delete filled.syncPorts;
     if (filled.target === "sync_cabinet") {
-      const s = (await pool.query<{ sync_address: string | null; sync_ports: number[] }>(
-        "SELECT s.sync_address, s.sync_ports FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0];
-      if (s?.sync_address) filled.syncAddress = s.sync_address;
-      if (s && s.sync_ports.length > 0) filled.syncPorts = s.sync_ports;
+      const s = await syncForCabinet(pool, cabinetId);
+      if (s?.address) filled.syncAddress = s.address;
+      if (s && s.effective.length > 0) filled.syncPorts = s.effective;
     }
   }
   return issueCommand(pool, user.userId, cabinetId, operation, filled, AUDIT_ACTION[operation] ?? "command.issue",

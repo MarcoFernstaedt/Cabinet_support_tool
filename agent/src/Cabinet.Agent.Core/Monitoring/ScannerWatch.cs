@@ -28,14 +28,18 @@ public sealed class ScannerWatch
     };
 
     /// <summary>One look at the devices. Returns the event to raise, if any.</summary>
-    /// <param name="configured">The scanner's hardware IDs; with none the watcher stays quiet (there is nothing to watch).</param>
+    /// <param name="configured">
+    /// The scanner's hardware IDs (whole IDs or vendor prefixes). With none, the scanner is found automatically as the
+    /// Biometric device; while Windows has never seen one, the watcher stays quiet (there is nothing to watch).
+    /// </param>
     public AgentEvent? Observe(IReadOnlyList<string>? configured, IReadOnlyList<DeviceFacts> devices, DateTimeOffset now)
     {
-        if (configured is not { Count: > 0 }) { _last = null; _lastIds = null; return null; }
-        string ids = string.Join('|', configured).ToUpperInvariant();
+        configured ??= Array.Empty<string>();
+        string ids = configured.Count == 0 ? "(automatic)" : string.Join('|', configured).ToUpperInvariant();
         if (ids != _lastIds) { _last = null; _lastIds = ids; } // new IDs from the console: start again
 
         DeviceFacts? scanner = ScannerChecklist.Find(new ScannerFacts { ConfiguredHardwareIds = configured, Devices = devices });
+        if (configured.Count == 0 && scanner is null) { _last = null; return null; }
         Condition now_ = Classify(scanner);
         Condition? before = _last;
         long? problemBefore = _lastProblem;

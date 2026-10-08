@@ -207,10 +207,40 @@ public sealed class ScannerChecklistTests
     {
         var other = new DeviceFacts { InstanceId = "USB\\VID_0001&PID_0002\\1", Name = "USB Keyboard", Class = "Keyboard", Present = true };
         var named = new DeviceFacts { InstanceId = "USB\\VID_9999&PID_0001\\1", Name = "ACME Finger Print Sensor", Class = "USB", Present = false };
+        // With no IDs set anywhere, the Biometric-class device is the scanner, found automatically; the candidates are still listed so it can be pinned.
         var o = Run([other, Scanner(), named], ids: []);
         Assert.False(o.Configured);
-        Assert.Equal(PeripheralCheckOutcome.Unknown, Outcome(o, PeripheralCheckId.DevicePresent));
+        Assert.True(o.Connected);
+        Assert.Equal("Fingerprint Reader", o.Name);
+        Assert.Equal(PeripheralCheckOutcome.Pass, Outcome(o, PeripheralCheckId.DevicePresent));
+        Assert.Contains("found automatically", o.Checks[0].Summary);
         Assert.Equal(new[] { "Fingerprint Reader", "ACME Finger Print Sensor" }, o.Candidates.Select(c => c.Name));
+        // Without a Biometric-class device, nothing is assumed: the named one is only a candidate.
+        var none = Run([other, named], ids: []);
+        Assert.Equal(PeripheralCheckOutcome.Unknown, Outcome(none, PeripheralCheckId.DevicePresent));
+        Assert.False(none.Connected);
+        Assert.Equal(new[] { "ACME Finger Print Sensor" }, none.Candidates.Select(c => c.Name));
+    }
+
+    [Theory]
+    [InlineData("USB\\VID_1234&PID_5678", true)]   // the exact ID
+    [InlineData("usb\\vid_1234&pid_5678", true)]   // case does not matter
+    [InlineData("USB\\VID_1234", true)]            // the vendor: any model from it
+    [InlineData("USB\\VID_12", false)]             // not a whole part
+    [InlineData("USB\\VID_1234&PID_56", false)]
+    [InlineData("USB\\VID_9999", false)]
+    [InlineData("USB", false)]
+    public void Configured_ids_match_whole_ids_or_vendor_and_model_prefixes(string configured, bool matches) =>
+        Assert.Equal(matches, Run([Scanner()], ids: [configured]).Connected);
+
+    [Fact]
+    public void A_new_model_from_the_same_vendor_still_matches_a_vendor_id()
+    {
+        var newModel = Scanner() with { InstanceId = "USB\\VID_1234&PID_9999\\1", HardwareIds = ["USB\\VID_1234&PID_9999&REV_0200", "USB\\VID_1234&PID_9999"] };
+        Assert.True(Run([newModel], ids: ["USB\\VID_1234"]).Connected);
+        Assert.False(Run([newModel], ids: [Id]).Connected);
+        // Listing both models also works while a client changes over.
+        Assert.True(Run([newModel], ids: [Id, "USB\\VID_1234&PID_9999"]).Connected);
     }
 
     [Fact]

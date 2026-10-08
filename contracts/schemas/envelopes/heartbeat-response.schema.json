@@ -21,7 +21,7 @@
       ],
       "properties": {
         "hardwareIds": {
-          "description": "The scanner's hardware IDs set in the console for this cabinet (its own, else the fleet default); null when none.",
+          "description": "The scanner's hardware IDs from the console: the cabinet's own, else its site's, else its client's, else the fleet default. Whole IDs or vendor prefixes (USB\\\\VID_1234). null when none is set anywhere: the agent then finds the scanner itself by its Biometric device class.",
           "anyOf": [
             {
               "type": "array",

@@ -1,0 +1,7 @@
+{
+  "ports": [
+    1433,
+    5000
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

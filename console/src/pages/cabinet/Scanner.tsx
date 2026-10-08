@@ -12,6 +12,7 @@ import type { CabinetDetail } from "./CabinetPage";
 import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
 import { PackageList, type LibraryPackage } from "./Software";
 import { useLoad } from "../Fleet";
+import { SCANNER_SOURCE, ScannerIdsEditor } from "../../components/DeviceSettings";
 
 const CHECK_NAME: Record<string, string> = {
   device_present: "Scanner plugged in", no_device_error: "No Windows device error", driver_installed: "Driver installed", driver_signed: "Driver signed",
@@ -52,9 +53,10 @@ function ScannerResult({ out, cabinet, onUse }: { out: PeripheralStatusOutput; c
   const problems = out.checks.filter(c => c.outcome === "fail" || c.outcome === "warn");
   return (<>
     <p className="lead">
-      {!out.configured ? <Badge tone="warn">Scanner hardware ID not set</Badge>
+      {!out.configured && !out.name ? <Badge tone="warn">No scanner found</Badge>
         : out.connected ? <Badge tone="ok">Scanner connected</Badge> : <Badge tone="crit">Scanner not connected</Badge>}
-      {" "}{problems.length === 0 && out.configured ? "Every check passed." : `${problems.length} check${problems.length === 1 ? "" : "s"} need attention.`}
+      {!out.configured && out.name && <> <Badge tone="info">Found automatically</Badge></>}
+      {" "}{problems.length === 0 && (out.configured || out.name) ? "Every check passed." : `${problems.length} check${problems.length === 1 ? "" : "s"} need attention.`}
     </p>
     <ul className="checklist" aria-label="Scanner checks">
       {out.checks.map(c => (
@@ -63,7 +65,7 @@ function ScannerResult({ out, cabinet, onUse }: { out: PeripheralStatusOutput; c
           <div><strong>{CHECK_NAME[c.check] ?? c.check}</strong><div>{c.summary}</div></div>
         </li>))}
     </ul>
-    {out.configured && (
+    {(out.configured || out.name) && (
       <KeyValues rows={[
         ["Device", out.name], ["Windows status", out.status], ["USB port", out.locationInfo],
         ["Error", out.errorCode ? `Code ${out.errorCode}: ${out.errorText ?? ""}` : "none"],
@@ -77,14 +79,22 @@ function ScannerResult({ out, cabinet, onUse }: { out: PeripheralStatusOutput; c
   </>);
 }
 
-/** Likely scanners, with a one-click way to make one this cabinet's scanner (Tier 2 and Admin, with step-up). */
+/** Likely scanners, with a one-click way to make one the scanner for this cabinet, its site or its whole client (Tier 2 and Admin, with step-up). */
 function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabinet: CabinetDetail; onUse: () => void }) {
   const { me } = useSession();
   const [chosen, setChosen] = useState<string[] | null>(null);
+  const [level, setLevel] = useState<"cabinet" | "site" | "client">("client");
   const [problem, setProblem] = useState<string | null>(null);
+  const target = { cabinet: cabinet.id, site: cabinet.site.id, client: cabinet.client.id }[level];
+  const what = { cabinet: <strong>{cabinet.name}</strong>, site: <>every cabinet at <strong>{cabinet.site.name}</strong></>, client: <>every cabinet of <strong>{cabinet.client.name}</strong></> }[level];
   return (
     <div className="group">
       <h3>Likely scanners on this cabinet</h3>
+      {atLeast(me, "tier2") && (
+        <label className="field inline"><span>Use a device as the scanner for</span>
+          <select value={level} onChange={e => setLevel(e.target.value as typeof level)}>
+            <option value="client">All of {cabinet.client.name}</option><option value="site">This site ({cabinet.site.name})</option><option value="cabinet">This cabinet only</option>
+          </select></label>)}
       <table className="table compact">
         <caption className="sr-only">Biometric and fingerprint devices</caption>
         <thead><tr><th scope="col">Device</th><th scope="col">Connected</th><th scope="col">Hardware IDs</th>{atLeast(me, "tier2") && <th scope="col"><span className="sr-only">Action</span></th>}</tr></thead>
@@ -93,48 +103,50 @@ function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabi
             <th scope="row">{c.name}<div className="muted small">{c.class ?? ""}</div></th>
             <td>{c.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="off">Not connected</Badge>}</td>
             <td className="wrap"><code>{c.hardwareIds.join(", ")}</code></td>
-            {atLeast(me, "tier2") && <td><button className="btn small" disabled={c.hardwareIds.length === 0} onClick={() => { setProblem(null); setChosen(c.hardwareIds.slice(0, 16)); }}>Use as this cabinet's scanner</button></td>}
+            {atLeast(me, "tier2") && <td><div className="row gap wrap">
+              <button className="btn small" disabled={c.hardwareIds.length === 0} onClick={() => { setProblem(null); setChosen(modelIds(c.hardwareIds)); }}>Use this model</button>
+              {vendorId(c.hardwareIds) && <button className="btn small" onClick={() => { setProblem(null); setChosen([vendorId(c.hardwareIds)!]); }}>Any model from this vendor</button>}
+            </div></td>}
           </tr>))}
         </tbody>
       </table>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <StepUpDialog open={chosen !== null} action="cabinet.scanner" target={cabinet.id} onClose={() => setChosen(null)}
-        description={<p>Use <code>{chosen?.join(", ")}</code> as the fingerprint scanner on <strong>{cabinet.name}</strong>. This changes which device the scanner checks look at; nothing changes on the cabinet itself.</p>}
+      <StepUpDialog open={chosen !== null} action={`${level}.scanner`} target={target} onClose={() => setChosen(null)}
+        description={<p>Use <code>{chosen?.join(", ")}</code> as the fingerprint scanner for {what}. This changes which device the scanner checks look at; nothing changes on the cabinets themselves.</p>}
         onToken={async token => {
-          try { await api("PUT", `/api/cabinets/${cabinet.id}/scanner`, { hardwareIds: chosen, stepUpToken: token }); onUse(); }
+          try { await api("PUT", `/api/${level}s/${target}/scanner`, { hardwareIds: chosen, stepUpToken: token }); onUse(); }
           catch (e) { setProblem(describeError(e)); }
         }} />
     </div>
   );
 }
 
+/** The model's IDs without the revision, so a firmware update does not stop it matching (a revision-only ID is kept if that is all there is). */
+function modelIds(ids: string[]): string[] {
+  const models = ids.filter(id => !/&REV_[0-9A-F]+$/i.test(id));
+  return (models.length ? models : ids).slice(0, 16);
+}
+
+/** USB\VID_xxxx from a USB hardware ID, which matches every model from that vendor. */
+function vendorId(ids: string[]): string | null {
+  for (const id of ids) { const m = /^(USB\\VID_[0-9A-F]{4})&/i.exec(id); if (m) return m[1]!.toUpperCase(); }
+  return null;
+}
+
 function ScannerIds({ cabinet, onSaved }: { cabinet: CabinetDetail; onSaved: () => void }) {
   const { me } = useSession();
-  const [text, setText] = useState((cabinet.scanner.cabinetHardwareIds ?? []).join("\n"));
-  const [pending, setPending] = useState<string[] | null | undefined>(undefined);
-  const [problem, setProblem] = useState<string | null>(null);
-  const source = cabinet.scanner.cabinetHardwareIds ? "this cabinet's own setting"
-    : cabinet.scanner.fleetHardwareIds ? "the fleet default" : "the cabinet's local configuration (none set in the console)";
-  const ids = text.split(/\s+/).map(s => s.trim()).filter(Boolean);
+  const sc = cabinet.scanner;
+  const above = sc.siteHardwareIds ? <>the site's setting applies (<code>{sc.siteHardwareIds.join(", ")}</code>).</>
+    : sc.clientHardwareIds ? <>the client's setting applies (<code>{sc.clientHardwareIds.join(", ")}</code>).</>
+    : sc.fleetHardwareIds ? <>the fleet default applies (<code>{sc.fleetHardwareIds.join(", ")}</code>).</> : "the cabinet finds its scanner automatically (the Biometric device).";
   return (
     <section className="panel" aria-labelledby="scanner-ids">
       <h2 id="scanner-ids">Scanner hardware IDs</h2>
-      <p>In use: {cabinet.scanner.effective?.length ? <code>{cabinet.scanner.effective.join(", ")}</code> : <span className="muted">none</span>} <span className="muted">— from {source}.</span></p>
-      <p className="muted small">The fleet default is set by an admin under <Link to="/admin/scanner">Admin → Scanner default</Link>. A cabinet with a different scanner model can have its own IDs here.</p>
-      {atLeast(me, "tier2") && (
-        <form onSubmit={e => { e.preventDefault(); setProblem(null); setPending(ids.length ? ids : null); }} className="stack">
-          <label className="field"><span>This cabinet's scanner IDs (one per line; leave empty to use the fleet default)</span>
-            <textarea rows={3} value={text} onChange={e => setText(e.target.value)} placeholder={"USB\\VID_1234&PID_5678"} /></label>
-          <div className="row gap"><button className="btn" disabled={ids.length > 16}>Save for this cabinet</button>{ids.length > 16 && <span className="error">At most 16 IDs.</span>}</div>
-          {problem && <p className="error" role="alert">{problem}</p>}
-        </form>
-      )}
-      <StepUpDialog open={pending !== undefined} action="cabinet.scanner" target={cabinet.id} onClose={() => setPending(undefined)}
-        description={<p>{pending ? <>Set the scanner IDs for <strong>{cabinet.name}</strong> to <code>{pending.join(", ")}</code>.</> : <>Remove <strong>{cabinet.name}</strong>'s own scanner IDs and use the fleet default.</>}</p>}
-        onToken={async token => {
-          try { await api("PUT", `/api/cabinets/${cabinet.id}/scanner`, { hardwareIds: pending ?? null, stepUpToken: token }); onSaved(); }
-          catch (e) { setProblem(describeError(e)); }
-        }} />
+      <p>In use: {sc.effective?.length ? <code>{sc.effective.join(", ")}</code> : <span className="muted">none (automatic)</span>} <span className="muted">— from {SCANNER_SOURCE[sc.source] ?? sc.source}.</span></p>
+      <p className="muted small">Usually set once for the whole client, on <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link>; a site (<Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link>) or this cabinet can differ.
+        The fleet default is under <Link to="/admin/scanner">Admin → Scanner and port defaults</Link>.</p>
+      <ScannerIdsEditor label="This cabinet's own scanner IDs" current={sc.cabinetHardwareIds} inherited={above}
+        endpoint={`/api/cabinets/${cabinet.id}/scanner`} action="cabinet.scanner" target={cabinet.id} what={cabinet.name} editable={atLeast(me, "tier2")} onSaved={onSaved} />
     </section>
   );
 }

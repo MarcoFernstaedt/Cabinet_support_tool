@@ -28,6 +28,8 @@ The platform database (05-server-spec.md) runs PostgreSQL. Still to decide: a ma
 
 The USB hardware IDs of each fingerprint scanner model in the fleet. Find them in Device Manager on a cabinet, under the scanner's properties, Details tab, Hardware Ids. Default: start with the model on the test cabinet and add others as they turn up.
 
+**No longer blocks anything:** they are set in the console, for the whole fleet, one client, one site or one cabinet. Until they are set, each cabinet finds its scanner automatically (the Biometric device). The scanner page lists the likely devices with a button to adopt one for the client. See "Device settings that follow the client" below.
+
 ## Trusted publisher list (needed by milestone 5, waiting on vendor details)
 
 The signers the agent will accept for drivers and MSI installers. Default: Microsoft and the fingerprint scanner vendor only, adding others one at a time with a reason. Shorter is safer.
@@ -35,6 +37,8 @@ The signers the agent will accept for drivers and MSI installers. Default: Micro
 ## Sync connection ports (needed by milestone 1)
 
 The ports cabinets use to reach the sync cabinet, so network.test can check them. Default: confirm with the dev team; until then, test only ping and DNS.
+
+**No longer blocks anything:** they are set in the console, for the whole fleet, one client, or one site, with the site's address. See "Device settings that follow the client" below.
 
 ## Event log channels turned off by default (needed by milestone 1)
 
@@ -310,3 +314,24 @@ Decided here, open to change:
 - **The self-check** runs in the network service at start-up and daily, over every binary in the program folder. It reports changed, unsigned or wrongly signed files, and missing service programs, as a security event (`self_check`).
 - **The server's update store** keeps each manifest in the database and the zip read-only under `data/releases` (`RELEASE_DIR`). Uploads are checked against the keys in `contracts/trust/upgrade`. `UPGRADE_KEYS_DIR` points elsewhere for tests and refuses to run in production. An upload with a bad signature raises a security alert. Only the Admin who added a release may upload its package.
 - **Release tooling** is PowerShell, so it runs where the Windows build signs the binaries. It uses .NET's own cryptography and the cloud providers' command-line tools, and adds no dependencies. The `-DevKeyFile` key and `-p:UpgradeTrustDir` exist for test builds only.
+
+## Device settings that follow the client (requested after Milestone 7; confirm or change)
+
+The product owner asked that the scanner's hardware IDs and the sync ports be set per client and stay dynamic, so changing a client's scanner keeps working.
+
+- **Scanner hardware IDs.**
+  - They can be set for the fleet, a client, a site or a cabinet. The most specific one applies: cabinet, then site, then client, then fleet.
+  - Cabinets get the IDs in every heartbeat answer and in each scanner check, so a change applies within a minute, with nothing installed.
+  - Tier 2 and Admin may change a client's, a site's or a cabinet's IDs. These change only which device the checks watch. The fleet default stays Admin only. Every change needs step-up and is audited.
+- **Vendor IDs.**
+  - An ID may be a vendor prefix such as `USB\VID_1234`, which matches every model from that vendor. A prefix matches only up to an "&" boundary, so `USB\VID_12` does not match `USB\VID_1234`.
+  - A client that changes to another model from the same vendor needs no change. Listing both models works while a client changes over.
+- **Automatic when nothing is set.**
+  - With no IDs set anywhere, the agent treats the Biometric-class device as the scanner. A connected one wins over one Windows only remembers, so a swapped scanner is followed.
+  - It stays quiet until Windows has seen a Biometric device, so a cabinet without a scanner raises nothing.
+  - Setting IDs in the console pins the scanner and turns this off. The scanner page shows "Found automatically" and lists the devices, with "Use this model" or "Any model from this vendor" for the cabinet, its site or its whole client.
+- **Sync ports.**
+  - They can be set for the fleet, a client, or a site (with the site's address). The site's own ports apply, then the client's, then the fleet's.
+  - The address stays per site, since it is a site's own machine. Changes are Admin only, with step-up and an audit entry.
+  - Cabinets still accept only a private address on their own network, and only the ports these settings list for the sync cabinet.
+- **Not made dynamic:** the platform server's address and port, and the TCP ports allowed for tests to other targets. They stay in the cabinet's local configuration. The first is how a cabinet finds the server at all. The second is the spec's guard against using tests to scan a client's network; only the sync cabinet's ports were relaxed, by the earlier client decision.

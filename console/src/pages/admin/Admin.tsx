@@ -1,5 +1,6 @@
 // Admin home, pending cabinets, install tokens and the scanner default. The other admin screens are in their own files.
 import { useState } from "react";
+import { PortsEditor, ScannerIdsEditor } from "../../components/DeviceSettings";
 import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
@@ -24,7 +25,7 @@ export function AdminHome() {
         <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Create and edit issue types; review, renew and disable suppressions.</span></Link></li>
         <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
         <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Add signed agent releases, run staged rollouts, pause or stop them, and see each cabinet's result.</span></Link></li>
-        <li><Link to="/admin/scanner"><strong>Scanner default</strong><span>The fingerprint scanner's hardware IDs for the whole fleet.</span></Link></li>
+        <li><Link to="/admin/scanner"><strong>Scanner and port defaults</strong><span>The fingerprint scanner's hardware IDs and the sync cabinet ports for any client that has none of its own.</span></Link></li>
         <li><Link to="/admin/settings"><strong>Settings</strong><span>Offline alerts, sign-in timeouts, two-factor for everyone, how long data is kept.</span></Link></li>
       </ul>
     </div>
@@ -117,31 +118,25 @@ export function InstallTokens() {
 }
 
 export function ScannerDefault() {
-  const { data, reload } = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
-  const [text, setText] = useState<string | null>(null);
-  const [pending, setPending] = useState<string[] | null | undefined>(undefined);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const value = text ?? (data?.hardwareIds ?? []).join("\n");
-  const ids = value.split(/\s+/).filter(Boolean);
+  const scanner = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
+  const ports = useLoad<{ ports: number[] | null }>("/api/settings/sync-ports");
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Scanner default" }]} />
-      <h1>Fingerprint scanner default</h1>
-      <p className="muted">The USB hardware IDs that identify the fingerprint scanner on every cabinet, unless a cabinet has its own. Find them on a cabinet under Fingerprint scanner → Likely scanners.</p>
-      <form className="stack" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setPending(ids.length ? ids : null); }}>
-        <label className="field"><span>Hardware IDs, one per line (empty: none)</span>
-          <textarea rows={4} value={value} onChange={e => setText(e.target.value)} placeholder={"USB\\VID_1234&PID_5678"} /></label>
-        <div className="row gap"><button className="btn primary" disabled={ids.length > 16}>Save</button>
-          {saved && <span className="ok" role="status">Saved. The next scanner check on every cabinet uses these IDs.</span>}</div>
-        {problem && <p className="error" role="alert">{problem}</p>}
-      </form>
-      <StepUpDialog open={pending !== undefined} action="settings.scanner" target="fleet" onClose={() => setPending(undefined)}
-        description={<p>{pending ? <>Use <code>{pending.join(", ")}</code> as the fleet's scanner IDs.</> : "Remove the fleet default scanner IDs."}</p>}
-        onToken={async token => {
-          try { await api("PUT", "/api/settings/scanner", { hardwareIds: pending ?? null, stepUpToken: token }); setSaved(true); setText(null); reload(); }
-          catch (e) { setProblem(describeError(e)); }
-        }} />
+      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Scanner and port defaults" }]} />
+      <h1>Scanner and port defaults</h1>
+      <p className="muted">Fleet-wide defaults. A client, a site or a cabinet can have its own, set on its page; the most specific one applies, and cabinets pick changes up at their next heartbeat.</p>
+      <section className="panel" aria-labelledby="fleet-scanner">
+        <h2 id="fleet-scanner">Fingerprint scanner</h2>
+        <p className="muted small">Find the IDs on a cabinet under Fingerprint scanner → Likely scanners. With none set anywhere, cabinets find their scanner automatically.</p>
+        {scanner.data && <ScannerIdsEditor label="Fleet default scanner IDs" current={scanner.data.hardwareIds}
+          inherited="cabinets find the scanner automatically (the Biometric device)." endpoint="/api/settings/scanner" action="settings.scanner" target="fleet"
+          what="every cabinet without its own setting" editable onSaved={scanner.reload} />}
+      </section>
+      <section className="panel" aria-labelledby="fleet-ports">
+        <h2 id="fleet-ports">Sync cabinet ports</h2>
+        {ports.data && <PortsEditor current={ports.data.ports} inherited="no ports are set, so sync tests use ping and DNS only."
+          endpoint="/api/settings/sync-ports" action="settings.sync" target="fleet" what="every site without its own or its client's ports" editable onSaved={ports.reload} />}
+      </section>
     </div>
   );
 }

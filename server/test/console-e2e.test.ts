@@ -128,21 +128,23 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
 
     // ---- Sets the fleet scanner IDs and the site's sync cabinet ----------------------
     await page.goto(`${origin}/admin/scanner`);
-    await page.getByLabel(/Hardware IDs, one per line/).fill("USB\\VID_1234&PID_5678");
-    await page.getByRole("button", { name: "Save" }).click();
+    const fleetScanner = page.getByRole("region", { name: "Fingerprint scanner" });
+    await fleetScanner.getByLabel(/Fleet default scanner IDs/).fill("USB\\VID_1234&PID_5678");
+    await fleetScanner.getByRole("button", { name: "Save" }).click();
     await confirmCode();
-    await page.getByText(/Saved\. The next scanner check/).waitFor();
+    await fleetScanner.getByText(/Saved\. Cabinets use it from their next heartbeat/).waitFor();
 
     await page.goto(origin);
     await page.getByRole("link", { name: "E2E Health" }).click();
     await page.getByRole("link", { name: "North Wing" }).click();
     await page.getByRole("heading", { name: "North Wing", level: 1 }).waitFor();
     await a11y("site");
-    await page.getByLabel("IPv4 address").fill("10.20.0.15");
-    await page.getByLabel(/TCP ports/).fill("1433");
-    await page.getByRole("button", { name: "Save" }).click();
+    const sync = page.getByRole("region", { name: "Sync cabinet" });
+    await sync.getByLabel("IPv4 address").fill("10.20.0.15");
+    await sync.getByLabel(/TCP ports/).fill("1433");
+    await sync.getByRole("button", { name: "Save" }).click();
     await confirmCode();
-    await page.getByRole("status").filter({ hasText: "Saved." }).waitFor();
+    await sync.getByRole("status").filter({ hasText: "Saved." }).waitFor();
     await page.getByRole("button", { name: "Sign out" }).click();
 
     // ---- A Tier 1 user finds the cabinet and works on it ------------------------------

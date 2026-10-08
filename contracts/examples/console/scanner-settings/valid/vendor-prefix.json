@@ -1,0 +1,7 @@
+{
+  "hardwareIds": [
+    "USB\\VID_1234",
+    "USB\\VID_ABCD&PID_0001"
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

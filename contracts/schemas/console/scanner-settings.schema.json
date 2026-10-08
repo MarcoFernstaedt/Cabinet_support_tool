@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/scanner-settings.schema.json",
   "title": "scanner-settings",
-  "description": "The fingerprint scanner's hardware IDs: the fleet default, or one cabinet's override (null removes the override).",
+  "description": "The fingerprint scanner's hardware IDs for the fleet default, a client, a site or one cabinet; the most specific one set applies. null removes that level's setting. An ID may be a whole hardware ID (USB\\\\VID_1234&PID_5678) or a vendor prefix (USB\\\\VID_1234), which matches every model from that vendor. With none set anywhere, cabinets find the scanner themselves (the Biometric device class).",
   "type": "object",
   "additionalProperties": false,
   "properties": {

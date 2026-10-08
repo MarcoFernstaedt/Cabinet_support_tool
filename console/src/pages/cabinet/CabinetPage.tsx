@@ -20,7 +20,8 @@ import { WritePauseBanner } from "../../lib/writes";
 export interface CabinetDetail extends CabinetRow {
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
   site: { id: string; name: string }; client: { id: string; name: string };
-  scanner: { cabinetHardwareIds: string[] | null; fleetHardwareIds: string[] | null; effective: string[] | null };
+  scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
+    effective: string[] | null; source: "cabinet" | "site" | "client" | "fleet" | "automatic" };
   siblings: CabinetRow[];
 }
 

@@ -1,6 +1,9 @@
 // The client, site and cabinet views (docs/spec/06-console-spec.md "Navigation hierarchy").
 import type { Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
+import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncForSite } from "./device-settings.js";
+
+export { fleetScannerIds, fleetSyncPorts };
 
 const online = (status: string, last: Date | null): boolean => status === "active" && last !== null && Date.now() - last.getTime() < OFFLINE_AFTER_MS;
 
@@ -31,7 +34,8 @@ export async function clients(db: Queryable) {
 }
 
 export async function client(db: Queryable, id: string) {
-  const c = (await db.query<{ id: string; name: string; write_paused: boolean }>("SELECT id, name, write_paused FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
+  const c = (await db.query<{ id: string; name: string; write_paused: boolean; scanner_hardware_ids: string[] | null; sync_ports: number[] | null }>(
+    "SELECT id, name, write_paused, scanner_hardware_ids, sync_ports FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
   if (!c) return null;
   const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT s.id, s.name, count(k.id) FILTER (WHERE k.status = 'active') AS cabinets,
@@ -39,27 +43,30 @@ export async function client(db: Queryable, id: string) {
             (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved' AND a.severity = 'major') AS open_major,
             count(k.id) FILTER (WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $2))) AS offline
        FROM sites s LEFT JOIN cabinets k ON k.site_id = s.id WHERE s.client_id = $1 AND s.removed_at IS NULL GROUP BY s.id ORDER BY s.name`, [id, OFFLINE_AFTER_MS / 1000])).rows;
-  return { id: c.id, name: c.name, writePaused: c.write_paused, sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
+  const [fleetIds, fleetPorts] = [await fleetScannerIds(db), await fleetSyncPorts(db)];
+  return { id: c.id, name: c.name, writePaused: c.write_paused,
+    scanner: { hardwareIds: c.scanner_hardware_ids, fleetHardwareIds: fleetIds },
+    syncPorts: { ports: c.sync_ports, fleetPorts },
+    sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
     openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
 }
 
 export async function site(db: Queryable, id: string) {
-  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; sync_address: string | null; sync_ports: number[] }>(
-    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.sync_address, s.sync_ports FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
+  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string[] | null }>(
+    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner
+       FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
   const cabinets = (await db.query(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [id])).rows;
-  return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, sync: { address: s.sync_address, ports: s.sync_ports }, cabinets: cabinets.map(cabinetRow) };
+  const sync = (await syncForSite(db, id))!;
+  return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name },
+    sync: { address: sync.address, ports: sync.site, effectivePorts: sync.effective, portsSource: sync.source },
+    scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: s.client_scanner, fleetHardwareIds: await fleetScannerIds(db) },
+    cabinets: cabinets.map(cabinetRow) };
 }
 
-export async function fleetScannerIds(db: Queryable): Promise<string[] | null> {
-  const r = (await db.query<{ value: string[] }>("SELECT value FROM settings WHERE key = 'scanner.hardwareIds'")).rows[0];
-  return r?.value ?? null;
-}
-
-/** The scanner hardware IDs a cabinet's watcher should look for: its own if set, else the fleet default. */
+/** The scanner hardware IDs a cabinet's watcher should look for (cabinet, else site, else client, else fleet); null means find it automatically. */
 export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<string[] | null> {
-  const own = (await db.query<{ ids: string[] | null }>("SELECT scanner_hardware_ids AS ids FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.ids ?? null;
-  const ids = own ?? await fleetScannerIds(db);
+  const ids = await resolveScanner(db, cabinetId);
   return ids && ids.length > 0 ? [...new Set(ids)].slice(0, 16) : null;
 }
 
@@ -69,11 +76,12 @@ export async function cabinet(db: Queryable, id: string) {
                                FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [id])).rows[0];
   if (!k) return null;
   const siblings = (await db.query(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [k.site_id])).rows;
-  const fleet = await fleetScannerIds(db);
+  const levels = await scannerLevels(db, id);
   return {
     ...cabinetRow(k), serialNumber: k.serial_number, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
     site: { id: k.site_id, name: k.site_name }, client: { id: k.client_id, name: k.client_name },
-    scanner: { cabinetHardwareIds: k.scanner_hardware_ids as string[] | null, fleetHardwareIds: fleet, effective: (k.scanner_hardware_ids as string[] | null) ?? fleet },
+    scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
+      effective: levels.effective, source: levels.source },
     siblings: siblings.map(cabinetRow),
   };
 }

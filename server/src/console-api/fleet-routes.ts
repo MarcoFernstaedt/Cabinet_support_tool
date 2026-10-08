@@ -7,6 +7,7 @@ import { issueFromConsole } from "../services/console-commands.js";
 import { Refused } from "../services/errors.js";
 import * as fleet from "../services/fleet.js";
 import { setCabinetScanner, setFleetScanner, setSiteSync } from "../services/settings.js";
+import { setClientSyncPorts, setFleetSyncPorts, setScanner } from "../services/device-settings.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -86,6 +87,35 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const body = consoleBodies.scanner.parse(request.body);
     await setCabinetScanner(o.pool, u.userId, id(request), body.hardwareIds, body.stepUpToken);
     return { hardwareIds: body.hardwareIds };
+  });
+
+  // A client's or a site's scanner IDs: Tier 2 and Admin, like a cabinet's (they change only what the scanner checks look at).
+  for (const level of ["client", "site"] as const)
+    app.put(`/api/${level}s/:id/scanner`, async request => {
+      const u = await o.guards.role(request, "tier2");
+      const body = consoleBodies.scanner.parse(request.body);
+      await setScanner(o.pool, u.userId, level, id(request), body.hardwareIds, body.stepUpToken);
+      return { hardwareIds: body.hardwareIds };
+    });
+
+  // Default sync ports for a client's sites, and for the fleet (Admin).
+  app.put("/api/clients/:id/sync-ports", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.syncPorts.parse(request.body);
+    await setClientSyncPorts(o.pool, u.userId, id(request), body.ports, body.stepUpToken);
+    return { ports: body.ports };
+  });
+
+  app.get("/api/settings/sync-ports", async request => {
+    await o.guards.role(request, "tier1");
+    return { ports: await fleet.fleetSyncPorts(o.pool) };
+  });
+
+  app.put("/api/settings/sync-ports", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.syncPorts.parse(request.body);
+    await setFleetSyncPorts(o.pool, u.userId, body.ports, body.stepUpToken);
+    return { ports: body.ports };
   });
 
   app.put("/api/sites/:id/sync", async request => {

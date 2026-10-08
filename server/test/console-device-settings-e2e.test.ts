@@ -1,0 +1,106 @@
+// Device settings that follow the client, in a real browser: an Admin sets a client's scanner (a vendor ID, so any model
+// from that vendor matches) and its sync ports once; the site and the cabinet show where the values in use come from;
+// a site overrides the ports. Runs when the console is built.
+import test from "node:test";
+import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { createServer } from "node:net";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { buildConsoleApi } from "../src/console-api/server.js";
+import { ResultStream } from "../src/console-api/stream.js";
+import { SecretBox } from "../src/auth/secrets.js";
+import { hashPassword } from "../src/auth/passwords.js";
+import * as totp from "../src/auth/totp.js";
+import { developmentIssuingKey } from "../src/pki/issuing.js";
+import { createTestDatabase } from "./database.js";
+import { tempDir } from "./helpers.js";
+
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const dist = join(repo, "console", "dist");
+const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
+const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
+
+test("device settings in the console: a client's scanner and sync ports set once, inherited by its sites and cabinets, overridden by one site", { skip, timeout: 120_000 }, async () => {
+  const { chromium } = await import("playwright");
+  const db = await createTestDatabase();
+  let clock = Date.now();
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const secrets = new SecretBox(randomBytes(32).toString("base64"));
+  const stream = new ResultStream(db.appUrl, db.app);
+  await stream.start();
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, logger: false, now: () => clock });
+  await app.listen({ host: "127.0.0.1", port });
+  const password = "correct horse battery staple";
+  const secret = totp.newSecret();
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, true)`, [randomUUID(), await hashPassword(password), secrets.seal(secret)]);
+  const code = (): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
+  const client = randomUUID(), site = randomUUID(), cabinet = randomUUID();
+  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
+  await db.app.query("INSERT INTO sites (id, client_id, name, sync_address) VALUES ($1, $2, 'North', '10.20.0.15')", [site, client]);
+  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, 'ICU cabinet', 'standalone', 'active', now())", [cabinet, site]);
+  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
+  const problems: string[] = [];
+  try {
+    const page = await (await browser.newContext()).newPage();
+    page.on("pageerror", e => problems.push(`page error: ${e.message}`));
+    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409)/.test(m.text())) problems.push(m.text()); });
+    await page.goto(origin);
+    await page.getByLabel("Username").fill("ada.admin");
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByLabel(/6-digit code/).fill(code());
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
+    const confirm = async (expect: RegExp) => {
+      const dialog = page.getByRole("dialog", { name: "Confirm with your authenticator" });
+      await dialog.getByText(expect).first().waitFor();
+      await dialog.getByLabel("Authenticator code").fill(code());
+      await dialog.getByRole("button", { name: "Confirm" }).click();
+    };
+
+    // The client: its scanner (any model from the vendor) and its sync ports, once.
+    await page.goto(`${origin}/clients/${client}`);
+    const scanner = page.getByRole("region", { name: "Fingerprint scanner for Acme Health" });
+    await scanner.getByText(/cabinets find the scanner automatically/).waitFor();
+    await scanner.getByLabel(/This client's scanner IDs/).fill("USB\\VID_1234");
+    await scanner.getByRole("button", { name: "Save" }).click();
+    await confirm(/every cabinet of Acme Health/);
+    await scanner.getByText("Set here:").waitFor();
+    const ports = page.getByRole("region", { name: "Sync cabinet ports for Acme Health" });
+    await ports.getByLabel(/TCP ports/).fill("1433, 5000");
+    await ports.getByRole("button", { name: "Save" }).click();
+    await confirm(/every site of Acme Health/);
+    await ports.getByText("1433, 5000").first().waitFor();
+
+    // The site inherits both and says so; then it overrides the ports.
+    await page.goto(`${origin}/sites/${site}`);
+    const sync = page.getByRole("region", { name: "Sync cabinet" });
+    await sync.getByText(/Ports in use: 1433, 5000/).waitFor();
+    await sync.getByText(/from the client's default/).waitFor();
+    await page.getByRole("region", { name: "Fingerprint scanner at North" }).getByText(/the client's setting applies/).waitFor();
+    await sync.getByLabel(/This site's TCP ports/).fill("8080");
+    await sync.getByRole("button", { name: "Save" }).click();
+    await confirm(/ports 8080/);
+    await sync.getByText(/Ports in use: 8080/).waitFor();
+    await sync.getByText(/from this site's own setting/).waitFor();
+
+    // The cabinet uses the client's scanner, and says where it comes from.
+    await page.goto(`${origin}/cabinets/${cabinet}/scanner`);
+    const ids = page.getByRole("region", { name: "Scanner hardware IDs" });
+    await ids.getByText(/from the client's setting/).waitFor();
+    assert.match(await ids.innerText(), /USB\\VID_1234/);
+
+    const audited = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE action IN ('client.scanner','client.sync','site.sync') ORDER BY seq")).rows.map(r => r.action);
+    assert.deepEqual(audited, ["client.scanner", "client.sync", "site.sync"]);
+    assert.deepEqual(problems, []);
+  } finally {
+    await browser.close();
+    await stream.stop();
+    await app.close();
+    await db.drop();
+  }
+});

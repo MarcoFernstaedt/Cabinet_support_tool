@@ -85,6 +85,13 @@ Each new event is checked against the live symptom rules in the transaction that
 - **Daily jobs** (`src/services/maintenance.ts`): the audit chain check and retention. **Every minute:** offline alerts and expiring suppressions.
 - **Settings** (`src/services/settings.ts`) are read through a 5-second cache on every request, because session timeouts come from them.
 
+## Device settings that follow the client
+
+`src/services/device-settings.ts`.
+- **Scanner hardware IDs:** the most specific of cabinet, site, client and fleet applies. They reach the agent in each heartbeat answer and in `peripheral.status`.
+- **Sync ports:** site, then client, then fleet. They are filled into `network.test` for the sync cabinet, replacing anything the browser sent.
+- **Routes:** `PUT /api/{clients,sites,cabinets}/:id/scanner`, `PUT /api/settings/scanner`, `PUT /api/clients/:id/sync-ports`, `PUT /api/settings/sync-ports`, `PUT /api/sites/:id/sync`.
+
 ## Signed upgrades (Milestone 7)
 
 docs/spec/07-upgrade-channel.md; `src/services/releases.ts`, `src/services/rollouts.ts`, `src/console-api/upgrade-routes.ts`.

@@ -32,7 +32,8 @@ export function isPrivateIpv4(address: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
 
-export async function setSiteSync(pool: pg.Pool, userId: string, siteId: string, address: string | null, ports: number[], stepUpToken: string): Promise<void> {
+/** A site's sync cabinet address, and its own ports (null: use the client's, else the fleet's). */
+export async function setSiteSync(pool: pg.Pool, userId: string, siteId: string, address: string | null, ports: number[] | null, stepUpToken: string): Promise<void> {
   if (address !== null && !isPrivateIpv4(address)) throw new Refused("invalid_address", 400, "the sync cabinet must have a private IPv4 address");
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "site.sync", siteId);

@@ -1,0 +1,101 @@
+// Device settings that follow the client (requested after milestone 7): the fingerprint scanner's hardware IDs and the
+// sync cabinet's TCP ports, each set at several levels with the most specific one applying.
+//   Scanner IDs: the cabinet's own, else its site's, else its client's, else the fleet default; none set anywhere means
+//   the agent finds the scanner itself (its Biometric device class). An ID may be a vendor prefix such as USB\VID_1234,
+//   which matches every model from that vendor, so a client changing scanner model needs no change at all.
+//   Sync ports: the site's own, else its client's, else the fleet default. The sync address stays per site.
+// Every change needs its step-up token and is audited.
+import type pg from "pg";
+import { consumeStepUpToken } from "../auth/stepup.js";
+import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { Refused } from "./errors.js";
+
+export type ScannerSource = "cabinet" | "site" | "client" | "fleet" | "automatic";
+export type PortsSource = "site" | "client" | "fleet" | "none";
+
+export interface ScannerLevels {
+  cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null;
+  effective: string[] | null; source: ScannerSource;
+}
+
+const firstSet = <T>(...levels: [T[] | null, string][]): [T[] | null, string | null] => {
+  for (const [v, name] of levels) if (v && v.length > 0) return [v, name];
+  return [null, null];
+};
+
+async function fleetSetting<T>(db: Queryable, key: string): Promise<T | null> {
+  return ((await db.query<{ value: T }>("SELECT value FROM settings WHERE key = $1", [key])).rows[0]?.value) ?? null;
+}
+
+export const fleetScannerIds = (db: Queryable) => fleetSetting<string[]>(db, "scanner.hardwareIds");
+export const fleetSyncPorts = (db: Queryable) => fleetSetting<number[]>(db, "sync.ports");
+
+/** Every level of a cabinet's scanner setting, and the one that applies. */
+export async function scannerLevels(db: Queryable, cabinetId: string): Promise<ScannerLevels> {
+  const r = (await db.query<{ k: string[] | null; s: string[] | null; c: string[] | null }>(
+    `SELECT k.scanner_hardware_ids AS k, s.scanner_hardware_ids AS s, c.scanner_hardware_ids AS c
+       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
+  const fleet = await fleetScannerIds(db);
+  const levels = { cabinet: r?.k ?? null, site: r?.s ?? null, client: r?.c ?? null, fleet };
+  const [effective, source] = firstSet([levels.cabinet, "cabinet"], [levels.site, "site"], [levels.client, "client"], [levels.fleet, "fleet"]);
+  return { ...levels, effective, source: (source ?? "automatic") as ScannerSource };
+}
+
+/** The scanner hardware IDs a cabinet's watcher should look for; null means "find it automatically". */
+export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<string[] | null> {
+  return (await scannerLevels(db, cabinetId)).effective;
+}
+
+export interface SyncLevels { address: string | null; site: number[] | null; client: number[] | null; fleet: number[] | null; effective: number[]; source: PortsSource }
+
+/** A site's sync cabinet: its address, and the ports that apply with where they come from. */
+export async function syncForSite(db: Queryable, siteId: string): Promise<SyncLevels | null> {
+  const r = (await db.query<{ address: string | null; s: number[] | null; c: number[] | null }>(
+    `SELECT s.sync_address AS address, s.sync_ports AS s, c.sync_ports AS c FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [siteId])).rows[0];
+  if (!r) return null;
+  const fleet = await fleetSyncPorts(db);
+  // A site or client with an explicit empty list means "no ports here", which still overrides what is above it.
+  const pick = r.s !== null ? [r.s, "site"] : r.c !== null ? [r.c, "client"] : fleet !== null ? [fleet, "fleet"] : [[], "none"];
+  return { address: r.address, site: r.s, client: r.c, fleet, effective: pick[0] as number[], source: pick[1] as PortsSource };
+}
+
+export async function syncForCabinet(db: Queryable, cabinetId: string): Promise<SyncLevels | null> {
+  const site = (await db.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.site_id;
+  return site ? syncForSite(db, site) : null;
+}
+
+// ---- Changes ---------------------------------------------------------------------------------------
+
+type Level = "client" | "site";
+const TABLE: Record<Level, string> = { client: "clients", site: "sites" };
+
+/** A client's or a site's scanner hardware IDs (Tier 2 and Admin; null removes that level's setting). */
+export async function setScanner(pool: pg.Pool, userId: string, level: Level, id: string, ids: string[] | null, stepUpToken: string): Promise<void> {
+  await transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, userId, `${level}.scanner`, id);
+    const r = await c.query(`UPDATE ${TABLE[level]} SET scanner_hardware_ids = $2 WHERE id = $1 AND removed_at IS NULL`, [id, ids === null ? null : safeJson(ids)]);
+    if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
+    await audit(c, { actorKind: "user", actorId: userId, action: `${level}.scanner`, targetKind: level, targetId: id, outcome: "succeeded", details: { hardwareIds: ids } });
+  });
+}
+
+/** A client's default sync ports (Admin; null removes the client's setting and uses the fleet default). */
+export async function setClientSyncPorts(pool: pg.Pool, userId: string, clientId: string, ports: number[] | null, stepUpToken: string): Promise<void> {
+  await transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, userId, "client.sync", clientId);
+    const r = await c.query("UPDATE clients SET sync_ports = $2 WHERE id = $1 AND removed_at IS NULL", [clientId, ports]);
+    if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such client");
+    await audit(c, { actorKind: "user", actorId: userId, action: "client.sync", targetKind: "client", targetId: clientId, outcome: "succeeded", details: { ports } });
+  });
+}
+
+/** The fleet's default sync ports (Admin). */
+export async function setFleetSyncPorts(pool: pg.Pool, userId: string, ports: number[] | null, stepUpToken: string): Promise<void> {
+  await transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, userId, "settings.sync", "fleet");
+    if (ports === null) await c.query("DELETE FROM settings WHERE key = 'sync.ports'");
+    else await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('sync.ports', $1, $2)
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [safeJson(ports), userId]);
+    await audit(c, { actorKind: "user", actorId: userId, action: "settings.sync", outcome: "succeeded", details: { ports } });
+  });
+}

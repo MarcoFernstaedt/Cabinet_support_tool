@@ -95,6 +95,36 @@ public class ScannerWatchTests
 
     private static DeviceFacts Mouse() => new() { InstanceId = @"HID\VID_0001", Name = "Mouse", Present = true, HardwareIds = new[] { @"HID\VID_0001" } };
 
+    private static DeviceFacts Biometric(string id, bool present) => new()
+    {
+        InstanceId = $@"USB\{id}\0001", Name = "Fingerprint Reader " + id, Class = "Biometric", Present = present, ProblemCode = 0,
+        HardwareIds = new[] { $@"USB\{id}" },
+    };
+
+    [Fact]
+    public void With_no_ids_set_it_follows_the_biometric_device_so_a_swapped_scanner_keeps_working()
+    {
+        var w = new ScannerWatch();
+        Assert.Null(w.Observe(null, new[] { Mouse() }, Fixtures.Start)); // nothing biometric ever seen: quiet
+        Assert.Null(w.Observe(null, new[] { Biometric("VID_1234&PID_5678", true), Mouse() }, Fixtures.Start));
+        // The old scanner unplugged and a different model plugged in: Windows remembers the old one, but the connected one is watched.
+        Assert.Null(w.Observe(null, new[] { Biometric("VID_1234&PID_5678", false), Biometric("VID_ABCD&PID_0001", true) }, Fixtures.Start));
+        // Only the remembered one left: disconnected.
+        var gone = w.Observe(null, new[] { Biometric("VID_ABCD&PID_0001", false), Mouse() }, Fixtures.Start);
+        Assert.Equal(ScannerState.Disconnected, gone!.Device!.State);
+        Assert.Equal(@"USB\VID_ABCD&PID_0001", gone.Device.HardwareIds[0]);
+    }
+
+    [Fact]
+    public void A_vendor_id_from_the_console_covers_a_new_model()
+    {
+        var w = new ScannerWatch();
+        string[] vendor = { @"USB\VID_1234" };
+        Assert.Null(w.Observe(vendor, new[] { Scanner() }, Fixtures.Start));
+        Assert.Null(w.Observe(vendor, new[] { Biometric("VID_1234&PID_9999", true) }, Fixtures.Start));
+        Assert.NotNull(w.Observe(vendor, new[] { Biometric("VID_ABCD&PID_0001", true) }, Fixtures.Start)); // another vendor is not the scanner
+    }
+
     [Fact]
     public void Raises_on_problem_and_again_on_recovery_but_not_while_it_lasts()
     {

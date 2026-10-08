@@ -608,7 +608,7 @@ export interface RuleRollback {
 }
 
 /**
- * The fingerprint scanner's hardware IDs: the fleet default, or one cabinet's override (null removes the override).
+ * The fingerprint scanner's hardware IDs for the fleet default, a client, a site or one cabinet; the most specific one set applies. null removes that level's setting. An ID may be a whole hardware ID (USB\\VID_1234&PID_5678) or a vendor prefix (USB\\VID_1234), which matches every model from that vendor. With none set anywhere, cabinets find the scanner themselves (the Biometric device class).
  */
 export interface ScannerSettings {
   hardwareIds: [string, ...string[]] | null;
@@ -715,7 +715,11 @@ export interface StepUpRequest {
     | "rollout.start"
     | "rollout.pause"
     | "rollout.resume"
-    | "rollout.stop";
+    | "rollout.stop"
+    | "client.scanner"
+    | "site.scanner"
+    | "client.sync"
+    | "settings.sync";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -735,14 +739,22 @@ export interface SuppressionCreate {
 }
 
 /**
- * A site's sync cabinet: a private IPv4 address and at most 4 TCP ports. Each cabinet also refuses an address that is not on its own network.
+ * Default TCP ports for testing the sync cabinet: a client's (for all its sites) or the fleet's. null removes that level's setting. A site's own ports, when set, win.
+ */
+export interface SyncPorts {
+  ports: number[] | null;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * A site's sync cabinet: a private IPv4 address, and at most 4 TCP ports. ports null uses the client's default ports, else the fleet default. Each cabinet also refuses an address that is not on its own network.
  */
 export interface SyncSettings {
   address: string | null;
-  /**
-   * @maxItems 4
-   */
-  ports: number[];
+  ports: number[] | null;
   /**
    * A one-time step-up token bound to this exact action.
    */
@@ -1028,7 +1040,7 @@ export interface HeartbeatResponse {
   serverTime: string;
   scanner: {
     /**
-     * The scanner's hardware IDs set in the console for this cabinet (its own, else the fleet default); null when none.
+     * The scanner's hardware IDs from the console: the cabinet's own, else its site's, else its client's, else the fleet default. Whole IDs or vendor prefixes (USB\\VID_1234). null when none is set anywhere: the agent then finds the scanner itself by its Biometric device class.
      */
     hardwareIds: [string, ...string[]] | null;
   };

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { api, describeError } from "../lib/api";
 import { Link } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
@@ -59,9 +60,12 @@ export function FleetHome() {
   );
 }
 
-interface ClientDetail { id: string; name: string; writePaused: boolean; sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
+interface ClientDetail { id: string; name: string; writePaused: boolean;
+  scanner: { hardwareIds: string[] | null; fleetHardwareIds: string[] | null }; syncPorts: { ports: number[] | null; fleetPorts: number[] | null };
+  sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
 
 export function ClientPage({ id }: { id: string }) {
+  const { me } = useSession();
   const { data, problem, reload } = useLoad<ClientDetail>(`/api/fleet/clients/${id}`);
   useAlertNews(reload);
   const total = data?.sites.reduce((n, s) => n + s.cabinets, 0) ?? 0;
@@ -83,13 +87,30 @@ export function ClientPage({ id }: { id: string }) {
               <td><AlertCount open={s.openAlerts} major={s.openMajor} /></td></tr>))}
           </tbody>
         </table>
+        <section className="panel" aria-labelledby="client-scanner">
+          <h2 id="client-scanner">Fingerprint scanner for {data.name}</h2>
+          <p className="muted small">Every cabinet of this client looks for these hardware IDs, unless its site or the cabinet has its own. When the client changes scanner, change it here once.</p>
+          <ScannerIdsEditor label="This client's scanner IDs" current={data.scanner.hardwareIds}
+            inherited={data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
+            endpoint={`/api/clients/${data.id}/scanner`} action="client.scanner" target={data.id} what={`every cabinet of ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
+        </section>
+        <section className="panel" aria-labelledby="client-ports">
+          <h2 id="client-ports">Sync cabinet ports for {data.name}</h2>
+          <p className="muted small">The TCP ports the "Test sync cabinet" checks use at every site of this client, unless a site has its own.</p>
+          <PortsEditor current={data.syncPorts.ports}
+            inherited={data.syncPorts.fleetPorts?.length ? <>the fleet default applies (<strong>{data.syncPorts.fleetPorts.join(", ")}</strong>).</> : "no ports are set, so only ping and DNS tests run."}
+            endpoint={`/api/clients/${data.id}/sync-ports`} action="client.sync" target={data.id} what={`every site of ${data.name}`} editable={atLeast(me, "admin")} onSaved={reload} />
+        </section>
       </>)}
     </div>
   );
 }
 
 export interface CabinetRow { id: string; name: string; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
-interface SiteDetail { id: string; name: string; client: { id: string; name: string }; sync: { address: string | null; ports: number[] }; cabinets: CabinetRow[]; }
+interface SiteDetail { id: string; name: string; client: { id: string; name: string };
+  sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
+  scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
+  cabinets: CabinetRow[]; }
 
 export const roleLabel = (r: string) => ({ sync: "Sync", satellite: "Satellite", standalone: "Standalone" } as Record<string, string>)[r] ?? r;
 
@@ -116,15 +137,23 @@ export function SitePage({ id }: { id: string }) {
           </tbody>
         </table>
         <SyncSettings siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
+        <section className="panel" aria-labelledby="site-scanner">
+          <h2 id="site-scanner">Fingerprint scanner at {data.name}</h2>
+          <p className="muted small">Only when this site uses a different scanner from the rest of {data.client.name}.</p>
+          <ScannerIdsEditor label="This site's scanner IDs" current={data.scanner.hardwareIds}
+            inherited={data.scanner.clientHardwareIds ? <>the client's setting applies (<code>{data.scanner.clientHardwareIds.join(", ")}</code>).</>
+              : data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
+            endpoint={`/api/sites/${data.id}/scanner`} action="site.scanner" target={data.id} what={`every cabinet at ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
+        </section>
       </>)}
     </div>
   );
 }
 
-/** The site's sync cabinet (Admin, with step-up). Each cabinet also refuses an address not on its own network. */
+/** The site's sync cabinet (Admin, with step-up). Each cabinet also refuses an address not on its own network. Empty ports use the client's (else the fleet's). */
 function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; sync: SiteDetail["sync"]; editable: boolean; onSaved: () => void }) {
   const [address, setAddress] = useState(sync.address ?? "");
-  const [ports, setPorts] = useState(sync.ports.join(", "));
+  const [ports, setPorts] = useState((sync.ports ?? []).join(", "));
   const [confirming, setConfirming] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -134,11 +163,12 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
     <section className="panel" aria-labelledby="sync-heading">
       <h2 id="sync-heading">Sync cabinet</h2>
       <p className="muted small">Used by the "Test sync cabinet" network tests on this site's cabinets. Cabinets only accept a private address on their own network.</p>
-      {!editable && <p>{sync.address ? <>Address <code>{sync.address}</code>, ports {sync.ports.length ? sync.ports.join(", ") : "none"}.</> : "Not set yet."}</p>}
+      <p>{sync.address ? <>Address <code>{sync.address}</code></> : "No address set yet."} · Ports in use: <strong>{sync.effectivePorts.length ? sync.effectivePorts.join(", ") : "none"}</strong>
+        <span className="muted"> (from {PORTS_SOURCE[sync.portsSource] ?? sync.portsSource})</span></p>
       {editable && (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setConfirming(true); }}>
           <label className="field"><span>IPv4 address</span><input value={address} placeholder="e.g. 10.20.0.15" onChange={e => setAddress(e.target.value.trim())} /></label>
-          <label className="field"><span>TCP ports (up to 4, comma separated)</span><input value={ports} placeholder="e.g. 1433" onChange={e => setPorts(e.target.value)} /></label>
+          <label className="field"><span>This site's TCP ports (up to 4; empty to use the client's)</span><input value={ports} placeholder="e.g. 1433" onChange={e => setPorts(e.target.value)} /></label>
           <button className="btn" disabled={!portsValid}>Save</button>
           {!portsValid && <span className="error">Up to 4 ports between 1 and 65535.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
@@ -146,10 +176,10 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
         </form>
       )}
       <StepUpDialog open={confirming} action="site.sync" target={siteId} onClose={() => setConfirming(false)}
-        description={<p>Set this site's sync cabinet to <strong>{address || "none"}</strong> with ports <strong>{parsedPorts.join(", ") || "none"}</strong>.</p>}
+        description={<p>Set this site's sync cabinet to <strong>{address || "none"}</strong> with {parsedPorts.length ? <>ports <strong>{parsedPorts.join(", ")}</strong></> : "the client's default ports"}.</p>}
         onToken={async token => {
           try {
-            await api("PUT", `/api/sites/${siteId}/sync`, { address: address || null, ports: parsedPorts, stepUpToken: token });
+            await api("PUT", `/api/sites/${siteId}/sync`, { address: address || null, ports: parsedPorts.length ? parsedPorts : null, stepUpToken: token });
             setSaved(true);
             onSaved();
           } catch (e) { setProblem(describeError(e)); }

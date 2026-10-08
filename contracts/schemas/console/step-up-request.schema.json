@@ -62,7 +62,11 @@
         "rollout.start",
         "rollout.pause",
         "rollout.resume",
-        "rollout.stop"
+        "rollout.stop",
+        "client.scanner",
+        "site.scanner",
+        "client.sync",
+        "settings.sync"
       ]
     },
     "target": {

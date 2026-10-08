@@ -45,7 +45,7 @@ public static class ScannerChecklist
     public static PeripheralStatusOutput Evaluate(ScannerFacts facts)
     {
         bool configured = facts.ConfiguredHardwareIds.Count > 0;
-        DeviceFacts? scanner = configured ? Find(facts) : null;
+        DeviceFacts? scanner = Find(facts);
         var checks = new List<PeripheralCheck>
         {
             DevicePresent(configured, scanner),
@@ -69,16 +69,29 @@ public static class ScannerChecklist
             Driver = scanner?.Driver is { } d ? new PeripheralDriver { Name = EventText.ShortText(d.Name), Version = d.Version, Date = d.Date, Signer = d.Signer } : null,
             LocationInfo = scanner?.LocationInfo is { } l ? EventText.ShortText(l) : null,
             Checks = checks,
-            Candidates = scanner is null ? Candidates(facts.Devices) : Array.Empty<PeripheralCandidate>(),
+            // Shown when nothing matched, and when the scanner was found automatically, so it can be pinned in the console.
+            Candidates = scanner is null || !configured ? Candidates(facts.Devices) : Array.Empty<PeripheralCandidate>(),
         };
     }
 
-    /// <summary>The device whose hardware IDs include a configured one; a connected match wins over a remembered one.</summary>
+    /// <summary>
+    /// The scanner. With IDs set in the console: the device whose hardware IDs match one, where an ID matches the device's
+    /// own exactly or as a vendor or model prefix (USB\VID_1234 matches USB\VID_1234&amp;PID_5678&amp;REV_0100), so a client
+    /// can switch to another model from the same vendor without anyone changing a setting. With none set anywhere: found
+    /// automatically, as the Biometric-class device. Either way a connected device wins over one Windows only remembers.
+    /// </summary>
     public static DeviceFacts? Find(ScannerFacts facts) =>
         facts.Devices
-            .Where(d => d.HardwareIds.Any(id => facts.ConfiguredHardwareIds.Contains(id, StringComparer.OrdinalIgnoreCase)))
+            .Where(d => facts.ConfiguredHardwareIds.Count > 0
+                ? d.HardwareIds.Any(id => facts.ConfiguredHardwareIds.Any(c => Matches(id, c)))
+                : string.Equals(d.Class, "Biometric", StringComparison.OrdinalIgnoreCase))
             .OrderByDescending(d => d.Present)
             .FirstOrDefault();
+
+    /// <summary>A device hardware ID matches a configured one when equal, or when the configured one is a prefix ending at a "&amp;" boundary.</summary>
+    public static bool Matches(string deviceId, string configured) =>
+        configured.Length > 0 && (string.Equals(deviceId, configured, StringComparison.OrdinalIgnoreCase) ||
+            (deviceId.Length > configured.Length && deviceId[configured.Length] == '&' && deviceId.StartsWith(configured, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Likely scanners: the Biometric device class, or a name that says fingerprint or biometric.</summary>
     internal static IReadOnlyList<PeripheralCandidate> Candidates(IReadOnlyList<DeviceFacts> devices) =>
@@ -101,8 +114,12 @@ public static class ScannerChecklist
 
     private static PeripheralCheck DevicePresent(bool configured, DeviceFacts? scanner) => (configured, scanner) switch
     {
-        (false, _) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Unknown,
-            "No scanner hardware IDs are configured on this cabinet; see the candidate devices."),
+        (false, null) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Unknown,
+            "No scanner hardware IDs are set, and Windows shows no Biometric device; see the candidate devices."),
+        (false, { Present: false }) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Fail,
+            "The scanner found automatically (the Biometric device) is not connected now. Reseat the cable, then try a different USB port."),
+        (false, _) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Pass,
+            "The scanner is connected (found automatically as the Biometric device; set its hardware IDs in the console to pin it)."),
         (true, null) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Fail,
             "Windows has never seen a scanner with the configured hardware IDs. Check the cable and try a different USB port."),
         (true, { Present: false }) => Check(PeripheralCheckId.DevicePresent, PeripheralCheckOutcome.Fail,
