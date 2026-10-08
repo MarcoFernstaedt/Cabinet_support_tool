@@ -203,12 +203,9 @@ Decided here, open to change:
   - The "bad change" rollback is shown with a firewall rule and a DNS change sent through the local harness, which no server confirms.
 
 
-## Question from Milestone 6 (needs an answer)
+## Agent self-check (resolved)
 
-- **The agent's self-check of its own files.** The spec names "an agent reporting a failed self-check" as a security alert trigger (05-server-spec.md, 03-protocol.md), but 04-agent-spec.md does not say what the self-check covers or when it runs.
-  - The server is ready: a security event with `check: "self_check"` raises the alert, and a test proves it.
-  - The agent does not run a self-check yet.
-  - Default until decided: build it with Milestone 7's signed updater. The updater already has to verify the agent's own files against their signed hashes, and would then also check them at start-up and once a day.
+04-agent-spec.md says the binaries are Authenticode-signed and that the agent checks the signature on its own files at startup, reporting any mismatch as a security event. (An earlier note here wrongly said the spec did not define it.) The product owner confirmed it is built with Milestone 7, alongside the signed updater.
 
 ## Choices made in Milestone 6 (confirm or change)
 
