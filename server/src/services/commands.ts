@@ -83,17 +83,20 @@ async function issueInTransaction(pool: pg.Pool, userId: string, cabinetId: stri
 
 /** Hands over every waiting command for this cabinet, once. Commands past their expiry are marked expired instead. */
 export async function takeQueuedCommands(pool: pg.Pool, cabinetId: string): Promise<Command[]> {
-  return transaction(pool, async c => {
-    await c.query("UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= now()", [cabinetId]);
-    const rows = (await c.query<{ id: string; operation: string; params: Record<string, unknown>; issued_by: string; issued_at: Date; expires_at: Date }>(
-      `UPDATE commands SET status = 'delivered', delivered_at = now()
-        WHERE id IN (SELECT id FROM commands WHERE cabinet_id = $1 AND status = 'queued' ORDER BY issued_at LIMIT ${MAX_COMMANDS_PER_POLL} FOR UPDATE SKIP LOCKED)
-        RETURNING id, operation, params, issued_by, issued_at, expires_at`, [cabinetId])).rows;
-    return rows.sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
-      commandId: r.id, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,
-      issuedAt: r.issued_at.toISOString(), expiresAt: r.expires_at.toISOString(),
-    }));
-  });
+  // One statement, one round trip: it runs for every long poll of every cabinet. Commands past their expiry are marked
+  // expired, never delivered; the rest are delivered oldest first, at most MAX_COMMANDS_PER_POLL.
+  const rows = (await pool.query<{ id: string; operation: string; params: Record<string, unknown>; issued_by: string; issued_at: Date; expires_at: Date }>(
+    `WITH expired AS (
+       UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= now()
+     )
+     UPDATE commands SET status = 'delivered', delivered_at = now()
+      WHERE id IN (SELECT id FROM commands WHERE cabinet_id = $1 AND status = 'queued' AND expires_at > now()
+                    ORDER BY issued_at LIMIT ${MAX_COMMANDS_PER_POLL} FOR UPDATE SKIP LOCKED)
+      RETURNING id, operation, params, issued_by, issued_at, expires_at`, [cabinetId])).rows;
+  return rows.sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
+    commandId: r.id, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,
+    issuedAt: r.issued_at.toISOString(), expiresAt: r.expires_at.toISOString(),
+  }));
 }
 
 /**

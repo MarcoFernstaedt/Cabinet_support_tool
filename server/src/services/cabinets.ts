@@ -24,9 +24,15 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
   return { id: row.cabinet_id, serial: serialHex };
 }
 
-export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<void> {
-  await db.query(`UPDATE cabinets SET last_heartbeat_at = now(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = $5 WHERE id = $1`,
-    [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null]);
+/** Records a heartbeat. Returns whether the cabinet had been silent past the offline threshold (or never heard from), so offline alerts are only looked at then. */
+export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<{ wasOffline: boolean }> {
+  const r = (await db.query<{ was_offline: boolean }>(
+    `UPDATE cabinets k SET last_heartbeat_at = now(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = $5
+       FROM (SELECT last_heartbeat_at FROM cabinets WHERE id = $1) before
+      WHERE k.id = $1
+      RETURNING before.last_heartbeat_at IS NULL OR before.last_heartbeat_at < now() - make_interval(secs => $6) AS was_offline`,
+    [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000])).rows[0];
+  return { wasOffline: r?.was_offline ?? false };
 }
 
 /** Issues a fresh certificate for the same cabinet. Allowed only in the last AGENT_RENEW_DAYS of the current one, so a stolen certificate cannot extend itself indefinitely early. */

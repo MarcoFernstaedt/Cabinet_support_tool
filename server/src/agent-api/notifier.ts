@@ -4,8 +4,14 @@ import pg from "pg";
 
 export class CommandNotifier {
   private readonly waiters = new Map<string, Set<() => void>>();
+  /** How many wakes each cabinet has had, so a long poll notices one that came between its database check and its wait. */
+  private readonly woken = new Map<string, number>();
   private client: pg.Client | null = null;
   private stopped = false;
+  private sweep: NodeJS.Timeout | null = null;
+
+  /** While the listener is down (reconnecting), long polls fall back to re-checking the database every few seconds. */
+  get listening(): boolean { return this.client !== null; }
 
   constructor(private readonly connectionString: string) {}
 
@@ -16,7 +22,13 @@ export class CommandNotifier {
     await client.connect();
     await client.query("LISTEN cabinet_commands");
     this.client = client;
+    // Wake counters only need to outlive one long poll; forget the idle ones.
+    this.sweep ??= setInterval(() => { for (const k of this.woken.keys()) if (!this.waiters.has(k)) this.woken.delete(k); }, 60_000);
+    this.sweep.unref();
   }
+
+  /** The cabinet's wake counter now; pass it to wait() so a wake in between is not lost. */
+  mark(cabinetId: string): number { return this.woken.get(cabinetId) ?? 0; }
 
   private async restart(): Promise<void> {
     this.client = null;
@@ -26,8 +38,9 @@ export class CommandNotifier {
     if (!this.stopped) await this.start().catch(() => this.restart());
   }
 
-  /** Resolves when a command for this cabinet may be waiting, or after the timeout, or on abort. */
-  wait(cabinetId: string, timeoutMs: number, signal: AbortSignal): Promise<void> {
+  /** Resolves when a command for this cabinet may be waiting (now, if it was woken since mark), or after the timeout, or on abort. */
+  wait(cabinetId: string, timeoutMs: number, signal: AbortSignal, since?: number): Promise<void> {
+    if (since !== undefined && this.mark(cabinetId) !== since) return Promise.resolve();
     return new Promise(resolve => {
       const set = this.waiters.get(cabinetId) ?? new Set();
       this.waiters.set(cabinetId, set);
@@ -45,6 +58,7 @@ export class CommandNotifier {
   }
 
   wake(cabinetId: string): void {
+    this.woken.set(cabinetId, (this.woken.get(cabinetId) ?? 0) + 1);
     for (const done of [...(this.waiters.get(cabinetId) ?? [])]) done();
   }
 
@@ -52,6 +66,7 @@ export class CommandNotifier {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.sweep) clearInterval(this.sweep);
     for (const cabinet of [...this.waiters.keys()]) this.wake(cabinet);
     await this.client?.end().catch(() => undefined);
   }

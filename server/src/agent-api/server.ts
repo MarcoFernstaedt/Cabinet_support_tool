@@ -19,7 +19,7 @@ import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
 import { raiseSecurityAlert } from "../services/security.js";
 import { releaseForAgent, releasePackageForAgent, type ReleaseStore } from "../services/releases.js";
-import { offerFor, recordUpgradeStatus } from "../services/rollouts.js";
+import { anyRolloutRunning, offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 
 export interface AgentApiOptions {
   pool: pg.Pool;
@@ -48,7 +48,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     https: { key: o.tls.keyPem, cert: o.tls.certPem, ca: o.issuingKey.certificatePem, requestCert: true, rejectUnauthorized: false, minVersion: "TLSv1.2" },
     bodyLimit: 1024 * 1024,
     logger: o.logger === false ? false : { level: "info", redact: ["req.headers.authorization", "req.headers.cookie"] },
-    disableRequestLogging: false,
+    // 8,000 cabinets make hundreds of requests a second; each request is not logged (refusals and errors are, and
+    // everything that matters is in the audit log).
+    disableRequestLogging: true,
     return503OnClosing: true,
   });
   const longPollMs = o.longPollMs ?? 25_000;
@@ -163,10 +165,17 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const abort = new AbortController();
       request.raw.on("close", () => abort.abort());
       const deadline = Date.now() + longPollMs;
+      // The database is checked when the poll arrives and again only when a command for this cabinet is announced
+      // (or every 5 s while the announcement listener is reconnecting). The wake counter is read before the check, so a
+      // command queued in between still ends the wait at once.
+      let mark = o.notifier.mark(cabinetId);
       let commands = await takeQueuedCommands(o.pool, cabinetId);
       while (commands.length === 0 && Date.now() < deadline && !abort.signal.aborted) {
-        await o.notifier.wait(cabinetId, Math.min(deadline - Date.now(), 5_000), abort.signal); // re-check at least every 5 s
+        const before = mark;
+        await o.notifier.wait(cabinetId, o.notifier.listening ? deadline - Date.now() : Math.min(deadline - Date.now(), 5_000), abort.signal, before);
         if (abort.signal.aborted) break;
+        mark = o.notifier.mark(cabinetId);
+        if (mark === before && o.notifier.listening && Date.now() >= deadline - 5) break; // the poll simply ran out: nothing was announced
         commands = await takeQueuedCommands(o.pool, cabinetId);
       }
       return envelopes.commandsResponse.parse({ serverTime: serverTime(), commands });
@@ -180,10 +189,10 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     scoped.post("/agent/v1/heartbeat", async request => {
       const cabinetId = request.cabinet!.id;
       const heartbeat = envelopes.heartbeat.parse(request.body);
-      await recordHeartbeat(o.pool, cabinetId, heartbeat);
-      await resolveOfflineFor(o.pool, cabinetId);
+      const { wasOffline } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
+      if (wasOffline) await resolveOfflineFor(o.pool, cabinetId);
       // A running rollout that has reached this cabinet's batch offers it the release (or notes that it already runs it).
-      const upgrade = await transaction(o.pool, c => offerFor(c, cabinetId, heartbeat.agentVersion));
+      const upgrade = (await anyRolloutRunning(o.pool)) ? await transaction(o.pool, c => offerFor(c, cabinetId, heartbeat.agentVersion)) : null;
       // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.
       return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: await scannerIdsFor(o.pool, cabinetId) },
         ...(upgrade ? { upgrade: { version: upgrade } } : {}) });

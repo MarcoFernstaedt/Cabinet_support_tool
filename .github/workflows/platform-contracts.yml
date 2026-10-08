@@ -42,6 +42,26 @@ jobs:
           npx playwright install --with-deps chromium
           npm test
           npm audit --audit-level=low
+      - name: Agent API under load (1,000 simulated agents with their own certificates, 3 minutes; the full 8,000 run is a rollout gate)
+        working-directory: server
+        timeout-minutes: 10
+        env:
+          DATABASE_OWNER_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/cabinet_load
+          DATABASE_URL: postgres://cabinet_load_app:ci-only-not-a-secret@localhost:5432/cabinet_load
+          DEV_PKI_DIR: ${{ runner.temp }}/load-pki
+          AGENT_API_HOSTNAMES: localhost
+        run: |
+          psql "$TEST_DATABASE_ADMIN_URL" -c "CREATE DATABASE cabinet_load"
+          node dist/src/cli.js migrate
+          psql "$DATABASE_OWNER_URL" -c "CREATE ROLE cabinet_load_app LOGIN PASSWORD 'ci-only-not-a-secret'" -c "GRANT cabinet_app TO cabinet_load_app"
+          node dist/src/main.js > "$RUNNER_TEMP/load-server.log" 2>&1 &
+          sleep 5
+          node dist/test/load/agents.js setup --count 1000 --state "$RUNNER_TEMP/load-state.json"
+          node dist/test/load/agents.js run --server https://localhost:8443 --state "$RUNNER_TEMP/load-state.json" --minutes 3 --ramp-seconds 30 --commands-per-second 2
+          status=$?
+          rm -f "$RUNNER_TEMP/load-state.json"
+          kill %1 || true
+          exit $status
       - name: Agent contracts and core (validation, replay, rate limits, broker protocol)
         run: |
           dotnet test agent/tests/Cabinet.Agent.Contracts.Tests -c Release --no-build

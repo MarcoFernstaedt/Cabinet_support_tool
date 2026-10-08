@@ -86,6 +86,16 @@ export async function changeRollout(pool: pg.Pool, adminId: string, rolloutId: s
   });
 }
 
+let running: { at: number; value: Promise<boolean> } | null = null;
+/** Whether any rollout is running, looked up at most every 5 seconds per server process. */
+export function anyRolloutRunning(pool: pg.Pool): Promise<boolean> {
+  if (!running || Date.now() - running.at > 5_000) {
+    const value = pool.query("SELECT 1 FROM rollouts WHERE state = 'running' LIMIT 1").then(r => r.rows.length > 0, () => true);
+    running = { at: Date.now(), value };
+  }
+  return running.value;
+}
+
 /**
  * The heartbeat's part: a cabinet already running the version has succeeded; one in a batch the running rollout has
  * reached, and still older, is offered the version. Returns the version to offer, or null.

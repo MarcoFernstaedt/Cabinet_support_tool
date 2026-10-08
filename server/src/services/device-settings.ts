@@ -32,11 +32,12 @@ export const fleetSyncPorts = (db: Queryable) => fleetSetting<number[]>(db, "syn
 
 /** Every level of a cabinet's scanner setting, and the one that applies. */
 export async function scannerLevels(db: Queryable, cabinetId: string): Promise<ScannerLevels> {
-  const r = (await db.query<{ k: string[] | null; s: string[] | null; c: string[] | null }>(
-    `SELECT k.scanner_hardware_ids AS k, s.scanner_hardware_ids AS s, c.scanner_hardware_ids AS c
+  // One query: it runs for every heartbeat of every cabinet.
+  const r = (await db.query<{ k: string[] | null; s: string[] | null; c: string[] | null; f: string[] | null }>(
+    `SELECT k.scanner_hardware_ids AS k, s.scanner_hardware_ids AS s, c.scanner_hardware_ids AS c,
+            (SELECT value FROM settings WHERE key = 'scanner.hardwareIds') AS f
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
-  const fleet = await fleetScannerIds(db);
-  const levels = { cabinet: r?.k ?? null, site: r?.s ?? null, client: r?.c ?? null, fleet };
+  const levels = { cabinet: r?.k ?? null, site: r?.s ?? null, client: r?.c ?? null, fleet: r?.f ?? null };
   const [effective, source] = firstSet([levels.cabinet, "cabinet"], [levels.site, "site"], [levels.client, "client"], [levels.fleet, "fleet"]);
   return { ...levels, effective, source: (source ?? "automatic") as ScannerSource };
 }
