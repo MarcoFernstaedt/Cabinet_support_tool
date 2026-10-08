@@ -11,6 +11,7 @@ import { Badge, Empty, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../Fleet";
 
 interface Rule {
+  severity?: "major" | "minor" | null;
   id: string; issueType: { id: string; name: string } | null; kind: "map" | "suppress"; state: string; version: number; match: Match; regroup: boolean; builtIn: boolean;
   proposedBy: Person | null; approvedBy: Person | null; createdAt: string; updatedAt: string; matchedCount: number;
 }
@@ -82,6 +83,7 @@ function RuleRow({ rule, admin, onChanged }: { rule: Rule; admin: boolean; onCha
           <Badge tone={STATE_TONE[rule.state] ?? "off"}>{STATE_LABEL[rule.state] ?? rule.state}</Badge>
           {rule.builtIn && <Badge tone="info">Built in</Badge>}
           <span className="title">{rule.issueType?.name ?? "Suppression"}</span>
+          {rule.severity && <Badge tone={rule.severity === "major" ? "crit" : "warn"}>{rule.severity === "major" ? "Major: home page and Alerts tab" : "Minor: cabinet only"}</Badge>}
           <span className="muted small">version {rule.version}</span>
         </div>
         <p className="small"><code>{describeMatch(rule.match)}</code></p>

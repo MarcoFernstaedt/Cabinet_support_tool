@@ -122,7 +122,7 @@ test("people's rules must name something specific and fit the contract", () => {
 
 test("the most specific rule wins, and a suppression beats any map rule", () => {
   const rule = (id: string, match: SymptomMatch, kind: "map" | "suppress" = "map", created = 0): LiveRule =>
-    ({ id, kind, issueTypeId: kind === "map" ? "t" : null, match, builtIn: false, createdAt: new Date(created) });
+    ({ id, kind, issueTypeId: kind === "map" ? "t" : null, match, builtIn: false, createdAt: new Date(created), severity: null });
   const e = errorEvent();
   assert.equal(decide([rule("broad", { eventId: 219 }), rule("narrow", { eventId: 219, log: "System" })], e)?.id, "narrow");
   assert.equal(decide([rule("old", { eventId: 219 }, "map", 1), rule("new", { eventId: 219 }, "map", 2)], e)?.id, "old");
@@ -196,7 +196,7 @@ test("the same issue on two cabinets at one site within the hour is a site-wide 
   const id = (o: { outcomes: unknown[] }) => (o.outcomes[0] as { alertId: string }).alertId;
   const flags = async () => (await db.app.query<{ cabinet_id: string; site_pattern: boolean }>(
     "SELECT cabinet_id, site_pattern FROM alerts WHERE issue_type_id = $1 AND state <> 'resolved'", [ISSUE.drive])).rows;
-  assert.ok((await flags()).every(f => f.site_pattern), "a and b are both at North");
+  assert.ok((await flags()).filter(f => f.cabinet_id === cab.a || f.cabinet_id === cab.b).every(f => f.site_pattern), "a and b are both at North");
   await send(cab.far, { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(), severityHint: "minor", detail: {} });
   assert.equal((await flags()).find(f => f.cabinet_id === cab.far)!.site_pattern, false);
   assert.ok(id(smartA));
@@ -390,4 +390,69 @@ test("offline is a status; past the threshold it becomes an alert that resolves 
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '2 days' WHERE id = $1", [cab.b]);
   assert.equal((await checkOffline(db.app)).raised, 1);
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = now()");
+});
+
+// ---- Early signs of failure: the catalog, warnings, severity per rule ------------------------
+
+test("a drive's early warning raises a minor Drive failing alert; a bad block on the same drive makes it major", async () => {
+  const k = cab.b;
+  await asOwner(db, c => c.query("UPDATE alerts SET state = 'resolved', resolved_at = now() WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.drive]));
+  const retried = await send(k, { ...errorEvent({ source: "disk", eventId: 153, message: "The IO operation at logical block address 0x1f was retried." }),
+    source: { log: "System", source: "disk", eventId: 153, level: "warning", recordId: 1530 } });
+  const o = retried.outcomes[0] as { kind: string; alertId: string; issueTypeId: string };
+  assert.equal(o.issueTypeId, ISSUE.drive);
+  const severity = async () => (await db.app.query("SELECT severity FROM alerts WHERE id = $1", [o.alertId])).rows[0].severity;
+  assert.equal(await severity(), "minor", "an early sign shows only on the cabinet");
+  const bad = await send(k, errorEvent({ source: "disk", eventId: 7, message: "The device, \\Device\\Harddisk0\\DR0, has a bad block." }));
+  assert.equal((bad.outcomes[0] as { alertId: string }).alertId, o.alertId, "one alert per issue per cabinet");
+  assert.equal(await severity(), "major", "a real failure makes it major: home page and Alerts tab");
+  // A later early sign does not make it minor again.
+  await send(k, { ...errorEvent({ source: "disk", eventId: 153 }), source: { log: "System", source: "disk", eventId: 153, level: "warning", recordId: 1531 } });
+  assert.equal(await severity(), "major");
+});
+
+test("a warning no rule recognizes is kept on its cabinet but raises no alert; an unrecognized error still does", async () => {
+  const warning = { ...errorEvent({ source: "Some-Chatty-Driver", eventId: 3 }), source: { log: "System" as const, source: "Some-Chatty-Driver", eventId: 3, level: "warning" as const, recordId: 77 } };
+  const r = await send(cab.far, warning);
+  assert.deepEqual(r.outcomes, [{ kind: "stored" }]);
+  assert.equal((await db.app.query("SELECT alert_id FROM events WHERE event_id = $1", [warning.eventId])).rows[0].alert_id, null);
+  assert.equal((await send(cab.far, errorEvent({ source: "Some-Chatty-Driver", eventId: 3 }))).outcomes[0]!.kind, "unrecognized");
+});
+
+test("the catalog recognizes crashes, unexpected shutdowns, hardware errors and service failures with their own severities", async () => {
+  const cases: [string, number, string, "major" | "minor"][] = [
+    ["Microsoft-Windows-WER-SystemErrorReporting", 1001, "System crash (blue screen)", "major"],
+    ["Microsoft-Windows-Kernel-Power", 41, "Unexpected shutdown or power loss", "minor"],
+    ["Microsoft-Windows-WHEA-Logger", 18, "Hardware error", "major"],
+    ["Service Control Manager", 7031, "Windows service failure", "minor"],
+    ["Microsoft-Windows-Ntfs", 55, "Drive failing", "major"],
+  ];
+  for (const [source, eventId, name, severity] of cases) {
+    const r = await send(cab.a, errorEvent({ source, eventId }));
+    const o = r.outcomes[0] as { alertId: string };
+    const a = (await db.app.query("SELECT a.severity, t.name FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE a.id = $1", [o.alertId])).rows[0];
+    assert.deepEqual([source, a.name], [source, name]);
+    if (name !== "Drive failing") assert.equal(a.severity, severity, `${source} ${eventId}`);
+  }
+});
+
+test("a mapping can set its own severity; an Admin can create a new issue type while mapping, Tier 2 cannot", async () => {
+  const admin = await account("admin"); const ad = await signIn(admin);
+  const tier2 = await account("tier2"); const t2 = await signIn(tier2);
+  // A minor issue type, but this symptom of it is serious enough for the home page.
+  const r = await call("POST", "/api/rules", { newIssueType: { name: "Receipt printer fault", severity: "minor", description: "The receipt printer reported a fault." },
+    match: { log: "System", source: "Contoso-Printer", eventId: 12 }, severity: "major", regroup: false, stepUpToken: await stepUp(admin, ad, "rule.propose", "fleet") }, ad);
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.state, "live");
+  const type = (await db.app.query("SELECT severity FROM issue_types WHERE id = $1", [r.body.issueTypeId])).rows[0];
+  assert.equal(type.severity, "minor");
+  const fired = await send(cab.a, errorEvent({ source: "Contoso-Printer", eventId: 12 }));
+  const alert = (await db.app.query("SELECT severity, title FROM alerts WHERE id = $1", [(fired.outcomes[0] as { alertId: string }).alertId])).rows[0];
+  assert.deepEqual(alert, { severity: "major", title: "Receipt printer fault" });
+  assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'issue_type.create' AND details->>'from' = 'map_to_issue'")).rowCount === 1);
+
+  const refused = await call("POST", "/api/rules", { newIssueType: { name: "Tier 2 type", severity: "major", description: "x" },
+    match: { log: "System", source: "Other", eventId: 1 }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", "fleet") }, t2);
+  assert.equal(refused.status, 403);
+  assert.equal((await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match: { eventId: 1, source: "x" }, severity: "critical", regroup: false, stepUpToken: "A".repeat(43) }, t2)).status, 400);
 });

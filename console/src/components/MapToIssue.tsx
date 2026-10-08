@@ -6,6 +6,11 @@ import { api, describeError } from "../lib/api";
 import { describeMatch, KIND_LABEL, type IssueType, type Match } from "../lib/alerts";
 import { atLeast, useSession } from "../lib/session";
 
+/** The new-issue-type choice in the issue list. */
+const NEW = "new";
+/** Severity in plain words: where the alert shows. */
+export const SEVERITY_LABEL = { major: "Major: on the home page and the Alerts tab", minor: "Minor: only on the cabinet" } as const;
+
 type Field = "kind" | "log" | "source" | "eventId" | "level" | "hardwareId";
 const FIELD_LABEL: Record<Field, string> = { kind: "Event type", log: "Log", source: "Source", eventId: "Event ID", level: "Level", hardwareId: "Hardware ID" };
 interface Preview { events: number; cabinets: number; openUnrecognizedAlerts: number; days: number }
@@ -21,6 +26,8 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
   const [kept, setKept] = useState<Set<Field>>(new Set(fields));
   const [phrase, setPhrase] = useState("");
   const [regroup, setRegroup] = useState(true);
+  const [severity, setSeverity] = useState<"" | "major" | "minor">("");
+  const [newType, setNewType] = useState({ name: "", severity: "minor" as "major" | "minor", description: "" });
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewProblem, setPreviewProblem] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -33,6 +40,7 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
     if (!d) return;
     if (open && !d.open) {
       setKept(new Set(fields)); setPhrase(""); setRegroup(true); setCode(""); setProblem(null); setDone(null); setPreview(null);
+      setSeverity(""); setNewType({ name: "", severity: "minor", description: "" }); setIssueTypeId("");
       api<IssueType[]>("GET", "/api/issues").then(list => { setIssues(list.filter(i => i.name !== "Cabinet offline")); }, e => setProblem(describeError(e)));
       d.showModal();
     }
@@ -58,14 +66,20 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
     setBusy(true);
     setProblem(null);
     try {
-      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up", { code, action: "rule.propose", target: issueTypeId });
-      const r = await api<{ ruleId: string; state: string; regrouped: number }>("POST", "/api/rules", { issueTypeId, match, regroup, stepUpToken: token });
+      const creating = issueTypeId === NEW;
+      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up", { code, action: "rule.propose", target: creating ? "fleet" : issueTypeId });
+      const r = await api<{ ruleId: string; state: string; regrouped: number }>("POST", "/api/rules", {
+        ...(creating ? { newIssueType: { name: newType.name.trim(), severity: newType.severity, description: newType.description.trim() } } : { issueTypeId }),
+        match, regroup, ...(severity ? { severity } : {}), stepUpToken: token });
       setDone(r);
       onDone?.(r);
     } catch (e) { setProblem(describeError(e)); }
     finally { setBusy(false); }
   };
-  const issueName = issues.find(i => i.id === issueTypeId)?.name;
+  const chosen = issues.find(i => i.id === issueTypeId);
+  const issueName = issueTypeId === NEW ? newType.name.trim() : chosen?.name;
+  const typeSeverity = issueTypeId === NEW ? newType.severity : chosen?.severity;
+  const newTypeReady = issueTypeId !== NEW || (newType.name.trim().length > 0 && newType.description.trim().length > 0);
 
   return (
     <dialog ref={ref} className="dialog wide" aria-labelledby="map-title" onClose={onClose}>
@@ -81,6 +95,24 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
             <select required value={issueTypeId} onChange={e => setIssueTypeId(e.target.value)}>
               <option value="">Choose the issue this error is a symptom of…</option>
               {issues.map(i => <option key={i.id} value={i.id}>{i.name} ({i.severity})</option>)}
+              {atLeast(me, "admin") && <option value={NEW}>New issue type…</option>}
+            </select>
+          </label>
+          {!atLeast(me, "admin") && <p className="small muted">No issue fits? Ask an Admin to add a new issue type, or map it to the closest one for now.</p>}
+          {issueTypeId === NEW && (
+            <fieldset className="match-fields"><legend>New issue type</legend>
+              <label className="field"><span>Name</span><input required maxLength={128} value={newType.name} onChange={e => setNewType(t => ({ ...t, name: e.target.value }))} /></label>
+              <label className="field"><span>Usual severity</span>
+                <select value={newType.severity} onChange={e => setNewType(t => ({ ...t, severity: e.target.value as "major" | "minor" }))}>
+                  <option value="major">{SEVERITY_LABEL.major}</option><option value="minor">{SEVERITY_LABEL.minor}</option></select></label>
+              <label className="field"><span>What it means (shown to the team)</span>
+                <input required maxLength={1000} value={newType.description} onChange={e => setNewType(t => ({ ...t, description: e.target.value }))} /></label>
+            </fieldset>)}
+          <label className="field"><span>How serious is this error</span>
+            <select value={severity} onChange={e => setSeverity(e.target.value as "" | "major" | "minor")}>
+              <option value="">As the issue usually is{typeSeverity ? ` (${typeSeverity})` : ""}</option>
+              <option value="major">{SEVERITY_LABEL.major}</option>
+              <option value="minor">{SEVERITY_LABEL.minor}</option>
             </select>
           </label>
           <fieldset className="match-fields"><legend>Match on (untick a field to widen the rule)</legend>
@@ -108,7 +140,7 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
           {problem && <p className="error" role="alert">{problem}</p>}
           <div className="row gap end">
             <button type="button" className="btn" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn primary" disabled={busy || !issueTypeId || code.length !== 6 || !!previewProblem}>{busy ? "Saving…" : atLeast(me, "admin") ? "Save and go live" : "Send for approval"}</button>
+            <button type="submit" className="btn primary" disabled={busy || !issueTypeId || !newTypeReady || code.length !== 6 || !!previewProblem}>{busy ? "Saving…" : atLeast(me, "admin") ? "Save and go live" : "Send for approval"}</button>
           </div>
         </>)}
       </form>

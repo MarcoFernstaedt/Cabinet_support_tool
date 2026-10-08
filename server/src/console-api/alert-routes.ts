@@ -87,7 +87,7 @@ export async function alertRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/rules", async (request, reply) => {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.ruleProposal.parse(request.body);
-    return reply.code(201).send(await rules.proposeRule(o.pool, u, body.issueTypeId, body.match, body.regroup, body.stepUpToken));
+    return reply.code(201).send(await rules.proposeRule(o.pool, u, body.newIssueType ?? body.issueTypeId!, body.match, body.regroup, body.stepUpToken, body.severity ?? null));
   });
 
   for (const [path, approve] of [["approve", true], ["reject", false]] as const)

@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
 import { useLoad } from "../Fleet";
+import { SEVERITY_LABEL } from "../../components/MapToIssue";
 
 interface ClientAdmin { id: string; name: string; writePaused: boolean; writePauseReason: string | null; sites: { id: string; name: string; cabinets: number }[]; }
 
@@ -125,7 +126,7 @@ export function IssueTypesAndSuppressions() {
             <div className="row gap wrap">
               <label className="field inline"><span>Name</span><input required maxLength={128} value={editing.form.name} onChange={e => setEditing(x => x && { ...x, form: { ...x.form, name: e.target.value } })} /></label>
               <label className="field inline"><span>Severity</span><select value={editing.form.severity} onChange={e => setEditing(x => x && { ...x, form: { ...x.form, severity: e.target.value as "major" | "minor" } })}>
-                <option value="major">Major</option><option value="minor">Minor</option></select></label>
+                <option value="major">{SEVERITY_LABEL.major}</option><option value="minor">{SEVERITY_LABEL.minor}</option></select></label>
             </div>
             <label className="field"><span>Description</span><textarea required maxLength={1000} rows={2} value={editing.form.description} onChange={e => setEditing(x => x && { ...x, form: { ...x.form, description: e.target.value } })} /></label>
             <div className="row gap"><button className="btn" type="button" onClick={() => setEditing(null)}>Cancel</button><button className="btn primary" type="submit">Save</button></div>

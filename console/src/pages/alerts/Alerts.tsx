@@ -10,7 +10,7 @@ import { Badge, Empty } from "../../components/ui";
 import { useLoad } from "../Fleet";
 
 type View = "alerts" | "unrecognized" | "offline";
-interface Filters { severity: string; state: string; issueTypeId: string; claimedBy: string }
+interface Filters { state: string; issueTypeId: string; claimedBy: string }
 
 export function AlertsPage() {
   const { path, navigate } = useRouter();
@@ -21,7 +21,7 @@ export function AlertsPage() {
     <div className="page">
       <h1>Alerts</h1>
       <div className="subtabs" role="group" aria-label="Alert views">
-        <button aria-pressed={view === "alerts"} onClick={() => setView("alerts")}>All alerts</button>
+        <button aria-pressed={view === "alerts"} onClick={() => setView("alerts")}>Major alerts</button>
         <button aria-pressed={view === "unrecognized"} onClick={() => setView("unrecognized")}>Unrecognized errors</button>
         <button aria-pressed={view === "offline"} onClick={() => setView("offline")}>Offline cabinets</button>
       </div>
@@ -31,23 +31,24 @@ export function AlertsPage() {
 }
 
 function AlertsView({ unrecognized }: { unrecognized: boolean }) {
-  const [f, setF] = useState<Filters>({ severity: "", state: "active", issueTypeId: "", claimedBy: "" });
+  const [f, setF] = useState<Filters>({ state: "active", issueTypeId: "", claimedBy: "" });
   const issues = useLoad<IssueType[]>("/api/issues");
   const q = new URLSearchParams();
   if (f.state) q.set("state", f.state);
   if (unrecognized) q.set("unrecognized", "true");
   else {
-    if (f.severity) q.set("severity", f.severity);
+    // The Alerts tab shows major alerts; minor ones show only on their cabinet (issue types and rules set which is which).
+    q.set("severity", "major");
     if (f.issueTypeId) q.set("issueTypeId", f.issueTypeId);
   }
   if (f.claimedBy) q.set("claimedBy", f.claimedBy);
   const { data, problem, reload } = useLoad<Alert[]>(`/api/alerts?${q.toString()}`);
   useAlertNews(reload);
   return (<>
-    {unrecognized && <p className="muted">Errors no rule recognizes yet. Map one to an issue and the next time it appears the team is told what it means.</p>}
+    {unrecognized
+      ? <p className="muted">Errors no rule recognizes yet, from every cabinet. Map one to an issue (or create a new issue type for it) and choose how serious it is; the next time it appears the team is told what it means.</p>
+      : <p className="muted">Major alerts from every cabinet. Minor alerts show only on their cabinet's Alerts section.</p>}
     <form className="filters" onSubmit={e => e.preventDefault()} aria-label="Filter alerts">
-      {!unrecognized && <label className="field"><span>Severity</span>
-        <select value={f.severity} onChange={e => setF({ ...f, severity: e.target.value })}><option value="">Any</option><option value="major">Major</option><option value="minor">Minor</option></select></label>}
       {!unrecognized && <label className="field"><span>Issue</span>
         <select value={f.issueTypeId} onChange={e => setF({ ...f, issueTypeId: e.target.value })}><option value="">Any</option>
           {issues.data?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></label>}

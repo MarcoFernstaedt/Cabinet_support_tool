@@ -19,7 +19,9 @@ export type Outcome =
   | { kind: "unrecognized"; alertId: string; created: boolean }
   | { kind: "suppressed"; ruleId: string }
   | { kind: "resolved"; alertIds: string[] }
-  | { kind: "platform_change" };
+  | { kind: "platform_change" }
+  /** A warning (or lower) that matches no rule: kept on its cabinet, where it can be mapped, but not an alert. */
+  | { kind: "stored" };
 
 /** The signature that folds repeats together. An unrecognized error is known by where it came from. */
 export function unrecognizedSignature(e: Pick<Event, "kind" | "source">): string {
@@ -60,11 +62,16 @@ async function processOne(c: pg.PoolClient, cabinetId: string, e: Event, rules: 
     return { kind: "suppressed", ruleId: rule.id };
   }
 
+  // Warnings are collected because they are often the first sign of a failing drive or controller, but only one a rule
+  // recognizes raises an alert; the rest stay on the cabinet's event list, where anyone can map them to an issue.
+  if (!rule && e.kind === "error" && e.source && e.source.level !== "error" && e.source.level !== "critical") return { kind: "stored" };
+
   let issue: { id: string; name: string; severity: string } | undefined;
   if (rule) issue = (await c.query<{ id: string; name: string; severity: string }>("SELECT id, name, severity FROM issue_types WHERE id = $1", [rule.issueTypeId])).rows[0];
   const signature = issue ? `issue:${issue.id}` : unrecognizedSignature(e);
   const a = await upsertAlert(c, {
-    cabinetId, issueTypeId: issue?.id ?? null, severity: issue?.severity ?? "minor", signature, title: issue?.name ?? unrecognizedTitle(e),
+    // The rule's own severity overrides the issue type's: an early sign of an issue can be minor, a real failure major.
+    cabinetId, issueTypeId: issue?.id ?? null, severity: (issue && rule?.severity) || issue?.severity || "minor", signature, title: issue?.name ?? unrecognizedTitle(e),
     seenAt: new Date(e.occurredAt), ruleId: rule?.id ?? null, eventId: e.eventId,
   });
   await c.query("UPDATE events SET alert_id = $2, matched_rule = $3 WHERE event_id = $1", [e.eventId, a.id, rule?.id ?? null]);
@@ -82,7 +89,9 @@ async function upsertAlert(c: Queryable, a: { cabinetId: string; issueTypeId: st
      ON CONFLICT (cabinet_id, signature) WHERE state <> 'resolved' DO UPDATE
        SET occurrences = alerts.occurrences + 1, first_seen = LEAST(alerts.first_seen, EXCLUDED.first_seen),
            last_seen = GREATEST(alerts.last_seen, EXCLUDED.last_seen), last_event_id = COALESCE(EXCLUDED.last_event_id, alerts.last_event_id),
-           rule_id = COALESCE(EXCLUDED.rule_id, alerts.rule_id)
+           rule_id = COALESCE(EXCLUDED.rule_id, alerts.rule_id),
+           -- A more serious symptom of the same issue makes the alert major; it never drops back on its own.
+           severity = CASE WHEN EXCLUDED.severity = 'major' OR alerts.severity = 'major' THEN 'major' ELSE 'minor' END
      RETURNING id, (xmax = 0) AS created`,
     [a.cabinetId, a.issueTypeId, a.severity, a.signature, a.title, seen, a.ruleId, a.eventId])).rows[0]!;
   return r;

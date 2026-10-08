@@ -292,7 +292,7 @@ public class EventLogWatchTests
         var first = await new EventLogWatch(store, Query).CheckAsync("System", Fixtures.Start, default);
         Assert.Equal(new long[] { 5, 6 }, first.Select(e => e.Source!.RecordId));
         Assert.Equal(SeverityHint.Major, first[1].SeverityHint);
-        Assert.Equal(new[] { EventLevel.Critical, EventLevel.Error }, asked[0].Levels);
+        Assert.Equal(new[] { EventLevel.Critical, EventLevel.Error, EventLevel.Warning }, asked[0].Levels);
         Assert.Equal(Fixtures.Start - EventLogWatch.FirstLookBack, asked[0].From);
 
         entries.Add(Entry(9, 1));
@@ -301,6 +301,20 @@ public class EventLogWatchTests
         Assert.Empty(await new EventLogWatch(store, Query).CheckAsync("System", Fixtures.Start.AddMinutes(4), default));
         var q = new EventQueue(null);
         foreach (var e in first.Concat(second)) Assert.True(q.Enqueue(e));
+    }
+
+    [Fact]
+    public void Warnings_are_collected_only_from_the_logs_where_hardware_trouble_shows()
+    {
+        // A retried read (disk 153) or a corrected machine check is a warning; the System log and the hardware logs keep them.
+        Assert.Contains(EventLevel.Warning, EventLogWatch.LevelsFor("System"));
+        Assert.Contains(EventLevel.Warning, EventLogWatch.LevelsFor("Microsoft-Windows-Kernel-WHEA/Errors"));
+        Assert.Contains(EventLevel.Warning, EventLogWatch.LevelsFor("Microsoft-Windows-Storage-Storport/Operational"));
+        // Application warnings are mostly noise; only its errors and critical entries are collected.
+        Assert.Equal(new[] { EventLevel.Critical, EventLevel.Error }, EventLogWatch.LevelsFor("Application"));
+        // Every log named is one the agent may read.
+        var allowed = Catalog.AllowedLogs;
+        foreach (string log in EventLogWatch.WarningLogs) Assert.Contains(log, allowed);
     }
 
     [Fact]

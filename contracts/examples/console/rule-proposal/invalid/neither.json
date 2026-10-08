@@ -1,0 +1,7 @@
+{
+  "match": {
+    "eventId": 1
+  },
+  "regroup": true,
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

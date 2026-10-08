@@ -89,7 +89,7 @@ The steps follow 05-server-spec.md:
 
 - Lists every alert, filterable by severity, issue type, state, client, site and assigned person
 - Major alerts are highlighted. Clicking an unclaimed major alert claims it and opens its cabinet. If someone else got there first, the console says who.
-- Minor alerts appear in the list and in their cabinet's view.
+- Minor alerts appear only in their cabinet's view; major alerts also appear on the home page and in the Alerts tab (decided after Milestone 6, see 09-open-decisions.md).
 - Unrecognized errors have their own filter, each with Map to issue.
 - Offline filter: shows clients with offline cabinets and how many, then sites, then the cabinets. Cabinets past the admin's offline threshold also appear as real alerts.
 - Errors and alerts also appear in the client view and the cabinet view.

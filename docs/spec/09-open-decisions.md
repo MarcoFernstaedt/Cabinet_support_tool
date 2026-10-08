@@ -66,6 +66,11 @@ Who performs it: an internal security team or an outside firm. Default: an outsi
 
 - The diagnostic data is not patient data. No healthcare compliance review is needed for it; it is still handled as confidential client data.
 - The authenticator code is asked at login whenever two-factor is on for the account.
+- **Alerts (decided by the product owner after Milestone 6):**
+  - **What is captured:** every event-log error that could cause problems on a cabinet, including the ones that commonly come before a drive failure.
+  - **Severity decides where an alert shows.** Major alerts show on the home page and in the Alerts tab. Minor alerts show only when someone opens the cabinet. This replaces "minor alerts appear in the list" in 06-console-spec.md.
+  - **Severity can be set per symptom.** Each mapping chooses its issue type and its own severity, so one issue (Drive failing) can be minor for an early sign and major for a real failure.
+  - **Errors nobody planned for** stay in the Unrecognized list. There anyone can map them to an existing issue type, and an Admin can create a new issue type on the spot.
 
 ## Contract details chosen in Milestone 0 (confirm or change)
 
@@ -249,3 +254,23 @@ Decided here, open to change:
 - **Suppressions** are created on the Issue types and suppressions screen: match fields plus a written reason of at least 10 characters. A job checks every minute and marks expired ones, with history.
 - **"Who opened this cabinet"** is a link on the cabinet page for Admins. It opens the audit log filtered to that cabinet's views. The audit search also takes a family of actions such as `user.`.
 - **Cabinet role** (sync, satellite, standalone) is changed by an Admin on the cabinet's overview.
+
+## Choices made for the alert changes (confirm or change)
+
+- **Warnings are collected from the logs where hardware trouble shows first:** System, HardwareEvents, WHEA, Storport, ClassPnP, Storage Spaces, NTFS and thermal.
+  - Every other allowed log gives Critical and Error only, as before.
+  - A warning that matches no rule is stored on its cabinet, where it can be mapped, but raises no alert; otherwise every chatty driver would fill the Unrecognized list. An unmatched error still becomes an unrecognized alert.
+- **A starting catalog of 33 built-in rules (migration 0006):**
+  - Drive failing: disk 7, 11, 52, 154 major; disk 15, 51, 153 minor; NTFS 55, 98 major and 140 minor; storahci, stornvme, iaStorA and iaStorAVC controller resets (129) minor.
+  - Hardware error (new, major): WHEA 18 major; 17, 19, 47 minor.
+  - System crash (new, major): bug check 1001.
+  - Unexpected shutdown or power loss (new, minor): Kernel-Power 41, EventLog 6008.
+  - Windows service failure (new, minor): Service Control Manager 7000, 7009, 7011, 7023, 7031, 7034.
+  - Network connectivity: Tcpip 4199 address conflict (major), DNS Client 1014 (minor).
+  - Driver failure: Kernel-PnP 219. Windows update failure: WindowsUpdateClient 20.
+
+  These are a starting point from common Windows knowledge. Check them against real cabinets; any can be disabled, and Map to issue adds more.
+- **An alert's severity only goes up.** When a more serious symptom of the same issue arrives on a cabinet, the alert becomes major and is announced to every console like a new major alert. It does not drop back to minor on its own.
+- **Home page and client pages** count major alerts only. The site page and the cabinet sidebar still count every open alert, since they are about single cabinets.
+- **Creating a new issue type from Map to issue** is for Admins only (issue types are Admin-only in the spec). It uses one authenticator code for both the type and the rule. Tier 2 maps to the closest issue type or asks an Admin.
+

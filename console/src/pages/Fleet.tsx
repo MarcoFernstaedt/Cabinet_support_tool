@@ -23,10 +23,13 @@ export function useLoad<T>(path: string | null): { data: T | null; problem: stri
 
 interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
 
-/** Open alerts in words, major first. */
-export function AlertCount({ open, major }: { open: number; major?: number }) {
-  if (open === 0) return <Badge tone="ok">None open</Badge>;
-  return <>{major ? <Badge tone="crit">{major} major</Badge> : null} <Badge tone="info">{open} open</Badge></>;
+/**
+ * Open alerts on the home page and client pages: major ones only. Minor alerts show only on their cabinet,
+ * so the fleet view is not buried in early signs that only matter once someone is looking at that cabinet.
+ */
+export function AlertCount({ major }: { open?: number; major?: number }) {
+  if (!major) return <Badge tone="ok">No major alerts</Badge>;
+  return <Badge tone="crit">{major} major</Badge>;
 }
 
 export function FleetHome() {
@@ -63,14 +66,14 @@ export function ClientPage({ id }: { id: string }) {
   useAlertNews(reload);
   const total = data?.sites.reduce((n, s) => n + s.cabinets, 0) ?? 0;
   const offline = data?.sites.reduce((n, s) => n + s.offline, 0) ?? 0;
-  const alerts = data?.sites.reduce((n, s) => n + s.openAlerts, 0) ?? 0;
+  const alerts = data?.sites.reduce((n, s) => n + s.openMajor, 0) ?? 0;
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: data?.name ?? "Client" }]} />
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
         <h1>{data.name}</h1>
-        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> open alerts</span></div>
+        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> major alerts</span></div>
         <table className="table">
           <caption className="sr-only">Sites of {data.name}</caption>
           <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>

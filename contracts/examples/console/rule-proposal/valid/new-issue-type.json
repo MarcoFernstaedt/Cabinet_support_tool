@@ -1,0 +1,15 @@
+{
+  "newIssueType": {
+    "name": "Label printer offline",
+    "severity": "minor",
+    "description": "The label printer stopped answering."
+  },
+  "match": {
+    "log": "System",
+    "source": "Print",
+    "eventId": 372
+  },
+  "severity": "minor",
+  "regroup": true,
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

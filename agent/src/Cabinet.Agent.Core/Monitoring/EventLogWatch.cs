@@ -4,13 +4,26 @@ namespace Cabinet.Agent.Core.Monitoring;
 
 /// <summary>
 /// The event log watcher: Error and Critical entries from the allowed logs become
-/// events. Each log has a bookmark (the newest record already reported), so an entry
+/// events, and so do Warnings from the logs where a failing drive, controller or other
+/// hardware first shows (a retried read, a paging error, a corrected machine check);
+/// the server alerts only on the warnings its rules recognize. Each log has a bookmark (the newest record already reported), so an entry
 /// is reported once, and its event ID is derived from the log and record, so even a
 /// lost bookmark cannot make the server count it twice.
 /// </summary>
 public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<EventlogQueryParams, CancellationToken, Task<EventlogQueryOutput>> query)
 {
     public const int PageSize = 100;
+
+    /// <summary>Logs whose Warnings are collected too: the early signs of hardware trouble are logged there as warnings.</summary>
+    public static readonly IReadOnlySet<string> WarningLogs = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "System", "HardwareEvents", "Microsoft-Windows-Kernel-WHEA/Errors", "Microsoft-Windows-Kernel-WHEA/Operational",
+        "Microsoft-Windows-Storage-Storport/Operational", "Microsoft-Windows-Storage-Storport/Health", "Microsoft-Windows-Storage-ClassPnP/Operational",
+        "Microsoft-Windows-StorageSpaces-Driver/Operational", "Microsoft-Windows-Ntfs/Operational", "Microsoft-Windows-Kernel-Power/Thermal-Operational",
+    };
+
+    public static EventLevel[] LevelsFor(string log) =>
+        WarningLogs.Contains(log) ? [EventLevel.Critical, EventLevel.Error, EventLevel.Warning] : [EventLevel.Critical, EventLevel.Error];
     public const int MaxPagesPerLook = 5;
     /// <summary>How far back the first look at a log goes, so problems from just before the install are seen.</summary>
     public static readonly TimeSpan FirstLookBack = TimeSpan.FromHours(24);
@@ -38,7 +51,7 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
         {
             var output = await query(new EventlogQueryParams
             {
-                Log = log, Levels = new[] { EventLevel.Critical, EventLevel.Error }, From = from, BeforeRecordId = before, PageSize = PageSize,
+                Log = log, Levels = LevelsFor(log), From = from, BeforeRecordId = before, PageSize = PageSize,
             }, token).ConfigureAwait(false);
             var newer = output.Entries.Where(e => mark is null || e.RecordId > mark.RecordId).ToList();
             fresh.AddRange(newer);

@@ -448,11 +448,23 @@ export interface RulePreview {
 }
 
 /**
- * Map to issue: a new symptom rule for an issue type. A Tier 2 user's rule waits for an Admin; an Admin's goes live at once.
+ * Map to issue: a new symptom rule for an existing issue type, or (Admins only) for a new issue type created with it. A Tier 2 user's rule waits for an Admin; an Admin's goes live at once.
  */
-export interface RuleProposal {
-  issueTypeId: string;
+export type RuleProposal = {
+  issueTypeId?: string;
+  /**
+   * Admins only: create this issue type and map the error to it in one step.
+   */
+  newIssueType?: {
+    name: string;
+    severity: "major" | "minor";
+    description: string;
+  };
   match: SymptomMatch;
+  /**
+   * How serious this symptom is, overriding the issue type's own: major alerts show on the home page and in the Alerts tab, minor ones only on their cabinet. Omitted: the issue type's severity.
+   */
+  severity?: "major" | "minor";
   /**
    * Move matching open unrecognized alerts under the issue when the rule goes live.
    */
@@ -461,7 +473,9 @@ export interface RuleProposal {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
-}
+} & {
+  [k: string]: unknown | undefined;
+};
 
 /**
  * Put a rule back to one of its earlier versions.
