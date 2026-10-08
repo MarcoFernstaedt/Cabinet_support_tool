@@ -158,6 +158,44 @@ On the cabinet, in an elevated PowerShell:
 ./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile dev-issuing-ca.cert.pem -BootstrapToken <token>
 ```
 
+## Load test (8,000 agents)
+
+`test/load/agents.ts` (docs/spec/08-build-plan.md, "Load test of the agent API with 8,000 simulated agents polling before going wide").
+
+Each simulated agent has its own cabinet and its own certificate from the server's issuing key. It:
+- holds the 25-second long poll;
+- sends a heartbeat every 60 seconds and occasional event batches;
+- answers the commands it is sent.
+
+A command source issues `system.info` commands through the real issuing path and measures how long each takes to reach its cabinet.
+
+```
+DATABASE_URL=… DEV_PKI_DIR=… node dist/test/load/agents.js setup --count 8000 --state load-state.json
+node dist/test/load/agents.js run --server https://<agent-api>:8443 --state load-state.json --minutes 10 --ramp-seconds 120
+```
+
+It exits 1 if a threshold is missed:
+- more than 0.1% of requests failing;
+- heartbeat p95 over 1 s or p99 over 3 s;
+- event p95 over 2 s;
+- command delivery p95 over 3 s, or any over 26 s.
+
+The state file holds the test cabinets' private keys: delete it afterwards. CI runs 1,000 agents for 3 minutes on every push.
+
+**Result on one 4-core, 15 GB machine** (the server, PostgreSQL 16 and the load generator all on it): 8,000 agents for 10 minutes, 261,467 requests, no failures.
+
+| | p50 | p95 | p99 |
+|---|---|---|---|
+| Heartbeat | 4 ms | 18 ms | 77 ms |
+| Event batch | 6 ms | 18 ms | 59 ms |
+| Command delivery, issue to cabinet | — | 13 ms | — |
+
+- The longest command delivery took 140 ms, and long polls returned on time (p99 25.05 s).
+- The server process used about half of one core and 1.4 GB of memory.
+- The first run, before the changes in commit "Agent API under load", had heartbeats at 13 s p95, because every held poll re-checked the database every 5 seconds.
+
+Before going wide, repeat it against the production setup, with the load generator on a separate machine.
+
 ## Tests
 
 `npm test` needs a PostgreSQL where `TEST_DATABASE_ADMIN_URL` (default `postgres://platform_owner:dev-only-local@localhost:5432/postgres`) can create databases. Each test file gets its own database.

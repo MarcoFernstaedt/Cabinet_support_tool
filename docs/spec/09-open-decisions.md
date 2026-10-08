@@ -335,3 +335,11 @@ The product owner asked that the scanner's hardware IDs and the sync ports be se
   - The address stays per site, since it is a site's own machine. Changes are Admin only, with step-up and an audit entry.
   - Cabinets still accept only a private address on their own network, and only the ports these settings list for the sync cabinet.
 - **Not made dynamic:** the platform server's address and port, and the TCP ports allowed for tests to other targets. They stay in the cabinet's local configuration. The first is how a cabinet finds the server at all. The second is the spec's guard against using tests to scan a client's network; only the sync cabinet's ports were relaxed, by the earlier client decision.
+
+## Load test (done; repeat before going wide)
+
+The build plan asks for a load test of the agent API with 8,000 simulated agents polling before going wide. `server/test/load/agents.ts` does it with real certificates, held long polls, heartbeats, events and command round trips.
+
+On one 4-core development machine shared by the server, the database and the load generator, 8,000 agents ran for 10 minutes with no failures: heartbeat p95 18 ms, command delivery p95 13 ms (details in server/README.md). CI repeats a 1,000-agent version on every push.
+
+**Still to do (a rollout gate):** run it against the production hosting and database, with the load generator on a separate machine, once hosting is decided. The thresholds are in the tool (THRESHOLDS); confirm or change them.
