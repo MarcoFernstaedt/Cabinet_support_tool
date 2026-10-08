@@ -88,9 +88,23 @@ public sealed class AgentApiClient : IDisposable
     /// Downloads an approved package to <paramref name="destination"/>, streaming it to disk. The server serves it only while a
     /// package.install command for this cabinet is open. The size is capped; the hash is checked again by the broker.
     /// </summary>
-    public async Task DownloadPackageAsync(Guid packageId, string destination, long maxBytes, CancellationToken token)
+    public Task DownloadPackageAsync(Guid packageId, string destination, long maxBytes, CancellationToken token) =>
+        DownloadAsync($"/agent/v1/packages/{packageId:D}", destination, maxBytes, "package", token);
+
+    /// <summary>An offered agent release's manifest (exactly as signed) and signature. Served only while this cabinet is offered it.</summary>
+    public Task<UpdateResponse> GetUpdateAsync(string version, CancellationToken token) =>
+        SendAsync<UpdateResponse>(HttpMethod.Get, $"/agent/v1/updates/{Uri.EscapeDataString(version)}", null, "update-response", token);
+
+    /// <summary>The offered release's package zip, streamed to disk with a size cap. The broker checks it; this side does not.</summary>
+    public Task DownloadUpdateAsync(string version, string destination, long maxBytes, CancellationToken token) =>
+        DownloadAsync($"/agent/v1/updates/{Uri.EscapeDataString(version)}/package", destination, maxBytes, "release", token);
+
+    public Task<ServerAck> PostUpgradeStatusAsync(UpgradeStatus status, CancellationToken token) =>
+        SendAsync<ServerAck>(HttpMethod.Post, "/agent/v1/upgrade-status", status, "server-ack", token);
+
+    private async Task DownloadAsync(string path, string destination, long maxBytes, string what, CancellationToken token)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, $"/agent/v1/packages/{packageId:D}");
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
         HttpResponseMessage response;
@@ -99,9 +113,9 @@ public sealed class AgentApiClient : IDisposable
         using (response)
         {
             if (!response.IsSuccessStatusCode)
-                throw new AgentApiException(response.StatusCode, "download_refused", $"The platform server refused the package download ({(int)response.StatusCode}).");
+                throw new AgentApiException(response.StatusCode, "download_refused", $"The platform server refused the {what} download ({(int)response.StatusCode}).");
             if (response.Content.Headers.ContentLength is > 0 and var length && length > maxBytes)
-                throw new AgentApiException(response.StatusCode, "too_large", "The package is larger than any package may be.");
+                throw new AgentApiException(response.StatusCode, "too_large", $"The {what} is larger than allowed.");
             string temp = destination + ".part";
             try
             {
@@ -114,7 +128,7 @@ public sealed class AgentApiClient : IDisposable
                     while ((n = await body.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
                     {
                         total += n;
-                        if (total > maxBytes) throw new AgentApiException(response.StatusCode, "too_large", "The package is larger than any package may be.");
+                        if (total > maxBytes) throw new AgentApiException(response.StatusCode, "too_large", $"The {what} is larger than allowed.");
                         await file.WriteAsync(buffer.AsMemory(0, n), token).ConfigureAwait(false);
                     }
                 }

@@ -67,7 +67,7 @@ public sealed class TrustList
         return null;
     }
 
-    private static bool ChainsTo(X509Certificate2 leaf, X509Certificate2Collection extra, X509Certificate2 root)
+    internal static bool ChainsTo(X509Certificate2 leaf, X509Certificate2Collection extra, X509Certificate2 root)
     {
         using var chain = new X509Chain();
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
@@ -83,7 +83,7 @@ public sealed class TrustList
         return top.Certificate.RawData.AsSpan().SequenceEqual(root.RawData);
     }
 
-    private static string? Attribute(X500DistinguishedName name, string oid)
+    internal static string? Attribute(X500DistinguishedName name, string oid)
     {
         foreach (X500RelativeDistinguishedName rdn in name.EnumerateRelativeDistinguishedNames())
             if (rdn.GetSingleElementType().Value == oid) return rdn.GetSingleElementValue();

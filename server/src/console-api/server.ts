@@ -19,6 +19,8 @@ import { adminRoutes } from "./admin-routes.js";
 import { alertRoutes } from "./alert-routes.js";
 import { writeRoutes } from "./write-routes.js";
 import type { PackageStore } from "../services/packages.js";
+import type { ReleaseStore } from "../services/releases.js";
+import { upgradeRoutes } from "./upgrade-routes.js";
 import { ResultStream } from "./stream.js";
 import { manageRoutes } from "./manage-routes.js";
 
@@ -31,6 +33,8 @@ export interface ConsoleApiOptions {
   stream: ResultStream;
   /** The software library's store; omitted in tests that do not upload packages. */
   packages?: PackageStore;
+  /** The update store for signed agent releases; omitted in tests that add none. */
+  releases?: ReleaseStore;
   /** The built console (console/dist). Omitted in API-only tests. */
   staticDir?: string;
   /** Fixed session timeouts for tests; otherwise they come from the platform settings. */
@@ -134,6 +138,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(alertRoutes, { ...o, guards });
   await app.register(writeRoutes, { ...o, guards });
   await app.register(manageRoutes, { ...o, guards });
+  await app.register(upgradeRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {
     const user = await guards.role(request, "tier1");
     o.stream.attach(user, request, reply, async () => loadSession(o.pool, cookie(request), await policy(), false));

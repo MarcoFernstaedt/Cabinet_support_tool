@@ -183,6 +183,79 @@ export interface SymptomMatch {
 }
 
 /**
+ * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
+ */
+export interface UpgradeKeys {
+  version: number;
+  /**
+   * @maxItems 2
+   */
+  keys: {
+    /**
+     * SHA-256 of the key's DER SubjectPublicKeyInfo, lower-case hex.
+     */
+    keyId: string;
+    name: string;
+    /**
+     * Base64 of the DER SubjectPublicKeyInfo of an ECDSA P-256 key.
+     */
+    publicKey: string;
+  }[];
+  /**
+   * @maxItems 2
+   */
+  publishers: {
+    commonName: string;
+    organization: string;
+    /**
+     * SHA-256 of the pinned root certificate (DER).
+     */
+    root: string;
+    rootFile: string;
+  }[];
+}
+
+/**
+ * What a signed agent release contains (docs/spec/07-upgrade-channel.md "Package format"). The build pipeline writes it and has its exact bytes signed by the release key in the KMS; the agent checks that signature against the public key compiled into it before it reads anything else. product stops a signature made for something else from being taken as an agent release.
+ */
+export interface UpgradeManifest {
+  product: "mashura-cabinet-agent";
+  /**
+   * The version this release installs. Always higher than any earlier release: a rollback ships older code under a higher number.
+   */
+  version: string;
+  /**
+   * The oldest installed version this release may upgrade.
+   */
+  minimumVersion: string;
+  /**
+   * SHA-256 of the package zip.
+   */
+  sha256: string;
+  sizeBytes: number;
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  releasedAt: string;
+  notes?: string;
+}
+
+/**
+ * The detached signature over a release manifest's exact bytes: ECDSA P-256 over the SHA-256 of the manifest, DER-encoded, made by the release key in the KMS. keyId names which of the agent's compiled-in keys made it (the SHA-256 of that key's SubjectPublicKeyInfo), so a second, future key can be added before it is used.
+ */
+export interface UpgradeSignature {
+  /**
+   * Lower-case hex SHA-256 digest.
+   */
+  keyId: string;
+  algorithm: "ecdsa-p256-sha256";
+  /**
+   * Base64 of the DER-encoded ECDSA signature (at most 72 bytes).
+   */
+  signature: string;
+}
+
+/**
  * The Alerts list's filters, from the query string.
  */
 export interface AlertFilter {
@@ -234,6 +307,17 @@ export interface AuditFilter {
   to?: string;
   before?: string;
   limit?: string;
+}
+
+/**
+ * Marks a cabinet as one of the in-office cabinets, which form batch 2 of every staged agent rollout.
+ */
+export interface CabinetInOffice {
+  inOffice: boolean;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -433,6 +517,41 @@ export interface PlatformSettings {
 }
 
 /**
+ * Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key.
+ */
+export interface ReleaseCreate {
+  /**
+   * Base64 of the manifest's exact bytes.
+   */
+  manifest: string;
+  signature: UpgradeSignature;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own.
+ */
+export interface RolloutStart {
+  /**
+   * Semantic version of the agent.
+   */
+  version: string;
+  /**
+   * The one cabinet in batch 1.
+   */
+  pilotCabinetId: string;
+  successRatePercent: number;
+  failureLimitPercent: number;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * The rules list's filters, from the query string.
  */
 export interface RuleFilter {
@@ -590,7 +709,13 @@ export interface StepUpRequest {
     | "settings.update"
     | "security_alert.resolve"
     | "rule.suppress"
-    | "rule.renew";
+    | "rule.renew"
+    | "cabinet.in_office"
+    | "release.add"
+    | "rollout.start"
+    | "rollout.pause"
+    | "rollout.resume"
+    | "rollout.stop";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -894,7 +1019,7 @@ export interface Event {
 }
 
 /**
- * The server's answer to a heartbeat: its time, and the settings the agent's background monitors use. Data only; the server can never send a command this way.
+ * The server's answer to a heartbeat: its time, the settings the agent's background monitors use, and, when this cabinet is in the current batch of a running rollout, the agent version it may upgrade to. Data only; the server can never send a command this way, and an offered upgrade is installed only if it passes every check against keys the server never holds.
  */
 export interface HeartbeatResponse {
   /**
@@ -906,6 +1031,15 @@ export interface HeartbeatResponse {
      * The scanner's hardware IDs set in the console for this cabinet (its own, else the fleet default); null when none.
      */
     hardwareIds: [string, ...string[]] | null;
+  };
+  /**
+   * An agent release this cabinet is offered. The agent downloads it and the broker verifies it (docs/spec/07-upgrade-channel.md); the agent ignores an offer that is not newer than itself.
+   */
+  upgrade?: {
+    /**
+     * Semantic version of the agent.
+     */
+    version: string;
   };
 }
 
@@ -987,6 +1121,49 @@ export interface ServerAck {
    * UTC time, ISO 8601, always ending in Z.
    */
   serverTime: string;
+}
+
+/**
+ * GET /agent/v1/updates/{version}: the release's manifest exactly as signed (base64, so not one byte changes in transit) and its detached signature. The package zip itself is GET /agent/v1/updates/{version}/package. The server answers only a cabinet the current batch of a running rollout has offered this version to. The agent trusts none of it until the broker has checked the signature against its own compiled-in key.
+ */
+export interface UpdateResponse {
+  /**
+   * Semantic version of the agent.
+   */
+  version: string;
+  /**
+   * Base64 of the manifest's exact bytes (at most 4 KB).
+   */
+  manifest: string;
+  signature: UpgradeSignature;
+}
+
+/**
+ * POST /agent/v1/upgrade-status: how an offered upgrade ended on this cabinet (docs/spec/07-upgrade-channel.md step 7). succeeded: the new version is running and has checked in. refused: a check failed and nothing was installed; check names exactly which. rolled_back: it was installed but did not check in within 5 minutes (or could not be put in place), so the updater restored the old version. failed: it could not be attempted (the download failed, the broker was unreachable).
+ */
+export interface UpgradeStatus {
+  /**
+   * The version that was offered.
+   */
+  version: string;
+  /**
+   * The version that was running when the upgrade started.
+   */
+  fromVersion: string;
+  outcome: "succeeded" | "refused" | "rolled_back" | "failed";
+  /**
+   * Which step of an agent upgrade failed (docs/spec/07-upgrade-channel.md), in the order they run: download; manifest_signature (against the compiled-in key); manifest (does not match its contract or is not for this product); package_hash; version (not newer than the running one, or the running one is older than the release's minimum); authenticode (a binary is not signed by the agent's publisher); install (the files could not be put in place); check_in (the new version did not reach the server within 5 minutes).
+   */
+  check?:
+    | "download"
+    | "manifest_signature"
+    | "manifest"
+    | "package_hash"
+    | "version"
+    | "authenticode"
+    | "install"
+    | "check_in";
+  message: string;
 }
 
 /**

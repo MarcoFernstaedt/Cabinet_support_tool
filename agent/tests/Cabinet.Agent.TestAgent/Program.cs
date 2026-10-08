@@ -5,6 +5,7 @@ using Cabinet.Agent.Core.Helpers;
 using Cabinet.Agent.Core.Monitoring;
 using Cabinet.Agent.Core.Server;
 using Cabinet.Agent.Core.Packages;
+using Cabinet.Agent.Core.Upgrades;
 using Cabinet.Agent.Core.Writes;
 using Cabinet.Agent.TestAgent;
 
@@ -17,6 +18,9 @@ using Cabinet.Agent.TestAgent;
 // Writes run through the agent's real broker logic (safety net, snapshots, timers, package checks) over an
 // in-memory firewall and network. TEST_SAFETY_NET_SECONDS shortens the safety-net window; TEST_TRUST_DIR
 // replaces the trusted publisher list (so tests can sign packages with their own CA); TEST_READ_ONLY=1 installs it read-only.
+// Upgrades run through the agent's real download, broker check and journal; TEST_UPGRADE_TRUST_DIR holds the release keys
+// (laid out like contracts/trust/upgrade) and the certificates the simulated Authenticode reads; TEST_UPGRADE_OUTCOME=rollback
+// makes the simulated updater restore the old version. TEST_AGENT_VERSION sets the version the agent reports (default 0.2.0).
 if (args.Length is < 3 or > 4) { Console.Error.WriteLine("usage: test-agent <serverUrl> <platformCaPem> <stateDir> [contractsDir]"); return 2; }
 string? examples = args.Length == 4 ? Path.Combine(args[3], "examples", "operations") : null;
 var server = new Uri(args[0]);
@@ -40,6 +44,12 @@ var writes = new BrokerWrites(firewall, new MemoryNetwork(), safetyNet, firewall
 var trust = Environment.GetEnvironmentVariable("TEST_TRUST_DIR") is { Length: > 0 } trustDir ? TrustList.FromFolder(trustDir) : TrustList.Compiled;
 var installer = new PackageInstaller(Path.Combine(state, "downloads"), Path.Combine(state, "staging"), trust, new SimulatedPackagePlatform(Log), Log);
 var packages = new PackageDownloads(Path.Combine(state, "downloads"));
+string agentVersion = Environment.GetEnvironmentVariable("TEST_AGENT_VERSION") is { Length: > 0 } v ? v : "0.2.0";
+string? upgradeTrustDir = Environment.GetEnvironmentVariable("TEST_UPGRADE_TRUST_DIR") is { Length: > 0 } u ? u : null;
+UpgradeTrust upgradeTrust = upgradeTrustDir is null ? UpgradeTrust.Compiled : UpgradeTrust.FromFolder(upgradeTrustDir);
+var journal = new UpgradeJournalStore(Path.Combine(state, "broker", "upgrade.json"));
+var upgradeBroker = new UpgradeBroker(new ReleaseVerifier(upgradeTrust, new MarkerAuthenticode(upgradeTrustDir ?? state)), journal, Path.Combine(state, "downloads"),
+    Path.Combine(state, "staging-upgrade"), agentVersion, new SimulatedUpdater(journal, Environment.GetEnvironmentVariable("TEST_UPGRADE_OUTCOME") == "rollback", Log), clock, Log);
 MonitorHost? monitorHost = null;
 string simulate = Path.Combine(state, "simulate");
 Directory.CreateDirectory(simulate);
@@ -55,7 +65,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
             .Register<EmptyParams, SystemInfoOutput>(Catalog.SystemInfo, (_, _) => Task.FromResult(new SystemInfoOutput
             {
                 Hostname = "TEST-AGENT", OsVersion = Environment.OSVersion.VersionString, OsBuild = Environment.OSVersion.Version.Build.ToString(),
-                UptimeSeconds = Environment.TickCount64 / 1000, AgentVersion = "0.2.0", ReadOnlyMode = c.ReadOnlyMode, CabinetRole = c.CabinetRole, SerialNumber = null,
+                UptimeSeconds = Environment.TickCount64 / 1000, AgentVersion = agentVersion, ReadOnlyMode = c.ReadOnlyMode, CabinetRole = c.CabinetRole, SerialNumber = null,
             }))
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, new NetworkTester(c).RunAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, (_, _) => Task.FromResult(firewall.Read() with
@@ -69,10 +79,12 @@ var connection = new AgentConnection(new AgentConnectionOptions
     Fingerprints = () => new EnrollFingerprints
     {
         Hostname = "TEST-AGENT", SerialNumber = "TEST-SERIAL", MacAddresses = [], ProvisionedClient = null, ProvisionedSite = null,
-        OnlineSince = DateTimeOffset.UtcNow.AddMinutes(-Environment.TickCount64 / 60000), OsVersion = "test", AgentVersion = "0.2.0",
+        OnlineSince = DateTimeOffset.UtcNow.AddMinutes(-Environment.TickCount64 / 60000), OsVersion = "test", AgentVersion = agentVersion,
     },
-    AgentVersion = "0.2.0", UptimeSeconds = () => Environment.TickCount64 / 1000, Log = Log,
+    AgentVersion = agentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = Log,
     Events = events, Settings = settings, EventSendInterval = TimeSpan.FromMilliseconds(500), Packages = packages,
+    Upgrades = new UpgradeCoordinator(Path.Combine(state, "downloads"), agentVersion, journal, Path.Combine(state, "check-in.json"), Path.Combine(state, "upgrade-reported"),
+        (version, _) => { var (_, error) = upgradeBroker.Start(version); return Task.FromResult((error is null, error)); }, events, clock, Log),
     ConfirmSafetyNet = (id, _) => Task.FromResult(safetyNet.Confirm(id)), AfterWrite = () => monitorHost?.FirewallNow(),
     EnrollPollInterval = TimeSpan.FromSeconds(1), HeartbeatInterval = TimeSpan.FromSeconds(2),
     Backoff = new Backoff(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(3)),

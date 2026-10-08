@@ -1,0 +1,248 @@
+// Upgrades (docs/spec/06-console-spec.md "Admin screens"; docs/spec/07-upgrade-channel.md): add a signed agent release
+// to the update store, start a staged rollout with step-up, pause, resume or stop it, and see each cabinet's result.
+// A rollback is a new signed release with a higher version, rolled out the same way. The server enforces every rule
+// shown here, and each cabinet checks every release again with its own compiled-in key before it installs anything.
+import { useState } from "react";
+import { api, describeError, upload } from "../../lib/api";
+import { Link } from "../../lib/router";
+import { bytes, fullTime } from "../../lib/time";
+import { Breadcrumbs } from "../../components/Layout";
+import { Badge, Empty } from "../../components/ui";
+import { useStepUp } from "../../components/StepUp";
+import { useLoad } from "../Fleet";
+
+interface Release { version: string; minimumVersion: string; sha256: string; sizeBytes: number; releasedAt: string; notes: string | null; state: string; refusal: string | null;
+  keyId: string; addedBy: { id: string; name: string }; addedAt: string }
+interface BatchCount { batch: number; total: number; succeeded: number; failed: number; offered: number; pending: number; skipped: number }
+interface Rollout { id: string; version: string; state: "running" | "paused" | "completed" | "stopped"; currentBatch: number; successRatePercent: number; failureLimitPercent: number;
+  startedBy: { id: string; name: string }; startedAt: string; pausedReason: string | null; finishedAt: string | null; batches: BatchCount[] }
+interface Target { cabinetId: string; cabinet: string; site: string; client: string; batch: number; state: string; fromVersion: string | null; agentVersion: string | null;
+  offeredAt: string | null; finishedAt: string | null; outcome: string | null; check: string | null; message: string | null; inOffice: boolean }
+interface Candidate { id: string; name: string; site: string; client: string; agentVersion: string | null; inOffice: boolean; online: boolean }
+
+const BATCH = ["", "One cabinet", "In-office cabinets", "About 5% of the field", "Everyone else"];
+const ROLLOUT_TONE: Record<Rollout["state"], ["ok" | "warn" | "crit" | "info" | "off", string]> = {
+  running: ["info", "Running"], paused: ["warn", "Paused"], completed: ["ok", "Completed"], stopped: ["off", "Stopped"],
+};
+const RELEASE_TONE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
+  awaiting_package: ["warn", "Waiting for its package"], ready: ["ok", "Ready"], refused: ["crit", "Refused"],
+};
+const TARGET_TONE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
+  pending: ["off", "Waiting"], offered: ["info", "Offered"], succeeded: ["ok", "Upgraded"], failed: ["crit", "Failed"], skipped: ["off", "Skipped (offline)"],
+};
+const CHECK: Record<string, string> = {
+  download: "download", manifest_signature: "manifest signature", manifest: "manifest", package_hash: "package hash", version: "version",
+  authenticode: "Authenticode signature", install: "install", check_in: "check-in within 5 minutes",
+};
+
+/** Base64 of a file's exact bytes: the manifest is sent exactly as it was signed. */
+async function base64Of(file: File): Promise<string> {
+  const data = new Uint8Array(await file.arrayBuffer());
+  let text = "";
+  for (let i = 0; i < data.length; i += 0x8000) text += String.fromCharCode(...data.subarray(i, i + 0x8000));
+  return btoa(text);
+}
+
+export function Upgrades() {
+  const releases = useLoad<Release[]>("/api/admin/releases");
+  const rollouts = useLoad<Rollout[]>("/api/admin/rollouts");
+  const candidates = useLoad<Candidate[]>("/api/admin/upgrade-candidates");
+  const step = useStepUp();
+  const [done, setDone] = useState<{ ok: boolean; text: string } | null>(null);
+  const after = (text: string, ok = true) => { setDone({ ok, text }); releases.reload(); rollouts.reload(); candidates.reload(); };
+  const active = rollouts.data?.find(r => r.state === "running" || r.state === "paused") ?? null;
+
+  const change = (r: Rollout, action: "pause" | "resume" | "stop") => step.ask(`rollout.${action}`, r.id,
+    <><p>{action === "pause" ? "Pause" : action === "resume" ? "Resume" : "Stop"} the rollout of agent <strong>{r.version}</strong>.</p>
+      {action === "resume" && r.pausedReason && <p className="notice warn">{r.pausedReason} Resuming accepts the failures so far; new ones above the limit pause it again.</p>}
+      {action === "stop" && <p className="muted">No more cabinets are offered this version. Cabinets already upgraded keep it; to go back, publish the older code as a new release with a higher version.</p>}</>,
+    async token => { await api("POST", `/api/admin/rollouts/${r.id}/${action}`, { stepUpToken: token }); after(`Rollout of ${r.version} ${action === "stop" ? "stopped" : action + "d"}.`); });
+
+  return (
+    <div className="page">
+      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Upgrades" }]} />
+      <h1>Agent upgrades</h1>
+      <p className="muted">Releases are signed by the build pipeline with a key this server never holds; every cabinet checks the signature, the package hash, the version and the
+        Authenticode signature on every program before it installs. A cabinet whose new version does not check in within 5 minutes restores the old one on its own.</p>
+      {done && <p className={`notice ${done.ok ? "ok" : "error"}`} role="status">{done.text}</p>}
+
+      <section className="panel" aria-labelledby="rollouts">
+        <h2 id="rollouts">Rollouts</h2>
+        {rollouts.problem && <p className="error" role="alert">{rollouts.problem}</p>}
+        {rollouts.data && (rollouts.data.length === 0 ? <Empty>No rollouts yet.</Empty> : (
+          <table className="table">
+            <caption className="sr-only">Rollouts, newest first</caption>
+            <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Batches</th><th scope="col">Started</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+            <tbody>{rollouts.data.map(r => (
+              <tr key={r.id}>
+                <th scope="row"><Link to={`/admin/upgrades/${r.id}`}>{r.version}</Link></th>
+                <td><Badge tone={ROLLOUT_TONE[r.state][0]}>{ROLLOUT_TONE[r.state][1]}</Badge>{r.state === "running" && <span className="muted"> batch {r.currentBatch}: {BATCH[r.currentBatch]}</span>}
+                  {r.pausedReason && r.state === "paused" && <div className="small">{r.pausedReason}</div>}</td>
+                <td><ul className="plain small">{r.batches.map(b => <li key={b.batch}>{BATCH[b.batch]}: {b.succeeded} of {b.total} upgraded{b.failed ? `, ${b.failed} failed` : ""}{b.offered ? `, ${b.offered} in progress` : ""}{b.skipped ? `, ${b.skipped} skipped` : ""}</li>)}</ul></td>
+                <td><span title={fullTime(r.startedAt)}>{fullTime(r.startedAt)}</span> <span className="muted">by {r.startedBy.name}</span></td>
+                <td><div className="row gap wrap">
+                  {r.state === "running" && <button className="btn small" onClick={() => change(r, "pause")}>Pause</button>}
+                  {r.state === "paused" && <button className="btn small primary" onClick={() => change(r, "resume")}>Resume</button>}
+                  {(r.state === "running" || r.state === "paused") && <button className="btn small danger" onClick={() => change(r, "stop")}>Stop</button>}
+                </div></td>
+              </tr>))}
+            </tbody>
+          </table>))}
+      </section>
+
+      <StartRollout releases={releases.data ?? []} candidates={candidates.data ?? []} blocked={active} ask={step.ask} after={after} />
+      <AddRelease ask={step.ask} after={after} />
+
+      <section className="panel" aria-labelledby="releases">
+        <h2 id="releases">Releases in the update store</h2>
+        {releases.problem && <p className="error" role="alert">{releases.problem}</p>}
+        {releases.data && (releases.data.length === 0 ? <Empty>No releases yet.</Empty> : (
+          <table className="table compact">
+            <caption className="sr-only">Releases, newest first</caption>
+            <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Upgrades from</th><th scope="col">Package</th><th scope="col">Added</th></tr></thead>
+            <tbody>{releases.data.map(r => (
+              <tr key={r.version}>
+                <th scope="row">{r.version}{r.notes && <div className="small muted">{r.notes}</div>}</th>
+                <td><Badge tone={(RELEASE_TONE[r.state] ?? ["off", r.state])[0]}>{(RELEASE_TONE[r.state] ?? ["off", r.state])[1]}</Badge>{r.refusal && <div className="small">{r.refusal}</div>}</td>
+                <td>{r.minimumVersion} or later</td>
+                <td>{bytes(r.sizeBytes)} <code className="small" title={r.sha256}>{r.sha256.slice(0, 12)}…</code></td>
+                <td>{fullTime(r.addedAt)} <span className="muted">by {r.addedBy.name}</span></td>
+              </tr>))}
+            </tbody>
+          </table>))}
+      </section>
+
+      <InOffice candidates={candidates.data} problem={candidates.problem} ask={step.ask} after={after} />
+      {step.dialog}
+    </div>
+  );
+}
+
+type Ask = ReturnType<typeof useStepUp>["ask"];
+
+function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean) => void }) {
+  const [files, setFiles] = useState<{ manifest: File | null; signature: File | null; pkg: File | null }>({ manifest: null, signature: null, pkg: null });
+  const [busy, setBusy] = useState(false);
+  const [key, setKey] = useState(0);
+  const submit = async () => {
+    let manifest: string, signature: unknown, version: string;
+    try {
+      manifest = await base64Of(files.manifest!);
+      signature = JSON.parse(await files.signature!.text());
+      version = String((JSON.parse(await files.manifest!.text()) as { version?: unknown }).version ?? "");
+    } catch { after("The manifest and signature must be the JSON files the build pipeline produced.", false); return; }
+    ask("release.add", "fleet", <p>Add agent release <strong>{version}</strong> to the update store. Nothing is installed until you start a rollout.</p>, async token => {
+      const r = await api<{ version: string }>("POST", "/api/admin/releases", { manifest, signature, stepUpToken: token });
+      setBusy(true);
+      upload<Release>(`/api/admin/releases/${r.version}/package`, files.pkg!).then(
+        p => { after(`Release ${p.version} is ready: its signature and package hash check out.`); setFiles({ manifest: null, signature: null, pkg: null }); setKey(k => k + 1); },
+        e => after(`The server refused the package. ${describeError(e)}`, false)).finally(() => setBusy(false));
+    });
+  };
+  return (
+    <section className="panel" aria-labelledby="add-release">
+      <h2 id="add-release">Add a release</h2>
+      <p className="muted">The three files from the build pipeline. The server checks the signature against the release key and the package against the manifest.</p>
+      <form key={key} className="row gap wrap" onSubmit={e => { e.preventDefault(); void submit(); }}>
+        <label className="field inline"><span>Manifest (manifest.json)</span><input type="file" accept=".json,application/json" required onChange={e => setFiles(f => ({ ...f, manifest: e.target.files?.[0] ?? null }))} /></label>
+        <label className="field inline"><span>Signature (signature.json)</span><input type="file" accept=".json,application/json" required onChange={e => setFiles(f => ({ ...f, signature: e.target.files?.[0] ?? null }))} /></label>
+        <label className="field inline"><span>Package (.zip)</span><input type="file" accept=".zip,application/zip" required onChange={e => setFiles(f => ({ ...f, pkg: e.target.files?.[0] ?? null }))} /></label>
+        <button className="btn primary" type="submit" disabled={busy}>{busy ? "Uploading…" : "Add release"}</button>
+      </form>
+    </section>
+  );
+}
+
+function StartRollout({ releases, candidates, blocked, ask, after }: { releases: Release[]; candidates: Candidate[]; blocked: Rollout | null; ask: Ask; after: (t: string) => void }) {
+  const ready = releases.filter(r => r.state === "ready");
+  const [draft, setDraft] = useState({ version: "", pilot: "", success: "95", failure: "5" });
+  const version = draft.version || ready[0]?.version || "";
+  const older = (c: Candidate) => c.agentVersion !== version;
+  const pilots = candidates.filter(c => c.online && older(c));
+  const pilot = candidates.find(c => c.id === draft.pilot);
+  if (blocked) return (
+    <section className="panel" aria-labelledby="start">
+      <h2 id="start">Start a rollout</h2>
+      <p className="muted">The rollout of {blocked.version} is {blocked.state}. Finish or stop it before starting another.</p>
+    </section>);
+  return (
+    <section className="panel" aria-labelledby="start">
+      <h2 id="start">Start a rollout</h2>
+      {ready.length === 0 ? <Empty>No release is ready. Add one below.</Empty> : (
+        <form className="row gap wrap" onSubmit={e => {
+          e.preventDefault();
+          ask("rollout.start", "fleet", <><p>Roll out agent <strong>{version}</strong>, first to <strong>{pilot?.name}</strong> ({pilot?.client} / {pilot?.site}), then the in-office cabinets,
+            then about 5% of the field, then everyone else.</p><p className="muted">Each batch must reach {draft.success}% upgraded before the next starts; failures above {draft.failure}% of a batch pause it on their own.</p></>,
+            async token => {
+              await api("POST", "/api/admin/rollouts", { version, pilotCabinetId: draft.pilot, successRatePercent: Number(draft.success), failureLimitPercent: Number(draft.failure), stepUpToken: token });
+              after(`Rollout of ${version} started with ${pilot?.name}.`);
+            });
+        }}>
+          <label className="field inline"><span>Release</span><select value={version} onChange={e => setDraft(d => ({ ...d, version: e.target.value }))}>
+            {ready.map(r => <option key={r.version} value={r.version}>{r.version}</option>)}</select></label>
+          <label className="field inline"><span>First cabinet (batch 1)</span><select required value={draft.pilot} onChange={e => setDraft(d => ({ ...d, pilot: e.target.value }))}>
+            <option value="">Choose an online cabinet…</option>
+            {pilots.map(c => <option key={c.id} value={c.id}>{c.name} · {c.client} / {c.site} · {c.agentVersion ?? "unknown"}{c.inOffice ? " · in office" : ""}</option>)}</select></label>
+          <label className="field inline"><span>Success rate %</span><input inputMode="numeric" size={3} value={draft.success} onChange={e => setDraft(d => ({ ...d, success: e.target.value.replace(/\D/g, "") }))} /></label>
+          <label className="field inline"><span>Failure limit %</span><input inputMode="numeric" size={3} value={draft.failure} onChange={e => setDraft(d => ({ ...d, failure: e.target.value.replace(/\D/g, "") }))} /></label>
+          <button className="btn primary" type="submit" disabled={!draft.pilot}>Start rollout</button>
+        </form>)}
+    </section>
+  );
+}
+
+function InOffice({ candidates, problem, ask, after }: { candidates: Candidate[] | null; problem: string | null; ask: Ask; after: (t: string) => void }) {
+  const [filter, setFilter] = useState("");
+  const shown = (candidates ?? []).filter(c => c.inOffice || (filter.trim() && `${c.name} ${c.client} ${c.site}`.toLowerCase().includes(filter.trim().toLowerCase()))).slice(0, 50);
+  const toggle = (c: Candidate) => ask("cabinet.in_office", c.id, <p>{c.inOffice ? "Remove" : "Add"} <strong>{c.name}</strong> ({c.client} / {c.site}) {c.inOffice ? "from" : "to"} the in-office cabinets (batch 2 of every rollout).</p>,
+    async token => { await api("PUT", `/api/admin/cabinets/${c.id}/in-office`, { inOffice: !c.inOffice, stepUpToken: token }); after(`${c.name} is ${c.inOffice ? "no longer" : "now"} an in-office cabinet.`); });
+  return (
+    <section className="panel" aria-labelledby="office">
+      <h2 id="office">In-office cabinets</h2>
+      <p className="muted">Batch 2 of every rollout. Search to add a cabinet.</p>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      <label className="field inline"><span>Find a cabinet</span><input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name, client or site" /></label>
+      {shown.length === 0 ? <Empty>No in-office cabinets yet.</Empty> : (
+        <ul className="plain">{shown.map(c => (
+          <li key={c.id} className="row gap wrap"><Link to={`/cabinets/${c.id}`}>{c.name}</Link> <span className="muted">{c.client} / {c.site} · agent {c.agentVersion ?? "unknown"}</span>
+            {c.inOffice && <Badge tone="info">In office</Badge>}
+            <button className="btn small" onClick={() => toggle(c)}>{c.inOffice ? "Remove" : "Add to office"}</button></li>))}
+        </ul>)}
+    </section>
+  );
+}
+
+/** One rollout: every cabinet, its batch, and how its upgrade ended (with the exact failed check). */
+export function RolloutDetail({ id }: { id: string }) {
+  const { data, problem } = useLoad<Rollout & { targets: Target[] }>(`/api/admin/rollouts/${id}`);
+  const [only, setOnly] = useState("all");
+  const rows = (data?.targets ?? []).filter(t => only === "all" || t.state === only);
+  return (
+    <div className="page">
+      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Upgrades", to: "/admin/upgrades" }, { label: data ? `Rollout of ${data.version}` : "Rollout" }]} />
+      <h1>{data ? `Rollout of agent ${data.version}` : "Rollout"}</h1>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {data && <>
+        <p><Badge tone={ROLLOUT_TONE[data.state][0]}>{ROLLOUT_TONE[data.state][1]}</Badge> <span className="muted">started {fullTime(data.startedAt)} by {data.startedBy.name}; success rate {data.successRatePercent}%, failure limit {data.failureLimitPercent}%</span></p>
+        {data.pausedReason && data.state === "paused" && <p className="notice warn">{data.pausedReason}</p>}
+        <label className="field inline"><span>Show</span><select value={only} onChange={e => setOnly(e.target.value)}>
+          <option value="all">Every cabinet</option>{Object.entries(TARGET_TONE).map(([k, [, label]]) => <option key={k} value={k}>{label}</option>)}</select></label>
+        {rows.length === 0 ? <Empty>No cabinets.</Empty> : (
+          <table className="table compact">
+            <caption className="sr-only">Cabinets in this rollout</caption>
+            <thead><tr><th scope="col">Cabinet</th><th scope="col">Batch</th><th scope="col">Result</th><th scope="col">Versions</th><th scope="col">When</th></tr></thead>
+            <tbody>{rows.map(t => (
+              <tr key={t.cabinetId}>
+                <th scope="row"><Link to={`/cabinets/${t.cabinetId}`}>{t.cabinet}</Link> <span className="muted small">{t.client} / {t.site}</span></th>
+                <td>{t.batch}: {BATCH[t.batch]}</td>
+                <td><Badge tone={(TARGET_TONE[t.state] ?? ["off", t.state])[0]}>{(TARGET_TONE[t.state] ?? ["off", t.state])[1]}</Badge>
+                  {t.outcome && t.outcome !== "succeeded" && <div className="small">{t.outcome.replace("_", " ")}{t.check ? ` at the ${CHECK[t.check] ?? t.check} check` : ""}: {t.message}</div>}</td>
+                <td>{t.fromVersion ?? "unknown"} → now {t.agentVersion ?? "unknown"}</td>
+                <td className="small">{t.finishedAt ? fullTime(t.finishedAt) : t.offeredAt ? `offered ${fullTime(t.offeredAt)}` : "—"}</td>
+              </tr>))}
+            </tbody>
+          </table>)}
+      </>}
+    </div>
+  );
+}

@@ -6,6 +6,16 @@ Each item has a recommended default, written into the other specs, so coding can
 
 Cloud KMS with hardware backing, or an offline key. Default: cloud KMS. Also decides where the agent certificate issuing key lives, needed by milestone 2.
 
+Milestone 7 built the signing for both cloud options without choosing between them: `agent/install/New-AgentRelease.ps1` signs with AWS KMS (`-AwsKmsKeyId`) or Azure Key Vault / Managed HSM (`-AzureKeyId`), through their own command-line tools, sending only the manifest's hash. **Still needed before the first real release:**
+- which provider, and the P-256 signing key created in it, with only the build pipeline's identity allowed to sign;
+- the key's public half committed to `contracts/trust/upgrade/upgrade-keys.json` (`agent/install/New-UpgradeTrust.ps1 -AwsKmsKeyId …` or `-PublicKeyFile …` writes it).
+
+Until then that file holds no key, so agents built from the repository accept no upgrade at all.
+
+## Agent code-signing certificate (needed before the first real release)
+
+Every agent binary must be Authenticode-signed, and the agent checks its own files and every release against one pinned publisher. Needed: the organization's code-signing certificate (from a public CA, or an internal CA whose root is installed on cabinets), and its exact subject common name and organization. They go into `contracts/trust/upgrade` with the CA's root (`New-UpgradeTrust.ps1 -PublisherRootFile … -PublisherCommonName … -PublisherOrganization …`). Until then, agent builds skip the self-check and say so in their log, and refuse every release at the Authenticode check.
+
 ## Hosting (needed by milestone 2)
 
 On Mashura's own servers or in a cloud. Default: whichever your infrastructure team already runs and patches, since the server is the most valuable target in the system.
@@ -271,3 +281,32 @@ Decided here, open to change:
 - **Home page and client pages** count major alerts only. The site page and the cabinet sidebar still count every open alert, since they are about single cabinets.
 - **Creating a new issue type from Map to issue** is for Admins only (issue types are Admin-only in the spec). It uses one authenticator code for both the type and the rule. Tier 2 maps to the closest issue type or asks an Admin.
 
+
+## Choices made in Milestone 7 (confirm or change)
+
+- **Release files.**
+  - The manifest is JSON: product, version, minimum version, SHA-256 and size of the zip, release time, optional notes.
+  - The signature is ECDSA P-256 over the SHA-256 of the manifest's exact bytes, DER-encoded. Both AWS KMS and Azure Key Vault offer this key type.
+  - The signature file names its key by the SHA-256 of the public key. That lets an agent hold the current key and one future key (at most two), as the spec asks.
+- **Downloads.** The spec's `GET /agent/v1/updates/{version}` returns the manifest (base64, so it arrives byte for byte) and its signature. The zip is `GET /agent/v1/updates/{version}/package`. Both are served only to a cabinet the rollout has offered that version to, and each zip download is audited.
+- **Order of the agent's checks:**
+  1. the manifest's signature against the compiled-in key;
+  2. the zip's hash and size against the manifest;
+  3. the version (newer than the running one, and the running one at least the release's minimum);
+  4. Authenticode and the pinned publisher on every file Windows could load as code.
+  The release must also contain the broker, network service and updater programs. A refusal names its check, and is also sent as a security event, so Admins see it among the security alerts.
+- **The updater.**
+  - It is the installed version's own updater, copied into the broker's folder before it runs, so it can replace the program folder.
+  - The broker starts it as SYSTEM with one fixed word (`run` or `resume`) and no paths.
+  - The previous version is kept as `Program Files\Mashura\CabinetAgent.previous` until the next upgrade.
+  - "Checked in" means the new network service reached the server with a heartbeat after the install.
+  - Every step is written to a journal first. If the cabinet restarts mid-upgrade, the broker finishes or undoes it at start-up.
+- **Batches.** Batch 1 is one cabinet the Admin picks. Batch 2 is the cabinets an Admin has marked "in office" (a flag on the Upgrades screen). Batch 3 is 5% of the remaining cabinets, rounded up and picked at random. Batch 4 is the rest. Empty batches are skipped. Cabinets already on that version or newer are left out.
+- **Thresholds** are chosen per rollout. The defaults are 95% success and a 5% failure limit; the success rate cannot be set below 50% or the failure limit above 50%.
+  - Cabinets that are offline do not count against a batch's success rate. After 24 hours they are skipped, and they are still offered the version if they come back while the rollout runs.
+  - An offered cabinet that reports nothing within 30 minutes counts as failed.
+  - Resuming after an automatic pause accepts the failures so far. Only new failures count toward the limit again.
+- **One rollout at a time.** "Roll back" in the console is **Stop**: no more cabinets are offered the version. Going back means publishing the older code as a new release with a higher version and rolling that out, as the spec says. The server refuses any release whose version is not higher than every earlier one.
+- **The self-check** runs in the network service at start-up and daily, over every binary in the program folder. It reports changed, unsigned or wrongly signed files, and missing service programs, as a security event (`self_check`).
+- **The server's update store** keeps each manifest in the database and the zip read-only under `data/releases` (`RELEASE_DIR`). Uploads are checked against the keys in `contracts/trust/upgrade`. `UPGRADE_KEYS_DIR` points elsewhere for tests and refuses to run in production. An upload with a bad signature raises a security alert. Only the Admin who added a release may upload its package.
+- **Release tooling** is PowerShell, so it runs where the Windows build signs the binaries. It uses .NET's own cryptography and the cloud providers' command-line tools, and adds no dependencies. The `-DevKeyFile` key and `-p:UpgradeTrustDir` exist for test builds only.

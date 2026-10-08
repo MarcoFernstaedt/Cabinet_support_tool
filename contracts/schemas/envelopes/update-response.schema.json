@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/update-response.schema.json",
+  "title": "update-response",
+  "description": "GET /agent/v1/updates/{version}: the release's manifest exactly as signed (base64, so not one byte changes in transit) and its detached signature. The package zip itself is GET /agent/v1/updates/{version}/package. The server answers only a cabinet the current batch of a running rollout has offered this version to. The agent trusts none of it until the broker has checked the signature against its own compiled-in key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "manifest",
+    "signature"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "manifest": {
+      "description": "Base64 of the manifest's exact bytes (at most 4 KB).",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 5464,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "signature": {
+      "$ref": "../agent/upgrade-signature.schema.json"
+    }
+  }
+}

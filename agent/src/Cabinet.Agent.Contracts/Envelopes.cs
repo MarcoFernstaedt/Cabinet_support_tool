@@ -25,6 +25,8 @@ public sealed record ResultError
     /// <summary>One of <see cref="Catalog.RejectionCodes"/> or <see cref="Catalog.FailureCodes"/>.</summary>
     public required string Code { get; init; }
     public required string Message { get; init; }
+    /// <summary>Only in a broker's answer to an upgrade: which check refused the release.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public UpgradeCheck? Check { get; init; }
 }
 
 public sealed record Result
@@ -108,6 +110,8 @@ public sealed record HeartbeatResponse
 {
     public required DateTimeOffset ServerTime { get; init; }
     public required HeartbeatScanner Scanner { get; init; }
+    /// <summary>An agent release this cabinet is offered by a running rollout.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public UpgradeOffer? Upgrade { get; init; }
 }
 
 public sealed record CommandsResponse

@@ -80,4 +80,18 @@ public static class AgentPaths
     public static string Staging => Path.Combine(DataRoot, "staging");
     /// <summary>Where the network service downloads a package; the broker copies it out before checking it.</summary>
     public static string Downloads => Path.Combine(DataRoot, "downloads");
+    /// <summary>The agent's program folder, one subfolder per program (as the installer and every release lay it out).</summary>
+    public static string ProgramFolder { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Mashura", "CabinetAgent");
+    /// <summary>The previous version, kept by the updater while a new one proves itself (and until the next upgrade).</summary>
+    public static string ProgramBackup { get; } = ProgramFolder + ".previous";
+    /// <summary>The broker's copy of a release being checked and installed (inside staging, so only SYSTEM and administrators can write it).</summary>
+    public static string UpgradeStaging => Path.Combine(Staging, "upgrade");
+    public static string UpgradeFiles => Path.Combine(UpgradeStaging, "files");
+    /// <summary>The updater's journal: in the broker's folder, which the network service may only read.</summary>
+    public static string UpgradeJournal => Path.Combine(Broker, "upgrade.json");
+    /// <summary>The updater runs from a copy here, so it can replace the program folder it came from.</summary>
+    public static string UpdaterCopy => Path.Combine(Broker, "updater", "Cabinet.Agent.Updater.exe");
+    /// <summary>Written by the network service after each heartbeat that reaches the server; read by the updater.</summary>
+    public static string CheckIn => Path.Combine(State, "check-in.json");
+    public static string UpgradeReported => Path.Combine(State, "upgrade-reported");
 }

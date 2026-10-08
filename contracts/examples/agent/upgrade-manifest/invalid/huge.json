@@ -1,0 +1,9 @@
+{
+  "product": "mashura-cabinet-agent",
+  "version": "0.2.0",
+  "minimumVersion": "0.1.0",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sizeBytes": 10737418240,
+  "releasedAt": "2026-10-08T12:00:00Z",
+  "notes": "Adds the upgrade channel."
+}

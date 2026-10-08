@@ -1,0 +1,10 @@
+{
+  "upgradeId": "7d0b7c35-2f6e-4a3f-9f0e-5a7c1b2d3e4f",
+  "version": "0.2.0",
+  "fromVersion": "0.1.0",
+  "phase": "rolled_back",
+  "startedAt": "2026-10-08T12:00:00Z",
+  "finishedAt": "2026-10-08T12:07:00Z",
+  "check": "check_in",
+  "message": "Version 0.2.0 did not check in within 5 minutes; 0.1.0 was restored."
+}

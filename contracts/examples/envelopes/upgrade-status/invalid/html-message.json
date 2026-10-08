@@ -1,0 +1,7 @@
+{
+  "version": "0.2.0",
+  "fromVersion": "0.1.0",
+  "outcome": "failed",
+  "check": "download",
+  "message": "x\u0000<img src=x onerror=alert(1)>"
+}

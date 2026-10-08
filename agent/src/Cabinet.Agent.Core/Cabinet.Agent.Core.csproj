@@ -7,6 +7,7 @@
   -->
   <PropertyGroup>
     <RootNamespace>Cabinet.Agent.Core</RootNamespace>
+    <UpgradeTrustDir Condition="'$(UpgradeTrustDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\contracts\trust\upgrade</UpgradeTrustDir>
   </PropertyGroup>
   <ItemGroup>
     <!-- JsonSchema.Net: .NET has no JSON Schema validator, and every input must be
@@ -23,6 +24,10 @@
     <EmbeddedResource Include="..\..\..\contracts\schemas\**\*.schema.json" LogicalName="schemas/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- The trusted publisher list and its pinned roots: compiled in, so only a signed agent upgrade can change them. -->
     <EmbeddedResource Include="..\..\..\contracts\trust\*.json;..\..\..\contracts\trust\*.pem" LogicalName="trust/%(Filename)%(Extension)" />
+    <!-- The release signing keys and the agent's own code-signing publisher (docs/spec/07-upgrade-channel.md), compiled in
+         the same way. Release builds take them from contracts/trust/upgrade. A test build (Windows CI) may name another folder
+         with -p:UpgradeTrustDir=..., holding a throwaway key and certificate made for that run; it is never set for a release. -->
+    <EmbeddedResource Include="$(UpgradeTrustDir)\upgrade-keys.json;$(UpgradeTrustDir)\*.pem" LogicalName="upgrade/%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />

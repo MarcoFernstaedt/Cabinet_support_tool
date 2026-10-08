@@ -1,0 +1,9 @@
+{
+  "requestId": "0f8fad5b-d9cb-469f-a165-70867728950e",
+  "status": "failed",
+  "error": {
+    "code": "signature_invalid",
+    "message": "x",
+    "check": "skip_all_checks"
+  }
+}

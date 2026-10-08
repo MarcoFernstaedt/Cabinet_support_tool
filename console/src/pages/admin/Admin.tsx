@@ -23,6 +23,7 @@ export function AdminHome() {
         <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Create, rename and remove clients and sites.</span></Link></li>
         <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Create and edit issue types; review, renew and disable suppressions.</span></Link></li>
         <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
+        <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Add signed agent releases, run staged rollouts, pause or stop them, and see each cabinet's result.</span></Link></li>
         <li><Link to="/admin/scanner"><strong>Scanner default</strong><span>The fingerprint scanner's hardware IDs for the whole fleet.</span></Link></li>
         <li><Link to="/admin/settings"><strong>Settings</strong><span>Offline alerts, sign-in timeouts, two-factor for everyone, how long data is kept.</span></Link></li>
       </ul>

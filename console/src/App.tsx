@@ -15,6 +15,7 @@ import { UserActivity, Users } from "./pages/admin/Users";
 import { ClientsAndSites, IssueTypesAndSuppressions } from "./pages/admin/Organization";
 import { FleetSafety, PlatformSettings, SecurityAlerts } from "./pages/admin/Safety";
 import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
+import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
 import { Account } from "./pages/Account";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
@@ -76,6 +77,8 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/scanner", path)) return <ScannerDefault />;
   if (match("/admin/audit", path)) return <AuditLog />;
   if (match("/admin/software", path)) return <SoftwareLibrary />;
+  if (match("/admin/upgrades", path)) return <Upgrades />;
+  if ((m = match("/admin/upgrades/:id", path))) return <RolloutDetail id={m.id!} />;
   if (match("/admin/users", path)) return <Users />;
   if ((m = match("/admin/users/:id", path))) return <UserActivity id={m.id!} />;
   if (match("/admin/online", path)) return <OnlineNow />;

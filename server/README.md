@@ -85,6 +85,24 @@ Each new event is checked against the live symptom rules in the transaction that
 - **Daily jobs** (`src/services/maintenance.ts`): the audit chain check and retention. **Every minute:** offline alerts and expiring suppressions.
 - **Settings** (`src/services/settings.ts`) are read through a 5-second cache on every request, because session timeouts come from them.
 
+## Signed upgrades (Milestone 7)
+
+docs/spec/07-upgrade-channel.md; `src/services/releases.ts`, `src/services/rollouts.ts`, `src/console-api/upgrade-routes.ts`.
+
+- **The update store.** An Admin adds a release: the manifest exactly as the pipeline signed it, its signature, then the zip. The server checks the signature against `contracts/trust/upgrade` (the keys agents compile in), the zip's hash and size against the manifest, and that the version is higher than every earlier release.
+  - The server never holds the signing key and cannot make a release an agent accepts.
+  - A bad signature raises a security alert.
+- **Staged rollouts** (one at a time, step-up, each step audited):
+  - Batch 1: one cabinet. Batch 2: in-office cabinets. Batch 3: 5% of the rest. Batch 4: everyone else.
+  - The heartbeat answer offers the version to cabinets in the batches reached so far. The release is downloadable only by cabinets it was offered to.
+  - Agents report the outcome to `POST /agent/v1/upgrade-status`. A heartbeat on the new version also counts as success.
+  - A batch must reach its success rate before the next starts. Failures above the limit pause the rollout automatically. A cabinet silent for 30 minutes after its offer counts as failed. Offline cabinets are skipped after 24 hours.
+- **CLI:**
+  - `platform-admin release check|add|list`
+  - `platform-admin rollout start|list|show|pause|resume|stop`
+  - `platform-admin cabinet in-office <id> on|off`
+- `UPGRADE_KEYS_DIR` (tests only) points at another key folder; `RELEASE_DIR` sets the store.
+
 ## Console API
 
 The console listener runs when `CONSOLE_ORIGIN` is set. It is meant to sit behind the internal reverse proxy, reachable only on the internal network or VPN. It takes these environment variables:

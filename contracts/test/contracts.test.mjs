@@ -95,6 +95,28 @@ test("the trusted publisher list is valid, short, and pins roots whose files mat
   assert.ok(list.publishers.length <= 10, "shorter is safer (docs/spec/09-open-decisions.md)");
 });
 
+test("the upgrade keys compiled into the agent are public P-256 keys named by their own hash, and no private key is in the repository", async () => {
+  const { createHash, createPublicKey, X509Certificate } = await import("node:crypto");
+  const trustDir = join(SCHEMA_DIR, "..", "trust", "upgrade");
+  const list = JSON.parse(readFileSync(join(trustDir, "upgrade-keys.json"), "utf8"));
+  const validate = ajv.getSchema(ref("agent/upgrade-keys.schema.json"));
+  assert.equal(validate(list), true, JSON.stringify(validate.errors));
+  for (const k of list.keys) {
+    const der = Buffer.from(k.publicKey, "base64");
+    assert.equal(createHash("sha256").update(der).digest("hex"), k.keyId, `${k.name}: keyId is the SHA-256 of the key`);
+    const key = createPublicKey({ key: der, format: "der", type: "spki" });
+    assert.equal(key.asymmetricKeyType, "ec");
+    assert.equal(key.asymmetricKeyDetails?.namedCurve, "prime256v1", `${k.name}: P-256`);
+  }
+  for (const p of list.publishers) {
+    const cert = new X509Certificate(readFileSync(join(trustDir, p.rootFile)));
+    assert.equal(createHash("sha256").update(cert.raw).digest("hex"), p.root, `${p.commonName}: root file and pin agree`);
+  }
+  for (const dir of [trustDir, join(trustDir, "..")])
+    for (const f of readdirSync(dir, { withFileTypes: true }).filter(e => e.isFile()))
+      assert.ok(!readFileSync(join(dir, f.name), "utf8").includes("PRIVATE KEY"), `${f.name} must never hold a private key`);
+});
+
 test("the catalog, the operation name list and the operation files agree", () => {
   const common = JSON.parse(readFileSync(join(SCHEMA_DIR, "common.schema.json"), "utf8"));
   assert.deepEqual([...common.$defs.operationName.enum].sort(), [...opNames].sort());

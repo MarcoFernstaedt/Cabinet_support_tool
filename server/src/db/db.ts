@@ -29,7 +29,7 @@ export interface AuditEntry {
   actorKind: "user" | "agent" | "system";
   actorId: string;
   action: string;
-  targetKind?: "cabinet" | "site" | "client" | "user" | "enrollment" | "command" | "token" | "alert" | "rule" | "issue_type" | "package" | "security_alert";
+  targetKind?: "cabinet" | "site" | "client" | "user" | "enrollment" | "command" | "token" | "alert" | "rule" | "issue_type" | "package" | "security_alert" | "release" | "rollout";
   targetId?: string;
   outcome: "succeeded" | "failed" | "refused";
   /** Request details with secrets removed. Callers never put tokens, keys or passwords here. */

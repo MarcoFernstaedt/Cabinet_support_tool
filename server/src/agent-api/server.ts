@@ -18,6 +18,8 @@ import type { CommandNotifier } from "./notifier.js";
 import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
 import { raiseSecurityAlert } from "../services/security.js";
+import { releaseForAgent, releasePackageForAgent, type ReleaseStore } from "../services/releases.js";
+import { offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 
 export interface AgentApiOptions {
   pool: pg.Pool;
@@ -27,6 +29,8 @@ export interface AgentApiOptions {
   longPollMs?: number;
   /** The software library's store, for package downloads; omitted where no packages exist (some tests). */
   packages?: PackageStore;
+  /** The update store for signed agent releases; omitted where no releases exist (some tests). */
+  releases?: ReleaseStore;
   /** Enrollment submissions allowed per source address per hour. */
   enrollPerHour?: number;
   logger?: boolean;
@@ -175,10 +179,14 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
 
     scoped.post("/agent/v1/heartbeat", async request => {
       const cabinetId = request.cabinet!.id;
-      await recordHeartbeat(o.pool, cabinetId, envelopes.heartbeat.parse(request.body));
+      const heartbeat = envelopes.heartbeat.parse(request.body);
+      await recordHeartbeat(o.pool, cabinetId, heartbeat);
       await resolveOfflineFor(o.pool, cabinetId);
-      // The answer carries the settings the agent's monitors use: data only, never a command.
-      return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: await scannerIdsFor(o.pool, cabinetId) } });
+      // A running rollout that has reached this cabinet's batch offers it the release (or notes that it already runs it).
+      const upgrade = await transaction(o.pool, c => offerFor(c, cabinetId, heartbeat.agentVersion));
+      // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.
+      return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: await scannerIdsFor(o.pool, cabinetId) },
+        ...(upgrade ? { upgrade: { version: upgrade } } : {}) });
     });
 
     scoped.post("/agent/v1/events", async request => {
@@ -194,6 +202,30 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       await transaction(o.pool, c => audit(c, { actorKind: "agent", actorId: request.cabinet!.id, action: "package.download", targetKind: "cabinet", targetId: request.cabinet!.id,
         outcome: "succeeded", details: { packageId: request.params.packageId.toLowerCase(), size: file.size } }));
       return reply.type("application/octet-stream").header("Content-Length", String(file.size)).header("Cache-Control", "no-store").send(createReadStream(file.path));
+    });
+
+    // A signed agent release, only to a cabinet a rollout has offered it to: the manifest exactly as signed and its signature...
+    scoped.get<{ Params: { version: string } }>("/agent/v1/updates/:version", async (request, reply) => {
+      const release = await releaseForAgent(o.pool, request.cabinet!.id, request.params.version);
+      if (!release) return reply.code(404).send({ error: "not_found" });
+      return envelopes.updateResponse.parse({ version: request.params.version, ...release });
+    });
+
+    // ...and its package zip. The agent's broker checks all of it against its own compiled-in key before installing anything.
+    scoped.get<{ Params: { version: string } }>("/agent/v1/updates/:version/package", async (request, reply) => {
+      if (!o.releases) return reply.code(404).send({ error: "not_found" });
+      const file = await releasePackageForAgent(o.pool, o.releases, request.cabinet!.id, request.params.version);
+      if (!file) return reply.code(404).send({ error: "not_found" });
+      await transaction(o.pool, c => audit(c, { actorKind: "agent", actorId: request.cabinet!.id, action: "release.download", targetKind: "cabinet", targetId: request.cabinet!.id,
+        outcome: "succeeded", details: { version: request.params.version, size: file.size } }));
+      return reply.type("application/octet-stream").header("Content-Length", String(file.size)).header("Cache-Control", "no-store").send(createReadStream(file.path));
+    });
+
+    // How an offered upgrade ended: succeeded, refused (with the exact failed check), rolled back or failed.
+    scoped.post("/agent/v1/upgrade-status", async (request, reply) => {
+      const recorded = await recordUpgradeStatus(o.pool, request.cabinet!.id, envelopes.upgradeStatus.parse(request.body));
+      if (!recorded) return reply.code(404).send({ error: "not_found" });
+      return { serverTime: serverTime() };
     });
 
     scoped.post("/agent/v1/renew", async request => {

@@ -39,6 +39,23 @@ All writes run in the broker (`src/Cabinet.Agent.Core/Writes`, `src/Cabinet.Agen
   - The staging folder is always emptied. A failed check reports exactly which one (`hash_mismatch`, `signature_invalid`, `publisher_not_trusted`).
 - **Read-only cabinets** refuse every write in the command checks, before anything reaches the broker.
 
+## Signed upgrades and the self-check (Milestone 7)
+
+docs/spec/07-upgrade-channel.md. Code in `src/Cabinet.Agent.Core/Upgrades`, with the Windows parts in `src/Cabinet.Agent.Windows/Upgrades.cs` and the updater in `src/Cabinet.Agent.Updater`.
+
+- **What the agent trusts** is compiled in from `contracts/trust/upgrade`: the release signing key (and at most one future key) and the code-signing publisher with its pinned root. The server has no say. A test build can compile in another folder with `-p:UpgradeTrustDir=…`; release builds never do.
+- **An upgrade.**
+  1. The server offers a version in its heartbeat answer.
+  2. The network service downloads the manifest, its signature and the zip into `Downloads\agent-<version>`, then asks the broker to install that version. The request carries the version only, never a path.
+  3. The broker copies everything into `Staging\upgrade` and checks, in order: the manifest's signature, the zip's hash, the version, then Authenticode and the publisher on every binary. Any failure is reported with its exact check.
+  4. The broker records the release in `Broker\upgrade.json` and starts the updater from a copy in `Broker\updater`.
+  5. The updater stops both services, moves the program folder to `CabinetAgent.previous`, puts the new version in place and starts the services.
+  6. It waits up to 5 minutes for the new network service to check in (`State\check-in.json`, written after each heartbeat that reaches the server). Otherwise it puts the old version back and starts it.
+  7. The network service reports the outcome after the restart.
+- **Interrupted upgrades.** Every step is journaled first. If power is lost mid-upgrade, the broker restarts the updater at start-up to finish or undo it.
+- **Self-check.** At start-up and daily, the network service checks the Authenticode signature of every binary in its program folder against the pinned publisher, and sends a `self_check` security event for any mismatch. A build with no publisher compiled in (a developer build) says it cannot check itself.
+- **Making a release:** `install/Publish-CabinetAgent.ps1 -Version x.y.z`, sign the binaries, then `install/New-AgentRelease.ps1` (signs through AWS KMS or Azure Key Vault). `install/New-UpgradeTrust.ps1` writes the trust folder.
+
 ## Background monitors
 
 The network service runs these on its own and queues what they find (`src/Cabinet.Agent.Core/Monitoring`). They only read; none of them can change the cabinet.

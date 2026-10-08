@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/upgrade-status.schema.json",
+  "title": "upgrade-status",
+  "description": "POST /agent/v1/upgrade-status: how an offered upgrade ended on this cabinet (docs/spec/07-upgrade-channel.md step 7). succeeded: the new version is running and has checked in. refused: a check failed and nothing was installed; check names exactly which. rolled_back: it was installed but did not check in within 5 minutes (or could not be put in place), so the updater restored the old version. failed: it could not be attempted (the download failed, the broker was unreachable).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "fromVersion",
+    "outcome",
+    "message"
+  ],
+  "properties": {
+    "version": {
+      "description": "The version that was offered.",
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "fromVersion": {
+      "description": "The version that was running when the upgrade started.",
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "refused",
+        "rolled_back",
+        "failed"
+      ]
+    },
+    "check": {
+      "$ref": "../common.schema.json#/$defs/upgradeCheck"
+    },
+    "message": {
+      "allOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        {
+          "type": "string",
+          "maxLength": 1024
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "const": "succeeded"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "not": {
+          "required": [
+            "check"
+          ]
+        }
+      },
+      "else": {
+        "type": "object",
+        "required": [
+          "check"
+        ]
+      }
+    }
+  ]
+}

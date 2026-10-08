@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "keyId": "896b1352dfbebfd8e3d5d547231c75b6ed4f8708caea970f751c865972593dba",
+      "name": "oops",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q==",
+      "privateKey": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg"
+    }
+  ],
+  "publishers": []
+}

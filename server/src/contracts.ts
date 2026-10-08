@@ -49,6 +49,14 @@ import type {
   RuleFilter,
   PackageUpload,
   WritePause,
+  UpgradeKeys,
+  UpgradeManifest,
+  UpgradeSignature,
+  UpgradeStatus,
+  UpdateResponse,
+  ReleaseCreate,
+  RolloutStart,
+  CabinetInOffice,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -110,6 +118,15 @@ export const envelopes = {
   renewRequest: validator<RenewRequest>("renew-request", envelope("renew-request")),
   renewResponse: validator<RenewResponse>("renew-response", envelope("renew-response")),
   heartbeatResponse: validator<HeartbeatResponse>("heartbeat-response", envelope("heartbeat-response")),
+  upgradeStatus: validator<UpgradeStatus>("upgrade-status", envelope("upgrade-status")),
+  updateResponse: validator<UpdateResponse>("update-response", envelope("update-response")),
+} as const;
+
+/** The release files (docs/spec/07-upgrade-channel.md) and the keys they are checked against. */
+export const releaseFiles = {
+  manifest: validator<UpgradeManifest>("upgrade-manifest", ref("agent/upgrade-manifest.schema.json")),
+  signature: validator<UpgradeSignature>("upgrade-signature", ref("agent/upgrade-signature.schema.json")),
+  keys: validator<UpgradeKeys>("upgrade-keys", ref("agent/upgrade-keys.schema.json")),
 } as const;
 
 /** Shared definitions checked on their own, such as a stored rule's match. */
@@ -150,6 +167,9 @@ export const consoleBodies = {
   securityAlertFilter: validator<SecurityAlertFilter>("security-alert-filter", consoleBody("security-alert-filter")),
   securityAlertResolve: validator<SecurityAlertResolve>("security-alert-resolve", consoleBody("security-alert-resolve")),
   suppressionCreate: validator<SuppressionCreate>("suppression-create", consoleBody("suppression-create")),
+  releaseCreate: validator<ReleaseCreate>("release-create", consoleBody("release-create")),
+  rolloutStart: validator<RolloutStart>("rollout-start", consoleBody("rollout-start")),
+  cabinetInOffice: validator<CabinetInOffice>("cabinet-in-office", consoleBody("cabinet-in-office")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

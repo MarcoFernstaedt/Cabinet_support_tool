@@ -67,15 +67,19 @@ public sealed class BrokerRequestHandler
     private readonly OperationRegistry _registry;
     private readonly TimeSpan _timeout;
     private readonly Func<Guid, SafetyNetStatus>? _confirm;
+    private readonly Func<string, (JsonElement? Output, ResultError? Error)>? _upgrade;
 
     /// <param name="confirm">Answers a confirm from the safety net; null when this broker makes no changes.</param>
-    public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null, Func<Guid, SafetyNetStatus>? confirm = null)
+    /// <param name="upgrade">Verifies a downloaded agent release and starts the updater; null when this broker installs no upgrades.</param>
+    public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null, Func<Guid, SafetyNetStatus>? confirm = null,
+        Func<string, (JsonElement? Output, ResultError? Error)>? upgrade = null)
     {
         foreach (string name in registry.Names)
             if (!Operations.Contains(name)) throw new ArgumentException($"The broker may not run {name}.");
         _registry = registry;
         _timeout = timeout ?? OperationRunner.DefaultTimeout;
         _confirm = confirm;
+        _upgrade = upgrade;
     }
 
     /// <returns>The response bytes, or null when the request is unreadable and the connection should just close.</returns>
@@ -107,6 +111,16 @@ public sealed class BrokerRequestHandler
                 {
                     RequestId = requestId, Status = BrokerStatus.Succeeded, Output = JsonSerializer.SerializeToElement(status, ContractJson.Options),
                 });
+            }
+
+            if (request.Kind == BrokerRequestKind.Upgrade)
+            {
+                if (_upgrade is null) return Serialize(Failed(requestId, "unavailable", "This broker installs no upgrades."));
+                // Verifying a release reads and hashes the whole package and checks every binary: it runs off the pipe's thread.
+                var (started, failure) = await Task.Run(() => _upgrade(request.Version!), token).ConfigureAwait(false);
+                return Serialize(failure is null
+                    ? new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Succeeded, Output = started ?? JsonSerializer.SerializeToElement(new { started = true }) }
+                    : new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Failed, Error = failure });
             }
 
             // Writes take longer (an MSI install, a driver package): they get a longer limit.
@@ -177,6 +191,19 @@ public sealed class BrokerClient
         if (response.Status == BrokerStatus.Failed || !ContractSchemas.Instance.IsValid(ContractSchemas.Local("safety-net-status"), response.Output!.Value))
             throw new OperationFailedException("execution_failed", "The broker's safety-net answer does not match its contract.");
         return response.Output.Value.Deserialize<SafetyNetStatus>(ContractJson.Options)!;
+    }
+
+    /// <summary>Asks the broker to verify and install a downloaded agent release, named by version only.</summary>
+    /// <returns>Whether the updater started; otherwise the broker's error, with the check that refused the release.</returns>
+    public async Task<(bool Ok, ResultError? Error)> UpgradeAsync(string version, CancellationToken token)
+    {
+        try
+        {
+            BrokerResponse response = await SendAsync(new BrokerRequest { RequestId = Guid.NewGuid(), Kind = BrokerRequestKind.Upgrade, Version = version }, token)
+                .ConfigureAwait(false);
+            return response.Status == BrokerStatus.Succeeded ? (true, null) : (false, response.Error);
+        }
+        catch (OperationFailedException e) { return (false, new ResultError { Code = e.Code, Message = e.Message, Check = UpgradeCheck.Install }); }
     }
 
     /// <summary>Registers every broker operation in <paramref name="registry"/> as a forward to the broker.</summary>

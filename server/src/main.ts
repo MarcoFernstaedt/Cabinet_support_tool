@@ -12,15 +12,19 @@ import { SecretBox } from "./auth/secrets.js";
 import { checkOffline } from "./services/alerts.js";
 import { TrustList } from "./packages/trust.js";
 import { mkdirSync } from "node:fs";
+import { ReleaseKeys } from "./services/releases.js";
+import { checkRollouts } from "./services/rollouts.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
 const key = await issuingKey(config);
 mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
 const packages = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
+mkdirSync(config.releases.dir, { recursive: true, mode: 0o700 });
+const releases = { dir: config.releases.dir, maxBytes: config.releases.maxBytes, keys: ReleaseKeys.fromFolder(config.releases.keysDir) };
 const notifier = new CommandNotifier(config.databaseUrl);
 await notifier.start();
-const app = await buildAgentApi({ pool, issuingKey: key, notifier, packages, tls: await agentApiTls(config, key), longPollMs: config.agentApi.longPollSeconds * 1000 });
+const app = await buildAgentApi({ pool, issuingKey: key, notifier, packages, releases, tls: await agentApiTls(config, key), longPollMs: config.agentApi.longPollSeconds * 1000 });
 await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
 
 let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
@@ -29,7 +33,7 @@ if (config.console) {
   stream = new ResultStream(config.databaseUrl, pool);
   await stream.start();
   consoleApp = await buildConsoleApi({ pool, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-    stream, packages, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy });
+    stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy });
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
@@ -37,6 +41,7 @@ if (config.console) {
 const offlineJob = setInterval(() => {
   checkOffline(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
   expireRules(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rule expiry failed"));
+  checkRollouts(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rollout check failed"));
 }, 60_000);
 
 // The daily audit chain check (a break raises a security alert) and retention.

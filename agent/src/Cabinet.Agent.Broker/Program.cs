@@ -4,6 +4,7 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using Cabinet.Agent.Core;
 using Cabinet.Agent.Core.Packages;
+using Cabinet.Agent.Core.Upgrades;
 using Cabinet.Agent.Core.Writes;
 using Cabinet.Agent.Windows;
 
@@ -17,7 +18,8 @@ namespace Cabinet.Agent.Broker;
 /// network service over the locked pipe. It has no code that opens a socket.
 /// It makes the write operations, keeps the safety net and the firewall timers
 /// (checked every few seconds and at start-up, so a reboot inside a window still
-/// ends in a rollback), and starts only pnputil, msiexec and netsh, by full path.
+/// ends in a rollback), starts only pnputil, msiexec and netsh, by full path, and the signed
+/// updater, once a release has passed every check.
 /// </summary>
 public sealed class BrokerService : ServiceBase
 {
@@ -41,7 +43,13 @@ public sealed class BrokerService : ServiceBase
         var writes = new BrokerWrites(new FirewallCom(), new NetworkControl(), safetyNet, new FirewallStore(AgentPaths.BrokerFirewall), clock, _log.Write);
         var packages = new PackageInstaller(AgentPaths.Downloads, AgentPaths.Staging, TrustList.Compiled, new PackagePlatform(_log.Write), _log.Write);
         var registry = packages.Register(writes.Register(BrokerReadOperations.Registry()));
-        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm), _log.Write);
+        // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
+        var authenticode = new WindowsAuthenticode();
+        var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),
+            AgentPaths.Downloads, AgentPaths.UpgradeStaging, SystemOperations.AgentVersion, new UpdaterLauncher(UpgradeTrust.Compiled, authenticode, _log.Write), clock, _log.Write);
+        try { upgrades.ResumeIfNeeded(); }
+        catch (Exception e) { _log.Write($"Could not resume an unfinished upgrade: {e.GetType().Name}: {OperationRunner.Truncate(e.Message)}"); }
+        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm, upgrade: upgrades.Start), _log.Write);
         _serving = Task.WhenAll(server.RunAsync(_stop.Token), UpkeepAsync(writes, _stop.Token));
         _serving.ContinueWith(t => _log.Write($"The broker pipe stopped ({t.Exception?.InnerException?.GetType().Name ?? "stopped"})."), TaskScheduler.Default);
         _log.Write($"Broker {SystemOperations.AgentVersion} started; pipe admits only NT SERVICE\\{ServiceNames.Network}.");

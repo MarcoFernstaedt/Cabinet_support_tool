@@ -104,6 +104,9 @@ public sealed class ContractTests
         new object[] { typeof(CheckOutcome), "operations/package.install.schema.json", "/$defs/output/properties/checks/properties/hash/enum" },
         new object[] { typeof(BrokerRequestKind), "agent/broker-request.schema.json", "/properties/kind/enum" },
         new object[] { typeof(BrokerStatus), "agent/broker-response.schema.json", "/properties/status/enum" },
+        new object[] { typeof(UpgradeCheck), "common.schema.json", "/$defs/upgradeCheck/enum" },
+        new object[] { typeof(UpgradePhase), "agent/upgrade-journal.schema.json", "/properties/phase/enum" },
+        new object[] { typeof(UpgradeOutcome), "envelopes/upgrade-status.schema.json", "/properties/outcome/enum" },
         new object[] { typeof(PeripheralCheckId), "operations/peripheral.status.schema.json", "/$defs/output/properties/checks/items/properties/check/enum" },
         new object[] { typeof(PeripheralCheckOutcome), "operations/peripheral.status.schema.json", "/$defs/output/properties/checks/items/properties/outcome/enum" },
     };

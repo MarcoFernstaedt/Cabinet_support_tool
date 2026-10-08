@@ -58,6 +58,13 @@ public static class ExampleData
             "broker-response" => typeof(BrokerResponse),
             "safety-net-status" => typeof(SafetyNetStatus),
             "trusted-publishers" => typeof(TrustedPublishers),
+            "upgrade-manifest" => typeof(UpgradeManifest),
+            "upgrade-signature" => typeof(UpgradeSignature),
+            "upgrade-keys" => typeof(UpgradeKeys),
+            "upgrade-journal" => typeof(UpgradeJournal),
+            "check-in" => typeof(CheckIn),
+            "update-response" => typeof(UpdateResponse),
+            "upgrade-status" => typeof(UpgradeStatus),
             _ => throw new InvalidOperationException($"No C# type for {target}"),
         };
     }

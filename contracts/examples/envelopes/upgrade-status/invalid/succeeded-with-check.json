@@ -1,0 +1,7 @@
+{
+  "version": "0.2.0",
+  "fromVersion": "0.1.0",
+  "outcome": "succeeded",
+  "check": "install",
+  "message": "x"
+}

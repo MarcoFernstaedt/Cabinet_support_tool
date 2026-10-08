@@ -1,0 +1,10 @@
+{
+  "product": "mashura-cabinet-agent",
+  "version": "0.2.0",
+  "minimumVersion": "0.1.0",
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sizeBytes": 48213504,
+  "releasedAt": "2026-10-08T12:00:00Z",
+  "notes": "Adds the upgrade channel.",
+  "postInstall": "powershell -c iex"
+}

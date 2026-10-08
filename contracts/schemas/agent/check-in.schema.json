@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/check-in.schema.json",
+  "title": "check-in",
+  "description": "Written by the network service each time a heartbeat reaches the platform server, in its state folder. The updater reads it after installing a new version: a check-in by that version, after the install, within 5 minutes means the upgrade worked; otherwise the old version is restored.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "at"
+  ],
+  "properties": {
+    "version": {
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "at": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    }
+  }
+}

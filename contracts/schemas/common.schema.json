@@ -606,6 +606,20 @@
           "pattern": "^[^\\u0000-\\u001f\\u007f]*[^\\u0000-\\u001f\\u007f ][^\\u0000-\\u001f\\u007f]*$"
         }
       }
+    },
+    "upgradeCheck": {
+      "description": "Which step of an agent upgrade failed (docs/spec/07-upgrade-channel.md), in the order they run: download; manifest_signature (against the compiled-in key); manifest (does not match its contract or is not for this product); package_hash; version (not newer than the running one, or the running one is older than the release's minimum); authenticode (a binary is not signed by the agent's publisher); install (the files could not be put in place); check_in (the new version did not reach the server within 5 minutes).",
+      "type": "string",
+      "enum": [
+        "download",
+        "manifest_signature",
+        "manifest",
+        "package_hash",
+        "version",
+        "authenticode",
+        "install",
+        "check_in"
+      ]
     }
   }
 }

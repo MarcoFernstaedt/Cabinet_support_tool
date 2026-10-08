@@ -1,0 +1,5 @@
+{
+  "keyId": "896b1352dfbebfd8e3d5d547231c75b6ed4f8708caea970f751c865972593dba",
+  "algorithm": "ecdsa-p256-sha256",
+  "signature": "<script>alert(1)</script>"
+}

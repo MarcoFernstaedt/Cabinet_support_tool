@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/upgrade-journal.schema.json",
+  "title": "upgrade-journal",
+  "description": "The updater's record of one upgrade, in the broker's folder (writable only by SYSTEM and administrators; the network service may read it). The updater writes it before each step, so an upgrade cut short by a restart is finished or undone when the broker starts again, and the network service reports the outcome to the server once it is final. Phases: verified (every check passed), stopping, backing_up, installing, waiting (for the new version to check in), then succeeded, rolled_back or failed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "upgradeId",
+    "version",
+    "fromVersion",
+    "phase",
+    "startedAt"
+  ],
+  "properties": {
+    "upgradeId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "version": {
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "fromVersion": {
+      "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "phase": {
+      "type": "string",
+      "enum": [
+        "verified",
+        "stopping",
+        "backing_up",
+        "installing",
+        "waiting",
+        "succeeded",
+        "rolled_back",
+        "failed"
+      ]
+    },
+    "startedAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "checkInBy": {
+      "description": "When waiting: the new version must have checked in by this time, or the backup is restored.",
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "finishedAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "check": {
+      "$ref": "../common.schema.json#/$defs/upgradeCheck"
+    },
+    "message": {
+      "allOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        {
+          "type": "string",
+          "maxLength": 1024
+        }
+      ]
+    }
+  }
+}

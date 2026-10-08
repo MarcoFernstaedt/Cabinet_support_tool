@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "keys": [
+    {
+      "keyId": "896b1352dfbebfd8e3d5d547231c75b6ed4f8708caea970f751c865972593dba",
+      "name": "Release key 2026",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q=="
+    },
+    {
+      "keyId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "name": "Release key 2027 (next)",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q=="
+    }
+  ],
+  "publishers": [
+    {
+      "commonName": "Mashura Code Signing",
+      "organization": "Mashura",
+      "root": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rootFile": "mashura-code-root.pem"
+    }
+  ]
+}

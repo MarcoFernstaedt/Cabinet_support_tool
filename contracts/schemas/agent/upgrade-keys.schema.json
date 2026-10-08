@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/upgrade-keys.schema.json",
+  "title": "upgrade-keys",
+  "description": "What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "keys",
+    "publishers"
+  ],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "keys": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keyId",
+          "name",
+          "publicKey"
+        ],
+        "properties": {
+          "keyId": {
+            "description": "SHA-256 of the key's DER SubjectPublicKeyInfo, lower-case hex.",
+            "$ref": "../common.schema.json#/$defs/sha256"
+          },
+          "name": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "publicKey": {
+            "description": "Base64 of the DER SubjectPublicKeyInfo of an ECDSA P-256 key.",
+            "type": "string",
+            "minLength": 120,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        }
+      }
+    },
+    "publishers": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "commonName",
+          "organization",
+          "root",
+          "rootFile"
+        ],
+        "properties": {
+          "commonName": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "organization": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "root": {
+            "description": "SHA-256 of the pinned root certificate (DER).",
+            "$ref": "../common.schema.json#/$defs/sha256"
+          },
+          "rootFile": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]{1,64}\\.pem$"
+          }
+        }
+      }
+    }
+  }
+}

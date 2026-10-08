@@ -47,6 +47,8 @@ public sealed class AgentConnectionOptions
     public TimeSpan EventSendInterval { get; init; } = TimeSpan.FromSeconds(15);
     /// <summary>Downloads packages for package.install while online.</summary>
     public Packages.PackageDownloads? Packages { get; init; }
+    /// <summary>Check-ins, upgrade offers and upgrade reports, handled after each heartbeat that reaches the server.</summary>
+    public Upgrades.UpgradeCoordinator? Upgrades { get; init; }
     /// <summary>Tells the broker the server was reached after a safety-net change; null when this agent makes no changes.</summary>
     public Func<Guid, CancellationToken, Task<SafetyNetStatus>>? ConfirmSafetyNet { get; init; }
     /// <summary>Called after every successful write (the firewall change detector looks at once, to attribute it).</summary>
@@ -247,6 +249,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
                 }, token).ConfigureAwait(false);
                 o.Settings?.Apply(answer);
+                if (o.Upgrades is not null) await o.Upgrades.AfterHeartbeatAsync(api, answer, token).ConfigureAwait(false);
                 if (!online)
                 {
                     o.Log("Connected to the platform server.");

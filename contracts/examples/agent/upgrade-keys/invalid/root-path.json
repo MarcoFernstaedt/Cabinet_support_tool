@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "keys": [],
+  "publishers": [
+    {
+      "commonName": "x",
+      "organization": "y",
+      "root": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rootFile": "../../evil.pem"
+    }
+  ]
+}

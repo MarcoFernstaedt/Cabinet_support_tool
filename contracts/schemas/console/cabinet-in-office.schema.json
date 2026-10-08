@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/cabinet-in-office.schema.json",
+  "title": "cabinet-in-office",
+  "description": "Marks a cabinet as one of the in-office cabinets, which form batch 2 of every staged agent rollout.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "inOffice": {
+      "type": "boolean"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "inOffice",
+    "stepUpToken"
+  ]
+}

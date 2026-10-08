@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/release-create.schema.json",
+  "title": "release-create",
+  "description": "Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "manifest": {
+      "description": "Base64 of the manifest's exact bytes.",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 5464,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    },
+    "signature": {
+      "$ref": "../agent/upgrade-signature.schema.json"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "manifest",
+    "signature",
+    "stepUpToken"
+  ]
+}

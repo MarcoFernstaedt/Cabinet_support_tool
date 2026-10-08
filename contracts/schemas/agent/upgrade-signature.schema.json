@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/upgrade-signature.schema.json",
+  "title": "upgrade-signature",
+  "description": "The detached signature over a release manifest's exact bytes: ECDSA P-256 over the SHA-256 of the manifest, DER-encoded, made by the release key in the KMS. keyId names which of the agent's compiled-in keys made it (the SHA-256 of that key's SubjectPublicKeyInfo), so a second, future key can be added before it is used.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "keyId",
+    "algorithm",
+    "signature"
+  ],
+  "properties": {
+    "keyId": {
+      "$ref": "../common.schema.json#/$defs/sha256"
+    },
+    "algorithm": {
+      "const": "ecdsa-p256-sha256"
+    },
+    "signature": {
+      "description": "Base64 of the DER-encoded ECDSA signature (at most 72 bytes).",
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+    }
+  }
+}

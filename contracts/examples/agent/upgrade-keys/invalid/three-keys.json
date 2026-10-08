@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "keyId": "1111111111111111111111111111111111111111111111111111111111111111",
+      "name": "k1",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q=="
+    },
+    {
+      "keyId": "2222222222222222222222222222222222222222222222222222222222222222",
+      "name": "k2",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q=="
+    },
+    {
+      "keyId": "3333333333333333333333333333333333333333333333333333333333333333",
+      "name": "k3",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE/UuDg5GDZg2ybtVAFOKIRPIaL1PhpLem5EBkFwyzpjlHF8LyQxPEo+YV1krUdqrTQTDc6jYLeIcORspO6/oF0Q=="
+    }
+  ],
+  "publishers": []
+}

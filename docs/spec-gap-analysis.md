@@ -65,7 +65,7 @@ This needs your decision before more server work. The demo keeps working either 
 | Audit: append-only DB account, hash chain, daily verification | Audit log for every action, but no hash chain or insert-only account | **Partial** |
 | Security alerts to Admins | Not built | **Missing** |
 | Presence (who is online) | Not built | **Missing** |
-| Signed upgrade channel and staged rollout | Not built | **Missing** |
+| Signed upgrade channel and staged rollout | Built in Milestone 7 (spec rebuild): signed releases, agent-side verification, updater with automatic restore, staged rollouts, self-check | **Done** |
 
 ## Console
 

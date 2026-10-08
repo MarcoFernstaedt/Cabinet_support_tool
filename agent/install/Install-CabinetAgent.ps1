@@ -50,7 +50,7 @@ function Invoke-Sc([string[]] $Arguments) {
 }
 
 # 1. Program files (inherit the Program Files ACL: only administrators can change them).
-foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ Name = $network; Project = 'Cabinet.Agent.Network' }, @{ Name = 'harness'; Project = 'Cabinet.Agent.Harness' }) {
+foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ Name = $network; Project = 'Cabinet.Agent.Network' }, @{ Name = 'harness'; Project = 'Cabinet.Agent.Harness' }, @{ Name = 'updater'; Project = 'Cabinet.Agent.Updater' }) {
     $from = Join-Path $SourceDir $service.Project
     if (-not (Test-Path $from)) { throw "Missing $from. Run Publish-CabinetAgent.ps1 first." }
     $to = Join-Path $programDir $service.Project

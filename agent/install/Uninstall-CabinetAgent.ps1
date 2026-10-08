@@ -13,6 +13,8 @@ foreach ($name in 'CabinetAgentNetwork', 'CabinetAgentBroker') {
     }
 }
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramFiles 'Mashura\CabinetAgent')
+# The version an upgrade kept as its backup.
+Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramFiles 'Mashura\CabinetAgent.previous')
 if ($RemoveData) {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:ProgramData 'Mashura\CabinetAgent')
     # The cabinet's private key, in the machine key store. Without it the old certificate is useless.

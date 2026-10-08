@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The updater (docs/spec/07-upgrade-channel.md): started by the broker as SYSTEM, with one fixed verb, to put a verified release in place
+       and restore the old version if the new one does not check in. Signed like every agent binary. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Cabinet.Agent.Updater</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- ServiceController: stops and starts the two agent services. -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cabinet.Agent.Windows\Cabinet.Agent.Windows.csproj" />
+  </ItemGroup>
+</Project>

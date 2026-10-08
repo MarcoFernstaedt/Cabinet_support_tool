@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/broker-request.schema.json",
   "title": "broker-request",
-  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, a path to run, a file path or a script. package.install names a package ID only; the broker finds the downloaded file itself.",
+  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, a path to run, a file path or a script. package.install names a package ID only, and upgrade names a version only; the broker finds the downloaded files itself.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -18,7 +18,8 @@
       "enum": [
         "ping",
         "operation",
-        "confirm"
+        "confirm",
+        "upgrade"
       ]
     },
     "operation": {
@@ -46,6 +47,10 @@
     "commandId": {
       "description": "The platform command a write belongs to. Required for writes, so the safety net and firewall attribution know which command made a change; and for confirm.",
       "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "version": {
+      "description": "For upgrade: the agent release the network process downloaded. The broker verifies it in full before anything is installed.",
+      "$ref": "../common.schema.json#/$defs/agentVersion"
     }
   },
   "allOf": [
@@ -404,6 +409,30 @@
           "params": {
             "$ref": "../operations/driver.uninstall.schema.json#/$defs/params"
           }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "upgrade"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "version"
+        ]
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "required": [
+            "version"
+          ]
         }
       }
     }

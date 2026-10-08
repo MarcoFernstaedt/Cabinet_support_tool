@@ -1,0 +1,9 @@
+{
+  "serverTime": "2026-10-08T12:00:00Z",
+  "scanner": {
+    "hardwareIds": null
+  },
+  "upgrade": {
+    "version": "0.2.0"
+  }
+}

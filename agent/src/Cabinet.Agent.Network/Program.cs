@@ -8,6 +8,7 @@ using Cabinet.Agent.Core.Monitoring;
 using Cabinet.Agent.Core.Packages;
 using Cabinet.Agent.Core.Writes;
 using Cabinet.Agent.Core.Server;
+using Cabinet.Agent.Core.Upgrades;
 using Cabinet.Agent.Windows;
 
 [assembly: SupportedOSPlatform("windows")]
@@ -80,6 +81,8 @@ public sealed class NetworkService : ServiceBase
         {
             if (t.IsFaulted) _log.Write($"The monitors stopped: {t.Exception!.InnerException?.GetType().Name}.");
         }, TaskScheduler.Default));
+        // The agent's check of its own files: at start-up, then daily (docs/spec/04-agent-spec.md "Runtime").
+        work.Add(SelfCheckLoopAsync(events, clock, _stop.Token));
         if (config.LocalHarness)
             work.Add(InboxAsync(() => ProcessorFor(config with { CabinetId = identityStore.LoadIdentity()?.CabinetId ?? config.CabinetId }), _stop.Token));
         if (config.PlatformServer is { Host: { } host, Port: { } port } && File.Exists(AgentPaths.PlatformCa))
@@ -90,6 +93,8 @@ public sealed class NetworkService : ServiceBase
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
                 ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages,
+                Upgrades = new UpgradeCoordinator(AgentPaths.Downloads, SystemOperations.AgentVersion, new UpgradeJournalStore(AgentPaths.UpgradeJournal),
+                    AgentPaths.CheckIn, AgentPaths.UpgradeReported, broker.UpgradeAsync, events, clock, _log.Write),
                 ConfirmSafetyNet = broker.ConfirmAsync, AfterWrite = monitors.FirewallNow,
                 Fingerprints = () => Fingerprints.Read(system.SystemInfoAsync(new EmptyParams(), CancellationToken.None).GetAwaiter().GetResult()),
                 AgentVersion = SystemOperations.AgentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = _log.Write,
@@ -110,6 +115,41 @@ public sealed class NetworkService : ServiceBase
         _stop?.Cancel();
         try { _work?.Wait(TimeSpan.FromSeconds(10)); } catch (AggregateException) { }
         _log.Write("Network service stopped.");
+    }
+
+    /// <summary>
+    /// Checks the Authenticode signature on every binary in the agent's program folder now and every 24 hours,
+    /// and reports any file that is not signed by the agent's publisher as a security event.
+    /// </summary>
+    private async Task SelfCheckLoopAsync(EventQueue events, TimeProvider clock, CancellationToken token)
+    {
+        // The folder this service actually runs from: ...\CabinetAgent\Cabinet.Agent.Network\Cabinet.Agent.Network.exe.
+        string program = Path.GetDirectoryName(Path.GetDirectoryName(Environment.ProcessPath)!)!;
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                SelfCheckResult r = await Task.Run(() => new SelfCheck(program, UpgradeTrust.Compiled, new WindowsAuthenticode()).Run(), token).ConfigureAwait(false);
+                if (r.Skipped) _log.Write("Self-check skipped: this build has no code-signing publisher compiled in (a development build).");
+                else if (r.Passed) _log.Write($"Self-check passed: {r.Checked} agent files carry the agent publisher's signature.");
+                else
+                {
+                    string list = string.Join("; ", r.Problems.Take(10).Select(p => $"{p.File}: {p.Problem}"));
+                    _log.Write($"Self-check FAILED for {r.Problems.Count} file(s): {list}");
+                    var fields = new Dictionary<string, string> { ["check"] = "self_check", ["files"] = Core.Helpers.EventText.ShortText(string.Join(", ", r.Problems.Select(p => p.File)), 1024) };
+                    events.Enqueue(new AgentEvent
+                    {
+                        EventId = EventIds.For($"self-check|{clock.GetUtcNow():yyyy-MM-dd}|{list}"), Kind = EventKind.Security, OccurredAt = clock.GetUtcNow(),
+                        SeverityHint = SeverityHint.Major,
+                        Detail = new EventDetail { Message = Core.Helpers.EventText.ShortText($"{r.Problems.Count} agent file(s) failed the self-check. {list}", 2000), Fields = fields },
+                    });
+                }
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.Write($"Self-check could not read the program folder ({e.GetType().Name})."); }
+            catch (OperationCanceledException) { return; }
+            try { await Task.Delay(TimeSpan.FromHours(24), token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
+        }
     }
 
     private async Task WatchBrokerAsync(BrokerClient broker, CancellationToken token)

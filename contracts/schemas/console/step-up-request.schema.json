@@ -56,7 +56,13 @@
         "settings.update",
         "security_alert.resolve",
         "rule.suppress",
-        "rule.renew"
+        "rule.renew",
+        "cabinet.in_office",
+        "release.add",
+        "rollout.start",
+        "rollout.pause",
+        "rollout.resume",
+        "rollout.stop"
       ]
     },
     "target": {
