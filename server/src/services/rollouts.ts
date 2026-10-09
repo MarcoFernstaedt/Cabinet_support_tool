@@ -33,18 +33,25 @@ function shuffle<T>(items: T[]): T[] {
 export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutRequest, stepUpToken: Authority): Promise<string> {
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "rollout.start", "fleet");
-    const release = (await c.query<{ state: string }>("SELECT state FROM agent_releases WHERE version = $1", [req.version])).rows[0];
+    const release = (await c.query<{ state: string; minimum_version: string }>("SELECT state, minimum_version FROM agent_releases WHERE version = $1", [req.version])).rows[0];
     if (!release) throw new Refused("not_found", 404, "no such release");
     if (release.state !== "ready") throw new Refused("release_not_ready", 409, "this release has no verified package yet");
     if ((await c.query("SELECT 1 FROM rollouts WHERE state IN ('running', 'paused')")).rows[0])
       throw new Refused("rollout_active", 409, "another rollout is running or paused; finish or stop it first");
 
-    // Every active cabinet whose agent is older than the release (or has not reported a version yet).
-    const cabinets = (await c.query<{ id: string; agent_version: string | null; in_office: boolean }>(
-      "SELECT id, agent_version, in_office FROM cabinets WHERE status = 'active' FOR SHARE")).rows
+    // Every active cabinet whose agent is older than the release (or has not reported a version yet), except those older
+    // than the release's minimum version: they would refuse it, and those refusals would pause the rollout for nothing.
+    // No row locks: holding them would stall every heartbeat while the rollout is written.
+    const older = (await c.query<{ id: string; agent_version: string | null; in_office: boolean }>(
+      "SELECT id, agent_version, in_office FROM cabinets WHERE status = 'active'")).rows
       .filter(k => k.agent_version === null || !isVersion(k.agent_version) || compareVersions(k.agent_version, req.version) < 0);
+    const belowMinimum = (k: { agent_version: string | null }): boolean =>
+      k.agent_version !== null && isVersion(k.agent_version) && isVersion(release.minimum_version) && compareVersions(k.agent_version, release.minimum_version) < 0;
+    const cabinets = older.filter(k => !belowMinimum(k));
     const pilot = cabinets.find(k => k.id === req.pilotCabinetId);
-    if (!pilot) throw new Refused("pilot_not_eligible", 409, "the first cabinet must be an active cabinet running an older agent");
+    if (!pilot) throw new Refused("pilot_not_eligible", 409, older.some(k => k.id === req.pilotCabinetId)
+      ? `the first cabinet runs an agent older than this release's minimum version (${release.minimum_version})`
+      : "the first cabinet must be an active cabinet running an older agent");
     const rest = cabinets.filter(k => k.id !== pilot.id);
     const office = rest.filter(k => k.in_office);
     const field = shuffle(rest.filter(k => !k.in_office));
@@ -54,14 +61,14 @@ export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutR
     const id = randomUUID();
     await c.query(`INSERT INTO rollouts (id, version, state, current_batch, success_rate_percent, failure_limit_percent, started_by)
                    VALUES ($1, $2, 'running', 1, $3, $4, $5)`, [id, req.version, req.successRatePercent, req.failureLimitPercent, adminId]);
-    for (const [batch, members] of batches)
-      for (const k of members)
-        await c.query("INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state, from_version) VALUES ($1, $2, $3, 'pending', $4)",
-          [id, k.id, batch, k.agent_version]);
+    const targets = batches.flatMap(([batch, members]) => members.map(k => ({ batch, id: k.id, from: k.agent_version })));
+    await c.query(`INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state, from_version)
+                   SELECT $1, t.cabinet_id, t.batch, 'pending', t.from_version FROM unnest($2::uuid[], $3::int[], $4::text[]) AS t(cabinet_id, batch, from_version)`,
+      [id, targets.map(t => t.id), targets.map(t => t.batch), targets.map(t => t.from)]);
     // Audited on its own (docs/spec/07-upgrade-channel.md step 4).
     await audit(c, { actorKind: "user", actorId: adminId, action: "rollout.start", targetKind: "rollout", targetId: id, outcome: "succeeded",
       details: { rolloutId: id, version: req.version, pilotCabinetId: pilot.id, successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent,
-        batches: batches.map(([b, m]) => ({ batch: b, cabinets: m.length })), ...viaCli(stepUpToken) } });
+        batches: batches.map(([b, m]) => ({ batch: b, cabinets: m.length })), belowMinimumVersion: older.length - cabinets.length, ...viaCli(stepUpToken) } });
     return id;
   });
 }

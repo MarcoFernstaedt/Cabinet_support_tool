@@ -9,7 +9,7 @@ import { useWrite, type CommandResult } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
 import { canWrite, useWriteStatus } from "../../lib/writes";
 import { fullTime } from "../../lib/time";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { Badge, Empty, SAFETY_NET_NOTE, StepUpDialog, WriteOutcome } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 
@@ -98,7 +98,7 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
     <div className="write-actions">
       <div className="row gap wrap">
         <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "ip" ? null : "ip")} aria-expanded={editing === "ip"}>Edit IP settings</button>
-        <button className="btn" onClick={() => setEditing(editing === "dns" ? null : "dns")} aria-expanded={editing === "dns"}>Edit DNS</button>
+        <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "dns" ? null : "dns")} aria-expanded={editing === "dns"}>Edit DNS</button>
       </div>
       {editing === "ip" && (
         <form className="form" aria-label={`IP settings for ${adapter.name}`} onSubmit={e => { e.preventDefault(); reviewIp(); }}>

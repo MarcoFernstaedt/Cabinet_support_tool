@@ -45,16 +45,15 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
 
   app.get("/api/fleet/search", async request => {
     await o.guards.role(request, "tier1");
-    const q = String((request.query as Record<string, unknown>).q ?? "").trim();
-    if (q.length < 1 || q.length > 64 || /[\u0000-\u001f]/.test(q)) return [];
-    return fleet.search(o.pool, q);
+    const q = consoleBodies.fleetSearch.parse(request.query).q.trim();
+    return q.length === 0 ? [] : fleet.search(o.pool, q);
   });
 
   app.post("/api/cabinets/:id/commands", async (request, reply) => {
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.command.parse(request.body);
     const command = await issueFromConsole(o.pool, u, id(request), body.operation, body.params, body.stepUpToken);
-    return reply.code(202).send({ commandId: command.commandId, expiresAt: command.expiresAt });
+    return reply.code(202).send({ commandId: command.commandId, issuedAt: command.issuedAt, expiresAt: command.expiresAt });
   });
 
   app.get("/api/cabinets/:id/commands", async request => {

@@ -11,7 +11,7 @@ export interface Config {
   packages: { dir: string; maxBytes: number; trustDir?: string };
   /** The update store for signed agent releases, and the release keys the server checks uploads against (the agent checks again with its own). */
   releases: { dir: string; maxBytes: number; keysDir?: string };
-  console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: boolean };
+  console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -53,8 +53,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     config.console = {
       host: env.CONSOLE_HOST ?? "127.0.0.1", port: consolePort, origin: env.CONSOLE_ORIGIN,
       secretKey: required(env, "CONSOLE_SECRET_KEY"), staticDir: env.CONSOLE_STATIC_DIR ?? fileURLToPath(new URL("../../../console/dist", import.meta.url)),
-      trustProxy: env.CONSOLE_TRUST_PROXY === "1",
+      trustProxy: trustProxy(env.CONSOLE_TRUST_PROXY),
     };
   }
   return config;
+}
+
+/**
+ * Which proxy to believe about the client's address. Never "any": the left of X-Forwarded-For is whatever the client
+ * sent, which would let it dodge the sign-in limits and put a false address in the audit log. A number is how many
+ * proxies stand in front (1 = take the address the nearest proxy saw); otherwise a comma-separated list of the proxies'
+ * own addresses or ranges.
+ */
+export function trustProxy(value: string | undefined): number | string | false {
+  if (!value) return false;
+  if (/^[1-5]$/.test(value)) return Number(value);
+  const parts = value.split(",").map(p => p.trim());
+  if (parts.every(p => /^[0-9A-Fa-f.:]+(\/\d{1,3})?$/.test(p) && /[.:]/.test(p))) return value;
+  throw new Error("CONSOLE_TRUST_PROXY must be the number of proxies in front (1 to 5) or their addresses.");
 }

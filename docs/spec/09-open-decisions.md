@@ -127,7 +127,7 @@ Decided here, open to change:
 
 ## Choices made in Milestone 2 (confirm or change)
 
-- **Approval before the console exists.** Approving cabinets, creating bootstrap tokens and issuing read commands is done with the `platform-admin` command line, run by a named person (`--as`). Every action is audited, and approval needs an Admin. Milestone 3 moves these to the console with sign-in and step-up. The CLI cannot issue write operations.
+- **Approval before the console exists.** Approving cabinets, creating bootstrap tokens and issuing read commands is done with the `platform-admin` command line, run by a named person (`--as`). Every action is audited, and approval needs an Admin. Milestone 3 moves these to the console with sign-in and step-up. Since Milestone 5 the CLI can also issue a write, but only with `--write`, by a named Tier 2 or Admin, under the same role, Admin-only and approved-package rules as the console (one shared code path), audited as "via cli". Step-up is not asked there: the CLI runs only on the server host, by someone who already holds its database credentials.
 - **Users table now.** The audit log and commands need a person's ID, so a minimal users table (username, name, role, status) exists from this milestone. Milestone 3 adds passwords, two-factor and sessions.
 - **Audit log account.** The spec asks for audit entries in the same transaction as the action, and for a database account that can only insert into the audit table. Both hold this way:
   - The server's account cannot touch the audit table directly. It calls `audit_append()`, which runs as `cabinet_audit_writer`, a role that can only insert entries and move the chain head.

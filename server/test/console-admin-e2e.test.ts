@@ -41,7 +41,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
   const stream = new ResultStream(db.appUrl, db.app);
   await stream.start();
   // Behind the reverse proxy in production; here the browser's X-Forwarded-For plays a sign-in from another network.
-  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, trustProxy: true, now: () => clock });
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, trustProxy: 1, now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
   const notifier = new CommandNotifier(db.appUrl);
   await notifier.start();

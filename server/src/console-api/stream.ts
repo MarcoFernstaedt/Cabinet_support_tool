@@ -22,7 +22,7 @@ export class ResultStream {
       if (msg.channel === "alerts" && msg.payload) void this.deliverAlert(msg.payload);
       if (msg.channel === "security_alerts" && msg.payload) this.deliverSecurity(msg.payload);
     });
-    client.on("error", () => { if (!this.stopped) setTimeout(() => void this.start().catch(() => undefined), 1000); });
+    client.on("error", () => { if (!this.stopped && this.client === client) void this.restart(); });
     await client.connect();
     await client.query("LISTEN command_results");
     await client.query("LISTEN alerts");
@@ -30,9 +30,22 @@ export class ResultStream {
     this.client = client;
   }
 
+  /**
+   * Reconnects after the listener's connection fails, retrying with a growing pause (1 s up to 30 s) until it is back,
+   * so a database restart only pauses live updates; the failed connection is closed.
+   */
+  private async restart(delayMs = 1000): Promise<void> {
+    const old = this.client;
+    this.client = null;
+    old?.end().catch(() => undefined);
+    await new Promise(r => setTimeout(r, delayMs));
+    if (this.stopped) return;
+    await this.start().catch(() => this.restart(Math.min(delayMs * 2, 30_000)));
+  }
+
   private async deliver(payload: string): Promise<void> {
     const [commandId, issuedBy] = payload.split(" ");
-    if (!commandId || !issuedBy) return;
+    if (!commandId || !issuedBy || ![...this.subscribers].some(s => s.userId === issuedBy)) return;
     const row = (await this.pool.query<{ status: string; cabinet_id: string; operation: string }>(
       "SELECT status, cabinet_id, operation FROM commands WHERE id = $1", [commandId])).rows[0];
     if (!row) return;
@@ -52,7 +65,7 @@ export class ResultStream {
   /** New major alerts go to everyone; claims and resolutions of any alert too, so lists and the badge stay current. */
   private async deliverAlert(payload: string): Promise<void> {
     const [alertId, change] = payload.split(" ");
-    if (!alertId || !change) return;
+    if (!alertId || !change || this.subscribers.size === 0) return;
     const a = await alertById(this.pool, alertId).catch(() => null);
     if (!a || (change === "created" && a.severity !== "major")) return;
     const data = JSON.stringify({

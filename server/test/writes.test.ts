@@ -118,6 +118,23 @@ test("turning a profile off with no time limit is Admin only", async () => {
   assert.equal((await write(t2, c2, "firewall.setProfile", { ...off, noTimeLimit: undefined })).status, 400, "off needs a duration");
 });
 
+test("an inbound rule that allows everything is Admin only, and an update cannot rename a rule", async () => {
+  const t2 = await account("tier2"); const c2 = await signIn(t2);
+  const admin = await account("admin"); const ca = await signIn(admin);
+  const all = { name: "MashuraDiag Everything", direction: "in", action: "allow", protocol: "any", enabled: true, profiles: ["domain", "private", "public"] };
+  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: all })).status, 403);
+  assert.equal((await write(admin, ca, "firewall.setRule", { change: "create", rule: all })).status, 202);
+  for (const narrowed of [{ protocol: "tcp", localPorts: [{ from: 1433, to: 1433 }] }, { remoteAddresses: ["10.20.0.15"] }, { programPath: "C:\\Program Files\\Sync\\sync.exe" }]) {
+    const r = await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, ...narrowed } });
+    assert.equal(r.status, 202, JSON.stringify([narrowed, r.body]));
+  }
+  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, direction: "out" } })).status, 202, "outbound is not the inbound firewall");
+  const rename = await write(admin, ca, "firewall.setRule", { change: "update", ruleName: "Remote Desktop - User Mode (TCP-In)", rule: { ...all, name: "MashuraDiag Renamed", localPorts: [{ from: 3389, to: 3389 }], protocol: "tcp" } });
+  assert.deepEqual([rename.status, rename.body.error], [400, "rename_not_allowed"]);
+  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, extra: 1 } })).status, 400, "hostile shapes are refused by the schema first");
+  await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
+});
+
 test("a fleet or client write pause stops writes but not reads; a read-only cabinet refuses writes", async () => {
   const admin = await account("admin"); const ca = await signIn(admin);
   const t2 = await account("tier2"); const c2 = await signIn(t2);

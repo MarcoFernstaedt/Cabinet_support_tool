@@ -5,7 +5,7 @@ import { useOperation } from "../../lib/commands";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import { MapToIssue } from "../../components/MapToIssue";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { atLeast, useSession } from "../../lib/session";
 
 type Level = "critical" | "error" | "warning" | "information" | "verbose";

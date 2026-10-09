@@ -3,6 +3,7 @@
 // Every query string and body is checked against its contract; every role check is here.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
+import { audit } from "../db/db.js";
 import * as alerts from "../services/alerts.js";
 import { Refused } from "../services/errors.js";
 import * as rules from "../services/rules.js";
@@ -53,9 +54,12 @@ export async function alertRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   });
 
   app.get("/api/events/:id", async request => {
-    await o.guards.role(request, "tier1");
+    const u = await o.guards.role(request, "tier1");
     const e = await alerts.eventById(o.pool, id(request));
     if (!e) throw new Refused("not_found", 404, "no such event");
+    // Opening an event log entry is logged too (docs/spec/05-server-spec.md).
+    await audit(o.pool, { actorKind: "user", actorId: u.userId, action: "event.open", targetKind: "cabinet", targetId: e.cabinetId, outcome: "succeeded",
+      details: { eventId: e.eventId } });
     const elsewhere = e.kind === "error" && e.source ? await alerts.sameErrorElsewhere(o.pool, e.cabinetId, e.source.log, e.source.source, e.source.eventId) : null;
     return { ...e, elsewhere };
   });

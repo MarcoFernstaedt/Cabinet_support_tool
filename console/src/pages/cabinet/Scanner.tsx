@@ -11,7 +11,7 @@ import { Badge, KeyValues, OperationPanel, OUTCOME_LABEL, OUTCOME_TONE, StepUpDi
 import type { CabinetDetail } from "./CabinetPage";
 import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
 import { PackageList, type LibraryPackage } from "./Software";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { SCANNER_SOURCE, ScannerIdsEditor } from "../../components/DeviceSettings";
 
 const CHECK_NAME: Record<string, string> = {

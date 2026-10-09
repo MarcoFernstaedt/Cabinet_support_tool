@@ -18,7 +18,7 @@ export class CommandNotifier {
   async start(): Promise<void> {
     const client = new pg.Client({ connectionString: this.connectionString });
     client.on("notification", msg => { if (msg.channel === "cabinet_commands" && msg.payload) this.wake(msg.payload); });
-    client.on("error", () => { if (!this.stopped) void this.restart(); });
+    client.on("error", () => { if (!this.stopped && this.client === client) void this.restart(); });
     await client.connect();
     await client.query("LISTEN cabinet_commands");
     this.client = client;
@@ -31,7 +31,9 @@ export class CommandNotifier {
   mark(cabinetId: string): number { return this.woken.get(cabinetId) ?? 0; }
 
   private async restart(): Promise<void> {
+    const old = this.client;
     this.client = null;
+    old?.end().catch(() => undefined);
     // Wake everyone so they re-check the database while the listener reconnects.
     for (const cabinet of [...this.waiters.keys()]) this.wake(cabinet);
     await new Promise(r => setTimeout(r, 1000));

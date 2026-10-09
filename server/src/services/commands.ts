@@ -106,10 +106,13 @@ export async function takeQueuedCommands(pool: pg.Pool, cabinetId: string): Prom
  */
 export async function storeResult(pool: pg.Pool, cabinetId: string, result: Result): Promise<void> {
   await transaction(pool, async c => {
-    const command = (await c.query<{ operation: string; status: string }>(
-      "SELECT operation, status FROM commands WHERE id = $1 AND cabinet_id = $2 FOR UPDATE", [result.commandId, cabinetId])).rows[0];
+    const command = (await c.query<{ operation: string; status: string; delivered: boolean }>(
+      "SELECT operation, status, delivered_at IS NOT NULL AS delivered FROM commands WHERE id = $1 AND cabinet_id = $2 FOR UPDATE", [result.commandId, cabinetId])).rows[0];
     if (!command) throw new Refused("unknown_command", 404, "no such command for this cabinet");
-    if (command.status !== "delivered") throw new Refused("result_not_expected", 409, "this command already has a result or was never delivered");
+    // A delivered command that went quiet is marked expired (expireUnanswered), but its result still counts if it arrives
+    // later (the cabinet ran it, then lost the server): what really happened on the cabinet is never thrown away.
+    if (!(command.status === "delivered" || (command.status === "expired" && command.delivered)))
+      throw new Refused("result_not_expected", 409, "this command already has a result or was never delivered");
     if (result.status === "succeeded") {
       const output = operations[command.operation as keyof typeof operations]?.output;
       if (!output || result.output === undefined || !output.is(result.output))
@@ -138,4 +141,16 @@ export async function storeResult(pool: pg.Pool, cabinetId: string, result: Resu
 export async function commandRecord(db: Queryable, commandId: string): Promise<{ status: string; operation: string; result: Result | null } | null> {
   return (await db.query<{ status: string; operation: string; result: Result | null }>(
     "SELECT status, operation, result FROM commands WHERE id = $1", [commandId])).rows[0] ?? null;
+}
+
+/** How long a delivered command may go unanswered: longer than the agent's longest limit (a package install, 29 minutes). */
+export const UNANSWERED_AFTER_MINUTES = 35;
+
+/**
+ * Marks delivered commands that never got a result as expired, so the console stops showing them as running (the
+ * long-poll answer may have been lost on the way, or the cabinet went offline). Runs with the minute job.
+ */
+export async function expireUnanswered(pool: pg.Pool): Promise<number> {
+  return (await pool.query(
+    `UPDATE commands SET status = 'expired' WHERE status = 'delivered' AND delivered_at < now() - make_interval(mins => $1)`, [UNANSWERED_AFTER_MINUTES])).rowCount ?? 0;
 }

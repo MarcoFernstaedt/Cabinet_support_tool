@@ -20,14 +20,24 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   const addressFailures = new Map<string, number[]>();
 
   const recentAddressFailures = (ip: string): number[] => (addressFailures.get(ip) ?? []).filter(t => now() - t < 15 * 60_000);
-  const noteAddressFailure = (ip: string): void => { const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(ip, r); };
+  const noteAddressFailure = (ip: string): void => {
+    const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(ip, r);
+    // Kept bounded: addresses with no failure in the last 15 minutes are dropped once the map grows.
+    if (addressFailures.size > 10_000) for (const [k] of addressFailures) if (recentAddressFailures(k).length === 0) addressFailures.delete(k);
+  };
 
-  /** A wrong password or code counts against the account; enough of them lock it for a while. */
-  /** Counts a failed password or code; the failure that locks the account also raises a security alert to Admins. */
+  /**
+   * Counts a failed password or code against the account; enough of them lock it for a while, and the failure that
+   * locks it raises a security alert to Admins. Once a lock has run out the count starts again, so a later run of
+   * failures locks (and alerts) again instead of re-locking on the first one, silently.
+   */
   const recordFailure = async (userId: string, kind: "failed_logins" | "failed_step_ups", source: string): Promise<void> => {
-    const r = (await o.pool.query<{ failed_logins: number; username: string }>(`UPDATE users SET failed_logins = failed_logins + 1,
-                          locked_until = CASE WHEN failed_logins + 1 >= $2 THEN now() + make_interval(mins => $3) ELSE locked_until END
-                        WHERE id = $1 RETURNING failed_logins, username`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
+    const r = (await o.pool.query<{ failed_logins: number; username: string }>(
+      `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1 ELSE failed_logins + 1 END,
+                        locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1 ELSE failed_logins + 1 END) >= $2
+                                            THEN now() + make_interval(mins => $3)
+                                            WHEN locked_until IS NOT NULL AND locked_until <= now() THEN NULL ELSE locked_until END
+        WHERE id = $1 RETURNING failed_logins, username`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
     if (r && r.failed_logins === MAX_FAILURES)
       await raiseSecurityAlertNow(o.pool, { kind, signature: `${kind}|${userId}`, userId,
         title: kind === "failed_logins" ? `Repeated failed sign-ins on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`
@@ -59,7 +69,9 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const policy = await o.guards.policy();
     const stage = nextStage({ totpEnabled: user.totp_enabled, role: user.role, mustChangePassword: user.must_change_password }, false, settings.requireTotpForAll);
     const id = await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
+      // The failure count is cleared only when sign-in needs no authenticator code. Otherwise it is cleared by a correct
+      // code: a correct password must not reset the count, or someone holding it could guess codes without ever locking.
+      if (stage !== "totp") await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
       await noteSignInNetwork(c, user.id, body.username, request.ip);
       if (stage === "complete") await c.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
       await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded", details: { stage, source: request.ip } });
@@ -72,6 +84,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   app.get("/api/auth/me", async request => describe(await o.guards.session(request)));
 
   app.post("/api/auth/totp", async (request, reply) => {
+    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const u = await o.guards.session(request);
     if (u.stage !== "totp") throw new Refused("wrong_stage", 409, "no authenticator code is expected now");
     const { code } = consoleBodies.code.parse(request.body);
@@ -80,6 +93,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     const step = totp.verify(o.secrets.open(row.totp_secret_enc), code, now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
     if (step === null) {
+      noteAddressFailure(request.ip);
       await recordFailure(u.userId, "failed_logins", request.ip);
       await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp", outcome: "refused", details: { source: request.ip } }));
       return reply.code(401).send({ error: "invalid_code" });
@@ -98,8 +112,13 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   app.get("/api/auth/totp/setup", async request => {
     const u = await o.guards.session(request);
     if (!(u.stage === "totp_setup" || (u.stage === "complete" && !u.totpEnabled))) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
-    const secret = totp.newSecret();
-    await o.pool.query("UPDATE users SET totp_secret_enc = $2 WHERE id = $1 AND totp_enabled = false", [u.userId, o.secrets.seal(secret)]);
+    // A GET changes nothing a person could lose: the pending secret is created once and shown again on every later
+    // request until setup completes (an Admin's reset clears it), so no link or request can swap it under them.
+    const row = (await o.pool.query<{ totp_secret_enc: Buffer | null }>(
+      "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) WHERE id = $1 AND totp_enabled = false RETURNING totp_secret_enc",
+      [u.userId, o.secrets.seal(totp.newSecret())])).rows[0];
+    if (!row?.totp_secret_enc) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
+    const secret = o.secrets.open(row.totp_secret_enc);
     return { secret: totp.base32(secret), otpauthUri: totp.otpauthUri(secret, u.username) };
   });
 
@@ -176,6 +195,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     }
     const token = await transaction(o.pool, async c => {
       await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1", [u.userId, step]);
+      await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "succeeded", details: { action: body.action, target: body.target } });
       return issueStepUpToken(c, u.userId, body.action, body.target);
     });
     return { token };

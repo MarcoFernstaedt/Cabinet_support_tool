@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, PackageInstallOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation, type CommandResult } from "../../lib/commands";
 import { fullTime, bytes } from "../../lib/time";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { Badge, Empty, ResultProblem } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 import { useCanWrite, useConfirmedWrite } from "./Writes";

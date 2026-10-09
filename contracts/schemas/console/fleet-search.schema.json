@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-search.schema.json",
+  "title": "fleet-search",
+  "description": "From the query string: the jump-to box's text. Matched literally (wildcards have no meaning) against client, site, cabinet and host names.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "q": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    }
+  },
+  "required": [
+    "q"
+  ]
+}

@@ -79,16 +79,19 @@ export function useSecurityNews(fn: SecurityListener): void {
 
 const TERMINAL = new Set(["succeeded", "failed", "rejected", "expired"]);
 
-interface Issued { commandId: string; expiresAt: string }
+interface Issued { commandId: string; issuedAt?: string; expiresAt: string }
 
 /** Issuing and waiting, separately: a write's confirmation dialog awaits the issue (so a refusal shows there), then waits in the background. */
 export function useCommands() {
   const { wake } = useContext(StreamContext);
   const issue = useCallback((cabinetId: string, operation: string, params: Record<string, unknown>, stepUpToken?: string) =>
     api<Issued>("POST", `/api/cabinets/${cabinetId}/commands`, { operation, params, ...(stepUpToken ? { stepUpToken } : {}) }), []);
-  const wait = useCallback(async <T,>({ commandId, expiresAt }: Issued): Promise<CommandResult<T>> => {
-    const deadline = new Date(expiresAt).getTime() + 30_000;
-    while (Date.now() < deadline) {
+  const wait = useCallback(async <T,>({ commandId, issuedAt, expiresAt }: Issued): Promise<CommandResult<T>> => {
+    // The command's lifetime comes from the server's own two times; it is counted from now on this computer's clock,
+    // so a browser whose clock is off still waits the right time (and always looks at least once).
+    const lifetime = issuedAt ? new Date(expiresAt).getTime() - new Date(issuedAt).getTime() : 5 * 60_000;
+    const deadline = Date.now() + Math.max(0, lifetime) + 30_000;
+    for (let first = true; first || Date.now() < deadline; first = false) {
       const record = await api<{ status: string; result: { status: string; output?: T; error?: { code: string; message: string }; finishedAt?: string } | null }>("GET", `/api/commands/${commandId}`);
       if (TERMINAL.has(record.status)) {
         const r: CommandResult<T> = { status: record.status as CommandResult["status"] };

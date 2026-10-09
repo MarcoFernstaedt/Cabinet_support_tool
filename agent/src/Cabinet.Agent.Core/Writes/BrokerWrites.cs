@@ -117,8 +117,10 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             }
             else if (count == 0) throw new OperationFailedException("not_found", "No firewall rule has that name.");
             else if (count > 1) throw new OperationFailedException("execution_failed", "Several firewall rules share that name, so the change would be ambiguous.");
-            if (p.Change == RuleChange.Update && p.Rule!.Name != name && firewall.CountRules(p.Rule.Name) > 0)
-                throw new OperationFailedException("execution_failed", "Another rule already has the new name.");
+            // An update keeps the rule's name: a rename could give a Windows rule the platform's prefix (and so its
+            // attribution in the firewall history), or take it away from one of the platform's own.
+            if (p.Change == RuleChange.Update && p.Rule!.Name != name)
+                throw new OperationFailedException("execution_failed", "An update cannot rename a rule.");
 
             ReportedFirewallRule? before = p.Change == RuleChange.Create ? null : firewall.ReadRule(name);
             Guid snapshot = store.TakeSnapshot(firewall, command, now);

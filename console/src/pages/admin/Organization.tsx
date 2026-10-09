@@ -7,7 +7,7 @@ import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { SEVERITY_LABEL } from "../../components/MapToIssue";
 
 interface ClientAdmin { id: string; name: string; writePaused: boolean; writePauseReason: string | null; sites: { id: string; name: string; cabinets: number }[]; }
@@ -42,7 +42,8 @@ export function ClientsAndSites() {
       <p className="muted">Cabinets join a client and site when they are approved. A client or site can be removed once it has no active or pending cabinets; its history stays.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const name = newClient.trim();
-        run("client.create", "fleet", `Create the client ${name}.`, t => api("POST", "/api/admin/clients", { name, stepUpToken: t }), `Client ${name} created.`); setNewClient(""); }}>
+        // The name is cleared only once the client exists, so cancelling the confirmation keeps what was typed.
+        run("client.create", "fleet", `Create the client ${name}.`, async t => { await api("POST", "/api/admin/clients", { name, stepUpToken: t }); setNewClient(""); }, `Client ${name} created.`); }}>
         <label className="field inline"><span>New client</span><input required maxLength={128} value={newClient} onChange={e => setNewClient(e.target.value)} /></label>
         <button className="btn primary" type="submit">Create client</button>
       </form>
@@ -71,8 +72,10 @@ export function ClientsAndSites() {
               </li>))}
             </ul>)}
           <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const name = (newSite[c.id] ?? "").trim();
-            run("site.create", c.id, `Create the site ${name} for ${c.name}.`, t => api("POST", "/api/admin/sites", { clientId: c.id, name, stepUpToken: t }), `Site ${name} created.`);
-            setNewSite(m => ({ ...m, [c.id]: "" })); }}>
+            run("site.create", c.id, `Create the site ${name} for ${c.name}.`, async t => {
+              await api("POST", "/api/admin/sites", { clientId: c.id, name, stepUpToken: t });
+              setNewSite(m => ({ ...m, [c.id]: "" }));
+            }, `Site ${name} created.`); }}>
             <label className="field inline"><span>New site for {c.name}</span><input required maxLength={128} value={newSite[c.id] ?? ""} onChange={e => setNewSite(m => ({ ...m, [c.id]: e.target.value }))} /></label>
             <button className="btn" type="submit">Add site</button>
           </form>
@@ -171,7 +174,8 @@ export function IssueTypesAndSuppressions() {
         <form className="form" aria-label="New suppression" onSubmit={e => { e.preventDefault(); suppress(); }}>
           <h3>New suppression</h3>
           <div className="row gap wrap">
-            <label className="field inline"><span>Log</span><input value={supp.log} onChange={e => setSupp(x => ({ ...x, log: e.target.value }))} placeholder="System" /></label>
+            <label className="field inline"><span>Log</span><input list="suppression-logs" value={supp.log} onChange={e => setSupp(x => ({ ...x, log: e.target.value }))} placeholder="System" /></label>
+            <datalist id="suppression-logs"><option value="System" /><option value="Application" /><option value="Setup" /><option value="Microsoft-Windows-Biometrics/Operational" /><option value="Microsoft-Windows-Kernel-PnP/Configuration" /></datalist>
             <label className="field inline"><span>Source</span><input value={supp.source} onChange={e => setSupp(x => ({ ...x, source: e.target.value }))} /></label>
             <label className="field inline"><span>Event ID</span><input inputMode="numeric" size={6} value={supp.eventId} onChange={e => setSupp(x => ({ ...x, eventId: e.target.value.replace(/\D/g, "") }))} /></label>
             <label className="field inline"><span>Message phrase</span><input value={supp.phrase} onChange={e => setSupp(x => ({ ...x, phrase: e.target.value }))} /></label>

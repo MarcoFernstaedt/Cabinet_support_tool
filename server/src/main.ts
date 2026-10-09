@@ -10,6 +10,7 @@ import { buildConsoleApi } from "./console-api/server.js";
 import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
 import { checkOffline } from "./services/alerts.js";
+import { expireUnanswered } from "./services/commands.js";
 import { TrustList } from "./packages/trust.js";
 import { mkdirSync } from "node:fs";
 import { ReleaseKeys } from "./services/releases.js";
@@ -40,6 +41,7 @@ if (config.console) {
 // Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs.
 const offlineJob = setInterval(() => {
   checkOffline(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
+  expireUnanswered(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "unanswered command check failed"));
   expireRules(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rule expiry failed"));
   checkRollouts(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rollout check failed"));
 }, 60_000);

@@ -9,7 +9,7 @@ import { ago, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { AuditTable, type AuditRow } from "./Audit";
 
 export interface UserRow {
@@ -104,8 +104,9 @@ function UserLine({ u, self, ask, after, onPassword }: { u: UserRow; self: boole
       <td>{u.status === "active" ? <Badge tone="ok">Active</Badge> : <Badge tone="off">Disabled</Badge>}</td>
       <td>
         <label className="sr-only" htmlFor={`limit-${u.id}`}>Changes per hour for {u.username}</label>
-        <input id={`limit-${u.id}`} inputMode="numeric" size={4} value={limit} onChange={e => setLimit(e.target.value.replace(/\D/g, ""))} />
-        {Number(limit) !== u.writeLimit && Number(limit) >= 1 && <button className="btn small primary" onClick={() => update({ writeLimit: Number(limit) }, `Set the hourly change limit to ${limit}`)}>Save</button>}
+        <input id={`limit-${u.id}`} inputMode="numeric" size={4} value={limit} onChange={e => setLimit(e.target.value.replace(/\D/g, "").slice(0, 3))} />
+        {Number(limit) > 200 && <span className="error">At most 200.</span>}
+        {Number(limit) !== u.writeLimit && Number(limit) >= 1 && Number(limit) <= 200 && <button className="btn small primary" onClick={() => update({ writeLimit: Number(limit) }, `Set the hourly change limit to ${limit}`)}>Save</button>}
       </td>
       <td>{u.lastLoginAt ? <span title={fullTime(u.lastLoginAt)}>{ago(u.lastLoginAt)}</span> : <span className="muted">never</span>}</td>
       <td><div className="row gap wrap">

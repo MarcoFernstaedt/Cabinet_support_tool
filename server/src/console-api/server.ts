@@ -41,7 +41,7 @@ export interface ConsoleApiOptions {
   policy?: SessionPolicy;
   /** The platform settings, read through a short cache; made here when not given. */
   settings?: SettingsCache;
-  trustProxy?: boolean;
+  trustProxy?: number | string | false;
   logger?: boolean;
   now?: () => number;
 }
@@ -69,7 +69,8 @@ const CONTENT_TYPES: Record<string, string> = {
 export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInstance> {
   const app = Fastify({
     bodyLimit: 256 * 1024,
-    trustProxy: o.trustProxy ?? false,
+    // A hop count becomes "trust that many proxies nearest to us", so only the address the nearest proxy saw counts.
+    trustProxy: typeof o.trustProxy === "number" ? ((_address: string, hop: number) => hop < (o.trustProxy as number)) : (o.trustProxy ?? false),
     logger: o.logger === false ? false : { level: "info", redact: ["req.headers.cookie", "req.headers.authorization"] },
   });
 

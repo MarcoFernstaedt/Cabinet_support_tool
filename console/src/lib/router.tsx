@@ -21,7 +21,14 @@ export function Router({ children }: { children: ReactNode }) {
 
 export const useRouter = () => useContext(RouterContext);
 
-/** Matches "/cabinets/:id" style patterns; returns the named parts or null. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const WORD = /^[a-z0-9-]{1,40}$/i;
+
+/**
+ * Matches "/cabinets/:id" style patterns; returns the named parts or null. Every ":id" must be a UUID and any other
+ * part a plain word, so nothing typed into the address bar (an encoded "../", a broken escape) can crash the console
+ * or steer the API call a page builds from it.
+ */
 export function match(pattern: string, path: string): Record<string, string> | null {
   const p = pattern.split("/").filter(Boolean);
   const actual = (path.split("?")[0] ?? "").split("/").filter(Boolean);
@@ -29,8 +36,12 @@ export function match(pattern: string, path: string): Record<string, string> | n
   const params: Record<string, string> = {};
   for (let i = 0; i < p.length; i++) {
     const seg = p[i]!;
-    if (seg.startsWith(":")) params[seg.slice(1)] = decodeURIComponent(actual[i]!);
-    else if (seg !== actual[i]) return null;
+    if (seg.startsWith(":")) {
+      let value: string;
+      try { value = decodeURIComponent(actual[i]!); } catch { return null; }
+      if (!(seg === ":id" ? UUID : WORD).test(value)) return null;
+      params[seg.slice(1)] = value;
+    } else if (seg !== actual[i]) return null;
   }
   return params;
 }

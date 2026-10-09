@@ -1,12 +1,12 @@
 // Admin home, pending cabinets, install tokens and the scanner default. The other admin screens are in their own files.
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PortsEditor, ScannerIdsEditor } from "../../components/DeviceSettings";
 import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -37,19 +37,34 @@ interface Pending { id: string; createdAt: string; sourceAddress: string | null;
 
 export function PendingCabinets() {
   const { data, problem, reload } = useLoad<Pending[]>("/api/admin/enrollments");
+  const clients = useLoad<KnownClient[]>("/api/admin/clients");
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Pending cabinets" }]} />
       <h1>Pending cabinets</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && data.length === 0 && <Empty>No cabinets are waiting. A cabinet appears here after it is installed with an install token.</Empty>}
-      {data?.map(p => <PendingCard key={p.id} p={p} onDone={reload} />)}
+      {data?.map(p => <PendingCard key={p.id} p={p} clients={clients.data ?? []} onDone={reload} />)}
     </div>
   );
 }
 
-function PendingCard({ p, onDone }: { p: Pending; onDone: () => void }) {
+interface KnownClient { id: string; name: string; sites: { id: string; name: string }[] }
+
+/** Whether a typed name is an existing one, the same name in other letters (likely a typo), or new. */
+function known(name: string, names: string[]): { exact: boolean; near: string | null } {
+  const t = name.trim();
+  if (names.includes(t)) return { exact: true, near: null };
+  return { exact: false, near: names.find(n => n.toLowerCase() === t.toLowerCase()) ?? null };
+}
+
+function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
   const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone" });
+  // Approving with a name that does not exist creates that client or site, so existing ones are offered and a new one is said out loud.
+  const client = known(form.client, clients.map(c => c.name));
+  const sites = clients.find(c => c.name === form.client.trim())?.sites.map(s => s.name) ?? [];
+  const site = known(form.site, sites);
+  const lists = `pending-${p.id}`;
   const [confirm, setConfirm] = useState<"approve" | "reject" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -61,18 +76,25 @@ function PendingCard({ p, onDone }: { p: Pending; onDone: () => void }) {
         ["Running since", fullTime(p.fingerprints.onlineSince)], ["Request ID", <code>{p.id}</code>]]} />
       {done ? <p className="ok" role="status">{done}</p> : (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setConfirm("approve"); }}>
-          <label className="field"><span>Client</span><input required maxLength={128} value={form.client} onChange={e => setForm(f => ({ ...f, client: e.target.value }))} /></label>
-          <label className="field"><span>Site</span><input required maxLength={128} value={form.site} onChange={e => setForm(f => ({ ...f, site: e.target.value }))} /></label>
+          <label className="field"><span>Client</span><input required maxLength={128} list={`${lists}-clients`} value={form.client} onChange={e => setForm(f => ({ ...f, client: e.target.value }))} /></label>
+          <datalist id={`${lists}-clients`}>{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
+          <label className="field"><span>Site</span><input required maxLength={128} list={`${lists}-sites`} value={form.site} onChange={e => setForm(f => ({ ...f, site: e.target.value }))} /></label>
+          <datalist id={`${lists}-sites`}>{sites.map(n => <option key={n} value={n} />)}</datalist>
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
-          <button className="btn primary">Approve</button>
+          <button className="btn primary" disabled={!!client.near || !!site.near}>Approve</button>
+          {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
+          {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
           <button type="button" className="btn danger" onClick={() => { setProblem(null); setConfirm("reject"); }}>Reject</button>
         </form>)}
       {problem && <p className="error" role="alert">{problem}</p>}
       <StepUpDialog open={confirm !== null} action={confirm === "reject" ? "enrollment.reject" : "enrollment.approve"} target={p.id} onClose={() => setConfirm(null)}
         description={confirm === "reject" ? <p>Reject the request from <strong>{p.fingerprints.hostname}</strong>. It will need a new install token to try again.</p>
-          : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>. It receives its certificate on its next check-in.</p>}
+          : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>.
+            {!client.exact && <> This creates the new client <strong>{form.client.trim()}</strong>.</>}
+            {client.exact && !site.exact && <> This creates the new site <strong>{form.site.trim()}</strong>.</>}
+            {" "}It receives its certificate on its next check-in.</p>}
         onToken={async token => {
           try {
             if (confirm === "reject") { await api("POST", `/api/admin/enrollments/${p.id}/reject`, { stepUpToken: token }); setDone("Rejected."); }
@@ -88,15 +110,19 @@ export function InstallTokens() {
   const [confirm, setConfirm] = useState(false);
   const [issued, setIssued] = useState<{ token: string; expiresAt: string; platformCaPem: string } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const caHref = issued ? URL.createObjectURL(new Blob([issued.platformCaPem], { type: "application/x-pem-file" })) : undefined;
+  // One download link per issued token, released when it is replaced or the page closes.
+  const caHref = useMemo(() => issued ? URL.createObjectURL(new Blob([issued.platformCaPem], { type: "application/x-pem-file" })) : undefined, [issued]);
+  useEffect(() => () => { if (caHref) URL.revokeObjectURL(caHref); }, [caHref]);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Install a cabinet" }]} />
       <h1>Install a cabinet</h1>
       <ol className="steps">
         <li>Create an install token below. It works once and expires in 7 days.</li>
-        <li>On the cabinet, in an elevated PowerShell, run the installer with the server, the platform CA file and the token:<br />
-          <code>./Install-CabinetAgent.ps1 -PlatformServerHost &lt;server&gt; -PlatformServerPort 8443 -PlatformCaFile platform-ca.pem -BootstrapToken &lt;token&gt;</code></li>
+        <li>On the cabinet, save the token in a file, then in an elevated PowerShell run the installer with the server's agent address and port
+          (8443 unless your server was set up with another <code>AGENT_API_PORT</code>), the platform CA file and the token file:<br />
+          <code>./Install-CabinetAgent.ps1 -PlatformServerHost &lt;server&gt; -PlatformServerPort &lt;port&gt; -PlatformCaFile platform-ca.pem -BootstrapTokenFile token.txt</code><br />
+          <span className="muted small">A token file keeps the token out of the command line, which Windows can record. Delete the file once the cabinet is approved.</span></li>
         <li>The cabinet then appears under <Link to="/admin/pending">Pending cabinets</Link> for approval.</li>
       </ol>
       <button className="btn primary" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>

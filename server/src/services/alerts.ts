@@ -163,20 +163,24 @@ export async function summary(db: Queryable) {
   return { openMajor: Number(r.open_major), active: Number(r.active), unrecognized: Number(r.unrecognized) };
 }
 
+type EventRow = { event_id: string; cabinet_id: string; kind: string; occurred_at: Date; received_at: Date; source: Event["source"] | null;
+  detail: Event["detail"] | null; device: Event["device"] | null; severity_hint: string | null; alert_id: string | null; matched_rule: string | null; issue_name: string | null };
+
+const EVENT_SELECT = `SELECT e.event_id, e.cabinet_id, e.kind, e.occurred_at, e.received_at, e.source, e.detail, e.device, e.severity_hint, e.alert_id, e.matched_rule, t.name AS issue_name
+  FROM events e LEFT JOIN symptom_rules r ON r.id = e.matched_rule LEFT JOIN issue_types t ON t.id = r.issue_type_id`;
+
+const eventView = (e: EventRow) => ({ eventId: e.event_id, cabinetId: e.cabinet_id, kind: e.kind, occurredAt: e.occurred_at.toISOString(), receivedAt: e.received_at.toISOString(),
+  source: e.source, detail: e.detail, device: e.device, severityHint: e.severity_hint, alertId: e.alert_id, ruleId: e.matched_rule, issueName: e.issue_name });
+
 /** One stored event with its alert and rule, for the detail view and Map to issue. */
 export async function eventById(db: Queryable, eventId: string) {
-  const e = (await db.query<{ event_id: string; cabinet_id: string; kind: string; occurred_at: Date; received_at: Date; source: Event["source"] | null;
-    detail: Event["detail"] | null; device: Event["device"] | null; severity_hint: string | null; alert_id: string | null; matched_rule: string | null; issue_name: string | null }>(
-    `SELECT e.event_id, e.cabinet_id, e.kind, e.occurred_at, e.received_at, e.source, e.detail, e.device, e.severity_hint, e.alert_id, e.matched_rule, t.name AS issue_name
-       FROM events e LEFT JOIN symptom_rules r ON r.id = e.matched_rule LEFT JOIN issue_types t ON t.id = r.issue_type_id WHERE e.event_id = $1`, [eventId])).rows[0];
-  if (!e) return null;
-  return { eventId: e.event_id, cabinetId: e.cabinet_id, kind: e.kind, occurredAt: e.occurred_at.toISOString(), receivedAt: e.received_at.toISOString(),
-    source: e.source, detail: e.detail, device: e.device, severityHint: e.severity_hint, alertId: e.alert_id, ruleId: e.matched_rule, issueName: e.issue_name };
+  const e = (await db.query<EventRow>(`${EVENT_SELECT} WHERE e.event_id = $1`, [eventId])).rows[0];
+  return e ? eventView(e) : null;
 }
 
+/** A cabinet's latest events, newest first, in one query. */
 export async function cabinetEvents(db: Queryable, cabinetId: string, limit = 100) {
-  const rows = (await db.query<{ event_id: string }>("SELECT event_id FROM events WHERE cabinet_id = $1 ORDER BY occurred_at DESC LIMIT $2", [cabinetId, limit])).rows;
-  return Promise.all(rows.map(r => eventById(db, r.event_id)));
+  return (await db.query<EventRow>(`${EVENT_SELECT} WHERE e.cabinet_id = $1 ORDER BY e.occurred_at DESC LIMIT $2`, [cabinetId, limit])).rows.map(eventView);
 }
 
 /** How many other cabinets reported the same log, source and event ID in the last 30 days (the event detail view). */
@@ -187,8 +191,9 @@ export async function sameErrorElsewhere(db: Queryable, cabinetId: string, log: 
         AND lower(e.source->>'source') = lower($3) AND e.source->>'eventId' = $4`, [cabinetId, log, source, String(eventId)])).rows[0]!;
   const rule = (await db.query<{ name: string }>(
     `SELECT t.name FROM events e JOIN symptom_rules r ON r.id = e.matched_rule JOIN issue_types t ON t.id = r.issue_type_id
-      WHERE e.kind = 'error' AND e.source->>'log' = $1 AND lower(e.source->>'source') = lower($2) AND e.source->>'eventId' = $3
-      ORDER BY e.received_at DESC LIMIT 1`, [log, source, String(eventId)])).rows[0];
+      WHERE e.kind = 'error' AND e.occurred_at > now() - interval '30 days'
+        AND e.source->>'log' = $1 AND lower(e.source->>'source') = lower($2) AND e.source->>'eventId' = $3
+      ORDER BY e.occurred_at DESC LIMIT 1`, [log, source, String(eventId)])).rows[0];
   return { otherCabinets: Number(r.cabinets), events: Number(r.events), issueName: rule?.name ?? null, days: 30 };
 }
 

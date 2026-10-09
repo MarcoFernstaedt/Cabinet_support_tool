@@ -149,7 +149,7 @@ The console listener runs when `CONSOLE_ORIGIN` is set. It is meant to sit behin
 | `CONSOLE_SECRET_KEY` | 32 random bytes, base64. Encrypts authenticator secrets; keep it in the secret store. |
 | `CONSOLE_PORT`, `CONSOLE_HOST` | The listener (default 127.0.0.1:8080). |
 | `CONSOLE_STATIC_DIR` | The built console (default `../console/dist`). |
-| `CONSOLE_TRUST_PROXY=1` | Read the client address from the proxy. |
+| `CONSOLE_TRUST_PROXY` | Read the client address from the proxy: the number of proxies in front (usually `1`), or the proxies' own addresses. Only the address the nearest trusted proxy saw is used, never what the client wrote in `X-Forwarded-For`. |
 
 Security behaviour:
 - **Passwords** are hashed with Argon2id.
@@ -184,7 +184,7 @@ npm run admin -- command <commandId>
 On the cabinet, in an elevated PowerShell:
 
 ```powershell
-./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile dev-issuing-ca.cert.pem -BootstrapToken <token>
+./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile dev-issuing-ca.cert.pem -BootstrapTokenFile token.txt   # the token saved in a file (also accepted: -BootstrapToken <token>)
 ```
 
 ## Load test (8,000 agents)

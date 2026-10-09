@@ -9,7 +9,8 @@ import { loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain } from "./db/db.js";
 import { migrate } from "./db/migrate.js";
 import { listCabinets, revokeCabinet } from "./services/cabinets.js";
-import { commandRecord, issueCommand } from "./services/commands.js";
+import { commandRecord } from "./services/commands.js";
+import { issueFromConsole, ROLE_RANK as RANKS, type Role } from "./services/console-commands.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "./services/enrollment.js";
 import { Refused } from "./services/errors.js";
 import { issuingKey } from "./runtime.js";
@@ -52,7 +53,7 @@ const USAGE = `platform-admin <command> [options]
   command <commandId>                       a command's status and result
   audit-verify                              recompute the audit hash chain`;
 
-const ROLE_RANK: Record<string, number> = { tier1: 1, tier2: 2, admin: 3 };
+const ROLE_RANK: Record<string, number> = RANKS;
 
 async function userId(pool: pg.Pool, username: string | undefined, minimumRole: "tier1" | "tier2" | "admin"): Promise<string> {
   if (!username) throw new Refused("usage", 2, "--as <username> is required");
@@ -290,8 +291,10 @@ async function main(argv: string[]): Promise<void> {
         try { parsed = JSON.parse(params ?? "{}"); } catch { throw new Refused("usage", 2, "paramsJson is not JSON"); }
         const isWrite = isOperationName(operation) && catalog.get(operation)!.kind === "write";
         if (isWrite && !values.write) throw new Refused("usage", 2, `${operation} changes the cabinet; add --write to confirm`);
-        const command = await issueCommand(pool, await userId(pool, values.as, isWrite ? "tier2" : "tier1"), cabinetId, operation, parsed, "command.issue",
-          isWrite ? { viaCli: true } : undefined);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Refused("usage", 2, "paramsJson must be a JSON object");
+        const as = await userId(pool, values.as, isWrite ? "tier2" : "tier1");
+        const role = (await pool.query<{ role: Role }>("SELECT role FROM users WHERE id = $1", [as])).rows[0]!.role;
+        const command = await issueFromConsole(pool, { userId: as, role }, cabinetId, operation, parsed as Record<string, unknown>, undefined, true);
         console.log(command.commandId);
         return;
       }

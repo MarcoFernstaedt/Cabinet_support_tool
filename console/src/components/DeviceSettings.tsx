@@ -3,6 +3,7 @@
 // that level's setting so the level above applies. The server enforces roles and needs a step-up for each change.
 import { useState, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
+import { parseSyncPorts, SYNC_PORTS_RULE } from "../lib/ports";
 import { StepUpDialog } from "./ui";
 
 export const SCANNER_SOURCE: Record<string, string> = {
@@ -12,7 +13,6 @@ export const SCANNER_SOURCE: Record<string, string> = {
 export const PORTS_SOURCE: Record<string, string> = { site: "this site's own setting", client: "the client's default", fleet: "the fleet default", none: "nowhere (no ports set)" };
 
 const parseIds = (text: string) => text.split(/\s+/).map(s => s.trim()).filter(Boolean);
-const parsePorts = (text: string) => text.split(/[\s,]+/).filter(Boolean).map(Number);
 
 /** One level's scanner hardware IDs. */
 export function ScannerIdsEditor({ label, current, inherited, endpoint, action, target, what, editable, onSaved }: {
@@ -54,8 +54,7 @@ export function PortsEditor({ current, inherited, endpoint, action, target, what
   const [pending, setPending] = useState<number[] | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const ports = parsePorts(text);
-  const valid = ports.length <= 4 && ports.every(p => Number.isInteger(p) && p >= 1 && p <= 65535);
+  const { ports, valid } = parseSyncPorts(text);
   return (
     <div className="stack">
       <p>{current ? <>Set here: <strong>{current.length ? current.join(", ") : "none"}</strong></> : <>Nothing set here; {inherited}</>}</p>
@@ -63,7 +62,7 @@ export function PortsEditor({ current, inherited, endpoint, action, target, what
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setPending(ports.length ? ports : null); }}>
           <label className="field inline"><span>TCP ports (up to 4, comma separated; empty to remove)</span><input value={text} placeholder="e.g. 1433, 5000" onChange={e => setText(e.target.value)} /></label>
           <button className="btn" disabled={!valid}>Save</button>
-          {!valid && <span className="error">Up to 4 ports between 1 and 65535.</span>}
+          {!valid && <span className="error">{SYNC_PORTS_RULE}</span>}
           {saved && <span className="ok" role="status">Saved.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>)}

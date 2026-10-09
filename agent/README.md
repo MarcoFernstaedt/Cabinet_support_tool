@@ -114,7 +114,7 @@ $cfg = "$env:ProgramData\Mashura\CabinetAgent\agent-config.json"
 To connect the cabinet to a platform server (see server/README.md for the server side):
 
 ```powershell
-./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile platform-ca.pem -BootstrapToken <token>
+./agent/install/Install-CabinetAgent.ps1 -PlatformServerHost <server> -PlatformServerPort 8443 -PlatformCaFile platform-ca.pem -BootstrapTokenFile token.txt   # the token saved in a file (also accepted: -BootstrapToken <token>)
 ```
 
 Once the client supplies the scanner and sync details, reinstall with them:

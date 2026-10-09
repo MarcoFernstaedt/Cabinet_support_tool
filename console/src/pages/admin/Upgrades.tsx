@@ -9,7 +9,7 @@ import { bytes, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 interface Release { version: string; minimumVersion: string; sha256: string; sizeBytes: number; releasedAt: string; notes: string | null; state: string; refusal: string | null;
   keyId: string; addedBy: { id: string; name: string }; addedAt: string }

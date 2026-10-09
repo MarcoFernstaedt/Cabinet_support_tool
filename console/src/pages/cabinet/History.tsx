@@ -1,4 +1,4 @@
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty } from "../../components/ui";
 

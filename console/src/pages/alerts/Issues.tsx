@@ -8,7 +8,7 @@ import { Link } from "../../lib/router";
 import { atLeast, useSession } from "../../lib/session";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty, StepUpDialog } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 interface Rule {
   severity?: "major" | "minor" | null;

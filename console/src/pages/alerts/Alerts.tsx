@@ -7,10 +7,10 @@ import { Link, useRouter } from "../../lib/router";
 import { ago } from "../../lib/time";
 import { AlertList } from "../../components/AlertList";
 import { Badge, Empty } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 type View = "alerts" | "unrecognized" | "offline";
-interface Filters { state: string; issueTypeId: string; claimedBy: string }
+interface Filters { state: string; issueTypeId: string; claimedBy: string; clientId: string; siteId: string }
 
 export function AlertsPage() {
   const { path, navigate } = useRouter();
@@ -31,8 +31,10 @@ export function AlertsPage() {
 }
 
 function AlertsView({ unrecognized }: { unrecognized: boolean }) {
-  const [f, setF] = useState<Filters>({ state: "active", issueTypeId: "", claimedBy: "" });
+  const [f, setF] = useState<Filters>({ state: "active", issueTypeId: "", claimedBy: "", clientId: "", siteId: "" });
   const issues = useLoad<IssueType[]>("/api/issues");
+  const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
+  const client = useLoad<{ sites: { id: string; name: string }[] }>(f.clientId ? `/api/fleet/clients/${f.clientId}` : null);
   const q = new URLSearchParams();
   if (f.state) q.set("state", f.state);
   if (unrecognized) q.set("unrecognized", "true");
@@ -42,6 +44,8 @@ function AlertsView({ unrecognized }: { unrecognized: boolean }) {
     if (f.issueTypeId) q.set("issueTypeId", f.issueTypeId);
   }
   if (f.claimedBy) q.set("claimedBy", f.claimedBy);
+  if (f.siteId) q.set("siteId", f.siteId);
+  else if (f.clientId) q.set("clientId", f.clientId);
   const { data, problem, reload } = useLoad<Alert[]>(`/api/alerts?${q.toString()}`);
   useAlertNews(reload);
   return (<>
@@ -52,6 +56,12 @@ function AlertsView({ unrecognized }: { unrecognized: boolean }) {
       {!unrecognized && <label className="field"><span>Issue</span>
         <select value={f.issueTypeId} onChange={e => setF({ ...f, issueTypeId: e.target.value })}><option value="">Any</option>
           {issues.data?.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></label>}
+      <label className="field"><span>Client</span>
+        <select value={f.clientId} onChange={e => setF({ ...f, clientId: e.target.value, siteId: "" })}><option value="">Any</option>
+          {clients.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+      {f.clientId && <label className="field"><span>Site</span>
+        <select value={f.siteId} onChange={e => setF({ ...f, siteId: e.target.value })}><option value="">Any</option>
+          {client.data?.sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>}
       <label className="field"><span>State</span>
         <select value={f.state} onChange={e => setF({ ...f, state: e.target.value })}>
           <option value="active">Open or claimed</option><option value="open">Open</option><option value="claimed">Claimed</option><option value="resolved">Resolved</option></select></label>

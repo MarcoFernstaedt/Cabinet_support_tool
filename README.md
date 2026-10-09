@@ -17,7 +17,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 | [`server/`](server/README.md) | Two APIs:<br>• the agent API (mutual TLS, long poll, heartbeats, events, results, packages, upgrades);<br>• the console API (sign-in, roles, step-up, alerts, writes, administration).<br>Plus the alerts engine, audit log and CLI. | Node.js 22, TypeScript, Fastify 5, PostgreSQL 16 |
 | [`console/`](console/README.md) | The support console, served by the server from the same origin. | React 19, TypeScript, Vite |
 | [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 8, self-contained |
-| [`docs/platform/`](docs/platform/) | Platform documentation beyond the spec: [performance and capacity](docs/platform/performance.md). | |
+| [`docs/platform/`](docs/platform/) | Platform documentation beyond the spec: [performance and capacity](docs/platform/performance.md) (including the command round trip) and the [October 2026 review](docs/platform/review-2026-10.md) (fixes, open items, recommendations). | |
 | `src/`, `tests/`, `tools/`, `CabinetPlatform.sln` | **The earlier C# demo, superseded by this platform.** Kept for reference until it is removed; its CI workflow runs only by hand. See [legacy](#legacy). | |
 
 ## How it fits together

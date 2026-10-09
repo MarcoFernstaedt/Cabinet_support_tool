@@ -224,6 +224,8 @@ test("an unrecognized error is mapped by Tier 2, approved by an Admin, regrouped
   const detail = await call("GET", `/api/events/${(first.outcomes[0] as { alertId: string }) && (await db.app.query("SELECT last_event_id FROM alerts WHERE id = $1", [unrecognizedId])).rows[0].last_event_id}`, undefined, t1);
   assert.equal(detail.body.source.eventId, 4242);
   assert.equal(detail.body.elsewhere.events, 1);
+  const opened = (await db.app.query("SELECT target_id FROM audit_log WHERE action = 'event.open' AND details->>'eventId' = $1", [detail.body.eventId])).rows;
+  assert.deepEqual(opened, [{ target_id: cab.a }], "opening a stored event is audited against its cabinet");
 
   const match: SymptomMatch = { kind: "error", log: "Application", source: "Biometric Lock Driver", eventId: 4242 };
   assert.equal((await call("POST", "/api/rules/preview", { match }, t1)).status, 403, "Tier 1 cannot map");

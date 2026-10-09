@@ -8,7 +8,7 @@ import { fullTime } from "../../lib/time";
 import { AlertList, matchFor } from "../../components/AlertList";
 import { MapToIssue } from "../../components/MapToIssue";
 import { Badge, Empty } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 export const SCANNER_ISSUE = "00000000-0000-4000-8000-000000000101";
 

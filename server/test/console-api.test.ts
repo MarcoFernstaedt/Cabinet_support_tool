@@ -1,3 +1,4 @@
+import { trustProxy } from "../src/config.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -99,6 +100,37 @@ test("wrong and unknown accounts get the same answer, and five failures lock the
   assert.deepEqual((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).body, { error: "account_locked" });
 });
 
+test("a correct password never clears wrong authenticator codes, so guessing codes locks the account", async () => {
+  const a = await account("tier2", { totp: true });
+  for (let round = 0; round < 3; round++) {
+    const login = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
+    if (login.status === 429) break;
+    assert.equal(login.body.stage, "totp");
+    for (let i = 0; i < 2; i++) await call("POST", "/api/auth/totp", { code: "000001" }, login.cookie);
+  }
+  assert.deepEqual((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).body, { error: "account_locked" });
+  const alerts = (await db.app.query("SELECT 1 FROM security_alerts WHERE kind = 'failed_logins' AND user_id = $1", [a.id])).rows;
+  assert.equal(alerts.length, 1, "the lock raised a security alert");
+});
+
+test("after a lock runs out the count starts again: one more mistake does not re-lock, five do", async () => {
+  const a = await account("tier1");
+  for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
+  await db.app.query("UPDATE users SET locked_until = now() - interval '1 second' WHERE id = $1", [a.id]);
+  await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
+  assert.equal((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).status, 200);
+  for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
+  assert.deepEqual((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).body, { error: "account_locked" });
+});
+
+test("authenticator setup shows the same secret until it is confirmed", async () => {
+  const a = await account("tier2");
+  const login = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
+  const first = await call("GET", "/api/auth/totp/setup", undefined, login.cookie);
+  const again = await call("GET", "/api/auth/totp/setup", undefined, login.cookie);
+  assert.equal(again.body.secret, first.body.secret, "a second request cannot swap the secret being set up");
+});
+
 test("a Tier 1 user without two-factor signs in with a password and gets an HttpOnly, Secure, SameSite=Strict cookie", async () => {
   const a = await account("tier1");
   const r = await app.inject({ method: "POST", url: "/api/auth/login", payload: JSON.stringify({ username: a.username, password: a.password }),
@@ -195,6 +227,8 @@ test("a step-up token works once, only for its own action and target", async () 
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
   const token = await stepUp(admin, cookie, "site.sync", siteId);
+  const granted = (await db.app.query("SELECT details FROM audit_log WHERE actor_id = $1 AND action = 'auth.step_up' AND outcome = 'succeeded'", [admin.id])).rows;
+  assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId }], "a granted step-up is audited");
   assert.deepEqual((await call("POST", `/api/admin/cabinets/${cabinetId}/revoke`, { stepUpToken: token }, cookie)).body, { error: "step_up_required" }, "wrong action");
   const otherSite = randomUUID();
   assert.equal((await call("PUT", `/api/sites/${otherSite}/sync`, { address: null, ports: [], stepUpToken: token }, cookie)).status, 403, "wrong target");
@@ -246,6 +280,8 @@ test("search treats wildcards literally", async () => {
   const cookie = await signIn(await account("tier1"));
   assert.ok((await call("GET", "/api/fleet/search?q=ICU", undefined, cookie)).body.some((r: { name: string }) => r.name === "ICU 1"));
   assert.deepEqual((await call("GET", "/api/fleet/search?q=%25", undefined, cookie)).body, []);
+  for (const hostile of ["", "?q=", "?q=a%0Ab", `?q=${"x".repeat(65)}`, "?q=a&limit=9"])
+    assert.equal((await call("GET", `/api/fleet/search${hostile}`, undefined, cookie)).status, 400, hostile);
 });
 
 test("the built console is served with strict headers, and paths cannot escape its folder", async () => {
@@ -288,4 +324,11 @@ test("live streams that end at once, or are cut off, leave no subscriber or time
   }
   for (let i = 0; i < 50 && stream.count > 0; i++) await new Promise(r => setTimeout(r, 100));
   assert.equal(stream.count, 0);
+});
+
+test("the proxy setting trusts a number of hops or named proxies, never any address the client writes", () => {
+  assert.equal(trustProxy(undefined), false);
+  assert.equal(trustProxy("1"), 1);
+  assert.equal(trustProxy("10.0.0.5, 10.0.1.0/24"), "10.0.0.5, 10.0.1.0/24");
+  for (const bad of ["true", "0", "9", "all", "10.0.0.5; rm", "*"]) assert.throws(() => trustProxy(bad), bad);
 });

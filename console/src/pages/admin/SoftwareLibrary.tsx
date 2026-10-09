@@ -7,7 +7,7 @@ import { useSession } from "../../lib/session";
 import { bytes, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, StepUpDialog } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import type { LibraryPackage } from "../cabinet/Software";
 
 const STATE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
@@ -61,7 +61,7 @@ export function SoftwareLibrary() {
           </div>
           <label className="field"><span>Hardware IDs it is for (one per line; leave empty for an installer meant for any cabinet)</span>
             <textarea rows={3} value={draft.hardwareIds} onChange={e => set("hardwareIds", e.target.value)} /></label>
-          <label className="field"><span>Notes (optional)</span><input maxLength={500} value={draft.notes} onChange={e => set("notes", e.target.value)} /></label>
+          <label className="field"><span>Notes (optional)</span><input maxLength={256} value={draft.notes} onChange={e => set("notes", e.target.value)} /></label>
           <label className="field"><span>File</span><input ref={fileInput} required type="file" accept={draft.packageType === "msi" ? ".msi" : ".zip"} onChange={e => setFile(e.target.files?.[0] ?? null)} /></label>
           <button className="btn primary" type="submit" disabled={!file || uploading}>{uploading ? "Uploading and checking…" : "Upload"}</button>
         </form>

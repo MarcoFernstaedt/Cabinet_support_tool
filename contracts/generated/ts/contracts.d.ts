@@ -435,6 +435,13 @@ export interface EventLookup {
 }
 
 /**
+ * From the query string: the jump-to box's text. Matched literally (wildcards have no meaning) against client, site, cabinet and host names.
+ */
+export interface FleetSearch {
+  q: string;
+}
+
+/**
  * Creates or edits an issue type.
  */
 export interface IssueType {

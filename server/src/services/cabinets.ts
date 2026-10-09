@@ -17,10 +17,16 @@ export interface AuthenticatedCabinet { id: string; serial: string; }
  */
 export async function authenticate(db: Queryable, serialHex: string, subjectCabinetId: string): Promise<AuthenticatedCabinet | null> {
   if (!/^[0-9A-F]{2,64}$/.test(serialHex)) return null;
-  const row = (await db.query<{ cabinet_id: string }>(
-    `SELECT c.cabinet_id FROM cabinet_certificates c JOIN cabinets k ON k.id = c.cabinet_id
+  const row = (await db.query<{ cabinet_id: string; first_use: boolean }>(
+    `SELECT c.cabinet_id, c.first_used_at IS NULL AS first_use FROM cabinet_certificates c JOIN cabinets k ON k.id = c.cabinet_id
       WHERE c.serial = $1 AND c.revoked_at IS NULL AND c.not_after > now() AND k.status = 'active'`, [serialHex])).rows[0];
   if (!row || row.cabinet_id !== subjectCabinetId) return null;
+  if (row.first_use) {
+    // The first connection with a renewed certificate retires the one it replaced (once per certificate, not per request).
+    await db.query(
+      `WITH used AS (UPDATE cabinet_certificates SET first_used_at = now() WHERE serial = $1 AND first_used_at IS NULL RETURNING renewed_from)
+       UPDATE cabinet_certificates SET revoked_at = now() WHERE serial = (SELECT renewed_from FROM used) AND revoked_at IS NULL`, [serialHex]);
+  }
   return { id: row.cabinet_id, serial: serialHex };
 }
 
@@ -35,15 +41,26 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   return { wasOffline: r?.was_offline ?? false };
 }
 
-/** Issues a fresh certificate for the same cabinet. Allowed only in the last AGENT_RENEW_DAYS of the current one, so a stolen certificate cannot extend itself indefinitely early. */
+/**
+ * Issues a fresh certificate for the same cabinet. Allowed only in the last AGENT_RENEW_DAYS of the current one, and
+ * only once: a certificate whose successor has been used cannot renew again (a copy cannot keep extending itself), and
+ * the successor's first use revokes it (see authenticate). A successor never used (the answer was lost on the way) is
+ * revoked and replaced, so the agent can simply ask again.
+ */
 export async function renewCertificate(pool: pg.Pool, key: IssuingKey, cabinet: AuthenticatedCabinet, csrPem: string): Promise<IssuedCertificate> {
   return transaction(pool, async c => {
     const current = (await c.query<{ not_after: Date }>("SELECT not_after FROM cabinet_certificates WHERE serial = $1 FOR UPDATE", [cabinet.serial])).rows[0];
     if (!current) throw new Refused("certificate_refused", 401, "unknown certificate");
     if (current.not_after.getTime() - Date.now() > AGENT_RENEW_DAYS * 86_400_000)
       throw new Refused("renew_too_early", 409, "the current certificate is not yet due for renewal");
+    const successors = (await c.query<{ serial: string; used: boolean }>(
+      "SELECT serial, first_used_at IS NOT NULL AS used FROM cabinet_certificates WHERE renewed_from = $1 AND revoked_at IS NULL FOR UPDATE", [cabinet.serial])).rows;
+    if (successors.some(s => s.used)) throw new Refused("already_renewed", 409, "this certificate was already renewed and its successor is in use");
+    if (successors.length > 0)
+      await c.query("UPDATE cabinet_certificates SET revoked_at = now() WHERE serial = ANY($1::text[])", [successors.map(s => s.serial)]);
     const issued = await issueAgentCertificate(key, csrPem, cabinet.id);
-    await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [issued.serialHex, cabinet.id, issued.notAfter]);
+    await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after, renewed_from) VALUES ($1, $2, $3, $4)",
+      [issued.serialHex, cabinet.id, issued.notAfter, cabinet.serial]);
     await audit(c, { actorKind: "agent", actorId: cabinet.id, action: "certificate.renew", targetKind: "cabinet", targetId: cabinet.id, outcome: "succeeded",
       details: { previousSerial: cabinet.serial, serial: issued.serialHex } });
     return issued;

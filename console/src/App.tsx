@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useCallback, useEffect, useState } from "react";
 import { api, onSignedOut } from "./lib/api";
 import { CommandStream } from "./lib/commands";
@@ -55,13 +56,19 @@ export function App() {
       <Router>
         <CommandStream>
           <WriteStatusProvider>
-            <Layout><Pages onTour={() => setTour(true)} /></Layout>
+            <Layout><RoutedPages onTour={() => setTour(true)} /></Layout>
             {tour && <Tour onClose={() => setTour(false)} />}
           </WriteStatusProvider>
         </CommandStream>
       </Router>
     </SessionContext.Provider>
   );
+}
+
+/** Each page inside its own error boundary, reset when the path changes. */
+function RoutedPages({ onTour }: { onTour: () => void }) {
+  const { path } = useRouter();
+  return <ErrorBoundary key={path.split("?")[0]}><Pages onTour={onTour} /></ErrorBoundary>;
 }
 
 function Pages({ onTour }: { onTour: () => void }) {

@@ -9,7 +9,7 @@ import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 
 interface Safety {
   fleet: { paused: boolean; reason: string | null; at?: string | null };

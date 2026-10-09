@@ -7,7 +7,8 @@ import { atLeast, useSession } from "../../lib/session";
 import { useStepUp } from "../../components/StepUp";
 import { Link, useRouter } from "../../lib/router";
 import { ago, duration, fullTime } from "../../lib/time";
-import { useLoad, roleLabel, type CabinetRow } from "../Fleet";
+import { roleLabel, type CabinetRow } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import { Badge, KeyValues, OnlineBadge } from "../../components/ui";
 import { EventLogs } from "./EventLogs";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
@@ -60,7 +61,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link> · <Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link> · {roleLabel(cabinet.role)}
             {" "}<OnlineBadge online={cabinet.online} />
             {cabinet.readOnly && <> <Badge tone="info">Read-only cabinet</Badge></>}
-            {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&cabinetName=${encodeURIComponent(cabinet.name)}&action=cabinet.view`}>Who opened this cabinet</Link></>}
+            {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Who opened this cabinet</Link></>}
           </p>
           <nav aria-label="Cabinet sections" className="tabs">
             {SECTIONS.map(([key, label]) => (

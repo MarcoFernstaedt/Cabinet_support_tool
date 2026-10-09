@@ -7,8 +7,10 @@ import { roleName, type Role } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
-import { useLoad } from "../Fleet";
+import { useLoad } from "../../lib/useLoad";
 import type { UserRow } from "./Users";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface AuditRow {
   seq: number; at: string; actor: { kind: string; id: string; name: string | null }; action: string;
@@ -51,7 +53,7 @@ export function AuditTable({ rows, onMore }: { rows: AuditRow[]; onMore?: () => 
 interface CabinetHit { kind: string; id: string; name: string; context: string; }
 
 /** Pick a cabinet by name. */
-function CabinetPicker({ value, onChange }: { value: { id: string; name: string } | null; onChange: (v: { id: string; name: string } | null) => void }) {
+function CabinetPicker({ value, onChange }: { value: { id: string; name: string | null } | null; onChange: (v: { id: string; name: string | null } | null) => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<CabinetHit[]>([]);
   useEffect(() => {
@@ -59,7 +61,7 @@ function CabinetPicker({ value, onChange }: { value: { id: string; name: string 
     const t = setTimeout(() => api<CabinetHit[]>("GET", `/api/fleet/search?q=${encodeURIComponent(q.trim())}`).then(h => setHits(h.filter(x => x.kind === "cabinet")), () => setHits([])), 200);
     return () => clearTimeout(t);
   }, [q]);
-  if (value) return <span className="field inline"><span>Cabinet</span><span><strong>{value.name}</strong> <button type="button" className="btn small" onClick={() => onChange(null)}>Clear</button></span></span>;
+  if (value) return <span className="field inline"><span>Cabinet</span><span><strong>{value.name ?? `cabinet ${value.id.slice(0, 8)}…`}</strong> <button type="button" className="btn small" onClick={() => onChange(null)}>Clear</button></span></span>;
   return (
     <div className="field inline picker">
       <label htmlFor="audit-cabinet">Cabinet</label>
@@ -75,8 +77,13 @@ export function AuditLog() {
   const initial = new URLSearchParams(path.split("?")[1] ?? "");
   const users = useLoad<UserRow[]>("/api/admin/users");
   const [filter, setFilter] = useState({ user: initial.get("user") ?? "", action: initial.get("action") ?? "", from: initial.get("from") ?? "", to: initial.get("to") ?? "" });
-  const [cabinet, setCabinet] = useState<{ id: string; name: string } | null>(initial.get("cabinet") ? { id: initial.get("cabinet")!, name: initial.get("cabinetName") ?? "the chosen cabinet" } : null);
+  // A link names the cabinet by ID only; its name comes from the server's own audit entries, never from the link,
+  // so nobody can send an Admin a link that shows one cabinet's history under another cabinet's name.
+  const linked = initial.get("cabinet");
+  const [chosen, setCabinet] = useState<{ id: string; name: string | null } | null>(linked && UUID.test(linked) ? { id: linked, name: null } : null);
   const [rows, setRows] = useState<AuditRow[] | null>(null);
+  const cabinet = chosen && chosen.name === null
+    ? { id: chosen.id, name: rows?.find(r => r.target?.kind === "cabinet" && r.target.id === chosen.id)?.target?.name ?? null } : chosen;
   const [problem, setProblem] = useState<string | null>(null);
   const [check, setCheck] = useState<{ ok: boolean; entries: number; firstBadSeq?: number } | null>(null);
   const query = (before?: number) => {

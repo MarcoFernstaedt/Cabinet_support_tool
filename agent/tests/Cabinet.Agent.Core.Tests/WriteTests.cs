@@ -221,6 +221,9 @@ public class BrokerWriteTests
         Assert.Contains("ambiguous", Assert.Throws<OperationFailedException>(() => As(Guid.NewGuid(), () =>
             _writes.SetRule(new FirewallSetRuleParams { Change = RuleChange.Disable, RuleName = "Core Networking - DNS (UDP-Out)" }))).Message);
         Assert.Throws<OperationFailedException>(() => _writes.SetRule(new FirewallSetRuleParams { Change = RuleChange.Delete, RuleName = "MashuraDiag Sync 1433" })); // no command
+        // An update cannot rename: a Windows rule must not take the platform's prefix, nor a platform rule lose it.
+        Assert.Contains("rename", Assert.Throws<OperationFailedException>(() => As(Guid.NewGuid(), () =>
+            _writes.SetRule(new FirewallSetRuleParams { Change = RuleChange.Update, RuleName = "MashuraDiag Sync 1433", Rule = Rule("MashuraDiag Renamed") }))).Message);
         Assert.Single(_store.Snapshots()); // only the one real change took a snapshot
     }
 

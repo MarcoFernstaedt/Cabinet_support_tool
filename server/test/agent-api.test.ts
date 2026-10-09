@@ -7,7 +7,7 @@ import { CommandNotifier } from "../src/agent-api/notifier.js";
 import { buildAgentApi } from "../src/agent-api/server.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import type { IssuingKey } from "../src/pki/x509.js";
-import { issueCommand, commandRecord } from "../src/services/commands.js";
+import { issueCommand, commandRecord, expireUnanswered } from "../src/services/commands.js";
 import { approveEnrollment, createBootstrapToken } from "../src/services/enrollment.js";
 import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { verifyAuditChain } from "../src/db/db.js";
@@ -260,6 +260,40 @@ test("renewal is refused until the certificate is near expiry, then the new cert
   const renewed = await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab);
   assert.equal(renewed.status, 200);
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
+});
+
+test("renewal works once: a lost answer can be asked again, but once the new certificate is used the old one is revoked", async () => {
+  const cab = await enrolledCabinet();
+  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = now() + interval '10 days' WHERE cabinet_id = $1", [cab.cabinetId]));
+  const lostKey = ecKey();
+  const lost = await call("POST", "/agent/v1/renew", { csr: csrFor(lostKey) }, cab);
+  assert.equal(lost.status, 200);
+  // The agent never got that answer: it asks again with its old certificate, and the unused one is withdrawn.
+  const newKey = ecKey();
+  const renewed = await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab);
+  assert.equal(renewed.status, 200);
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: lostKey, certPem: lost.body.certificate })).status, 401, "the unused certificate was revoked");
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 200, "the old one works until the new one is used");
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
+  // A copy of the old certificate now neither connects nor renews.
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 401);
+  assert.equal((await call("POST", "/agent/v1/renew", { csr: csrFor(ecKey()) }, cab)).status, 401);
+});
+
+test("a delivered command that is never answered expires, and a late result is still kept", async () => {
+  const cab = await enrolledCabinet();
+  const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
+  const polled = await call("GET", "/agent/v1/commands", undefined, cab);
+  assert.equal(polled.body.commands[0].commandId, command.commandId);
+  assert.equal(await expireUnanswered(db.app), 0, "not yet");
+  await asOwner(db, c => c.query("UPDATE commands SET delivered_at = now() - interval '36 minutes' WHERE id = $1", [command.commandId]));
+  assert.equal(await expireUnanswered(db.app), 1);
+  assert.equal((await commandRecord(db.app, command.commandId))?.status, "expired");
+  const now = new Date().toISOString();
+  const late = await call("POST", "/agent/v1/results", { commandId: command.commandId, status: "failed", startedAt: now, finishedAt: now,
+    error: { code: "timeout", message: "late" } }, cab);
+  assert.equal(late.status, 200, JSON.stringify(late.body));
+  assert.equal((await commandRecord(db.app, command.commandId))?.status, "failed");
 });
 
 test("unknown paths are 404 and the package and update downloads do not exist yet", async () => {

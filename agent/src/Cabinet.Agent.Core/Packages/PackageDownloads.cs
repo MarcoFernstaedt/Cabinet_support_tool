@@ -19,6 +19,7 @@ public sealed class PackageDownloads(string downloads)
         {
             var p = System.Text.Json.JsonSerializer.Deserialize<PackageInstallParams>(raw, ContractJson.Options)!;
             AgentApiClient client = Client ?? throw new OperationFailedException("unavailable", "The platform server is not connected.");
+            Directory.CreateDirectory(downloads); // the broker creates it on a cabinet; harmless when it exists
             string path = PackageInstaller.DownloadPath(downloads, p.PackageId);
             try
             {

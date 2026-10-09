@@ -356,6 +356,19 @@ async function withAgent(env: Record<string, string>, body: (ctx: { cabinetId: s
   }
 }
 
+test("cabinets older than a release's minimum version are left out of its rollout instead of failing it", async () => {
+  const r = makeRelease(key, "0.7.0", agentPackage(), { minimumVersion: "0.5.0" });
+  await ready(r);
+  const ids = await fleet([{ name: "ok", version: "0.5.0" }, { name: "too-old", version: "0.2.0" }, { name: "office", version: "0.5.1", inOffice: true }]);
+  await assert.rejects(startRollout(db.app, admin, { version: "0.7.0", pilotCabinetId: ids["too-old"]!, successRatePercent: 95, failureLimitPercent: 5 }, null),
+    refusedWith("pilot_not_eligible"));
+  const id = await startRollout(db.app, admin, { version: "0.7.0", pilotCabinetId: ids.ok!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  assert.deepEqual((await rolloutTargets(db.app, id)).map(t => t.cabinet).sort(), ["office", "ok"]);
+  const audited = (await db.app.query("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [id])).rows[0];
+  assert.equal(audited.details.belowMinimumVersion, 1);
+  await changeRollout(db.app, admin, id, "stop", null);
+});
+
 test("done-when on the real agent code: a signed upgrade rolls out to a test batch; a tampered package is refused at its hash and pauses the rollout",
   { skip: !dll && "set TEST_AGENT_DLL to run", timeout: 180_000 }, async () => {
   const pki = new TestPki();
