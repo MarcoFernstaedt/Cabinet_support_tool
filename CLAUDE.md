@@ -25,5 +25,5 @@ How to work:
 Repository notes (added when the rebuild started in this repository):
 
 - The spec layout lives at the repository root: contracts/, server/, console/, agent/. Build there.
-- src/, tests/ and tools/ hold the earlier C# Server, Agent and web Console demo. They are reference material to reuse from, not the target, and keep running until a milestone replaces them.
+- src/, tests/ and tools/ hold the earlier C# Server, Agent and web Console demo. Every milestone has replaced them; they are reference only and scheduled for removal. Do not extend them.
 - docs/spec-gap-analysis.md compares the earlier build with the spec.

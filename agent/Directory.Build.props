@@ -1,0 +1,17 @@
+<Project>
+  <!--
+    Framework and language settings for every agent project. The agent has its own file, so it does not depend on the
+    repository root's (which belongs to the earlier C# demo). Windows projects set TargetFramework net8.0-windows.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>false</EnforceCodeStyleInBuild>
+    <Deterministic>true</Deterministic>
+    <!-- Lets the Windows projects compile on Linux CI, so build errors are caught everywhere. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>

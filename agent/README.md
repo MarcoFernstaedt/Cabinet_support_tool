@@ -1,6 +1,6 @@
 # Cabinet agent
 
-The agent from docs/spec/04-agent-spec.md, built through Milestone 5. It runs every read and write operation, either locally from a command file or from the platform server, and watches the cabinet in the background.
+The agent from docs/spec/04-agent-spec.md, fully built (milestones 1 to 7: reads, the server connection, monitors, writes, packages, signed upgrades and the self-check). It runs every read and write operation, either locally from a command file or from the platform server, and watches the cabinet in the background.
 
 To connect it, the agent first enrolls with a one-time bootstrap token. It keeps its private key non-exportable in the Windows machine key store, and trusts only the platform CA the installer places on the cabinet. Once approved, it sends heartbeats every 60 seconds, long-polls for commands and renews its certificate. Every server command still goes through the agent's own six checks.
 
@@ -15,7 +15,7 @@ They talk over the named pipe `Mashura.CabinetAgent.Broker`. Each of three locks
 
 1. The pipe's access list admits only the network service's account and SYSTEM, and denies network logons.
 2. Every caller's account is checked again before the broker reads a byte.
-3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only the six broker reads, the seven writes (each with its command ID) and the safety-net confirmation, with their parameter schemas.
+3. Every request is validated against `contracts/schemas/agent/broker-request.schema.json`. That schema admits only a ping, the six broker reads, the seven writes (each with its command ID), the safety-net confirmation, and an upgrade request that names a version and nothing else, with their parameter schemas.
 
 ## Writes (Milestone 5)
 
@@ -90,9 +90,10 @@ Rate limits are 60 reads a minute, 10 network tests a minute and 20 writes an ho
 | `src/Cabinet.Agent.Core` | Validation, replay store, rate limits, broker protocol, scanner checklist, network tests. Portable. |
 | `src/Cabinet.Agent.Windows` | Windows executors and the locked pipe |
 | `src/Cabinet.Agent.Broker`, `src/Cabinet.Agent.Network` | The two services |
+| `src/Cabinet.Agent.Updater` | The signed updater the broker starts to install a verified release and restore the old one if it fails |
 | `src/Cabinet.Agent.Harness` | `cabinet-harness`, the local test harness |
-| `install/` | Publish, install and uninstall scripts |
-| `tests/` | Contract tests and core tests (any OS), and Windows tests (Windows only) |
+| `install/` | Publish, install and uninstall scripts; `New-AgentRelease.ps1` and `New-UpgradeTrust.ps1` for signed releases |
+| `tests/` | Contract tests and core tests (any OS), Windows tests (Windows only), and `Cabinet.Agent.TestAgent`, the agent code the server's end-to-end tests run on Linux |
 
 ## Try it on a Windows machine
 

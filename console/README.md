@@ -2,7 +2,7 @@
 
 The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, built by Vite into static files. The platform server serves those files from the same origin as the console API. The console holds no secrets, and every permission check happens on the server.
 
-## What's in this release (Milestone 6)
+## What's in it
 
 - **Sign-in.** Password, then the authenticator code.
   - Tier 2 and Admin set up an authenticator at first sign-in.
@@ -65,7 +65,7 @@ npm run dev        # http://localhost:5173, proxying /api to a server on :8080 s
 npm run build      # strict type-check, then dist/
 ```
 
-The browser end-to-end test lives in `server/test/console-e2e.test.ts`. It runs the built console in Chromium against the real server, PostgreSQL and agent code.
+The browser end-to-end tests live in `server/test/console-*-e2e.test.ts`: the main flow, alerts, writes, administration, upgrades and device settings. They run the built console in Chromium against the real server, PostgreSQL and (where needed) the agent code.
 
 ## Accessibility
 

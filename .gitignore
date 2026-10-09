@@ -55,3 +55,12 @@ console/dist/
 
 # The software library's stored packages (server/PACKAGE_DIR default)
 /data/
+# Platform: never commit environment files, private keys or load-test identities (which hold private keys).
+.env
+.env.*
+*.key
+*-key.pem
+*.private.pem
+load-state*.json
+# Server stores (packages and agent releases) live outside source control.
+data/

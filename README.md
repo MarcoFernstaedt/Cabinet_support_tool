@@ -40,13 +40,15 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 
 ## Build and test
 
-Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) runs all of them on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback.
+Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) runs on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback.
+
+Run each line from the repository root:
 
 ```sh
-cd contracts && npm ci && npm test                     # schemas, examples, generated types
-cd agent && dotnet build Cabinet.Agent.sln -c Release && dotnet test tests/Cabinet.Agent.Core.Tests -c Release
-cd console && npm ci && npm run build
-cd server && npm ci && npm test                         # needs PostgreSQL; see server/README.md
+(cd contracts && npm ci && npm test)                    # schemas, examples, generated types
+(cd agent && dotnet build Cabinet.Agent.sln -c Release && dotnet test tests/Cabinet.Agent.Core.Tests -c Release && dotnet test tests/Cabinet.Agent.Contracts.Tests -c Release)
+(cd console && npm ci && npm run build)
+(cd server && npm ci && npm test)                        # needs PostgreSQL; see server/README.md
 ```
 
 To run the whole platform locally and connect a Windows test cabinet, see [server/README.md "Run it locally"](server/README.md#run-it-locally) and [agent/README.md](agent/README.md).
@@ -70,4 +72,4 @@ Decisions taken and still open are recorded in [open decisions](docs/spec/09-ope
 
 ## Legacy
 
-`src/`, `tests/`, `tools/`, `CabinetPlatform.sln`, `Directory.Build.props` and most files directly in `docs/` belong to the earlier C# demo (Server, Agent, web Console and demo tools). The platform above replaces all of it. It is kept only as reference; its workflow (`demo-correction-checks.yml`) runs only when started by hand; and it is scheduled for removal. Do not extend it.
+`src/`, `tests/`, `tools/`, `CabinetPlatform.sln`, the root `Directory.Build.props` (the agent has its own in `agent/`) and most files directly in `docs/` belong to the earlier C# demo (Server, Agent, web Console and demo tools). The platform above replaces all of it. It is kept only as reference; its workflow (`demo-correction-checks.yml`) runs only when started by hand; and it is scheduled for removal. Do not extend it.

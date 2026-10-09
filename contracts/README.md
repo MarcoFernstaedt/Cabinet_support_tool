@@ -12,6 +12,9 @@ examples/<target>/{valid,invalid}/*.json
                                 every envelope and operation has valid examples; every operation's params
                                 have hostile ones (traversal, injection, oversized, unknown fields, Security log…)
 generated/ts/contracts.d.ts     TypeScript types generated from the schemas (types only; do not edit)
+trust/trusted-publishers.json   the driver and MSI signers the agent accepts, with their pinned roots (*.pem)
+trust/upgrade/upgrade-keys.json the release signing keys and the agent's code-signing publisher; empty until the
+                                production KMS key and certificate exist (docs/spec/09-open-decisions.md)
 load.mjs                        loads every schema into one Ajv instance (used by tests and the server)
 ```
 

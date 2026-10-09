@@ -1,12 +1,14 @@
 # Platform server
 
-The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Built through Milestone 4:
+The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Everything in the spec is built (milestones 2 to 7):
 - the database;
 - the agent API with mutual TLS, enrollment, certificates, heartbeats and the long-poll command channel;
 - the console API with sign-in, two-factor, roles, step-up and the console-managed settings, which serves the built console;
 - issue types, symptom rules and the alerts engine: correlation, site-wide patterns, claims, Map to issue with Admin approval, rule history and rollback, and offline alerts;
 - write commands with step-up, the write pause and per-user limits, the software library with its own package checks and two-person approval, package downloads, and the firewall change history (Milestone 5);
-- administration (Milestone 6): accounts, presence, per-person activity, the audit log search and chain check, clients and sites, issue types and suppressions, fleet safety, settings, retention, and security alerts.
+- administration (Milestone 6): accounts, presence, per-person activity, the audit log search and chain check, clients and sites, issue types and suppressions, fleet safety, settings, retention, and security alerts;
+- signed agent upgrades (Milestone 7): the update store, staged rollouts and upgrade reports;
+- device settings that follow the client (scanner hardware IDs and sync ports), and an 8,000-agent load test.
 
 ## What is here
 
@@ -15,9 +17,36 @@ The Node 22 + TypeScript + Fastify server from docs/spec/05-server-spec.md. Buil
 | `migrations/` | Versioned SQL, applied in order. An applied migration can never change; add a new one. |
 | `src/db/` | Pool, transactions, the audit helper and chain verification, and the migration runner |
 | `src/pki/` | A small DER codec, CSR checks and certificate issuing. All signing goes through `IssuingKey.signTbs`. |
-| `src/services/` | Enrollment and approval, cabinet authentication, heartbeats and renewal, commands, events, rules and alerts |
-| `src/agent-api/` | The agent listener: TLS terminated by Node, client certificates checked against the database on every request |
-| `src/cli.ts` | `platform-admin`, the operator tool until the console exists |
+| `src/services/` | The business logic, one file per area. Each takes a database handle, checks its own rules and writes its audit entries in the same transaction. Areas: enrollment, cabinets, commands, events, alerts and rules, writes, packages, releases and rollouts, users, administration, security alerts, settings and device settings, maintenance. |
+| `src/agent-api/` | The agent listener: TLS terminated by Node, client certificates checked against the database on every request; the command notifier |
+| `src/console-api/` | The console listener: sessions, guards (role and step-up), the live stream, and the routes by area |
+| `src/auth/` | Passwords (Argon2id), authenticator codes (RFC 6238), sessions, step-up tokens, the secret box for authenticator secrets |
+| `src/packages/` | The server's own package checks: zip, MSI (compound file), PE and catalog signatures, the trusted publisher list |
+| `src/contracts.ts` | Ajv validators for every contract; nothing reads a body before one of these has checked it |
+| `src/config.ts`, `src/runtime.ts`, `src/main.ts` | Environment configuration, keys and TLS, and the process that runs both listeners and the timed jobs |
+| `src/cli.ts` | `platform-admin`, the operator tool on the server host (the same rules as the console, audited as "via cli") |
+| `test/` | One test file per area, the browser end-to-end tests (`console-*-e2e.test.ts`), and `load/agents.ts` (the load test) |
+
+## Configuration
+
+Everything comes from environment variables (`src/config.ts`); secrets come from the environment or the secret store, never from files in the repository.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | (required) | The application's database login (a role holding only `cabinet_app`). |
+| `DATABASE_OWNER_URL` | | The owner login, used only by `platform-admin migrate`. |
+| `AGENT_API_HOST`, `AGENT_API_PORT` | `0.0.0.0`, `8443` | The agent API listener. |
+| `AGENT_API_HOSTNAMES` | `localhost` | Comma-separated names the agent API's development certificate covers. |
+| `AGENT_LONG_POLL_SECONDS` | `25` | How long a command poll is held (1 to 25). |
+| `AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE` | | The agent API's TLS certificate and key in production. |
+| `DEV_PKI_DIR` | | Development only: where a development issuing CA and TLS certificate are created and kept. |
+| `PACKAGE_DIR`, `PACKAGE_MAX_MB` | `../data/packages`, `500` | The software library's store and size limit. |
+| `RELEASE_DIR` | `../data/releases` | The update store for signed agent releases (500 MB per release). |
+| `CONSOLE_ORIGIN`, `CONSOLE_SECRET_KEY`, `CONSOLE_HOST`, `CONSOLE_PORT`, `CONSOLE_STATIC_DIR`, `CONSOLE_TRUST_PROXY` | | The console listener; see [Console API](#console-api). |
+| `PACKAGE_TRUST_DIR`, `UPGRADE_KEYS_DIR` | | Tests only: another trusted publisher list or release key folder. Both refuse to run when `NODE_ENV=production`. |
+| `NODE_ENV` | | `production` in production. |
+
+Tests also read `TEST_DATABASE_ADMIN_URL`, `TEST_AGENT_DLL` and `PLAYWRIGHT_CHROMIUM` (see [Tests](#tests)).
 
 ## Security properties to keep
 
@@ -160,41 +189,7 @@ On the cabinet, in an elevated PowerShell:
 
 ## Load test (8,000 agents)
 
-`test/load/agents.ts` (docs/spec/08-build-plan.md, "Load test of the agent API with 8,000 simulated agents polling before going wide").
-
-Each simulated agent has its own cabinet and its own certificate from the server's issuing key. It:
-- holds the 25-second long poll;
-- sends a heartbeat every 60 seconds and occasional event batches;
-- answers the commands it is sent.
-
-A command source issues `system.info` commands through the real issuing path and measures how long each takes to reach its cabinet.
-
-```
-DATABASE_URL=… DEV_PKI_DIR=… node dist/test/load/agents.js setup --count 8000 --state load-state.json
-node dist/test/load/agents.js run --server https://<agent-api>:8443 --state load-state.json --minutes 10 --ramp-seconds 120
-```
-
-It exits 1 if a threshold is missed:
-- more than 0.1% of requests failing;
-- heartbeat p95 over 1 s or p99 over 3 s;
-- event p95 over 2 s;
-- command delivery p95 over 3 s, or any over 26 s.
-
-The state file holds the test cabinets' private keys: delete it afterwards. CI runs 1,000 agents for 3 minutes on every push.
-
-**Result on one 4-core, 15 GB machine** (the server, PostgreSQL 16 and the load generator all on it): 8,000 agents for 10 minutes, 261,467 requests, no failures.
-
-| | p50 | p95 | p99 |
-|---|---|---|---|
-| Heartbeat | 4 ms | 18 ms | 77 ms |
-| Event batch | 6 ms | 18 ms | 59 ms |
-| Command delivery, issue to cabinet | — | 13 ms | — |
-
-- The longest command delivery took 140 ms, and long polls returned on time (p99 25.05 s).
-- The server process used about half of one core and 1.4 GB of memory.
-- The first run, before the changes in commit "Agent API under load", had heartbeats at 13 s p95, because every held poll re-checked the database every 5 seconds.
-
-Before going wide, repeat it against the production setup, with the load generator on a separate machine.
+`test/load/agents.ts` simulates thousands of cabinets with their own certificates (long polls, heartbeats, events and command round trips) against a running server, and fails when a threshold is missed. How to run it, the thresholds, and the measured results (8,000 agents with no failures, command delivery p95 13 ms) are in [docs/platform/performance.md](../docs/platform/performance.md). CI runs 1,000 agents for 3 minutes on every push.
 
 ## Tests
 
