@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.applyPolicy.schema.json",
+  "title": "firewall.applyPolicy",
+  "description": "Set every firewall profile on or off as the cabinet's client policy says (docs/spec/12-milestones-8-to-12.md). The server fills the values from the client's policy; the browser never sends them. Profiles turned off by the policy have no timer. One snapshot and one safety-net window cover the whole change.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profiles"
+      ],
+      "properties": {
+        "profiles": {
+          "$ref": "../common.schema.json#/$defs/firewallProfileSwitches"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after",
+        "changed",
+        "snapshotId",
+        "safetyNetDeadline"
+      ],
+      "properties": {
+        "before": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/firewallProfileState"
+          }
+        },
+        "after": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/firewallProfileState"
+          }
+        },
+        "changed": {
+          "description": "The profiles whose on/off state changed; empty when the cabinet already matched.",
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/firewallProfile"
+          }
+        },
+        "snapshotId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "safetyNetDeadline": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  }
+}

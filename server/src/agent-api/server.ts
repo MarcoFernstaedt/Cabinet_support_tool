@@ -14,6 +14,7 @@ import { Refused } from "../services/errors.js";
 import { storeEvents } from "../services/events.js";
 import { resolveOfflineFor } from "../services/alerts.js";
 import { scannerIdsFor } from "../services/fleet.js";
+import { evaluateDrift } from "../services/firewall-policy.js";
 import type { CommandNotifier } from "./notifier.js";
 import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
@@ -189,8 +190,10 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     scoped.post("/agent/v1/heartbeat", async request => {
       const cabinetId = request.cabinet!.id;
       const heartbeat = envelopes.heartbeat.parse(request.body);
-      const { wasOffline } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
+      const { wasOffline, firewallChanged } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
       if (wasOffline) await resolveOfflineFor(o.pool, cabinetId);
+      // Compared with the client's firewall policy only when the profiles changed (or were first reported).
+      if (firewallChanged) await evaluateDrift(o.pool, { cabinetId });
       // A running rollout that has reached this cabinet's batch offers it the release (or notes that it already runs it).
       const upgrade = (await anyRolloutRunning(o.pool)) ? await transaction(o.pool, c => offerFor(c, cabinetId, heartbeat.agentVersion)) : null;
       // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.

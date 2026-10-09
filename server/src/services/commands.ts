@@ -11,8 +11,10 @@ import { Refused } from "./errors.js";
 export const MAX_COMMANDS_PER_POLL = 50;
 
 export interface WriteAuthority {
-  /** The one-time step-up token for this operation on this cabinet (the console). */
+  /** The one-time step-up token for this operation on this cabinet, for operations confirmed with a code (the console). */
   stepUpToken?: string;
+  /** The parameters the person confirmed (before the server filled in its own values); the token is bound to them. */
+  confirmedParams?: unknown;
   /** The operator CLI on the server host issues writes without step-up; recorded as such in the audit log. */
   viaCli?: boolean;
 }
@@ -26,8 +28,11 @@ export async function issueCommand(pool: pg.Pool, userId: string, cabinetId: str
   write?: WriteAuthority): Promise<Command> {
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
-  if (entry.kind === "write" && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "a write needs a step-up token for this exact action");
-  if (entry.kind === "read" && write?.stepUpToken) throw new Refused("invalid_request", 400, "reads take no step-up token");
+  // Confirmation levels (docs/spec/12-milestones-8-to-12.md): a code-level write needs a step-up token bound to its
+  // parameters; a click-level write is confirmed in the console and takes no token; reads take none.
+  if (entry.confirm === "code" && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "this change needs an authenticator code for these exact parameters");
+  if (entry.confirm !== "code" && write?.stepUpToken) throw new Refused("invalid_request", 400, "this operation takes no step-up token");
+  if (entry.kind === "write" && !write) throw new Refused("invalid_request", 400, "a write needs its authority");
   if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
   try {
     return await issueInTransaction(pool, userId, cabinetId, operation, params, auditAction, entry, write);
@@ -64,7 +69,7 @@ async function issueInTransaction(pool: pg.Pool, userId: string, cabinetId: stri
     const user = (await c.query("SELECT 1 FROM users WHERE id = $1 AND status = 'active'", [userId])).rows[0];
     if (!user) throw new Refused("forbidden", 403, "unknown or disabled user");
     if (entry.kind === "write") {
-      if (write?.stepUpToken) await consumeStepUpToken(c, write.stepUpToken, userId, operation, cabinetId);
+      if (write?.stepUpToken) await consumeStepUpToken(c, write.stepUpToken, userId, operation, cabinetId, write.confirmedParams ?? params);
       await checkWriteAllowed(c, userId, cabinetId);
     }
     // Second precision keeps the timestamps identical on both sides of the wire.

@@ -30,7 +30,8 @@ export async function checkWriteAllowed(c: pg.PoolClient, userId: string, cabine
   if (!u) throw new Refused("forbidden", 403, "unknown user");
   if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
   const used = Number((await c.query<{ n: string }>(
-    "SELECT count(*) AS n FROM commands WHERE issued_by = $1 AND issued_at > now() - interval '1 hour' AND operation = ANY($2)", [userId, WRITE_OPERATIONS])).rows[0]!.n);
+    // A bulk change's commands share a bulk_id and count once.
+    "SELECT count(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1 AND issued_at > now() - interval '1 hour' AND operation = ANY($2)", [userId, WRITE_OPERATIONS])).rows[0]!.n);
   // Going over the limit pauses this user's writes until an Admin resumes them (recorded by the caller, after this rollback).
   if (used >= u.write_limit) throw new WriteLimitReached();
 }

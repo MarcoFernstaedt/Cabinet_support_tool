@@ -162,19 +162,12 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.put("/api/admin/settings", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.platformSettings.parse(request.body);
-    const before = await platformSettings(o.pool);
     const after = await updatePlatformSettings(o.pool, u.userId, {
       ...(b.offlineAlertDays !== undefined ? { offlineAlertDays: b.offlineAlertDays } : {}),
       ...(b.sessionIdleMinutes !== undefined ? { sessionIdleMinutes: b.sessionIdleMinutes } : {}),
       ...(b.sessionAbsoluteHours !== undefined ? { sessionAbsoluteHours: b.sessionAbsoluteHours } : {}),
-      ...(b.requireTotpForAll !== undefined ? { requireTotpForAll: b.requireTotpForAll } : {}),
       ...(b.retention ? { retention: b.retention } : {}),
     }, b.stepUpToken);
-    // Requiring two-factor for everyone takes effect at once: whoever has no authenticator signs in again and sets one up.
-    if (after.requireTotpForAll && !before.requireTotpForAll)
-      await transaction(o.pool, async c => {
-        for (const { id: userId } of (await c.query<{ id: string }>("SELECT id FROM users WHERE NOT totp_enabled AND status = 'active'")).rows) await endAllSessions(c, userId);
-      });
     o.guards.settings.invalidate();
     return after;
   });

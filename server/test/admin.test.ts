@@ -1,6 +1,7 @@
 // Milestone 6 through the console API: account management and its rules, sessions and presence,
 // activity and the audit search, clients and sites, issue types and suppressions, settings and
 // retention, and a security alert for every trigger in docs/spec/05-server-spec.md.
+import { paramsHash } from "../src/auth/canonical.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -37,7 +38,7 @@ let bossCookie: string;
 
 interface Account { id: string; username: string; password: string; secret?: Buffer; }
 
-async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean } = { totp: role !== "tier1" }): Promise<Account> {
+async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean } = { totp: true }): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple" };
   const secret = opts.totp ? totp.newSecret() : undefined;
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
@@ -205,14 +206,14 @@ test("background checks do not count as activity, so an unattended console still
   assert.equal((await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 1, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, "out of range");
 });
 
-test("requiring two-factor for everyone ends sessions without an authenticator and sends them to set one up", async () => {
+test("every account, Tier 1 included, sets up an authenticator before anything else; the setting that made it optional is gone", async () => {
   const t = await account("tier1", { totp: false });
-  const c = await signIn(t);
-  await call("PUT", "/api/admin/settings", { requireTotpForAll: true, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
-  assert.equal((await call("GET", "/api/auth/me", undefined, c)).status, 401);
-  assert.equal((await call("POST", "/api/auth/login", { username: t.username, password: t.password })).body.stage, "totp_setup");
-  assert.equal((await call("GET", "/api/auth/me", undefined, bossCookie)).status, 200, "people with an authenticator keep their sessions");
-  await call("PUT", "/api/admin/settings", { requireTotpForAll: false, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
+  const login = await call("POST", "/api/auth/login", { username: t.username, password: t.password });
+  assert.equal(login.body.stage, "totp_setup");
+  assert.equal((await call("GET", "/api/fleet/clients", undefined, login.cookie)).status, 401);
+  const r = await call("PUT", "/api/admin/settings", { requireTotpForAll: false, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
+  assert.equal(r.status, 400, "the setting no longer exists");
+  assert.equal((await call("GET", "/api/admin/settings", undefined, bossCookie)).body.requireTotpForAll, undefined);
 });
 
 test("online now shows who is active, their role and the cabinet they have open; activity answers who looked at this cabinet and when", async () => {
@@ -361,7 +362,7 @@ test("security alert: unusual write volume pauses the person's writes and tells 
   const t = await account("tier2");
   await db.app.query("UPDATE users SET write_limit = 2 WHERE id = $1", [t.id]);
   for (let i = 0; i < 3; i++) {
-    const token = await issueStepUpToken(db.app, t.id, "network.setDns", cabinetId);
+    const token = await issueStepUpToken(db.app, t.id, "network.setDns", cabinetId, paramsHash({ interfaceIndex: 12, mode: "automatic" }));
     await issueCommand(db.app, t.id, cabinetId, "network.setDns", { interfaceIndex: 12, mode: "automatic" }, "command.issue", { stepUpToken: token }).catch(() => undefined);
   }
   const alerts = (await securityAlerts("write_volume")).filter(a => a.user_id === t.id);

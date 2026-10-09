@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "domain": "off",
+    "private": "off",
+    "public": "off"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/bulk-firewall-policy.schema.json",
+  "title": "bulk-firewall-policy",
+  "description": "Apply the client's firewall policy to every online, writable cabinet of one site or one client that differs from it (at most 200). Needs a password confirmation token for bulk.firewall_policy on that site or client, bound to these parameters ({scope, id}).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "id",
+    "stepUpToken"
+  ],
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": [
+        "site",
+        "client"
+      ]
+    },
+    "id": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "stepUpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

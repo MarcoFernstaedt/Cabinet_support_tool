@@ -49,12 +49,11 @@ export interface PlatformSettings {
   offlineAlertDays: number;
   sessionIdleMinutes: number;
   sessionAbsoluteHours: number;
-  requireTotpForAll: boolean;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number };
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
-  offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12, requireTotpForAll: false,
+  offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12,
   retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365 },
 };
 
@@ -67,7 +66,7 @@ const KEYS = {
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
   const rows = new Map((await db.query<{ key: string; value: unknown }>("SELECT key, value FROM settings WHERE key LIKE ANY ($1)",
-    [["alerts.%", "sessions.%", "retention.%", "accounts.%"]])).rows.map(r => [r.key, r.value]));
+    [["alerts.%", "sessions.%", "retention.%"]])).rows.map(r => [r.key, r.value]));
   const num = (name: keyof typeof KEYS, fallback: number): number => {
     const [key, min, max] = KEYS[name];
     const v = rows.get(key);
@@ -76,7 +75,7 @@ export async function platformSettings(db: Queryable): Promise<PlatformSettings>
   const d = DEFAULT_SETTINGS;
   return {
     offlineAlertDays: num("offlineAlertDays", d.offlineAlertDays), sessionIdleMinutes: num("sessionIdleMinutes", d.sessionIdleMinutes),
-    sessionAbsoluteHours: num("sessionAbsoluteHours", d.sessionAbsoluteHours), requireTotpForAll: rows.get("accounts.requireTotp") === true,
+    sessionAbsoluteHours: num("sessionAbsoluteHours", d.sessionAbsoluteHours),
     retention: { eventsDays: num("eventsDays", d.retention.eventsDays), commandsDays: num("commandsDays", d.retention.commandsDays),
       alertsDays: num("alertsDays", d.retention.alertsDays), firewallDays: num("firewallDays", d.retention.firewallDays) },
   };
@@ -95,7 +94,7 @@ export class SettingsCache {
 }
 
 export interface SettingsChange {
-  offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number; requireTotpForAll?: boolean;
+  offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number;
   retention?: Partial<PlatformSettings["retention"]>;
 }
 
@@ -108,7 +107,6 @@ export async function updatePlatformSettings(pool: pg.Pool, adminId: string, cha
       if (change[name] !== undefined) writes.push([KEYS[name][0], change[name]]);
     for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays"] as const)
       if (change.retention?.[name] !== undefined) writes.push([KEYS[name][0], change.retention[name]]);
-    if (change.requireTotpForAll !== undefined) writes.push(["accounts.requireTotp", change.requireTotpForAll]);
     for (const [key, value] of writes)
       await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, $2, $3)
                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [key, safeJson(value), adminId]);

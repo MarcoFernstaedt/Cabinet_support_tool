@@ -39,6 +39,11 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
     private readonly ScannerWatch _scanner = new();
     private readonly SemaphoreSlim _firewallNow = new(0, 1);
 
+    private volatile FirewallProfileSwitches? _firewallProfiles;
+
+    /// <summary>Each firewall profile on or off as the watcher last saw it; null until it has looked once. Sent with every heartbeat.</summary>
+    public FirewallProfileSwitches? FirewallProfiles => _firewallProfiles;
+
     /// <summary>Looks at the firewall now instead of waiting (after a platform change, so it is attributed promptly).</summary>
     public void FirewallNow()
     {
@@ -109,7 +114,14 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         {
             try
             {
-                if (watch.Check(await sources.Firewall!(token).ConfigureAwait(false), clock.GetUtcNow()) is { } e)
+                FirewallStateOutput state = await sources.Firewall!(token).ConfigureAwait(false);
+                _firewallProfiles = new FirewallProfileSwitches
+                {
+                    Domain = state.Profiles.Any(p => p.Profile == FirewallProfile.Domain && p.Enabled),
+                    Private = state.Profiles.Any(p => p.Profile == FirewallProfile.Private && p.Enabled),
+                    Public = state.Profiles.Any(p => p.Profile == FirewallProfile.Public && p.Enabled),
+                };
+                if (watch.Check(state, clock.GetUtcNow()) is { } e)
                 {
                     log(e.CommandId is { } cmd ? $"The firewall configuration changed through the platform (command {cmd})." : "The firewall configuration changed outside the platform.");
                     Add(e);

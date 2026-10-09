@@ -3,7 +3,11 @@
 // any other code touches it (docs/spec/STANDING-INSTRUCTIONS.md).
 import { createAjv, readCatalog, ref } from "@mashura/cabinet-contracts/load";
 import type {
+  BulkFirewallPolicy,
+  BulkScope,
   CatalogEntry,
+  ConfirmPassword,
+  FirewallPolicy,
   Command,
   CommandsResponse,
   EnrollRequest,
@@ -144,6 +148,10 @@ export const consoleBodies = {
   code: validator<CodeRequest>("code-request", consoleBody("code-request")),
   passwordChange: validator<PasswordChange>("password-change", consoleBody("password-change")),
   stepUp: validator<StepUpRequest>("step-up-request", consoleBody("step-up-request")),
+  confirmPassword: validator<ConfirmPassword>("confirm-password", consoleBody("confirm-password")),
+  firewallPolicy: validator<FirewallPolicy>("firewall-policy", consoleBody("firewall-policy")),
+  bulkFirewallPolicy: validator<BulkFirewallPolicy>("bulk-firewall-policy", consoleBody("bulk-firewall-policy")),
+  bulkScope: validator<BulkScope>("bulk-scope", consoleBody("bulk-scope")),
   command: validator<CommandRequest>("command-request", consoleBody("command-request")),
   scanner: validator<ScannerSettings>("scanner-settings", consoleBody("scanner-settings")),
   sync: validator<SyncSettings>("sync-settings", consoleBody("sync-settings")),

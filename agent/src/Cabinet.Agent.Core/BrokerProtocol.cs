@@ -60,7 +60,7 @@ public sealed class BrokerRequestHandler
     public static readonly IReadOnlyList<string> Operations = new[]
     {
         Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
-        Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallSetRule, Catalog.FirewallRestore,
+        Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall,
     };
 

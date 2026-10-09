@@ -133,17 +133,21 @@ test("catalog rules follow the security model", () => {
     assert.ok(["read", "write"].includes(op.kind), op.name);
     if (op.kind === "read") {
       assert.equal(op.expirySeconds, 300, `${op.name}: reads expire after 5 minutes`);
-      assert.equal(op.stepUp, false, op.name);
+      assert.equal(op.confirm, "none", op.name);
       assert.equal(op.minimumRole, "tier1", op.name);
     } else {
       assert.equal(op.expirySeconds, 120, `${op.name}: writes expire after 2 minutes`);
-      assert.equal(op.stepUp, true, `${op.name}: writes need step-up`);
-      assert.equal(op.minimumRole, "tier2", op.name);
+      assert.ok(["click", "code"].includes(op.confirm), `${op.name}: every write is confirmed`);
+      // Tier 1 may change the firewall profiles only (docs/spec/12-milestones-8-to-12.md); every other write is Tier 2 and up.
+      assert.equal(op.minimumRole, ["firewall.setProfile", "firewall.applyPolicy"].includes(op.name) ? "tier1" : "tier2", op.name);
       assert.equal(op.rateClass, "write", op.name);
     }
   }
   const safetyNet = catalog.operations.filter(o => o.safetyNet).map(o => o.name).sort();
-  assert.deepEqual(safetyNet, ["firewall.restore", "firewall.setProfile", "firewall.setRule", "network.setDns", "network.setIp"]);
+  assert.deepEqual(safetyNet, ["firewall.applyPolicy", "firewall.restore", "firewall.setProfile", "firewall.setRule", "network.setDns", "network.setIp"]);
+  // Writes that can strand or alter a cabinet keep the authenticator code.
+  const code = catalog.operations.filter(o => o.confirm === "code").map(o => o.name).sort();
+  assert.deepEqual(code, ["driver.uninstall", "firewall.restore", "network.setDns", "network.setIp", "package.install"]);
 });
 
 test("no schema allows the Security log or a generic command", () => {

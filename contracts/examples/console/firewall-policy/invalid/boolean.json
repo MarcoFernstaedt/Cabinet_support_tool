@@ -1,0 +1,8 @@
+{
+  "policy": {
+    "domain": false,
+    "private": false,
+    "public": false
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

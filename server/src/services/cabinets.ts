@@ -31,14 +31,18 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
 }
 
 /** Records a heartbeat. Returns whether the cabinet had been silent past the offline threshold (or never heard from), so offline alerts are only looked at then. */
-export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<{ wasOffline: boolean }> {
-  const r = (await db.query<{ was_offline: boolean }>(
-    `UPDATE cabinets k SET last_heartbeat_at = now(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = $5
-       FROM (SELECT last_heartbeat_at FROM cabinets WHERE id = $1) before
+export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<{ wasOffline: boolean; firewallChanged: boolean }> {
+  // The firewall profiles are kept only when reported (an older agent sends none); a change is compared with the policy.
+  const r = (await db.query<{ was_offline: boolean; firewall_changed: boolean }>(
+    `UPDATE cabinets k SET last_heartbeat_at = now(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = $5,
+            firewall_profiles = COALESCE($7::jsonb, k.firewall_profiles)
+       FROM (SELECT last_heartbeat_at, firewall_profiles FROM cabinets WHERE id = $1) before
       WHERE k.id = $1
-      RETURNING before.last_heartbeat_at IS NULL OR before.last_heartbeat_at < now() - make_interval(secs => $6) AS was_offline`,
-    [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000])).rows[0];
-  return { wasOffline: r?.was_offline ?? false };
+      RETURNING before.last_heartbeat_at IS NULL OR before.last_heartbeat_at < now() - make_interval(secs => $6) AS was_offline,
+                $7::jsonb IS NOT NULL AND before.firewall_profiles IS DISTINCT FROM $7::jsonb AS firewall_changed`,
+    [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
+     h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null])).rows[0];
+  return { wasOffline: r?.was_offline ?? false, firewallChanged: r?.firewall_changed ?? false };
 }
 
 /**

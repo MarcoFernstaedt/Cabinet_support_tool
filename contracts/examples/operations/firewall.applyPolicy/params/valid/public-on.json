@@ -1,0 +1,7 @@
+{
+  "profiles": {
+    "domain": false,
+    "private": false,
+    "public": true
+  }
+}

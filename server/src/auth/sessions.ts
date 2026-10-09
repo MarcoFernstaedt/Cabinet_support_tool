@@ -52,9 +52,10 @@ export const endSession = (db: Queryable, sessionHash: Buffer) => db.query("DELE
 export const endAllSessions = (db: Queryable, userId: string) => db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
 
 /** The next stage a signed-in user must pass before using the console. An Admin setting can require an authenticator for every account. */
-export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePassword: boolean }, passedTotp: boolean, requireTotpForAll = false): Stage {
+/** Every account, of every role, needs an authenticator at sign-in (docs/spec/12-milestones-8-to-12.md). */
+export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePassword: boolean }, passedTotp: boolean): Stage {
   if (u.totpEnabled && !passedTotp) return "totp";
-  if (!u.totpEnabled && (u.role === "tier2" || u.role === "admin" || requireTotpForAll)) return "totp_setup";
+  if (!u.totpEnabled) return "totp_setup";
   if (u.mustChangePassword) return "password_change";
   return "complete";
 }

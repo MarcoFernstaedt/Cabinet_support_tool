@@ -65,9 +65,8 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
         details: { username: body.username, source: request.ip } }));
       return reply.code(401).send({ error: "invalid_credentials" });
     }
-    const settings = await o.guards.settings.get();
     const policy = await o.guards.policy();
-    const stage = nextStage({ totpEnabled: user.totp_enabled, role: user.role, mustChangePassword: user.must_change_password }, false, settings.requireTotpForAll);
+    const stage = nextStage({ totpEnabled: user.totp_enabled, role: user.role, mustChangePassword: user.must_change_password }, false);
     const id = await transaction(o.pool, async c => {
       // The failure count is cleared only when sign-in needs no authenticator code. Otherwise it is cleared by a correct
       // code: a correct password must not reset the count, or someone holding it could guess codes without ever locking.
@@ -195,10 +194,38 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     }
     const token = await transaction(o.pool, async c => {
       await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1", [u.userId, step]);
-      await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "succeeded", details: { action: body.action, target: body.target } });
-      return issueStepUpToken(c, u.userId, body.action, body.target);
+      await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "succeeded",
+        details: { action: body.action, target: body.target, ...(body.paramsHash ? { paramsHash: body.paramsHash } : {}) } });
+      return issueStepUpToken(c, u.userId, body.action, body.target, body.paramsHash);
     });
     return { token };
   });
 
+
+  /**
+   * A change to more than one cabinet is confirmed with the password again (docs/spec/12-milestones-8-to-12.md). The token
+   * is bound to the bulk action, the site or client, and the exact parameters. Wrong passwords count toward the lock.
+   */
+  app.post("/api/auth/confirm-password", async (request, reply) => {
+    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
+    const u = await o.guards.role(request, "tier1");
+    const body = consoleBodies.confirmPassword.parse(request.body);
+    const row = (await o.pool.query<{ password_hash: string | null; locked: boolean }>(
+      "SELECT password_hash, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+    if (row.locked) return reply.code(429).send({ error: "account_locked" });
+    if (!(await verifyPassword(row.password_hash, body.password))) {
+      noteAddressFailure(request.ip);
+      await recordFailure(u.userId, "failed_step_ups", request.ip);
+      await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "auth.confirm_password", outcome: "refused",
+        details: { action: body.action, target: body.target } }));
+      return reply.code(401).send({ error: "invalid_password" });
+    }
+    const token = await transaction(o.pool, async c => {
+      await c.query("UPDATE users SET failed_logins = 0 WHERE id = $1", [u.userId]);
+      await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.confirm_password", outcome: "succeeded",
+        details: { action: body.action, target: body.target, paramsHash: body.paramsHash } });
+      return issueStepUpToken(c, u.userId, body.action, body.target, body.paramsHash);
+    });
+    return { token };
+  });
 }

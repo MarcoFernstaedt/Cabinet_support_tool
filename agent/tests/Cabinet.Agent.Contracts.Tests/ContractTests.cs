@@ -59,7 +59,7 @@ public sealed class ContractTests
             JsonElement op = schemaOps[entry.Name];
             Assert.Equal(op.GetProperty("kind").GetString(), entry.Kind.ToString().ToLowerInvariant());
             Assert.Equal(op.GetProperty("minimumRole").GetString(), entry.MinimumRole);
-            Assert.Equal(op.GetProperty("stepUp").GetBoolean(), entry.StepUp);
+            Assert.Equal(op.GetProperty("confirm").GetString(), entry.Confirm.ToString().ToLowerInvariant());
             Assert.Equal(op.GetProperty("expirySeconds").GetInt32(), entry.ExpirySeconds);
             Assert.Equal(op.GetProperty("rateClass").GetString(), JsonNamingPolicy.SnakeCaseLower.ConvertName(entry.RateClass.ToString()));
             Assert.Equal(op.TryGetProperty("safetyNet", out JsonElement s) && s.GetBoolean(), entry.SafetyNet);

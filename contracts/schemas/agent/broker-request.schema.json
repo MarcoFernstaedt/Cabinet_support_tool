@@ -35,6 +35,7 @@
         "network.setIp",
         "network.setDns",
         "firewall.setProfile",
+        "firewall.applyPolicy",
         "firewall.setRule",
         "firewall.restore",
         "package.install",
@@ -112,6 +113,7 @@
                 "network.setIp",
                 "network.setDns",
                 "firewall.setProfile",
+                "firewall.applyPolicy",
                 "firewall.setRule",
                 "firewall.restore",
                 "package.install",
@@ -324,6 +326,27 @@
         "properties": {
           "params": {
             "$ref": "../operations/firewall.setProfile.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "firewall.applyPolicy"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/firewall.applyPolicy.schema.json#/$defs/params"
           }
         }
       }

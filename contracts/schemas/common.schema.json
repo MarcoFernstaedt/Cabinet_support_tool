@@ -235,6 +235,7 @@
         "network.setIp",
         "network.setDns",
         "firewall.setProfile",
+        "firewall.applyPolicy",
         "firewall.setRule",
         "firewall.restore",
         "package.install",
@@ -620,6 +621,27 @@
         "install",
         "check_in"
       ]
+    },
+    "firewallProfileSwitches": {
+      "description": "Each firewall profile's on/off state: what the heartbeat reports and what a client's firewall policy asks for.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "private",
+        "public"
+      ],
+      "properties": {
+        "domain": {
+          "type": "boolean"
+        },
+        "private": {
+          "type": "boolean"
+        },
+        "public": {
+          "type": "boolean"
+        }
+      }
     }
   }
 }

@@ -49,6 +49,8 @@ public sealed class AgentConnectionOptions
     public Packages.PackageDownloads? Packages { get; init; }
     /// <summary>Check-ins, upgrade offers and upgrade reports, handled after each heartbeat that reaches the server.</summary>
     public Upgrades.UpgradeCoordinator? Upgrades { get; init; }
+    /// <summary>Each firewall profile's on/off state for the heartbeat (from the firewall watcher), so the server can compare it with the client's policy.</summary>
+    public Func<FirewallProfileSwitches?>? FirewallProfiles { get; init; }
     /// <summary>Tells the broker the server was reached after a safety-net change; null when this agent makes no changes.</summary>
     public Func<Guid, CancellationToken, Task<SafetyNetStatus>>? ConfirmSafetyNet { get; init; }
     /// <summary>Called after every successful write (the firewall change detector looks at once, to attribute it).</summary>
@@ -247,6 +249,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                 HeartbeatResponse answer = await api.HeartbeatAsync(new Heartbeat
                 {
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
+                    FirewallProfiles = o.FirewallProfiles?.Invoke(),
                 }, token).ConfigureAwait(false);
                 o.Settings?.Apply(answer);
                 if (o.Upgrades is not null) await o.Upgrades.AfterHeartbeatAsync(api, answer, token).ConfigureAwait(false);

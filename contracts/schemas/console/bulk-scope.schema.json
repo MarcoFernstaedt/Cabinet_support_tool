@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/bulk-scope.schema.json",
+  "title": "bulk-scope",
+  "description": "From the query string: the site or client a bulk change would cover, to preview which cabinets it would change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "id"
+  ],
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": [
+        "site",
+        "client"
+      ]
+    },
+    "id": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    }
+  }
+}

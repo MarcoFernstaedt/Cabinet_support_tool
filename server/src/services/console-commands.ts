@@ -7,6 +7,7 @@ import { issueCommand } from "./commands.js";
 import { Refused } from "./errors.js";
 import { scannerIdsFor } from "./fleet.js";
 import { syncForCabinet } from "./device-settings.js";
+import { cabinetPolicy, switchesFor } from "./firewall-policy.js";
 
 export const ROLE_RANK = { tier1: 1, tier2: 2, admin: 3 } as const;
 export type Role = keyof typeof ROLE_RANK;
@@ -21,9 +22,6 @@ export async function issueFromConsole(pool: pg.Pool, user: { userId: string; ro
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
   if (ROLE_RANK[user.role] < ROLE_RANK[entry.minimumRole as Role]) throw new Refused("forbidden", 403, "your role cannot run this operation");
-  // Turning a firewall profile off with no time limit is Admin only (docs/spec/04-agent-spec.md).
-  if (operation === "firewall.setProfile" && params.noTimeLimit === true && user.role !== "admin")
-    throw new Refused("forbidden", 403, "only an Admin can turn a profile off with no time limit");
 
   if (operation === "firewall.setRule") {
     // Checked against its schema first, so the rule checks below read only a valid rule.
@@ -39,6 +37,11 @@ export async function issueFromConsole(pool: pg.Pool, user: { userId: string; ro
     if (!p || p.state !== "approved") throw new Refused("package_not_approved", 409, "that package is not approved, or was retired");
     filled.packageType = p.type;
     filled.sha256 = p.sha256;
+  }
+  if (operation === "firewall.applyPolicy") {
+    // The browser names only the cabinet; the profiles come from its client's policy (or the fleet default).
+    if (Object.keys(params).length > 0) throw new Refused("invalid_params", 400, "the policy is filled in by the server; send no parameters");
+    filled.profiles = switchesFor((await cabinetPolicy(pool, cabinetId)).policy);
   }
   if (operation === "peripheral.status" && filled.hardwareIds === undefined) {
     const ids = await scannerIdsFor(pool, cabinetId);
@@ -57,19 +60,11 @@ export async function issueFromConsole(pool: pg.Pool, user: { userId: string; ro
   }
   return issueCommand(pool, user.userId, cabinetId, operation, filled, AUDIT_ACTION[operation] ?? "command.issue",
     viaCli ? (entry.kind === "write" ? { viaCli: true } : undefined)
-      : entry.kind === "write" ? (stepUpToken ? { stepUpToken } : {}) : stepUpToken ? { stepUpToken } : undefined);
+      : entry.kind === "write" ? { ...(stepUpToken ? { stepUpToken } : {}), confirmedParams: params } : stepUpToken ? { stepUpToken } : undefined);
 }
 
-/**
- * Firewall rules people may write. An update keeps the rule's name (the agent refuses a rename too). An inbound
- * "allow" with no port, remote address or program lets everything in on its profiles, which is the same as turning
- * the firewall off with no time limit, so, like that, it is for Admins only.
- */
-function checkFirewallRule(role: Role, params: Record<string, unknown>): void {
-  const rule = params.rule as { name?: string; direction?: string; action?: string; localPorts?: unknown[]; remoteAddresses?: unknown[]; programPath?: string } | undefined;
-  if (!rule) return;
-  if (params.change === "update" && rule.name !== params.ruleName) throw new Refused("rename_not_allowed", 400, "an update cannot rename a rule");
-  const catchAll = rule.direction === "in" && rule.action === "allow" && !rule.localPorts?.length && !rule.remoteAddresses?.length && !rule.programPath;
-  if (catchAll && role !== "admin")
-    throw new Refused("forbidden", 403, "an inbound allow rule must name a port, a remote address or a program; only an Admin can allow everything in");
+/** Firewall rules people may write: an update keeps the rule's name (the agent refuses a rename too). */
+function checkFirewallRule(_role: Role, params: Record<string, unknown>): void {
+  const rule = params.rule as { name?: string } | undefined;
+  if (rule && params.change === "update" && rule.name !== params.ruleName) throw new Refused("rename_not_allowed", 400, "an update cannot rename a rule");
 }

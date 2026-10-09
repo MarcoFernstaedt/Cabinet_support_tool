@@ -1,0 +1,55 @@
+{
+  "before": [
+    {
+      "profile": "domain",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "private",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "public",
+      "enabled": true,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    }
+  ],
+  "after": [
+    {
+      "profile": "domain",
+      "enabled": false,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "private",
+      "enabled": false,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    },
+    {
+      "profile": "public",
+      "enabled": false,
+      "defaultInbound": "block",
+      "defaultOutbound": "allow",
+      "reenableAt": null
+    }
+  ],
+  "changed": [
+    "domain",
+    "private",
+    "public"
+  ],
+  "snapshotId": "7b0c0e6e-3a5b-4f4a-9a2d-2f1c3b4d5e6f",
+  "safetyNetDeadline": "2026-10-09T12:02:00Z"
+}

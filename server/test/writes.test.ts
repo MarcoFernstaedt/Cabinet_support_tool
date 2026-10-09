@@ -1,5 +1,7 @@
 // Milestone 5 on the server: writes from the console (role, step-up, pauses, limits, read-only),
 // the software library (checks, two-person rule, retirement), downloads and firewall history.
+import { paramsHash } from "../src/auth/canonical.js";
+import { catalog, type OperationName } from "../src/contracts.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -59,13 +61,15 @@ async function signIn(a: Account): Promise<string> {
   assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, cookie)).body.stage, "complete");
   return cookie;
 }
-async function stepUp(a: Account, cookie: string, action: string, target: string): Promise<string> {
-  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target }, cookie);
+async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token;
 }
+/** A write as the console sends it: code-level operations with a code bound to these parameters, click-level ones without. */
 const write = async (a: Account, cookie: string, operation: string, params: Record<string, unknown>, target = cabinetId) =>
-  call("POST", `/api/cabinets/${target}/commands`, { operation, params, stepUpToken: await stepUp(a, cookie, operation, target) }, cookie);
+  call("POST", `/api/cabinets/${target}/commands`, catalog.get(operation as OperationName)?.confirm === "code"
+    ? { operation, params, stepUpToken: await stepUp(a, cookie, operation, target, params) } : { operation, params }, cookie);
 const DNS = { interfaceIndex: 12, mode: "automatic" };
 
 test.before(async () => {
@@ -84,22 +88,28 @@ test.before(async () => {
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
-test("a write needs Tier 2, a step-up token for that operation on that cabinet, and is audited as a write", async () => {
+test("a code-level write needs Tier 2 and a code bound to that operation, that cabinet and those exact parameters, and is audited as a write", async () => {
   const t1 = await account("tier1"); const c1 = await signIn(t1);
   const t2 = await account("tier2"); const c2 = await signIn(t2);
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS }, c1)).status, 403);
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS }, c2)).body.error, "step_up_required");
-  const wrongOp = await stepUp(t2, c2, "network.setIp", cabinetId);
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS, stepUpToken: wrongOp }, c2)).body.error, "step_up_required");
-  const otherCabinet = await stepUp(t2, c2, "network.setDns", randomUUID());
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS, stepUpToken: otherCabinet }, c2)).body.error, "step_up_required");
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "system.info", params: {}, stepUpToken: "A".repeat(43) }, c2)).status, 400, "reads take no token");
+  const send = (body: Record<string, unknown>, cookie: string) => call("POST", `/api/cabinets/${cabinetId}/commands`, body, cookie);
+  assert.equal((await send({ operation: "network.setDns", params: DNS }, c1)).status, 403);
+  assert.equal((await send({ operation: "network.setDns", params: DNS }, c2)).body.error, "step_up_required");
+  const wrongOp = await stepUp(t2, c2, "network.setIp", cabinetId, DNS);
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: wrongOp }, c2)).body.error, "step_up_required");
+  const otherCabinet = await stepUp(t2, c2, "network.setDns", randomUUID(), DNS);
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: otherCabinet }, c2)).body.error, "step_up_required");
+  // A code confirmed for one set of DNS servers cannot be used for another, nor without a parameter binding at all.
+  const forOther = await stepUp(t2, c2, "network.setDns", cabinetId, { interfaceIndex: 12, mode: "static", servers: ["10.0.0.9"] });
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: forOther }, c2)).body.error, "step_up_required", "bound to other parameters");
+  const unbound = await stepUp(t2, c2, "network.setDns", cabinetId);
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: unbound }, c2)).body.error, "step_up_required", "not bound to parameters");
+  assert.equal((await send({ operation: "system.info", params: {}, stepUpToken: "A".repeat(43) }, c2)).status, 400, "reads take no token");
 
   const ok = await write(t2, c2, "network.setDns", DNS);
   assert.equal(ok.status, 202, JSON.stringify(ok.body));
-  const token = await stepUp(t2, c2, "network.setDns", cabinetId);
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).status, 202);
-  assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).body.error, "step_up_required", "a token works once");
+  const token = await stepUp(t2, c2, "network.setDns", cabinetId, DNS);
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).status, 202);
+  assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).body.error, "step_up_required", "a token works once");
   const audit = (await db.app.query("SELECT action, details FROM audit_log WHERE details->>'commandId' = $1", [ok.body.commandId])).rows[0];
   assert.equal(audit.action, "command.write");
   for (const params of [{ interfaceIndex: 12, mode: "static" }, { interfaceIndex: 0, mode: "automatic" }, { interfaceIndex: 12, mode: "automatic", servers: ["1.1.1.1"] }])
@@ -107,29 +117,27 @@ test("a write needs Tier 2, a step-up token for that operation on that cabinet, 
   await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });
 
-test("turning a profile off with no time limit is Admin only", async () => {
+test("Tier 1 and Tier 2 turn firewall profiles off with a click, with or without a time limit; Tier 1 changes nothing else", async () => {
+  const t1 = await account("tier1"); const c1 = await signIn(t1);
   const t2 = await account("tier2"); const c2 = await signIn(t2);
-  const admin = await account("admin"); const ca = await signIn(admin);
   const off = { profile: "public", enabled: false, defaultInbound: "block", defaultOutbound: "allow", noTimeLimit: true };
-  assert.equal((await write(t2, c2, "firewall.setProfile", off)).status, 403);
-  assert.equal((await write(admin, ca, "firewall.setProfile", off)).status, 202);
+  assert.equal((await write(t1, c1, "firewall.setProfile", off)).status, 202, "Tier 1, no time limit");
+  assert.equal((await write(t2, c2, "firewall.setProfile", off)).status, 202, "Tier 2, no time limit");
   assert.equal((await write(t2, c2, "firewall.setProfile", { ...off, noTimeLimit: undefined, durationMinutes: 60 })).status, 202);
   assert.equal((await write(t2, c2, "firewall.setProfile", { ...off, noTimeLimit: undefined, durationMinutes: 481 })).status, 400);
-  assert.equal((await write(t2, c2, "firewall.setProfile", { ...off, noTimeLimit: undefined })).status, 400, "off needs a duration");
+  assert.equal((await write(t2, c2, "firewall.setProfile", { ...off, noTimeLimit: undefined })).status, 400, "off needs a duration or no limit");
+  const withToken = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "firewall.setProfile", params: off, stepUpToken: "A".repeat(43) }, c1);
+  assert.equal(withToken.status, 400, "a click-level change takes no code");
+  assert.equal((await write(t1, c1, "firewall.setRule", { change: "delete", ruleName: "MashuraDiag x" })).status, 403, "rules are Tier 2");
+  assert.equal((await write(t1, c1, "network.setDns", DNS)).status, 403);
+  await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });
 
-test("an inbound rule that allows everything is Admin only, and an update cannot rename a rule", async () => {
+test("firewall rules are a click for Tier 2, allow-all included; an update cannot rename a rule", async () => {
   const t2 = await account("tier2"); const c2 = await signIn(t2);
-  const admin = await account("admin"); const ca = await signIn(admin);
   const all = { name: "MashuraDiag Everything", direction: "in", action: "allow", protocol: "any", enabled: true, profiles: ["domain", "private", "public"] };
-  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: all })).status, 403);
-  assert.equal((await write(admin, ca, "firewall.setRule", { change: "create", rule: all })).status, 202);
-  for (const narrowed of [{ protocol: "tcp", localPorts: [{ from: 1433, to: 1433 }] }, { remoteAddresses: ["10.20.0.15"] }, { programPath: "C:\\Program Files\\Sync\\sync.exe" }]) {
-    const r = await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, ...narrowed } });
-    assert.equal(r.status, 202, JSON.stringify([narrowed, r.body]));
-  }
-  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, direction: "out" } })).status, 202, "outbound is not the inbound firewall");
-  const rename = await write(admin, ca, "firewall.setRule", { change: "update", ruleName: "Remote Desktop - User Mode (TCP-In)", rule: { ...all, name: "MashuraDiag Renamed", localPorts: [{ from: 3389, to: 3389 }], protocol: "tcp" } });
+  assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: all })).status, 202);
+  const rename = await write(t2, c2, "firewall.setRule", { change: "update", ruleName: "Remote Desktop - User Mode (TCP-In)", rule: { ...all, name: "MashuraDiag Renamed", localPorts: [{ from: 3389, to: 3389 }], protocol: "tcp" } });
   assert.deepEqual([rename.status, rename.body.error], [400, "rename_not_allowed"]);
   assert.equal((await write(t2, c2, "firewall.setRule", { change: "create", rule: { ...all, extra: 1 } })).status, 400, "hostile shapes are refused by the schema first");
   await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");

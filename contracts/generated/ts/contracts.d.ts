@@ -183,6 +183,15 @@ export interface SymptomMatch {
 }
 
 /**
+ * Each firewall profile's on/off state: what the heartbeat reports and what a client's firewall policy asks for.
+ */
+export interface FirewallProfileSwitches {
+  domain: boolean;
+  private: boolean;
+  public: boolean;
+}
+
+/**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
 export interface UpgradeKeys {
@@ -310,6 +319,23 @@ export interface AuditFilter {
 }
 
 /**
+ * Apply the client's firewall policy to every online, writable cabinet of one site or one client that differs from it (at most 200). Needs a password confirmation token for bulk.firewall_policy on that site or client, bound to these parameters ({scope, id}).
+ */
+export interface BulkFirewallPolicy {
+  scope: "site" | "client";
+  id: string;
+  stepUpToken: string;
+}
+
+/**
+ * From the query string: the site or client a bulk change would cover, to preview which cabinets it would change.
+ */
+export interface BulkScope {
+  scope: "site" | "client";
+  id: string;
+}
+
+/**
  * Marks a cabinet as one of the in-office cabinets, which form batch 2 of every staged agent rollout.
  */
 export interface CabinetInOffice {
@@ -365,6 +391,7 @@ export interface CommandRequest {
     | "network.setIp"
     | "network.setDns"
     | "firewall.setProfile"
+    | "firewall.applyPolicy"
     | "firewall.setRule"
     | "firewall.restore"
     | "package.install"
@@ -374,6 +401,16 @@ export interface CommandRequest {
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
    */
   stepUpToken?: string;
+}
+
+/**
+ * Confirms a change to more than one cabinet with the person's password again (docs/spec/12-milestones-8-to-12.md). The token is bound to the action, the scope and the exact parameters.
+ */
+export interface ConfirmPassword {
+  password: string;
+  action: "bulk.firewall_policy";
+  target: string;
+  paramsHash: string;
 }
 
 /**
@@ -432,6 +469,18 @@ export interface EventLookup {
    */
   source: string;
   eventId: string;
+}
+
+/**
+ * An Admin sets a client's (or the fleet default) firewall policy: each profile on or off. null for a client removes its own policy, so the fleet default applies.
+ */
+export interface FirewallPolicy {
+  policy: {
+    domain: "on" | "off";
+    private: "on" | "off";
+    public: "on" | "off";
+  } | null;
+  stepUpToken: string;
 }
 
 /**
@@ -510,7 +559,6 @@ export interface PlatformSettings {
   offlineAlertDays?: number;
   sessionIdleMinutes?: number;
   sessionAbsoluteHours?: number;
-  requireTotpForAll?: boolean;
   retention?: {
     eventsDays?: number;
     commandsDays?: number;
@@ -666,7 +714,7 @@ export interface StepUpOnly {
 }
 
 /**
- * Asks for a step-up token for one action on one target, with a fresh authenticator code (docs/spec/02-security-model.md control 8).
+ * Asks for a step-up token for one action on one target, with a fresh authenticator code, optionally bound to the exact parameters (docs/spec/12-milestones-8-to-12.md confirmation levels).
  */
 export interface StepUpRequest {
   /**
@@ -688,8 +736,6 @@ export interface StepUpRequest {
     | "rule.rollback"
     | "network.setIp"
     | "network.setDns"
-    | "firewall.setProfile"
-    | "firewall.setRule"
     | "firewall.restore"
     | "package.install"
     | "driver.uninstall"
@@ -726,11 +772,17 @@ export interface StepUpRequest {
     | "client.scanner"
     | "site.scanner"
     | "client.sync"
-    | "settings.sync";
+    | "settings.sync"
+    | "client.firewall_policy"
+    | "fleet.firewall_policy";
   /**
    * The ID the action applies to, or 'fleet'.
    */
   target: string | "fleet";
+  /**
+   * SHA-256 (lowercase hex) of the canonical JSON of the exact parameters the person confirmed: keys sorted at every level, no spaces. Required for a write to a cabinet; the token then works only for those parameters.
+   */
+  paramsHash?: string;
 }
 
 /**
@@ -839,6 +891,7 @@ export interface Command {
     | "network.setIp"
     | "network.setDns"
     | "firewall.setProfile"
+    | "firewall.applyPolicy"
     | "firewall.setRule"
     | "firewall.restore"
     | "package.install"
@@ -1076,6 +1129,7 @@ export interface Heartbeat {
    * Agent clock minus the last server time seen; provisional field.
    */
   clockSkewSeconds?: number;
+  firewallProfiles?: FirewallProfileSwitches;
 }
 
 /**
@@ -1959,6 +2013,34 @@ export interface FirewallSetProfileOutput {
   safetyNetDeadline: string;
 }
 
+export interface FirewallApplyPolicyParams {
+  profiles: FirewallProfileSwitches;
+}
+
+export interface FirewallApplyPolicyOutput {
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  before: [FirewallProfileState, FirewallProfileState, FirewallProfileState, ...FirewallProfileState[]];
+  /**
+   * @minItems 3
+   * @maxItems 3
+   */
+  after: [FirewallProfileState, FirewallProfileState, FirewallProfileState, ...FirewallProfileState[]];
+  /**
+   * The profiles whose on/off state changed; empty when the cabinet already matched.
+   *
+   * @maxItems 3
+   */
+  changed: ("domain" | "private" | "public")[];
+  snapshotId: string;
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  safetyNetDeadline: string;
+}
+
 export interface FirewallSetRuleParams {
   change: "create" | "update" | "enable" | "disable" | "delete";
   /**
@@ -2037,12 +2119,12 @@ export interface CatalogEntry {
   name: OperationName;
   kind: OperationKind;
   minimumRole: "tier1" | "tier2" | "admin";
-  stepUp: boolean;
+  confirm: "none" | "click" | "code";
   expirySeconds: number;
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2067,6 +2149,7 @@ export interface OperationTypes {
   "network.setIp": { params: NetworkSetIpParams; output: NetworkSetIpOutput };
   "network.setDns": { params: NetworkSetDnsParams; output: NetworkSetDnsOutput };
   "firewall.setProfile": { params: FirewallSetProfileParams; output: FirewallSetProfileOutput };
+  "firewall.applyPolicy": { params: FirewallApplyPolicyParams; output: FirewallApplyPolicyOutput };
   "firewall.setRule": { params: FirewallSetRuleParams; output: FirewallSetRuleOutput };
   "firewall.restore": { params: FirewallRestoreParams; output: FirewallRestoreOutput };
   "package.install": { params: PackageInstallParams; output: PackageInstallOutput };

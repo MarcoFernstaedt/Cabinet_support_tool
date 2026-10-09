@@ -4,8 +4,11 @@ public enum OperationKind { Read, Write }
 
 public enum RateClass { Read, Write, NetworkTest }
 
+/// <summary>How a person confirms an operation (docs/spec/12-milestones-8-to-12.md): none for reads, a click, or an authenticator code.</summary>
+public enum Confirm { None, Click, Code }
+
 /// <summary>One entry in the compiled-in operation catalog.</summary>
-public sealed record CatalogEntry(string Name, OperationKind Kind, string MinimumRole, bool StepUp, int ExpirySeconds, RateClass RateClass, bool SafetyNet, Type ParamsType, Type OutputType);
+public sealed record CatalogEntry(string Name, OperationKind Kind, string MinimumRole, Confirm Confirm, int ExpirySeconds, RateClass RateClass, bool SafetyNet, Type ParamsType, Type OutputType);
 
 /// <summary>
 /// The fixed operation catalog (docs/spec/04-agent-spec.md, contracts/schemas/operations/catalog.json).
@@ -30,16 +33,17 @@ public static class Catalog
     public const string NetworkSetIp = "network.setIp";
     public const string NetworkSetDns = "network.setDns";
     public const string FirewallSetProfile = "firewall.setProfile";
+    public const string FirewallApplyPolicy = "firewall.applyPolicy";
     public const string FirewallSetRule = "firewall.setRule";
     public const string FirewallRestore = "firewall.restore";
     public const string PackageInstall = "package.install";
     public const string DriverUninstall = "driver.uninstall";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
-        new(name, OperationKind.Read, "tier1", StepUp: false, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
+        new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
 
-    private static CatalogEntry Write<TParams, TOutput>(string name, bool safetyNet) =>
-        new(name, OperationKind.Write, "tier2", StepUp: true, ExpirySeconds: 120, RateClass.Write, safetyNet, typeof(TParams), typeof(TOutput));
+    private static CatalogEntry Write<TParams, TOutput>(string name, bool safetyNet, Confirm confirm, string minimumRole = "tier2") =>
+        new(name, OperationKind.Write, minimumRole, confirm, ExpirySeconds: 120, RateClass.Write, safetyNet, typeof(TParams), typeof(TOutput));
 
     public static IReadOnlyList<CatalogEntry> All { get; } = new[]
     {
@@ -56,13 +60,14 @@ public static class Catalog
         Read<EmptyParams, NetworkConfigOutput>(NetworkConfig),
         Read<NetworkTestParams, NetworkTestOutput>(NetworkTest, RateClass.NetworkTest),
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
-        Write<NetworkSetIpParams, NetworkSetIpOutput>(NetworkSetIp, safetyNet: true),
-        Write<NetworkSetDnsParams, NetworkSetDnsOutput>(NetworkSetDns, safetyNet: true),
-        Write<FirewallSetProfileParams, FirewallSetProfileOutput>(FirewallSetProfile, safetyNet: true),
-        Write<FirewallSetRuleParams, FirewallSetRuleOutput>(FirewallSetRule, safetyNet: true),
-        Write<FirewallRestoreParams, FirewallRestoreOutput>(FirewallRestore, safetyNet: true),
-        Write<PackageInstallParams, PackageInstallOutput>(PackageInstall, safetyNet: false),
-        Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false),
+        Write<NetworkSetIpParams, NetworkSetIpOutput>(NetworkSetIp, safetyNet: true, Confirm.Code),
+        Write<NetworkSetDnsParams, NetworkSetDnsOutput>(NetworkSetDns, safetyNet: true, Confirm.Code),
+        Write<FirewallSetProfileParams, FirewallSetProfileOutput>(FirewallSetProfile, safetyNet: true, Confirm.Click, "tier1"),
+        Write<FirewallApplyPolicyParams, FirewallApplyPolicyOutput>(FirewallApplyPolicy, safetyNet: true, Confirm.Click, "tier1"),
+        Write<FirewallSetRuleParams, FirewallSetRuleOutput>(FirewallSetRule, safetyNet: true, Confirm.Click),
+        Write<FirewallRestoreParams, FirewallRestoreOutput>(FirewallRestore, safetyNet: true, Confirm.Code),
+        Write<PackageInstallParams, PackageInstallOutput>(PackageInstall, safetyNet: false, Confirm.Code),
+        Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false, Confirm.Code),
     };
 
     private static readonly Dictionary<string, CatalogEntry> ByName = All.ToDictionary(e => e.Name, StringComparer.Ordinal);

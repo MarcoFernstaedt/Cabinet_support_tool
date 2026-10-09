@@ -1,5 +1,6 @@
 {
   "code": "123456",
-  "action": "firewall.setRule",
-  "target": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d"
+  "action": "network.setIp",
+  "target": "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d",
+  "paramsHash": "0000000000000000000000000000000000000000000000000000000000000000"
 }

@@ -80,7 +80,7 @@ export async function generate() {
     "  name: OperationName;",
     "  kind: OperationKind;",
     "  minimumRole: \"tier1\" | \"tier2\" | \"admin\";",
-    "  stepUp: boolean;",
+    "  confirm: \"none\" | \"click\" | \"code\";",
     "  expirySeconds: number;",
     "  rateClass: \"read\" | \"write\" | \"network_test\";",
     "  safetyNet?: boolean;",

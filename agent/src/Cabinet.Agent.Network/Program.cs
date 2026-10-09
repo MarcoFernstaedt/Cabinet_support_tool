@@ -93,7 +93,7 @@ public sealed class NetworkService : ServiceBase
             var connection = new AgentConnection(new AgentConnectionOptions
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
-                ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages,
+                ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
                 Upgrades = new UpgradeCoordinator(AgentPaths.Downloads, SystemOperations.AgentVersion, new UpgradeJournalStore(AgentPaths.UpgradeJournal),
                     AgentPaths.CheckIn, AgentPaths.UpgradeReported, broker.UpgradeAsync, events, clock, _log.Write),
                 ConfirmSafetyNet = broker.ConfirmAsync, AfterWrite = monitors.FirewallNow,

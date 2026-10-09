@@ -1,0 +1,8 @@
+{
+  "agentVersion": "0.3.0",
+  "uptimeSeconds": 3600,
+  "readOnlyMode": false,
+  "firewallProfiles": {
+    "public": true
+  }
+}

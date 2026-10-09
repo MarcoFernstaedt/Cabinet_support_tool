@@ -153,6 +153,38 @@ public class BrokerWriteTests
     };
 
     [Fact]
+    public void Applying_the_client_policy_turns_every_profile_off_with_no_timer_and_is_undone_if_unconfirmed()
+    {
+        // A temporary "off" timer on public is replaced: the policy is the intended state.
+        As(Guid.NewGuid(), () => _writes.SetProfile(new FirewallSetProfileParams
+        {
+            Profile = FirewallProfile.Public, Enabled = false, DefaultInbound = FirewallAction.Block, DefaultOutbound = FirewallAction.Allow, DurationMinutes = 30,
+        }));
+        Guid cmd = Guid.NewGuid();
+        var output = As(cmd, () => _writes.ApplyPolicy(new FirewallApplyPolicyParams { Profiles = new() { Domain = false, Private = false, Public = false } }));
+        Assert.Equal([FirewallProfile.Domain, FirewallProfile.Private], output.Changed);
+        Assert.All(output.After, s => Assert.False(s.Enabled));
+        Assert.All(output.After, s => Assert.Null(s.ReenableAt));
+        Assert.Equal(FirewallAction.Block, _fw.Profiles[FirewallProfile.Domain].DefaultInbound); // default actions are kept
+        Assert.Empty(_store.TimersList());
+
+        // Never confirmed (the cabinet lost the server): the safety net puts the snapshot back.
+        _clock.Advance(TimeSpan.FromMinutes(3));
+        _writes.Tick();
+        Assert.True(_fw.Profiles[FirewallProfile.Domain].Enabled);
+    }
+
+    [Fact]
+    public void Applying_a_policy_the_cabinet_already_matches_changes_nothing()
+    {
+        Guid cmd = Guid.NewGuid();
+        var output = As(cmd, () => _writes.ApplyPolicy(new FirewallApplyPolicyParams { Profiles = new() { Domain = true, Private = true, Public = true } }));
+        Assert.Empty(output.Changed);
+        Assert.Equal(SafetyNetState.Kept, _safety.Confirm(cmd).State);
+        Assert.Throws<OperationFailedException>(() => _writes.ApplyPolicy(new FirewallApplyPolicyParams { Profiles = new() { Domain = false, Private = false, Public = false } })); // no command
+    }
+
+    [Fact]
     public void A_profile_turned_off_comes_back_on_when_its_time_ends_even_after_a_restart()
     {
         using var dir = new TempDir();

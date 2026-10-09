@@ -20,6 +20,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         .Register<NetworkSetIpParams, NetworkSetIpOutput>(Catalog.NetworkSetIp, (p, _) => Task.FromResult(SetIp(p)))
         .Register<NetworkSetDnsParams, NetworkSetDnsOutput>(Catalog.NetworkSetDns, (p, _) => Task.FromResult(SetDns(p)))
         .Register<FirewallSetProfileParams, FirewallSetProfileOutput>(Catalog.FirewallSetProfile, (p, _) => Task.FromResult(SetProfile(p)))
+        .Register<FirewallApplyPolicyParams, FirewallApplyPolicyOutput>(Catalog.FirewallApplyPolicy, (p, _) => Task.FromResult(ApplyPolicy(p)))
         .Register<FirewallSetRuleParams, FirewallSetRuleOutput>(Catalog.FirewallSetRule, (p, _) => Task.FromResult(SetRule(p)))
         .Register<FirewallRestoreParams, FirewallRestoreOutput>(Catalog.FirewallRestore, (p, _) => Task.FromResult(Restore(p)));
 
@@ -97,6 +98,43 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             return new FirewallSetProfileOutput
             {
                 Profile = p.Profile, Before = before, After = WithTimer(after.Profiles.Single(s => s.Profile == p.Profile)), SnapshotId = snapshot, SafetyNetDeadline = deadline,
+            };
+        }
+    }
+
+    /// <summary>
+    /// firewall.applyPolicy: each profile on or off as the client's policy says, keeping its default actions. One snapshot
+    /// and one safety-net window cover the whole change. The policy is the intended state, so no timer is left running on
+    /// any profile; a profile already as the policy says is left alone.
+    /// </summary>
+    public FirewallApplyPolicyOutput ApplyPolicy(FirewallApplyPolicyParams p)
+    {
+        Guid command = Command();
+        lock (_gate)
+        {
+            DateTimeOffset now = clock.GetUtcNow();
+            IReadOnlyList<FirewallProfileState> before = firewall.Read().Profiles.Select(WithTimer).OrderBy(s => s.Profile).ToList();
+            Guid snapshot = store.TakeSnapshot(firewall, command, now);
+            var changed = new List<FirewallProfile>();
+            ArmIfPartlyApplied(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = snapshot }, () =>
+            {
+                foreach (FirewallProfileState s in before)
+                {
+                    bool wanted = p.Profiles.For(s.Profile);
+                    if (s.Enabled != wanted)
+                    {
+                        firewall.SetProfile(s.Profile, wanted, s.DefaultInbound, s.DefaultOutbound);
+                        changed.Add(s.Profile);
+                    }
+                    store.ClearTimer(s.Profile);
+                }
+            });
+            FirewallStateOutput after = firewall.Read();
+            store.Record(command, after, now);
+            DateTimeOffset deadline = safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = snapshot });
+            return new FirewallApplyPolicyOutput
+            {
+                Before = before, After = after.Profiles.Select(WithTimer).OrderBy(s => s.Profile).ToList(), Changed = changed, SnapshotId = snapshot, SafetyNetDeadline = deadline,
             };
         }
     }

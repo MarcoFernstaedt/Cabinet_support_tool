@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/firewall.setProfile.schema.json",
   "title": "firewall.setProfile",
-  "description": "Turn one profile on or off and set its default actions. Turning off needs a duration (default 60, max 480 minutes); no limit is Admin only and checked by the server.",
+  "description": "Turn one profile on or off and set its default actions. Turning off needs a duration (default 60, max 480 minutes) or noTimeLimit. Tier 1 and up, confirmation click (docs/spec/12-milestones-8-to-12.md).",
   "$defs": {
     "params": {
       "type": "object",

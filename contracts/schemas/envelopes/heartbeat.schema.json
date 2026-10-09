@@ -20,6 +20,10 @@
       "type": "number",
       "minimum": -86400,
       "maximum": 86400
+    },
+    "firewallProfiles": {
+      "description": "Each firewall profile on or off, as last seen by the agent's firewall watcher; compared with the client's firewall policy. Absent until the watcher has looked once (and from agents before milestone 9).",
+      "$ref": "../common.schema.json#/$defs/firewallProfileSwitches"
     }
   },
   "required": [

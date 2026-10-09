@@ -211,7 +211,9 @@ test("issuing refuses unknown operations, bad parameters, and writes without a s
   const cab = await enrolledCabinet();
   await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "shell.run", {}), /not a catalog operation/);
   await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "eventlog.query", { log: "Security" }), /schema/);
-  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "network.setDns", { interfaceIndex: 1, mode: "automatic" }), /step-up token/);
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "network.setDns", { interfaceIndex: 1, mode: "automatic" }, "command.issue", {}), /authenticator code/);
+  await assert.rejects(issueCommand(db.app, admin, cab.cabinetId, "firewall.setProfile", { profile: "public", enabled: true, defaultInbound: "block", defaultOutbound: "allow" }),
+    /needs its authority/, "a write never goes out without a person's confirmation path");
   await assert.rejects(issueCommand(db.app, admin, randomUUID(), "system.info", {}), /no such active cabinet/);
 });
 

@@ -330,6 +330,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "firewall.applyPolicy"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/firewall.applyPolicy.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "firewall.setRule"
           }
         },

@@ -60,6 +60,31 @@ public sealed record FirewallSetProfileOutput
     public required DateTimeOffset SafetyNetDeadline { get; init; }
 }
 
+/// <summary>Each firewall profile on (true) or off (false): the heartbeat's report and a client policy's wish.</summary>
+public sealed record FirewallProfileSwitches
+{
+    public required bool Domain { get; init; }
+    public required bool Private { get; init; }
+    public required bool Public { get; init; }
+
+    public bool For(FirewallProfile p) => p switch { FirewallProfile.Domain => Domain, FirewallProfile.Private => Private, _ => Public };
+}
+
+/// <summary>firewall.applyPolicy: every profile as the client's policy says, filled in by the server.</summary>
+public sealed record FirewallApplyPolicyParams
+{
+    public required FirewallProfileSwitches Profiles { get; init; }
+}
+
+public sealed record FirewallApplyPolicyOutput
+{
+    public required IReadOnlyList<FirewallProfileState> Before { get; init; }
+    public required IReadOnlyList<FirewallProfileState> After { get; init; }
+    public required IReadOnlyList<FirewallProfile> Changed { get; init; }
+    public required Guid SnapshotId { get; init; }
+    public required DateTimeOffset SafetyNetDeadline { get; init; }
+}
+
 public enum RuleChange { Create, Update, Enable, Disable, Delete }
 
 public sealed record FirewallSetRuleParams

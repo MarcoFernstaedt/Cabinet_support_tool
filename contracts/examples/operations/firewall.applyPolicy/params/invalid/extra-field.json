@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "domain": false,
+    "private": false,
+    "public": false
+  },
+  "durationMinutes": 60
+}

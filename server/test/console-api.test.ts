@@ -30,7 +30,7 @@ interface Account { id: string; username: string; password: string; secret?: Buf
 
 async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean; mustChange?: boolean } = {}): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple" };
-  const secret = opts.totp ? totp.newSecret() : undefined;
+  const secret = (opts.totp ?? true) ? totp.newSecret() : undefined;
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [a.id, a.username, "Test " + role, role, await hashPassword(a.password), opts.mustChange ?? false, !!secret, secret ? secrets.seal(secret) : null]);
@@ -124,26 +124,28 @@ test("after a lock runs out the count starts again: one more mistake does not re
 });
 
 test("authenticator setup shows the same secret until it is confirmed", async () => {
-  const a = await account("tier2");
+  const a = await account("tier2", { totp: false });
   const login = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
   const first = await call("GET", "/api/auth/totp/setup", undefined, login.cookie);
   const again = await call("GET", "/api/auth/totp/setup", undefined, login.cookie);
   assert.equal(again.body.secret, first.body.secret, "a second request cannot swap the secret being set up");
 });
 
-test("a Tier 1 user without two-factor signs in with a password and gets an HttpOnly, Secure, SameSite=Strict cookie", async () => {
+test("a Tier 1 user signs in with a password and a code and gets an HttpOnly, Secure, SameSite=Strict cookie", async () => {
   const a = await account("tier1");
   const r = await app.inject({ method: "POST", url: "/api/auth/login", payload: JSON.stringify({ username: a.username, password: a.password }),
     headers: { "content-type": "application/json", origin: ORIGIN } });
-  assert.equal(JSON.parse(r.body).stage, "complete");
+  assert.equal(JSON.parse(r.body).stage, "totp", "Tier 1 needs the code too");
   const set = String(r.headers["set-cookie"]);
   for (const flag of ["HttpOnly", "Secure", "SameSite=Strict", "Path=/"]) assert.ok(set.includes(flag), flag);
-  const me = await call("GET", "/api/auth/me", undefined, set.split(";")[0]);
+  const cookie = set.split(";")[0]!;
+  assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, cookie)).body.stage, "complete");
+  const me = await call("GET", "/api/auth/me", undefined, cookie);
   assert.equal(me.body.user.role, "tier1");
 });
 
-test("Tier 2 and Admin must set up the authenticator before anything else", async () => {
-  const a = await account("tier2");
+test("every account, Tier 1 included, must set up the authenticator before anything else", async () => {
+  const a = await account("tier1", { totp: false });
   const login = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
   assert.equal(login.body.stage, "totp_setup");
   assert.equal((await call("GET", "/api/fleet/clients", undefined, login.cookie)).body.error, "sign_in_incomplete");
@@ -174,7 +176,7 @@ test("a forced password change blocks the console until done, and ends the user'
   const a = await account("tier1", { mustChange: true });
   const other = (await call("POST", "/api/auth/login", { username: a.username, password: a.password })).cookie!;
   const login = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
-  assert.equal(login.body.stage, "password_change");
+  assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, login.cookie)).body.stage, "password_change");
   assert.equal((await call("GET", "/api/fleet/clients", undefined, login.cookie)).status, 401);
   assert.equal((await call("POST", "/api/auth/password", { currentPassword: a.password, newPassword: "short" }, login.cookie)).status, 400);
   assert.equal((await call("POST", "/api/auth/password", { currentPassword: a.password, newPassword: "a brand new long passphrase" }, login.cookie)).body.stage, "complete");

@@ -1,0 +1,7 @@
+{
+  "policy": {
+    "domain": "off",
+    "private": "off",
+    "public": "off"
+  }
+}

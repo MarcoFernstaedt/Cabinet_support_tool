@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/firewall-policy.schema.json",
+  "title": "firewall-policy",
+  "description": "An Admin sets a client's (or the fleet default) firewall policy: each profile on or off. null for a client removes its own policy, so the fleet default applies.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy",
+    "stepUpToken"
+  ],
+  "properties": {
+    "policy": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "domain",
+            "private",
+            "public"
+          ],
+          "properties": {
+            "domain": {
+              "type": "string",
+              "enum": [
+                "on",
+                "off"
+              ]
+            },
+            "private": {
+              "type": "string",
+              "enum": [
+                "on",
+                "off"
+              ]
+            },
+            "public": {
+              "type": "string",
+              "enum": [
+                "on",
+                "off"
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stepUpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

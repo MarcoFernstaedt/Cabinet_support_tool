@@ -86,6 +86,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
     Upgrades = new UpgradeCoordinator(Path.Combine(state, "downloads"), agentVersion, journal, Path.Combine(state, "check-in.json"), Path.Combine(state, "upgrade-reported"),
         (version, _) => { var (_, error) = upgradeBroker.Start(version); return Task.FromResult((error is null, error)); }, events, clock, Log),
     ConfirmSafetyNet = (id, _) => Task.FromResult(safetyNet.Confirm(id)), AfterWrite = () => monitorHost?.FirewallNow(),
+    FirewallProfiles = () => monitorHost?.FirewallProfiles,
     EnrollPollInterval = TimeSpan.FromSeconds(1), HeartbeatInterval = TimeSpan.FromSeconds(2),
     Backoff = new Backoff(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(3)),
 });

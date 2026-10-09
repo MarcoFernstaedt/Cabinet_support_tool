@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/step-up-request.schema.json",
   "title": "step-up-request",
-  "description": "Asks for a step-up token for one action on one target, with a fresh authenticator code (docs/spec/02-security-model.md control 8).",
+  "description": "Asks for a step-up token for one action on one target, with a fresh authenticator code, optionally bound to the exact parameters (docs/spec/12-milestones-8-to-12.md confirmation levels).",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -28,8 +28,6 @@
         "rule.rollback",
         "network.setIp",
         "network.setDns",
-        "firewall.setProfile",
-        "firewall.setRule",
         "firewall.restore",
         "package.install",
         "driver.uninstall",
@@ -66,7 +64,9 @@
         "client.scanner",
         "site.scanner",
         "client.sync",
-        "settings.sync"
+        "settings.sync",
+        "client.firewall_policy",
+        "fleet.firewall_policy"
       ]
     },
     "target": {
@@ -79,6 +79,11 @@
           "const": "fleet"
         }
       ]
+    },
+    "paramsHash": {
+      "description": "SHA-256 (lowercase hex) of the canonical JSON of the exact parameters the person confirmed: keys sorted at every level, no spaces. Required for a write to a cabinet; the token then works only for those parameters.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   },
   "required": [
