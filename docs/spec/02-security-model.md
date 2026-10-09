@@ -47,8 +47,7 @@ The agent can change things on client machines, so the whole system is a potenti
 
 - Passwords hashed with Argon2id. Login rate-limited per account and per address, with temporary lockout after repeated failures.
 - Two-factor authentication uses an authenticator app and is turned on per account. When it is on, login asks for the password and then the authenticator code.
-- Tier 2 and Admin accounts must have two-factor on, because every write and admin action needs a code. They set it up at first login and cannot turn it off themselves.
-- For Tier 1 accounts two-factor is optional, and an admin setting can require it for everyone (09-open-decisions.md).
+- Every account, of every role, must have two-factor on (changed in milestone 9, 12-milestones-8-to-12.md). Accounts set it up at first login and cannot turn it off themselves.
 - Sessions stored on the server. The cookie is HttpOnly, Secure, SameSite Strict, and holds only a random session ID.
 - Sessions expire after an idle period and an absolute maximum.
 - State-changing requests also require a matching Origin header.
@@ -57,16 +56,16 @@ The agent can change things on client machines, so the whole system is a potenti
 
 ## Control 7: role-based access
 
-- Tier 1: read operations, event logs and alerts
-- Tier 2: everything Tier 1 can do, plus write operations and proposing symptom rules
+- Tier 1: read operations, event logs and alerts, plus firewall profile changes and applying the client firewall policy (milestone 9)
+- Tier 2: everything Tier 1 can do, plus every other write operation, the watched-services list and proposing symptom rules and runbooks
 - Admin: everything Tier 2 can do, plus user administration, cabinet approval, client and site management, the software library, approving symptom rules, suppressions, fleet safety controls, settings, audit review and agent upgrades
 - Roles are checked on the server for every request. The console hiding a button is convenience, not security.
 
 ## Control 8: step-up authentication
 
 - Viewing is frictionless. There is no per-site or per-cabinet password.
-- Every write operation, every rule change and every admin action requires a fresh authenticator code at the moment of the action.
-- A successful step-up produces a token bound to that one action, valid for 2 minutes. It cannot be reused.
+- Since milestone 9, confirmation is matched to risk (12-milestones-8-to-12.md "Confirmation levels"): quick, self-healing single-cabinet fixes need a confirmation click; rare or stranding single-cabinet writes, every rule change and every admin action need a fresh authenticator code; any change to more than one cabinet needs the person's password again.
+- A successful step-up produces a token bound to that one action, its target and the exact parameters, valid for 2 minutes. It cannot be reused.
 
 ## Control 9: approved software library
 
@@ -79,7 +78,7 @@ The agent can change things on client machines, so the whole system is a potenti
 
 - Write pause: Admins can stop all writes fleet-wide or per client at once.
 - Per-user write limit on the server, default 20 per hour, and a separate per-cabinet write limit enforced by the agent itself.
-- No bulk writes: every write targets one cabinet.
+- One bulk write only: applying a client's own firewall policy to its cabinets that differ from it, with password confirmation, at most 200 cabinets at a time, within the write pause (milestone 9). Every other write targets one cabinet.
 - Read-only install mode for clients who allow diagnostics only.
 - Safety net: network and firewall changes revert themselves if the cabinet loses contact with the server for 2 minutes.
 - Firewall profiles turned off come back on automatically after their time limit, which survives reboots.

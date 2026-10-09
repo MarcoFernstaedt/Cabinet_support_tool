@@ -343,3 +343,14 @@ The build plan asks for a load test of the agent API with 8,000 simulated agents
 On one 4-core development machine shared by the server, the database and the load generator, 8,000 agents ran for 10 minutes with no failures: heartbeat p95 18 ms, command delivery p95 13 ms (details in server/README.md). CI repeats a 1,000-agent version on every push.
 
 **Still to do (a rollout gate):** run it against the production hosting and database, with the load generator on a separate machine, once hosting is decided. The thresholds are in the tool (THRESHOLDS); confirm or change them.
+
+## Milestones 8 to 12 (decided, October 2026)
+
+Asked of and answered by the product owner; specified in 12-milestones-8-to-12.md.
+
+- **Firewall default.** Each client has a firewall policy, all three profiles off by default, because that fixes most satellite-to-sync connection problems. Drift is shown and raises a minor alert; a person applies the policy with one click. The platform never applies it on its own (the product owner chose this over automatic enforcement).
+- **Who may change the firewall.** Tier 1 and Tier 2, including no time limit. Allow-all inbound rules are no longer Admin only, since the same people may turn the firewall off.
+- **Confirmation.** The product owner asked that single-cabinet fixes not slow staff down, and that bulk changes need a second confirmation such as the password. Adopted, with one addition recommended to and accepted by the owner: rare changes that can strand or alter a cabinet (static IP and DNS servers, packages, driver removal, firewall restore) keep the authenticator code. Every account needs an authenticator at sign-in.
+- **Watched services.** Tier 2 and Admin choose them; the broker restarts them; 3 failed restarts in a row raise a major alert. The broker never starts a disabled service, never changes a start type, and never starts remote-access services.
+- **Health checks.** Collected by the agent itself once a day (a `health` event) rather than by commands the server issues at night, so no command is ever issued without a person behind it.
+- **Network lookups.** network.resolve accepts any host name but queries only the DNS servers configured on the cabinet; traceroute keeps the four fixed target kinds, so the platform still cannot be used to map a client's network.

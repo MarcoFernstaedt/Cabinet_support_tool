@@ -79,7 +79,7 @@ Never readable: the Security log, which holds sign-in and credential activity. S
 
 ## Write operations (Tier 2 and Admin, step-up required)
 
-Every write is one operation on one cabinet. There are no bulk writes.
+Every write is one operation on one cabinet. Milestones 9 to 11 add operations, change who may run the firewall ones and set a confirmation level per operation; see 12-milestones-8-to-12.md, which takes precedence over this section where they differ.
 
 Network:
 

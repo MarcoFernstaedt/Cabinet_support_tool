@@ -65,6 +65,16 @@ Build in this order. Each milestone ends with something that runs. Milestones 1 
 - Set up the KMS key and pipeline signing, the updater, and staged rollouts.
 - Done when: a signed upgrade rolls out to a test batch, a tampered package is refused, and a failed upgrade restores the old version on its own.
 
+## Milestones 8 to 12
+
+Specified in 12-milestones-8-to-12.md.
+
+- Milestone 8, housekeeping: the earlier demo removed, the agent on .NET 10, locked packages. Done.
+- Milestone 9, confirmation levels, the client firewall policy and bulk apply. Done when: a Tier 1 user turns a cabinet's firewall off with one click, a cabinet that differs from its client's policy raises a minor alert that closes once the policy is applied, and a bulk apply to a site needs the password and reports every cabinet.
+- Milestone 10, services and processes, and watched services. Done when: a watched service stopped by hand is started again by the broker within a minute, and one that fails 3 restarts raises a major alert that resolves once it runs again.
+- Milestone 11, network diagnostics and automatic diagnosis. Done when: each finding in the table is produced from recorded results in tests, and Diagnose network runs end to end on the test agent.
+- Milestone 12, diagnose this cabinet, health snapshots, error trends, the triage queue, runbooks and resolution notes.
+
 ## Field rollout
 
 Each stage has gates that must be met before it starts.
