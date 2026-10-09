@@ -74,7 +74,7 @@ public sealed class SignedData
             {
                 Asn1Tag tag = set.PeekTag();
                 ReadOnlyMemory<byte> item = set.ReadEncodedValue();
-                if (tag.HasSameClassAndValue(Asn1Tag.Sequence)) certs.Add(new X509Certificate2(item.ToArray()));
+                if (tag.HasSameClassAndValue(Asn1Tag.Sequence)) certs.Add(X509CertificateLoader.LoadCertificate(item.ToArray()));
             }
         }
         if (signedData.HasData && signedData.PeekTag().HasSameClassAndValue(new Asn1Tag(TagClass.ContextSpecific, 1, true))) signedData.ReadEncodedValue(); // CRLs

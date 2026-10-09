@@ -26,7 +26,11 @@ if ($UpgradeTrustDir) {
 foreach ($project in 'Cabinet.Agent.Broker', 'Cabinet.Agent.Network', 'Cabinet.Agent.Harness', 'Cabinet.Agent.Updater') {
     $target = Join-Path $Output $project
     & $dotnet @('publish', (Join-Path $root "src\$project\$project.csproj"), '--configuration', 'Release',
-        '--runtime', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '--output', $target) @extra
+        '--runtime', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '--output', $target,
+        # Publishing adds the win-x64 runtime and its build tasks, which the committed build-and-test lock files do not
+        # list, so publishing keeps its own lock file under obj\ and leaves the committed ones untouched. Every package
+        # reference names its exact version and NuGet takes the lowest match, so it resolves the same versions.
+        '-p:NuGetLockFilePath=obj\publish.packages.lock.json', '-p:RestoreLockedMode=false') @extra
     if ($LASTEXITCODE -ne 0) { throw "Publishing $project failed." }
 }
 Write-Host "Published to $Output"

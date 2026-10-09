@@ -5,7 +5,7 @@
     catches build errors everywhere; it runs and is tested on Windows only.
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>Cabinet.Agent.Windows</RootNamespace>
     <Version>0.1.0</Version>
   </PropertyGroup>

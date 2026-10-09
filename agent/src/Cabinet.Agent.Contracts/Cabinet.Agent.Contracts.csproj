@@ -2,7 +2,7 @@
   <!--
     C# mirror of contracts/schemas. The JSON Schemas are the source of truth;
     tests/Cabinet.Agent.Contracts.Tests proves these types match them.
-    Portable net8.0 so the contract tests run on Linux CI; every agent project
+    Portable net10.0 so the contract tests run on Linux CI; every agent project
     references it.
   -->
   <PropertyGroup>

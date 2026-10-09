@@ -1,11 +1,12 @@
 <Project>
   <!--
-    Framework and language settings for every agent project. The agent has its own file, so it does not depend on the
-    repository root's (which belongs to the earlier C# demo). Windows projects set TargetFramework net8.0-windows.
+    Framework and language settings for every agent project. Windows projects set TargetFramework net10.0-windows.
+    .NET 10 is a long-term support release (supported to November 2028). Packages are locked (packages.lock.json in
+    each project) so every build restores exactly the same versions; CI restores in locked mode.
   -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <LangVersion>12.0</LangVersion>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -13,5 +14,8 @@
     <Deterministic>true</Deterministic>
     <!-- Lets the Windows projects compile on Linux CI, so build errors are caught everywhere. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <!-- On CI a restore that would change a lock file fails instead. -->
+    <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>
 </Project>

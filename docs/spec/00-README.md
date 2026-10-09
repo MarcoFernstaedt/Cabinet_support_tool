@@ -22,7 +22,7 @@ Read them in number order, 00 through 11. Files 01 and 02 give the shape and the
 
 ## Stack
 
-- Agent: C# on .NET 8, running as a Windows service on Windows 10 and 11
+- Agent: C# on .NET 10 (moved from .NET 8 in October 2026, before .NET 8 support ended), running as a Windows service on Windows 10 and 11
 - Server: Node.js 22 LTS with TypeScript and the Fastify framework
 - Console: React with TypeScript, built with Vite, served as static files
 - Contracts: JSON Schema files shared by all three, the single source of truth for every operation

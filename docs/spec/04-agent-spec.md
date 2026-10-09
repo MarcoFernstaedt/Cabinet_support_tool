@@ -2,7 +2,7 @@
 
 ## Runtime
 
-- C# on .NET 8, published self-contained so cabinets need no separate .NET install
+- C# on .NET 10 (LTS), published self-contained so cabinets need no separate .NET install
 - Supported on Windows 10 and 11. Not deployed to Windows 7.
 - Installs to Program Files; data, queue and logs live under ProgramData. Both folders are writable only by SYSTEM and Administrators.
 - The binaries are Authenticode-signed. At startup the agent checks the signature on its own files and reports any mismatch as a security event.

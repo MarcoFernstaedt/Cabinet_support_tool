@@ -153,7 +153,7 @@ internal static class WinTrust
         {
             using var s = new X509Store(store);
             var all = new X509Certificate2Collection();
-            foreach (X509Certificate2 c in s.Certificates) all.Add(new X509Certificate2(c.RawData));
+            foreach (X509Certificate2 c in s.Certificates) all.Add(X509CertificateLoader.LoadCertificate(c.RawData));
             return all;
         }
         finally

@@ -16,9 +16,8 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 | [`contracts/`](contracts/README.md) | JSON Schemas for every message and operation, valid and hostile examples, generated TypeScript types. The agent, server and console are all built against them. | JSON Schema 2020-12, Ajv |
 | [`server/`](server/README.md) | Two APIs:<br>• the agent API (mutual TLS, long poll, heartbeats, events, results, packages, upgrades);<br>• the console API (sign-in, roles, step-up, alerts, writes, administration).<br>Plus the alerts engine, audit log and CLI. | Node.js 22, TypeScript, Fastify 5, PostgreSQL 16 |
 | [`console/`](console/README.md) | The support console, served by the server from the same origin. | React 19, TypeScript, Vite |
-| [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 8, self-contained |
+| [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 10 (LTS), self-contained |
 | [`docs/platform/`](docs/platform/) | Platform documentation beyond the spec: [performance and capacity](docs/platform/performance.md) (including the command round trip) and the [October 2026 review](docs/platform/review-2026-10.md) (fixes, open items, recommendations). | |
-| `src/`, `tests/`, `tools/`, `CabinetPlatform.sln` | **The earlier C# demo, superseded by this platform.** Kept for reference until it is removed; its CI workflow runs only by hand. See [legacy](#legacy). | |
 
 ## How it fits together
 
@@ -70,6 +69,4 @@ Do not install the agent on a production cabinet from a developer build. Release
 
 Decisions taken and still open are recorded in [open decisions](docs/spec/09-open-decisions.md).
 
-## Legacy
-
-`src/`, `tests/`, `tools/`, `CabinetPlatform.sln`, the root `Directory.Build.props` (the agent has its own in `agent/`) and most files directly in `docs/` belong to the earlier C# demo (Server, Agent, web Console and demo tools). The platform above replaces all of it. It is kept only as reference; its workflow (`demo-correction-checks.yml`) runs only when started by hand; and it is scheduled for removal. Do not extend it.
+The earlier C# demo (Server, Agent, web Console and demo tools) that this platform replaced was removed in October 2026; it remains in git history.

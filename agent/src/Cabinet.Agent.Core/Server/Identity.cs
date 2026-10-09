@@ -32,7 +32,7 @@ public sealed class InMemoryKeyStore : IAgentKeyStore, IDisposable
         byte[] pfx = joined.Export(X509ContentType.Pkcs12);
         joined.Dispose();
 #pragma warning disable SYSLIB0057
-        return new X509Certificate2(pfx, (string?)null, X509KeyStorageFlags.Exportable);
+        return X509CertificateLoader.LoadPkcs12(pfx, null, X509KeyStorageFlags.Exportable);
 #pragma warning restore SYSLIB0057
     }
 
