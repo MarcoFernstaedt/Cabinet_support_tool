@@ -14,6 +14,9 @@ export const ISSUE = {
   firewall: "00000000-0000-4000-8000-000000000105",
   offline: "00000000-0000-4000-8000-000000000108",
   firewallPolicy: "00000000-0000-4000-8000-000000000113",
+  serviceRestarted: "00000000-0000-4000-8000-000000000114",
+  serviceFailing: "00000000-0000-4000-8000-000000000115",
+  serviceWatch: "00000000-0000-4000-8000-000000000116",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */

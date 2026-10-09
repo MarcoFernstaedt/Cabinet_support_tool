@@ -71,7 +71,8 @@
         "dependencies": {
           "Cabinet.Agent.Core": "[1.0.0, )",
           "System.Diagnostics.EventLog": "[8.0.1, )",
-          "System.Management": "[8.0.0, )"
+          "System.Management": "[8.0.0, )",
+          "System.ServiceProcess.ServiceController": "[8.0.1, )"
         }
       }
     }

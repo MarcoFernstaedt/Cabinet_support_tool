@@ -98,6 +98,14 @@
           "System.CodeDom": "8.0.0"
         }
       },
+      "System.ServiceProcess.ServiceController": {
+        "type": "Transitive",
+        "resolved": "8.0.1",
+        "contentHash": "02I0BXo1kmMBgw03E8Hu4K6nTqur4wpQdcDZrndczPzY2fEoGvlinE35AWbyzLZ2h2IksEZ6an4tVt3hi9j1oA==",
+        "dependencies": {
+          "System.Diagnostics.EventLog": "8.0.1"
+        }
+      },
       "xunit.abstractions": {
         "type": "Transitive",
         "resolved": "2.0.3",
@@ -153,7 +161,8 @@
         "dependencies": {
           "Cabinet.Agent.Core": "[1.0.0, )",
           "System.Diagnostics.EventLog": "[8.0.1, )",
-          "System.Management": "[8.0.0, )"
+          "System.Management": "[8.0.0, )",
+          "System.ServiceProcess.ServiceController": "[8.0.1, )"
         }
       }
     }

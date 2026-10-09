@@ -1,0 +1,15 @@
+{
+  "watched": [
+    {
+      "name": "BioScanSvc",
+      "state": "restarted",
+      "serviceState": "running",
+      "restartsToday": 1,
+      "consecutiveFailures": 0,
+      "lastRestartAt": "2026-10-09T10:00:00Z",
+      "lastError": null,
+      "checkedAt": "2026-10-09T10:00:30Z",
+      "commandLine": "x"
+    }
+  ]
+}

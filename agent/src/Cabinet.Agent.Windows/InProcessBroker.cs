@@ -92,6 +92,8 @@ public static class AgentPaths
     public static string UpgradeFiles => Path.Combine(UpgradeStaging, "files");
     /// <summary>The updater's journal: in the broker's folder, which the network service may only read.</summary>
     public static string UpgradeJournal => Path.Combine(Broker, "upgrade.json");
+    /// <summary>The service watcher's list and counts: in the broker's folder, which the network service may only read.</summary>
+    public static string ServiceWatch => Path.Combine(Broker, "service-watch.json");
     /// <summary>The updater runs from a copy here, so it can replace the program folder it came from.</summary>
     public static string UpdaterCopy => Path.Combine(Broker, "updater", "Cabinet.Agent.Updater.exe");
     /// <summary>Written by the network service after each heartbeat that reaches the server; read by the updater.</summary>

@@ -1,0 +1,5 @@
+{
+  "name": "BioScanSvc",
+  "action": "start",
+  "startType": "automatic"
+}

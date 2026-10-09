@@ -144,7 +144,7 @@ function ScannerIds({ cabinet, onSaved }: { cabinet: CabinetDetail; onSaved: () 
       <h2 id="scanner-ids">Scanner hardware IDs</h2>
       <p>In use: {sc.effective?.length ? <code>{sc.effective.join(", ")}</code> : <span className="muted">none (automatic)</span>} <span className="muted">— from {SCANNER_SOURCE[sc.source] ?? sc.source}.</span></p>
       <p className="muted small">Usually set once for the whole client, on <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link>; a site (<Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link>) or this cabinet can differ.
-        The fleet default is under <Link to="/admin/scanner">Admin → Scanner and port defaults</Link>.</p>
+        The fleet default is under <Link to="/admin/scanner">Admin → Device defaults</Link>.</p>
       <ScannerIdsEditor label="This cabinet's own scanner IDs" current={sc.cabinetHardwareIds} inherited={above}
         endpoint={`/api/cabinets/${cabinet.id}/scanner`} action="cabinet.scanner" target={cabinet.id} what={cabinet.name} editable={atLeast(me, "tier2")} onSaved={onSaved} />
     </section>

@@ -38,6 +38,9 @@ public static class Catalog
     public const string FirewallRestore = "firewall.restore";
     public const string PackageInstall = "package.install";
     public const string DriverUninstall = "driver.uninstall";
+    public const string ServicesList = "services.list";
+    public const string ProcessesList = "processes.list";
+    public const string ServiceControl = "service.control";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
         new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
@@ -60,6 +63,8 @@ public static class Catalog
         Read<EmptyParams, NetworkConfigOutput>(NetworkConfig),
         Read<NetworkTestParams, NetworkTestOutput>(NetworkTest, RateClass.NetworkTest),
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
+        Read<EmptyParams, ServicesListOutput>(ServicesList),
+        Read<EmptyParams, ProcessesListOutput>(ProcessesList),
         Write<NetworkSetIpParams, NetworkSetIpOutput>(NetworkSetIp, safetyNet: true, Confirm.Code),
         Write<NetworkSetDnsParams, NetworkSetDnsOutput>(NetworkSetDns, safetyNet: true, Confirm.Code),
         Write<FirewallSetProfileParams, FirewallSetProfileOutput>(FirewallSetProfile, safetyNet: true, Confirm.Click, "tier1"),
@@ -68,6 +73,7 @@ public static class Catalog
         Write<FirewallRestoreParams, FirewallRestoreOutput>(FirewallRestore, safetyNet: true, Confirm.Code),
         Write<PackageInstallParams, PackageInstallOutput>(PackageInstall, safetyNet: false, Confirm.Code),
         Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false, Confirm.Code),
+        Write<ServiceControlParams, ServiceControlOutput>(ServiceControl, safetyNet: false, Confirm.Click),
     };
 
     private static readonly Dictionary<string, CatalogEntry> ByName = All.ToDictionary(e => e.Name, StringComparer.Ordinal);

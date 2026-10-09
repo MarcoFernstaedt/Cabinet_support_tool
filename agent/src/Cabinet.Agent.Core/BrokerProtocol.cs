@@ -62,18 +62,22 @@ public sealed class BrokerRequestHandler
         Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
         Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall,
+        Catalog.ServicesList, Catalog.ProcessesList, Catalog.ServiceControl,
     };
 
     private readonly OperationRegistry _registry;
     private readonly TimeSpan _timeout;
     private readonly Func<Guid, SafetyNetStatus>? _confirm;
     private readonly Func<string, (JsonElement? Output, ResultError? Error)>? _upgrade;
+    private readonly Services.ServiceWatcher? _watcher;
 
     /// <param name="confirm">Answers a confirm from the safety net; null when this broker makes no changes.</param>
     /// <param name="upgrade">Verifies a downloaded agent release and starts the updater; null when this broker installs no upgrades.</param>
+    /// <param name="watcher">Keeps the watched services running; null when this broker watches none.</param>
     public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null, Func<Guid, SafetyNetStatus>? confirm = null,
-        Func<string, (JsonElement? Output, ResultError? Error)>? upgrade = null)
+        Func<string, (JsonElement? Output, ResultError? Error)>? upgrade = null, Services.ServiceWatcher? watcher = null)
     {
+        _watcher = watcher;
         foreach (string name in registry.Names)
             if (!Operations.Contains(name)) throw new ArgumentException($"The broker may not run {name}.");
         _registry = registry;
@@ -110,6 +114,17 @@ public sealed class BrokerRequestHandler
                 return Serialize(new BrokerResponse
                 {
                     RequestId = requestId, Status = BrokerStatus.Succeeded, Output = JsonSerializer.SerializeToElement(status, ContractJson.Options),
+                });
+            }
+
+            if (request.Kind is BrokerRequestKind.Watch or BrokerRequestKind.WatchStatus)
+            {
+                if (_watcher is null) return Serialize(Failed(requestId, "unavailable", "This broker watches no services."));
+                if (request.Kind == BrokerRequestKind.Watch) _watcher.SetList(request.Services!);
+                return Serialize(new BrokerResponse
+                {
+                    RequestId = requestId, Status = BrokerStatus.Succeeded,
+                    Output = JsonSerializer.SerializeToElement(new ServiceWatch { Watched = _watcher.Status() }, ContractJson.Options),
                 });
             }
 
@@ -204,6 +219,20 @@ public sealed class BrokerClient
             return response.Status == BrokerStatus.Succeeded ? (true, null) : (false, response.Error);
         }
         catch (OperationFailedException e) { return (false, new ResultError { Code = e.Code, Message = e.Message, Check = UpgradeCheck.Install }); }
+    }
+
+    /// <summary>Hands the broker the services to keep running (null: just ask), and returns each one's status, checked against its schema.</summary>
+    public async Task<IReadOnlyList<WatchedServiceStatus>> WatchAsync(IReadOnlyList<string>? names, CancellationToken token)
+    {
+        BrokerResponse response = await SendAsync(new BrokerRequest
+        {
+            RequestId = Guid.NewGuid(), Kind = names is null ? BrokerRequestKind.WatchStatus : BrokerRequestKind.Watch, Services = names,
+        }, token).ConfigureAwait(false);
+        if (response.Status == BrokerStatus.Failed)
+            throw new OperationFailedException(response.Error!.Code, response.Error.Message);
+        if (!ContractSchemas.Instance.IsValid(ContractSchemas.Local("service-watch"), response.Output!.Value))
+            throw new OperationFailedException("execution_failed", "The broker's watch status does not match its contract.");
+        return response.Output.Value.Deserialize<ServiceWatch>(ContractJson.Options)!.Watched;
     }
 
     /// <summary>Registers every broker operation in <paramref name="registry"/> as a forward to the broker.</summary>

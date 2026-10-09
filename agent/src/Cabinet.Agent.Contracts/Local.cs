@@ -35,7 +35,7 @@ public sealed record AgentConfig
     public required bool LocalHarness { get; init; }
 }
 
-public enum BrokerRequestKind { Ping, Operation, Confirm, Upgrade }
+public enum BrokerRequestKind { Ping, Operation, Confirm, Upgrade, Watch, WatchStatus }
 
 public sealed record BrokerRequest
 {
@@ -47,6 +47,8 @@ public sealed record BrokerRequest
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? CommandId { get; init; }
     /// <summary>For an upgrade: the downloaded release's version. Never a path.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Version { get; init; }
+    /// <summary>For watch: the complete list of services to keep running. Names only.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<string>? Services { get; init; }
 }
 
 public enum BrokerStatus { Succeeded, Failed }

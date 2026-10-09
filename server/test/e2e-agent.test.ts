@@ -2,6 +2,7 @@
 // against this server and PostgreSQL. Runs when TEST_AGENT_DLL points at the built
 // test agent; CI sets it. Milestone 2 is done when the first test passes; the second
 // is milestone 4's done-when, driven through the agent's real monitors and event queue.
+import { setWatched } from "../src/services/watched-services.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -220,7 +221,7 @@ async function startAgent(o: { db: TestDatabase; api: FastifyInstance; port: num
   await until("enrollment", () => lines.some(l => l.includes(`Enrolled as cabinet ${cabinetId}`)));
   // The firewall change detector's first look (its baseline) is 10 s after start; changes before it are not reported.
   await new Promise(r => setTimeout(r, Math.max(0, started + 12_000 - Date.now())));
-  return { agent, cabinetId, lines, until };
+  return { agent, cabinetId, lines, until, state };
 }
 
 test("writes through a real agent: kept when delivered, rolled back when the server is unreachable, packages checked again on the cabinet, read-only refuses every write",
@@ -335,6 +336,58 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
   } finally {
     for (const ag of agents) ag.kill("SIGINT");
     await link.close();
+    await api.close();
+    await notifier.stop();
+    await db.drop();
+  }
+});
+
+test("watched services on the real agent code: a stopped service is started again within seconds, one that never starts raises the major alert, and recovery closes it",
+  { skip: !dll && "set TEST_AGENT_DLL to run", timeout: 180_000 }, async () => {
+  const db: TestDatabase = await createTestDatabase();
+  const dir = tempDir();
+  const key = await developmentIssuingKey(dir);
+  writeFileSync(join(dir, "platform-ca.pem"), key.certificatePem);
+  const notifier = new CommandNotifier(db.appUrl);
+  await notifier.start();
+  const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
+  await api.listen({ host: "127.0.0.1", port: 0 });
+  const port = (api.server.address() as { port: number }).port;
+  const [admin, tier2] = [randomUUID(), randomUUID()];
+  await db.app.query(`INSERT INTO users (id, username, name, role) VALUES ($1, 'svc.admin', 'Svc Admin', 'admin'), ($2, 'svc.tier2', 'Svc Tier 2', 'tier2')`, [admin, tier2]);
+  const agents: ChildProcess[] = [];
+  const alert = async (cabinetId: string, signature: string) => (await db.app.query<{ state: string; severity: string; occurrences: number }>(
+    "SELECT state, severity, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = $2 ORDER BY first_seen DESC LIMIT 1", [cabinetId, signature])).rows[0];
+  try {
+    const a = await startAgent({ db, api, port, key, dir, admin, name: "svc" });
+    agents.push(a.agent);
+    // Tess watches the scanner service and a service that will not start, on this cabinet.
+    await setWatched(db.app, tier2, "cabinet", a.cabinetId, ["BioScanSvc", "FlakySvc", "NoSuchSvc"]);
+    await a.until("the watch list to reach the broker", () => a.lines.some(l => l.includes("Watching 3 services: BioScanSvc, FlakySvc, NoSuchSvc.")), 20_000);
+
+    // FlakySvc never starts: after 3 failed restarts, the major alert.
+    await a.until("Service will not stay running: FlakySvc", async () => (await alert(a.cabinetId, "service:failing:FlakySvc"))?.severity === "major", 30_000);
+    // A service that does not exist on the cabinet: the minor alert that says the watch list names the wrong service.
+    await a.until("the missing service alert", async () => (await alert(a.cabinetId, "service:watch:NoSuchSvc"))?.state === "open", 30_000);
+
+    // Someone stops the scanner service: it is running again at the next check, and the minor alert counts it.
+    writeFileSync(join(a.state, "simulate", "stop-services.json"), JSON.stringify(["BioScanSvc"]));
+    await a.until("BioScanSvc restarted", () => a.lines.some(l => l.includes("Watched service BioScanSvc was stopped; started it again.")), 20_000);
+    await a.until("Service restarted automatically: BioScanSvc", async () => (await alert(a.cabinetId, "service:restarted:BioScanSvc"))?.state === "open", 30_000);
+
+    // services.list shows each watched service's status, through a real command.
+    const list = await issueCommand(db.app, tier2, a.cabinetId, "services.list", {});
+    await a.until("services.list", async () => (await commandRecord(db.app, list.commandId))?.status === "succeeded");
+    const out = (await commandRecord(db.app, list.commandId))!.result!.output as { services: { name: string; state: string }[]; watched: { name: string; state: string; restartsToday: number }[] };
+    assert.equal(out.services.find(s => s.name === "BioScanSvc")!.state, "running");
+    assert.deepEqual(out.watched.map(w => [w.name, w.state]), [["BioScanSvc", "restarted"], ["FlakySvc", "failing"], ["NoSuchSvc", "missing"]]);
+
+    // service.control is refused for the agent's own and remote-access services, on the cabinet itself.
+    const rdp = await issueCommand(db.app, tier2, a.cabinetId, "service.control", { name: "TermService", action: "start" }, "command.issue", { viaCli: true });
+    await a.until("the refusal", async () => (await commandRecord(db.app, rdp.commandId))?.status === "failed");
+    assert.match((await commandRecord(db.app, rdp.commandId))!.result!.error!.message, /never/);
+  } finally {
+    for (const ag of agents) ag.kill("SIGINT");
     await api.close();
     await notifier.stop();
     await db.drop();

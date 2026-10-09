@@ -1,0 +1,6 @@
+{
+  "name": "BioScanSvc",
+  "action": "restart",
+  "before": "running",
+  "after": "running"
+}

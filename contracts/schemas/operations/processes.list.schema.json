@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/processes.list.schema.json",
+  "title": "processes.list",
+  "description": "Every running process, as Task Manager shows it, with CPU over a one-second sample. Command lines are never read.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processes",
+        "sampleMilliseconds",
+        "truncated"
+      ],
+      "properties": {
+        "processes": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "processId",
+              "name",
+              "executablePath",
+              "cpuPercent",
+              "workingSetBytes",
+              "privateBytes",
+              "threads",
+              "handles",
+              "startTime",
+              "sessionId",
+              "account"
+            ],
+            "properties": {
+              "processId": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "executablePath": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 520,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cpuPercent": {
+                "description": "Share of the whole machine (all cores) over the sample.",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "workingSetBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "privateBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "threads": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "handles": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "startTime": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              },
+              "sessionId": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "account": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            }
+          }
+        },
+        "sampleMilliseconds": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

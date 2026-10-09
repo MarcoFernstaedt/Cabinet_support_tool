@@ -192,6 +192,47 @@ export interface FirewallProfileSwitches {
 }
 
 /**
+ * One watched service as the broker's watcher sees it (docs/spec/12-milestones-8-to-12.md).
+ */
+export interface WatchedServiceStatus {
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  name: string;
+  /**
+   * running: as it should be; restarted: started again by the watcher in the last 10 minutes; failing: 3 restarts in a row failed; missing: no such service; disabled: its start type is Disabled; refused: the agent never starts it (its own services, remote access); waiting: not checked yet.
+   */
+  state: "running" | "restarted" | "failing" | "missing" | "disabled" | "refused" | "waiting";
+  serviceState:
+    | (
+        | "running"
+        | "stopped"
+        | "start_pending"
+        | "stop_pending"
+        | "paused"
+        | "pause_pending"
+        | "continue_pending"
+        | "unknown"
+      )
+    | null;
+  restartsToday: number;
+  consecutiveFailures: number;
+  lastRestartAt: string | null;
+  /**
+   * The last Windows error code a start attempt returned, if any.
+   */
+  lastError: number | null;
+  checkedAt: string | null;
+}
+
+/**
+ * Services that must always be running; the broker starts them again when they stop.
+ *
+ * @maxItems 16
+ */
+export type WatchedServiceNames = string[];
+
+/**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
 export interface UpgradeKeys {
@@ -395,7 +436,10 @@ export interface CommandRequest {
     | "firewall.setRule"
     | "firewall.restore"
     | "package.install"
-    | "driver.uninstall";
+    | "driver.uninstall"
+    | "services.list"
+    | "processes.list"
+    | "service.control";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -854,6 +898,13 @@ export interface UserUpdate {
 }
 
 /**
+ * Tier 2 and up set the services one level (fleet, client, site or cabinet) keeps running; null removes that level's list so the level above applies. A confirmation click; no code.
+ */
+export interface WatchedServices {
+  names: WatchedServiceNames | null;
+}
+
+/**
  * Pauses or resumes write operations fleet-wide or for one client. Reads keep working.
  */
 export interface WritePause {
@@ -895,7 +946,10 @@ export interface Command {
     | "firewall.setRule"
     | "firewall.restore"
     | "package.install"
-    | "driver.uninstall";
+    | "driver.uninstall"
+    | "services.list"
+    | "processes.list"
+    | "service.control";
   params: {};
   issuedBy: string;
   /**
@@ -994,11 +1048,11 @@ export interface EventBatch {
 }
 
 /**
- * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record.
+ * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode.
  */
 export interface Event {
   eventId: string;
-  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner";
+  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service";
   /**
    * UTC time, ISO 8601, always ending in Z.
    */
@@ -1112,6 +1166,12 @@ export interface HeartbeatResponse {
      * Semantic version of the agent.
      */
     version: string;
+  };
+  /**
+   * The services this cabinet must keep running: the cabinet's own list, else its site's, else its client's, else the fleet's (docs/spec/12-milestones-8-to-12.md). Empty when none is set.
+   */
+  watchedServices?: {
+    names: WatchedServiceNames;
   };
 }
 
@@ -1943,6 +2003,83 @@ export interface FirewallStateOutput {
   }[];
 }
 
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface ServicesListParams {}
+
+export interface ServicesListOutput {
+  /**
+   * @maxItems 1000
+   */
+  services: {
+    /**
+     * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+     */
+    name: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    displayName: string;
+    state:
+      | "running"
+      | "stopped"
+      | "start_pending"
+      | "stop_pending"
+      | "paused"
+      | "pause_pending"
+      | "continue_pending"
+      | "unknown";
+    startType: "automatic" | "automatic_delayed" | "manual" | "disabled" | "boot" | "system" | "unknown";
+    account: string | null;
+    processId: number | null;
+    executablePath: string | null;
+    description: string | null;
+    recovery: {
+      firstFailure: "none" | "restart" | "reboot" | "run_program";
+      secondFailure: "none" | "restart" | "reboot" | "run_program";
+      subsequentFailures: "none" | "restart" | "reboot" | "run_program";
+      resetPeriodSeconds: number;
+    } | null;
+  }[];
+  /**
+   * @maxItems 16
+   */
+  watched: WatchedServiceStatus[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface ProcessesListParams {}
+
+export interface ProcessesListOutput {
+  /**
+   * @maxItems 2000
+   */
+  processes: {
+    processId: number;
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    executablePath: string | null;
+    /**
+     * Share of the whole machine (all cores) over the sample.
+     */
+    cpuPercent: number;
+    workingSetBytes: number;
+    privateBytes: number;
+    threads: number;
+    handles: number;
+    startTime: string | null;
+    sessionId: number;
+    account: string | null;
+  }[];
+  sampleMilliseconds: number;
+  truncated: boolean;
+}
+
 export interface NetworkSetIpParams {
   /**
    * Windows network interface index.
@@ -2114,6 +2251,40 @@ export interface DriverUninstallOutput {
   rebootRequired: boolean;
 }
 
+export interface ServiceControlParams {
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  name: string;
+  action: "start" | "stop" | "restart";
+}
+
+export interface ServiceControlOutput {
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  name: string;
+  action: "start" | "stop" | "restart";
+  before:
+    | "running"
+    | "stopped"
+    | "start_pending"
+    | "stop_pending"
+    | "paused"
+    | "pause_pending"
+    | "continue_pending"
+    | "unknown";
+  after:
+    | "running"
+    | "stopped"
+    | "start_pending"
+    | "stop_pending"
+    | "paused"
+    | "pause_pending"
+    | "continue_pending"
+    | "unknown";
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -2124,7 +2295,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2146,6 +2317,8 @@ export interface OperationTypes {
   "network.config": { params: NetworkConfigParams; output: NetworkConfigOutput };
   "network.test": { params: NetworkTestParams; output: NetworkTestOutput };
   "firewall.state": { params: FirewallStateParams; output: FirewallStateOutput };
+  "services.list": { params: ServicesListParams; output: ServicesListOutput };
+  "processes.list": { params: ProcessesListParams; output: ProcessesListOutput };
   "network.setIp": { params: NetworkSetIpParams; output: NetworkSetIpOutput };
   "network.setDns": { params: NetworkSetDnsParams; output: NetworkSetDnsOutput };
   "firewall.setProfile": { params: FirewallSetProfileParams; output: FirewallSetProfileOutput };
@@ -2154,4 +2327,5 @@ export interface OperationTypes {
   "firewall.restore": { params: FirewallRestoreParams; output: FirewallRestoreOutput };
   "package.install": { params: PackageInstallParams; output: PackageInstallOutput };
   "driver.uninstall": { params: DriverUninstallParams; output: DriverUninstallOutput };
+  "service.control": { params: ServiceControlParams; output: ServiceControlOutput };
 }

@@ -19,6 +19,7 @@ import { adminRoutes } from "./admin-routes.js";
 import { alertRoutes } from "./alert-routes.js";
 import { writeRoutes } from "./write-routes.js";
 import { firewallRoutes } from "./firewall-routes.js";
+import { serviceRoutes } from "./service-routes.js";
 import type { PackageStore } from "../services/packages.js";
 import type { ReleaseStore } from "../services/releases.js";
 import { upgradeRoutes } from "./upgrade-routes.js";
@@ -140,6 +141,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(alertRoutes, { ...o, guards });
   await app.register(writeRoutes, { ...o, guards });
   await app.register(firewallRoutes, { ...o, guards });
+  await app.register(serviceRoutes, { ...o, guards });
   await app.register(manageRoutes, { ...o, guards });
   await app.register(upgradeRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {

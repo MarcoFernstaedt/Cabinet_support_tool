@@ -8,6 +8,7 @@ import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { WatchListEditor } from "../cabinet/Services";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -26,7 +27,7 @@ export function AdminHome() {
         <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Create and edit issue types; review, renew and disable suppressions.</span></Link></li>
         <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
         <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Add signed agent releases, run staged rollouts, pause or stop them, and see each cabinet's result.</span></Link></li>
-        <li><Link to="/admin/scanner"><strong>Scanner and port defaults</strong><span>The fingerprint scanner's hardware IDs and the sync cabinet ports for any client that has none of its own.</span></Link></li>
+        <li><Link to="/admin/scanner"><strong>Device defaults</strong><span>The fingerprint scanner's hardware IDs and the sync cabinet ports for any client that has none of its own.</span></Link></li>
         <li><Link to="/admin/settings"><strong>Settings</strong><span>Offline alerts, sign-in timeouts, two-factor for everyone, how long data is kept.</span></Link></li>
       </ul>
     </div>
@@ -148,10 +149,11 @@ export function ScannerDefault() {
   const scanner = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
   const firewall = useLoad<{ policy: Policy }>("/api/admin/firewall-policy");
   const ports = useLoad<{ ports: number[] | null }>("/api/settings/sync-ports");
+  const watched = useLoad<{ names: string[] | null }>("/api/admin/watched-services");
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Scanner and port defaults" }]} />
-      <h1>Scanner and port defaults</h1>
+      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Device defaults" }]} />
+      <h1>Device defaults</h1>
       <p className="muted">Fleet-wide defaults. A client, a site or a cabinet can have its own, set on its page; the most specific one applies, and cabinets pick changes up at their next heartbeat.</p>
       <section className="panel" aria-labelledby="fleet-scanner">
         <h2 id="fleet-scanner">Fingerprint scanner</h2>
@@ -170,6 +172,12 @@ export function ScannerDefault() {
         <p className="muted small">Applies to every client without its own policy. All three profiles off is the default, because that fixes most satellite-to-sync connection problems.</p>
         {firewall.data && <PolicyEditor current={firewall.data.policy} inherited={null} endpoint="/api/admin/firewall-policy" action="fleet.firewall_policy" target="fleet"
           what="the fleet" editable onSaved={firewall.reload} />}
+      </section>
+      <section className="panel" aria-labelledby="fleet-watched">
+        <h2 id="fleet-watched">Watched services (fleet default)</h2>
+        <p className="muted small">Services every cabinet keeps running unless its client, site or the cabinet has its own list. The agent never watches itself or remote-access services.</p>
+        {watched.data && <WatchListEditor endpoint="/api/admin/watched-services" own={watched.data.names} inherited="no services are watched."
+          what="every cabinet without its own list" editable onSaved={watched.reload} />}
       </section>
     </div>
   );

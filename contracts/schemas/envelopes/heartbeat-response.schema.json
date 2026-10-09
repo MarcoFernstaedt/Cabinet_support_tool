@@ -51,6 +51,19 @@
           "$ref": "../common.schema.json#/$defs/agentVersion"
         }
       }
+    },
+    "watchedServices": {
+      "description": "The services this cabinet must keep running: the cabinet's own list, else its site's, else its client's, else the fleet's (docs/spec/12-milestones-8-to-12.md). Empty when none is set.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "names"
+      ],
+      "properties": {
+        "names": {
+          "$ref": "../common.schema.json#/$defs/watchedServiceNames"
+        }
+      }
     }
   }
 }

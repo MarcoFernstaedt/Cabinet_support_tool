@@ -10,6 +10,7 @@ import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
 import { BulkPolicyApply, PolicyEditor, type Policy } from "../components/FirewallPolicy";
+import { WatchListEditor } from "./cabinet/Services";
 
 interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
 
@@ -90,6 +91,7 @@ export function ClientPage({ id }: { id: string }) {
             inherited={data.syncPorts.fleetPorts?.length ? <>the fleet default applies (<strong>{data.syncPorts.fleetPorts.join(", ")}</strong>).</> : "no ports are set, so only ping and DNS tests run."}
             endpoint={`/api/clients/${data.id}/sync-ports`} action="client.sync" target={data.id} what={`every site of ${data.name}`} editable={atLeast(me, "admin")} onSaved={reload} />
         </section>
+        <WatchedServices key={`watch-${data.id}`} level="clients" id={data.id} name={data.name} editable={atLeast(me, "tier2")} />
         <ClientFirewallPolicy key={data.id} clientId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <BulkPolicyApply key={`bulk-${data.id}`} scope="client" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
@@ -136,9 +138,26 @@ export function SitePage({ id }: { id: string }) {
               : data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
             endpoint={`/api/sites/${data.id}/scanner`} action="site.scanner" target={data.id} what={`every cabinet at ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
         </section>
+        <WatchedServices key={`watch-${data.id}`} level="sites" id={data.id} name={data.name} editable={atLeast(me, "tier2")} />
         <BulkPolicyApply key={`bulk-${data.id}`} scope="site" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
+  );
+}
+
+/** The services this client's (or site's) cabinets keep running (milestone 10); Tier 2 and up change the list. */
+function WatchedServices({ level, id, name, editable }: { level: "clients" | "sites"; id: string; name: string; editable: boolean }) {
+  const { data, reload } = useLoad<{ own: string[] | null; client: string[] | null; fleet: string[] | null }>(`/api/${level}/${id}/watched-services`);
+  const above = data?.client ? <>the client's list applies (<code>{data.client.join(", ") || "none"}</code>).</>
+    : data?.fleet ? <>the fleet default applies (<code>{data.fleet.join(", ") || "none"}</code>).</> : null;
+  return (
+    <section className="panel" aria-labelledby={`${level}-watched`}>
+      <h2 id={`${level}-watched`}>Watched services for {name}</h2>
+      <p className="muted small">Windows services that must always run, such as the fingerprint scanner's. The agent starts them again whenever they stop and raises
+        an alert after 3 failed restarts. A site or a cabinet can have its own list; the most specific one applies.</p>
+      {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above}
+        what={level === "clients" ? `every cabinet of ${name}` : `every cabinet at ${name}`} editable={editable} onSaved={reload} />}
+    </section>
   );
 }
 

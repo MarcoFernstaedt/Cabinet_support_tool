@@ -55,6 +55,11 @@ string simulate = Path.Combine(state, "simulate");
 Directory.CreateDirectory(simulate);
 var events = new EventQueue(Path.Combine(state, "events.jsonl"));
 var settings = new MonitorSettings(Path.Combine(state, "monitor-settings.json"));
+// Services (milestone 10): the broker's real service logic and watcher over a simulated service manager.
+Directory.CreateDirectory(Path.Combine(state, "broker"));
+var services = new SimulatedServices(simulate, Log);
+var serviceWatcher = new Cabinet.Agent.Core.Services.ServiceWatcher(services, new StateFile<Cabinet.Agent.Core.Services.ServiceWatcher.Saved>(Path.Combine(state, "broker", "service-watch.json")), clock, Log);
+var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher };
 
 var connection = new AgentConnection(new AgentConnectionOptions
 {
@@ -74,6 +79,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
                 Snapshots = firewallStore.Snapshots().Take(20).ToList(),
             }))
             .WithWrites(writes, installer, packages)
+            .WithServices(serviceControl)
             .WithExamples(examples),
         clock),
     Fingerprints = () => new EnrollFingerprints
@@ -105,6 +111,7 @@ var monitors = new MonitorHost(new MonitorSources
     Devices = _ => Task.FromResult<IReadOnlyList<DeviceFacts>>(Read<List<DeviceFacts>>("devices.json") ?? []),
     Firewall = _ => Task.FromResult(firewall.Read()),
     PlatformFirewallChange = firewallStore.CommandFor,
+    Watch = (names, _) => { if (names is not null) serviceWatcher.SetList(names); return Task.FromResult(serviceWatcher.Status()); },
     Logs = _ => Task.FromResult<IReadOnlyList<string>>(["System", "Application"]),
     Query = (p, _) => Task.FromResult(new EventlogQueryOutput
     {
@@ -113,7 +120,7 @@ var monitors = new MonitorHost(new MonitorSources
             .Where(e => (p.From is null || e.Time >= p.From) && (p.BeforeRecordId is null || e.RecordId < p.BeforeRecordId))
             .OrderByDescending(e => e.RecordId).Take(p.PageSize ?? 100).ToList(),
     }),
-}, settings, events, state, clock, Log, new MonitorIntervals { Scanner = TimeSpan.FromSeconds(1), EventLogs = TimeSpan.FromSeconds(1), FirstEventLogLook = TimeSpan.FromSeconds(1) });
+}, settings, events, state, clock, Log, new MonitorIntervals { Scanner = TimeSpan.FromSeconds(1), EventLogs = TimeSpan.FromSeconds(1), FirstEventLogLook = TimeSpan.FromSeconds(1), WatchedServices = TimeSpan.FromSeconds(1) });
 monitorHost = monitors;
 var monitoring = monitors.RunAsync(stop.Token);
 // The broker's upkeep: safety-net rollbacks and firewall timers.
@@ -122,6 +129,7 @@ var upkeep = Task.Run(async () =>
     while (!stop.IsCancellationRequested)
     {
         writes.Tick();
+        serviceWatcher.Tick();
         try { await Task.Delay(TimeSpan.FromSeconds(1), stop.Token); } catch (OperationCanceledException) { }
     }
 });
@@ -144,6 +152,22 @@ static class ExampleRegistry
             registry.RegisterRaw(op, async (p, t) => { if (delay > 0) await Task.Delay(delay, t); return await h(p, t); });
         }
         return registry;
+    }
+
+    /// <summary>services.list and service.control through the broker's real logic; processes.list from this machine's processes.</summary>
+    public static OperationRegistry WithServices(this OperationRegistry registry, Cabinet.Agent.Core.Services.ServiceControl services)
+    {
+        var broker = services.Register(new OperationRegistry());
+        foreach (string op in broker.Names) { broker.TryGet(op, out var h); registry.RegisterRaw(op, h); }
+        return registry.Register<EmptyParams, ProcessesListOutput>(Catalog.ProcessesList, (_, _) => Task.FromResult(new ProcessesListOutput
+        {
+            Processes = System.Diagnostics.Process.GetProcesses().Take(50).Select(p =>
+            {
+                using (p) return new ProcessInfo { ProcessId = p.Id, Name = p.ProcessName.Length > 0 ? p.ProcessName : "unknown", ExecutablePath = null, CpuPercent = 0,
+                    WorkingSetBytes = Math.Max(0, p.WorkingSet64), PrivateBytes = 0, Threads = 1, Handles = 0, StartTime = null, SessionId = 0, Account = null };
+            }).ToList(),
+            SampleMilliseconds = 0, Truncated = false,
+        }));
     }
 
     public static OperationRegistry WithExamples(this OperationRegistry registry, string? examplesDir)

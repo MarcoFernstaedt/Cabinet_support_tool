@@ -239,7 +239,10 @@
         "firewall.setRule",
         "firewall.restore",
         "package.install",
-        "driver.uninstall"
+        "driver.uninstall",
+        "services.list",
+        "processes.list",
+        "service.control"
       ]
     },
     "rejectionCode": {
@@ -642,6 +645,124 @@
           "type": "boolean"
         }
       }
+    },
+    "serviceName": {
+      "description": "A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[A-Za-z0-9_.$-](?:[A-Za-z0-9_.$ -]{0,78}[A-Za-z0-9_.$-])?$"
+    },
+    "serviceState": {
+      "type": "string",
+      "enum": [
+        "running",
+        "stopped",
+        "start_pending",
+        "stop_pending",
+        "paused",
+        "pause_pending",
+        "continue_pending",
+        "unknown"
+      ]
+    },
+    "serviceStartType": {
+      "type": "string",
+      "enum": [
+        "automatic",
+        "automatic_delayed",
+        "manual",
+        "disabled",
+        "boot",
+        "system",
+        "unknown"
+      ]
+    },
+    "watchedServiceStatus": {
+      "description": "One watched service as the broker's watcher sees it (docs/spec/12-milestones-8-to-12.md).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "state",
+        "serviceState",
+        "restartsToday",
+        "consecutiveFailures",
+        "lastRestartAt",
+        "lastError",
+        "checkedAt"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/serviceName"
+        },
+        "state": {
+          "description": "running: as it should be; restarted: started again by the watcher in the last 10 minutes; failing: 3 restarts in a row failed; missing: no such service; disabled: its start type is Disabled; refused: the agent never starts it (its own services, remote access); waiting: not checked yet.",
+          "type": "string",
+          "enum": [
+            "running",
+            "restarted",
+            "failing",
+            "missing",
+            "disabled",
+            "refused",
+            "waiting"
+          ]
+        },
+        "serviceState": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/serviceState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "restartsToday": {
+          "$ref": "#/$defs/count"
+        },
+        "consecutiveFailures": {
+          "$ref": "#/$defs/count"
+        },
+        "lastRestartAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        },
+        "lastError": {
+          "description": "The last Windows error code a start attempt returned, if any.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checkedAt": {
+          "$ref": "#/$defs/nullableTimestamp"
+        }
+      }
+    },
+    "watchedServiceNames": {
+      "description": "Services that must always be running; the broker starts them again when they stop.",
+      "type": "array",
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/serviceName"
+      }
+    },
+    "serviceRecoveryAction": {
+      "type": "string",
+      "enum": [
+        "none",
+        "restart",
+        "reboot",
+        "run_program"
+      ]
     }
   }
 }

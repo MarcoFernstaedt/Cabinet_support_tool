@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/event.schema.json",
   "title": "event",
-  "description": "Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record.",
+  "description": "Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -17,7 +17,8 @@
         "smart_warning",
         "agent_status",
         "security",
-        "scanner"
+        "scanner",
+        "service"
       ]
     },
     "occurredAt": {

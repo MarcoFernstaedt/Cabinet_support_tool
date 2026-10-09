@@ -77,6 +77,8 @@ public sealed class NetworkService : ServiceBase
         {
             Devices = sources.Devices, Drives = sources.Drives, Firewall = sources.Firewall, Logs = sources.Logs, Query = sources.Query,
             PlatformFirewallChange = hash => { try { return firewallJournal.CommandFor(hash); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; } },
+            // The broker keeps the watched services running; this side hands it the list and reports what happened.
+            Watch = (names, token) => broker.WatchAsync(names, token),
         }, settings, events, AgentPaths.State, clock, _log.Write);
         work.Add(Task.Run(() => monitors.RunAsync(_stop.Token)).ContinueWith(t =>
         {

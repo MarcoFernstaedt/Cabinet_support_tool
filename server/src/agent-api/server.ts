@@ -15,6 +15,7 @@ import { storeEvents } from "../services/events.js";
 import { resolveOfflineFor } from "../services/alerts.js";
 import { scannerIdsFor } from "../services/fleet.js";
 import { evaluateDrift } from "../services/firewall-policy.js";
+import { watchLevels } from "../services/watched-services.js";
 import type { CommandNotifier } from "./notifier.js";
 import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
@@ -198,6 +199,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const upgrade = (await anyRolloutRunning(o.pool)) ? await transaction(o.pool, c => offerFor(c, cabinetId, heartbeat.agentVersion)) : null;
       // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.
       return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: await scannerIdsFor(o.pool, cabinetId) },
+        watchedServices: { names: (await watchLevels(o.pool, cabinetId)).effective },
         ...(upgrade ? { upgrade: { version: upgrade } } : {}) });
     });
 

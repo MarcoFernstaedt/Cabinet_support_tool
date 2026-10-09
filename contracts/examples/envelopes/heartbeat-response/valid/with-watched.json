@@ -1,0 +1,12 @@
+{
+  "serverTime": "2026-10-09T10:00:00Z",
+  "scanner": {
+    "hardwareIds": null
+  },
+  "watchedServices": {
+    "names": [
+      "BioScanSvc",
+      "MSSQL$SQLEXPRESS"
+    ]
+  }
+}

@@ -14,6 +14,11 @@ public sealed class MonitorSources
     public Func<EventlogQueryParams, CancellationToken, Task<EventlogQueryOutput>>? Query { get; init; }
     /// <summary>The platform command whose change left the firewall with this fingerprint (from the broker's journal).</summary>
     public Func<string, Guid?>? PlatformFirewallChange { get; init; }
+    /// <summary>
+    /// The broker's service watcher: hands it the list of services to keep running (null: only asks) and returns their status.
+    /// The broker does the restarting; this side only reports what changed.
+    /// </summary>
+    public Func<IReadOnlyList<string>?, CancellationToken, Task<IReadOnlyList<WatchedServiceStatus>>>? Watch { get; init; }
 }
 
 public sealed class MonitorIntervals
@@ -25,6 +30,7 @@ public sealed class MonitorIntervals
     public TimeSpan FirewallFull { get; init; } = TimeSpan.FromMinutes(5);
     public TimeSpan Drives { get; init; } = TimeSpan.FromDays(1);
     public TimeSpan FirstDriveCheck { get; init; } = TimeSpan.FromMinutes(10);
+    public TimeSpan WatchedServices { get; init; } = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>
@@ -83,8 +89,32 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
                 foreach (var e in watch.Check(await sources.Drives(t).ConfigureAwait(false), clock.GetUtcNow())) Add(e);
             }, token));
         }
+        if (sources.Watch is not null)
+        {
+            var reporter = new Services.ServiceWatchReporter(new StateFile<Services.ServiceWatchReporter.Seen>(State("service-watch-reported.json")), clock);
+            loops.Add(Loop("watched services", _every.WatchedServices, TimeSpan.FromSeconds(5), t => WatchedServicesOnceAsync(reporter, t), token));
+        }
         settings.Changed += () => log("New scanner hardware IDs from the console; the scanner watcher uses them from its next look.");
         return Task.WhenAll(loops);
+    }
+
+    private IReadOnlyList<string>? _watchSent;
+
+    /// <summary>
+    /// Hands the broker the watch list when it changed (and every look while the broker has not confirmed it), then turns
+    /// what the broker reports into service events.
+    /// </summary>
+    public async Task WatchedServicesOnceAsync(Services.ServiceWatchReporter reporter, CancellationToken token)
+    {
+        IReadOnlyList<string> wanted = settings.WatchedServices;
+        bool send = _watchSent is null || !_watchSent.SequenceEqual(wanted, StringComparer.OrdinalIgnoreCase);
+        var statuses = await sources.Watch!(send ? wanted : null, token).ConfigureAwait(false);
+        if (send) _watchSent = wanted;
+        foreach (var e in reporter.Observe(statuses))
+        {
+            log($"Watched service {e.Detail!.Fields!["service"]}: {e.Detail.Fields["change"]}.");
+            Add(e);
+        }
     }
 
     /// <summary>One look at the scanner, for tests and the harness.</summary>

@@ -55,6 +55,8 @@ async function processOne(c: pg.PoolClient, cabinetId: string, e: Event, rules: 
     return { kind: "resolved", alertIds: r.rows.map(x => x.id) };
   }
 
+  if (e.kind === "service") return processService(c, cabinetId, e);
+
   const rule = decide(rules, e);
   if (rule?.kind === "suppress") {
     await c.query("UPDATE events SET matched_rule = $2 WHERE event_id = $1", [e.eventId, rule.id]);
@@ -78,6 +80,33 @@ async function processOne(c: pg.PoolClient, cabinetId: string, e: Event, rules: 
   if (rule) await c.query("UPDATE symptom_rules SET matched_count = matched_count + 1 WHERE id = $1", [rule.id]);
   if (issue) await flagSitePattern(c, cabinetId, signature);
   return issue ? { kind: "issue", alertId: a.id, issueTypeId: issue.id, created: a.created } : { kind: "unrecognized", alertId: a.id, created: a.created };
+}
+
+const SERVICE_NAME = /^[A-Za-z0-9_.$-](?:[A-Za-z0-9_.$ -]{0,78}[A-Za-z0-9_.$-])?$/;
+
+/**
+ * Events from the broker's service watcher (docs/spec/12-milestones-8-to-12.md): an automatic restart opens a minor
+ * alert per service, 3 failed restarts a major one, recovery resolves it, and a missing or disabled watched service
+ * a minor one. Each service has its own alert, so a repeat offender shows its count.
+ */
+async function processService(c: pg.PoolClient, cabinetId: string, e: Event): Promise<Outcome> {
+  const service = e.detail?.fields?.service, change = e.detail?.fields?.change;
+  if (!service || !SERVICE_NAME.test(service) || !change) return { kind: "stored" };
+  if (change === "recovered") {
+    const r = await c.query<{ id: string }>(
+      `UPDATE alerts SET state = 'resolved', resolved_at = now(), resolution = 'The service is running again.'
+        WHERE cabinet_id = $1 AND signature = $2 AND state <> 'resolved' RETURNING id`, [cabinetId, `service:failing:${service}`]);
+    await c.query("UPDATE events SET alert_id = $2 WHERE event_id = $1", [e.eventId, r.rows[0]?.id ?? null]);
+    return { kind: "resolved", alertIds: r.rows.map(x => x.id) };
+  }
+  const kind = change === "restarted" ? { issue: ISSUE.serviceRestarted, key: "restarted" } : change === "failing" ? { issue: ISSUE.serviceFailing, key: "failing" }
+    : change === "missing" || change === "disabled" ? { issue: ISSUE.serviceWatch, key: "watch" } : null;
+  if (!kind) return { kind: "stored" };
+  const issue = (await c.query<{ id: string; name: string; severity: string }>("SELECT id, name, severity FROM issue_types WHERE id = $1", [kind.issue])).rows[0]!;
+  const a = await upsertAlert(c, { cabinetId, issueTypeId: issue.id, severity: issue.severity, signature: `service:${kind.key}:${service}`, title: `${issue.name}: ${service}`,
+    seenAt: new Date(e.occurredAt), ruleId: null, eventId: e.eventId });
+  await c.query("UPDATE events SET alert_id = $2 WHERE event_id = $1", [e.eventId, a.id]);
+  return { kind: "issue", alertId: a.id, issueTypeId: issue.id, created: a.created };
 }
 
 async function upsertAlert(c: Queryable, a: { cabinetId: string; issueTypeId: string | null; severity: string; signature: string; title: string; seenAt: Date; ruleId: string | null; eventId: string | null }) {

@@ -1,0 +1,21 @@
+{
+  "services": [
+    {
+      "name": "bad\\name",
+      "displayName": "Biometric Scanner Service",
+      "state": "running",
+      "startType": "automatic",
+      "account": "LocalSystem",
+      "processId": 4321,
+      "executablePath": "C:\\Program Files\\Vendor\\BioScan\\bioscan.exe",
+      "description": "Runs the fingerprint scanner.",
+      "recovery": {
+        "firstFailure": "restart",
+        "secondFailure": "restart",
+        "subsequentFailures": "none",
+        "resetPeriodSeconds": 86400
+      }
+    }
+  ],
+  "watched": []
+}

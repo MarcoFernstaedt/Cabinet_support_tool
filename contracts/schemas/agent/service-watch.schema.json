@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/service-watch.schema.json",
+  "title": "service-watch",
+  "description": "The broker's answer to watch_status: each watched service's state. The network service turns changes into service events.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "watched"
+  ],
+  "properties": {
+    "watched": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/watchedServiceStatus"
+      }
+    }
+  }
+}

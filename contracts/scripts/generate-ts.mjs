@@ -40,7 +40,7 @@ export async function generate() {
   // and envelope refers to the same type instead of an inline copy.
   const common = JSON.parse(readFileSync(join(SCHEMA_DIR, "common.schema.json"), "utf8"));
   for (const [def, schema] of Object.entries(common.$defs))
-    if (schema.type === "object" && def !== "emptyParams") targets.push([pascal(def), `${BASE_ID}common.schema.json#/$defs/${def}`]);
+    if ((schema.type === "object" || schema.type === "array") && def !== "emptyParams") targets.push([pascal(def), `${BASE_ID}common.schema.json#/$defs/${def}`]);
   for (const { file } of readSchemas()) {
     if (file.startsWith("envelopes/")) targets.push([pascal(file.slice(10, -12)), BASE_ID + file]);
     if (file.startsWith("console/")) targets.push([pascal(file.slice(8, -12)), BASE_ID + file]);

@@ -14,6 +14,8 @@
     <PackageReference Include="System.Management" Version="8.0.0" />
     <!-- System.Diagnostics.Eventing.Reader: the only managed reader for modern event log channels. -->
     <PackageReference Include="System.Diagnostics.EventLog" Version="8.0.1" />
+    <!-- Already used by the services; here for services.list, service.control and the service watcher (milestone 10). -->
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj" />

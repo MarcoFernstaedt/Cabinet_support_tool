@@ -65,6 +65,7 @@ public static class ExampleData
             "check-in" => typeof(CheckIn),
             "update-response" => typeof(UpdateResponse),
             "upgrade-status" => typeof(UpgradeStatus),
+            "service-watch" => typeof(ServiceWatch),
             _ => throw new InvalidOperationException($"No C# type for {target}"),
         };
     }

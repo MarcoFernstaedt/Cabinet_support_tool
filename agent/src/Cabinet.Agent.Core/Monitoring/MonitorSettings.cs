@@ -14,6 +14,7 @@ public sealed class MonitorSettings
     private readonly string? _file;
     private readonly object _gate = new();
     private IReadOnlyList<string>? _scannerIds;
+    private IReadOnlyList<string> _watched = [];
 
     public MonitorSettings(string? file, IReadOnlyList<string>? fallbackScannerIds = null)
     {
@@ -25,7 +26,11 @@ public sealed class MonitorSettings
             if (!StrictJson.TryParse(File.ReadAllBytes(file), 64 * 1024, out JsonDocument? doc)) return;
             using (doc)
                 if (ContractSchemas.Instance.IsValid(ContractSchemas.Envelope("heartbeat-response"), doc!.RootElement))
-                    _scannerIds = doc.RootElement.Deserialize<HeartbeatResponse>(ContractJson.Options)!.Scanner.HardwareIds;
+                {
+                    var saved = doc.RootElement.Deserialize<HeartbeatResponse>(ContractJson.Options)!;
+                    _scannerIds = saved.Scanner.HardwareIds;
+                    _watched = saved.WatchedServices?.Names ?? [];
+                }
         }
         catch (IOException) { }
     }
@@ -34,6 +39,9 @@ public sealed class MonitorSettings
     public IReadOnlyList<string>? FallbackScannerIds { get; }
 
     public IReadOnlyList<string>? ScannerHardwareIds { get { lock (_gate) return _scannerIds ?? FallbackScannerIds; } }
+
+    /// <summary>The services the broker keeps running (milestone 10): from the console, kept on disk like the scanner IDs.</summary>
+    public IReadOnlyList<string> WatchedServices { get { lock (_gate) return _watched; } }
 
     public event Action? Changed;
 
@@ -44,7 +52,10 @@ public sealed class MonitorSettings
         {
             changed = !Same(_scannerIds, answer.Scanner.HardwareIds);
             _scannerIds = answer.Scanner.HardwareIds;
-            if (changed && _file is not null) AtomicFile.Write(_file, JsonSerializer.Serialize(answer, ContractJson.Options));
+            // A server from before milestone 10 sends no list: the last one is kept rather than emptied.
+            bool watchChanged = answer.WatchedServices is { } w && !Same(_watched, w.Names);
+            if (answer.WatchedServices is { } list) _watched = list.Names;
+            if ((changed || watchChanged) && _file is not null) AtomicFile.Write(_file, JsonSerializer.Serialize(answer, ContractJson.Options));
         }
         if (changed) Changed?.Invoke();
     }

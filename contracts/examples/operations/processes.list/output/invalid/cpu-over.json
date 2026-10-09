@@ -1,0 +1,19 @@
+{
+  "processes": [
+    {
+      "processId": 4321,
+      "name": "bioscan.exe",
+      "executablePath": "C:\\Program Files\\Vendor\\BioScan\\bioscan.exe",
+      "cpuPercent": 250,
+      "workingSetBytes": 20000000,
+      "privateBytes": 15000000,
+      "threads": 12,
+      "handles": 340,
+      "startTime": "2026-10-09T08:00:00Z",
+      "sessionId": 0,
+      "account": "NT AUTHORITY\\SYSTEM"
+    }
+  ],
+  "sampleMilliseconds": 1000,
+  "truncated": false
+}

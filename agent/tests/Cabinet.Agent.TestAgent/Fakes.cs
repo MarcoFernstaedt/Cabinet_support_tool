@@ -68,3 +68,72 @@ sealed class SimulatedPackagePlatform(Action<string> log) : IPackagePlatform
     public (bool Installed, long ExitCode, bool RebootRequired) InstallMsi(string msi) => (false, 1603, false);
     public (bool Removed, bool RebootRequired) UninstallDriver(string name) => (name.StartsWith("oem", StringComparison.OrdinalIgnoreCase), false);
 }
+
+/// <summary>
+/// A simulated service manager for the end-to-end tests. A test stops a service by writing its name into
+/// simulate/stop-services.json; FlakySvc never starts; DisabledSvc is disabled.
+/// </summary>
+sealed class SimulatedServices(string simulateDir, Action<string> log) : Cabinet.Agent.Core.Services.IServicePlatform
+{
+    private readonly object _gate = new();
+    private readonly Dictionary<string, (string Display, ServiceState State, ServiceStartType Start)> _services = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["BioScanSvc"] = ("Biometric Scanner Service", ServiceState.Running, ServiceStartType.Automatic),
+        ["Spooler"] = ("Print Spooler", ServiceState.Running, ServiceStartType.Automatic),
+        ["MSSQL$SQLEXPRESS"] = ("SQL Server (SQLEXPRESS)", ServiceState.Running, ServiceStartType.Automatic),
+        ["FlakySvc"] = ("A service that will not start", ServiceState.Stopped, ServiceStartType.Automatic),
+        ["DisabledSvc"] = ("A disabled service", ServiceState.Stopped, ServiceStartType.Disabled),
+        ["TermService"] = ("Remote Desktop Services", ServiceState.Stopped, ServiceStartType.Manual),
+    };
+
+    private void ApplyStops()
+    {
+        string file = Path.Combine(simulateDir, "stop-services.json");
+        if (!File.Exists(file)) return;
+        try
+        {
+            foreach (string name in System.Text.Json.JsonSerializer.Deserialize<string[]>(File.ReadAllText(file)) ?? [])
+                if (_services.TryGetValue(name, out var s)) { _services[name] = s with { State = ServiceState.Stopped }; log($"Simulated: {name} stopped."); }
+            File.Delete(file);
+        }
+        catch (Exception e) when (e is IOException or System.Text.Json.JsonException) { }
+    }
+
+    public IReadOnlyList<ServiceInfo> List()
+    {
+        lock (_gate)
+        {
+            ApplyStops();
+            return _services.Select(kv => new ServiceInfo
+            {
+                Name = kv.Key, DisplayName = kv.Value.Display, State = kv.Value.State, StartType = kv.Value.Start, Account = "LocalSystem",
+                ProcessId = kv.Value.State == ServiceState.Running ? 1000 + Math.Abs(kv.Key.GetHashCode() % 5000) : null,
+                ExecutablePath = $"C:\\Program Files\\Simulated\\{kv.Key.Replace("$", "-")}.exe", Description = null, Recovery = null,
+            }).ToList();
+        }
+    }
+
+    public (ServiceState State, ServiceStartType StartType)? Query(string name)
+    {
+        lock (_gate) { ApplyStops(); return _services.TryGetValue(name, out var s) ? (s.State, s.Start) : null; }
+    }
+
+    public void Start(string name)
+    {
+        lock (_gate)
+        {
+            if (!_services.TryGetValue(name, out var s)) throw new Cabinet.Agent.Core.Services.ServiceControlException(1060, "No such service.");
+            if (name.Equals("FlakySvc", StringComparison.OrdinalIgnoreCase)) throw new Cabinet.Agent.Core.Services.ServiceControlException(1053, "Did not respond.");
+            _services[name] = s with { State = ServiceState.Running };
+        }
+    }
+
+    public void Stop(string name)
+    {
+        lock (_gate)
+        {
+            if (!_services.TryGetValue(name, out var s)) throw new Cabinet.Agent.Core.Services.ServiceControlException(1060, "No such service.");
+            _services[name] = s with { State = ServiceState.Stopped };
+        }
+    }
+}

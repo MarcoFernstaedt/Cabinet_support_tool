@@ -39,7 +39,7 @@ public sealed record Result
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ResultError? Error { get; init; }
 }
 
-public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security, Scanner }
+public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security, Scanner, Service }
 
 public enum ScannerState { Disconnected, DeviceError, DriverMissing, Recovered }
 
@@ -114,6 +114,8 @@ public sealed record HeartbeatResponse
     public required HeartbeatScanner Scanner { get; init; }
     /// <summary>An agent release this cabinet is offered by a running rollout.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public UpgradeOffer? Upgrade { get; init; }
+    /// <summary>The services this cabinet keeps running (milestone 10); absent from servers before it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HeartbeatWatchedServices? WatchedServices { get; init; }
 }
 
 public sealed record CommandsResponse

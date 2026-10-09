@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/broker-request.schema.json",
   "title": "broker-request",
-  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, a path to run, a file path or a script. package.install names a package ID only, and upgrade names a version only; the broker finds the downloaded files itself.",
+  "description": "One typed request from the network process to the broker over the local pipe. The broker accepts only these operations and validates the parameters again itself. There is no field that can carry a command line, a path to run, a file path or a script. package.install names a package ID only, and upgrade names a version only; the broker finds the downloaded files itself. watch hands the broker the list of services to keep running (names only); watch_status asks for their state.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,9 @@
         "ping",
         "operation",
         "confirm",
-        "upgrade"
+        "upgrade",
+        "watch",
+        "watch_status"
       ]
     },
     "operation": {
@@ -39,7 +41,10 @@
         "firewall.setRule",
         "firewall.restore",
         "package.install",
-        "driver.uninstall"
+        "driver.uninstall",
+        "services.list",
+        "processes.list",
+        "service.control"
       ]
     },
     "params": {
@@ -52,6 +57,10 @@
     "version": {
       "description": "For upgrade: the agent release the network process downloaded. The broker verifies it in full before anything is installed.",
       "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "services": {
+      "description": "For watch: the complete list of services the broker keeps running from now on (replaces the previous list).",
+      "$ref": "../common.schema.json#/$defs/watchedServiceNames"
     }
   },
   "allOf": [
@@ -117,7 +126,8 @@
                 "firewall.setRule",
                 "firewall.restore",
                 "package.install",
-                "driver.uninstall"
+                "driver.uninstall",
+                "service.control"
               ]
             }
           },
@@ -456,6 +466,93 @@
           "required": [
             "version"
           ]
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "watch"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "required": [
+          "services"
+        ]
+      },
+      "else": {
+        "type": "object",
+        "not": {
+          "required": [
+            "services"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "services.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/services.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "processes.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/processes.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "service.control"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/service.control.schema.json#/$defs/params"
+          }
         }
       }
     }

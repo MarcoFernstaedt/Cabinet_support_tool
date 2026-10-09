@@ -109,6 +109,11 @@ public sealed class ContractTests
         new object[] { typeof(UpgradeOutcome), "envelopes/upgrade-status.schema.json", "/properties/outcome/enum" },
         new object[] { typeof(PeripheralCheckId), "operations/peripheral.status.schema.json", "/$defs/output/properties/checks/items/properties/check/enum" },
         new object[] { typeof(PeripheralCheckOutcome), "operations/peripheral.status.schema.json", "/$defs/output/properties/checks/items/properties/outcome/enum" },
+        new object[] { typeof(ServiceState), "common.schema.json", "/$defs/serviceState/enum" },
+        new object[] { typeof(ServiceStartType), "common.schema.json", "/$defs/serviceStartType/enum" },
+        new object[] { typeof(WatchState), "common.schema.json", "/$defs/watchedServiceStatus/properties/state/enum" },
+        new object[] { typeof(ServiceAction), "operations/service.control.schema.json", "/$defs/params/properties/action/enum" },
+        new object[] { typeof(RecoveryAction), "common.schema.json", "/$defs/serviceRecoveryAction/enum" },
     };
 
     [Theory]

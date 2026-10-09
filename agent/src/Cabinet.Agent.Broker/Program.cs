@@ -6,6 +6,8 @@ using Cabinet.Agent.Core;
 using Cabinet.Agent.Core.Packages;
 using Cabinet.Agent.Core.Upgrades;
 using Cabinet.Agent.Core.Writes;
+using Cabinet.Agent.Core.Monitoring;
+using Cabinet.Agent.Core.Services;
 using Cabinet.Agent.Windows;
 
 [assembly: SupportedOSPlatform("windows")]
@@ -42,15 +44,19 @@ public sealed class BrokerService : ServiceBase
         var safetyNet = new SafetyNet(AgentPaths.SafetyNet, clock);
         var writes = new BrokerWrites(new FirewallCom(), new NetworkControl(), safetyNet, new FirewallStore(AgentPaths.BrokerFirewall), clock, _log.Write);
         var packages = new PackageInstaller(AgentPaths.Downloads, AgentPaths.Staging, TrustList.Compiled, new PackagePlatform(_log.Write), _log.Write);
-        var registry = packages.Register(writes.Register(BrokerReadOperations.Registry()));
+        // Services (milestone 10): services.list, service.control, processes.list, and the watcher that keeps the watched services running.
+        var servicePlatform = new WindowsServicePlatform();
+        var serviceWatcher = new ServiceWatcher(servicePlatform, new StateFile<ServiceWatcher.Saved>(AgentPaths.ServiceWatch), clock, _log.Write);
+        var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher };
+        var registry = WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry()))));
         // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
         var authenticode = new WindowsAuthenticode();
         var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),
             AgentPaths.Downloads, AgentPaths.UpgradeStaging, SystemOperations.AgentVersion, new UpdaterLauncher(UpgradeTrust.Compiled, authenticode, _log.Write), clock, _log.Write);
         try { upgrades.ResumeIfNeeded(); }
         catch (Exception e) { _log.Write($"Could not resume an unfinished upgrade: {e.GetType().Name}: {OperationRunner.Truncate(e.Message)}"); }
-        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm, upgrade: upgrades.Start), _log.Write);
-        _serving = Task.WhenAll(server.RunAsync(_stop.Token), UpkeepAsync(writes, _stop.Token));
+        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm, upgrade: upgrades.Start, watcher: serviceWatcher), _log.Write);
+        _serving = Task.WhenAll(server.RunAsync(_stop.Token), UpkeepAsync(writes, _stop.Token), WatchAsync(serviceWatcher, _stop.Token));
         _serving.ContinueWith(t => _log.Write($"The broker pipe stopped ({t.Exception?.InnerException?.GetType().Name ?? "stopped"})."), TaskScheduler.Default);
         _log.Write($"Broker {SystemOperations.AgentVersion} started; pipe admits only NT SERVICE\\{ServiceNames.Network}.");
     }
@@ -63,6 +69,17 @@ public sealed class BrokerService : ServiceBase
             try { writes.Tick(); }
             catch (Exception e) { _log.Write($"Broker upkeep: {e.GetType().Name}: {OperationRunner.Truncate(e.Message)}"); }
             try { await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
+        }
+    }
+
+    /// <summary>The service watcher: every 30 seconds, starts any watched service that stopped (docs/spec/12-milestones-8-to-12.md).</summary>
+    private async Task WatchAsync(ServiceWatcher watcher, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try { watcher.Tick(); }
+            catch (Exception e) { _log.Write($"Service watcher: {e.GetType().Name}."); }
+            try { await Task.Delay(ServiceWatcher.CheckEvery, token).ConfigureAwait(false); } catch (OperationCanceledException) { return; }
         }
     }
 

@@ -10,6 +10,7 @@ import { ago, duration, fullTime } from "../../lib/time";
 import { roleLabel, type CabinetRow } from "../Fleet";
 import { useLoad } from "../../lib/useLoad";
 import { Badge, KeyValues, OnlineBadge } from "../../components/ui";
+import { Processes, Services } from "./Services";
 import { EventLogs } from "./EventLogs";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
@@ -28,7 +29,7 @@ export interface CabinetDetail extends CabinetRow {
 
 export const SECTIONS = [
   ["overview", "Overview"], ["alerts", "Alerts"], ["events", "Event logs"], ["scanner", "Fingerprint scanner"], ["devices", "Devices and drivers"],
-  ["updates", "Windows updates"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["software", "Software"], ["files", "Files"], ["history", "Command history"],
+  ["updates", "Windows updates"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["services", "Services"], ["processes", "Processes"], ["software", "Software"], ["files", "Files"], ["history", "Command history"],
 ] as const;
 export type SectionId = (typeof SECTIONS)[number][0];
 
@@ -87,6 +88,8 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "drives": return <DriveHealth cabinetId={cabinet.id} />;
     case "network": return <Network cabinet={cabinet} />;
     case "firewall": return <Firewall cabinet={cabinet} />;
+    case "services": return <Services cabinet={cabinet} />;
+    case "processes": return <Processes cabinetId={cabinet.id} />;
     case "software": return <Software cabinet={cabinet} />;
     case "files": return <Files cabinetId={cabinet.id} />;
     case "history": return <History cabinetId={cabinet.id} />;

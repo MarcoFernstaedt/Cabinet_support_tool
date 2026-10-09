@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/watched-services.schema.json",
+  "title": "watched-services",
+  "description": "Tier 2 and up set the services one level (fleet, client, site or cabinet) keeps running; null removes that level's list so the level above applies. A confirmation click; no code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "names"
+  ],
+  "properties": {
+    "names": {
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/watchedServiceNames"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

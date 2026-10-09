@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/services.list.schema.json",
+  "title": "services.list",
+  "description": "Every Windows service, and the watch status of each watched service (docs/spec/12-milestones-8-to-12.md). Executable paths never carry arguments; recovery actions name the action only.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "services",
+        "watched"
+      ],
+      "properties": {
+        "services": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "displayName",
+              "state",
+              "startType",
+              "account",
+              "processId",
+              "executablePath",
+              "description",
+              "recovery"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/serviceName"
+              },
+              "displayName": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "state": {
+                "$ref": "../common.schema.json#/$defs/serviceState"
+              },
+              "startType": {
+                "$ref": "../common.schema.json#/$defs/serviceStartType"
+              },
+              "account": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "processId": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "executablePath": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 520,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 512,
+                    "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "recovery": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "firstFailure",
+                      "secondFailure",
+                      "subsequentFailures",
+                      "resetPeriodSeconds"
+                    ],
+                    "properties": {
+                      "firstFailure": {
+                        "$ref": "../common.schema.json#/$defs/serviceRecoveryAction"
+                      },
+                      "secondFailure": {
+                        "$ref": "../common.schema.json#/$defs/serviceRecoveryAction"
+                      },
+                      "subsequentFailures": {
+                        "$ref": "../common.schema.json#/$defs/serviceRecoveryAction"
+                      },
+                      "resetPeriodSeconds": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "watched": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/watchedServiceStatus"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "services": [
+    {
+      "name": "BioScanSvc",
+      "displayName": "Biometric Scanner Service",
+      "state": "running",
+      "startType": "automatic",
+      "account": "LocalSystem",
+      "processId": 4321,
+      "executablePath": "C:\\Program Files\\Vendor\\BioScan\\bioscan.exe",
+      "description": "Runs the fingerprint scanner.",
+      "recovery": {
+        "firstFailure": "restart",
+        "secondFailure": "restart",
+        "subsequentFailures": "none",
+        "resetPeriodSeconds": 86400
+      }
+    },
+    {
+      "name": "MSSQL$SQLEXPRESS",
+      "displayName": "SQL Server (SQLEXPRESS)",
+      "state": "stopped",
+      "startType": "manual",
+      "account": "LocalSystem",
+      "processId": null,
+      "executablePath": null,
+      "description": null,
+      "recovery": null
+    }
+  ],
+  "watched": [
+    {
+      "name": "BioScanSvc",
+      "state": "restarted",
+      "serviceState": "running",
+      "restartsToday": 1,
+      "consecutiveFailures": 0,
+      "lastRestartAt": "2026-10-09T10:00:00Z",
+      "lastError": null,
+      "checkedAt": "2026-10-09T10:00:30Z"
+    }
+  ]
+}

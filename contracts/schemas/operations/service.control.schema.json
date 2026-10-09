@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/service.control.schema.json",
+  "title": "service.control",
+  "description": "Start, stop or restart one service (Tier 2 and up, a confirmation click). The agent refuses its own services, Disabled services and remote-access services, and never changes a start type.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "action"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "../common.schema.json#/$defs/serviceName"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "start",
+            "stop",
+            "restart"
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "action",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "../common.schema.json#/$defs/serviceName"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "start",
+            "stop",
+            "restart"
+          ]
+        },
+        "before": {
+          "$ref": "../common.schema.json#/$defs/serviceState"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/serviceState"
+        }
+      }
+    }
+  }
+}

@@ -245,6 +245,26 @@ test("writes in the console: library upload and two-person approval, install, fi
     await sam.locator(".packages > li").filter({ hasText: "Scanner driver" }).waitFor({ timeout: 30_000 });
     assert.equal(await sam.getByRole("button", { name: "Install" }).count(), 0);
 
+    await section(sam, "services");
+    await sam.getByRole("row", { name: /Biometric Scanner Service/ }).waitFor({ timeout: 60_000 });
+    assert.equal(await sam.getByRole("button", { name: /^(Start|Stop|Restart|Watch)$/ }).count(), 0, "Tier 1 only looks at services");
+
+    // ---- Services: Tess restarts the print spooler (one click) and watches the scanner service ----
+    await section(tess, "services");
+    const scannerRow = tess.getByRole("row", { name: /Biometric Scanner Service/ });
+    await scannerRow.getByText("Running", { exact: true }).waitFor({ timeout: 60_000 });
+    await tess.getByRole("row", { name: /Print Spooler/ }).getByRole("button", { name: "Restart" }).click();
+    await click(tess, /Restart the service Print Spooler/);
+    await tess.getByText(/Service Spooler: restart done; it is now running\./).waitFor({ timeout: 60_000 });
+    await scannerRow.getByRole("button", { name: "Watch" }).click();
+    await tess.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await tess.getByRole("region", { name: "Watched services" }).getByRole("rowheader", { name: "BioScanSvc" }).waitFor();
+    assert.deepEqual((await db.app.query("SELECT watched_services FROM cabinets WHERE id = $1", [cabinetId])).rows[0].watched_services, ["BioScanSvc"]);
+    await section(tess, "processes");
+    await tess.getByRole("table", { name: "Running processes" }).getByRole("row").nth(1).waitFor({ timeout: 60_000 });
+    await a11y(tess, "processes");
+    await shot(tess, "m10-1-services");
+
     // ---- A fleet-wide pause: the banner on every page, and no write controls --------------
     await setFleetPause(db.app, people.ada.id, true, "Change freeze for the audit", await issueStepUpToken(db.app, people.ada.id, "writes.pause", "fleet"));
     await section(tess, "firewall");
@@ -256,9 +276,10 @@ test("writes in the console: library upload and two-person approval, install, fi
     // Every write is in the audit log, by the person who confirmed it, and the chain is intact.
     const writes = (await db.app.query<{ op: string; actor: string }>(
       "SELECT details->>'operation' AS op, actor_id AS actor FROM audit_log WHERE action = 'command.write' ORDER BY seq")).rows;
-    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy"]);
+    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy", "service.control"]);
     assert.ok(writes.slice(0, 4).every(w => w.actor === people.tess.id));
     assert.equal(writes[4]!.actor, people.sam.id);
+    assert.equal(writes[5]!.actor, people.tess.id);
     assert.equal((await verifyAuditChain(db.app)).ok, true);
     assert.deepEqual(problems, []);
   } finally {
