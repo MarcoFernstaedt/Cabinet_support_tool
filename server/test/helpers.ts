@@ -28,3 +28,23 @@ export function csrFor(key: TestKey, commonName = "cabinet-agent", tamper = fals
   if (tamper) signature[signature.length - 1] = signature[signature.length - 1]! ^ 0xff;
   return toPem(der.sequence(info, der.sequence(der.oid(isRsa ? OID.rsaSha256 : OID.ecdsaSha256), ...(isRsa ? [der.nullValue()] : [])), der.bitString(signature)), "CERTIFICATE REQUEST");
 }
+
+/** Decodes an RFC 4648 base32 setup key (as the console shows it, spaces allowed). */
+export function fromBase32(text: string): Buffer {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bits = text.replace(/\s+/g, "").toUpperCase().split("").map(ch => {
+    const v = alphabet.indexOf(ch);
+    if (v < 0) throw new Error(`not base32: ${ch}`);
+    return v.toString(2).padStart(5, "0");
+  }).join("");
+  return Buffer.from((bits.match(/.{8}/g) ?? []).map(b => parseInt(b, 2)));
+}
+
+/** In a browser at "Set up your authenticator": reads the setup key, enters a code from it, and returns the secret. */
+export async function setUpAuthenticatorInBrowser(page: { locator(s: string): { textContent(): Promise<string | null> }; getByLabel(l: RegExp | string): { fill(v: string): Promise<void> };
+  getByRole(r: "button", o: { name: string }): { click(): Promise<void> } }, codeFor: (secret: Buffer) => string): Promise<Buffer> {
+  const secret = fromBase32((await page.locator("code.secret").textContent()) ?? "");
+  await page.getByLabel(/6-digit code/).fill(codeFor(secret));
+  await page.getByRole("button", { name: "Turn on two-factor" }).click();
+  return secret;
+}

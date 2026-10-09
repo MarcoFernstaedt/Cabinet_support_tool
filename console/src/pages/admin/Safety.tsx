@@ -131,7 +131,7 @@ export function SecurityAlerts() {
 }
 
 interface Settings {
-  offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number; requireTotpForAll: boolean;
+  offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number };
 }
 
@@ -148,7 +148,7 @@ export function PlatformSettings() {
       <input type="number" min={min} max={max} required value={value} onChange={e => set(Number(e.target.value))} /></label>);
   const changes = (): Record<string, unknown> => {
     const c: Record<string, unknown> = {};
-    for (const k of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours", "requireTotpForAll"] as const) if (form[k] !== data[k]) c[k] = form[k];
+    for (const k of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours"] as const) if (form[k] !== data[k]) c[k] = form[k];
     const r: Record<string, number> = {};
     for (const k of ["eventsDays", "commandsDays", "alertsDays", "firewallDays"] as const) if (form.retention[k] !== data.retention[k]) r[k] = form.retention[k];
     if (Object.keys(r).length) c.retention = r;
@@ -157,7 +157,7 @@ export function PlatformSettings() {
   const save = () => {
     const c = changes();
     step.ask("settings.update", "fleet", <><p>Change these settings:</p><KeyValues rows={Object.entries(c).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])} />
-      {c.requireTotpForAll === true && <p className="notice warn">Everyone without an authenticator is signed out now and sets one up at their next sign-in.</p>}</>,
+</>,
       async t => { await api("PUT", "/api/admin/settings", { ...c, stepUpToken: t }); setDone("Settings saved."); reload(); });
   };
   const set = (patch: Partial<Settings>) => setForm(f => f && { ...f, ...patch });
@@ -175,7 +175,7 @@ export function PlatformSettings() {
             {num("Sign out after idle", form.sessionIdleMinutes, 5, 240, n => set({ sessionIdleMinutes: n }), "minutes")}
             {num("Sign out after at most", form.sessionAbsoluteHours, 1, 24, n => set({ sessionAbsoluteHours: n }), "hours")}
           </div>
-          <label className="check"><input type="checkbox" checked={form.requireTotpForAll} onChange={e => set({ requireTotpForAll: e.target.checked })} /> Require an authenticator for every account, Tier 1 included</label>
+          <p className="muted small">Every account, Tier 1 included, signs in with a password and an authenticator code.</p>
         </section>
         <section className="panel" aria-labelledby="s-retention"><h2 id="s-retention">Keep data for</h2>
           <div className="row gap wrap">

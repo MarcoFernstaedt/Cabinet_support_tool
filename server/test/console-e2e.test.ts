@@ -20,7 +20,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
-import { tempDir } from "./helpers.js";
+import { tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -151,6 +151,9 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByLabel("Username").fill("sam.support");
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
+    // Every account, Tier 1 included, sets up an authenticator at its first sign-in.
+    await page.getByRole("heading", { name: "Set up your authenticator" }).waitFor();
+    await setUpAuthenticatorInBrowser(page, s => { clock += 30_000; return totp.code(s, totp.stepAt(clock)); });
     // First sign-in shows the getting-started tour; walk through every step.
     const tour = page.locator("dialog.tour");
     await tour.waitFor();

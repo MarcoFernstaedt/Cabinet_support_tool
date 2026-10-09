@@ -17,12 +17,13 @@ import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
+import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { storeEvents } from "../src/services/events.js";
 import { issueCommand, storeResult } from "../src/services/commands.js";
 import { asOwner, createTestDatabase } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { csrFor, ecKey, tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -110,21 +111,15 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
 
     const sam = await open("sam");
     await signIn(sam, "sam.support", temporary);
+    // Every account, Tier 1 included, sets up an authenticator first.
+    await sam.getByRole("heading", { name: "Set up your authenticator" }).waitFor();
+    await setUpAuthenticatorInBrowser(sam, s => { clock += 30_000; return totp.code(s, totp.stepAt(clock)); });
     await sam.getByLabel("Temporary password").fill(temporary);
     await sam.getByLabel("New password (at least 12 characters)").fill("sam's own long password");
     await sam.getByLabel("New password again").fill("sam's own long password");
     await sam.getByRole("button", { name: "Save password" }).click();
     await sam.getByRole("dialog", { name: "Welcome to Cabinet Diagnostics" }).getByRole("button", { name: "Skip tour" }).click();
     await sam.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
-
-    // Promoting Sam to Tier 2 without an authenticator is refused, and the dialog says why.
-    const samRow = ada.getByRole("row", { name: /Sam Support/ });
-    await ada.reload();
-    await samRow.getByLabel("Role for sam.support").selectOption({ label: "Tier 2" });
-    await samRow.getByRole("button", { name: "Save" }).click();
-    await confirm(ada, /Change role to Tier 2/);
-    await ada.getByRole("dialog").getByText(/must set up an authenticator before becoming Tier 2/).waitFor();
-    await ada.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
 
     // ---- Who looked at this cabinet and when ----------------------------------------------------
     await sam.goto(`${origin}/cabinets/${cabinetId}`);
@@ -197,7 +192,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await db.app.query("DELETE FROM settings WHERE key = 'writes.paused'");
     for (let i = 0; i < 2; i++)
       await issueCommand(db.app, tessId, cabinetId, "network.setDns", { interfaceIndex: 12, mode: "automatic" }, "command.issue",
-        { stepUpToken: await issueStepUpToken(db.app, tessId, "network.setDns", cabinetId) }).catch(() => undefined);
+        { stepUpToken: await issueStepUpToken(db.app, tessId, "network.setDns", cabinetId, paramsHash({ interfaceIndex: 12, mode: "automatic" })) }).catch(() => undefined);
     // 5. An audit chain break, found by Ada's check in the console.
     const seq = (await db.app.query<{ seq: string }>("SELECT seq FROM audit_log ORDER BY seq LIMIT 1 OFFSET 2")).rows[0]!.seq;
     await asOwner(db, async k => {

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { paramsHash } from "../lib/confirm";
+import { useId, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
 import type { CommandResult, Run } from "../lib/commands";
 import { fullTime } from "../lib/time";
@@ -54,8 +55,12 @@ export function ResultProblem({ result }: { result: CommandResult }) {
 }
 
 /** Asks for a fresh authenticator code and turns it into a token bound to exactly this action and target. */
-export function StepUpDialog({ open, action, target, description, onToken, onClose }: {
-  open: boolean; action: string; target: string; description: ReactNode; onToken: (token: string) => Promise<void>; onClose: () => void;
+/**
+ * Confirmation with an authenticator code. When params is given, the token is bound to exactly those parameters
+ * (their canonical hash), so it cannot be used for any other change.
+ */
+export function StepUpDialog({ open, action, target, description, onToken, onClose, params }: {
+  open: boolean; action: string; target: string; description: ReactNode; onToken: (token: string) => Promise<void>; onClose: () => void; params?: unknown;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [code, setCode] = useState("");
@@ -71,7 +76,8 @@ export function StepUpDialog({ open, action, target, description, onToken, onClo
     setBusy(true);
     setProblem(null);
     try {
-      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up", { code, action, target });
+      const bound = params === undefined ? {} : { paramsHash: await paramsHash(params) };
+      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up", { code, action, target, ...bound });
       await onToken(token);
       onClose();
     } catch (e) { setProblem(describeError(e)); }
@@ -91,6 +97,85 @@ export function StepUpDialog({ open, action, target, description, onToken, onClo
         <div className="row gap end">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
           <button type="submit" className="btn primary" disabled={busy || code.length !== 6}>{busy ? "Confirming…" : "Confirm"}</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+/** Confirmation with a click: single-cabinet changes that are quick to undo or heal themselves (docs/spec/12-milestones-8-to-12.md). */
+export function ConfirmDialog({ open, title = "Confirm the change", description, confirmLabel = "Make the change", onConfirm, onClose }: {
+  open: boolean; title?: string; description: ReactNode; confirmLabel?: string; onConfirm: () => Promise<void>; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) { setProblem(null); d.showModal(); }
+    if (!open && d.open) d.close();
+  }, [open]);
+  const submit = async () => {
+    setBusy(true);
+    setProblem(null);
+    try { await onConfirm(); onClose(); } catch (e) { setProblem(describeError(e)); } finally { setBusy(false); }
+  };
+  return (
+    <dialog ref={ref} className="dialog" aria-labelledby={titleId} onClose={onClose}>
+      <form method="dialog" onSubmit={e => { e.preventDefault(); void submit(); }}>
+        <h2 id={titleId}>{title}</h2>
+        <div className="dialog-body">{description}</div>
+        {problem && <p className="error" role="alert">{problem}</p>}
+        <div className="row gap end">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" autoFocus disabled={busy}>{busy ? "Sending…" : confirmLabel}</button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+/** Confirmation with the password again, for a change to more than one cabinet; the token is bound to the scope and parameters. */
+export function PasswordDialog({ open, action, target, params, description, onToken, onClose }: {
+  open: boolean; action: string; target: string; params: unknown; description: ReactNode; onToken: (token: string) => Promise<void>; onClose: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const [password, setPassword] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) { setPassword(""); setProblem(null); d.showModal(); }
+    if (!open && d.open) d.close();
+  }, [open]);
+  const submit = async () => {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const { token } = await api<{ token: string }>("POST", "/api/auth/confirm-password", { password, action, target, paramsHash: await paramsHash(params) });
+      setPassword("");
+      await onToken(token);
+      onClose();
+    } catch (e) { setProblem(describeError(e)); }
+    finally { setBusy(false); }
+  };
+  return (
+    <dialog ref={ref} className="dialog" aria-labelledby={titleId} onClose={onClose}>
+      <form method="dialog" onSubmit={e => { e.preventDefault(); void submit(); }}>
+        <h2 id={titleId}>Confirm with your password</h2>
+        <div className="dialog-body">{description}</div>
+        <label className="field">
+          <span>Your password</span>
+          <input type="password" autoFocus autoComplete="current-password" required maxLength={256} value={password} onChange={e => setPassword(e.target.value)} />
+        </label>
+        {problem && <p className="error" role="alert">{problem}</p>}
+        <div className="row gap end">
+          <button type="button" className="btn" onClick={onClose}>Cancel</button>
+          <button type="submit" className="btn primary" disabled={busy || password.length === 0}>{busy ? "Confirming…" : "Confirm"}</button>
         </div>
       </form>
     </dialog>

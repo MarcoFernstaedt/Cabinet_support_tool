@@ -45,7 +45,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
   const people = [
     { username: "ada.admin", name: "Ada Admin", role: "admin", secret: totp.newSecret() },
     { username: "tess.tier2", name: "Tess Tier2", role: "tier2", secret: totp.newSecret() },
-    { username: "sam.support", name: "Sam Support", role: "tier1", secret: null },
+    { username: "sam.support", name: "Sam Support", role: "tier1", secret: totp.newSecret() },
   ] as const;
   const ids: string[] = [];
   for (const p of people) {

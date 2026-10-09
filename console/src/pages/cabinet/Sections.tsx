@@ -1,4 +1,4 @@
-// The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for Tier 2 and Admin.
+// The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
   NetworkTestOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
@@ -6,7 +6,7 @@ import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
-import { AdapterEdit, Countdown, FirewallHistory, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites } from "./Writes";
+import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites } from "./Writes";
 
 export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const cabinetId = cabinet.id;
@@ -180,11 +180,12 @@ export function Firewall({ cabinet }: { cabinet: CabinetDetail }) {
   const [filter, setFilter] = useState({ text: "", direction: "any", action: "any", enabled: "any" });
   const [changes, setChanges] = useState(0);
   const changed = () => { setChanges(n => n + 1); void op.start(); };
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "firewall.setRule");
   const rules = useRuleWrites(cabinet, changed);
   const profileWrite = useProfileWrite(cabinet, changed);
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (<>
+    <FirewallPolicyPanel cabinet={cabinet} version={changes} onChanged={changed} />
     <OperationPanel title="Firewall" description="Profiles and every rule. Rules the platform created are marked." run={op} onRun={() => void op.start()}>
       {out => {
         const f = filter.text.toLowerCase();

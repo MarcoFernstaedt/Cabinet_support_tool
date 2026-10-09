@@ -94,6 +94,23 @@ test("device settings in the console: a client's scanner and sync ports set once
     await ids.getByText(/from the client's setting/).waitFor();
     assert.match(await ids.innerText(), /USB\\VID_1234/);
 
+    // ---- The client firewall policy: the cabinet reports all profiles on, unlike the default (all off) ----
+    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = false, last_heartbeat_at = now() WHERE id = $1`, [cabinet]);
+    await page.goto(`${origin}/sites/${site}`);
+    const bulk = page.getByRole("region", { name: "Firewall policy across North" });
+    await bulk.getByText(/1 online cabinet differs from the firewall policy: ICU cabinet/).waitFor();
+    await bulk.getByRole("button", { name: "Apply the policy to 1 cabinet…" }).click();
+    const pw = page.getByRole("dialog", { name: "Confirm with your password" });
+    await pw.getByText(/Apply the firewall policy to 1 cabinet at North/).waitFor();
+    await pw.getByLabel("Your password").fill("not my password");
+    await pw.getByRole("button", { name: "Confirm" }).click();
+    await pw.getByRole("alert").waitFor();
+    await pw.getByLabel("Your password").fill(password);
+    await pw.getByRole("button", { name: "Confirm" }).click();
+    await bulk.getByRole("list", { name: "Bulk apply results" }).getByText(/ICU cabinet: Sent/).waitFor();
+    const queued = (await db.app.query("SELECT operation, params, bulk_id FROM commands WHERE cabinet_id = $1 AND operation = 'firewall.applyPolicy'", [cabinet])).rows;
+    assert.deepEqual(queued.map(q => [q.operation, q.params, !!q.bulk_id]), [["firewall.applyPolicy", { profiles: { domain: false, private: false, public: false } }, true]]);
+
     const audited = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE action IN ('client.scanner','client.sync','site.sync') ORDER BY seq")).rows.map(r => r.action);
     assert.deepEqual(audited, ["client.scanner", "client.sync", "site.sync"]);
     assert.deepEqual(problems, []);

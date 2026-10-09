@@ -1,4 +1,5 @@
 // Admin home, pending cabinets, install tokens and the scanner default. The other admin screens are in their own files.
+import { PolicyEditor, type Policy } from "../../components/FirewallPolicy";
 import { useEffect, useMemo, useState } from "react";
 import { PortsEditor, ScannerIdsEditor } from "../../components/DeviceSettings";
 import { api, describeError } from "../../lib/api";
@@ -145,6 +146,7 @@ export function InstallTokens() {
 
 export function ScannerDefault() {
   const scanner = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
+  const firewall = useLoad<{ policy: Policy }>("/api/admin/firewall-policy");
   const ports = useLoad<{ ports: number[] | null }>("/api/settings/sync-ports");
   return (
     <div className="page">
@@ -162,6 +164,12 @@ export function ScannerDefault() {
         <h2 id="fleet-ports">Sync cabinet ports</h2>
         {ports.data && <PortsEditor current={ports.data.ports} inherited="no ports are set, so sync tests use ping and DNS only."
           endpoint="/api/settings/sync-ports" action="settings.sync" target="fleet" what="every site without its own or its client's ports" editable onSaved={ports.reload} />}
+      </section>
+      <section className="panel" aria-labelledby="fleet-firewall">
+        <h2 id="fleet-firewall">Firewall policy (fleet default)</h2>
+        <p className="muted small">Applies to every client without its own policy. All three profiles off is the default, because that fixes most satellite-to-sync connection problems.</p>
+        {firewall.data && <PolicyEditor current={firewall.data.policy} inherited={null} endpoint="/api/admin/firewall-policy" action="fleet.firewall_policy" target="fleet"
+          what="the fleet" editable onSaved={firewall.reload} />}
       </section>
     </div>
   );

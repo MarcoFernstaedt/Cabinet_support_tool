@@ -4,6 +4,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "./api";
 import { atLeast, type Me } from "./session";
+import { minimumRoleFor } from "./confirm";
 
 export interface WriteStatus {
   fleet: { paused: boolean; reason: string | null };
@@ -21,9 +22,9 @@ export function WriteStatusProvider({ children }: { children: ReactNode }) {
 
 export const useWriteStatus = () => useContext(WriteStatusContext);
 
-/** True when this person may see write controls for this cabinet right now. */
-export function canWrite(me: Me, cabinet: { readOnly: boolean | null; client: { id: string } }, status: WriteStatus | null): boolean {
-  if (!atLeast(me, "tier2") || cabinet.readOnly !== false) return false;
+/** True when this person may see write controls for this cabinet right now (for one operation: its minimum role from the catalog). */
+export function canWrite(me: Me, cabinet: { readOnly: boolean | null; client: { id: string } }, status: WriteStatus | null, operation?: string): boolean {
+  if (!atLeast(me, operation ? minimumRoleFor(operation) : "tier2") || cabinet.readOnly !== false) return false;
   if (status?.fleet.paused || status?.clients.some(c => c.id === cabinet.client.id)) return false;
   return true;
 }

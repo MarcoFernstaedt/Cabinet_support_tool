@@ -1,5 +1,5 @@
 // Sign-in (docs/spec/06-console-spec.md): username and password, then the authenticator
-// code when two-factor is on. Tier 2 and Admin set up the authenticator at first sign-in,
+// code. Every account sets up the authenticator at first sign-in,
 // and anyone with a temporary password chooses a new one, before anything else.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
@@ -86,7 +86,7 @@ export function TotpSetup({ onStage, onCancel, required }: { onStage: (s: Stage)
   const { busy, problem, submit } = useSubmit(async () => onStage((await api<{ stage: Stage }>("POST", "/api/auth/totp/setup", { code })).stage));
   return (
     <Card title="Set up your authenticator" intro={required
-      ? "Tier 2 and Admin accounts confirm every change with a code from an authenticator app (Microsoft Authenticator, Google Authenticator or similar). Set it up now to continue."
+      ? "Every account signs in with a code from an authenticator app (Microsoft Authenticator, Google Authenticator or similar), and confirms some changes with it. Set it up now to continue."
       : "Turn on two-factor sign-in with an authenticator app."}>
       {loadProblem && <p className="error" role="alert">{loadProblem}</p>}
       {setup && (

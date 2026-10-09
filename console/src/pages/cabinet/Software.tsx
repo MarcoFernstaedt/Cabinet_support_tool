@@ -66,7 +66,7 @@ export function PackageList({ cabinet, packages, empty }: { cabinet: CabinetDeta
 }
 
 function PackageRow({ cabinet, p }: { cabinet: CabinetDetail; p: LibraryPackage }) {
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "package.install");
   const w = useConfirmedWrite<PackageInstallOutput>(cabinet, "package.install");
   return (
     <li className="card">

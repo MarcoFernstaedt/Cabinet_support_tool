@@ -9,6 +9,7 @@ import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
+import { BulkPolicyApply, PolicyEditor, type Policy } from "../components/FirewallPolicy";
 
 interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
 
@@ -89,6 +90,8 @@ export function ClientPage({ id }: { id: string }) {
             inherited={data.syncPorts.fleetPorts?.length ? <>the fleet default applies (<strong>{data.syncPorts.fleetPorts.join(", ")}</strong>).</> : "no ports are set, so only ping and DNS tests run."}
             endpoint={`/api/clients/${data.id}/sync-ports`} action="client.sync" target={data.id} what={`every site of ${data.name}`} editable={atLeast(me, "admin")} onSaved={reload} />
         </section>
+        <ClientFirewallPolicy key={data.id} clientId={data.id} name={data.name} editable={atLeast(me, "admin")} />
+        <BulkPolicyApply key={`bulk-${data.id}`} scope="client" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
   );
@@ -133,6 +136,7 @@ export function SitePage({ id }: { id: string }) {
               : data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
             endpoint={`/api/sites/${data.id}/scanner`} action="site.scanner" target={data.id} what={`every cabinet at ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
         </section>
+        <BulkPolicyApply key={`bulk-${data.id}`} scope="site" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
   );
@@ -171,6 +175,20 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
             onSaved();
           } catch (e) { setProblem(describeError(e)); }
         }} />
+    </section>
+  );
+}
+
+/** A client's own firewall policy (Admin, with a code), or the fleet default when it has none. */
+function ClientFirewallPolicy({ clientId, name, editable }: { clientId: string; name: string; editable: boolean }) {
+  const { data, reload } = useLoad<{ own: Policy | null; fleet: Policy }>(`/api/clients/${clientId}/firewall-policy`);
+  return (
+    <section className="panel" aria-labelledby="client-firewall">
+      <h2 id="client-firewall">Firewall policy for {name}</h2>
+      <p className="muted small">Which Windows firewall profiles this client's cabinets should have on or off. Cabinets that differ raise a minor alert;
+        Tier 1 and up apply the policy from the cabinet page, or to all of them below.</p>
+      {data && <PolicyEditor current={data.own} inherited={data.fleet} endpoint={`/api/clients/${clientId}/firewall-policy`} action="client.firewall_policy"
+        target={clientId} what={name} editable={editable} onSaved={reload} />}
     </section>
   );
 }

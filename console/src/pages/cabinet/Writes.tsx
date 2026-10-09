@@ -1,40 +1,45 @@
-// Write actions in the cabinet view (docs/spec/06-console-spec.md): shown only to Tier 2 and Admin on
-// cabinets that accept changes, each behind a confirmation that says exactly what changes on which
-// cabinet and asks for an authenticator code bound to that operation and cabinet. The server and the
-// agent check all of it again; nothing here is the protection.
+// Write actions in the cabinet view (docs/spec/06-console-spec.md, 12-milestones-8-to-12.md): shown to the roles
+// the catalog allows on cabinets that accept changes, each behind a confirmation that says exactly what changes on
+// which cabinet: a click for quick, self-healing changes, or an authenticator code bound to the exact parameters.
+// The server and the agent check all of it again; nothing here is the protection.
 import { useEffect, useState, type ReactNode } from "react";
-import type { DriverUninstallOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
+import type { DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
   FirewallStateOutput, NetworkConfigOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
 import { useWrite, type CommandResult } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
 import { canWrite, useWriteStatus } from "../../lib/writes";
 import { fullTime } from "../../lib/time";
 import { useLoad } from "../../lib/useLoad";
-import { Badge, Empty, SAFETY_NET_NOTE, StepUpDialog, WriteOutcome } from "../../components/ui";
+import { Badge, ConfirmDialog, Empty, SAFETY_NET_NOTE, StepUpDialog, WriteOutcome } from "../../components/ui";
+import { confirmFor } from "../../lib/confirm";
 import type { CabinetDetail } from "./CabinetPage";
 
 type Adapter = NetworkConfigOutput["adapters"][number];
 type Profile = FirewallProfileState["profile"];
 
 /** Whether write controls show for this cabinet (role, read-only, pauses); the server decides for real. */
-export function useCanWrite(cabinet: CabinetDetail): boolean {
+export function useCanWrite(cabinet: CabinetDetail, operation?: string): boolean {
   const { me } = useSession();
   const { status } = useWriteStatus();
-  return canWrite(me, cabinet, status);
+  return canWrite(me, cabinet, status, operation);
 }
 
-/** One write with its confirmation: ask() opens the dialog, which issues the command once the code is accepted. */
+/**
+ * One write with its confirmation: ask() opens the dialog the catalog calls for (a click, or an authenticator code
+ * bound to these exact parameters), which issues the command once confirmed.
+ */
 export function useConfirmedWrite<T>(cabinet: CabinetDetail, operation: string, after?: (r: CommandResult<T>) => void) {
   const write = useWrite<T>(cabinet.id, operation);
   const [pending, setPending] = useState<{ params: Record<string, unknown>; description: ReactNode } | null>(null);
-  const dialog = (
-    <StepUpDialog open={pending !== null} action={operation} target={cabinet.id} onClose={() => setPending(null)}
-      description={<>
-        {pending?.description}
-        <p>On cabinet <strong>{cabinet.name}</strong> ({cabinet.client.name} · {cabinet.site.name}).</p>
-      </>}
-      onToken={async token => { if (pending) await write.begin(pending.params, token, after); }} />
-  );
+  const description = <>
+    {pending?.description}
+    <p>On cabinet <strong>{cabinet.name}</strong> ({cabinet.client.name} · {cabinet.site.name}).</p>
+  </>;
+  const dialog = confirmFor(operation) === "click"
+    ? <ConfirmDialog open={pending !== null} onClose={() => setPending(null)} description={description}
+        onConfirm={async () => { if (pending) await write.begin(pending.params, undefined, after); }} />
+    : <StepUpDialog open={pending !== null} action={operation} target={cabinet.id} onClose={() => setPending(null)} description={description}
+        params={pending?.params} onToken={async token => { if (pending) await write.begin(pending.params, token, after); }} />;
   return { run: write as typeof write, ask: (params: Record<string, unknown>, description: ReactNode) => setPending({ params, description }), dialog };
 }
 
@@ -60,7 +65,7 @@ export function useAdapterWrites(cabinet: CabinetDetail, onChanged: () => void) 
 }
 
 export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDetail; adapter: Adapter; writes: ReturnType<typeof useAdapterWrites> }) {
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "network.setIp");
   const { ip, dns } = writes;
   const current = adapter.ipv4.addresses[0];
   const [editing, setEditing] = useState<null | "ip" | "dns">(null);
@@ -161,8 +166,7 @@ export function useProfileWrite(cabinet: CabinetDetail, onChanged: () => void) {
 }
 
 export function ProfileControl({ cabinet, profile, write: w }: { cabinet: CabinetDetail; profile: FirewallProfileState; write: ReturnType<typeof useProfileWrite> }) {
-  const { me } = useSession();
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "firewall.setProfile");
   const [choosing, setChoosing] = useState(false);
   const [duration, setDuration] = useState<string>("60");
   if (!allowed) return null;
@@ -191,7 +195,7 @@ export function ProfileControl({ cabinet, profile, write: w }: { cabinet: Cabine
               <label className="field inline"><span>Turn off for</span>
                 <select value={duration} onChange={e => setDuration(e.target.value)}>
                   {DURATIONS.map(m => <option key={m} value={m}>{durationLabel(m)}</option>)}
-                  {atLeast(me, "admin") && <option value="none">No time limit (Admin)</option>}
+                  <option value="none">No time limit</option>
                 </select></label>
               {duration === "none" && <p className="notice crit small">With no time limit the profile stays off until someone turns it back on.</p>}
               <div className="row gap"><button type="button" className="btn" onClick={() => setChoosing(false)}>Cancel</button><button className="btn danger" type="submit">Review</button></div>
@@ -199,6 +203,44 @@ export function ProfileControl({ cabinet, profile, write: w }: { cabinet: Cabine
           : <button className="btn" onClick={() => setChoosing(true)}>Turn off…</button>)
         : <button className="btn primary" disabled={w.run.state === "running"} onClick={turnOn}>Turn on</button>}
     </div>
+  );
+}
+
+// ---- Client firewall policy ----------------------------------------------------------------
+
+interface CabinetPolicy { policy: Record<Profile, "on" | "off">; source: "client" | "fleet"; reported: Record<Profile, boolean> | null; differs: boolean | null; readOnly: boolean | null }
+
+/**
+ * The client's firewall policy for this cabinet, what the cabinet last reported, and Apply policy (a click, Tier 1 and
+ * up). The server fills the profiles in from the policy; the console sends none.
+ */
+export function FirewallPolicyPanel({ cabinet, version, onChanged }: { cabinet: CabinetDetail; version: number; onChanged: () => void }) {
+  const { data, reload } = useLoad<CabinetPolicy>(`/api/cabinets/${cabinet.id}/firewall-policy`);
+  useEffect(() => { if (version > 0) reload(); }, [version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allowed = useCanWrite(cabinet, "firewall.applyPolicy");
+  // The cabinet reports its profiles with each heartbeat: look again every 15 seconds until it has, and after a change.
+  const waiting = data?.differs === null;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(reload, 15_000);
+    return () => clearInterval(t);
+  }, [waiting]); // eslint-disable-line react-hooks/exhaustive-deps
+  const w = useConfirmedWrite<FirewallApplyPolicyOutput>(cabinet, "firewall.applyPolicy", r => { if (r.status === "succeeded") { onChanged(); reload(); } });
+  if (!data) return null;
+  const profiles: Profile[] = ["domain", "private", "public"];
+  const wanted = profiles.map(p => `${PROFILE_NAME[p]} ${data.policy[p]}`).join(", ");
+  return (
+    <section className="panel" aria-labelledby="fw-policy">
+      <h3 id="fw-policy">Firewall policy {data.differs === true ? <Badge tone="warn">Differs</Badge> : data.differs === false ? <Badge tone="ok">Matches</Badge> : <Badge tone="off">Not reported yet</Badge>}</h3>
+      <p>{data.source === "client" ? `${cabinet.client.name}'s policy` : "The fleet default policy"}: <strong>{wanted}</strong>.</p>
+      {data.reported && <p className="muted small">The cabinet last reported: {profiles.map(p => `${PROFILE_NAME[p]} ${data.reported![p] ? "on" : "off"}`).join(", ")}.</p>}
+      {allowed && data.differs !== false && <button className="btn primary" disabled={w.run.state === "running"} onClick={() => w.ask({}, <>
+        <p>Set the firewall profiles as the policy says: <strong>{wanted}</strong>.</p>
+        <p className="muted small">Profiles turned off by the policy stay off with no timer. A snapshot is taken first. {SAFETY_NET_NOTE}</p>
+      </>)}>Apply policy</button>}
+      <WriteOutcome run={w.run} done={o => <>{o.changed.length === 0 ? "The cabinet already matched the policy." : `Changed: ${o.changed.map(p => PROFILE_NAME[p]).join(", ")}.`}{deadlineNote(o.safetyNetDeadline)}</>} />
+      {w.dialog}
+    </section>
   );
 }
 
@@ -365,7 +407,7 @@ export function useRuleWrites(cabinet: CabinetDetail, onChanged: () => void) {
 // ---- Snapshots and history ----------------------------------------------------------------
 
 export function Snapshots({ cabinet, state, onChanged }: { cabinet: CabinetDetail; state: FirewallStateOutput; onChanged: () => void }) {
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "firewall.restore");
   const w = useConfirmedWrite<FirewallRestoreOutput>(cabinet, "firewall.restore", r => { if (r.status === "succeeded") onChanged(); });
   return (
     <section className="panel" aria-labelledby="snapshots-heading">
@@ -429,7 +471,7 @@ export const isThirdParty = (publishedName: string) => {
 };
 
 export function useDriverUninstall(cabinet: CabinetDetail, onChanged: () => void) {
-  const allowed = useCanWrite(cabinet);
+  const allowed = useCanWrite(cabinet, "driver.uninstall");
   const w = useConfirmedWrite<DriverUninstallOutput>(cabinet, "driver.uninstall", r => { if (r.status === "succeeded") onChanged(); });
   return {
     allowed,

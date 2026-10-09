@@ -143,7 +143,7 @@ export function useOperation<T>(cabinetId: string, operation: string) {
 export function useWrite<T>(cabinetId: string, operation: string) {
   const { issue, wait } = useCommands();
   const [state, setState] = useState<Run<T>>({ state: "idle", result: null, problem: null, at: null });
-  const begin = useCallback(async (params: Record<string, unknown>, stepUpToken: string, after?: (r: CommandResult<T>) => void) => {
+  const begin = useCallback(async (params: Record<string, unknown>, stepUpToken: string | undefined, after?: (r: CommandResult<T>) => void) => {
     const issued = await issue(cabinetId, operation, params, stepUpToken);
     setState(s => ({ ...s, state: "running", problem: null }));
     void wait<T>(issued).then(

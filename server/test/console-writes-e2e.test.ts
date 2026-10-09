@@ -66,7 +66,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     ada: { username: "ada.admin", name: "Ada Admin", role: "admin", secret: totp.newSecret(), id: randomUUID() },
     abe: { username: "abe.admin", name: "Abe Admin", role: "admin", secret: totp.newSecret(), id: randomUUID() },
     tess: { username: "tess.tier2", name: "Tess Tier2", role: "tier2", secret: totp.newSecret(), id: randomUUID() },
-    sam: { username: "sam.support", name: "Sam Support", role: "tier1", secret: null, id: randomUUID() },
+    sam: { username: "sam.support", name: "Sam Support", role: "tier1", secret: totp.newSecret(), id: randomUUID() },
   } as const;
   for (const p of Object.values(people))
     await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
@@ -126,6 +126,13 @@ test("writes in the console: library upload and two-person approval, install, fi
       await dialog.getByRole("button", { name: "Confirm" }).click();
       await dialog.waitFor({ state: "hidden" });
     };
+    /** A click-level change: the confirmation dialog names it, and one click sends it (no code). */
+    const click = async (p: Page, expect?: RegExp) => {
+      const dialog = p.getByRole("dialog", { name: "Confirm the change" });
+      if (expect) await dialog.getByText(expect).first().waitFor();
+      await dialog.getByRole("button", { name: "Make the change" }).click();
+      await dialog.waitFor({ state: "hidden" });
+    };
     const shot = async (p: Page, name: string) => { if (process.env.E2E_SCREENSHOTS) await p.screenshot({ path: join(process.env.E2E_SCREENSHOTS, `${name}.png`), fullPage: true }); };
     const a11y = async (p: Page, where: string) => {
       assert.equal(await p.locator("h1").count(), 1, `${where}: one main heading`);
@@ -181,9 +188,9 @@ test("writes in the console: library upload and two-person approval, install, fi
     const pub = tess.getByRole("article", { name: "public profile" });
     await pub.getByRole("button", { name: "Turn off…" }).click();
     await pub.getByLabel("Turn off for").selectOption({ label: "15 minutes" });
-    assert.equal(await pub.getByRole("option", { name: /No time limit/ }).count(), 0, "only Admins may choose no time limit");
+    assert.equal(await pub.getByRole("option", { name: /No time limit/ }).count(), 1, "Tier 2 may choose no time limit");
     await pub.getByRole("button", { name: "Review" }).click();
-    await confirm(tess, people.tess.secret, /It turns itself back on after 15 minutes, even if the cabinet restarts/);
+    await click(tess, /It turns itself back on after 15 minutes, even if the cabinet restarts/);
     await tess.getByText(/Public profile is now off\. It turns back on at/).waitFor({ timeout: 60_000 });
     await tess.getByRole("article", { name: "public profile" }).getByText(/Turns itself back on at .* \(in 1[45] minutes\)/).waitFor({ timeout: 30_000 });
 
@@ -193,7 +200,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     await form.getByLabel("Local ports").fill("1433, 2000-2010");
     await form.getByLabel("Remote addresses").fill("10.20.0.0/24");
     await form.getByRole("button", { name: "Review" }).click();
-    await confirm(tess, people.tess.secret, /Create firewall rule MashuraDiag Sync 1433/);
+    await click(tess, /Create firewall rule MashuraDiag Sync 1433/);
     await tess.getByText(/Rule MashuraDiag Sync 1433 created/).waitFor({ timeout: 60_000 });
     const listed = tess.getByRole("list", { name: "Firewall rules" }).getByRole("listitem").filter({ hasText: "MashuraDiag Sync 1433" });
     await listed.getByText("Platform", { exact: true }).waitFor({ timeout: 30_000 });
@@ -220,11 +227,20 @@ test("writes in the console: library upload and two-person approval, install, fi
     await confirm(tess, people.tess.secret);
     await tess.getByText(/DNS changed: 10\.20\.0\.53, 10\.20\.0\.54\. The safety net kept the change/).waitFor({ timeout: 60_000 });
 
-    // ---- Tier 1 sees no write controls (the server would refuse them anyway) ---------------
+    // ---- Tier 1 applies the client's firewall policy (all off by default) with one click; no other write controls ----
     const sam = await signIn("sam");
     await section(sam, "firewall");
     await sam.getByRole("article", { name: "public profile" }).waitFor({ timeout: 30_000 });
-    assert.equal(await sam.getByRole("button", { name: /Turn off|Turn on|Add a rule/ }).count(), 0);
+    assert.equal(await sam.getByRole("button", { name: /Add a rule/ }).count(), 0, "rules are Tier 2");
+    assert.ok(await sam.getByRole("button", { name: /Turn off|Turn on/ }).count() > 0, "Tier 1 turns profiles on and off");
+    const policy = sam.getByRole("region", { name: /Firewall policy/ });
+    await policy.getByText("Differs").waitFor({ timeout: 60_000 });
+    await policy.getByRole("button", { name: "Apply policy" }).click();
+    await click(sam, /Set the firewall profiles as the policy says: Domain off, Private off, Public off/);
+    await sam.getByText(/Changed: Domain, Private\.|Changed: Domain, Private, Public\./).waitFor({ timeout: 60_000 });
+    await until("the cabinet to report it matches", async () => (await db.app.query(
+      "SELECT state FROM alerts WHERE cabinet_id = $1 AND issue_type_id = '00000000-0000-4000-8000-000000000113' ORDER BY first_seen DESC LIMIT 1", [cabinetId])).rows[0]?.state === "resolved");
+    await shot(sam, "m9-1-policy-applied");
     await section(sam, "software");
     await sam.locator(".packages > li").filter({ hasText: "Scanner driver" }).waitFor({ timeout: 30_000 });
     assert.equal(await sam.getByRole("button", { name: "Install" }).count(), 0);
@@ -240,8 +256,9 @@ test("writes in the console: library upload and two-person approval, install, fi
     // Every write is in the audit log, by the person who confirmed it, and the chain is intact.
     const writes = (await db.app.query<{ op: string; actor: string }>(
       "SELECT details->>'operation' AS op, actor_id AS actor FROM audit_log WHERE action = 'command.write' ORDER BY seq")).rows;
-    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns"]);
-    assert.ok(writes.every(w => w.actor === people.tess.id));
+    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy"]);
+    assert.ok(writes.slice(0, 4).every(w => w.actor === people.tess.id));
+    assert.equal(writes[4]!.actor, people.sam.id);
     assert.equal((await verifyAuditChain(db.app)).ok, true);
     assert.deepEqual(problems, []);
   } finally {
