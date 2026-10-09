@@ -85,6 +85,7 @@ public sealed class Updater(UpdaterPaths paths, UpgradeJournalStore journal, IUp
 {
     public static readonly TimeSpan DefaultCheckInWindow = TimeSpan.FromMinutes(5);
     public TimeSpan CheckInWindow { get; init; } = DefaultCheckInWindow;
+    private static readonly TimeSpan ClockSkew = TimeSpan.FromSeconds(30);
     public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(5);
     /// <summary>How long a locked file may keep a move or delete waiting.</summary>
     public TimeSpan FileRetry { get; init; } = TimeSpan.FromSeconds(60);
@@ -155,9 +156,14 @@ public sealed class Updater(UpdaterPaths paths, UpgradeJournalStore journal, IUp
     private UpgradeJournal Wait(UpgradeJournal j)
     {
         DateTimeOffset by = j.CheckInBy ?? clock.GetUtcNow();
+        // The check-in file is written by the network service, so a check-in counts only if it was written after the new
+        // version was started (the start of this wait) and is not dated in the future: an old network service cannot leave
+        // one in advance that would keep a broken release.
+        DateTimeOffset startedWaiting = by - CheckInWindow;
         while (true)
         {
-            if (CheckInFile.Read(paths.CheckIn) is { } c && c.Version == j.Version && c.At >= j.StartedAt)
+            DateTimeOffset now = clock.GetUtcNow();
+            if (CheckInFile.Read(paths.CheckIn) is { } c && c.Version == j.Version && c.At >= startedWaiting && c.At <= now + ClockSkew)
             {
                 log($"Version {j.Version} checked in with the server; the upgrade is complete.");
                 TryDelete(paths.Staged);
@@ -185,7 +191,7 @@ public sealed class Updater(UpdaterPaths paths, UpgradeJournalStore journal, IUp
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
-            log($"Restoring {j.FromVersion} failed ({e.GetType().Name}: {e.Message}).");
+            log($"Restoring {j.FromVersion} failed ({e.GetType().Name}).");
             return journal.Write(j with { Phase = UpgradePhase.Failed, Check = check, FinishedAt = clock.GetUtcNow(),
                 Message = Short($"{why} Restoring {j.FromVersion} also failed ({e.GetType().Name}); the cabinet needs a visit.") });
         }

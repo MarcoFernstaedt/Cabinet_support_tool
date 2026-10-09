@@ -58,6 +58,7 @@ public sealed class BrokerPipeServer
     }
 
     public const int Instances = 4;
+    private static readonly TimeSpan IoTimeout = TimeSpan.FromMinutes(1);
 
     /// <summary>Serves until cancelled, with up to four connections at once.</summary>
     public Task RunAsync(CancellationToken token)
@@ -87,12 +88,19 @@ public sealed class BrokerPipeServer
                     _log("Refused a broker connection from an account other than the network service.");
                     continue;
                 }
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeout.CancelAfter(TimeSpan.FromMinutes(2));
-                byte[]? request = await BrokerFraming.ReadAsync(pipe, BrokerFraming.MaxRequestBytes, timeout.Token).ConfigureAwait(false);
+                // Reading the request and writing the answer each get a short limit; the operation itself is bounded by
+                // the handler, per kind (an install may take many minutes), so a long write is never cut off here.
+                byte[]? request;
+                using (var reading = CancellationTokenSource.CreateLinkedTokenSource(token))
+                {
+                    reading.CancelAfter(IoTimeout);
+                    request = await BrokerFraming.ReadAsync(pipe, BrokerFraming.MaxRequestBytes, reading.Token).ConfigureAwait(false);
+                }
                 if (request is null) continue;
-                byte[]? response = await _handler.HandleAsync(request, timeout.Token).ConfigureAwait(false);
-                if (response is not null) await BrokerFraming.WriteAsync(pipe, response, timeout.Token).ConfigureAwait(false);
+                byte[]? response = await _handler.HandleAsync(request, token).ConfigureAwait(false);
+                using var writing = CancellationTokenSource.CreateLinkedTokenSource(token);
+                writing.CancelAfter(IoTimeout);
+                if (response is not null) await BrokerFraming.WriteAsync(pipe, response, writing.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
             catch (Exception e) when (e is IOException or OperationCanceledException or UnauthorizedAccessException)

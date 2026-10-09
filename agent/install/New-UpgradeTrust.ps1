@@ -31,8 +31,10 @@ Set-StrictMode -Version Latest
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 function Assert-OutsideRepo([string] $Path) {
-    $full = [IO.Path]::GetFullPath($Path)
+    # Resolved the way PowerShell resolves it (against the current location), so the check and the write see the same path.
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
     if ($full.StartsWith($repo, [StringComparison]::OrdinalIgnoreCase)) { throw "A private key must never be written inside the repository ($full)." }
+    return $full
 }
 
 function Read-Spki([string] $Path) {
@@ -44,9 +46,18 @@ function Read-Spki([string] $Path) {
 }
 
 if ($NewDevKey) {
-    Assert-OutsideRepo $NewDevKey
+    $NewDevKey = Assert-OutsideRepo $NewDevKey
     $key = [Security.Cryptography.ECDsa]::Create([Security.Cryptography.ECCurve+NamedCurves]::nistP256)
-    Set-Content -Path $NewDevKey -Value $key.ExportPkcs8PrivateKeyPem() -NoNewline -Encoding ascii
+    Set-Content -LiteralPath $NewDevKey -Value $key.ExportPkcs8PrivateKeyPem() -NoNewline -Encoding ascii
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+        # Only the person who made it (and SYSTEM) may read the key, whatever the folder would otherwise pass down.
+        $acl = New-Object Security.AccessControl.FileSecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        $me = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($me, 'FullControl', 'Allow')))
+        $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule('NT AUTHORITY\SYSTEM', 'FullControl', 'Allow')))
+        Set-Acl -LiteralPath $NewDevKey -AclObject $acl
+    } else { chmod 600 $NewDevKey }
     Write-Host "Development release key written to $NewDevKey. It is for test builds only."
     $DevKeyFile = $NewDevKey
 }

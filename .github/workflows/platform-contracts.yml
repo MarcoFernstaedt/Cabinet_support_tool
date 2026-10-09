@@ -133,7 +133,7 @@ jobs:
           ./agent/install/Publish-CabinetAgent.ps1
           ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
           Start-Sleep -Seconds 10
-          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log"
+          Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log", "$env:ProgramData\Mashura\CabinetAgent\broker\logs\*.log"
       - name: Services run with the intended accounts
         shell: pwsh
         run: |
@@ -259,7 +259,7 @@ jobs:
           function Expect($r, $status, $code) {
             Write-Host ("  -> {0} {1} {2}" -f $r.status, $r.result.error.code, $r.result.error.message)
             if ($r.status -ne $status -or ($code -and $r.result.error.code -ne $code)) {
-              Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Tail 30; Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30
+              Get-Content "$env:ProgramData\Mashura\CabinetAgent\broker\logs\broker.log" -Tail 30; Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 30
               throw "Expected $status $code"
             }
           }
@@ -313,10 +313,10 @@ jobs:
           if ((Get-NetFirewallProfile -Name Public).Enabled) { throw 'The public profile was not turned off.' }
           Stop-Service CabinetAgentBroker -Force; Start-Sleep 20; Start-Service CabinetAgentBroker; Start-Service CabinetAgentNetwork
           Start-Sleep 140
-          if (-not (Get-NetFirewallProfile -Name Public).Enabled) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Tail 30; throw 'The public profile did not come back on.' }
+          if (-not (Get-NetFirewallProfile -Name Public).Enabled) { Get-Content "$env:ProgramData\Mashura\CabinetAgent\broker\logs\broker.log" -Tail 30; throw 'The public profile did not come back on.' }
           if (Get-NetFirewallRule -DisplayName 'MashuraDiag CI unconfirmed' -ErrorAction SilentlyContinue) { throw 'The unconfirmed rule was not rolled back.' }
           if ((Get-ItemProperty $key).NameServer) { throw 'The unconfirmed DNS change was not rolled back.' }
-          Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\logs\broker.log" -Pattern 'rolled back', 'on again' -SimpleMatch | ForEach-Object { Write-Host "  $($_.Line)" }
+          Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\broker\logs\broker.log" -Pattern 'rolled back', 'on again' -SimpleMatch | ForEach-Object { Write-Host "  $($_.Line)" }
 
           Write-Host 'Packages: the driver signed through Microsoft is uploaded, approved by a second Admin, downloaded, checked again and installed by pnputil.'
           $up = node $cli package upload "$env:PACKAGE_FIXTURES\oem-driver.zip" --type driver --name "CI driver" --version 1 --vendor Microsoft --as ci.admin
@@ -410,7 +410,8 @@ jobs:
           if (-not $cab) { throw 'The cabinet did not come online.' }
           $cabinetId = (($cab.Line) -split ' ')[0]
           $log = "$env:ProgramData\Mashura\CabinetAgent\logs"
-          function Logs { foreach ($f in 'network', 'broker', 'updater') { if (Test-Path "$log\$f.log") { Write-Host "--- $f.log"; Get-Content "$log\$f.log" -Tail 25 } } }
+          $brokerLog = "$env:ProgramData\Mashura\CabinetAgent\broker\logs"
+          function Logs { foreach ($f in "$log\network.log", "$brokerLog\broker.log", "$brokerLog\updater.log") { if (Test-Path $f) { Write-Host "--- $f"; Get-Content $f -Tail 25 } } }
           function Version { ((node server/dist/src/cli.js cabinets | Select-String $cabinetId).Line -split 'agent ')[1].Split(' ')[0] }
           function Outcome($rollout, $seconds = 600) {
             for ($i = 0; $i -lt $seconds / 5; $i++) {

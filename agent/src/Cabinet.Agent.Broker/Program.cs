@@ -30,8 +30,8 @@ public sealed class BrokerService : ServiceBase
     public BrokerService()
     {
         ServiceName = ServiceNames.Broker;
-        Directory.CreateDirectory(AgentPaths.Logs);
-        _log = new FileLog(Path.Combine(AgentPaths.Logs, "broker.log"));
+        Directory.CreateDirectory(AgentPaths.BrokerLogs);
+        _log = new FileLog(Path.Combine(AgentPaths.BrokerLogs, "broker.log"));
     }
 
     protected override void OnStart(string[] args)
@@ -67,31 +67,66 @@ public sealed class BrokerService : ServiceBase
     }
 
     /// <summary>
-    /// The broker's folders, with their access lists set every start: its state and staging are writable only
-    /// by SYSTEM and administrators (the network service may read the firewall journal and snapshot list, not
-    /// staging), and downloads is where the network service may write a package for the broker to copy out.
+    /// The broker's folders, with their access lists set every start: its state, logs and staging are writable only
+    /// by SYSTEM and administrators (the network service may read the broker's folder, not staging), and downloads is
+    /// where the network service may write a package or release for the broker to copy out.
+    /// Downloads is the one folder a less trusted account can change, so it is never trusted as a path: any link
+    /// planted in its place is removed, it is re-created with its access list set at creation (nothing is set through
+    /// an existing path), and the broker only ever reads from it.
     /// </summary>
-    private static void PrepareFolders()
+    private void PrepareFolders()
     {
         var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
         var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
         var network = new NTAccount("NT SERVICE", ServiceNames.Network);
-        void Secure(string path, FileSystemRights? networkRights)
+        DirectorySecurity Acl(FileSystemRights? networkRights)
         {
-            var dir = Directory.CreateDirectory(path);
             var acl = new DirectorySecurity();
             acl.SetAccessRuleProtection(true, false);
+            acl.SetOwner(admins);
             var inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
             acl.AddAccessRule(new FileSystemAccessRule(system, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
             acl.AddAccessRule(new FileSystemAccessRule(admins, FileSystemRights.FullControl, inherit, PropagationFlags.None, AccessControlType.Allow));
             if (networkRights is { } rights)
                 acl.AddAccessRule(new FileSystemAccessRule(network, rights, inherit, PropagationFlags.None, AccessControlType.Allow));
-            dir.SetAccessControl(acl);
+            return acl;
+        }
+        // The data folder and the broker's own folders: writable only by SYSTEM and administrators (the installer set
+        // this), so a path through them cannot be redirected. A link found here is refused rather than followed.
+        RefuseLink(AgentPaths.DataRoot);
+        void Secure(string path, FileSystemRights? networkRights)
+        {
+            RefuseLink(path);
+            Directory.CreateDirectory(path).SetAccessControl(Acl(networkRights));
         }
         Secure(AgentPaths.Broker, FileSystemRights.ReadAndExecute);
+        Secure(AgentPaths.BrokerLogs, FileSystemRights.ReadAndExecute);
         Secure(AgentPaths.BrokerFirewall, FileSystemRights.ReadAndExecute);
         Secure(AgentPaths.Staging, null);
-        Secure(AgentPaths.Downloads, FileSystemRights.Modify);
+
+        // Downloads: what it holds is transient, so it is emptied and created again with its access list in one step.
+        var downloads = new DirectoryInfo(AgentPaths.Downloads);
+        try
+        {
+            if (downloads.Exists && downloads.Attributes.HasFlag(FileAttributes.ReparsePoint)) downloads.Delete(); // removes the link only
+            else if (downloads.Exists) downloads.Delete(recursive: true); // .NET removes links inside without following them
+            downloads.Create(Acl(FileSystemRights.Modify));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            // The network service may be using it (a broker restart while it downloads); its access list is the one set when it was created.
+            _log.Write($"The downloads folder was not re-created ({e.GetType().Name}); keeping it.");
+            downloads.Refresh();
+            if (downloads.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("The downloads folder is a link; refusing to start.");
+        }
+    }
+
+    /// <summary>Refuses to start when a folder the broker trusts is a junction or link.</summary>
+    private static void RefuseLink(string path)
+    {
+        var dir = new DirectoryInfo(path);
+        if (dir.Exists && dir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            throw new InvalidOperationException($"{path} is a link, not a folder; refusing to start.");
     }
 
     protected override void OnStop()

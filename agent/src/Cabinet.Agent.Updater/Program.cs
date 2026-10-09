@@ -19,8 +19,8 @@ public static class Program
 {
     public static int Main(string[] args)
     {
-        Directory.CreateDirectory(AgentPaths.Logs);
-        var log = new FileLog(Path.Combine(AgentPaths.Logs, "updater.log"));
+        Directory.CreateDirectory(AgentPaths.BrokerLogs);
+        var log = new FileLog(Path.Combine(AgentPaths.BrokerLogs, "updater.log"));
         if (args is not ["run"] and not ["resume"]) { log.Write("Refusing to start: the updater takes only run or resume."); return 2; }
         using (var identity = WindowsIdentity.GetCurrent())
             if (!identity.IsSystem) { log.Write("Refusing to start: the updater runs only as SYSTEM, started by the broker."); return 5; }
@@ -38,7 +38,7 @@ public static class Program
         }
         catch (Exception e)
         {
-            log.Write($"The updater stopped: {e.GetType().Name}: {e.Message}");
+            log.Write($"The updater stopped: {e.GetType().Name}.");
             return 1;
         }
         finally { mutex.ReleaseMutex(); }
@@ -48,7 +48,7 @@ public static class Program
 /// <summary>Stops and starts the two agent services, waiting until their processes have really exited so their files can be moved.</summary>
 public sealed class ServicePlatform(Action<string> log) : IUpdaterPlatform
 {
-    private const string Broker = "CabinetAgentBroker", Network = "CabinetAgentNetwork";
+    private const string Broker = ServiceNames.Broker, Network = ServiceNames.Network;
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(60);
 
     public void StopServices()

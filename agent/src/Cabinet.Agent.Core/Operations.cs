@@ -84,6 +84,28 @@ public static class OperationRunner
 {
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(90);
 
+    /// <summary>
+    /// How long the broker lets an operation run. Installs and driver removal run an installer with its own
+    /// 10-minute limit plus the checks; other writes are quick; reads keep the default.
+    /// </summary>
+    public static TimeSpan BrokerTimeoutFor(string operation) => operation switch
+    {
+        Catalog.PackageInstall or Catalog.DriverUninstall => TimeSpan.FromMinutes(20),
+        _ when Catalog.TryGet(operation, out CatalogEntry e) && e.Kind == OperationKind.Write => TimeSpan.FromMinutes(5),
+        _ => DefaultTimeout,
+    };
+
+    /// <summary>
+    /// How long the network service waits for a command: always longer than the broker's limit, so the broker's own
+    /// answer (done, or timed out) is what gets reported, never a guess. A package install also downloads up to 500 MB first.
+    /// </summary>
+    public static TimeSpan NetworkTimeoutFor(string operation) => operation switch
+    {
+        Catalog.PackageInstall => TimeSpan.FromMinutes(29),
+        _ when Catalog.TryGet(operation, out CatalogEntry e) && e.Kind == OperationKind.Write => BrokerTimeoutFor(operation) + TimeSpan.FromMinutes(1),
+        _ => DefaultTimeout,
+    };
+
     public static async Task<(JsonElement? Output, ResultError? Error)> RunAsync(
         OperationRegistry registry, string operation, JsonElement parameters, TimeSpan timeout, CancellationToken cancellation)
     {

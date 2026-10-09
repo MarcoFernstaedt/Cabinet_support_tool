@@ -65,7 +65,10 @@ public static class AgentPaths
     public static string DataRoot { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Mashura", "CabinetAgent");
     public static string Config => Path.Combine(DataRoot, "agent-config.json");
     public static string State => Path.Combine(DataRoot, "state");
+    /// <summary>The network service's log folder (it may write here).</summary>
     public static string Logs => Path.Combine(DataRoot, "logs");
+    /// <summary>The broker's and updater's logs: inside the broker's folder, so only SYSTEM and administrators can write them.</summary>
+    public static string BrokerLogs => Path.Combine(Broker, "logs");
     public static string HarnessInbox => Path.Combine(DataRoot, "harness", "inbox");
     public static string HarnessOutbox => Path.Combine(DataRoot, "harness", "outbox");
     /// <summary>The CA the platform server's certificate must chain to. Installed with the agent; only administrators can change it.</summary>

@@ -76,9 +76,11 @@ public sealed class UpgradeCoordinator(string downloads, string runningVersion, 
         if (!SemVersion.TryParse(version, out SemVersion offered) || offered <= SemVersion.Parse(runningVersion)) return;
         lock (_gate)
         {
-            if (!_current.IsCompleted || !_attempted.Add(offered.ToString())) return;
+            if (!_current.IsCompleted || _attempted.Contains(offered.ToString())) return;
             // Busy, or this version already ended here without succeeding (a rolled-back release is not tried again; the server stops offering it).
+            // A version offered while busy is not marked attempted, so the next offer after the earlier upgrade ends still counts.
             if (journal.Read() is { } last && (!last.Final || (last.Version == offered.ToString() && last.Phase != UpgradePhase.Succeeded))) return;
+            _attempted.Add(offered.ToString());
             _current = Task.Run(() => AttemptAsync(api, offered.ToString(), token), token);
         }
     }
@@ -106,7 +108,17 @@ public sealed class UpgradeCoordinator(string downloads, string runningVersion, 
             return;
         }
 
-        var (ok, error) = await brokerUpgrade(version, token).ConfigureAwait(false);
+        (bool ok, ResultError? error) outcome;
+        try { outcome = await brokerUpgrade(version, token).ConfigureAwait(false); }
+        finally
+        {
+            // The broker works only from its own copy, so the network service removes its download whatever happened.
+            try { if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        var (ok, error) = outcome;
+        if (!ok && error is null or { Code: "unavailable" })
+            lock (_gate) _attempted.Remove(version); // the broker was busy or unreachable: the release was never judged, so a later offer may try again
         if (ok)
         {
             log($"The broker verified agent {version} and started the updater.");

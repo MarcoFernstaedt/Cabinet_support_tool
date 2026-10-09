@@ -15,7 +15,9 @@ public interface IUpdaterLauncher
 /// <summary>
 /// The broker's half of an upgrade: a request names a version only; the broker verifies that release in full
 /// (<see cref="ReleaseVerifier"/>), records it in the journal and starts the updater. At start-up it resumes an
-/// upgrade a restart cut short. It answers with the exact check that refused a release.
+/// upgrade a restart cut short. It answers with the exact check that refused a release. It only ever reads from the
+/// network service's downloads folder (the network service removes its own download): SYSTEM never deletes or writes
+/// through a folder a less trusted account can change, since that account could turn it into a link elsewhere.
 /// </summary>
 public sealed class UpgradeBroker(ReleaseVerifier verifier, UpgradeJournalStore journal, string downloads, string staging, string runningVersion,
     IUpdaterLauncher launcher, TimeProvider clock, Action<string> log)
@@ -50,12 +52,6 @@ public sealed class UpgradeBroker(ReleaseVerifier verifier, UpgradeJournalStore 
         {
             log($"Release {version} could not be checked ({e.GetType().Name}).");
             return (null, new ResultError { Code = "execution_failed", Message = "The release could not be read for checking.", Check = UpgradeCheck.Download });
-        }
-        finally
-        {
-            // The network service's copy is never used again; the broker works only from its own.
-            try { string d = ReleaseVerifier.DownloadFolder(downloads, version); if (SemVersion.TryParse(version, out _) && Directory.Exists(d)) Directory.Delete(d, true); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }
 

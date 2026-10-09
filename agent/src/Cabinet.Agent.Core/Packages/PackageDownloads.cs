@@ -19,9 +19,29 @@ public sealed class PackageDownloads(string downloads)
         {
             var p = System.Text.Json.JsonSerializer.Deserialize<PackageInstallParams>(raw, ContractJson.Options)!;
             AgentApiClient client = Client ?? throw new OperationFailedException("unavailable", "The platform server is not connected.");
-            Directory.CreateDirectory(downloads);
-            try { await client.DownloadPackageAsync(p.PackageId, PackageInstaller.DownloadPath(downloads, p.PackageId), PackageInstaller.MaxPackageBytes, token).ConfigureAwait(false); }
-            catch (AgentApiException e) { throw new OperationFailedException("unavailable", e.Message); }
-            return await broker(Catalog.PackageInstall, raw, token).ConfigureAwait(false);
+            string path = PackageInstaller.DownloadPath(downloads, p.PackageId);
+            try
+            {
+                try { await client.DownloadPackageAsync(p.PackageId, path, PackageInstaller.MaxPackageBytes, token).ConfigureAwait(false); }
+                catch (AgentApiException e) { throw new OperationFailedException("unavailable", e.Message); }
+                return await broker(Catalog.PackageInstall, raw, token).ConfigureAwait(false);
+            }
+            finally { TryDelete(path); } // the broker has its own copy by now (or never will), so the download is never kept
         });
+
+    /// <summary>Removes downloads a crash or restart left behind. Called when the network service starts.</summary>
+    public void Sweep()
+    {
+        try
+        {
+            if (!Directory.Exists(downloads)) return;
+            foreach (string f in Directory.EnumerateFiles(downloads, "*.pkg")) TryDelete(f);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
 }

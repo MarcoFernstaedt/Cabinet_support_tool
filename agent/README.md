@@ -125,7 +125,7 @@ Once the client supplies the scanner and sync details, reinstall with them:
 
 Use `-ReadOnly` to refuse every write whatever the server sends. To remove the agent, run `./agent/install/Uninstall-CabinetAgent.ps1 -RemoveData`.
 
-Logs are in `C:\ProgramData\Mashura\CabinetAgent\logs`. They hold command IDs, operation names and outcomes only, never parameters or output.
+The network service logs to `C:\ProgramData\Mashura\CabinetAgent\logs`; the broker and updater log to `C:\ProgramData\Mashura\CabinetAgent\broker\logs`, which only SYSTEM and administrators can write (SYSTEM never writes through a folder the network service can change). They hold command IDs, operation names and outcomes only, never parameters or output.
 
 ## Tests
 

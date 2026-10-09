@@ -45,7 +45,15 @@ public sealed class FakeNetwork : INetworkControl
     public DnsSettings Dns = new() { Automatic = true, Servers = ["10.20.0.1"] };
     public (Ipv4Settings Ip, DnsSettings Dns) Read(int i) => i == 12 ? (Ip, Dns) : throw new OperationFailedException("not_found", "No adapter has that index.");
     public void SetDhcp(int i) { Read(i); Ip = Ip with { Dhcp = true }; }
-    public void SetStatic(int i, string a, int p, string g) { Read(i); Ip = new() { Dhcp = false, Addresses = [new() { Address = a, PrefixLength = p }], Gateways = [g] }; }
+    /// <summary>Like Windows when the address is set but the gateway call then fails: half the change is applied.</summary>
+    public bool GatewayFails;
+    public void SetStatic(int i, string a, int p, string g)
+    {
+        Read(i);
+        Ip = new() { Dhcp = false, Addresses = [new() { Address = a, PrefixLength = p }], Gateways = [] };
+        if (GatewayFails) throw new IOException("SetGateways failed");
+        Ip = Ip with { Gateways = [g] };
+    }
     public void SetDns(int i, DnsSettings d) { Read(i); Dns = d; }
     public void Restore(int i, Ipv4Settings ip) { Read(i); Ip = ip; }
 }
@@ -257,6 +265,31 @@ public class BrokerWriteTests
         _writes.Tick();
         Assert.True(_net.Ip.Dhcp);
         Assert.True(_net.Dns.Automatic);
+    }
+
+    [Fact]
+    public void A_network_change_that_fails_half_way_is_still_undone_by_the_safety_net()
+    {
+        _net.GatewayFails = true;
+        Guid cmd = Guid.NewGuid();
+        Assert.Throws<IOException>(() => As(cmd, () => _writes.SetIp(new NetworkSetIpParams { InterfaceIndex = 12, Mode = IpMode.Static, Address = "10.20.0.50", PrefixLength = 24, Gateway = "10.20.0.1" })));
+        Assert.False(_net.Ip.Dhcp); // the address changed and the gateway is gone
+        Assert.Contains(_safety.Pending, e => e.CommandId == cmd);
+        _clock.Advance(TimeSpan.FromMinutes(3));
+        _writes.Tick();
+        Assert.True(_net.Ip.Dhcp);
+        Assert.Equal(["10.20.0.1"], _net.Ip.Gateways);
+    }
+
+    [Fact]
+    public void Each_operation_gets_a_time_limit_for_its_kind_and_the_network_side_always_outlasts_the_broker()
+    {
+        Assert.Equal(OperationRunner.DefaultTimeout, OperationRunner.NetworkTimeoutFor(Catalog.SystemInfo));
+        Assert.True(OperationRunner.BrokerTimeoutFor(Catalog.PackageInstall) >= TimeSpan.FromMinutes(15));
+        foreach (var entry in Catalog.All.Where(e => e.Kind == OperationKind.Write))
+            Assert.True(OperationRunner.NetworkTimeoutFor(entry.Name) > OperationRunner.BrokerTimeoutFor(entry.Name), entry.Name);
+        // A package can be downloaded only for 30 minutes after its command is delivered (the server's rule), so the agent stops before that.
+        Assert.True(OperationRunner.NetworkTimeoutFor(Catalog.PackageInstall) < TimeSpan.FromMinutes(30));
     }
 
     [Theory]

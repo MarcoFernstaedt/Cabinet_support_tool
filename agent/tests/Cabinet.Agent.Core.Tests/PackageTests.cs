@@ -236,7 +236,8 @@ public class PackageTests : IDisposable
         Assert.Equal(new PackageChecks { Hash = CheckOutcome.Passed, Signature = CheckOutcome.Passed, Publisher = CheckOutcome.Passed }, output.Checks);
         Assert.Equal(["scanner.inf"], _platform.Installed);
         Assert.Empty(Directory.EnumerateFileSystemEntries(_dir.File("staging")));
-        Assert.Empty(Directory.EnumerateFiles(_dir.File("downloads")));
+        // The broker only reads the download; the network service removes it (SYSTEM never deletes through a folder it does not own).
+        Assert.Single(Directory.EnumerateFiles(_dir.File("downloads")));
     }
 
     [Fact]

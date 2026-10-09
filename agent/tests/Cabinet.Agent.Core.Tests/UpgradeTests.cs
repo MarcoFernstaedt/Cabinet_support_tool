@@ -493,6 +493,18 @@ public class UpdaterTests : IDisposable
     }
 
     [Fact]
+    public void A_check_in_written_in_advance_with_a_future_time_does_not_keep_a_broken_release()
+    {
+        // A compromised old network service could leave a check-in dated after the upgrade starts; it must not count.
+        Verified();
+        CheckInFile.Write(_paths.CheckIn, "0.2.0", DateTimeOffset.UtcNow.AddHours(1));
+        var platform = new FakeUpdaterPlatform(_paths.CheckIn, () => null);
+        UpgradeJournal j = Make(platform).Run();
+        Assert.Equal(UpgradePhase.RolledBack, j.Phase);
+        Assert.Equal("0.1.0", Installed);
+    }
+
+    [Fact]
     public void A_damaged_check_in_file_does_not_count()
     {
         Verified();
@@ -608,7 +620,7 @@ public class UpgradeBrokerTests : IDisposable
     public void Dispose() => _f.Dispose();
 
     [Fact]
-    public void A_verified_release_is_journaled_and_the_updater_started_and_the_download_removed()
+    public void A_verified_release_is_journaled_and_the_updater_started_and_the_download_only_read()
     {
         _f.PlaceGood("0.2.0");
         var (output, error) = _broker.Start("0.2.0");
@@ -617,7 +629,7 @@ public class UpgradeBrokerTests : IDisposable
         Assert.Equal(["run"], _launcher.Launched);
         UpgradeJournal j = _journal.Read()!;
         Assert.Equal((UpgradePhase.Verified, "0.2.0", "0.1.0"), (j.Phase, j.Version, j.FromVersion));
-        Assert.False(Directory.Exists(ReleaseVerifier.DownloadFolder(_f.Downloads, "0.2.0")));
+        Assert.True(Directory.Exists(ReleaseVerifier.DownloadFolder(_f.Downloads, "0.2.0"))); // the network service removes its own download
     }
 
     [Fact]

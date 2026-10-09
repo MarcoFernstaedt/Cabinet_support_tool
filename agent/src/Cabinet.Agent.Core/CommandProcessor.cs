@@ -20,7 +20,8 @@ public sealed class CommandProcessor
         _clock = clock;
     }
 
-    public TimeSpan Timeout { get; init; } = OperationRunner.DefaultTimeout;
+    /// <summary>A fixed limit for every operation (tests); when unset each operation gets <see cref="OperationRunner.NetworkTimeoutFor"/>.</summary>
+    public TimeSpan? Timeout { get; init; }
 
     /// <returns>The result, or null with a reason when the command cannot be addressed.</returns>
     public async Task<(Result? Result, string? DroppedReason)> ProcessAsync(ReadOnlyMemory<byte> utf8, CancellationToken cancellation)
@@ -38,7 +39,7 @@ public sealed class CommandProcessor
                 }), null);
             case ValidationOutcome.Accepted a:
                 var (output, error) = await OperationContext.RunAsync(a.Command.Command.CommandId, () => OperationRunner.RunAsync(
-                    _registry, a.Command.Entry.Name, a.Command.Command.Params, Timeout, cancellation)).ConfigureAwait(false);
+                    _registry, a.Command.Entry.Name, a.Command.Command.Params, Timeout ?? OperationRunner.NetworkTimeoutFor(a.Command.Entry.Name), cancellation)).ConfigureAwait(false);
                 return (Checked(new Result
                 {
                     CommandId = a.Command.Command.CommandId,

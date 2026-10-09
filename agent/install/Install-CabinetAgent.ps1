@@ -12,7 +12,7 @@
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -EnableLocalHarness
 .EXAMPLE
-  .\Install-CabinetAgent.ps1 -PlatformServerHost diag.mashura.example -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapToken <token>
+  .\Install-CabinetAgent.ps1 -PlatformServerHost diag.mashura.example -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapTokenFile .\bootstrap-token.txt
   Connects to the platform server. The token comes from platform-admin token create; it works once and is deleted after use.
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -ScannerHardwareId 'USB\VID_1234&PID_5678' -SyncCabinetAddress 10.20.0.15 -AllowedTcpPort 1433 -ReadOnly
@@ -29,10 +29,17 @@ param(
     [ValidateRange(1, 65535)] [int] $PlatformServerPort,
     [string] $PlatformCaFile,
     [ValidatePattern('^[A-Za-z0-9_-]{32,128}$')] [string] $BootstrapToken,
+    # Preferred over -BootstrapToken: a token on the command line can be kept by process-creation auditing and script-block logging.
+    [string] $BootstrapTokenFile,
     [ValidateRange(1, 65535)] [int[]] $AllowedTcpPort = @(),
     [switch] $EnableLocalHarness
 )
 $ErrorActionPreference = 'Stop'
+if ($BootstrapTokenFile) {
+    if ($BootstrapToken) { throw 'Give -BootstrapToken or -BootstrapTokenFile, not both.' }
+    $BootstrapToken = (Get-Content -LiteralPath $BootstrapTokenFile -Raw).Trim()
+    if ($BootstrapToken -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw 'The bootstrap token file does not hold a bootstrap token.' }
+}
 
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell.' }
@@ -96,6 +103,18 @@ function Set-FolderAcl([string] $Path, [object[]] $Rules) {
     foreach ($rule in $Rules) { $acl.AddAccessRule($rule) }
     Set-Acl -Path $Path -AclObject $acl
 }
+# ProgramData lets any user create folders, so a folder made before the install could be owned by someone else, who could
+# then swap its contents. Refuse a Mashura folder that is a link or not owned by SYSTEM or Administrators, then lock it down.
+$mashuraDir = Split-Path $dataDir -Parent
+foreach ($dir in @($mashuraDir, $dataDir)) {
+    $item = Get-Item -LiteralPath $dir -Force -ErrorAction SilentlyContinue
+    if ($item) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "$dir is a link, not a folder. Remove it and install again." }
+        $owner = (Get-Acl -LiteralPath $dir).GetOwner([Security.Principal.SecurityIdentifier]).Value
+        if ($owner -notin @('S-1-5-18', 'S-1-5-32-544')) { throw "$dir is owned by $owner, not SYSTEM or Administrators. Remove it and install again." }
+    }
+}
+Set-FolderAcl $mashuraDir @()
 Set-FolderAcl $dataDir @((New-Rule $networkAccount 'ReadAndExecute' $false))
 Set-FolderAcl (Join-Path $dataDir 'state') @((New-Rule $networkAccount 'Modify'))
 Set-FolderAcl (Join-Path $dataDir 'logs') @((New-Rule $networkAccount 'Modify'))

@@ -61,6 +61,7 @@ public sealed class NetworkService : ServiceBase
         var replay = new ReplayStore(Path.Combine(AgentPaths.State, "replay.log"), clock);
         var limits = new RateLimiter(Path.Combine(AgentPaths.State, "writes.log"), clock);
         var packages = new PackageDownloads(AgentPaths.Downloads);
+        packages.Sweep();
         CommandProcessor ProcessorFor(AgentConfig c) =>
             new(new CommandValidator(c, replay, limits, clock), NetworkOperations.Registry(c, broker, clock, packages), clock);
         var identityStore = new IdentityStore(AgentPaths.State);

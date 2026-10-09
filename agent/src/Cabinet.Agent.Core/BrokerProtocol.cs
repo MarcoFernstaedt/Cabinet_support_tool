@@ -123,9 +123,9 @@ public sealed class BrokerRequestHandler
                     : new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Failed, Error = failure });
             }
 
-            // Writes take longer (an MSI install, a driver package): they get a longer limit.
+            // Writes take longer (an MSI install, a driver package): they get the limit for their kind.
             TimeSpan limit = Catalog.TryGet(request.Operation, out CatalogEntry entry) && entry.Kind == OperationKind.Write
-                ? TimeSpan.FromMinutes(15) : _timeout;
+                ? OperationRunner.BrokerTimeoutFor(request.Operation!) : _timeout;
             var (output, error) = await OperationContext.RunAsync(request.CommandId, () =>
                 OperationRunner.RunAsync(_registry, request.Operation!, request.Params!.Value, limit, token)).ConfigureAwait(false);
             return Serialize(error is null

@@ -31,16 +31,17 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         lock (_gate)
         {
             var (ip, dns) = network.Read(p.InterfaceIndex);
+            var entry = new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Network, InterfaceIndex = p.InterfaceIndex, IpBefore = ip, DnsBefore = dns };
             if (p.Mode == IpMode.Static)
             {
                 uint address = Ipv4(p.Address!), gateway = Ipv4(p.Gateway!);
                 uint mask = p.PrefixLength == 32 ? uint.MaxValue : ~(uint.MaxValue >> p.PrefixLength!.Value);
                 if ((address & mask) != (gateway & mask) || address == gateway)
                     throw new OperationFailedException("execution_failed", "The gateway must be another address on the same subnet.");
-                network.SetStatic(p.InterfaceIndex, p.Address!, p.PrefixLength!.Value, p.Gateway!);
+                ArmIfPartlyApplied(entry, () => network.SetStatic(p.InterfaceIndex, p.Address!, p.PrefixLength!.Value, p.Gateway!));
             }
-            else network.SetDhcp(p.InterfaceIndex);
-            DateTimeOffset deadline = safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Network, InterfaceIndex = p.InterfaceIndex, IpBefore = ip, DnsBefore = dns });
+            else ArmIfPartlyApplied(entry, () => network.SetDhcp(p.InterfaceIndex));
+            DateTimeOffset deadline = safetyNet.Arm(entry);
             return new NetworkSetIpOutput { InterfaceIndex = p.InterfaceIndex, Before = ip, After = network.Read(p.InterfaceIndex).Ip, SafetyNetDeadline = deadline };
         }
     }
@@ -59,6 +60,22 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         }
     }
 
+    /// <summary>
+    /// Makes a change that Windows may apply only in part (an address set but its gateway refused, a rule half
+    /// written). If it throws, the safety net is armed with the state from before, and the failed command is never
+    /// confirmed, so the cabinet goes back to that state at the deadline instead of staying half-changed.
+    /// </summary>
+    private void ArmIfPartlyApplied(SafetyNet.Entry before, Action change)
+    {
+        try { change(); }
+        catch
+        {
+            try { safetyNet.Arm(before); }
+            catch (Exception e) { log($"Arming the safety net after a failed change: {e.GetType().Name}."); }
+            throw;
+        }
+    }
+
     // ---- Firewall -----------------------------------------------------------------------
 
     public FirewallSetProfileOutput SetProfile(FirewallSetProfileParams p)
@@ -69,7 +86,8 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             DateTimeOffset now = clock.GetUtcNow();
             FirewallProfileState before = WithTimer(firewall.Read().Profiles.Single(s => s.Profile == p.Profile));
             Guid snapshot = store.TakeSnapshot(firewall, command, now);
-            firewall.SetProfile(p.Profile, p.Enabled, p.DefaultInbound, p.DefaultOutbound);
+            ArmIfPartlyApplied(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = snapshot },
+                () => firewall.SetProfile(p.Profile, p.Enabled, p.DefaultInbound, p.DefaultOutbound));
             // Turning a profile off needs a time limit (or the explicit "no limit" only an Admin can send); the timer is kept on disk.
             if (!p.Enabled && p.DurationMinutes is { } minutes) store.SetTimer(p.Profile, now.AddMinutes(minutes), command);
             else store.ClearTimer(p.Profile);
@@ -104,14 +122,17 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
 
             ReportedFirewallRule? before = p.Change == RuleChange.Create ? null : firewall.ReadRule(name);
             Guid snapshot = store.TakeSnapshot(firewall, command, now);
-            switch (p.Change)
+            ArmIfPartlyApplied(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = snapshot }, () =>
             {
-                case RuleChange.Create: firewall.CreateRule(p.Rule!); break;
-                case RuleChange.Update: firewall.UpdateRule(name, p.Rule!); break;
-                case RuleChange.Enable: firewall.SetRuleEnabled(name, true); break;
-                case RuleChange.Disable: firewall.SetRuleEnabled(name, false); break;
-                case RuleChange.Delete: firewall.DeleteRule(name); break;
-            }
+                switch (p.Change)
+                {
+                    case RuleChange.Create: firewall.CreateRule(p.Rule!); break;
+                    case RuleChange.Update: firewall.UpdateRule(name, p.Rule!); break;
+                    case RuleChange.Enable: firewall.SetRuleEnabled(name, true); break;
+                    case RuleChange.Disable: firewall.SetRuleEnabled(name, false); break;
+                    case RuleChange.Delete: firewall.DeleteRule(name); break;
+                }
+            });
             ReportedFirewallRule? after = p.Change == RuleChange.Delete ? null : firewall.ReadRule(p.Change == RuleChange.Update ? p.Rule!.Name : name);
             store.Record(command, firewall.Read(), now);
             DateTimeOffset deadline = safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = snapshot });

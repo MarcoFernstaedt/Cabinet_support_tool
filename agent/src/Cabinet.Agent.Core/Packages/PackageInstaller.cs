@@ -45,7 +45,6 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
             Directory.CreateDirectory(work);
             string copy = Path.Combine(work, p.PackageType == PackageType.Msi ? "package.msi" : "package.zip");
             File.Copy(source, copy);
-            TryDelete(source);
 
             // 1. Hash: the copy only the broker can write is the one checked and installed.
             string actual;
@@ -90,7 +89,8 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
         }
         finally
         {
-            TryDelete(source);
+            // The download is left for the network service to remove: SYSTEM never deletes through a folder a less trusted
+            // account can change, since that account could turn the folder into a link to somewhere else.
             try { if (Directory.Exists(work)) Directory.Delete(work, recursive: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log($"Staging folder for {command} could not be emptied yet ({e.GetType().Name})."); }
         }
