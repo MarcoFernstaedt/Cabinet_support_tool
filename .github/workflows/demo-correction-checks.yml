@@ -1,7 +1,9 @@
 name: Demo correction checks
+# The earlier C# demo (src/, tests/, tools/) is superseded by the platform (contracts/, server/, console/, agent/) and is
+# scheduled for removal. It no longer runs on every push, which spent Actions minutes on code nothing ships; run it by
+# hand if needed.
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   portable-and-shipping:
