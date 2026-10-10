@@ -1,0 +1,128 @@
+# Demo deployment: PostgreSQL 16, the platform server (agent API + console API + console), and Caddy for the console's HTTPS.
+# Secrets and names come from deploy/.env (made by setup.sh from .env.example; never committed).
+#
+#   docker compose up -d --build        start or update (the migrate service runs first, every time)
+#   docker compose logs -f server       watch the server
+#   docker compose down                 stop (data is kept in the volumes)
+#
+# Published ports: 80 and 443 (Caddy, the console) and 8443 (the agent API, mutual TLS, terminated by Node).
+# PostgreSQL is never published; it sits on an internal network with no route out.
+
+name: cabinet
+
+x-platform-image: &platform-image
+  image: cabinet-platform:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+
+services:
+  postgres:
+    image: postgres:16.15-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: cabinet
+      POSTGRES_USER: cabinet_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "cabinet_owner", "-d", "cabinet"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # One shot: applies the migrations as the database owner, then creates or updates the application's
+  # least-privilege login (cabinet_app_login, a member of cabinet_app only). Safe to run again.
+  migrate:
+    <<: *platform-image
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_OWNER_URL: postgres://cabinet_owner:${POSTGRES_PASSWORD}@postgres:5432/cabinet
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
+    command: ["sh", "-c", "node /opt/cabinet/server/dist/src/cli.js migrate && node /opt/cabinet/deploy/app-role.mjs"]
+    networks:
+      - backend
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  server:
+    <<: *platform-image
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://cabinet_app_login:${APP_DB_PASSWORD}@postgres:5432/cabinet
+      # Every name or IP an agent may use to reach the agent API. The development TLS certificate covers exactly these.
+      AGENT_API_HOSTNAMES: ${AGENT_API_HOSTNAMES:?set AGENT_API_HOSTNAMES in deploy/.env}
+      CONSOLE_ORIGIN: https://${CONSOLE_SITE:?set CONSOLE_SITE in deploy/.env}
+      CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY:?set CONSOLE_SECRET_KEY in deploy/.env}
+      # Believe only Caddy (its fixed address below) about the browser's address.
+      CONSOLE_TRUST_PROXY: ${CADDY_IP:-172.30.57.10}
+      # Fixed in the image: CONSOLE_HOST=0.0.0.0, CONSOLE_PORT=8080, AGENT_API_PORT=8443, DEV_PKI_DIR=/var/lib/cabinet/pki,
+      # PACKAGE_DIR, RELEASE_DIR, CONSOLE_STATIC_DIR, AGENT_DOWNLOAD_DIR=/opt/cabinet/agent-download.
+    ports:
+      # Published directly, never behind a proxy: the agents' client certificates must reach Node.
+      - "8443:8443"
+    volumes:
+      # DEMO ONLY: the development issuing CA (its private key is in this volume). Production uses a KMS-held key.
+      - pki:/var/lib/cabinet/pki
+      - packages:/var/lib/cabinet/packages
+      - releases:/var/lib/cabinet/releases
+    networks:
+      - backend
+      - frontend
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      CONSOLE_SITE: ${CONSOLE_SITE}
+      CONSOLE_TLS: ${CONSOLE_TLS:-internal}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      frontend:
+        ipv4_address: ${CADDY_IP:-172.30.57.10}
+
+networks:
+  # PostgreSQL, the migrations and the server. internal: no route to or from the outside.
+  backend:
+    internal: true
+  # The server and Caddy, with a fixed range so the server can trust Caddy's address alone.
+  frontend:
+    ipam:
+      config:
+        - subnet: ${FRONTEND_SUBNET:-172.30.57.0/24}
+
+volumes:
+  pgdata:
+  pki:
+  packages:
+  releases:
+  caddy_data:
+  caddy_config:

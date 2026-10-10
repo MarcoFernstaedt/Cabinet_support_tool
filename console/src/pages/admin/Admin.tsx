@@ -16,6 +16,7 @@ export function AdminHome() {
     <div className="page">
       <h1>Admin</h1>
       <ul className="tiles">
+        <li><Link to="/admin/setup"><strong>Set up and demo</strong><span>Add the support team, install the agent on a computer, approve it, and turn demo mode on or off.</span></Link></li>
         <li><Link to="/admin/security"><strong>Security alerts</strong><span>Unusual write volume, failed sign-ins, new networks, audit chain, agent and certificate problems.</span></Link></li>
         <li><Link to="/admin/users"><strong>Users</strong><span>Create accounts, change roles and write limits, reset passwords and authenticators.</span></Link></li>
         <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in, their role, last activity and the cabinet they have open.</span></Link></li>
@@ -34,7 +35,7 @@ export function AdminHome() {
   );
 }
 
-interface Pending { id: string; createdAt: string; sourceAddress: string | null;
+export interface Pending { id: string; createdAt: string; sourceAddress: string | null;
   fingerprints: { hostname: string; serialNumber: string | null; macAddresses: string[]; osVersion: string; agentVersion: string; onlineSince: string }; }
 
 export function PendingCabinets() {
@@ -51,7 +52,7 @@ export function PendingCabinets() {
   );
 }
 
-interface KnownClient { id: string; name: string; sites: { id: string; name: string }[] }
+export interface KnownClient { id: string; name: string; sites: { id: string; name: string }[] }
 
 /** Whether a typed name is an existing one, the same name in other letters (likely a typo), or new. */
 function known(name: string, names: string[]): { exact: boolean; near: string | null } {
@@ -60,7 +61,7 @@ function known(name: string, names: string[]): { exact: boolean; near: string | 
   return { exact: false, near: names.find(n => n.toLowerCase() === t.toLowerCase()) ?? null };
 }
 
-function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
+export function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
   const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone" });
   // Approving with a name that does not exist creates that client or site, so existing ones are offered and a new one is said out loud.
   const client = known(form.client, clients.map(c => c.name));

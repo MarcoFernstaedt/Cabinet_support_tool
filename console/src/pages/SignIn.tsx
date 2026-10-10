@@ -10,7 +10,7 @@ function Card({ title, intro, children }: { title: string; intro?: ReactNode; ch
   return (
     <main className="signin" id="main">
       <div className="signin-card">
-        <p className="brand"><span aria-hidden="true">▣</span> Cabinet Diagnostics</p>
+        <p className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Cabinet Diagnostics</span></p>
         <h1>{title}</h1>
         {intro && <div className="muted">{intro}</div>}
         {children}

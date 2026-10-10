@@ -9,10 +9,11 @@ import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
+import { DemoTag } from "../components/DemoBanner";
 import { BulkPolicyApply, PolicyEditor, type Policy } from "../components/FirewallPolicy";
 import { WatchListEditor } from "./cabinet/Services";
 
-interface ClientRow { id: string; name: string; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
+interface ClientRow { id: string; name: string; demo?: boolean; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
 
 /**
  * Open alerts on the home page and client pages: major ones only. Minor alerts show only on their cabinet,
@@ -24,6 +25,7 @@ export function AlertCount({ major }: { open?: number; major?: number }) {
 }
 
 export function FleetHome() {
+  const { me } = useSession();
   const { data, problem, reload } = useLoad<ClientRow[]>("/api/fleet/clients");
   useAlertNews(reload);
   return (
@@ -31,14 +33,16 @@ export function FleetHome() {
       <h1>Fleet</h1>
       <p className="muted">Clients, their sites and cabinets. Use the jump box at the top to go straight to any cabinet.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
-      {data && data.length === 0 && <Empty>No cabinets have been approved yet. An admin approves new cabinets under Admin → Pending cabinets.</Empty>}
+      {data && data.length === 0 && <Empty>No cabinets have been approved yet. {atLeast(me, "admin")
+        ? <>Start with <Link to="/admin/setup">Admin → Set up and demo</Link>: add your team, install the agent on a computer, or turn on demo mode.</>
+        : "An admin approves new cabinets under Admin → Pending cabinets."}</Empty>}
       {data && data.length > 0 && (
         <table className="table">
           <caption className="sr-only">Clients</caption>
           <thead><tr><th scope="col">Client</th><th scope="col">Sites</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{data.map(c => (
             <tr key={c.id}>
-              <th scope="row"><Link to={`/clients/${c.id}`}>{c.name}</Link></th>
+              <th scope="row"><Link to={`/clients/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}</th>
               <td>{c.sites}</td><td>{c.cabinets}</td>
               <td>{c.offline > 0 ? <Badge tone="warn">{c.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td>
               <td><AlertCount open={c.openAlerts} major={c.openMajor} /></td>
@@ -99,7 +103,7 @@ export function ClientPage({ id }: { id: string }) {
   );
 }
 
-export interface CabinetRow { id: string; name: string; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
+export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
 interface SiteDetail { id: string; name: string; client: { id: string; name: string };
   sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
@@ -122,7 +126,7 @@ export function SitePage({ id }: { id: string }) {
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{data.cabinets.map(c => (
             <tr key={c.id}>
-              <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
+              <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
               <td>{roleLabel(c.role)}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
               <td>{c.agentVersion ?? "unknown"}</td><td>{c.readOnly ? "Yes" : "No"}</td>
               <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>

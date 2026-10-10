@@ -20,6 +20,8 @@ import { alertRoutes } from "./alert-routes.js";
 import { writeRoutes } from "./write-routes.js";
 import { firewallRoutes } from "./firewall-routes.js";
 import { serviceRoutes } from "./service-routes.js";
+import { demoRoutes } from "./demo-routes.js";
+import { setupRoutes } from "./setup-routes.js";
 import type { PackageStore } from "../services/packages.js";
 import type { ReleaseStore } from "../services/releases.js";
 import { upgradeRoutes } from "./upgrade-routes.js";
@@ -44,6 +46,8 @@ export interface ConsoleApiOptions {
   /** The platform settings, read through a short cache; made here when not given. */
   settings?: SettingsCache;
   trustProxy?: number | string | false;
+  /** The agent API address cabinets use, and the folder with the agent package to download (docs/platform/demo.md). */
+  agentSetup?: { host: string; port: number; downloadDir?: string };
   logger?: boolean;
   now?: () => number;
 }
@@ -142,6 +146,8 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(writeRoutes, { ...o, guards });
   await app.register(firewallRoutes, { ...o, guards });
   await app.register(serviceRoutes, { ...o, guards });
+  await app.register(demoRoutes, { ...o, guards });
+  await app.register(setupRoutes, { ...o, guards });
   await app.register(manageRoutes, { ...o, guards });
   await app.register(upgradeRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {

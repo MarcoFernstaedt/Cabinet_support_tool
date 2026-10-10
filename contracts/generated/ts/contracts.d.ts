@@ -458,6 +458,13 @@ export interface ConfirmPassword {
 }
 
 /**
+ * An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched.
+ */
+export interface DemoMode {
+  enabled: boolean;
+}
+
+/**
  * From the query string: an event log entry read from a cabinet, to show which issue it maps to and how many other cabinets reported it.
  */
 export interface EventLookup {

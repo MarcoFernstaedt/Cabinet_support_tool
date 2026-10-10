@@ -15,6 +15,7 @@ import { TrustList } from "./packages/trust.js";
 import { mkdirSync } from "node:fs";
 import { ReleaseKeys } from "./services/releases.js";
 import { checkRollouts } from "./services/rollouts.js";
+import { DemoSimulator } from "./demo/demo.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
@@ -34,7 +35,7 @@ if (config.console) {
   stream = new ResultStream(config.databaseUrl, pool);
   await stream.start();
   consoleApp = await buildConsoleApi({ pool, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-    stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy });
+    stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
@@ -46,8 +47,12 @@ const offlineJob = setInterval(() => {
   checkRollouts(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rollout check failed"));
 }, 60_000);
 
+// Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
+const demo = new DemoSimulator(pool, message => app.log.error(message));
+demo.start();
+
 // The daily audit chain check (a break raises a security alert) and retention.
 const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => { void (async () => { clearInterval(offlineJob); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });
+  process.once(signal, () => { void (async () => { clearInterval(offlineJob); demo.stop(); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });

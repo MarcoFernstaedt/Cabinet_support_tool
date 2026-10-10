@@ -20,6 +20,7 @@ Read them in number order, 00 through 11. Files 01 and 02 give the shape and the
 - 10-coding-agent-handoff.md: setup, standing instructions and one ready-to-paste prompt per milestone
 - 11-security-review-brief.md: what the platform can and cannot do to a cabinet, worst cases, remaining risks and rollout gates, written for approval
 - 12-milestones-8-to-12.md: confirmation levels, the client firewall policy and bulk apply, services and watched services, network diagnostics and automatic diagnosis, health snapshots, trends, triage, runbooks and resolution notes
+- 13-roadmap.md: the October 2026 module list (modules 1 to 47) mapped to what exists, the phase that builds the rest, and how each fits the security rules
 
 ## Stack
 

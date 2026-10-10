@@ -1,0 +1,138 @@
+# Demo deployment
+
+This folder runs the platform on one Linux VPS for a demo: PostgreSQL 16, the server (agent API and console API), the console, and Caddy for HTTPS. It also builds the Windows agent, so you can install it on a laptop that connects over the internet.
+
+This is a demo setup. It uses the development certificate authority. Do not connect real cabinets to it.
+
+## What runs
+
+| Service | What it does | Port on the VPS |
+| --- | --- | --- |
+| `caddy` | HTTPS for the console. Gets a certificate for your domain automatically. | 80, 443 |
+| `server` | The agent API (mutual TLS) and the console. | 8443 (agent API) |
+| `postgres` | The database. Not reachable from outside. | none |
+| `migrate` | Runs once at each start. Updates the database and the app's database login. | none |
+
+The agent API on port 8443 is published directly, not through Caddy. Agents sign in with client certificates, and those must reach the server itself.
+
+## Prerequisites
+
+1. A VPS with Ubuntu 24.04, 2 CPUs, 4 GB memory and 20 GB disk.
+2. Docker with the Compose plugin. To install it: `curl -fsSL https://get.docker.com | sh`
+3. A domain is recommended, for example `cabinets.example.com`. Point its DNS A record at the VPS's IP address. Without a domain, the console uses the IP address and the browser shows a certificate warning.
+4. Ports 80, 443 and 8443 (TCP) open in your provider's firewall.
+
+## Set up
+
+1. Copy the repository to the VPS: `git clone <repository> && cd Cabinet_support_tool`
+2. Run `sudo bash deploy/setup.sh`
+3. Answer the questions: the VPS's public IP, your domain (or leave it empty), and the first Admin's username and name.
+4. Write down the temporary password it prints. It is shown only once.
+
+The script:
+- checks Docker;
+- writes `deploy/.env` with random secrets (only if it does not exist yet);
+- opens ports 80, 443 and 8443 if `ufw` is active, and prints each rule;
+- builds the image, starts PostgreSQL, runs the migrations and starts the rest;
+- creates the first Admin if there is none.
+
+You can run it again at any time. It keeps `deploy/.env` and the data.
+
+## Sign in
+
+1. Open `https://<your domain>` (or `https://<IP>`).
+2. With an IP only, the browser warns about the certificate. Continue past the warning.
+3. Sign in with the Admin username and the temporary password.
+4. Choose a new password.
+5. Set up an authenticator app (for example Google Authenticator or Microsoft Authenticator) when asked. Approvals and changes need a code from it.
+
+## Install the agent on a Windows laptop
+
+1. In the console, as an Admin, open **Admin → Set up and demo**. Step 2 there downloads the three things the laptop needs: the agent zip (`CabinetAgent-win-x64.zip`), a one-time install token (`token.txt`) and the platform CA certificate (`platform-ca.pem`). It also shows the exact PowerShell commands, with this server's address filled in.
+2. Follow `README.txt` inside the zip. In short, in PowerShell as Administrator:
+   ```powershell
+   cd C:\CabinetAgent
+   Get-ChildItem -Recurse | Unblock-File
+   Set-ExecutionPolicy -Scope Process Bypass -Force
+   .\install\Install-CabinetAgent.ps1 -PlatformServerHost <domain or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapTokenFile .\token.txt
+   ```
+3. `-PlatformServerHost` must be one of the names in `AGENT_API_HOSTNAMES` in `deploy/.env`.
+4. In the console, approve the enrollment request. The laptop comes online within a minute.
+
+If the console has no download yet, get the same three files on the VPS:
+
+```sh
+cd deploy
+docker compose cp server:/opt/cabinet/agent-download/CabinetAgent-win-x64.zip .
+docker compose exec -T server cat /var/lib/cabinet/pki/dev-issuing-ca.cert.pem > platform-ca.pem
+docker compose exec -T server node /opt/cabinet/server/dist/src/cli.js token create --as <admin username>
+```
+
+Save the token line in `token.txt`. Copy the three files to the laptop (for example with `scp`).
+
+The agent is a developer build and is not signed. Windows SmartScreen or Defender may warn about it.
+
+## Everyday commands
+
+Run these in the `deploy` folder.
+
+| Task | Command |
+| --- | --- |
+| See status | `docker compose ps` |
+| Server log | `docker compose logs -f server` |
+| Operator tool | `docker compose exec server node /opt/cabinet/server/dist/src/cli.js <command>` (run without a command for the list) |
+| Stop | `docker compose down` (keeps all data) |
+| Start again | `docker compose up -d` |
+
+## Update
+
+1. `git pull`
+2. `cd deploy && docker compose up -d --build`
+
+The `migrate` service runs before the server starts and applies only new migrations.
+
+## Back up
+
+The database:
+
+```sh
+cd deploy
+docker compose exec -T postgres pg_dump -U cabinet_owner -Fc cabinet > cabinet-$(date +%F).dump
+```
+
+The development CA and the stores (the CA's private key is in `pki`; keep the backup private):
+
+```sh
+docker run --rm -v cabinet_pki:/pki -v cabinet_packages:/packages -v cabinet_releases:/releases -v "$PWD":/backup \
+  debian:bookworm-slim tar czf /backup/cabinet-files-$(date +%F).tgz /pki /packages /releases
+```
+
+To restore the database into a fresh install, stop the server, then:
+
+```sh
+docker compose stop server
+docker compose exec -T postgres pg_restore -U cabinet_owner -d cabinet --clean --if-exists < cabinet-<date>.dump
+docker compose up -d
+```
+
+Without the `pki` backup, restored cabinets cannot connect: their certificates were issued by the old CA.
+
+## Reset the demo
+
+This deletes the database, the CA, the stores and Caddy's certificates. `deploy/.env` is kept.
+
+1. `cd deploy && docker compose down -v`
+2. `sudo bash setup.sh`
+3. On each laptop, remove the old agent: `.\install\Uninstall-CabinetAgent.ps1 -RemoveData`. Then install it again with a new token and the new CA certificate.
+
+To also change the names or secrets, delete `deploy/.env` before step 2.
+
+## Security notes
+
+- **Demo CA only.** The server issues agent certificates with a development CA, whose private key lives in the `pki` volume on the VPS. Production uses a CA key held in a KMS, and a real TLS certificate for the agent API (`AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE`). The server refuses the development CA when `NODE_ENV=production`, so this image does not set it.
+- **Ports.** Only 80, 443 and 8443 are published. Never publish PostgreSQL (5432). It sits on an internal Docker network with no route out.
+- **The console** is meant to sit on an internal network or VPN in production. Here it is on the internet for the demo. Use a strong password and the authenticator.
+- **Secrets** are only in `deploy/.env` (mode 600). It is ignored by git. Never commit or share it.
+- **Docker and ufw.** Ports Docker publishes bypass `ufw`. Control access with your provider's firewall.
+- **The agent zip** is an unsigned developer build. Never install it on a production cabinet.
+- The server runs as a non-root user with a read-only file system. The database login it uses (`cabinet_app_login`) holds only the `cabinet_app` role.

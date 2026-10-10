@@ -4,6 +4,7 @@ import { Link, useRouter } from "../lib/router";
 import { atLeast, roleName, useSession } from "../lib/session";
 import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 import { WritePauseBanner } from "../lib/writes";
+import { DemoBanner } from "./DemoBanner";
 import { AdminLink, SecurityToasts } from "./SecurityCenter";
 
 interface Hit { kind: "client" | "site" | "cabinet"; id: string; name: string; context: string; }
@@ -57,7 +58,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
       <header className="topbar">
-        <Link to="/" className="brand"><span aria-hidden="true">▣</span> Cabinet Diagnostics</Link>
+        <Link to="/" className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Cabinet Diagnostics</span></Link>
         <nav aria-label="Main">
           <Link to="/" aria-current={section === "fleet" ? "page" : undefined}>Fleet</Link>
           <AlertBadge current={section === "alerts"} />
@@ -71,6 +72,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </div>
       </header>
       <WritePauseBanner />
+      <DemoBanner />
       <main id="main" ref={main} tabIndex={-1}>{children}</main>
       <MajorAlertToasts />
       {atLeast(me, "admin") && <SecurityToasts />}

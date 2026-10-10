@@ -1,0 +1,34 @@
+# The console's HTTPS front. Caddy terminates TLS for the console only.
+# The agent API (port 8443) never passes through here: agents authenticate with client certificates,
+# so Node terminates their TLS itself and the port is published directly.
+#
+# CONSOLE_SITE  the console's host name or IP (set by setup.sh in .env)
+# CONSOLE_TLS   "acme"     a public domain: a trusted certificate from Let's Encrypt (needs ports 80 and 443 open)
+#               "internal" an IP address only: Caddy's own CA; the browser warns until you trust or accept it
+
+{
+	# Browsers send no server name (SNI) when they connect to an IP address; answer with the console's certificate.
+	default_sni {$CONSOLE_SITE}
+}
+
+(tls-acme) {
+	# Automatic HTTPS: nothing to configure.
+}
+
+(tls-internal) {
+	tls internal
+}
+
+{$CONSOLE_SITE} {
+	import tls-{$CONSOLE_TLS}
+
+	reverse_proxy server:8080 {
+		# The live alert stream (server-sent events) must not be buffered.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

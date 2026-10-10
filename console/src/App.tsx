@@ -17,6 +17,7 @@ import { ClientsAndSites, IssueTypesAndSuppressions } from "./pages/admin/Organi
 import { FleetSafety, PlatformSettings, SecurityAlerts } from "./pages/admin/Safety";
 import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
 import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
+import { Setup } from "./pages/admin/Setup";
 import { Account } from "./pages/Account";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
@@ -79,6 +80,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if ((m = match("/cabinets/:id", path))) return <CabinetPage id={m.id!} section="overview" />;
   if ((m = match("/cabinets/:id/:section", path))) return <CabinetPage id={m.id!} section={m.section!} />;
   if (match("/admin", path)) return <AdminHome />;
+  if (match("/admin/setup", path)) return <Setup />;
   if (match("/admin/pending", path)) return <PendingCabinets />;
   if (match("/admin/tokens", path)) return <InstallTokens />;
   if (match("/admin/scanner", path)) return <ScannerDefault />;

@@ -11,6 +11,7 @@ import { roleLabel, type CabinetRow } from "../Fleet";
 import { useLoad } from "../../lib/useLoad";
 import { Badge, KeyValues, OnlineBadge } from "../../components/ui";
 import { Processes, Services } from "./Services";
+import { DemoTag } from "../../components/DemoBanner";
 import { EventLogs } from "./EventLogs";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
@@ -62,6 +63,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link> · <Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link> · {roleLabel(cabinet.role)}
             {" "}<OnlineBadge online={cabinet.online} />
             {cabinet.readOnly && <> <Badge tone="info">Read-only cabinet</Badge></>}
+            {cabinet.demo && <> <DemoTag long /></>}
             {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Who opened this cabinet</Link></>}
           </p>
           <nav aria-label="Cabinet sections" className="tabs">

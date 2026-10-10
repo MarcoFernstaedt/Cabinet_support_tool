@@ -366,3 +366,25 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 - **Cable or switch-port faults.** No packet capture. The diagnosis shows a physical-layer finding when the evidence supports it (no link, a gigabit port linking at 100 Mbps or less, rising receive errors, link up/down events), each paired with what to do. Every finding comes with its fix.
 - **Accounts.** Admin can do everything Tier 2 can, plus enrolment and user management (already so). A new account and an Admin password reset both force a new password at the next sign-in (already so; kept under test).
 - **Console redesign.** The product owner's brand: Midnight Navy and Electric Cyan, a dark interface, with status colours green, amber, red and blue, always with a text label. Tokens are centralised; existing workflows and security controls are kept.
+
+## Demo and the module list (decided, October 2026)
+
+- **Demo.**
+  - The platform runs on the owner's VPS (deploy/).
+  - Demo mode is a switch an Admin turns on or off on Admin → Set up and demo. It adds simulated clients, sites and cabinets next to the real ones, marked Demo everywhere, and deletes them when turned off.
+  - The owner's real laptop is enrolled from the same page.
+  - Simulated cabinets answer through the real server paths and contracts, so they never show something a real cabinet could not (docs/platform/demo.md).
+- **Scripts.**
+  - Kept out, as recommended: every capability is a fixed operation.
+  - The owner would accept signed scripts only if they can be made safe. That stays open: it changes the security model (Admin-approved, code-signed, two-person approval, verified on the cabinet, run by the broker with typed parameters) and needs its own design before any work.
+  - Configuration files reach cabinets only as signed library packages.
+- **Crash dumps and packet captures.**
+  - The owner chose all three: crash metadata, minidump upload, and short packet captures.
+  - The proposed safeguards for uploads and captures, to confirm when phase 2 is specified: Admin only, an authenticator code, encrypted in transit and at rest, kept 30 days, every access audited.
+  - Captures are limited to 60 seconds, one host or port, and a size cap.
+  - The Security log stays unreadable.
+- **Order.** Blue screens and storage first; then network, updates, restarts and time; then fleet operations and the support call workflow (docs/spec/13-roadmap.md).
+- **Excluded by the owner:** Wake-on-LAN, and every database diagnostic or repair.
+- **Still to confirm:**
+  - The exact third fingerprint scanner model ("DigitalPersona 36"?), with its USB hardware IDs.
+  - The vendor middleware services each scanner type needs.

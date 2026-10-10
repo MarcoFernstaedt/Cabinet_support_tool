@@ -10,7 +10,7 @@ const STEPS = (admin: boolean) => [
   { title: "Fingerprint scanner", body: "One click runs the standard scanner troubleshooting on the cabinet: plugged in, Windows errors, driver, USB power saving, repeated reconnects, USB hub problems and the biometric service. Each check says what to try next. If the scanner's hardware ID is not set yet, it lists the likely scanners so you can pick it." },
   { title: "Event logs", body: "Browse every readable log, filter by level, time, source and event ID, and open any entry in full, including its raw XML. Logs turned off in Windows are marked." },
   { title: "Drive health", body: "Check SMART health before a drive fails. Any reallocated or pending sectors mean it is time to send the client a replacement drive." },
-  ...(admin ? [{ title: "Admin", body: "Admin holds pending cabinets for approval, install tokens for new cabinets, the fleet's scanner hardware IDs and the audit log. Every admin action asks for your authenticator code." }] : []),
+  ...(admin ? [{ title: "Admin", body: "Start at Admin → Set up and demo: add your support team, install the agent on a computer, approve it, and turn demo mode on to show the platform at fleet scale. Admin also holds users, the audit log, the software library and agent upgrades." }] : []),
   { title: "You're set", body: "You can run this tour again any time from your Account page." },
 ];
 

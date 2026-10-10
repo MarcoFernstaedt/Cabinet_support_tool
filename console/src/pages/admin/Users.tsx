@@ -28,23 +28,43 @@ function OneTimePassword({ who, password, onDone }: { who: string; password: str
   );
 }
 
-export function Users() {
-  const { me } = useSession();
-  const { data, problem, reload } = useLoad<UserRow[]>("/api/admin/users");
+/** The new-account form, with its one-time password; used on Users and on the setup page. */
+export function NewAccount({ onCreated, heading = "New account" }: { onCreated: (text: string) => void; heading?: string }) {
   const step = useStepUp();
   const [draft, setDraft] = useState({ username: "", name: "", role: "tier1" as Role });
   const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const after = (text: string) => { setDone(text); reload(); };
-
   const create = () => step.ask("user.create", "fleet",
-    <p>Create a {roleName(draft.role)} account <strong>{draft.username}</strong> for {draft.name}.{draft.role !== "tier1" && " They will set up an authenticator at their first sign-in."}</p>,
+    <p>Create a {roleName(draft.role)} account <strong>{draft.username}</strong> for {draft.name}. They choose their own password and set up an authenticator at their first sign-in.</p>,
     async token => {
       const r = await api<{ id: string; temporaryPassword: string }>("POST", "/api/admin/users", { ...draft, stepUpToken: token });
       setShown({ who: draft.username, password: r.temporaryPassword });
       setDraft({ username: "", name: "", role: "tier1" });
-      after(`Account ${draft.username} created.`);
+      onCreated(`Account ${draft.username} created.`);
     });
+  return (
+    <section className="panel" aria-labelledby="new-user">
+      <h2 id="new-user">{heading}</h2>
+      {shown && <OneTimePassword who={shown.who} password={shown.password} onDone={() => setShown(null)} />}
+      <form className="row gap wrap" onSubmit={e => { e.preventDefault(); create(); }}>
+        <label className="field inline"><span>Username</span><input required pattern="[a-z0-9._\-]{2,64}" title="Lower-case letters, digits, dot, dash or underscore"
+          value={draft.username} onChange={e => setDraft(d => ({ ...d, username: e.target.value.toLowerCase() }))} /></label>
+        <label className="field inline"><span>Full name</span><input required maxLength={128} value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} /></label>
+        <label className="field inline"><span>Role</span><select value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value as Role }))}>
+          {(["tier1", "tier2", "admin"] as const).map(r => <option key={r} value={r}>{roleName(r)}</option>)}</select></label>
+        <button className="btn primary" type="submit">Create account</button>
+      </form>
+      {step.dialog}
+    </section>
+  );
+}
+
+export function Users() {
+  const { me } = useSession();
+  const { data, problem, reload } = useLoad<UserRow[]>("/api/admin/users");
+  const step = useStepUp();
+  const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const after = (text: string) => { setDone(text); reload(); };
 
   return (
     <div className="page">
@@ -52,18 +72,7 @@ export function Users() {
       <h1>Users</h1>
       {shown && <OneTimePassword who={shown.who} password={shown.password} onDone={() => setShown(null)} />}
       {done && <p className="notice ok" role="status">{done}</p>}
-
-      <section className="panel" aria-labelledby="new-user">
-        <h2 id="new-user">New account</h2>
-        <form className="row gap wrap" onSubmit={e => { e.preventDefault(); create(); }}>
-          <label className="field inline"><span>Username</span><input required pattern="[a-z0-9._\-]{2,64}" title="Lower-case letters, digits, dot, dash or underscore"
-            value={draft.username} onChange={e => setDraft(d => ({ ...d, username: e.target.value.toLowerCase() }))} /></label>
-          <label className="field inline"><span>Full name</span><input required maxLength={128} value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} /></label>
-          <label className="field inline"><span>Role</span><select value={draft.role} onChange={e => setDraft(d => ({ ...d, role: e.target.value as Role }))}>
-            {(["tier1", "tier2", "admin"] as const).map(r => <option key={r} value={r}>{roleName(r)}</option>)}</select></label>
-          <button className="btn primary" type="submit">Create account</button>
-        </form>
-      </section>
+      <NewAccount onCreated={after} />
 
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (data.length === 0 ? <Empty>No accounts.</Empty> : (

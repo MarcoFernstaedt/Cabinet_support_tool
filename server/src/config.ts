@@ -12,6 +12,8 @@ export interface Config {
   /** The update store for signed agent releases, and the release keys the server checks uploads against (the agent checks again with its own). */
   releases: { dir: string; maxBytes: number; keysDir?: string };
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
+  /** What the setup page tells an Admin about installing the agent: the address cabinets use to reach the agent API, and the folder holding the agent package to download (optional). */
+  agentSetup: { host: string; port: number; downloadDir?: string };
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -31,7 +33,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     tls: {},
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },
+    agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port) },
   };
+  if (env.AGENT_DOWNLOAD_DIR) config.agentSetup.downloadDir = env.AGENT_DOWNLOAD_DIR;
+  if (!Number.isInteger(config.agentSetup.port) || config.agentSetup.port < 1 || config.agentSetup.port > 65535) throw new Error("AGENT_PUBLIC_PORT must be a port number.");
+  if (!/^[A-Za-z0-9.-]{1,253}$/.test(config.agentSetup.host)) throw new Error("AGENT_PUBLIC_HOST must be a host name or IPv4 address.");
   // Other release keys are for tests only (a throwaway key made for the run); production uses contracts/trust/upgrade, the file the agent compiles in.
   if (env.UPGRADE_KEYS_DIR) {
     if (env.NODE_ENV === "production") throw new Error("UPGRADE_KEYS_DIR is for tests and refuses to run in production.");

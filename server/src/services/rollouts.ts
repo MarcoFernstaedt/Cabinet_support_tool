@@ -43,7 +43,7 @@ export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutR
     // than the release's minimum version: they would refuse it, and those refusals would pause the rollout for nothing.
     // No row locks: holding them would stall every heartbeat while the rollout is written.
     const older = (await c.query<{ id: string; agent_version: string | null; in_office: boolean }>(
-      "SELECT id, agent_version, in_office FROM cabinets WHERE status = 'active'")).rows
+      "SELECT id, agent_version, in_office FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL")).rows
       .filter(k => k.agent_version === null || !isVersion(k.agent_version) || compareVersions(k.agent_version, req.version) < 0);
     const belowMinimum = (k: { agent_version: string | null }): boolean =>
       k.agent_version !== null && isVersion(k.agent_version) && isVersion(release.minimum_version) && compareVersions(k.agent_version, release.minimum_version) < 0;

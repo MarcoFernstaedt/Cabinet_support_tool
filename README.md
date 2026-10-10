@@ -17,6 +17,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 | [`server/`](server/README.md) | Two APIs:<br>• the agent API (mutual TLS, long poll, heartbeats, events, results, packages, upgrades);<br>• the console API (sign-in, roles, step-up, alerts, writes, administration).<br>Plus the alerts engine, audit log and CLI. | Node.js 22, TypeScript, Fastify 5, PostgreSQL 16 |
 | [`console/`](console/README.md) | The support console, served by the server from the same origin. | React 19, TypeScript, Vite |
 | [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 10 (LTS), self-contained |
+| [`deploy/`](deploy/README.md) | Runs the whole platform on one Linux VPS with Docker Compose (PostgreSQL, server, console behind Caddy HTTPS), and builds the Windows agent package the console offers for download. For demos and pilots. | Docker, Caddy |
 | [`docs/platform/`](docs/platform/) | Platform documentation beyond the spec: [performance and capacity](docs/platform/performance.md) (including the command round trip) and the [October 2026 review](docs/platform/review-2026-10.md) (fixes, open items, recommendations). | |
 
 ## How it fits together
@@ -50,13 +51,13 @@ Run each line from the repository root:
 (cd server && npm ci && npm test)                        # needs PostgreSQL; see server/README.md
 ```
 
-To run the whole platform locally and connect a Windows test cabinet, see [server/README.md "Run it locally"](server/README.md#run-it-locally) and [agent/README.md](agent/README.md).
+To run the platform on a VPS and demo it with your own laptop and a simulated fleet, see [deploy/README.md](deploy/README.md) and the [demo guide](docs/platform/demo.md). To run the whole platform locally and connect a Windows test cabinet, see [server/README.md "Run it locally"](server/README.md#run-it-locally) and [agent/README.md](agent/README.md).
 
 Do not install the agent on a production cabinet from a developer build. Release builds come only from the build pipeline, signed ([upgrade channel](docs/spec/07-upgrade-channel.md)).
 
 ## Status
 
-- **Built:** all seven milestones of the [build plan](docs/spec/08-build-plan.md), plus:
+- **Built:** all seven milestones of the [build plan](docs/spec/08-build-plan.md), milestones 8 to 10 ([12](docs/spec/12-milestones-8-to-12.md)), demo mode with the Set up and demo page, and the Midnight Navy and Electric Cyan design system, plus:
   - the alert catalog and per-symptom severity;
   - scanner IDs and sync ports set per client;
   - the 8,000-agent load test.
@@ -67,6 +68,6 @@ Do not install the agent on a production cabinet from a developer build. Release
   - an independent security test;
   - incident-response steps and a database restore test.
 
-Decisions taken and still open are recorded in [open decisions](docs/spec/09-open-decisions.md).
+Decisions taken and still open are recorded in [open decisions](docs/spec/09-open-decisions.md). What comes next, module by module, is in the [roadmap](docs/spec/13-roadmap.md).
 
 The earlier C# demo (Server, Agent, web Console and demo tools) that this platform replaced was removed in October 2026; it remains in git history.

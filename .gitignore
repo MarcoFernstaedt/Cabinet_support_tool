@@ -64,3 +64,6 @@ console/dist/
 load-state*.json
 # Server stores (packages and agent releases) live outside source control.
 data/
+# Demo deployment (deploy/): the real environment file holds generated secrets; only the example is committed.
+deploy/.env
+!deploy/.env.example
