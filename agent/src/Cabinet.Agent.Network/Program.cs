@@ -4,6 +4,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.ServiceProcess;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
+using Cabinet.Agent.Core.Clock;
 using Cabinet.Agent.Core.Monitoring;
 using Cabinet.Agent.Core.Packages;
 using Cabinet.Agent.Core.Writes;
@@ -96,6 +97,7 @@ public sealed class NetworkService : ServiceBase
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
                 ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
+                TimeZoneId = TimeRules.CurrentReportableZone,
                 Upgrades = new UpgradeCoordinator(AgentPaths.Downloads, SystemOperations.AgentVersion, new UpgradeJournalStore(AgentPaths.UpgradeJournal),
                     AgentPaths.CheckIn, AgentPaths.UpgradeReported, broker.UpgradeAsync, events, clock, _log.Write),
                 ConfirmSafetyNet = broker.ConfirmAsync, AfterWrite = monitors.FirewallNow,

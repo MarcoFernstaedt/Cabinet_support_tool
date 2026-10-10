@@ -44,7 +44,10 @@
         "driver.uninstall",
         "services.list",
         "processes.list",
-        "service.control"
+        "service.control",
+        "time.status",
+        "time.setZone",
+        "time.sync"
       ]
     },
     "params": {
@@ -127,7 +130,9 @@
                 "firewall.restore",
                 "package.install",
                 "driver.uninstall",
-                "service.control"
+                "service.control",
+                "time.setZone",
+                "time.sync"
               ]
             }
           },
@@ -552,6 +557,69 @@
         "properties": {
           "params": {
             "$ref": "../operations/service.control.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "time.status"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/time.status.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "time.setZone"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/time.setZone.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "time.sync"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/time.sync.schema.json#/$defs/params"
           }
         }
       }

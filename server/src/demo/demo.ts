@@ -14,7 +14,8 @@ import { checkOffline } from "../services/alerts.js";
 import { evaluateDrift } from "../services/firewall-policy.js";
 import { checkQuietLoops, recordBoot } from "../services/crashes.js";
 import type { Event } from "../contracts.js";
-import { DEMO_FLEET, harborDriverWithoutCrash, harborStorageErrors, hostnameFor, type Scenario } from "./fleet.js";
+import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageErrors, hostnameFor, wrongZoneFor, type Scenario } from "./fleet.js";
+import { evaluateTime } from "../services/time.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
 
 const SETTING = "demo.enabled";
@@ -135,14 +136,16 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
       await c.query("INSERT INTO clients (id, name, demo, watched_services, sync_ports) VALUES ($1, $2, true, $3, $4)", [clientId, client.name, ["BioScanSvc"], [1433]]);
       for (const site of client.sites) {
         const siteId = randomUUID();
-        await c.query("INSERT INTO sites (id, client_id, name, sync_address) VALUES ($1, $2, $3, $4)", [siteId, clientId, site.name, `${site.subnet}.20`]);
+        await c.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone) VALUES ($1, $2, $3, $4, $5)", [siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone]);
         for (const [i, k] of site.cabinets.entries()) {
           const id = randomUUID();
           cabinets.push({ id, scenario: k.scenario });
-          await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles)
-                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10)`,
+          await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles,
+                                              time_zone_id, clock_skew_seconds)
+                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12)`,
             [id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
-             safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF)]);
+             safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
+             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3]);
         }
         siteIndex++;
       }
@@ -161,6 +164,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
     if (k.scenario !== "incident_loop") {
       await heartbeat(pool, k.id);
       await evaluateDrift(pool, { cabinetId: k.id });
+      await evaluateTime(pool, { cabinetId: k.id });
     }
     const events = scenarioEvents(k.scenario, now, index);
     if (events.length > 0) await storeEvents(pool, k.id, { events: events as [Event, ...Event[]] });
@@ -203,15 +207,20 @@ async function profilesOf(pool: pg.Pool, cabinetId: string): Promise<Profiles> {
 }
 
 async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles): Promise<void> {
-  const r = (await pool.query<{ uptime: string }>("SELECT uptime_seconds AS uptime FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
-  const { firewallChanged } = await recordHeartbeat(pool, cabinetId, { agentVersion: AGENT_VERSION, uptimeSeconds: Number(r?.uptime ?? 0) + 60,
-    readOnlyMode: false, firewallProfiles: profiles ?? await profilesOf(pool, cabinetId) });
+  // The simulated cabinet's zone and clock offset live in its own row, as a real agent's would on the cabinet.
+  const r = (await pool.query<{ uptime: string; zone: string | null; skew: number | null }>(
+    "SELECT uptime_seconds AS uptime, time_zone_id AS zone, clock_skew_seconds AS skew FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
+  const { firewallChanged, timeCheck } = await recordHeartbeat(pool, cabinetId, { agentVersion: AGENT_VERSION, uptimeSeconds: Number(r?.uptime ?? 0) + 60,
+    readOnlyMode: false, firewallProfiles: profiles ?? await profilesOf(pool, cabinetId),
+    ...(r?.zone ? { timeZoneId: r.zone } : {}), ...(r?.skew !== null && r?.skew !== undefined ? { clockSkewSeconds: r.skew } : {}) });
   if (firewallChanged) await evaluateDrift(pool, { cabinetId });
+  if (timeCheck) await evaluateTime(pool, { cabinetId });
 }
 
 async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | null> {
-  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; sync_blocked: boolean; position: string }>(
-    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles,
+  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; sync_blocked: boolean; position: string;
+                               zone: string | null; skew: number | null }>(
+    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew,
             COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched,
             k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
               AND ((y.firewall_profiles->>'domain')::boolean OR (y.firewall_profiles->>'private')::boolean OR (y.firewall_profiles->>'public')::boolean)) AS sync_blocked,
@@ -224,6 +233,7 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
        FROM events WHERE cabinet_id = $1 AND kind IN ('error', 'change') AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet: (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join("."),
     index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], syncBlocked: k.sync_blocked, now: new Date(),
+    timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
 }
 
@@ -248,6 +258,18 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     await pool.query("UPDATE cabinets SET demo_scenario = CASE WHEN demo_scenario = 'firewall_drift' AND NOT ($2::jsonb->>'public')::boolean THEN 'healthy' ELSE demo_scenario END WHERE id = $1",
       [cabinetId, safeJson(profiles)]);
     await heartbeat(pool, cabinetId, profiles);
+  }
+  // A corrected zone or synced clock shows in the next heartbeat, and its alert closes.
+  if (command.operation === "time.setZone") {
+    await pool.query("UPDATE cabinets SET time_zone_id = $2, demo_scenario = CASE WHEN demo_scenario = 'time_zone_wrong' THEN 'healthy' ELSE demo_scenario END WHERE id = $1",
+      [cabinetId, (output as { after: string }).after]);
+    await heartbeat(pool, cabinetId);
+    await evaluateTime(pool, { cabinetId });
+  }
+  if (command.operation === "time.sync" && (output as { result: string }).result === "synced") {
+    await pool.query("UPDATE cabinets SET clock_skew_seconds = 0.4, demo_scenario = CASE WHEN demo_scenario = 'clock_drift' THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId]);
+    await heartbeat(pool, cabinetId);
+    await evaluateTime(pool, { cabinetId });
   }
   if (command.operation === "service.control" && ctx.scenario === "service_failing" && String(command.params.name).toLowerCase() === "bioscansvc" && command.params.action !== "stop") {
     await pool.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE id = $1", [cabinetId]);

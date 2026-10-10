@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/time.sync.schema.json",
+  "title": "time.sync",
+  "description": "Ask Windows Time to synchronize the clock now with its configured source (w32tm /resync, run by the broker). Never changes the source, so Group Policy and the domain stay in charge. Tier 1 and up, a confirmation click.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "message",
+        "lastSuccessfulSyncBefore",
+        "lastSuccessfulSyncAfter"
+      ],
+      "properties": {
+        "result": {
+          "description": "synced: Windows Time synchronized; failed: it tried and could not (no source answered); service_stopped: Windows Time is not running, so nothing was tried.",
+          "type": "string",
+          "enum": [
+            "synced",
+            "failed",
+            "service_stopped"
+          ]
+        },
+        "message": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "lastSuccessfulSyncBefore": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "lastSuccessfulSyncAfter": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        }
+      }
+    }
+  }
+}

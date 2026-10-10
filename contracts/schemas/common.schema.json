@@ -242,7 +242,10 @@
         "driver.uninstall",
         "services.list",
         "processes.list",
-        "service.control"
+        "service.control",
+        "time.status",
+        "time.setZone",
+        "time.sync"
       ]
     },
     "rejectionCode": {
@@ -763,6 +766,24 @@
         "reboot",
         "run_program"
       ]
+    },
+    "timeZoneId": {
+      "description": "A Windows time zone the platform may set (docs/spec/13-roadmap.md module 21): the United States zones, with Arizona (US Mountain Standard Time, no daylight saving) separate from Mountain.",
+      "type": "string",
+      "enum": [
+        "Eastern Standard Time",
+        "Central Standard Time",
+        "Mountain Standard Time",
+        "US Mountain Standard Time",
+        "Pacific Standard Time",
+        "Alaskan Standard Time",
+        "Hawaiian Standard Time"
+      ]
+    },
+    "reportedTimeZoneId": {
+      "description": "A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9 ()+.,'-]{1,64}$"
     }
   }
 }

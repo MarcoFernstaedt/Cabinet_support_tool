@@ -23,12 +23,14 @@ import { DEMO_FLEET, type Scenario } from "../src/demo/fleet.js";
 import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
 import { ISSUE } from "../src/services/rules.js";
 import { evaluateDrift } from "../src/services/firewall-policy.js";
+import { evaluateTime } from "../src/services/time.js";
+import { recordHeartbeat } from "../src/services/cabinets.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 const EXAMPLES = join(dirname(SCHEMA_DIR), "examples", "operations");
-const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors"];
+const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift"];
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
@@ -101,6 +103,7 @@ test("every simulated answer, for every operation and every scenario, passes the
         const params = JSON.parse(readFileSync(join(paramsDir, file), "utf8"));
         const ctx: DemoContext = { hostname: "CAB-01S01", role: "sync", scenario, subnet: "10.21.4", index: 1, now: new Date(),
           firewallProfiles: { domain: scenario === "firewall_drift", private: false, public: scenario === "firewall_drift" }, watchedServices: ["BioScanSvc", "Spooler"], syncBlocked: scenario === "healthy",
+          timeZoneId: scenario === "time_zone_wrong" ? "Mountain Standard Time" : "US Mountain Standard Time", clockSkewSeconds: scenario === "clock_drift" ? 437 : 0.3,
           events: scenarioEvents(scenario).filter(e => e.source).map(e => ({ log: e.source!.log, source: e.source!.source, eventId: e.source!.eventId, level: e.source!.level,
             occurredAt: e.occurredAt, message: e.detail.message ?? "", recordId: e.source!.recordId })) };
         const out = demoOutput(op, params, ctx);
@@ -191,6 +194,50 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
   } finally {
     sim.stop();
   }
+});
+
+test("time: wrong zones and a drifting clock raise alerts; Tier 1 corrects them and the alerts close; Tier 2 sets a site's zone", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const t2 = await signIn(await account("tier2"));
+  const wrong = await demoCabinet("time_zone_wrong"), drift = await demoCabinet("clock_drift");
+  assert.ok(await openAlert(wrong, ISSUE.timeZone), "wrong time zone");
+  assert.ok(await openAlert(drift, ISSUE.clock), "clock off");
+  const facts = (await call("GET", `/api/cabinets/${wrong}/time`, undefined, t1)).body;
+  assert.equal(facts.zoneWrong, true);
+  assert.notEqual(facts.timeZoneId, facts.siteTimeZone);
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const status = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.status", params: {} }, t1);
+    await until("time.status", async () => (await db.app.query("SELECT status FROM commands WHERE id = $1", [status.body.commandId])).rows[0]?.status === "succeeded");
+    // Tier 1 sets the site's zone with one click; the zone alert closes from the next heartbeat.
+    const set = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params: { timeZoneId: facts.siteTimeZone } }, t1);
+    assert.equal(set.status, 202, JSON.stringify(set.body));
+    await until("the zone alert to close", async () => !(await openAlert(wrong, ISSUE.timeZone)));
+    assert.equal((await call("GET", `/api/cabinets/${wrong}/time`, undefined, t1)).body.zoneWrong, false);
+    const sync = await call("POST", `/api/cabinets/${drift}/commands`, { operation: "time.sync", params: {} }, t1);
+    assert.equal(sync.status, 202);
+    await until("the clock alert to close", async () => !(await openAlert(drift, ISSUE.clock)));
+    // Only the allowed zones can be sent; anything else is refused before a command exists.
+    for (const params of [{ timeZoneId: "UTC" }, { timeZoneId: "Eastern Standard Time /s UTC" }, {}, { timeZoneId: "Eastern Standard Time", force: true }])
+      assert.equal((await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params }, t1)).status, 400, JSON.stringify(params));
+  } finally {
+    sim.stop();
+  }
+  // A site's zone: Tier 2 sets it, Tier 1 cannot; the real cabinet in another zone gets an alert at once, cleared when it matches.
+  const home = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [realCabinet])).rows[0]!.site_id;
+  await recordHeartbeat(db.app, realCabinet, { agentVersion: "0.5.0", uptimeSeconds: 100, readOnlyMode: false, timeZoneId: "Pacific Standard Time", clockSkewSeconds: 0.2 });
+  assert.equal((await call("PUT", `/api/sites/${home}/time-zone`, { timeZone: "US Mountain Standard Time" }, t1)).status, 403);
+  for (const body of [{ timeZone: "UTC" }, { timeZone: "x".repeat(300) }, {}, { timeZone: "Pacific Standard Time", cabinets: "all" }])
+    assert.equal((await call("PUT", `/api/sites/${home}/time-zone`, body, t2)).status, 400, JSON.stringify(body));
+  assert.equal((await call("PUT", `/api/sites/${home}/time-zone`, { timeZone: "US Mountain Standard Time" }, t2)).status, 200);
+  assert.ok(await openAlert(realCabinet, ISSUE.timeZone));
+  const { timeCheck } = await recordHeartbeat(db.app, realCabinet, { agentVersion: "0.5.0", uptimeSeconds: 160, readOnlyMode: false, timeZoneId: "US Mountain Standard Time", clockSkewSeconds: 0.2 });
+  assert.equal(timeCheck, true);
+  await evaluateTime(db.app, { cabinetId: realCabinet });
+  assert.ok(!(await openAlert(realCabinet, ISSUE.timeZone)));
+  assert.equal((await call("PUT", `/api/sites/${home}/time-zone`, { timeZone: null }, t2)).status, 200);
+  assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'site.time_zone'")).rowCount! >= 2);
 });
 
 test("diagnose network on a satellite finds the sync cabinet's firewall, offers the fix on that cabinet, and finds it fixed afterwards", async () => {

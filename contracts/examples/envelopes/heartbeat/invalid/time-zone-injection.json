@@ -1,0 +1,7 @@
+{
+  "agentVersion": "2.0.0",
+  "uptimeSeconds": 3600,
+  "readOnlyMode": true,
+  "clockSkewSeconds": -1.5,
+  "timeZoneId": "Pacific\"; tzutil /s UTC"
+}

@@ -138,8 +138,10 @@ test("catalog rules follow the security model", () => {
     } else {
       assert.equal(op.expirySeconds, 120, `${op.name}: writes expire after 2 minutes`);
       assert.ok(["click", "code"].includes(op.confirm), `${op.name}: every write is confirmed`);
-      // Tier 1 may change the firewall profiles only (docs/spec/12-milestones-8-to-12.md); every other write is Tier 2 and up.
-      assert.equal(op.minimumRole, ["firewall.setProfile", "firewall.applyPolicy"].includes(op.name) ? "tier1" : "tier2", op.name);
+      // Tier 1 may change the firewall profiles (docs/spec/12-milestones-8-to-12.md) and correct the time zone and clock
+      // (module 21, docs/spec/13-roadmap.md); every other write is Tier 2 and up.
+      const tier1 = ["firewall.setProfile", "firewall.applyPolicy", "time.setZone", "time.sync"];
+      assert.equal(op.minimumRole, tier1.includes(op.name) ? "tier1" : "tier2", op.name);
       assert.equal(op.rateClass, "write", op.name);
     }
   }

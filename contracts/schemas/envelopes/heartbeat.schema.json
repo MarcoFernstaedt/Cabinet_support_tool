@@ -24,6 +24,10 @@
     "firewallProfiles": {
       "description": "Each firewall profile on or off, as last seen by the agent's firewall watcher; compared with the client's firewall policy. Absent until the watcher has looked once (and from agents before milestone 9).",
       "$ref": "../common.schema.json#/$defs/firewallProfileSwitches"
+    },
+    "timeZoneId": {
+      "description": "The cabinet's Windows time zone, compared with its site's time zone. Absent from agents before the time operations.",
+      "$ref": "../common.schema.json#/$defs/reportedTimeZoneId"
     }
   },
   "required": [

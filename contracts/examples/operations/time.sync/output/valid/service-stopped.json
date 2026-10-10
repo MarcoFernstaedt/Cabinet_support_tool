@@ -1,0 +1,6 @@
+{
+  "result": "service_stopped",
+  "message": "Windows Time is not running; nothing was tried.",
+  "lastSuccessfulSyncBefore": null,
+  "lastSuccessfulSyncAfter": null
+}

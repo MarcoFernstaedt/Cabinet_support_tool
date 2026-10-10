@@ -17,6 +17,9 @@ export interface DemoContext {
   /** Whether the site's sync cabinet (another cabinet) has a firewall profile on, so its ports do not answer. */
   syncBlocked: boolean;
   now: Date;
+  /** The cabinet's Windows time zone and how far its clock is from the server's, as its heartbeat reports them. */
+  timeZoneId: string;
+  clockSkewSeconds: number;
 }
 
 const cache = new Map<string, unknown>();
@@ -33,6 +36,36 @@ export function example(operation: string, file?: string): any {
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const ago = (ctx: DemoContext, minutes: number) => iso(new Date(ctx.now.getTime() - minutes * 60_000));
 const address = (ctx: DemoContext) => `${ctx.subnet}.${20 + ctx.index}`;
+
+/** Standard UTC offset (minutes), display name, and whether the zone observes United States daylight saving. */
+const ZONES: Record<string, [number, string, boolean]> = {
+  "Eastern Standard Time": [-300, "(UTC-05:00) Eastern Time (US & Canada)", true], "Central Standard Time": [-360, "(UTC-06:00) Central Time (US & Canada)", true],
+  "Mountain Standard Time": [-420, "(UTC-07:00) Mountain Time (US & Canada)", true], "US Mountain Standard Time": [-420, "(UTC-07:00) Arizona", false],
+  "Pacific Standard Time": [-480, "(UTC-08:00) Pacific Time (US & Canada)", true], "Alaskan Standard Time": [-540, "(UTC-09:00) Alaska", true],
+  "Hawaiian Standard Time": [-600, "(UTC-10:00) Hawaii", false],
+};
+/** United States daylight saving: from the second Sunday in March to the first Sunday in November (at 2:00 local, here taken as 2:00 standard). */
+function usDaylightSaving(utc: Date, standardOffset: number): boolean {
+  const local = new Date(utc.getTime() + standardOffset * 60_000);
+  const y = local.getUTCFullYear();
+  const nthSunday = (month: number, n: number) => { const d = new Date(Date.UTC(y, month, 1)); return 1 + ((7 - d.getUTCDay()) % 7) + (n - 1) * 7; };
+  const start = Date.UTC(y, 2, nthSunday(2, 2), 2), end = Date.UTC(y, 10, nthSunday(10, 1), 1);
+  return local.getTime() >= start && local.getTime() < end;
+}
+const noMs = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/** time.status as a real cabinet in this zone, with this clock offset, would answer it. */
+function timeStatus(ctx: DemoContext) {
+  const [standard, name, observes] = ZONES[ctx.timeZoneId] ?? [-300, ctx.timeZoneId, true];
+  const clock = new Date(ctx.now.getTime() + ctx.clockSkewSeconds * 1000);
+  const dst = observes && usDaylightSaving(clock, standard);
+  const offset = standard + (dst ? 60 : 0);
+  return { timeZoneId: ctx.timeZoneId, timeZoneName: name, utcOffsetMinutes: offset, daylightSavingNow: dst,
+    localTime: new Date(clock.getTime() + offset * 60_000).toISOString().slice(0, 19), utcTime: noMs(clock), timeService: "running",
+    sync: { state: "synced", source: "time.windows.com,0x9",
+      lastSuccessfulSync: noMs(new Date(ctx.now.getTime() - (ctx.scenario === "clock_drift" ? 19 * 86_400_000 : 3 * 3_600_000))) },
+    policyManaged: false };
+}
 
 export function demoOutput(operation: string, params: Record<string, any>, ctx: DemoContext): unknown {
   switch (operation) {
@@ -93,6 +126,13 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
             consecutiveFailures: failing ? 3 : 0, lastRestartAt: failing ? ago(ctx, 12) : null, lastError: failing ? 1053 : null, checkedAt: ago(ctx, 0) }
         : { name, state: "running", serviceState: "running", restartsToday: 0, consecutiveFailures: 0, lastRestartAt: null, lastError: null, checkedAt: ago(ctx, 0) });
       return { services: [bio, o.services[1], ...extra], watched };
+    }
+    case "time.status": return timeStatus(ctx);
+    case "time.setZone": return { before: ctx.timeZoneId, after: params.timeZoneId };
+    case "time.sync": {
+      const last = new Date(ctx.now.getTime() - 3 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+      return { result: "synced", message: "Windows Time synchronized the clock with time.windows.com,0x9.", lastSuccessfulSyncBefore: last,
+        lastSuccessfulSyncAfter: ctx.now.toISOString().replace(/\.\d{3}Z$/, "Z") };
     }
     case "service.control": {
       const o = example("service.control");

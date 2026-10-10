@@ -5,7 +5,9 @@ export type Scenario =
   | "healthy" | "firewall_drift" | "scanner_disconnected" | "service_failing" | "disk_failing"
   | "bsod" | "offline" | "dns_errors" | "update_failure" | "unknown_errors"
   /** The overnight crash incident: blue screens after a storage driver update; some stuck restarting; the rest fine. */
-  | "incident_crash" | "incident_loop" | "incident_ok";
+  | "incident_crash" | "incident_loop" | "incident_ok"
+  /** Module 21: a cabinet set to the wrong time zone (Arizona set to Mountain, with daylight saving), and a clock drifting off. */
+  | "time_zone_wrong" | "clock_drift";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; }
@@ -24,11 +26,11 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite"), c("Treatment Room", "satellite", "scanner_disconnected")] },
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
-      c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite"), c("Boarding", "satellite", "service_failing")] },
+      c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
-      c("Pharmacy", "standalone", "disk_failing")] },
+      c("Pharmacy", "standalone", "disk_failing"), c("Recovery", "standalone", "time_zone_wrong")] },
   ] },
   { name: "Demo · Lakeside Health", sites: [
     { name: "Chicago – Main Pharmacy", timeZone: "Central Standard Time", subnet: "172.20.10", cabinets: [
@@ -42,7 +44,7 @@ export const DEMO_FLEET: DemoClient[] = [
   })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
-      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite"), c("Isolation", "satellite", "bsod")] },
+      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod")] },
   ] },
 ];
 
@@ -52,7 +54,16 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   offline: "Offline for 6 days", dns_errors: "DNS lookups failing", update_failure: "Windows update failing", unknown_errors: "New, unrecognized errors",
   incident_crash: "Blue screen overnight after a storage driver update", incident_loop: "Blue screen after the driver update, still restarting",
   incident_ok: "Got the same Windows update, no driver change, no crash",
+  time_zone_wrong: "Set to the wrong time zone", clock_drift: "Clock about 7 minutes fast",
 };
+
+/** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */
+export function wrongZoneFor(siteZone: string): string {
+  return ({ "US Mountain Standard Time": "Mountain Standard Time", "Pacific Standard Time": "US Mountain Standard Time",
+    "Central Standard Time": "Eastern Standard Time", "Eastern Standard Time": "Central Standard Time", "Mountain Standard Time": "US Mountain Standard Time" } as Record<string, string>)[siteZone] ?? "Eastern Standard Time";
+}
+/** How far a clock_drift cabinet's clock is off, in seconds; a healthy cabinet's is within a second. */
+export const DRIFT_SECONDS = 437;
 
 /** A stable host name per cabinet, like a real imaging naming scheme. */
 export function hostnameFor(siteIndex: number, cabinetIndex: number, role: string): string {

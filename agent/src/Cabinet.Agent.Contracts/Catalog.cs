@@ -41,6 +41,9 @@ public static class Catalog
     public const string ServicesList = "services.list";
     public const string ProcessesList = "processes.list";
     public const string ServiceControl = "service.control";
+    public const string TimeStatus = "time.status";
+    public const string TimeSetZone = "time.setZone";
+    public const string TimeSync = "time.sync";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
         new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
@@ -65,6 +68,7 @@ public static class Catalog
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),
+        Read<EmptyParams, TimeStatusOutput>(TimeStatus),
         Write<NetworkSetIpParams, NetworkSetIpOutput>(NetworkSetIp, safetyNet: true, Confirm.Code),
         Write<NetworkSetDnsParams, NetworkSetDnsOutput>(NetworkSetDns, safetyNet: true, Confirm.Code),
         Write<FirewallSetProfileParams, FirewallSetProfileOutput>(FirewallSetProfile, safetyNet: true, Confirm.Click, "tier1"),
@@ -74,6 +78,8 @@ public static class Catalog
         Write<PackageInstallParams, PackageInstallOutput>(PackageInstall, safetyNet: false, Confirm.Code),
         Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false, Confirm.Code),
         Write<ServiceControlParams, ServiceControlOutput>(ServiceControl, safetyNet: false, Confirm.Click),
+        Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
+        Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
     };
 
     private static readonly Dictionary<string, CatalogEntry> ByName = All.ToDictionary(e => e.Name, StringComparer.Ordinal);

@@ -93,6 +93,7 @@ public sealed record Heartbeat
     public required long UptimeSeconds { get; init; }
     public required bool ReadOnlyMode { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public double? ClockSkewSeconds { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? TimeZoneId { get; init; }
     /// <summary>Each firewall profile on or off as last seen; compared by the server with the client's firewall policy.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FirewallProfileSwitches? FirewallProfiles { get; init; }
 }

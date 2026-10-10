@@ -8,6 +8,7 @@ using Cabinet.Agent.Core.Upgrades;
 using Cabinet.Agent.Core.Writes;
 using Cabinet.Agent.Core.Monitoring;
 using Cabinet.Agent.Core.Services;
+using Cabinet.Agent.Core.Clock;
 using Cabinet.Agent.Windows;
 
 [assembly: SupportedOSPlatform("windows")]
@@ -20,7 +21,7 @@ namespace Cabinet.Agent.Broker;
 /// network service over the locked pipe. It has no code that opens a socket.
 /// It makes the write operations, keeps the safety net and the firewall timers
 /// (checked every few seconds and at start-up, so a reboot inside a window still
-/// ends in a rollback), starts only pnputil, msiexec and netsh, by full path, and the signed
+/// ends in a rollback), starts only pnputil, msiexec, netsh, tzutil and w32tm, by full path, and the signed
 /// updater, once a release has passed every check.
 /// </summary>
 public sealed class BrokerService : ServiceBase
@@ -48,7 +49,9 @@ public sealed class BrokerService : ServiceBase
         var servicePlatform = new WindowsServicePlatform();
         var serviceWatcher = new ServiceWatcher(servicePlatform, new StateFile<ServiceWatcher.Saved>(AgentPaths.ServiceWatch), clock, _log.Write);
         var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher };
-        var registry = WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry()))));
+        // Time zone and clock (module 21): time.status, time.setZone, time.sync.
+        var time = new TimeOperations(new WindowsTimePlatform(), _log.Write);
+        var registry = time.Register(WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry())))));
         // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
         var authenticode = new WindowsAuthenticode();
         var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),

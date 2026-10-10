@@ -8,6 +8,8 @@ import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 
 export const OFFLINE_AFTER_MS = 5 * 60_000;
+/** The same tolerance as services/time.ts CLOCK_TOLERANCE_SECONDS (kept here to avoid a circular import). */
+const CLOCK_TOLERANCE = 120;
 
 export interface AuthenticatedCabinet { id: string; serial: string; }
 
@@ -32,21 +34,24 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
 }
 
 /** Records a heartbeat. Returns whether the cabinet had been silent past the offline threshold (or never heard from), so offline alerts are only looked at then. */
-export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<{ wasOffline: boolean; firewallChanged: boolean }> {
-  // The firewall profiles are kept only when reported (an older agent sends none); a change is compared with the policy.
-  const r = (await db.query<{ was_offline: boolean; firewall_changed: boolean; prev_uptime: string | null; prev_at: Date | null }>(
+export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heartbeat): Promise<{ wasOffline: boolean; firewallChanged: boolean; timeCheck: boolean }> {
+  // The firewall profiles and time zone are kept only when reported (an older agent sends none); a change is compared with
+  // the policy or the site's zone. The time alerts are checked again when the zone changed or the clock is, or was, off.
+  const r = (await db.query<{ was_offline: boolean; firewall_changed: boolean; prev_uptime: string | null; prev_at: Date | null; time_check: boolean }>(
     `UPDATE cabinets k SET last_heartbeat_at = now(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = $5,
-            firewall_profiles = COALESCE($7::jsonb, k.firewall_profiles)
-       FROM (SELECT last_heartbeat_at, firewall_profiles, uptime_seconds FROM cabinets WHERE id = $1) before
+            firewall_profiles = COALESCE($7::jsonb, k.firewall_profiles), time_zone_id = COALESCE($8, k.time_zone_id)
+       FROM (SELECT last_heartbeat_at, firewall_profiles, uptime_seconds, time_zone_id, clock_skew_seconds FROM cabinets WHERE id = $1) before
       WHERE k.id = $1
       RETURNING before.last_heartbeat_at IS NULL OR before.last_heartbeat_at < now() - make_interval(secs => $6) AS was_offline,
                 $7::jsonb IS NOT NULL AND before.firewall_profiles IS DISTINCT FROM $7::jsonb AS firewall_changed,
-                before.uptime_seconds AS prev_uptime, before.last_heartbeat_at AS prev_at`,
+                before.uptime_seconds AS prev_uptime, before.last_heartbeat_at AS prev_at,
+                ($8::text IS NOT NULL AND before.time_zone_id IS DISTINCT FROM $8)
+                  OR abs(COALESCE($5::double precision, 0)) > $9 OR abs(COALESCE(before.clock_skew_seconds, 0)) > $9 AS time_check`,
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
-     h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null])).rows[0];
+     h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE])).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });
-  return { wasOffline: r?.was_offline ?? false, firewallChanged: r?.firewall_changed ?? false };
+  return { wasOffline: r?.was_offline ?? false, firewallChanged: r?.firewall_changed ?? false, timeCheck: r?.time_check ?? false };
 }
 
 /**

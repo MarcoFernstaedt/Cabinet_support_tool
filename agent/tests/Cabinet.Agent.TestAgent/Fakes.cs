@@ -139,3 +139,26 @@ sealed class SimulatedServices(string simulateDir, Action<string> log) : Cabinet
         }
     }
 }
+
+/// <summary>A cabinet's time zone and Windows Time without Windows: starts in Pacific time, synced; tzutil and w32tm succeed.</summary>
+sealed class SimulatedTime(Action<string> log) : Cabinet.Agent.Core.Clock.ITimePlatform
+{
+    private static readonly Dictionary<string, TimeZoneInfo> Zones = new (string Id, double Hours, string Name)[]
+    {
+        ("Eastern Standard Time", -5, "(UTC-05:00) Eastern Time (US & Canada)"), ("Central Standard Time", -6, "(UTC-06:00) Central Time (US & Canada)"),
+        ("Mountain Standard Time", -7, "(UTC-07:00) Mountain Time (US & Canada)"), ("US Mountain Standard Time", -7, "(UTC-07:00) Arizona"),
+        ("Pacific Standard Time", -8, "(UTC-08:00) Pacific Time (US & Canada)"), ("Alaskan Standard Time", -9, "(UTC-09:00) Alaska"),
+        ("Hawaiian Standard Time", -10, "(UTC-10:00) Hawaii"),
+    }.ToDictionary(z => z.Id, z => TimeZoneInfo.CreateCustomTimeZone(z.Id, TimeSpan.FromHours(z.Hours), z.Name, z.Id));
+    private TimeZoneInfo _zone = Zones["Pacific Standard Time"];
+    private DateTimeOffset _lastSync = DateTimeOffset.UtcNow.AddHours(-3);
+
+    public TimeZoneInfo CurrentZone() => _zone;
+    public DateTimeOffset UtcNow() => DateTimeOffset.UtcNow;
+    public TimeServiceState ServiceState() => TimeServiceState.Running;
+    public bool PolicyManaged() => false;
+    public string? QueryStatus() =>
+        $"Source: time.windows.com,0x9\nLast Successful Sync Time: {TimeZoneInfo.ConvertTimeFromUtc(_lastSync.UtcDateTime, _zone).ToString(System.Globalization.CultureInfo.GetCultureInfo("en-US"))}\n";
+    public int SetZone(string timeZoneId) { log($"tzutil /s {timeZoneId}"); _zone = Zones[timeZoneId]; return 0; }
+    public int Resync() { log("w32tm /resync"); _lastSync = DateTimeOffset.UtcNow; return 0; }
+}

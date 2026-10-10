@@ -60,6 +60,9 @@ Directory.CreateDirectory(Path.Combine(state, "broker"));
 var services = new SimulatedServices(simulate, Log);
 var serviceWatcher = new Cabinet.Agent.Core.Services.ServiceWatcher(services, new StateFile<Cabinet.Agent.Core.Services.ServiceWatcher.Saved>(Path.Combine(state, "broker", "service-watch.json")), clock, Log);
 var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher };
+// Time zone and clock: the broker's real time logic over a simulated tzutil and w32tm.
+var simulatedTime = new SimulatedTime(Log);
+var timeOperations = new Cabinet.Agent.Core.Clock.TimeOperations(simulatedTime, Log, System.Globalization.CultureInfo.GetCultureInfo("en-US"));
 
 var connection = new AgentConnection(new AgentConnectionOptions
 {
@@ -80,6 +83,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
             }))
             .WithWrites(writes, installer, packages)
             .WithServices(serviceControl)
+            .WithBroker(timeOperations.Register(new OperationRegistry()))
             .WithExamples(examples),
         clock),
     Fingerprints = () => new EnrollFingerprints
@@ -93,6 +97,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
         (version, _) => { var (_, error) = upgradeBroker.Start(version); return Task.FromResult((error is null, error)); }, events, clock, Log),
     ConfirmSafetyNet = (id, _) => Task.FromResult(safetyNet.Confirm(id)), AfterWrite = () => monitorHost?.FirewallNow(),
     FirewallProfiles = () => monitorHost?.FirewallProfiles,
+    TimeZoneId = () => simulatedTime.CurrentZone().Id,
     EnrollPollInterval = TimeSpan.FromSeconds(1), HeartbeatInterval = TimeSpan.FromSeconds(2),
     Backoff = new Backoff(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(3)),
 });
@@ -151,6 +156,13 @@ static class ExampleRegistry
             broker.TryGet(op, out var h);
             registry.RegisterRaw(op, async (p, t) => { if (delay > 0) await Task.Delay(delay, t); return await h(p, t); });
         }
+        return registry;
+    }
+
+    /// <summary>Operations the broker would run, answered here through the broker's own logic.</summary>
+    public static OperationRegistry WithBroker(this OperationRegistry registry, OperationRegistry broker)
+    {
+        foreach (string op in broker.Names) { broker.TryGet(op, out var h); registry.RegisterRaw(op, h); }
         return registry;
     }
 

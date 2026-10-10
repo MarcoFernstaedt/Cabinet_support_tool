@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/time.status.schema.json",
+  "title": "time.status",
+  "description": "The cabinet's time zone, its clock, and Windows Time's state: running or not, its source, its last successful synchronization, and whether Group Policy sets it. Read only; Tier 1.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeZoneId",
+        "timeZoneName",
+        "utcOffsetMinutes",
+        "daylightSavingNow",
+        "localTime",
+        "utcTime",
+        "timeService",
+        "sync",
+        "policyManaged"
+      ],
+      "properties": {
+        "timeZoneId": {
+          "$ref": "../common.schema.json#/$defs/reportedTimeZoneId"
+        },
+        "timeZoneName": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "utcOffsetMinutes": {
+          "type": "integer",
+          "minimum": -840,
+          "maximum": 840
+        },
+        "daylightSavingNow": {
+          "type": "boolean"
+        },
+        "localTime": {
+          "description": "The cabinet's local wall-clock time, without a zone.",
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+        },
+        "utcTime": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "timeService": {
+          "type": "string",
+          "enum": [
+            "running",
+            "stopped",
+            "not_installed",
+            "unknown"
+          ]
+        },
+        "sync": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "source",
+            "lastSuccessfulSync"
+          ],
+          "properties": {
+            "state": {
+              "description": "synced: Windows Time has synchronized at least once; never_synced: it has not; unknown: the status could not be read.",
+              "type": "string",
+              "enum": [
+                "synced",
+                "never_synced",
+                "unknown"
+              ]
+            },
+            "source": {
+              "$ref": "../common.schema.json#/$defs/nullableShortText"
+            },
+            "lastSuccessfulSync": {
+              "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+            }
+          }
+        },
+        "policyManaged": {
+          "description": "Group Policy sets Windows Time's source; the platform never changes the source.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

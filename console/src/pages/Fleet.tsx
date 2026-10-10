@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { api, describeError } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
@@ -104,7 +105,7 @@ export function ClientPage({ id }: { id: string }) {
 }
 
 export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
-interface SiteDetail { id: string; name: string; client: { id: string; name: string };
+interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null;
   sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   cabinets: CabinetRow[]; }
@@ -133,6 +134,7 @@ export function SitePage({ id }: { id: string }) {
             </tr>))}
           </tbody>
         </table>
+        <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SyncSettings key={data.id} siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
           <h2 id="site-scanner">Fingerprint scanner at {data.name}</h2>
@@ -146,6 +148,38 @@ export function SitePage({ id }: { id: string }) {
         <BulkPolicyApply key={`bulk-${data.id}`} scope="site" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
+  );
+}
+
+/**
+ * The time zone a site's cabinets should use (module 21). Setting it changes nothing on a cabinet: cabinets in another
+ * zone get a minor "Wrong time zone" alert, and are corrected from their Time section or Fleet operations. Tier 2 and up.
+ */
+function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: string; name: string; current: string | null; editable: boolean; onSaved: () => void }) {
+  const [zone, setZone] = useState(current ?? "");
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const save = async () => {
+    setProblem(null); setSaved(false);
+    try { await api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: zone || null }); setSaved(true); onSaved(); }
+    catch (e) { setProblem(describeError(e)); }
+  };
+  return (
+    <section className="panel" aria-labelledby={`tz-${siteId}`}>
+      <h2 id={`tz-${siteId}`}>Time zone at {name}</h2>
+      <p className="muted small">The zone this site's cabinets should use. A cabinet in another zone gets a "Wrong time zone" alert; nothing changes on a cabinet until someone corrects it.</p>
+      {editable ? (
+        <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void save(); }}>
+          <label className="field inline"><span>Time zone</span>
+            <select value={zone} onChange={e => setZone(e.target.value)}>
+              <option value="">Not set</option>
+              {Object.entries(ZONE_NAMES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+            </select></label>
+          <button className="btn" disabled={zone === (current ?? "")}>Save</button>
+          {saved && <span className="ok" role="status">Saved. Cabinets are compared with it at once.</span>}
+          {problem && <span className="error" role="alert">{problem}</span>}
+        </form>) : <p>{zoneName(current)}</p>}
+    </section>
   );
 }
 

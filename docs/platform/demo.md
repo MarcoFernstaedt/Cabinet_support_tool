@@ -30,7 +30,7 @@ How to show the platform to the support team: your real agent on your own Window
 
 ## What demo mode is
 
-- **What it adds.** Demo mode adds 4 simulated clients with 41 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 15 of its 24 cabinets blue-screened after a storage driver update, and 5 are still restarting.
+- **What it adds.** Demo mode adds 4 simulated clients with 98 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting.
   - The sites are in the Eastern, Central, Mountain, Arizona and Pacific time zones.
   - Each simulated client is named "Demo · …" and carries a purple **Demo** tag.
   - Each simulated cabinet says "Demo: simulated cabinet".
@@ -58,7 +58,9 @@ How to show the platform to the support team: your real agent on your own Window
 | Lakeside Health, Denver | ICU Sync | New, unrecognized application errors for the triage view. |
 | | Step-down | Offline for 6 days. |
 | Summit Animal Hospitals, Austin | Isolation | Repeated blue screens: a second cabinet with the same crash. |
-| Harbor Pet Hospitals, 4 sites | 24 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
+| Riverside, New York | ICU | Clock about 7 minutes fast. Fix: Time → Sync the clock. |
+| Riverside, Phoenix; Riverside, San Diego; Summit, Austin | Exam Wing, Recovery, Surgery Suite | Set to the wrong Windows time zone (Phoenix set to Mountain with daylight saving, not Arizona). Fix: Time → Set to the site's zone. |
+| Harbor Pet Hospitals, 8 sites | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
 
 ## A 15-minute demo script
 

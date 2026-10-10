@@ -1,0 +1,15 @@
+{
+  "timeZoneId": "Pacific Standard Time",
+  "timeZoneName": "(UTC-08:00) Pacific Time (US & Canada)",
+  "utcOffsetMinutes": -420,
+  "daylightSavingNow": true,
+  "localTime": "2026-10-10T09:15:02",
+  "utcTime": "2026-10-10T16:15:02Z",
+  "timeService": "stopped",
+  "sync": {
+    "state": "never_synced",
+    "source": null,
+    "lastSuccessfulSync": null
+  },
+  "policyManaged": true
+}

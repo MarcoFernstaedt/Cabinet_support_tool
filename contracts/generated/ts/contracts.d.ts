@@ -439,7 +439,10 @@ export interface CommandRequest {
     | "driver.uninstall"
     | "services.list"
     | "processes.list"
-    | "service.control";
+    | "service.control"
+    | "time.status"
+    | "time.setZone"
+    | "time.sync";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -776,6 +779,23 @@ export interface SiteCreate {
 }
 
 /**
+ * Sets the Windows time zone a site's cabinets should use (Tier 2 and up), or clears it with null. Cabinets in another zone get a minor alert; nothing changes on a cabinet until someone corrects it.
+ */
+export interface SiteTimeZone {
+  timeZone:
+    | (
+        | "Eastern Standard Time"
+        | "Central Standard Time"
+        | "Mountain Standard Time"
+        | "US Mountain Standard Time"
+        | "Pacific Standard Time"
+        | "Alaskan Standard Time"
+        | "Hawaiian Standard Time"
+      )
+    | null;
+}
+
+/**
  * An action that needs nothing but its step-up token.
  */
 export interface StepUpOnly {
@@ -978,7 +998,10 @@ export interface Command {
     | "driver.uninstall"
     | "services.list"
     | "processes.list"
-    | "service.control";
+    | "service.control"
+    | "time.status"
+    | "time.setZone"
+    | "time.sync";
   params: {};
   issuedBy: string;
   /**
@@ -1219,6 +1242,10 @@ export interface Heartbeat {
    */
   clockSkewSeconds?: number;
   firewallProfiles?: FirewallProfileSwitches;
+  /**
+   * The cabinet's Windows time zone, compared with its site's time zone. Absent from agents before the time operations.
+   */
+  timeZoneId?: string;
 }
 
 /**
@@ -2314,6 +2341,88 @@ export interface ServiceControlOutput {
     | "unknown";
 }
 
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface TimeStatusParams {}
+
+export interface TimeStatusOutput {
+  /**
+   * A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.
+   */
+  timeZoneId: string;
+  /**
+   * A single line of text with no control characters.
+   */
+  timeZoneName: string;
+  utcOffsetMinutes: number;
+  daylightSavingNow: boolean;
+  /**
+   * The cabinet's local wall-clock time, without a zone.
+   */
+  localTime: string;
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  utcTime: string;
+  timeService: "running" | "stopped" | "not_installed" | "unknown";
+  sync: {
+    /**
+     * synced: Windows Time has synchronized at least once; never_synced: it has not; unknown: the status could not be read.
+     */
+    state: "synced" | "never_synced" | "unknown";
+    source: string | null;
+    lastSuccessfulSync: string | null;
+  };
+  /**
+   * Group Policy sets Windows Time's source; the platform never changes the source.
+   */
+  policyManaged: boolean;
+}
+
+export interface TimeSetZoneParams {
+  /**
+   * A Windows time zone the platform may set (docs/spec/13-roadmap.md module 21): the United States zones, with Arizona (US Mountain Standard Time, no daylight saving) separate from Mountain.
+   */
+  timeZoneId:
+    | "Eastern Standard Time"
+    | "Central Standard Time"
+    | "Mountain Standard Time"
+    | "US Mountain Standard Time"
+    | "Pacific Standard Time"
+    | "Alaskan Standard Time"
+    | "Hawaiian Standard Time";
+}
+
+export interface TimeSetZoneOutput {
+  /**
+   * A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.
+   */
+  before: string;
+  /**
+   * A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.
+   */
+  after: string;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface TimeSyncParams {}
+
+export interface TimeSyncOutput {
+  /**
+   * synced: Windows Time synchronized; failed: it tried and could not (no source answered); service_stopped: Windows Time is not running, so nothing was tried.
+   */
+  result: "synced" | "failed" | "service_stopped";
+  /**
+   * A single line of text with no control characters.
+   */
+  message: string;
+  lastSuccessfulSyncBefore: string | null;
+  lastSuccessfulSyncAfter: string | null;
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -2324,7 +2433,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2357,4 +2466,7 @@ export interface OperationTypes {
   "package.install": { params: PackageInstallParams; output: PackageInstallOutput };
   "driver.uninstall": { params: DriverUninstallParams; output: DriverUninstallOutput };
   "service.control": { params: ServiceControlParams; output: ServiceControlOutput };
+  "time.status": { params: TimeStatusParams; output: TimeStatusOutput };
+  "time.setZone": { params: TimeSetZoneParams; output: TimeSetZoneOutput };
+  "time.sync": { params: TimeSyncParams; output: TimeSyncOutput };
 }

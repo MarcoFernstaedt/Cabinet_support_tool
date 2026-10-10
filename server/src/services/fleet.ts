@@ -54,13 +54,13 @@ export async function client(db: Queryable, id: string) {
 }
 
 export async function site(db: Queryable, id: string) {
-  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string[] | null }>(
-    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner
+  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string[] | null; time_zone: string | null }>(
+    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone
        FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
   const cabinets = (await db.query(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [id])).rows;
   const sync = (await syncForSite(db, id))!;
-  return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name },
+  return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone,
     sync: { address: sync.address, ports: sync.site, effectivePorts: sync.effective, portsSource: sync.source },
     scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: s.client_scanner, fleetHardwareIds: await fleetScannerIds(db) },
     cabinets: cabinets.map(cabinetRow) };

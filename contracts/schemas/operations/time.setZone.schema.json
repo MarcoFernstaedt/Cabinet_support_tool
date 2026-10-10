@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/time.setZone.schema.json",
+  "title": "time.setZone",
+  "description": "Set the cabinet's time zone to one of the allowed United States zones (tzutil, run by the broker). Tier 1 and up, a confirmation click. The clock itself does not change; only how local time is shown and logged.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeZoneId"
+      ],
+      "properties": {
+        "timeZoneId": {
+          "$ref": "../common.schema.json#/$defs/timeZoneId"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "before",
+        "after"
+      ],
+      "properties": {
+        "before": {
+          "$ref": "../common.schema.json#/$defs/reportedTimeZoneId"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/reportedTimeZoneId"
+        }
+      }
+    }
+  }
+}

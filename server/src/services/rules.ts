@@ -21,6 +21,8 @@ export const ISSUE = {
   shutdown: "00000000-0000-4000-8000-000000000110",
   hardware: "00000000-0000-4000-8000-000000000111",
   rebootLoop: "00000000-0000-4000-8000-000000000117",
+  timeZone: "00000000-0000-4000-8000-000000000118",
+  clock: "00000000-0000-4000-8000-000000000119",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */

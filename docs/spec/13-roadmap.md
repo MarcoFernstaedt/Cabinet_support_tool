@@ -98,3 +98,15 @@ Still to build in this phase:
 | Server | Reboot-loop detection: repeated short uptimes and boots before the cabinet went quiet, kept separate from plain "offline". A crash signature (stop code plus faulting module) groups crashes across the fleet. Storage risk classes come from configurable rules. |
 | Console | A crash investigation page per cabinet, with a timeline of updates, driver changes, storage errors and crashes. A fleet incident page that compares affected and unaffected cabinets by model, build, driver and update. |
 | Evidence | Minidump upload and packet capture follow the decision in 09: Admin only, encrypted, time-limited and audited. |
+
+## Phase 3: time zone and clock (module 21)
+
+Built (October 2026):
+
+- **Operations.** `time.status` (read, Tier 1): the cabinet's zone, local time, Windows Time's state, source, last successful sync, and whether Group Policy sets it. `time.setZone` (write, Tier 1, a click): only the seven United States zones compiled into the agent, run by the broker as `tzutil.exe /s <zone>`. `time.sync` (write, Tier 1, a click): `w32tm.exe /resync`, never changing the source. Both programs are started by full path with argument arrays.
+- **Heartbeat.** Every heartbeat carries the cabinet's zone; its clock offset was already there.
+- **Sites.** Each site may set the zone its cabinets should use (Tier 2). A cabinet in another zone gets a minor "Wrong time zone" alert; a clock more than two minutes off gets "Clock is off". Both close on their own.
+- **Console.** A Time section on every cabinet, with the findings and the fixes; the zone setting on the site page.
+- **Demo.** Three cabinets in the wrong zone (Arizona, California, Texas) and one drifting clock (New York).
+
+Still to build: bulk time zone correction across many cabinets is part of Fleet operations (module 21 and 45).

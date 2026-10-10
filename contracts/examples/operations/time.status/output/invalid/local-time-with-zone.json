@@ -1,0 +1,15 @@
+{
+  "timeZoneId": "US Mountain Standard Time",
+  "timeZoneName": "(UTC-07:00) Arizona",
+  "utcOffsetMinutes": -420,
+  "daylightSavingNow": false,
+  "localTime": "2026-10-10T09:15:02-07:00",
+  "utcTime": "2026-10-10T16:15:02Z",
+  "timeService": "running",
+  "sync": {
+    "state": "synced",
+    "source": "time.windows.com,0x9",
+    "lastSuccessfulSync": "2026-10-10T15:58:40Z"
+  },
+  "policyManaged": false
+}

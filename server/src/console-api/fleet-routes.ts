@@ -1,5 +1,6 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
+import { cabinetTime, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
@@ -116,6 +117,21 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const body = consoleBodies.syncPorts.parse(request.body);
     await setFleetSyncPorts(o.pool, u.userId, body.ports, boundTo(body.stepUpToken, body));
     return { ports: body.ports };
+  });
+
+  // Time zone and clock (module 21): what the cabinet reports against its site's zone; Tier 2 sets a site's zone.
+  app.get("/api/cabinets/:id/time", async request => {
+    await o.guards.role(request, "tier1");
+    const t = await cabinetTime(o.pool, id(request));
+    if (!t) throw new Refused("not_found", 404, "no such cabinet");
+    return t;
+  });
+
+  app.put("/api/sites/:id/time-zone", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const body = consoleBodies.siteTimeZone.parse(request.body);
+    await setSiteTimeZone(o.pool, u.userId, id(request), body.timeZone as TimeZoneId | null);
+    return { timeZone: body.timeZone };
   });
 
   app.put("/api/sites/:id/sync", async request => {
