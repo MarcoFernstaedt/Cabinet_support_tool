@@ -86,7 +86,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
     let siteIndex = 0;
     for (const client of DEMO_FLEET) {
       const clientId = randomUUID();
-      await c.query("INSERT INTO clients (id, name, demo, watched_services) VALUES ($1, $2, true, $3)", [clientId, client.name, ["BioScanSvc"]]);
+      await c.query("INSERT INTO clients (id, name, demo, watched_services, sync_ports) VALUES ($1, $2, true, $3, $4)", [clientId, client.name, ["BioScanSvc"], [1433]]);
       for (const site of client.sites) {
         const siteId = randomUUID();
         await c.query("INSERT INTO sites (id, client_id, name, sync_address) VALUES ($1, $2, $3, $4)", [siteId, clientId, site.name, `${site.subnet}.20`]);
@@ -121,7 +121,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
 export async function disableDemo(pool: pg.Pool, userId: string): Promise<number> {
   return transaction(pool, async c => {
     const ids = (await c.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL")).rows.map(r => r.id);
-    for (const table of ["firewall_changes", "events", "alerts", "commands"])
+    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.
@@ -148,9 +148,11 @@ async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles):
 }
 
 async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | null> {
-  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; position: string }>(
+  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; sync_blocked: boolean; position: string }>(
     `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles,
             COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched,
+            k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
+              AND ((y.firewall_profiles->>'domain')::boolean OR (y.firewall_profiles->>'private')::boolean OR (y.firewall_profiles->>'public')::boolean)) AS sync_blocked,
             (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) AS position
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1 AND k.demo_scenario IS NOT NULL`, [cabinetId])).rows[0];
   if (!k) return null;
@@ -159,7 +161,7 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
             COALESCE(detail->>'message', '') AS message, (source->>'recordId')::bigint AS record_id
        FROM events WHERE cabinet_id = $1 AND kind = 'error' AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet: (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join("."),
-    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], now: new Date(),
+    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], syncBlocked: k.sync_blocked, now: new Date(),
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
 }
 

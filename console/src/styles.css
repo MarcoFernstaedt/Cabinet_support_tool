@@ -300,3 +300,12 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .picker { position: relative; }
 .picker .jump-results { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 280px; }
 .security-list > li { margin: var(--s-2) 0; }
+
+/* Diagnosis findings: worst first, evidence and fix under each */
+.findings { list-style: none; padding: 0; margin: var(--s-2) 0; border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; }
+.finding { padding: var(--s-3); border-bottom: 1px solid var(--line); border-left: 3px solid transparent; background: var(--surface); }
+.finding:last-child { border-bottom: 0; }
+.finding.problem { border-left-color: var(--crit); } .finding.warning { border-left-color: var(--warn); } .finding.info { border-left-color: var(--info); }
+.finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.evidence { margin: var(--s-2) 0 0; padding-left: var(--s-5); color: var(--text-2); font-size: var(--fs-sm); }
+.fix { margin: var(--s-2) 0; }

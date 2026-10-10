@@ -14,6 +14,8 @@ export interface DemoContext {
   /** The cabinet's own stored error events, newest first, so the event log matches its alerts. */
   events: { log: string; source: string; eventId: number; level: string; occurredAt: string; message: string; recordId: number }[];
   watchedServices: string[];
+  /** Whether the site's sync cabinet (another cabinet) has a firewall profile on, so its ports do not answer. */
+  syncBlocked: boolean;
   now: Date;
 }
 
@@ -127,7 +129,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         : params.target === "sync_cabinet" ? (params.syncAddress ?? `${ctx.subnet}.20`) : null;
       if (ctx.scenario === "dns_errors" && (params.method === "dns" || (params.target === "dns_server" && (params.dnsServerIndex ?? 0) === 1)))
         return { ...ok, resolvedTarget: resolved, success: false, latencyMs: null, error: "No answer within 2 seconds." };
-      if (ctx.scenario === "firewall_drift" && params.target === "sync_cabinet" && params.method === "tcp")
+      if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp")
         return { ...ok, resolvedTarget: resolved, success: false, latencyMs: null, error: `Port ${params.port ?? 1433} did not answer within 3 seconds.` };
       return { ...ok, resolvedTarget: resolved, latencyMs: params.target === "platform_server" ? 38 + ctx.index : ok.latencyMs };
     }

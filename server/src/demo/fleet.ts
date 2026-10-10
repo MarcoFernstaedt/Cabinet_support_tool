@@ -14,7 +14,7 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync"), c("Surgery", "satellite", "firewall_drift"), c("ICU", "satellite"), c("Treatment Room", "satellite", "scanner_disconnected")] },
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite"), c("Treatment Room", "satellite", "scanner_disconnected")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite"), c("Boarding", "satellite", "service_failing")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
@@ -33,7 +33,7 @@ export const DEMO_FLEET: DemoClient[] = [
 ];
 
 export const SCENARIO_LABEL: Record<Scenario, string> = {
-  healthy: "Healthy", firewall_drift: "Firewall on, unlike the client policy (blocks sync)", scanner_disconnected: "Fingerprint scanner disconnected",
+  healthy: "Healthy", firewall_drift: "Sync cabinet firewall on, unlike the client policy (blocks its satellites)", scanner_disconnected: "Fingerprint scanner disconnected",
   service_failing: "Scanner service will not stay running", disk_failing: "Drive predicting failure", bsod: "Repeated blue screens",
   offline: "Offline for 6 days", dns_errors: "DNS lookups failing", update_failure: "Windows update failing", unknown_errors: "New, unrecognized errors",
 };

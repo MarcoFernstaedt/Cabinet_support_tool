@@ -1,4 +1,5 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
+import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
   NetworkTestOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
@@ -119,6 +120,7 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
   useEffect(() => { void config.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const dnsCount = Math.min(4, Math.max(0, ...(config.result?.output?.adapters.filter(a => a.connected).map(a => a.dns.servers.length) ?? [0])));
   return (<>
+    <DiagnoseNetwork cabinetId={cabinet.id} cabinetName={cabinet.name} />
     <OperationPanel title="Network adapters" run={config} onRun={() => void config.start()}>
       {out => <div className="cards">{out.adapters.map(a => (
         <article key={a.interfaceIndex} className="card" aria-label={`Adapter ${a.name}`}>

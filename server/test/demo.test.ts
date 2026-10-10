@@ -21,6 +21,7 @@ import { DemoSimulator, scenarioEvents } from "../src/demo/demo.js";
 import { DEMO_FLEET, type Scenario } from "../src/demo/fleet.js";
 import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
 import { ISSUE } from "../src/services/rules.js";
+import { evaluateDrift } from "../src/services/firewall-policy.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
@@ -90,7 +91,7 @@ test("every simulated answer, for every operation and every scenario, passes the
       for (const file of readdirSync(paramsDir)) {
         const params = JSON.parse(readFileSync(join(paramsDir, file), "utf8"));
         const ctx: DemoContext = { hostname: "CAB-01S01", role: "sync", scenario, subnet: "10.21.4", index: 1, now: new Date(),
-          firewallProfiles: { domain: scenario === "firewall_drift", private: false, public: scenario === "firewall_drift" }, watchedServices: ["BioScanSvc", "Spooler"],
+          firewallProfiles: { domain: scenario === "firewall_drift", private: false, public: scenario === "firewall_drift" }, watchedServices: ["BioScanSvc", "Spooler"], syncBlocked: scenario === "healthy",
           events: scenarioEvents(scenario).filter(e => e.source).map(e => ({ log: e.source!.log, source: e.source!.source, eventId: e.source!.eventId, level: e.source!.level,
             occurredAt: e.occurredAt, message: e.detail.message ?? "", recordId: e.source!.recordId })) };
         const out = demoOutput(op, params, ctx);
@@ -170,6 +171,44 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
     const real = await call("POST", `/api/cabinets/${realCabinet}/commands`, { operation: "system.info", params: {} }, t1);
     await new Promise(r => setTimeout(r, 300));
     assert.equal((await db.app.query("SELECT status FROM commands WHERE id = $1", [real.body.commandId])).rows[0].status, "queued");
+  } finally {
+    sim.stop();
+  }
+});
+
+test("diagnose network on a satellite finds the sync cabinet's firewall, offers the fix on that cabinet, and finds it fixed afterwards", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const surgery = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Surgery' AND demo_scenario IS NOT NULL")).rows[0]!.id;
+    // The earlier test fixed the sync cabinet's firewall; someone turns it back on (the cabinet reports it in its next heartbeat).
+    const sync = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Pharmacy Sync' AND demo_scenario IS NOT NULL")).rows[0]!.id;
+    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', demo_scenario = 'firewall_drift' WHERE id = $1`, [sync]);
+    await evaluateDrift(db.app, { cabinetId: sync });
+    const run = async () => {
+      const started = await call("POST", `/api/cabinets/${surgery}/diagnose/network`, {}, t1);
+      assert.equal(started.status, 202, JSON.stringify(started.body));
+      let d: any;
+      await until("the diagnosis", async () => (d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body).state === "done", 20_000);
+      return d.findings as { id: string; severity: string; certainty: string; title: string; action?: { kind: string; cabinetId: string } }[];
+    };
+    const before = await run();
+    const blocked = before.find(f => f.id === "sync-firewall");
+    assert.ok(blocked, JSON.stringify(before.map(f => f.id)));
+    assert.equal(blocked.severity, "problem");
+    assert.equal(blocked.certainty, "probable", "a closed port and a firewall that is on are evidence, not proof");
+    assert.deepEqual(blocked.action, { kind: "apply_policy", cabinetId: sync, cabinetName: "Pharmacy Sync" });
+    assert.equal(before[0]!.id, "sync-firewall", "problems come first");
+    // Each command the diagnosis issued is the person's own, in the audit log.
+    assert.ok(Number((await db.app.query("SELECT count(*) FROM audit_log WHERE action = 'command.issue' AND details->>'operation' = 'network.test' AND target_id = $1", [surgery])).rows[0].count) >= 4);
+    // The fix, as the finding offers it: apply the policy on the sync cabinet. Then the satellite reaches it.
+    assert.equal((await call("POST", `/api/cabinets/${sync}/commands`, { operation: "firewall.applyPolicy", params: {} }, t1)).status, 202);
+    await until("the sync cabinet's firewall to report off", async () => !(await openAlert(sync, ISSUE.firewallPolicy)));
+    const after = await run();
+    assert.ok(after.some(f => f.id === "sync-ok"), JSON.stringify(after.map(f => f.id)));
+    assert.ok(!after.some(f => f.severity === "problem"), JSON.stringify(after.filter(f => f.severity === "problem")));
+    assert.equal((await call("GET", `/api/cabinets/${surgery}/diagnose/network`, undefined, t1)).body.latest.state, "done");
   } finally {
     sim.stop();
   }

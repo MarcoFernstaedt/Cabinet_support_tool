@@ -38,7 +38,8 @@ export async function runRetention(pool: pg.Pool): Promise<RetentionRun> {
     const firewallChanges = (await c.query("DELETE FROM firewall_changes WHERE occurred_at < now() - make_interval(days => $1)", days(r.firewallDays))).rowCount ?? 0;
     const sessions = (await c.query("DELETE FROM sessions WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
     const stepUpTokens = (await c.query("DELETE FROM step_up_tokens WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
-    const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens };
+    const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < now() - interval '30 days'")).rowCount ?? 0;
+    const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses };
     await audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } });
     return run;
   });
