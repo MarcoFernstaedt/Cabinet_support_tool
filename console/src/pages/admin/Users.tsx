@@ -40,7 +40,7 @@ export function NewAccount({ onCreated, heading = "New account" }: { onCreated: 
       setShown({ who: draft.username, password: r.temporaryPassword });
       setDraft({ username: "", name: "", role: "tier1" });
       onCreated(`Account ${draft.username} created.`);
-    });
+    }, draft);
   return (
     <section className="panel" aria-labelledby="new-user">
       <h2 id="new-user">{heading}</h2>
@@ -91,7 +91,7 @@ function UserLine({ u, self, ask, after, onPassword }: { u: UserRow; self: boole
   const [role, setRole] = useState<Role>(u.role);
   const [limit, setLimit] = useState(String(u.writeLimit));
   const update = (change: Record<string, unknown>, what: string) => ask("user.update", u.id, <p>{what} for <strong>{u.name}</strong> ({u.username}).</p>,
-    async token => { await api("PUT", `/api/admin/users/${u.id}`, { ...change, stepUpToken: token }); after(`${u.username}: ${what.toLowerCase()}.`); });
+    async token => { await api("PUT", `/api/admin/users/${u.id}`, { ...change, stepUpToken: token }); after(`${u.username}: ${what.toLowerCase()}.`); }, change);
   const action = (path: string, act: string, what: string, extra?: string) => ask(act, u.id, <><p>{what} for <strong>{u.name}</strong> ({u.username}).</p>{extra && <p className="notice warn">{extra}</p>}</>,
     async token => {
       const r = await api<{ temporaryPassword?: string }>("POST", `/api/admin/users/${u.id}/${path}`, { stepUpToken: token });

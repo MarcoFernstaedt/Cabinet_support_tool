@@ -146,18 +146,18 @@ test("firewall rules are a click for Tier 2, allow-all included; an update canno
 test("a fleet or client write pause stops writes but not reads; a read-only cabinet refuses writes", async () => {
   const admin = await account("admin"); const ca = await signIn(admin);
   const t2 = await account("tier2"); const c2 = await signIn(t2);
-  const pause = await call("POST", "/api/admin/writes", { paused: true, reason: "Investigating", stepUpToken: await stepUp(admin, ca, "writes.pause", "fleet") }, ca);
+  const pause = await call("POST", "/api/admin/writes", { paused: true, reason: "Investigating", stepUpToken: await stepUp(admin, ca, "writes.pause", "fleet", { paused: true, reason: "Investigating" }) }, ca);
   assert.equal(pause.body.fleet.paused, true);
   assert.equal((await call("GET", "/api/writes/status", undefined, c2)).body.fleet.reason, "Investigating");
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "writes_paused");
   assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "system.info", params: {} }, c2)).status, 202, "reads keep working");
-  await call("POST", "/api/admin/writes", { paused: false, stepUpToken: await stepUp(admin, ca, "writes.resume", "fleet") }, ca);
+  await call("POST", "/api/admin/writes", { paused: false, stepUpToken: await stepUp(admin, ca, "writes.resume", "fleet", { paused: false }) }, ca);
 
-  const cp = await call("POST", `/api/admin/clients/${clientId}/writes`, { paused: true, reason: "Client asked", stepUpToken: await stepUp(admin, ca, "writes.pause", clientId) }, ca);
+  const cp = await call("POST", `/api/admin/clients/${clientId}/writes`, { paused: true, reason: "Client asked", stepUpToken: await stepUp(admin, ca, "writes.pause", clientId, { paused: true, reason: "Client asked" }) }, ca);
   assert.deepEqual(cp.body.clients.map((c: { name: string }) => c.name), ["Acme Health"]);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "writes_paused");
-  await call("POST", `/api/admin/clients/${clientId}/writes`, { paused: false, stepUpToken: await stepUp(admin, ca, "writes.resume", clientId) }, ca);
-  assert.equal((await call("POST", "/api/admin/writes", { paused: true, stepUpToken: await stepUp(t2, c2, "writes.pause", "fleet") }, c2)).status, 403, "Admin only");
+  await call("POST", `/api/admin/clients/${clientId}/writes`, { paused: false, stepUpToken: await stepUp(admin, ca, "writes.resume", clientId, { paused: false }) }, ca);
+  assert.equal((await call("POST", "/api/admin/writes", { paused: true, stepUpToken: await stepUp(t2, c2, "writes.pause", "fleet", { paused: true }) }, c2)).status, 403, "Admin only");
 
   await db.app.query("UPDATE cabinets SET read_only = true WHERE id = $1", [cabinetId]);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "read_only_cabinet");
@@ -186,8 +186,8 @@ const SYS = pe("scanner driver");
 const driver = (cat = pki.catalog(vendor, [INF, SYS])) => zip([["scanner.inf", INF], ["scanner.sys", SYS], ["scanner.cat", cat]]);
 
 async function upload(admin: Account, cookie: string, file: Buffer, version = randomUUID().slice(0, 8)) {
-  const start = await call("POST", "/api/admin/packages", { name: "Scanner driver", version, vendor: "Scanner Vendor", packageType: "driver",
-    hardwareIds: ["USB\\VID_1234&PID_5678"], stepUpToken: await stepUp(admin, cookie, "package.upload", "fleet") }, cookie);
+  const metadata = { name: "Scanner driver", version, vendor: "Scanner Vendor", packageType: "driver", hardwareIds: ["USB\\VID_1234&PID_5678"] };
+  const start = await call("POST", "/api/admin/packages", { ...metadata, stepUpToken: await stepUp(admin, cookie, "package.upload", "fleet", metadata) }, cookie);
   assert.equal(start.status, 201, JSON.stringify(start.body));
   return { id: start.body.packageId as string, content: await call("PUT", `/api/admin/packages/${start.body.packageId}/content`, undefined, cookie, file) };
 }
@@ -248,9 +248,9 @@ test("unsigned, tampered, unlisted and oversized uploads are refused and kept as
   }
   const big = await upload(a, c, Buffer.alloc(store.maxBytes + 1));
   assert.equal(big.content.status, 413);
-  const dup = await call("POST", "/api/admin/packages", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [], stepUpToken: await stepUp(a, c, "package.upload", "fleet") }, c);
+  const dup = await call("POST", "/api/admin/packages", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [], stepUpToken: await stepUp(a, c, "package.upload", "fleet", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [] }) }, c);
   assert.equal(dup.status, 201);
-  assert.equal((await call("POST", "/api/admin/packages", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [], stepUpToken: await stepUp(a, c, "package.upload", "fleet") }, c)).body.error, "version_exists");
+  assert.equal((await call("POST", "/api/admin/packages", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [], stepUpToken: await stepUp(a, c, "package.upload", "fleet", { name: "Scanner driver", version: "same", vendor: "V", packageType: "driver", hardwareIds: [] }) }, c)).body.error, "version_exists");
   // Only the uploading Admin sends the file, and only once.
   const other = await account("admin"); const oc = await signIn(other);
   assert.equal((await call("PUT", `/api/admin/packages/${dup.body.packageId}/content`, undefined, oc, driver())).body.error, "not_uploading");

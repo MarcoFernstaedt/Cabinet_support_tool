@@ -17,13 +17,27 @@ export async function issueStepUpToken(db: Queryable, userId: string, action: st
 }
 
 /**
+ * The token as a route received it, bound to the rest of the request body: the person must have confirmed exactly these
+ * parameters (the console sends their canonical hash with the code). A body that is only the token stays unbound, since
+ * the action and target already say everything. Tokens are base64url, so the "." cannot come from the request.
+ */
+export function boundTo(token: string, body: object): string {
+  const { stepUpToken: _token, ...params } = body as Record<string, unknown>;
+  return Object.keys(params).length === 0 ? token : `${token}.${paramsHash(params)}`;
+}
+
+/**
  * Consumes the token inside the caller's transaction, so the action and the token's use commit together. When the
  * action passes its parameters, the token must have been confirmed for exactly those parameters.
  */
 export async function consumeStepUpToken(db: Queryable, token: string, userId: string, action: string, target: string, params?: unknown): Promise<void> {
+  const dot = token.indexOf(".");
+  const boundHash = dot < 0 ? null : token.slice(dot + 1);
+  if (dot >= 0) token = token.slice(0, dot);
+  const required = params === undefined ? boundHash : paramsHash(params);
   const r = await db.query(`UPDATE step_up_tokens SET used_at = now()
                               WHERE token_hash = $1 AND user_id = $2 AND action = $3 AND target = $4 AND used_at IS NULL AND expires_at > now()
                                 AND ($5::text IS NULL OR params_hash = $5)`,
-    [hash(token), userId, action, target, params === undefined ? null : paramsHash(params)]);
+    [hash(token), userId, action, target, required]);
   if (r.rowCount !== 1) throw new Refused("step_up_required", 403, "a valid step-up token for this exact action is required");
 }

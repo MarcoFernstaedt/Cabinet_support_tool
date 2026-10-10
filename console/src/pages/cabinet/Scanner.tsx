@@ -111,7 +111,7 @@ function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabi
         </tbody>
       </table>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <StepUpDialog open={chosen !== null} action={`${level}.scanner`} target={target} onClose={() => setChosen(null)}
+      <StepUpDialog open={chosen !== null} action={`${level}.scanner`} target={target} onClose={() => setChosen(null)} params={{ hardwareIds: chosen }}
         description={<p>Use <code>{chosen?.join(", ")}</code> as the fingerprint scanner for {what}. This changes which device the scanner checks look at; nothing changes on the cabinets themselves.</p>}
         onToken={async token => {
           try { await api("PUT", `/api/${level}s/${target}/scanner`, { hardwareIds: chosen, stepUpToken: token }); onUse(); }

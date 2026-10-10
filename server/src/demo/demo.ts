@@ -3,6 +3,7 @@
 // server code as a real agent's (heartbeats, events and the alerts engine, command delivery, results checked against the
 // output schema), so alerts, history and the audit log behave exactly as they would for real cabinets. Turning it off
 // deletes every simulated record (security alerts stay, unlinked). Real cabinets are never touched: a simulated cabinet is one with a demo_scenario.
+import { Refused } from "../services/errors.js";
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { audit, safeJson, transaction } from "../db/db.js";
@@ -177,6 +178,10 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
 /** Deletes every simulated record. Real cabinets, users and the audit log are untouched (the audit log keeps who did it). */
 export async function disableDemo(pool: pg.Pool, userId: string): Promise<number> {
   return transaction(pool, async c => {
+    // A real cabinet filed under a simulated client (refused since, but possible in older data) is never deleted with it.
+    const real = (await c.query<{ name: string }>(
+      "SELECT k.name FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients n ON n.id = s.client_id WHERE n.demo AND k.demo_scenario IS NULL LIMIT 1")).rows[0];
+    if (real) throw new Refused("real_cabinet_in_demo_client", 409, `the real cabinet ${real.name} is filed under a simulated client; move it before turning demo mode off`);
     const ids = (await c.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL")).rows.map(r => r.id);
     for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);

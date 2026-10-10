@@ -2,6 +2,7 @@
 // crash incident. Read only; every query string is checked against the crash-query contract first.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
+import { transaction } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { id } from "./fleet-routes.js";
@@ -9,12 +10,15 @@ import type { ConsoleApiOptions, Guards } from "./server.js";
 
 const DAY = 86_400_000;
 const MAX_DAYS = 90;
+/** The fleet incident reads every cabinet's events, so its window is shorter and one user runs one at a time. */
+const INCIDENT_MAX_DAYS = 14;
+const incidentRunning = new Set<string>();
 
-function window(q: { days?: string; from?: string; to?: string }, defaultDays: number): { from: Date; to: Date } {
+function window(q: { days?: string; from?: string; to?: string }, defaultDays: number, maxDays = MAX_DAYS): { from: Date; to: Date } {
   const to = q.to ? new Date(q.to) : new Date();
   const from = q.from ? new Date(q.from) : new Date(to.getTime() - Number(q.days ?? defaultDays) * DAY);
   if (!(from < to)) throw new Refused("invalid_window", 400, "from must be before to");
-  if (to.getTime() - from.getTime() > MAX_DAYS * DAY) throw new Refused("invalid_window", 400, `the window is at most ${MAX_DAYS} days`);
+  if (to.getTime() - from.getTime() > maxDays * DAY) throw new Refused("invalid_window", 400, `the window is at most ${maxDays} days`);
   return { from, to };
 }
 
@@ -32,8 +36,16 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return { ...w, items: await timeline(o.pool, id(request), w.from, w.to) };
   });
   app.get("/api/incidents/crashes", async request => {
-    await o.guards.role(request, "tier1");
+    const user = await o.guards.role(request, "tier1");
     const q = consoleBodies.crashQuery.parse(request.query);
-    return fleetCrashIncident(o.pool, { ...window(q, 3), clientId: q.clientId });
+    const w = window(q, 3, INCIDENT_MAX_DAYS);
+    if (incidentRunning.has(user.userId)) throw new Refused("rate_limited", 429, "your previous incident query is still running");
+    incidentRunning.add(user.userId);
+    try {
+      return await transaction(o.pool, async c => {
+        await c.query("SET LOCAL statement_timeout = '15s'");
+        return fleetCrashIncident(c, { ...w, clientId: q.clientId });
+      });
+    } finally { incidentRunning.delete(user.userId); }
   });
 }

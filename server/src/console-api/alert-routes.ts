@@ -1,6 +1,7 @@
 // Alerts, the offline filter, stored events, issue types and symptom rules
 // (docs/spec/06-console-spec.md "Alerts area", "Issues area", "Mapping an error to an issue").
 // Every query string and body is checked against its contract; every role check is here.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit } from "../db/db.js";
@@ -91,27 +92,27 @@ export async function alertRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/rules", async (request, reply) => {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.ruleProposal.parse(request.body);
-    return reply.code(201).send(await rules.proposeRule(o.pool, u, body.newIssueType ?? body.issueTypeId!, body.match, body.regroup, body.stepUpToken, body.severity ?? null));
+    return reply.code(201).send(await rules.proposeRule(o.pool, u, body.newIssueType ?? body.issueTypeId!, body.match, body.regroup, boundTo(body.stepUpToken, body), body.severity ?? null));
   });
 
   for (const [path, approve] of [["approve", true], ["reject", false]] as const)
     app.post(`/api/rules/:id/${path}`, async request => {
       const u = await o.guards.role(request, "admin");
       const body = consoleBodies.stepUpOnly.parse(request.body);
-      return rules.decideRule(o.pool, u.userId, id(request), approve, body.stepUpToken);
+      return rules.decideRule(o.pool, u.userId, id(request), approve, boundTo(body.stepUpToken, body));
     });
 
   app.post("/api/rules/:id/disable", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await rules.disableRule(o.pool, u.userId, id(request), body.stepUpToken);
+    await rules.disableRule(o.pool, u.userId, id(request), boundTo(body.stepUpToken, body));
     return { ok: true };
   });
 
   app.post("/api/rules/:id/rollback", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.ruleRollback.parse(request.body);
-    await rules.rollbackRule(o.pool, u.userId, id(request), body.version, body.stepUpToken);
+    await rules.rollbackRule(o.pool, u.userId, id(request), body.version, boundTo(body.stepUpToken, body));
     return { ok: true };
   });
 }

@@ -2,6 +2,7 @@
 // a site or (scanner) one cabinet, the most specific applying; changes by role with step-up; and the values reaching
 // the agent (its heartbeat answer) and its commands (peripheral.status, network.test).
 import test from "node:test";
+import { paramsHash } from "../src/auth/canonical.js";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -45,14 +46,14 @@ async function signIn(a: Account): Promise<string> {
   assert.equal(JSON.parse(r.body).stage, "complete");
   return (a.cookie = cookie);
 }
-async function token(a: Account, action: string, target: string): Promise<string> {
+async function token(a: Account, action: string, target: string, params?: unknown): Promise<string> {
   const r = await app.inject({ method: "POST", url: "/api/auth/step-up", headers: { origin: ORIGIN, cookie: a.cookie!, "content-type": "application/json" },
-    payload: JSON.stringify({ code: code(a), action, target }) });
+    payload: JSON.stringify({ code: code(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }) });
   assert.equal(r.statusCode, 200, r.body);
   return JSON.parse(r.body).token;
 }
 const put = async (a: Account, url: string, body: Record<string, unknown>, action: string, target: string) =>
-  call("PUT", url, { ...body, stepUpToken: await token(a, action, target) }, a.cookie);
+  call("PUT", url, { ...body, stepUpToken: await token(a, action, target, body) }, a.cookie);
 
 let tier1: Account, tier2: Account, admin: Account;
 

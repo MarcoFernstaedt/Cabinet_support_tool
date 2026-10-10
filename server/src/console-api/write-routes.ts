@@ -1,6 +1,7 @@
 // The software library, the write pause and firewall history (docs/spec/06-console-spec.md
 // "Software", "Firewall", "Admin screens"). Every body is checked against its contract and every
 // change needs a step-up token for that exact action.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import type { Readable } from "node:stream";
 import { consoleBodies } from "../contracts.js";
@@ -19,14 +20,14 @@ export async function writeRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/admin/writes", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.writePause.parse(request.body);
-    await setFleetPause(o.pool, u.userId, body.paused, body.reason ?? null, body.stepUpToken);
+    await setFleetPause(o.pool, u.userId, body.paused, body.reason ?? null, boundTo(body.stepUpToken, body));
     return writeStatus(o.pool);
   });
 
   app.post("/api/admin/clients/:id/writes", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.writePause.parse(request.body);
-    await setClientPause(o.pool, u.userId, id(request), body.paused, body.reason ?? null, body.stepUpToken);
+    await setClientPause(o.pool, u.userId, id(request), body.paused, body.reason ?? null, boundTo(body.stepUpToken, body));
     return writeStatus(o.pool);
   });
 
@@ -43,7 +44,7 @@ export async function writeRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const body = consoleBodies.packageUpload.parse(request.body);
     const packageId = await packages.startUpload(o.pool, u.userId, {
       name: body.name, version: body.version, vendor: body.vendor, packageType: body.packageType, hardwareIds: body.hardwareIds, ...(body.notes ? { notes: body.notes } : {}),
-    }, body.stepUpToken);
+    }, boundTo(body.stepUpToken, body));
     return reply.code(201).send({ packageId });
   });
 
@@ -59,14 +60,14 @@ export async function writeRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/admin/packages/:id/approve", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await packages.approvePackage(o.pool, u.userId, id(request), body.stepUpToken);
+    await packages.approvePackage(o.pool, u.userId, id(request), boundTo(body.stepUpToken, body));
     return packages.packageById(o.pool, id(request));
   });
 
   app.post("/api/admin/packages/:id/retire", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await packages.retirePackage(o.pool, u.userId, id(request), body.stepUpToken);
+    await packages.retirePackage(o.pool, u.userId, id(request), boundTo(body.stepUpToken, body));
     return packages.packageById(o.pool, id(request));
   });
 

@@ -140,6 +140,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (recent.length >= enrollPerHour) return reply.code(429).send({ error: "rate_limited" });
     recent.push(now);
     enrollAttempts.set(request.ip, recent);
+    // Kept bounded: addresses with no attempt in the last hour are dropped once the map grows.
+    if (enrollAttempts.size > 10_000)
+      for (const [ip, times] of enrollAttempts) if (!times.some(t => now - t < 3_600_000)) enrollAttempts.delete(ip);
     const body = envelopes.enrollRequest.parse(request.body);
     try {
       const requestId = await submitEnrollment(o.pool, body, request.ip);

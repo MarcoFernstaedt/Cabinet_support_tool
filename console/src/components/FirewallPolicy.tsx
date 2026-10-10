@@ -36,7 +36,7 @@ export function PolicyEditor({ current, inherited, endpoint, action, target, wha
           {saved && <span className="ok" role="status">Saved. Cabinets are compared with it at once.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>)}
-      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)}
+      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)} params={{ policy: pending ?? null }}
         description={<p>{pending ? <>Set the firewall policy for {what} to <strong>{describePolicy(pending)}</strong>.</> : <>Remove {what}'s own policy, so the fleet default applies.</>}
           {" "}Cabinets that differ get a minor alert; nothing changes on a cabinet until someone applies the policy.</p>}
         onToken={async token => {

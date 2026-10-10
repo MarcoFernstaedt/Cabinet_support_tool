@@ -113,7 +113,7 @@ test("a cabinet that restarted and went quiet is a reboot loop; one that simply 
 });
 
 test("hostile or out-of-range windows are refused before any query runs", async () => {
-  for (const q of ["days=1000", "days=7&sql=1", "from=yesterday", "from=2026-10-09T00:00:00Z&to=2026-10-01T00:00:00Z", "from=2026-01-01T00:00:00Z&to=2026-10-01T00:00:00Z", "clientId=../../x"])
+  for (const q of ["days=1000", "days=7&sql=1", "from=yesterday", "from=2026-10-09T00:00:00Z&to=2026-10-01T00:00:00Z", "from=2026-01-01T00:00:00Z&to=2026-10-01T00:00:00Z", "clientId=../../x", "days=30", "days=90"])
     assert.equal((await call(`/api/incidents/crashes?${q}`)).status, 400, q);
   assert.equal((await call("/api/incidents/crashes", null)).status, 401);
   assert.equal((await call(`/api/cabinets/${randomUUID()}/crashes`)).status, 404);

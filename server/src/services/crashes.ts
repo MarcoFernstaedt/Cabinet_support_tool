@@ -162,6 +162,11 @@ put("Microsoft-Windows-Ntfs", [55, 98, 140], "storage", "File system error");
 for (const s of ["storahci", "stornvme", "iaStorA", "iaStorAVC", "iaStorAC"]) put(s, [129], "storage", "Storage controller reset");
 put("Microsoft-Windows-WHEA-Logger", [17, 18, 19, 47], "hardware", "Hardware error (WHEA)");
 
+const COMPARED = new Set<Category>([...CHANGE_CATEGORIES, "storage", "hardware", "update_failed", "driver_failed"]);
+/** The (source|event ID) keys the incident comparison counts, and those whose message names the change. */
+const COMPARED_KEYS = Object.entries(MAP).filter(([, m]) => m && COMPARED.has(m.category)).map(([k]) => k);
+const MESSAGE_KEYS = Object.entries(MAP).filter(([, m]) => m && CHANGE_CATEGORIES.has(m.category)).map(([k]) => k);
+
 interface Row { kind: string; source: { log: string; source: string; eventId: number } | null; message: string; fields: Record<string, string> | null }
 
 export function categorize(r: Row): { category: Category; label: string } | null {
@@ -211,7 +216,7 @@ function toItem(r: EventRow): TimelineItem | null {
 
 export async function timeline(db: Queryable, cabinetId: string, from: Date, to: Date): Promise<TimelineItem[]> {
   const events = (await db.query<EventRow>(
-    `SELECT ${EVENT_COLUMNS} FROM events WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at LIMIT 2000`, [cabinetId, from, to])).rows;
+    `SELECT ${EVENT_COLUMNS} FROM events WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at DESC LIMIT 2000`, [cabinetId, from, to])).rows.reverse();
   const boots = (await db.query<{ booted_at: Date; source: string }>(
     "SELECT booted_at, source FROM cabinet_boots WHERE cabinet_id = $1 AND booted_at BETWEEN $2 AND $3", [cabinetId, from, to])).rows;
   const writes = (await db.query<{ issued_at: Date; operation: string; status: string; name: string }>(
@@ -310,17 +315,23 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
 
   // What changed: on each affected cabinet in the 72 hours before its first crash; on the others, in the same span around the window.
   const lookFrom = new Date(f.from.getTime() - BEFORE_HOURS * 3_600_000);
-  const changes = (await db.query<{ cabinet_id: string; occurred_at: Date; kind: string; source: Row["source"]; message: string }>(
-    `SELECT cabinet_id, occurred_at, kind, source, COALESCE(detail->>'message', '') AS message FROM events
-      WHERE cabinet_id = ANY($3::uuid[]) AND occurred_at BETWEEN $1 AND $2 AND (kind = 'change' OR kind = 'smart_warning' OR kind = 'error')`,
-    [lookFrom, f.to, ids])).rows;
+  // Aggregated in SQL: only the event types the comparison uses, only inside each cabinet's span, one row per distinct change.
+  // An error message is dropped (its key is fixed), so a flood of disk errors is one row per cabinet, not thousands.
+  const spans = [...affected.values()];
+  const changes = (await db.query<{ cabinet_id: string; kind: string; source: Row["source"]; message: string }>(
+    `SELECT DISTINCT e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN NULL ELSE jsonb_build_object('log', '', 'source', e.source->>'source', 'eventId', (e.source->>'eventId')::int) END AS source,
+            CASE WHEN e.kind = 'change' AND (lower(e.source->>'source') || '|' || (e.source->>'eventId')) = ANY($6::text[]) THEN COALESCE(e.detail->>'message', '') ELSE '' END AS message
+       FROM events e LEFT JOIN unnest($4::uuid[], $5::timestamptz[]) AS f(id, first_at) ON f.id = e.cabinet_id
+      WHERE e.cabinet_id = ANY($3::uuid[]) AND e.occurred_at BETWEEN $1 AND $2
+        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= f.first_at - interval '${BEFORE_HOURS} hours'))
+        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND (lower(e.source->>'source') || '|' || (e.source->>'eventId')) = ANY($7::text[])))
+      LIMIT 100000`,
+    [lookFrom, f.to, ids, spans.map(a => a.id), spans.map(a => a.firstAt), MESSAGE_KEYS, COMPARED_KEYS])).rows;
   const keyed = new Map<string, { category: Category; key: string; affected: Set<string>; unaffected: Set<string> }>();
   for (const ch of changes) {
     const c = categorize({ kind: ch.kind, source: ch.source, message: ch.message, fields: null });
     if (!c) continue;
     const a = affected.get(ch.cabinet_id);
-    const inSpan = a ? ch.occurred_at <= a.firstAt && a.firstAt.getTime() - ch.occurred_at.getTime() <= BEFORE_HOURS * 3_600_000 : true;
-    if (!inSpan) continue;
     let k: string | null = null;
     if (CHANGE_CATEGORIES.has(c.category)) k = `${c.label}: ${changeKey(c.category, ch.message)}`;
     else if (c.category === "storage") k = "Storage errors (disk, file system or controller)";

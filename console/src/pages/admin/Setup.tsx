@@ -6,7 +6,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
-import { Badge, ConfirmDialog, StepUpDialog } from "../../components/ui";
+import { Badge, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { NewAccount } from "./Users";
 import { PendingCard, type KnownClient, type Pending } from "./Admin";
@@ -130,6 +130,7 @@ export function DemoMode() {
   const [ask, setAsk] = useState<"on" | "off" | "reset" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const on = demo.data?.enabled ?? false;
+  const body = ask === "reset" ? { enabled: true, reset: true } : { enabled: ask === "on" };
   const text = { on: "Add the simulated demo clients, sites and cabinets for everyone signed in to see.",
     off: "Delete every simulated demo client, site and cabinet, with their alerts and history. Real cabinets are not touched.",
     reset: "Delete the simulated fleet and build it again from the same scenarios, as at the start of a demo. Real cabinets are not touched." };
@@ -148,10 +149,12 @@ export function DemoMode() {
         <Link className="btn ghost" to="/demo">Demo guide and scenario library</Link>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <ConfirmDialog open={ask !== null} onClose={() => setAsk(null)} description={<p>{ask ? text[ask] : ""}</p>}
-        onConfirm={async () => {
+      {/* Confirmed with an authenticator code bound to this exact change (on, off or reset). */}
+      <StepUpDialog open={ask !== null} action="demo.change" target="fleet" onClose={() => setAsk(null)} params={body}
+        description={<p>{ask ? text[ask] : ""}</p>}
+        onToken={async token => {
           try {
-            await api("PUT", "/api/admin/demo", ask === "reset" ? { enabled: true, reset: true } : { enabled: ask === "on" });
+            await api("PUT", "/api/admin/demo", { ...body, stepUpToken: token });
             demo.reload(); window.dispatchEvent(new Event("demo-changed"));
           } catch (e) { setProblem(describeError(e)); throw e; }
         }} />

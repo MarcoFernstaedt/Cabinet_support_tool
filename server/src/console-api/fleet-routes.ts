@@ -1,4 +1,5 @@
 // Fleet views, cabinet commands and the console-managed settings.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
@@ -77,14 +78,14 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.put("/api/settings/scanner", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.scanner.parse(request.body);
-    await setFleetScanner(o.pool, u.userId, body.hardwareIds, body.stepUpToken);
+    await setFleetScanner(o.pool, u.userId, body.hardwareIds, boundTo(body.stepUpToken, body));
     return { hardwareIds: body.hardwareIds };
   });
 
   app.put("/api/cabinets/:id/scanner", async request => {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.scanner.parse(request.body);
-    await setCabinetScanner(o.pool, u.userId, id(request), body.hardwareIds, body.stepUpToken);
+    await setCabinetScanner(o.pool, u.userId, id(request), body.hardwareIds, boundTo(body.stepUpToken, body));
     return { hardwareIds: body.hardwareIds };
   });
 
@@ -93,7 +94,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     app.put(`/api/${level}s/:id/scanner`, async request => {
       const u = await o.guards.role(request, "tier2");
       const body = consoleBodies.scanner.parse(request.body);
-      await setScanner(o.pool, u.userId, level, id(request), body.hardwareIds, body.stepUpToken);
+      await setScanner(o.pool, u.userId, level, id(request), body.hardwareIds, boundTo(body.stepUpToken, body));
       return { hardwareIds: body.hardwareIds };
     });
 
@@ -101,7 +102,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.put("/api/clients/:id/sync-ports", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.syncPorts.parse(request.body);
-    await setClientSyncPorts(o.pool, u.userId, id(request), body.ports, body.stepUpToken);
+    await setClientSyncPorts(o.pool, u.userId, id(request), body.ports, boundTo(body.stepUpToken, body));
     return { ports: body.ports };
   });
 
@@ -113,14 +114,14 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.put("/api/settings/sync-ports", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.syncPorts.parse(request.body);
-    await setFleetSyncPorts(o.pool, u.userId, body.ports, body.stepUpToken);
+    await setFleetSyncPorts(o.pool, u.userId, body.ports, boundTo(body.stepUpToken, body));
     return { ports: body.ports };
   });
 
   app.put("/api/sites/:id/sync", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.sync.parse(request.body);
-    await setSiteSync(o.pool, u.userId, id(request), body.address, body.ports, body.stepUpToken);
+    await setSiteSync(o.pool, u.userId, id(request), body.address, body.ports, boundTo(body.stepUpToken, body));
     return { address: body.address, ports: body.ports };
   });
 }

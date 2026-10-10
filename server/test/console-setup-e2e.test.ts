@@ -149,7 +149,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     // Demo mode: on, the banner and the simulated clients next to the real one.
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode on" }).click();
-    await p.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await confirmCode();
     await p.getByText(/Demo mode is on\. 97 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
@@ -178,7 +178,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     // Off again: the simulated fleet is gone, the real cabinet stays.
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode off" }).click();
-    await p.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await confirmCode();
     await p.getByText("No simulated cabinets.").waitFor();
     assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE demo_scenario IS NOT NULL")).rows[0].n, 0);
     assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE name = $1 AND status = 'active'", ["Marco's HP"])).rows[0].n, 1);

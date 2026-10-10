@@ -2,6 +2,7 @@
 // activity, the audit log, clients and sites, issue types and suppressions, fleet safety,
 // settings and security alerts. Admin only; every change needs a step-up token for that exact
 // action and target, and every body and query is checked against its contract first.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { transaction } from "../db/db.js";
@@ -24,7 +25,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/users", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.userCreate.parse(request.body);
-    const created = await users.createUser(o.pool, u.userId, { username: b.username, name: b.name, role: b.role, ...(b.writeLimit ? { writeLimit: b.writeLimit } : {}) }, b.stepUpToken);
+    const created = await users.createUser(o.pool, u.userId, { username: b.username, name: b.name, role: b.role, ...(b.writeLimit ? { writeLimit: b.writeLimit } : {}) }, boundTo(b.stepUpToken, b));
     // The temporary password is shown once, here; it is never stored or logged.
     return reply.code(201).header("Cache-Control", "no-store").send(created);
   });
@@ -33,7 +34,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
     const u = await asAdmin(request);
     const b = consoleBodies.userUpdate.parse(request.body);
     await users.updateUser(o.pool, u.userId, id(request), { ...(b.role ? { role: b.role } : {}), ...(b.writeLimit ? { writeLimit: b.writeLimit } : {}),
-      ...(b.status ? { status: b.status } : {}) }, b.stepUpToken);
+      ...(b.status ? { status: b.status } : {}) }, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -85,13 +86,13 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/clients", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.nameChange.parse(request.body);
-    return reply.code(201).send({ id: await admin.createClient(o.pool, u.userId, b.name, b.stepUpToken) });
+    return reply.code(201).send({ id: await admin.createClient(o.pool, u.userId, b.name, boundTo(b.stepUpToken, b)) });
   });
 
   app.put("/api/admin/clients/:id", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.nameChange.parse(request.body);
-    await admin.renameClient(o.pool, u.userId, id(request), b.name, b.stepUpToken);
+    await admin.renameClient(o.pool, u.userId, id(request), b.name, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -104,13 +105,13 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/sites", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.siteCreate.parse(request.body);
-    return reply.code(201).send({ id: await admin.createSite(o.pool, u.userId, b.clientId.toLowerCase(), b.name, b.stepUpToken) });
+    return reply.code(201).send({ id: await admin.createSite(o.pool, u.userId, b.clientId.toLowerCase(), b.name, boundTo(b.stepUpToken, b)) });
   });
 
   app.put("/api/admin/sites/:id", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.nameChange.parse(request.body);
-    await admin.renameSite(o.pool, u.userId, id(request), b.name, b.stepUpToken);
+    await admin.renameSite(o.pool, u.userId, id(request), b.name, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -123,7 +124,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.put("/api/admin/cabinets/:id/role", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.cabinetRole.parse(request.body);
-    await admin.setCabinetRole(o.pool, u.userId, id(request), b.role, b.stepUpToken);
+    await admin.setCabinetRole(o.pool, u.userId, id(request), b.role, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -131,13 +132,13 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/issue-types", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.issueType.parse(request.body);
-    return reply.code(201).send({ id: await admin.createIssueType(o.pool, u.userId, { name: b.name, severity: b.severity, description: b.description }, b.stepUpToken) });
+    return reply.code(201).send({ id: await admin.createIssueType(o.pool, u.userId, { name: b.name, severity: b.severity, description: b.description }, boundTo(b.stepUpToken, b)) });
   });
 
   app.put("/api/admin/issue-types/:id", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.issueType.parse(request.body);
-    await admin.updateIssueType(o.pool, u.userId, id(request), { name: b.name, severity: b.severity, description: b.description }, b.stepUpToken);
+    await admin.updateIssueType(o.pool, u.userId, id(request), { name: b.name, severity: b.severity, description: b.description }, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -146,7 +147,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/suppressions", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.suppressionCreate.parse(request.body);
-    return reply.code(201).send(await createSuppression(o.pool, { userId: u.userId, role: u.role }, b.match, b.reason, b.stepUpToken));
+    return reply.code(201).send(await createSuppression(o.pool, { userId: u.userId, role: u.role }, b.match, b.reason, boundTo(b.stepUpToken, b)));
   });
 
   app.post("/api/admin/suppressions/:id/renew", async request => {
@@ -167,7 +168,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
       ...(b.sessionIdleMinutes !== undefined ? { sessionIdleMinutes: b.sessionIdleMinutes } : {}),
       ...(b.sessionAbsoluteHours !== undefined ? { sessionAbsoluteHours: b.sessionAbsoluteHours } : {}),
       ...(b.retention ? { retention: b.retention } : {}),
-    }, b.stepUpToken);
+    }, boundTo(b.stepUpToken, b));
     o.guards.settings.invalidate();
     return after;
   });
@@ -183,7 +184,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.post("/api/admin/security-alerts/:id/resolve", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.securityAlertResolve.parse(request.body);
-    await resolveSecurityAlert(o.pool, u.userId, id(request), b.note, b.stepUpToken);
+    await resolveSecurityAlert(o.pool, u.userId, id(request), b.note, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 }

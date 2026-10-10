@@ -115,7 +115,7 @@ function RuleRow({ rule, admin, onChanged }: { rule: Rule; admin: boolean; onCha
           </span>)}
       </div>
       <StepUpDialog open={action !== null} action={`rule.${action ?? "approve"}`} target={rule.id} onClose={() => setAction(null)}
-        description={<p>{action ? words[action] : ""}</p>} onToken={run} />
+        params={action === "rollback" ? { version } : undefined} description={<p>{action ? words[action] : ""}</p>} onToken={run} />
     </li>
   );
 }

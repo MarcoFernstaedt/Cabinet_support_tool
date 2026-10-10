@@ -2,6 +2,7 @@
 // success rate, automatic pause, timeouts, offline cabinets), offers and downloads only to offered cabinets, the
 // console's Upgrades routes by role and step-up, and the whole channel with the real agent code.
 import test from "node:test";
+import { paramsHash } from "../src/auth/canonical.js";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -259,8 +260,8 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
     assert.equal((await call("POST", "/api/auth/totp", { code: code(a) }, cookie)).body.stage, "complete");
     return cookie;
   };
-  const stepUp = async (a: A, cookie: string, action: string, target: string) => {
-    const r = await call("POST", "/api/auth/step-up", { code: code(a), action, target }, cookie);
+  const stepUp = async (a: A, cookie: string, action: string, target: string, params?: unknown) => {
+    const r = await call("POST", "/api/auth/step-up", { code: code(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     return r.body.token as string;
   };
@@ -276,9 +277,9 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
 
     const r = makeRelease(key, "0.6.0");
     // A token for another action is refused; hostile bodies are refused before anything reads them.
-    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet") }, bc)).status, 403);
+    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { manifest: r.manifest, signature: r.signature }) }, bc)).status, 403);
     assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: { ...r.signature, path: "C:/x" }, stepUpToken: "A".repeat(43) }, bc)).status, 400);
-    const added = await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "release.add", "fleet") }, bc);
+    const added = await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "release.add", "fleet", { manifest: r.manifest, signature: r.signature }) }, bc);
     assert.equal(added.status, 201, JSON.stringify(added.body));
     assert.equal((await call("PUT", "/api/admin/releases/0.6.0/package", undefined, oc, r.zip)).status, 403, "only the Admin who added it uploads its package");
     assert.equal((await call("PUT", "/api/admin/releases/..%2F..%2Fx/package", undefined, bc, r.zip)).status, 404);
@@ -288,13 +289,13 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
 
     // In office, with a step-up bound to the cabinet.
     assert.equal((await call("PUT", `/api/admin/cabinets/${ids.c1}/in-office`, { inOffice: true, stepUpToken: await stepUp(boss, bc, "cabinet.in_office", randomUUID()) }, bc)).status, 403);
-    assert.equal((await call("PUT", `/api/admin/cabinets/${ids.c1}/in-office`, { inOffice: true, stepUpToken: await stepUp(boss, bc, "cabinet.in_office", ids.c1!) }, bc)).status, 200);
+    assert.equal((await call("PUT", `/api/admin/cabinets/${ids.c1}/in-office`, { inOffice: true, stepUpToken: await stepUp(boss, bc, "cabinet.in_office", ids.c1!, { inOffice: true }) }, bc)).status, 200);
     assert.equal((await call("GET", "/api/admin/upgrade-candidates", undefined, bc)).body.find((c: { id: string }) => c.id === ids.c1).inOffice, true);
 
     // Start, then pause, resume and stop, each with its own token for this rollout.
     assert.equal((await call("POST", "/api/admin/rollouts", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 10, failureLimitPercent: 5, stepUpToken: "A".repeat(43) }, bc)).status, 400, "no success bar below 50%");
     const started = await call("POST", "/api/admin/rollouts", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5,
-      stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet") }, bc);
+      stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5 }) }, bc);
     assert.equal(started.status, 201, JSON.stringify(started.body));
     const rid = started.body.rolloutId as string;
     assert.equal((await call("POST", `/api/admin/rollouts/${rid}/pause`, { stepUpToken: await stepUp(boss, bc, "rollout.pause", randomUUID()) }, bc)).status, 403);

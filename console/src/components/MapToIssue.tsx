@@ -1,6 +1,7 @@
 // Map to issue (docs/spec/06-console-spec.md "Mapping an error to an issue"): pick the issue,
 // keep or drop each pre-filled field, optionally add a message phrase, read the fleet preview,
 // choose whether to regroup, and confirm with an authenticator code. The server re-checks all of it.
+import { paramsHash } from "../lib/confirm";
 import { useEffect, useRef, useState } from "react";
 import { api, describeError } from "../lib/api";
 import { describeMatch, KIND_LABEL, type IssueType, type Match } from "../lib/alerts";
@@ -67,10 +68,13 @@ export function MapToIssue({ open, initial, onClose, onDone }: {
     setProblem(null);
     try {
       const creating = issueTypeId === NEW;
-      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up", { code, action: "rule.propose", target: creating ? "fleet" : issueTypeId });
-      const r = await api<{ ruleId: string; state: string; regrouped: number }>("POST", "/api/rules", {
+      // The code confirms exactly this mapping: the server refuses the token for any other.
+      const body = {
         ...(creating ? { newIssueType: { name: newType.name.trim(), severity: newType.severity, description: newType.description.trim() } } : { issueTypeId }),
-        match, regroup, ...(severity ? { severity } : {}), stepUpToken: token });
+        match, regroup, ...(severity ? { severity } : {}) };
+      const { token } = await api<{ token: string }>("POST", "/api/auth/step-up",
+        { code, action: "rule.propose", target: creating ? "fleet" : issueTypeId, paramsHash: await paramsHash(body) });
+      const r = await api<{ ruleId: string; state: string; regrouped: number }>("POST", "/api/rules", { ...body, stepUpToken: token });
       setDone(r);
       onDone?.(r);
     } catch (e) { setProblem(describeError(e)); }

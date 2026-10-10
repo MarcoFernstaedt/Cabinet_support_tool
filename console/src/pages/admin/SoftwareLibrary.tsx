@@ -30,11 +30,13 @@ export function SoftwareLibrary() {
   const hardwareIds = draft.hardwareIds.split(/[\n,]/).map(h => h.trim()).filter(Boolean);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft(d => ({ ...d, [k]: v }));
 
+  // What the code confirms: the server refuses the token for any other metadata.
+  const metadata = {
+    name: draft.name.trim(), version: draft.version.trim(), vendor: draft.vendor.trim(), packageType: draft.packageType, hardwareIds,
+    ...(draft.notes.trim() ? { notes: draft.notes.trim() } : {}) };
   const send = async (token: string) => {
     // The metadata (with the step-up token) first, then the file itself; the server checks the file as it arrives.
-    const { packageId } = await api<{ packageId: string }>("POST", "/api/admin/packages", {
-      name: draft.name.trim(), version: draft.version.trim(), vendor: draft.vendor.trim(), packageType: draft.packageType, hardwareIds,
-      ...(draft.notes.trim() ? { notes: draft.notes.trim() } : {}), stepUpToken: token });
+    const { packageId } = await api<{ packageId: string }>("POST", "/api/admin/packages", { ...metadata, stepUpToken: token });
     setUploading(true);
     setOutcome(null);
     upload<LibraryPackage>(`/api/admin/packages/${packageId}/content`, file!).then(
@@ -66,7 +68,7 @@ export function SoftwareLibrary() {
           <button className="btn primary" type="submit" disabled={!file || uploading}>{uploading ? "Uploading and checking…" : "Upload"}</button>
         </form>
         {outcome && <p className={outcome.ok ? "notice ok" : "notice crit"} role={outcome.ok ? "status" : "alert"}>{outcome.text}</p>}
-        <StepUpDialog open={confirmUpload} action="package.upload" target="fleet" onClose={() => setConfirmUpload(false)} onToken={send}
+        <StepUpDialog open={confirmUpload} action="package.upload" target="fleet" onClose={() => setConfirmUpload(false)} onToken={send} params={metadata}
           description={<p>Upload <strong>{draft.name} {draft.version}</strong> from {draft.vendor} ({file ? `${file.name}, ${bytes(file.size)}` : "no file"}) to the software library.</p>} />
       </section>
 

@@ -67,8 +67,8 @@ async function signIn(a: Account, address?: string): Promise<string> {
   if (r.body.stage === "totp") assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, r.cookie)).body.stage, "complete");
   return r.cookie!;
 }
-async function stepUp(a: Account, cookie: string, action: string, target: string): Promise<string> {
-  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target }, cookie);
+async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token;
 }
@@ -97,33 +97,33 @@ test.after(async () => { await app.close(); await stream.stop(); await db.drop()
 // ---- Accounts -------------------------------------------------------------------------------
 
 test("an Admin creates an account with a one-time password; the new person must change it, and Tier 2 must set up an authenticator first", async () => {
-  const r = await call("POST", "/api/admin/users", { username: "tess.new", name: "Tess New", role: "tier2", stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet") }, bossCookie);
+  const r = await call("POST", "/api/admin/users", { username: "tess.new", name: "Tess New", role: "tier2", stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet", { username: "tess.new", name: "Tess New", role: "tier2" }) }, bossCookie);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.headers["cache-control"], "no-store");
   const login = await call("POST", "/api/auth/login", { username: "tess.new", password: r.body.temporaryPassword });
   assert.equal(login.body.stage, "totp_setup");
   assert.ok(!JSON.stringify((await db.app.query("SELECT details FROM audit_log WHERE action = 'user.create'")).rows).includes(r.body.temporaryPassword), "the password is never audited");
   // The same username twice, and a hostile one, are refused.
-  assert.equal((await call("POST", "/api/admin/users", { username: "tess.new", name: "Again", role: "tier1", stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet") }, bossCookie)).body.error, "username_taken");
+  assert.equal((await call("POST", "/api/admin/users", { username: "tess.new", name: "Again", role: "tier1", stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet", { username: "tess.new", name: "Again", role: "tier1" }) }, bossCookie)).body.error, "username_taken");
   assert.equal((await call("POST", "/api/admin/users", { username: "Robert'); DROP TABLE users;--", name: "x", role: "tier1", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
 });
 
 test("role changes need an authenticator and end the person's sessions; nobody changes their own role or disables themselves", async () => {
   const t1 = await account("tier1", { totp: false });
   const t1Cookie = await signIn(t1);
-  let r = await call("PUT", `/api/admin/users/${t1.id}`, { role: "tier2", stepUpToken: await stepUp(boss, bossCookie, "user.update", t1.id) }, bossCookie);
+  let r = await call("PUT", `/api/admin/users/${t1.id}`, { role: "tier2", stepUpToken: await stepUp(boss, bossCookie, "user.update", t1.id, { role: "tier2" }) }, bossCookie);
   assert.equal(r.body.error, "totp_required");
-  r = await call("PUT", `/api/admin/users/${t1.id}`, { writeLimit: 5, stepUpToken: await stepUp(boss, bossCookie, "user.update", t1.id) }, bossCookie);
+  r = await call("PUT", `/api/admin/users/${t1.id}`, { writeLimit: 5, stepUpToken: await stepUp(boss, bossCookie, "user.update", t1.id, { writeLimit: 5 }) }, bossCookie);
   assert.equal(r.status, 200);
   assert.equal((await call("GET", "/api/auth/me", undefined, t1Cookie)).status, 200, "a write limit change leaves sessions alone");
 
   const t2 = await account("tier2");
   const t2Cookie = await signIn(t2);
-  r = await call("PUT", `/api/admin/users/${t2.id}`, { role: "admin", stepUpToken: await stepUp(boss, bossCookie, "user.update", t2.id) }, bossCookie);
+  r = await call("PUT", `/api/admin/users/${t2.id}`, { role: "admin", stepUpToken: await stepUp(boss, bossCookie, "user.update", t2.id, { role: "admin" }) }, bossCookie);
   assert.equal(r.status, 200);
   assert.equal((await call("GET", "/api/auth/me", undefined, t2Cookie)).status, 401, "a new role ends their sessions");
   for (const change of [{ status: "disabled" }, { role: "tier2" }])
-    assert.equal((await call("PUT", `/api/admin/users/${boss.id}`, { ...change, stepUpToken: await stepUp(boss, bossCookie, "user.update", boss.id) }, bossCookie)).body.error, "not_yourself");
+    assert.equal((await call("PUT", `/api/admin/users/${boss.id}`, { ...change, stepUpToken: await stepUp(boss, bossCookie, "user.update", boss.id, { ...change }) }, bossCookie)).body.error, "not_yourself");
   assert.equal((await call("POST", `/api/admin/users/${boss.id}/delete`, { stepUpToken: await stepUp(boss, bossCookie, "user.delete", boss.id) }, bossCookie)).body.error, "not_yourself");
 });
 
@@ -131,7 +131,7 @@ test("two Admins demoting each other at the same moment leave one Admin: the las
   const other = await account("admin");
   const otherCookie = await signIn(other);
   await db.app.query("UPDATE users SET status = 'disabled' WHERE role = 'admin' AND status = 'active' AND id NOT IN ($1, $2)", [boss.id, other.id]);
-  const demote = await stepUp(boss, bossCookie, "user.update", other.id);
+  const demote = await stepUp(boss, bossCookie, "user.update", other.id, { role: "tier2" });
   const remove = await stepUp(other, otherCookie, "user.delete", boss.id);
   const [a, b] = await Promise.all([
     call("PUT", `/api/admin/users/${other.id}`, { role: "tier2", stepUpToken: demote }, bossCookie),
@@ -175,7 +175,7 @@ test("resetting a password or an authenticator, disabling or deleting an account
   }
   const t = await account("tier1");
   const c = await signIn(t);
-  await call("PUT", `/api/admin/users/${t.id}`, { status: "disabled", stepUpToken: await stepUp(boss, bossCookie, "user.update", t.id) }, bossCookie);
+  await call("PUT", `/api/admin/users/${t.id}`, { status: "disabled", stepUpToken: await stepUp(boss, bossCookie, "user.update", t.id, { status: "disabled" }) }, bossCookie);
   assert.equal((await call("GET", "/api/auth/me", undefined, c)).status, 401);
 });
 
@@ -198,11 +198,11 @@ test("background checks do not count as activity, so an unattended console still
   const after = (await db.app.query<{ idle: number }>("SELECT extract(epoch FROM now() - last_activity_at)::int AS idle FROM sessions WHERE user_id = $1", [t.id])).rows[0]!;
   assert.ok(after.idle >= 1190, "a background poll leaves the idle clock running");
   // The Admin shortens the idle timeout to 10 minutes: the 20-minute-idle session is over.
-  const r = await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 10, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
+  const r = await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 10, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", { sessionIdleMinutes: 10 }) }, bossCookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.sessionIdleMinutes, 10);
   assert.equal((await call("GET", "/api/auth/me", undefined, c)).status, 401);
-  await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 30, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
+  await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 30, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", { sessionIdleMinutes: 30 }) }, bossCookie);
   assert.equal((await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 1, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, "out of range");
 });
 
@@ -211,7 +211,7 @@ test("every account, Tier 1 included, sets up an authenticator before anything e
   const login = await call("POST", "/api/auth/login", { username: t.username, password: t.password });
   assert.equal(login.body.stage, "totp_setup");
   assert.equal((await call("GET", "/api/fleet/clients", undefined, login.cookie)).status, 401);
-  const r = await call("PUT", "/api/admin/settings", { requireTotpForAll: false, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet") }, bossCookie);
+  const r = await call("PUT", "/api/admin/settings", { requireTotpForAll: false, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", { requireTotpForAll: false }) }, bossCookie);
   assert.equal(r.status, 400, "the setting no longer exists");
   assert.equal((await call("GET", "/api/admin/settings", undefined, bossCookie)).body.requireTotpForAll, undefined);
 });
@@ -252,13 +252,13 @@ test("the audit search filters by person, cabinet, action (or a family of action
 // ---- Clients, sites, roles, issue types, suppressions -------------------------------------
 
 test("clients and sites are created, renamed and removed; one with cabinets cannot be removed, and a removed name can be used again", async () => {
-  let r = await call("POST", "/api/admin/clients", { name: "Beta Clinic", stepUpToken: await stepUp(boss, bossCookie, "client.create", "fleet") }, bossCookie);
+  let r = await call("POST", "/api/admin/clients", { name: "Beta Clinic", stepUpToken: await stepUp(boss, bossCookie, "client.create", "fleet", { name: "Beta Clinic" }) }, bossCookie);
   assert.equal(r.status, 201);
   const beta = r.body.id;
-  r = await call("POST", "/api/admin/sites", { clientId: beta, name: "East", stepUpToken: await stepUp(boss, bossCookie, "site.create", beta) }, bossCookie);
+  r = await call("POST", "/api/admin/sites", { clientId: beta, name: "East", stepUpToken: await stepUp(boss, bossCookie, "site.create", beta, { clientId: beta, name: "East" }) }, bossCookie);
   const east = r.body.id;
-  assert.equal((await call("PUT", `/api/admin/sites/${east}`, { name: "East Wing", stepUpToken: await stepUp(boss, bossCookie, "site.rename", east) }, bossCookie)).status, 200);
-  assert.equal((await call("PUT", `/api/admin/clients/${beta}`, { name: "Acme Health", stepUpToken: await stepUp(boss, bossCookie, "client.rename", beta) }, bossCookie)).body.error, "name_taken");
+  assert.equal((await call("PUT", `/api/admin/sites/${east}`, { name: "East Wing", stepUpToken: await stepUp(boss, bossCookie, "site.rename", east, { name: "East Wing" }) }, bossCookie)).status, 200);
+  assert.equal((await call("PUT", `/api/admin/clients/${beta}`, { name: "Acme Health", stepUpToken: await stepUp(boss, bossCookie, "client.rename", beta, { name: "Acme Health" }) }, bossCookie)).body.error, "name_taken");
   // The client with an active cabinet stays.
   assert.equal((await call("POST", `/api/admin/clients/${clientId}/remove`, { stepUpToken: await stepUp(boss, bossCookie, "client.remove", clientId) }, bossCookie)).body.error, "has_cabinets");
   assert.equal((await call("POST", `/api/admin/sites/${siteId}/remove`, { stepUpToken: await stepUp(boss, bossCookie, "site.remove", siteId) }, bossCookie)).body.error, "has_cabinets");
@@ -266,12 +266,12 @@ test("clients and sites are created, renamed and removed; one with cabinets cann
   const list = (await call("GET", "/api/admin/clients", undefined, bossCookie)).body as any[];
   assert.ok(!list.some(c => c.id === beta));
   assert.ok(!((await call("GET", "/api/fleet/clients", undefined, bossCookie)).body as any[]).some(c => c.id === beta));
-  assert.equal((await call("POST", "/api/admin/clients", { name: "Beta Clinic", stepUpToken: await stepUp(boss, bossCookie, "client.create", "fleet") }, bossCookie)).status, 201);
+  assert.equal((await call("POST", "/api/admin/clients", { name: "Beta Clinic", stepUpToken: await stepUp(boss, bossCookie, "client.create", "fleet", { name: "Beta Clinic" }) }, bossCookie)).status, 201);
   assert.equal((await call("POST", "/api/admin/clients", { name: "<img src=x>", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
 });
 
 test("a cabinet's role is changed by an Admin with step-up", async () => {
-  const r = await call("PUT", `/api/admin/cabinets/${cabinetId}/role`, { role: "sync", stepUpToken: await stepUp(boss, bossCookie, "cabinet.role", cabinetId) }, bossCookie);
+  const r = await call("PUT", `/api/admin/cabinets/${cabinetId}/role`, { role: "sync", stepUpToken: await stepUp(boss, bossCookie, "cabinet.role", cabinetId, { role: "sync" }) }, bossCookie);
   assert.equal(r.status, 200);
   assert.equal((await db.app.query("SELECT role FROM cabinets WHERE id = $1", [cabinetId])).rows[0].role, "sync");
   assert.equal((await call("PUT", `/api/admin/cabinets/${cabinetId}/role`, { role: "primary", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
@@ -279,16 +279,16 @@ test("a cabinet's role is changed by an Admin with step-up", async () => {
 
 test("issue types are created and edited; suppressions need a reason, expire after 90 days unless renewed, and are listed on one screen", async () => {
   let r = await call("POST", "/api/admin/issue-types", { name: "Printer offline", severity: "minor", description: "The label printer stopped answering.",
-    stepUpToken: await stepUp(boss, bossCookie, "issue_type.create", "fleet") }, bossCookie);
+    stepUpToken: await stepUp(boss, bossCookie, "issue_type.create", "fleet", { name: "Printer offline", severity: "minor", description: "The label printer stopped answering." }) }, bossCookie);
   assert.equal(r.status, 201);
   r = await call("PUT", `/api/admin/issue-types/${r.body.id}`, { name: "Label printer offline", severity: "major", description: "The label printer stopped answering.",
-    stepUpToken: await stepUp(boss, bossCookie, "issue_type.update", r.body.id) }, bossCookie);
+    stepUpToken: await stepUp(boss, bossCookie, "issue_type.update", r.body.id, { name: "Label printer offline", severity: "major", description: "The label printer stopped answering." }) }, bossCookie);
   assert.equal(r.status, 200);
   assert.ok(((await call("GET", "/api/issues", undefined, bossCookie)).body as any[]).some(i => i.name === "Label printer offline" && i.severity === "major"));
 
   assert.equal((await call("POST", "/api/admin/suppressions", { match: { eventId: 109 }, reason: "short", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
   r = await call("POST", "/api/admin/suppressions", { match: { log: "System", source: "Kernel-Power", eventId: 109 }, reason: "Logged on every planned restart; harmless.",
-    stepUpToken: await stepUp(boss, bossCookie, "rule.suppress", "fleet") }, bossCookie);
+    stepUpToken: await stepUp(boss, bossCookie, "rule.suppress", "fleet", { match: { log: "System", source: "Kernel-Power", eventId: 109 }, reason: "Logged on every planned restart; harmless." }) }, bossCookie);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const ruleId = r.body.ruleId;
   const days = (iso: string) => Math.round((new Date(iso).getTime() - Date.now()) / 86_400_000);
@@ -430,7 +430,7 @@ test("security alerts fold repeats, go to Admins only (list, count and live stre
   assert.ok((await call("GET", "/api/admin/security-alerts/summary", undefined, bossCookie, { background: true })).body.open >= 6);
   const one = list.find(a => a.kind === "failed_logins" && a.user?.id === t.id);
   assert.equal((await call("POST", `/api/admin/security-alerts/${one.id}/resolve`, { stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, "a note is required");
-  const r = await call("POST", `/api/admin/security-alerts/${one.id}/resolve`, { note: "They forgot their password; reset it.", stepUpToken: await stepUp(boss, bossCookie, "security_alert.resolve", one.id) }, bossCookie);
+  const r = await call("POST", `/api/admin/security-alerts/${one.id}/resolve`, { note: "They forgot their password; reset it.", stepUpToken: await stepUp(boss, bossCookie, "security_alert.resolve", one.id, { note: "They forgot their password; reset it." }) }, bossCookie);
   assert.equal(r.status, 200);
   const resolved = ((await call("GET", "/api/admin/security-alerts?state=resolved", undefined, bossCookie)).body as any[]).find(a => a.id === one.id);
   assert.equal(resolved.resolution, "They forgot their password; reset it.");

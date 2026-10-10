@@ -35,7 +35,7 @@ export function ScannerIdsEditor({ label, current, inherited, endpoint, action, 
             {saved && <span className="ok" role="status">Saved. Cabinets use it from their next heartbeat.</span>}</div>
           {problem && <p className="error" role="alert">{problem}</p>}
         </form>)}
-      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)}
+      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)} params={{ hardwareIds: pending ?? null }}
         description={<p>{pending ? <>Use <code>{pending.join(", ")}</code> as the fingerprint scanner for {what}.</> : <>Remove the scanner IDs set for {what}.</>}
           {" "}This changes which device the scanner checks look at; nothing changes on the cabinets themselves.</p>}
         onToken={async token => {
@@ -66,7 +66,7 @@ export function PortsEditor({ current, inherited, endpoint, action, target, what
           {saved && <span className="ok" role="status">Saved.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>)}
-      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)}
+      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)} params={{ ports: pending ?? null }}
         description={<p>{pending ? <>Use ports <strong>{pending.join(", ")}</strong> for the sync cabinet tests of {what}.</> : <>Remove the sync ports set for {what}.</>}</p>}
         onToken={async token => {
           try { await api("PUT", endpoint, { ports: pending ?? null, stepUpToken: token }); setSaved(true); onSaved(); }

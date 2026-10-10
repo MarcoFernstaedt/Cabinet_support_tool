@@ -33,8 +33,9 @@ export function ClientsAndSites() {
   const [newClient, setNewClient] = useState("");
   const [newSite, setNewSite] = useState<Record<string, string>>({});
   const [done, setDone] = useState<string | null>(null);
-  const run = (action: string, target: string, description: string, call: (token: string) => Promise<unknown>, after: string) =>
-    step.ask(action, target, <p>{description}</p>, async token => { await call(token); setDone(after); reload(); });
+  // The code confirms exactly this body; the server refuses the token for any other.
+  const run = (action: string, target: string, description: string, method: "POST" | "PUT", path: string, body: Record<string, unknown>, after: string, then?: () => void) =>
+    step.ask(action, target, <p>{description}</p>, async token => { await api(method, path, { ...body, stepUpToken: token }); then?.(); setDone(after); reload(); }, body);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Clients and sites" }]} />
@@ -43,7 +44,7 @@ export function ClientsAndSites() {
       {done && <p className="notice ok" role="status">{done}</p>}
       <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const name = newClient.trim();
         // The name is cleared only once the client exists, so cancelling the confirmation keeps what was typed.
-        run("client.create", "fleet", `Create the client ${name}.`, async t => { await api("POST", "/api/admin/clients", { name, stepUpToken: t }); setNewClient(""); }, `Client ${name} created.`); }}>
+        run("client.create", "fleet", `Create the client ${name}.`, "POST", "/api/admin/clients", { name }, `Client ${name} created.`, () => setNewClient("")); }}>
         <label className="field inline"><span>New client</span><input required maxLength={128} value={newClient} onChange={e => setNewClient(e.target.value)} /></label>
         <button className="btn primary" type="submit">Create client</button>
       </form>
@@ -52,30 +53,28 @@ export function ClientsAndSites() {
         <section key={c.id} className="panel" aria-label={`Client ${c.name}`}>
           <div className="panel-head">
             <h2><Rename label="client" value={c.name} onSave={name => run("client.rename", c.id, `Rename the client ${c.name} to ${name}.`,
-              t => api("PUT", `/api/admin/clients/${c.id}`, { name, stepUpToken: t }), `Client renamed to ${name}.`)} /></h2>
+              "PUT", `/api/admin/clients/${c.id}`, { name }, `Client renamed to ${name}.`)} /></h2>
             <div className="row gap">
               {c.writePaused && <Badge tone="warn">Changes paused</Badge>}
               <Link to={`/clients/${c.id}`} className="btn small">Open</Link>
               <button className="btn small danger" onClick={() => run("client.remove", c.id, `Remove the client ${c.name} and its sites. Allowed only when none of its cabinets is active or pending.`,
-                t => api("POST", `/api/admin/clients/${c.id}/remove`, { stepUpToken: t }), `Client ${c.name} removed.`)}>Remove client</button>
+                "POST", `/api/admin/clients/${c.id}/remove`, {}, `Client ${c.name} removed.`)}>Remove client</button>
             </div>
           </div>
           {c.sites.length === 0 ? <Empty>No sites.</Empty> : (
             <ul className="plain">{c.sites.map(s => (
               <li key={s.id} className="row gap wrap">
                 <Rename label="site" value={s.name} onSave={name => run("site.rename", s.id, `Rename the site ${s.name} to ${name}.`,
-                  t => api("PUT", `/api/admin/sites/${s.id}`, { name, stepUpToken: t }), `Site renamed to ${name}.`)} />
+                  "PUT", `/api/admin/sites/${s.id}`, { name }, `Site renamed to ${name}.`)} />
                 <span className="muted">{s.cabinets} {s.cabinets === 1 ? "cabinet" : "cabinets"}</span>
                 <Link to={`/sites/${s.id}`} className="btn small">Open</Link>
                 <button className="btn small danger" disabled={s.cabinets > 0} title={s.cabinets > 0 ? "Move or remove its cabinets first" : undefined}
-                  onClick={() => run("site.remove", s.id, `Remove the site ${s.name}.`, t => api("POST", `/api/admin/sites/${s.id}/remove`, { stepUpToken: t }), `Site ${s.name} removed.`)}>Remove site</button>
+                  onClick={() => run("site.remove", s.id, `Remove the site ${s.name}.`, "POST", `/api/admin/sites/${s.id}/remove`, {}, `Site ${s.name} removed.`)}>Remove site</button>
               </li>))}
             </ul>)}
           <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const name = (newSite[c.id] ?? "").trim();
-            run("site.create", c.id, `Create the site ${name} for ${c.name}.`, async t => {
-              await api("POST", "/api/admin/sites", { clientId: c.id, name, stepUpToken: t });
-              setNewSite(m => ({ ...m, [c.id]: "" }));
-            }, `Site ${name} created.`); }}>
+            run("site.create", c.id, `Create the site ${name} for ${c.name}.`, "POST", "/api/admin/sites", { clientId: c.id, name }, `Site ${name} created.`,
+              () => setNewSite(m => ({ ...m, [c.id]: "" }))); }}>
             <label className="field inline"><span>New site for {c.name}</span><input required maxLength={128} value={newSite[c.id] ?? ""} onChange={e => setNewSite(m => ({ ...m, [c.id]: e.target.value }))} /></label>
             <button className="btn" type="submit">Add site</button>
           </form>
@@ -103,7 +102,8 @@ export function IssueTypesAndSuppressions() {
     if (!editing) return;
     const { id, form } = editing;
     step.ask(id ? "issue_type.update" : "issue_type.create", id ?? "fleet", <p>{id ? "Save the changes to" : "Create"} the issue type <strong>{form.name}</strong> ({form.severity}).</p>,
-      async token => { await api(id ? "PUT" : "POST", id ? `/api/admin/issue-types/${id}` : "/api/admin/issue-types", { ...form, stepUpToken: token }); setEditing(null); setDone(`Issue type ${form.name} saved.`); issues.reload(); });
+      async token => { await api(id ? "PUT" : "POST", id ? `/api/admin/issue-types/${id}` : "/api/admin/issue-types", { ...form, stepUpToken: token }); setEditing(null); setDone(`Issue type ${form.name} saved.`); issues.reload(); },
+      form);
   };
   const match = () => {
     const m: Record<string, unknown> = {};
@@ -113,9 +113,12 @@ export function IssueTypesAndSuppressions() {
     if (supp.phrase.trim()) m.phrase = supp.phrase.trim();
     return m;
   };
-  const suppress = () => step.ask("rule.suppress", "fleet", <><p>Ignore events matching <code>{matchText(match())}</code> on every cabinet for 90 days.</p><p className="muted">Reason: {supp.reason}</p></>,
-    async token => { await api("POST", "/api/admin/suppressions", { match: match(), reason: supp.reason.trim(), stepUpToken: token }); setSupp({ log: "", source: "", eventId: "", phrase: "", reason: "" });
-      setDone("Suppression created; it expires in 90 days unless renewed."); suppressions.reload(); });
+  const suppress = () => {
+    const body = { match: match(), reason: supp.reason.trim() };
+    step.ask("rule.suppress", "fleet", <><p>Ignore events matching <code>{matchText(body.match)}</code> on every cabinet for 90 days.</p><p className="muted">Reason: {body.reason}</p></>,
+      async token => { await api("POST", "/api/admin/suppressions", { ...body, stepUpToken: token }); setSupp({ log: "", source: "", eventId: "", phrase: "", reason: "" });
+        setDone("Suppression created; it expires in 90 days unless renewed."); suppressions.reload(); }, body);
+  };
 
   return (
     <div className="page">

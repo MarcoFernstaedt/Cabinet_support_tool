@@ -2,6 +2,7 @@
 // per-cabinet results). Admin only; every change needs a step-up token for that exact action and target, and every
 // body is checked against its contract first. A rollback is a new signed release with a higher version, started as
 // its own rollout (docs/spec/07-upgrade-channel.md "Downgrades").
+import { boundTo } from "../auth/stepup.js";
 import type { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
@@ -26,7 +27,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const u = await asAdmin(request);
     if (!o.releases) throw new Refused("unavailable", 503, "no update store is configured");
     const b = consoleBodies.releaseCreate.parse(request.body);
-    return reply.code(201).send({ version: await addRelease(o.pool, o.releases.keys, u.userId, b.manifest, b.signature, b.stepUpToken) });
+    return reply.code(201).send({ version: await addRelease(o.pool, o.releases.keys, u.userId, b.manifest, b.signature, boundTo(b.stepUpToken, b)) });
   });
 
   // The package zip for a release just added: no second step-up, but only the release's own Admin, only once, and only the exact bytes the signed manifest names.
@@ -54,7 +55,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const u = await asAdmin(request);
     const b = consoleBodies.rolloutStart.parse(request.body);
     const rolloutId = await startRollout(o.pool, u.userId, { version: b.version, pilotCabinetId: b.pilotCabinetId.toLowerCase(),
-      successRatePercent: b.successRatePercent, failureLimitPercent: b.failureLimitPercent }, b.stepUpToken);
+      successRatePercent: b.successRatePercent, failureLimitPercent: b.failureLimitPercent }, boundTo(b.stepUpToken, b));
     return reply.code(201).send({ rolloutId });
   });
 
@@ -70,7 +71,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   app.put("/api/admin/cabinets/:id/in-office", async request => {
     const u = await asAdmin(request);
     const b = consoleBodies.cabinetInOffice.parse(request.body);
-    await setInOffice(o.pool, u.userId, id(request), b.inOffice, b.stepUpToken);
+    await setInOffice(o.pool, u.userId, id(request), b.inOffice, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 }

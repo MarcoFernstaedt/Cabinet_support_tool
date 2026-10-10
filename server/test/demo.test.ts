@@ -14,6 +14,7 @@ import { ResultStream } from "../src/console-api/stream.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
+import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { envelopes, operations } from "../src/contracts.js";
@@ -34,6 +35,7 @@ let stream: ResultStream;
 let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 let realCabinet: string;
+let key: Awaited<ReturnType<typeof developmentIssuingKey>>;
 const downloadDir = tempDir();
 const agentZip = Buffer.from("PK\u0003\u0004 not really a zip, but the server only serves the bytes");
 
@@ -59,6 +61,13 @@ async function signIn(a: Account): Promise<string> {
   assert.equal((await call("POST", "/api/auth/totp", { code: totp.code(a.secret, totp.stepAt(clock)) }, cookie)).body.stage, "complete");
   return cookie;
 }
+/** Demo mode changes are confirmed with an authenticator code bound to the exact body. */
+async function demoChange(a: Account, cookie: string, body: Record<string, unknown>) {
+  clock += 30_000;
+  const t = await call("POST", "/api/auth/step-up", { code: totp.code(a.secret, totp.stepAt(clock)), action: "demo.change", target: "fleet", paramsHash: paramsHash(body) }, cookie);
+  assert.equal(t.status, 200, JSON.stringify(t.body));
+  return call("PUT", "/api/admin/demo", { ...body, stepUpToken: t.body.token }, cookie);
+}
 const until = async (what: string, check: () => Promise<boolean>, ms = 10_000) => {
   for (const end = Date.now() + ms; Date.now() < end; await new Promise(r => setTimeout(r, 100))) if (await check()) return;
   assert.fail(`timed out waiting for ${what}`);
@@ -69,7 +78,7 @@ const demoCabinet = async (scenario: string) => (await db.app.query<{ id: string
 
 test.before(async () => {
   db = await createTestDatabase();
-  const key = await developmentIssuingKey(tempDir());
+  key = await developmentIssuingKey(tempDir());
   stream = new ResultStream(db.appUrl, db.app);
   await stream.start();
   writeFileSync(join(downloadDir, "CabinetAgent-win-x64.zip"), agentZip);
@@ -110,8 +119,15 @@ test("every scenario's events pass the event contract", () => {
 
 test("only an Admin turns demo mode on or off; hostile bodies are refused", async () => {
   const t2 = await signIn(await account("tier2"));
-  const ca = await signIn(await account("admin"));
+  const admin = await account("admin");
+  const ca = await signIn(admin);
   assert.equal((await call("PUT", "/api/admin/demo", { enabled: true }, t2)).status, 403);
+  // An authenticator code confirms the exact change: none, or one confirmed for turning it off, does not turn it on.
+  assert.equal((await call("PUT", "/api/admin/demo", { enabled: true }, ca)).status, 400);
+  clock += 30_000;
+  const offToken = (await call("POST", "/api/auth/step-up", { code: totp.code(admin.secret, totp.stepAt(clock)), action: "demo.change", target: "fleet",
+    paramsHash: paramsHash({ enabled: false }) }, ca)).body.token;
+  assert.equal((await call("PUT", "/api/admin/demo", { enabled: true, stepUpToken: offToken }, ca)).status, 403);
   for (const body of [{}, { enabled: "true" }, { enabled: 1 }, { enabled: true, scenario: "bsod" }, [true], null])
     assert.equal((await call("PUT", "/api/admin/demo", body, ca)).status, 400, JSON.stringify(body));
   assert.equal((await call("PUT", "/api/admin/demo", { enabled: true })).status, 401);
@@ -119,11 +135,12 @@ test("only an Admin turns demo mode on or off; hostile bodies are refused", asyn
 });
 
 test("demo mode adds the simulated fleet, and its problems become real alerts through the alerts engine", async () => {
-  const ca = await signIn(await account("admin"));
-  const on = await call("PUT", "/api/admin/demo", { enabled: true }, ca);
+  const admin = await account("admin");
+  const ca = await signIn(admin);
+  const on = await demoChange(admin, ca, { enabled: true });
   const expected = DEMO_FLEET.flatMap(c => c.sites.flatMap(s => s.cabinets)).length;
   assert.deepEqual(on.body, { enabled: true, clients: DEMO_FLEET.length, cabinets: expected });
-  assert.equal((await call("PUT", "/api/admin/demo", { enabled: true }, ca)).body.cabinets, expected, "turning it on twice adds nothing");
+  assert.equal((await demoChange(admin, ca, { enabled: true })).body.cabinets, expected, "turning it on twice adds nothing");
   assert.ok(await openAlert(await demoCabinet("firewall_drift"), ISSUE.firewallPolicy), "firewall drift");
   assert.ok(await openAlert(await demoCabinet("scanner_disconnected"), ISSUE.scanner), "scanner");
   assert.ok(await openAlert(await demoCabinet("service_failing"), ISSUE.serviceFailing), "service failing");
@@ -214,9 +231,48 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
   }
 });
 
+test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
+  const t1 = await signIn(await account("tier1"));
+  // Cabinets that never answer keep their diagnoses running.
+  const quiet = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_loop' ORDER BY name LIMIT 4")).rows.map(r => r.id);
+  assert.equal(quiet.length, 4);
+  const start = (cab: string) => call("POST", `/api/cabinets/${cab}/diagnose/network`, {}, t1);
+  const a = await start(quiet[0]!), again = await start(quiet[0]!);
+  assert.equal(a.status, 202);
+  assert.equal(again.body.diagnosisId, a.body.diagnosisId, "the running diagnosis is shared");
+  assert.equal((await start(quiet[1]!)).status, 202);
+  assert.equal((await start(quiet[2]!)).status, 202);
+  const fourth = await start(quiet[3]!);
+  assert.equal(fourth.status, 429, JSON.stringify(fourth.body));
+  // At the limit, asking for one already running still answers with it.
+  assert.equal((await start(quiet[0]!)).body.diagnosisId, a.body.diagnosisId);
+  await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = now() WHERE state = 'running'");
+});
+
+test("a real cabinet is never filed under a simulated client, and turning demo mode off never deletes one", async () => {
+  const admin = await account("admin");
+  const ca = await signIn(admin);
+  const demoClient = (await db.app.query<{ id: string; name: string }>("SELECT id, name FROM clients WHERE demo ORDER BY name LIMIT 1")).rows[0]!;
+  const { token } = await createBootstrapToken(db.app, admin.id);
+  const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
+    hostname: "REAL-2", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 11", agentVersion: "0.5.0" } }, "127.0.0.1");
+  await assert.rejects(approveEnrollment(db.app, key, requestId, { clientName: demoClient.name, siteName: "Anywhere", cabinetName: "Real 2", role: "standalone" }, admin.id),
+    (e: Error & { code?: string }) => e.code === "demo_client");
+  clock += 30_000;
+  const body = { clientId: demoClient.id, name: "Sneaky" };
+  const t = (await call("POST", "/api/auth/step-up", { code: totp.code(admin.secret, totp.stepAt(clock)), action: "site.create", target: demoClient.id, paramsHash: paramsHash(body) }, ca)).body.token;
+  assert.equal((await call("POST", "/api/admin/sites", { ...body, stepUpToken: t }, ca)).body.error, "demo_client");
+  // Older data could still hold one: turning demo mode off then refuses rather than deleting a real cabinet.
+  const home = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [realCabinet])).rows[0]!.site_id;
+  await db.app.query("UPDATE cabinets SET site_id = (SELECT id FROM sites WHERE client_id = $2 LIMIT 1) WHERE id = $1", [realCabinet, demoClient.id]);
+  assert.equal((await demoChange(admin, ca, { enabled: false })).body.error, "real_cabinet_in_demo_client");
+  await db.app.query("UPDATE cabinets SET site_id = $2 WHERE id = $1", [realCabinet, home]);
+});
+
 test("turning demo mode off deletes every simulated record and leaves the real cabinet alone", async () => {
-  const ca = await signIn(await account("admin"));
-  const off = await call("PUT", "/api/admin/demo", { enabled: false }, ca);
+  const admin = await account("admin");
+  const ca = await signIn(admin);
+  const off = await demoChange(admin, ca, { enabled: false });
   assert.deepEqual(off.body, { enabled: false, clients: 0, cabinets: 0 });
   for (const table of ["alerts", "events", "commands", "firewall_changes"])
     assert.equal((await db.app.query(`SELECT count(*)::int AS n FROM ${table} t JOIN cabinets k ON k.id = t.cabinet_id WHERE k.demo_scenario IS NOT NULL`)).rows[0].n, 0, table);

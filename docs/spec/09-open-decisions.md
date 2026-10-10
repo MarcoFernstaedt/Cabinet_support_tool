@@ -387,3 +387,11 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 - **Excluded by the owner:** Wake-on-LAN, and every database diagnostic or repair.
 - **Fingerprint scanners.** The owner confirmed two DigitalPersona models in the field: "DigitalPersona" and "DigitalPersona 36". Lumidigm is named in the module list but not confirmed as deployed.
 - **Still to confirm:** each scanner model's USB hardware IDs and the vendor service it needs. Until then the platform finds scanners automatically (the Biometric device class) and a technician can pick the model on the cabinet's Fingerprint scanner page.
+
+## From the October 2026 security review
+
+See docs/platform/security-review.md and docs/platform/threat-model.md.
+
+- **Tenant isolation.** Every signed-in person sees every client, because Mashura's support team supports them all. If clients or partners ever get accounts, each account needs a client scope enforced in every query, with tests. Open until that need exists.
+- **Firewall rules Tier 2 may change.** Tier 2 can change or delete any Windows firewall rule by its exact name, including Windows' own. Should built-in rules be read-only? Open for the product owner.
+- **Driver trust.** Drivers signed by Microsoft's hardware publisher are accepted when their class is allowed and a second Admin approves them. An allow-list of approved driver catalogs would be stricter; open.

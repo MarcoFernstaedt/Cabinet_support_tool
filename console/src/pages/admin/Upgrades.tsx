@@ -137,7 +137,7 @@ function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean)
       upload<Release>(`/api/admin/releases/${r.version}/package`, files.pkg!).then(
         p => { after(`Release ${p.version} is ready: its signature and package hash check out.`); setFiles({ manifest: null, signature: null, pkg: null }); setKey(k => k + 1); },
         e => after(`The server refused the package. ${describeError(e)}`, false)).finally(() => setBusy(false));
-    });
+    }, { manifest, signature: signature as Record<string, unknown> });
   };
   return (
     <section className="panel" aria-labelledby="add-release">
@@ -171,12 +171,13 @@ function StartRollout({ releases, candidates, blocked, ask, after }: { releases:
       {ready.length === 0 ? <Empty>No release is ready. Add one below.</Empty> : (
         <form className="row gap wrap" onSubmit={e => {
           e.preventDefault();
+          const body = { version, pilotCabinetId: draft.pilot, successRatePercent: Number(draft.success), failureLimitPercent: Number(draft.failure) };
           ask("rollout.start", "fleet", <><p>Roll out agent <strong>{version}</strong>, first to <strong>{pilot?.name}</strong> ({pilot?.client} / {pilot?.site}), then the in-office cabinets,
             then about 5% of the field, then everyone else.</p><p className="muted">Each batch must reach {draft.success}% upgraded before the next starts; failures above {draft.failure}% of a batch pause it on their own.</p></>,
             async token => {
-              await api("POST", "/api/admin/rollouts", { version, pilotCabinetId: draft.pilot, successRatePercent: Number(draft.success), failureLimitPercent: Number(draft.failure), stepUpToken: token });
+              await api("POST", "/api/admin/rollouts", { ...body, stepUpToken: token });
               after(`Rollout of ${version} started with ${pilot?.name}.`);
-            });
+            }, body);
         }}>
           <label className="field inline"><span>Release</span><select value={version} onChange={e => setDraft(d => ({ ...d, version: e.target.value }))}>
             {ready.map(r => <option key={r.version} value={r.version}>{r.version}</option>)}</select></label>
@@ -195,7 +196,8 @@ function InOffice({ candidates, problem, ask, after }: { candidates: Candidate[]
   const [filter, setFilter] = useState("");
   const shown = (candidates ?? []).filter(c => c.inOffice || (filter.trim() && `${c.name} ${c.client} ${c.site}`.toLowerCase().includes(filter.trim().toLowerCase()))).slice(0, 50);
   const toggle = (c: Candidate) => ask("cabinet.in_office", c.id, <p>{c.inOffice ? "Remove" : "Add"} <strong>{c.name}</strong> ({c.client} / {c.site}) {c.inOffice ? "from" : "to"} the in-office cabinets (batch 2 of every rollout).</p>,
-    async token => { await api("PUT", `/api/admin/cabinets/${c.id}/in-office`, { inOffice: !c.inOffice, stepUpToken: token }); after(`${c.name} is ${c.inOffice ? "no longer" : "now"} an in-office cabinet.`); });
+    async token => { await api("PUT", `/api/admin/cabinets/${c.id}/in-office`, { inOffice: !c.inOffice, stepUpToken: token }); after(`${c.name} is ${c.inOffice ? "no longer" : "now"} an in-office cabinet.`); },
+    { inOffice: !c.inOffice });
   return (
     <section className="panel" aria-labelledby="office">
       <h2 id="office">In-office cabinets</h2>

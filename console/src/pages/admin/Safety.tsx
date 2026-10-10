@@ -27,12 +27,13 @@ export function FleetSafety() {
   const after = (text: string) => { setDone(text); setReason(""); reload(); banner.reload(); };
   const pause = (scope: { id: string; name: string } | null, paused: boolean) => {
     const where = scope ? `${scope.name}'s cabinets` : "every cabinet";
+    const body = { paused, ...(paused && reason.trim() ? { reason: reason.trim() } : {}) };
     step.ask(paused ? "writes.pause" : "writes.resume", scope?.id ?? "fleet",
       <><p>{paused ? "Pause" : "Resume"} changes to <strong>{where}</strong>.</p>{paused && <p className="muted">Diagnostics keep working. Reason: {reason.trim() || "none given"}</p>}</>,
       async token => {
-        await api("POST", scope ? `/api/admin/clients/${scope.id}/writes` : "/api/admin/writes", { paused, ...(paused && reason.trim() ? { reason: reason.trim() } : {}), stepUpToken: token });
+        await api("POST", scope ? `/api/admin/clients/${scope.id}/writes` : "/api/admin/writes", { ...body, stepUpToken: token });
         after(`Changes to ${where} ${paused ? "paused" : "resumed"}.`);
-      });
+      }, body);
   };
   return (
     <div className="page">
@@ -119,7 +120,7 @@ export function SecurityAlerts() {
             {a.state === "open" ? (
               <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const note = (notes[a.id] ?? "").trim();
                 step.ask("security_alert.resolve", a.id, <><p>Close the security alert <strong>{a.title}</strong>.</p><p className="muted">What was found: {note}</p></>,
-                  async t => { await api("POST", `/api/admin/security-alerts/${a.id}/resolve`, { note, stepUpToken: t }); reload(); }); }}>
+                  async t => { await api("POST", `/api/admin/security-alerts/${a.id}/resolve`, { note, stepUpToken: t }); reload(); }, { note }); }}>
                 <label className="field inline"><span>What you found</span><input required maxLength={256} value={notes[a.id] ?? ""} onChange={e => setNotes(n => ({ ...n, [a.id]: e.target.value }))} /></label>
                 <button className="btn primary" type="submit">Close alert</button>
               </form>
@@ -159,7 +160,7 @@ export function PlatformSettings() {
     const c = changes();
     step.ask("settings.update", "fleet", <><p>Change these settings:</p><KeyValues rows={Object.entries(c).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])} />
 </>,
-      async t => { await api("PUT", "/api/admin/settings", { ...c, stepUpToken: t }); setDone("Settings saved."); reload(); });
+      async t => { await api("PUT", "/api/admin/settings", { ...c, stepUpToken: t }); setDone("Settings saved."); reload(); }, c);
   };
   const set = (patch: Partial<Settings>) => setForm(f => f && { ...f, ...patch });
   const setR = (patch: Partial<Settings["retention"]>) => setForm(f => f && { ...f, retention: { ...f.retention, ...patch } });

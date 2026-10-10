@@ -1,5 +1,6 @@
 // The client firewall policy and the bulk apply (docs/spec/12-milestones-8-to-12.md, milestone 9). Every body and
 // query is checked against its contract; roles are checked here, never only in the console.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { bulkApply, bulkCandidates, cabinetPolicy, fleetPolicy, setClientPolicy, setFleetPolicy, BULK_LIMIT } from "../services/firewall-policy.js";
@@ -25,7 +26,7 @@ export async function firewallRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   app.put("/api/clients/:id/firewall-policy", async request => {
     const u = await o.guards.role(request, "admin");
     const b = consoleBodies.firewallPolicy.parse(request.body);
-    await setClientPolicy(o.pool, u.userId, id(request), b.policy, b.stepUpToken);
+    await setClientPolicy(o.pool, u.userId, id(request), b.policy, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 
@@ -34,7 +35,7 @@ export async function firewallRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   app.put("/api/admin/firewall-policy", async request => {
     const u = await o.guards.role(request, "admin");
     const b = consoleBodies.firewallPolicy.parse(request.body);
-    await setFleetPolicy(o.pool, u.userId, b.policy, b.stepUpToken);
+    await setFleetPolicy(o.pool, u.userId, b.policy, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 

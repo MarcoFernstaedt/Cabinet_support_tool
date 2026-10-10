@@ -93,6 +93,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
         </form>)}
       {problem && <p className="error" role="alert">{problem}</p>}
       <StepUpDialog open={confirm !== null} action={confirm === "reject" ? "enrollment.reject" : "enrollment.approve"} target={p.id} onClose={() => setConfirm(null)}
+        params={confirm === "reject" ? undefined : form}
         description={confirm === "reject" ? <p>Reject the request from <strong>{p.fingerprints.hostname}</strong>. It will need a new install token to try again.</p>
           : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>.
             {!client.exact && <> This creates the new client <strong>{form.client.trim()}</strong>.</>}

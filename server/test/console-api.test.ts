@@ -1,5 +1,6 @@
 import { trustProxy } from "../src/config.js";
 import test from "node:test";
+import { paramsHash } from "../src/auth/canonical.js";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -63,8 +64,8 @@ async function signIn(a: Account): Promise<string> {
   return r.cookie!;
 }
 
-async function stepUp(a: Account, cookie: string, action: string, target: string): Promise<string> {
-  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target }, cookie);
+async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token;
 }
@@ -228,15 +229,16 @@ test("every route checks the role on the server", async () => {
 test("a step-up token works once, only for its own action and target", async () => {
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
-  const token = await stepUp(admin, cookie, "site.sync", siteId);
+  const token = await stepUp(admin, cookie, "site.sync", siteId, { address: "10.20.0.15", ports: [1433] });
   const granted = (await db.app.query("SELECT details FROM audit_log WHERE actor_id = $1 AND action = 'auth.step_up' AND outcome = 'succeeded'", [admin.id])).rows;
-  assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId }], "a granted step-up is audited");
+  assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId, paramsHash: paramsHash({ address: "10.20.0.15", ports: [1433] }) }], "a granted step-up is audited");
   assert.deepEqual((await call("POST", `/api/admin/cabinets/${cabinetId}/revoke`, { stepUpToken: token }, cookie)).body, { error: "step_up_required" }, "wrong action");
   const otherSite = randomUUID();
   assert.equal((await call("PUT", `/api/sites/${otherSite}/sync`, { address: null, ports: [], stepUpToken: token }, cookie)).status, 403, "wrong target");
+  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.99", ports: [1433], stepUpToken: token }, cookie)).status, 403, "other parameters than the ones confirmed");
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: token }, cookie)).status, 200);
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.16", ports: [1433], stepUpToken: token }, cookie)).status, 403, "used once");
-  const expired = await stepUp(admin, cookie, "site.sync", siteId);
+  const expired = await stepUp(admin, cookie, "site.sync", siteId, { address: null, ports: [] });
   await db.app.query("UPDATE step_up_tokens SET expires_at = now() - interval '1 second'");
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: null, ports: [], stepUpToken: expired }, cookie)).status, 403, "expired");
 });
@@ -244,10 +246,10 @@ test("a step-up token works once, only for its own action and target", async () 
 test("the server refuses a public sync address, and fills the sync target and scanner IDs itself", async () => {
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
-  const bad = await call("PUT", `/api/sites/${siteId}/sync`, { address: "8.8.8.8", ports: [], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId) }, cookie);
+  const bad = await call("PUT", `/api/sites/${siteId}/sync`, { address: "8.8.8.8", ports: [], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId, { address: "8.8.8.8", ports: [] }) }, cookie);
   assert.deepEqual(bad.body, { error: "invalid_address" });
-  await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId) }, cookie);
-  await call("PUT", "/api/settings/scanner", { hardwareIds: ["USB\\VID_AAAA&PID_0001"], stepUpToken: await stepUp(admin, cookie, "settings.scanner", "fleet") }, cookie);
+  await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId, { address: "10.20.0.15", ports: [1433] }) }, cookie);
+  await call("PUT", "/api/settings/scanner", { hardwareIds: ["USB\\VID_AAAA&PID_0001"], stepUpToken: await stepUp(admin, cookie, "settings.scanner", "fleet", { hardwareIds: ["USB\\VID_AAAA&PID_0001"] }) }, cookie);
 
   const sync = await call("POST", `/api/cabinets/${cabinetId}/commands`,
     { operation: "network.test", params: { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.99.99.99" } }, cookie);
@@ -257,7 +259,7 @@ test("the server refuses a public sync address, and fills the sync target and sc
 
   const scan = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
   assert.deepEqual((await db.app.query("SELECT params FROM commands WHERE id = $1", [scan.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_AAAA&PID_0001"] });
-  await call("PUT", `/api/cabinets/${cabinetId}/scanner`, { hardwareIds: ["USB\\VID_BBBB&PID_0002"], stepUpToken: await stepUp(admin, cookie, "cabinet.scanner", cabinetId) }, cookie);
+  await call("PUT", `/api/cabinets/${cabinetId}/scanner`, { hardwareIds: ["USB\\VID_BBBB&PID_0002"], stepUpToken: await stepUp(admin, cookie, "cabinet.scanner", cabinetId, { hardwareIds: ["USB\\VID_BBBB&PID_0002"] }) }, cookie);
   const scan2 = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
   assert.deepEqual((await db.app.query("SELECT params FROM commands WHERE id = $1", [scan2.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_BBBB&PID_0002"] }, "the cabinet's override wins");
   const detail = await call("GET", `/api/fleet/cabinets/${cabinetId}`, undefined, cookie);

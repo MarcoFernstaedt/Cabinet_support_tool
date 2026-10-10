@@ -2,11 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/demo-mode.schema.json",
   "title": "demo-mode",
-  "description": "An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration.",
+  "description": "An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration. Every change is confirmed with an authenticator code: the step-up token is bound to this exact body.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "enabled"
+    "enabled",
+    "stepUpToken"
   ],
   "properties": {
     "enabled": {
@@ -14,6 +15,11 @@
     },
     "reset": {
       "const": true
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token for demo.change on fleet, bound to this body.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
     }
   },
   "if": {

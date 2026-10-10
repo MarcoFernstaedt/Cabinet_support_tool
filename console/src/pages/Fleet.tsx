@@ -190,6 +190,7 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
         </form>
       )}
       <StepUpDialog open={confirming} action="site.sync" target={siteId} onClose={() => setConfirming(false)}
+        params={{ address: address || null, ports: parsedPorts.length ? parsedPorts : null }}
         description={<p>Set this site's sync cabinet to <strong>{address || "none"}</strong> with {parsedPorts.length ? <>ports <strong>{parsedPorts.join(", ")}</strong></> : "the client's default ports"}.</p>}
         onToken={async token => {
           try {

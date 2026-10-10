@@ -137,7 +137,7 @@ export function IncidentsPage() {
       <p className="muted">Blue screens, unexpected restarts and reboot loops across the fleet: who, when it began, the stop codes, and what the cabinets that crashed have in common that the others do not.</p>
       <div className="row gap wrap filters">
         <label className="field inline"><span>Period</span><select value={range} onChange={e => setRange(e.target.value)}>
-          {[["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["30", "Last 30 days"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+          {[["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["14", "Last 14 days"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label className="field inline"><span>Client</span><select value={clientId} onChange={e => setClientId(e.target.value)}>
           <option value="">All clients</option>{clients.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         {data && data.affected > 0 && <button className="btn" onClick={() => { void navigator.clipboard?.writeText(summaryText(data)); setCopied(true); }}>{copied ? "Copied" : "Copy case notes"}</button>}

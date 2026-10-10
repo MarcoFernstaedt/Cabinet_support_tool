@@ -140,6 +140,8 @@ test("malformed, hostile and oversized enrollment bodies are refused before anyt
     [{ ...good, fingerprints: { ...good.fingerprints, hostname: "evil;rm -rf" } }, 400],
     [{ ...good, csr: "-----BEGIN CERTIFICATE REQUEST-----\nAAAA\n-----END CERTIFICATE REQUEST-----\n" }, 400],
     [{ ...good, bootstrapToken: "short" }, 400],
+    // Without a valid token the certificate request is never verified: the answer is the token refusal.
+    [{ ...good, bootstrapToken: "A".repeat(43), csr: "-----BEGIN CERTIFICATE REQUEST-----\nAAAA\n-----END CERTIFICATE REQUEST-----\n" }, 403],
     [[], 400],
     [{ __proto__: { polluted: true }, ...good, constructor: { prototype: { x: 1 } } }, 400],
   ];

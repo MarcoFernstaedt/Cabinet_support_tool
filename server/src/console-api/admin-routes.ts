@@ -1,5 +1,6 @@
 // Admin: the pending queue, bootstrap tokens and revoking cabinets (the other admin screens are in manage-routes.ts).
 // Every change needs a step-up token for that exact action and target.
+import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { transaction } from "../db/db.js";
@@ -23,7 +24,7 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const u = await o.guards.role(request, "admin");
     const requestId = id(request);
     const body = consoleBodies.approve.parse(request.body);
-    await stepUp(u.userId, body.stepUpToken, "enrollment.approve", requestId);
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve", requestId);
     return approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role }, u.userId);
   });
 
@@ -31,7 +32,7 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const u = await o.guards.role(request, "admin");
     const requestId = id(request);
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await stepUp(u.userId, body.stepUpToken, "enrollment.reject", requestId);
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.reject", requestId);
     await rejectEnrollment(o.pool, requestId, u.userId);
     return { status: "rejected" };
   });
@@ -40,7 +41,7 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/admin/bootstrap-tokens", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await stepUp(u.userId, body.stepUpToken, "token.create", "fleet");
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "token.create", "fleet");
     const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
     return { token, expiresAt: expiresAt.toISOString(), platformCaPem: o.issuingKey.certificatePem };
   });
@@ -49,7 +50,7 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const u = await o.guards.role(request, "admin");
     const cabinetId = id(request);
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await stepUp(u.userId, body.stepUpToken, "cabinet.revoke", cabinetId);
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "cabinet.revoke", cabinetId);
     await revokeCabinet(o.pool, cabinetId, u.userId);
     return { status: "removed" };
   });

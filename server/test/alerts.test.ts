@@ -1,6 +1,7 @@
 // Milestone 4 on the server: symptom rules, the alerts engine, Map to issue with approval,
 // claims, the live stream and offline alerts. Includes hostile and malformed input.
 import test from "node:test";
+import { paramsHash } from "../src/auth/canonical.js";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { AddressInfo } from "node:net";
@@ -52,8 +53,8 @@ async function signIn(a: Account): Promise<string> {
   assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, r.cookie)).body.stage, "complete");
   return r.cookie!;
 }
-async function stepUp(a: Account, cookie: string, action: string, target: string): Promise<string> {
-  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target }, cookie);
+async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token;
 }
@@ -237,7 +238,7 @@ test("an unrecognized error is mapped by Tier 2, approved by an Admin, regrouped
   const wrongTarget = await stepUp(tier2, t2, "rule.propose", ISSUE.drive);
   assert.equal((await call("POST", "/api/rules", { issueTypeId: ISSUE.scanner, match, regroup: true, stepUpToken: wrongTarget }, t2)).body.error, "step_up_required");
 
-  const proposed = await call("POST", "/api/rules", { issueTypeId: ISSUE.scanner, match, regroup: true, stepUpToken: await stepUp(tier2, t2, "rule.propose", ISSUE.scanner) }, t2);
+  const proposed = await call("POST", "/api/rules", { issueTypeId: ISSUE.scanner, match, regroup: true, stepUpToken: await stepUp(tier2, t2, "rule.propose", ISSUE.scanner, { issueTypeId: ISSUE.scanner, match, regroup: true }) }, t2);
   assert.equal(proposed.status, 201, JSON.stringify(proposed.body));
   assert.equal(proposed.body.state, "proposed");
   const ruleId = proposed.body.ruleId;
@@ -266,7 +267,7 @@ test("an unrecognized error is mapped by Tier 2, approved by an Admin, regrouped
   // Disable, then roll back to the live version.
   assert.equal((await call("POST", `/api/rules/${ruleId}/disable`, { stepUpToken: await stepUp(admin, ad, "rule.disable", ruleId) }, ad)).status, 200);
   assert.equal((await send(cab.a, lockError())).outcomes[0]!.kind, "unrecognized");
-  assert.equal((await call("POST", `/api/rules/${ruleId}/rollback`, { version: 1, stepUpToken: await stepUp(admin, ad, "rule.rollback", ruleId) }, ad)).status, 200);
+  assert.equal((await call("POST", `/api/rules/${ruleId}/rollback`, { version: 1, stepUpToken: await stepUp(admin, ad, "rule.rollback", ruleId, { version: 1 }) }, ad)).status, 200);
   const states = (await call("GET", `/api/rules/${ruleId}/history`, undefined, t1)).body.map((h: { change: string; state: string; version: number }) => `${h.change}:${h.state}:${h.version}`);
   assert.deepEqual(states, ["proposed:proposed:1", "approved:live:1", "disabled:disabled:1", "rolled_back:live:2"]);
   assert.equal((await send(cab.a, lockError())).outcomes[0]!.kind, "issue");
@@ -280,9 +281,9 @@ test("an Admin's mapping goes live at once; rejected proposals never go live", a
   const admin = await account("admin"); const ad = await signIn(admin);
   const tier2 = await account("tier2"); const t2 = await signIn(tier2);
   const match: SymptomMatch = { log: "System", source: "disk", eventId: 7 };
-  const live = await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match, regroup: false, stepUpToken: await stepUp(admin, ad, "rule.propose", ISSUE.drive) }, ad);
+  const live = await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match, regroup: false, stepUpToken: await stepUp(admin, ad, "rule.propose", ISSUE.drive, { issueTypeId: ISSUE.drive, match, regroup: false }) }, ad);
   assert.equal(live.body.state, "live");
-  const p = await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match: { phrase: "bad sector" }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", ISSUE.drive) }, t2);
+  const p = await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match: { phrase: "bad sector" }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", ISSUE.drive, { issueTypeId: ISSUE.drive, match: { phrase: "bad sector" }, regroup: false }) }, t2);
   const rejected = await call("POST", `/api/rules/${p.body.ruleId}/reject`, { stepUpToken: await stepUp(admin, ad, "rule.reject", p.body.ruleId) }, ad);
   assert.equal(rejected.body.state, "rejected");
   assert.equal((await call("POST", `/api/rules/${p.body.ruleId}/approve`, { stepUpToken: await stepUp(admin, ad, "rule.approve", p.body.ruleId) }, ad)).body.error, "not_pending");
@@ -443,7 +444,8 @@ test("a mapping can set its own severity; an Admin can create a new issue type w
   const tier2 = await account("tier2"); const t2 = await signIn(tier2);
   // A minor issue type, but this symptom of it is serious enough for the home page.
   const r = await call("POST", "/api/rules", { newIssueType: { name: "Receipt printer fault", severity: "minor", description: "The receipt printer reported a fault." },
-    match: { log: "System", source: "Contoso-Printer", eventId: 12 }, severity: "major", regroup: false, stepUpToken: await stepUp(admin, ad, "rule.propose", "fleet") }, ad);
+    match: { log: "System", source: "Contoso-Printer", eventId: 12 }, severity: "major", regroup: false, stepUpToken: await stepUp(admin, ad, "rule.propose", "fleet", { newIssueType: { name: "Receipt printer fault", severity: "minor", description: "The receipt printer reported a fault." },
+    match: { log: "System", source: "Contoso-Printer", eventId: 12 }, severity: "major", regroup: false }) }, ad);
   assert.equal(r.status, 201, JSON.stringify(r.body));
   assert.equal(r.body.state, "live");
   const type = (await db.app.query("SELECT severity FROM issue_types WHERE id = $1", [r.body.issueTypeId])).rows[0];
@@ -454,7 +456,8 @@ test("a mapping can set its own severity; an Admin can create a new issue type w
   assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'issue_type.create' AND details->>'from' = 'map_to_issue'")).rowCount === 1);
 
   const refused = await call("POST", "/api/rules", { newIssueType: { name: "Tier 2 type", severity: "major", description: "x" },
-    match: { log: "System", source: "Other", eventId: 1 }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", "fleet") }, t2);
+    match: { log: "System", source: "Other", eventId: 1 }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", "fleet", { newIssueType: { name: "Tier 2 type", severity: "major", description: "x" },
+    match: { log: "System", source: "Other", eventId: 1 }, regroup: false }) }, t2);
   assert.equal(refused.status, 403);
   assert.equal((await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match: { eventId: 1, source: "x" }, severity: "critical", regroup: false, stepUpToken: "A".repeat(43) }, t2)).status, 400);
 });

@@ -140,7 +140,7 @@ function RoleChange({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged:
       </select>
       {role !== cabinet.role && <button className="btn small primary" onClick={() => step.ask("cabinet.role", cabinet.id,
         <p>Change <strong>{cabinet.name}</strong> from {roleLabel(cabinet.role)} to {roleLabel(role)}.</p>,
-        async t => { await api("PUT", `/api/admin/cabinets/${cabinet.id}/role`, { role, stepUpToken: t }); onChanged(); })}>Save role</button>}
+        async t => { await api("PUT", `/api/admin/cabinets/${cabinet.id}/role`, { role, stepUpToken: t }); onChanged(); }, { role })}>Save role</button>}
       {step.dialog}
     </span>
   );

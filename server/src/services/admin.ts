@@ -63,7 +63,8 @@ export async function createSite(pool: pg.Pool, adminId: string, clientId: strin
   const id = randomUUID();
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "site.create", clientId);
-    const client = (await c.query("SELECT 1 FROM clients WHERE id = $1 AND removed_at IS NULL", [clientId])).rows[0];
+    const client = (await c.query<{ demo: boolean }>("SELECT demo FROM clients WHERE id = $1 AND removed_at IS NULL", [clientId])).rows[0];
+    if (client?.demo) throw new Refused("demo_client", 409, "simulated demo clients cannot be changed");
     if (!client) throw new Refused("not_found", 404, "no such client");
     await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [id, clientId, name])
       .catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "that client already has a site with that name") : e; });

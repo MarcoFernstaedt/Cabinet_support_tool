@@ -30,15 +30,18 @@ export async function createBootstrapToken(pool: pg.Pool, userId: string, days =
  * token exists, was used or expired.
  */
 export async function submitEnrollment(pool: pg.Pool, request: EnrollRequest, sourceAddress: string): Promise<string> {
-  try { verifyCsr(request.csr); }
-  catch (e) { if (e instanceof CsrError) throw new Refused("invalid_request", 400, e.message); throw e; }
   return transaction(pool, async c => {
+    // The token is checked before the certificate request, so nobody without a token makes the server verify signatures.
+    // A bad request does not use the token up: the row is locked, and only a valid request marks it used.
     const token = (await c.query<{ id: string }>(
-      "UPDATE bootstrap_tokens SET used_at = now() WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() RETURNING id",
+      "SELECT id FROM bootstrap_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() FOR UPDATE",
       [hashToken(request.bootstrapToken)])).rows[0];
     if (!token) {
       throw new Refused("enrollment_refused", 403, "unknown, used or expired bootstrap token");
     }
+    try { verifyCsr(request.csr); }
+    catch (e) { if (e instanceof CsrError) throw new Refused("invalid_request", 400, e.message); throw e; }
+    await c.query("UPDATE bootstrap_tokens SET used_at = now() WHERE id = $1", [token.id]);
     const id = randomUUID();
     await c.query("INSERT INTO enrollment_requests (id, token_id, csr, fingerprints, source_address, status) VALUES ($1, $2, $3, $4, $5, 'pending')",
       [id, token.id, request.csr, safeJson(request.fingerprints), sourceAddress]);
@@ -73,7 +76,9 @@ export async function approveEnrollment(pool: pg.Pool, key: IssuingKey, requestI
       "SELECT csr, fingerprints FROM enrollment_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
     await c.query("INSERT INTO clients (id, name) VALUES ($1, $2) ON CONFLICT (name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), approval.clientName]);
-    const client = (await c.query<{ id: string }>("SELECT id FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
+    const client = (await c.query<{ id: string; demo: boolean }>("SELECT id, demo FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
+    // A real cabinet never joins a simulated client: turning demo mode off deletes those, and its data would be mixed with the simulation.
+    if (client.demo) throw new Refused("demo_client", 409, "that is a simulated demo client; file the cabinet under a real client");
     await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3) ON CONFLICT (client_id, name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), client.id, approval.siteName]);
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
     const cabinetId = randomUUID();

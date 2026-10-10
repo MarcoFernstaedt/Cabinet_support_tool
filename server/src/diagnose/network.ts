@@ -32,9 +32,20 @@ async function waitFor(pool: pg.Pool, ids: string[], deadline: number): Promise<
   return done;
 }
 
+const MAX_RUNNING_PER_USER = 3;
+
 export async function startNetworkDiagnosis(pool: pg.Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
   const k = (await pool.query<{ name: string; role: string }>("SELECT name, role FROM cabinets WHERE id = $1 AND status = 'active'", [cabinetId])).rows[0];
   if (!k) throw new Refused("not_found", 404, "no such cabinet");
+  // A diagnosis already running on this cabinet is shared rather than started twice; one person runs at most 3 at a time.
+  const running = (await pool.query<{ id: string }>(
+    "SELECT id FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'running' AND started_at > now() - make_interval(secs => $2) ORDER BY started_at DESC LIMIT 1",
+    [cabinetId, RUN_LIMIT_MS / 1000 + 5])).rows[0];
+  if (running) return running.id;
+  const mine = Number((await pool.query<{ n: string }>(
+    "SELECT count(*) AS n FROM diagnoses WHERE run_by = $1 AND state = 'running' AND started_at > now() - make_interval(secs => $2)",
+    [user.userId, RUN_LIMIT_MS / 1000 + 5])).rows[0]!.n);
+  if (mine >= MAX_RUNNING_PER_USER) throw new Refused("rate_limited", 429, `you already have ${MAX_RUNNING_PER_USER} diagnoses running; wait for one to finish`);
   const id = randomUUID();
   // The first two commands are issued before answering, so a refusal (role, write pause does not apply to reads) reaches the person.
   const issue = async (key: string, label: string, operation: string, params: Record<string, unknown>): Promise<Issued> =>
@@ -44,7 +55,7 @@ export async function startNetworkDiagnosis(pool: pg.Pool, user: { userId: strin
     [id, cabinetId, user.userId, safeJson(first.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
   void run(pool, user, cabinetId, { name: k.name, role: k.role }, id, first, issue).catch(async e => {
     log(`network diagnosis failed: ${(e as Error).message}`);
-    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = now(), failure = $2 WHERE id = $1", [id, (e as Error).message.slice(0, 300)]).catch(() => undefined);
+    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = now(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
   });
   return id;
 }

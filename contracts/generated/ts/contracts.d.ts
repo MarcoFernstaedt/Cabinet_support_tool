@@ -474,11 +474,15 @@ export interface CrashQuery {
 }
 
 /**
- * An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration.
+ * An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration. Every change is confirmed with an authenticator code: the step-up token is bound to this exact body.
  */
 export interface DemoMode {
   enabled: boolean;
   reset?: true;
+  /**
+   * A one-time step-up token for demo.change on fleet, bound to this body.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -793,6 +797,7 @@ export interface StepUpRequest {
     | "enrollment.approve"
     | "enrollment.reject"
     | "token.create"
+    | "demo.change"
     | "cabinet.revoke"
     | "settings.scanner"
     | "cabinet.scanner"

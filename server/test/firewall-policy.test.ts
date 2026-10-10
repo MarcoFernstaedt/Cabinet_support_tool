@@ -49,8 +49,8 @@ async function signIn(a: Account): Promise<string> {
   assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, cookie)).body.stage, "complete");
   return cookie;
 }
-async function stepUp(a: Account, cookie: string, action: string, target: string): Promise<string> {
-  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target }, cookie);
+async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, ...(params !== undefined ? { paramsHash: paramsHash(params) } : {}) }, cookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token;
 }
@@ -123,13 +123,13 @@ test("an Admin sets a client's own policy with a code; its cabinets are compared
   const on = { domain: "on", private: "on", public: "on" };
   assert.equal((await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: on, stepUpToken: "A".repeat(43) }, c2)).status, 403, "Admin only");
   assert.equal((await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: { domain: true, private: true, public: true }, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
-  const r = await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: on, stepUpToken: await stepUp(boss, bossCookie, "client.firewall_policy", c.client) }, bossCookie);
+  const r = await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: on, stepUpToken: await stepUp(boss, bossCookie, "client.firewall_policy", c.client, { policy: on }) }, bossCookie);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal((await driftAlert(a))!.state, "resolved", "the cabinet now matches its client's policy");
   const page = await call("GET", `/api/cabinets/${a}/firewall-policy`, undefined, c2);
   assert.deepEqual([page.body.source, page.body.differs, page.body.policy], ["client", false, on]);
   // Removing the client's policy brings back the fleet default, and the drift.
-  await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: null, stepUpToken: await stepUp(boss, bossCookie, "client.firewall_policy", c.client) }, bossCookie);
+  await call("PUT", `/api/clients/${c.client}/firewall-policy`, { policy: null, stepUpToken: await stepUp(boss, bossCookie, "client.firewall_policy", c.client, { policy: null }) }, bossCookie);
   assert.equal((await driftAlert(a))!.state, "open");
 });
 
@@ -187,9 +187,9 @@ test("bulk apply refuses a fleet-wide write pause, and hostile bodies before any
     assert.equal((await call("POST", "/api/bulk/firewall-policy", body, c1)).status, 400, JSON.stringify(body));
   for (const body of [{ password: "x", action: "user.delete", target: c.client, paramsHash: "a".repeat(64) }, { password: "x".repeat(300), action: "bulk.firewall_policy", target: c.client, paramsHash: "a".repeat(64) }])
     assert.equal((await call("POST", "/api/auth/confirm-password", body, c1)).status, 400);
-  await call("POST", "/api/admin/writes", { paused: true, reason: "Incident", stepUpToken: await stepUp(boss, bossCookie, "writes.pause", "fleet") }, bossCookie);
+  await call("POST", "/api/admin/writes", { paused: true, reason: "Incident", stepUpToken: await stepUp(boss, bossCookie, "writes.pause", "fleet", { paused: true, reason: "Incident" }) }, bossCookie);
   const token = (await call("POST", "/api/auth/confirm-password", { password: t1.password, action: "bulk.firewall_policy", target: c.client,
     paramsHash: paramsHash({ scope: "client", id: c.client }) }, c1)).body.token;
   assert.equal((await call("POST", "/api/bulk/firewall-policy", { scope: "client", id: c.client, stepUpToken: token }, c1)).body.error, "writes_paused");
-  await call("POST", "/api/admin/writes", { paused: false, stepUpToken: await stepUp(boss, bossCookie, "writes.resume", "fleet") }, bossCookie);
+  await call("POST", "/api/admin/writes", { paused: false, stepUpToken: await stepUp(boss, bossCookie, "writes.resume", "fleet", { paused: false }) }, bossCookie);
 });

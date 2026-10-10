@@ -99,8 +99,10 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     }
     const stage = nextStage({ totpEnabled: true, role: u.role, mustChangePassword: u.mustChangePassword }, true);
     await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 THEN now() ELSE last_login_at END WHERE id = $1",
+      // Claimed with a conditional update, so two requests racing with the same code cannot both pass.
+      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 THEN now() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
         [u.userId, step, stage === "complete"]);
+      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
       await setStage(c, u.sessionHash, stage);
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp", outcome: "succeeded", details: { source: request.ip } });
     });
@@ -142,9 +144,16 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const u = await o.guards.session(request);
     if (!(u.stage === "password_change" || u.stage === "complete")) throw new Refused("wrong_stage", 409, "finish the earlier sign-in steps first");
     const body = consoleBodies.passwordChange.parse(request.body);
-    const row = (await o.pool.query<{ password_hash: string }>("SELECT password_hash FROM users WHERE id = $1", [u.userId])).rows[0]!;
+    // The same limits as sign-in: a stolen session must not become a way to guess the password without locking.
+    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
+    const row = (await o.pool.query<{ password_hash: string; locked: boolean }>(
+      "SELECT password_hash, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+    if (row.locked) return reply.code(429).send({ error: "account_locked" });
     if (!(await verifyPassword(row.password_hash, body.currentPassword))) {
+      noteAddressFailure(request.ip);
       await recordFailure(u.userId, "failed_logins", request.ip);
+      await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "auth.password.change", targetKind: "user", targetId: u.userId,
+        outcome: "refused", details: { source: request.ip } }));
       return reply.code(401).send({ error: "invalid_credentials" });
     }
     if (body.newPassword.length < MIN_PASSWORD_LENGTH || body.newPassword === body.currentPassword || body.newPassword.toLowerCase().includes(u.username))
@@ -193,7 +202,8 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       return reply.code(401).send({ error: "invalid_code" });
     }
     const token = await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1", [u.userId, step]);
+      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [u.userId, step]);
+      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "succeeded",
         details: { action: body.action, target: body.target, ...(body.paramsHash ? { paramsHash: body.paramsHash } : {}) } });
       return issueStepUpToken(c, u.userId, body.action, body.target, body.paramsHash);
