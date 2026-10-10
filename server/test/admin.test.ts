@@ -322,8 +322,21 @@ test("retention removes old events, alerts and firewall history and clears old c
     await k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
                    VALUES ($1, $2, 'system.info', '{}', $3, now() - interval '100 days', now() - interval '99 days', 'succeeded', '{"x":1}', now() - interval '100 days')`, [randomUUID(), cabinetId, boss.id]);
   });
+  // The newer classes: a network diagnosis, a boot record, and a finished fleet job past their retention (30, 365 and 365
+  // days by default); a running job is never removed, however old.
+  const [done, running] = [randomUUID(), randomUUID()];
+  await asOwner(db, async k => {
+    await k.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands, started_at) VALUES ($1, $2, 'network', $3, 'done', '[]', now() - interval '40 days')", [randomUUID(), cabinetId, boss.id]);
+    await k.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, now() - interval '400 days', 'heartbeat')", [cabinetId]);
+    for (const [id, state] of [[done, "done"], [running, "running"]])
+      await k.query("INSERT INTO fleet_jobs (id, operation, created_by, created_at, batch_size, total, state) VALUES ($1, 'time.sync', $2, now() - interval '400 days', 1, 1, $3)", [id, boss.id, state]);
+    await k.query("INSERT INTO fleet_job_targets (job_id, cabinet_id, position, state) VALUES ($1, $2, 0, 'verified')", [done, cabinetId]);
+  });
   const run = await runRetention(db.app);
   assert.ok(run.events >= 1 && run.commandResults >= 1);
+  assert.ok(run.diagnoses >= 1 && run.boots >= 1);
+  assert.equal(run.jobs, 1);
+  assert.equal((await db.app.query("SELECT 1 FROM fleet_jobs WHERE id = $1", [running])).rowCount, 1, "a running job is kept");
   assert.equal((await db.app.query("SELECT 1 FROM events WHERE event_id = $1", [old])).rowCount, 0);
   assert.ok((await db.app.query("SELECT count(*)::int AS n FROM audit_log")).rows[0].n > before);
   assert.equal((await verifyAuditChain(db.app)).ok, true);
