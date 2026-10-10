@@ -78,7 +78,18 @@ These rules come from the platform's existing rules. They are not new restrictio
 | 44 | Preventive maintenance | Offline, drive and firewall drift alerts | Daily health snapshot (milestone 12); daily and weekly exception reports | 4 |
 | 45 | Execution control | Command expiry, replay protection, bulk ID, limits | Job engine with a fixed target list, concurrency, staggering, cancellation and per-cabinet results | 4 |
 
-## Phase 2: blue screens and storage (next)
+## Phase 2: blue screens and storage
+
+Built (October 2026):
+
+- **The change watcher** on the agent records system changes as they happen, as `change` events: updates installed, drivers and services installed, software installed or removed, Windows starting and shutting down, and restart requests with who asked. The list of (log, source, event ID) is fixed in the agent; the first look goes back 14 days. So the platform knows what changed before a crash, even when the cabinet cannot boot afterwards.
+- **Boots** are recorded from the heartbeat (the uptime went back) and from Windows' own start record, counted once.
+- **Reboot loops**: 3 starts within an hour, or 2 starts and then silence within 15 minutes of the last start, raise a major "Restarting repeatedly" alert. A cabinet that simply went offline does not. Two hours of running ends it.
+- **Stop codes** are read from BugCheck 1001 messages without patterns, named, and given a hint ("a driver, very often a recently installed one").
+- **Crashes and restarts**, on each cabinet: blue screens, unexpected restarts, stop codes, what changed in the 72 hours before the first crash, and the timeline.
+- **Incidents**, for the fleet: who crashed, when it began (by hour), still down and restarting, stop codes, where, and what the crashed cabinets have in common compared with the ones that did not crash. A change stands out when it is on half or more of the crashed cabinets and 40 points more often than on the others. Case notes can be copied.
+
+Still to build in this phase:
 
 | Part | What it does |
 |---|---|

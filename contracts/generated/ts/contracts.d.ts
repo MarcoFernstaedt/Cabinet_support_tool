@@ -458,6 +458,22 @@ export interface ConfirmPassword {
 }
 
 /**
+ * The crash investigation's window, from the query string: one cabinet (days back) or the fleet incident view (from, to and an optional client). The server limits the window to 90 days.
+ */
+export interface CrashQuery {
+  days?: "1" | "3" | "7" | "14" | "30" | "60" | "90";
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  from?: string;
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  to?: string;
+  clientId?: string;
+}
+
+/**
  * An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched.
  */
 export interface DemoMode {
@@ -1055,11 +1071,11 @@ export interface EventBatch {
 }
 
 /**
- * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode.
+ * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode. kind change is a system change the agent records as it happens, so it is known even if the cabinet later cannot boot: an update installed, a driver or service installed, software installed or removed, Windows starting or shutting down, a restart and who asked for it. It carries its log record like error.
  */
 export interface Event {
   eventId: string;
-  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service";
+  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change";
   /**
    * UTC time, ISO 8601, always ending in Z.
    */

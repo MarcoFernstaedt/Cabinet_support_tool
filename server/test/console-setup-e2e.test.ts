@@ -140,11 +140,17 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.getByRole("heading", { name: "Event logs" }).waitFor();
     await p.getByRole("button", { name: /System/ }).first().waitFor({ timeout: 30_000 });
 
+    // Diagnose network on the real agent: findings worst first, then the checks that passed.
+    await p.getByRole("link", { name: "Network", exact: true }).click();
+    await p.getByRole("button", { name: "Diagnose network" }).click();
+    await p.getByText(/checks passed/).waitFor({ timeout: 60_000 });
+    assert.ok(await p.getByRole("region", { name: "Diagnose network" }).getByText(/Checks that passed/).count() > 0);
+
     // Demo mode: on, the banner and the simulated clients next to the real one.
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode on" }).click();
     await p.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
-    await p.getByText(/Demo mode is on\. 17 simulated cabinets/).waitFor({ timeout: 30_000 });
+    await p.getByText(/Demo mode is on\. 41 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
     await fleet.getByRole("row", { name: /Mashura Office/ }).waitFor();
@@ -152,7 +158,16 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
       await fleet.getByRole("row", { name: new RegExp(name) }).getByText("Demo", { exact: true }).waitFor();
     assert.equal(await fleet.getByRole("row", { name: /Mashura Office/ }).getByText("Demo", { exact: true }).count(), 0, "the real client is not marked demo");
 
+    // The overnight crash incident on the Incidents page: the driver stands out, the update does not.
+    await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Incidents" }).click();
+    const common = p.getByRole("table", { name: /Changes and errors before the crashes/ });
+    await common.getByRole("row", { name: /Driver installed: Driver iastorac\.inf/ }).getByText("Stands out").waitFor({ timeout: 30_000 });
+    assert.equal(await common.getByRole("row", { name: /Update installed: .*KB5050011/ }).getByText("Stands out").count(), 0);
+    await p.getByRole("heading", { name: /Cabinets affected \(1[5-9]\)/ }).waitFor();
+    await p.getByRole("table", { name: "Cabinets affected" }).getByText("Restarting repeatedly").first().waitFor();
+
     // A simulated cabinet answers like a real one, and says it is simulated.
+    await p.goto(origin);
     await p.getByRole("link", { name: "Demo · Riverside Veterinary Group" }).click();
     await p.getByRole("link", { name: "New York – Upper East Side" }).click();
     await p.getByRole("link", { name: "Treatment Room" }).click();

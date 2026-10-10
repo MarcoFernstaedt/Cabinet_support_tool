@@ -309,3 +309,12 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .finding-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .evidence { margin: var(--s-2) 0 0; padding-left: var(--s-5); color: var(--text-2); font-size: var(--fs-sm); }
 .fix { margin: var(--s-2) 0; }
+
+/* Crash investigation */
+.nowrap { white-space: nowrap; }
+.row-crit > * { background: var(--crit-bg); }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: var(--s-3); }
+.grid-2 > .panel { margin: 0; }
+.bar { display: inline-block; width: 80px; height: 8px; background: var(--surface-3); border-radius: var(--r-sm); overflow: hidden; vertical-align: middle; margin-right: var(--s-1); }
+.bar > span { display: block; height: 100%; }
+.bar.crit > span { background: var(--crit); } .bar.off > span { background: var(--muted); }

@@ -11,6 +11,7 @@ import { storeEvents } from "../services/events.js";
 import { storeResult, takeQueuedCommands } from "../services/commands.js";
 import { checkOffline } from "../services/alerts.js";
 import { evaluateDrift } from "../services/firewall-policy.js";
+import { checkQuietLoops, recordBoot } from "../services/crashes.js";
 import type { Event } from "../contracts.js";
 import { DEMO_FLEET, hostnameFor, type Scenario } from "./fleet.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
@@ -32,9 +33,38 @@ export async function demoStatus(pool: pg.Pool) {
 
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 
-/** The events a scenario has produced over the last days, oldest first. */
-export function scenarioEvents(scenario: Scenario, now = Date.now()): Event[] {
+/** The overnight incident: when the first cabinet crashed, and what came before it. */
+export const INCIDENT_HOURS_AGO = 20;
+export const INCIDENT_UPDATE = "2026-10 Cumulative Update for Windows 10 Version 21H2 (KB5050011)";
+export const INCIDENT_DRIVER = "iastorac.inf (Intel(R) Rapid Storage Technology 19.5.0.1037)";
+const LOOPING: Scenario[] = ["offline", "incident_loop"];
+
+/** The events a scenario has produced over the last days, oldest first. n numbers the cabinets of the incident. */
+export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Event[] {
   let record = 200_000;
+  const t0 = now - INCIDENT_HOURS_AGO * 3_600_000;
+  const atMs = (ms: number) => iso(ms);
+  const change = (ms: number, source: string, eventId: number, message: string, log = "System"): Event => ({
+    eventId: randomUUID(), kind: "change", occurredAt: atMs(ms), severityHint: "minor",
+    source: { log: log as never, source, eventId, level: "information", recordId: record++ }, detail: { message } });
+  const errAt = (ms: number, source: string, eventId: number, message: string, severity: "major" | "minor" = "minor", level = "error"): Event => ({
+    eventId: randomUUID(), kind: "error", occurredAt: atMs(ms), severityHint: severity,
+    source: { log: "System", source, eventId, level: level as never, recordId: record++ }, detail: { message } });
+  const min = 60_000;
+  const update = () => [
+    change(t0 - 52 * min, "Microsoft-Windows-WindowsUpdateClient", 43, `Installation Started: Windows has started installing the following update: ${INCIDENT_UPDATE}`),
+    change(t0 - 50 * min, "Microsoft-Windows-WindowsUpdateClient", 19, `Installation Successful: Windows successfully installed the following update: ${INCIDENT_UPDATE}`),
+  ];
+  const driver = () => [change(t0 - 35 * min, "Microsoft-Windows-UserPnp", 20001,
+    `Driver Management concluded the process to install driver ${INCIDENT_DRIVER} for Device Instance ID PCI\\VEN_8086&DEV_282A with the following status: 0x0.`)];
+  const restart = () => [
+    change(t0 - 20 * min, "User32", 1074, "The process C:\\Windows\\servicing\\TrustedInstaller.exe has initiated the restart of this computer for the following reason: Operating System: Upgrade (Planned)"),
+    change(t0 - 18 * min, "Microsoft-Windows-Kernel-General", 12, "The operating system started."),
+  ];
+  const crashAt = (ms: number) => [
+    errAt(ms - 30_000, "Microsoft-Windows-Kernel-Power", 41, "The system has rebooted without cleanly shutting down first."),
+    errAt(ms, "BugCheck", 1001, "The computer has rebooted from a bugcheck. The bugcheck was: 0x000000d1 (0x0000000000000028, 0x0000000000000002, 0x0000000000000000, 0xfffff8063c41a2b0). A dump was saved in: C:\\Windows\\Minidump\\100826-9875-01.dmp.", "major"),
+  ];
   const at = (hoursAgo: number) => iso(now - hoursAgo * 3_600_000);
   const err = (hoursAgo: number, source: string, eventId: number, message: string, severity: "major" | "minor" = "minor", log = "System", level = "error", fields: Record<string, string> = {}): Event => ({
     eventId: randomUUID(), kind: "error", occurredAt: at(hoursAgo), severityHint: severity,
@@ -71,6 +101,21 @@ export function scenarioEvents(scenario: Scenario, now = Date.now()): Event[] {
         ...[20, 8, 2].map(h => err(h, "Application Error", 1000, "Faulting application name: CabinetUI.exe, version: 7.2.1.0, faulting module name: ucrtbase.dll, exception code: 0xc0000409", "minor", "Application")),
         ...[5, 1].map(h => err(h, "MedSyncAgent", 3001, "Sync batch 4471 could not be uploaded: the remote host closed the connection.", "minor", "Application")),
       ];
+    case "incident_crash":
+    case "incident_loop": {
+      const first = t0 + n * 7 * min;
+      return [
+        ...(n === 2 ? [errAt(t0 - 3 * 3_600_000, "disk", 153, "The IO operation at logical block address 0x2f1a0 for Disk 0 was retried.", "minor", "warning")] : []),
+        ...update(), ...driver(), ...restart(), ...crashAt(first),
+        ...(scenario === "incident_loop" ? [...crashAt(first + 9 * min), ...crashAt(first + 18 * min)]
+          : [change(first + 2 * min, "Microsoft-Windows-Kernel-General", 12, "The operating system started.")]),
+      ];
+    }
+    case "incident_ok":
+      // One of them got the driver too and did not crash: the comparison shows it.
+      return [...update(), ...(n === 3 ? driver() : []), ...restart()];
+    case "healthy":
+      return update();
     default:
       return [];
   }
@@ -104,24 +149,36 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
     await audit(c, { actorKind: "user", actorId: userId, action: "demo.enable", outcome: "succeeded", details: { cabinets: cabinets.length } });
   });
   // Through the real paths, outside the transaction (as an agent's requests would be): heartbeats, then the events.
+  const now = Date.now();
+  let n = 0;
   for (const k of cabinets) {
+    const index = k.scenario.startsWith("incident_") ? n++ : 0;
     if (k.scenario === "offline") {
       await pool.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '6 days' WHERE id = $1", [k.id]);
       continue;
     }
-    await heartbeat(pool, k.id);
-    await evaluateDrift(pool, { cabinetId: k.id });
-    const events = scenarioEvents(k.scenario);
+    if (k.scenario !== "incident_loop") {
+      await heartbeat(pool, k.id);
+      await evaluateDrift(pool, { cabinetId: k.id });
+    }
+    const events = scenarioEvents(k.scenario, now, index);
     if (events.length > 0) await storeEvents(pool, k.id, { events: events as [Event, ...Event[]] });
+    if (k.scenario === "incident_loop") {
+      // It kept crashing and starting again, then went quiet: last heard a few minutes after its last start.
+      const first = now - INCIDENT_HOURS_AGO * 3_600_000 + index * 7 * 60_000;
+      for (const m of [2, 11, 20]) await recordBoot(pool, k.id, new Date(first + m * 60_000), "heartbeat");
+      await pool.query("UPDATE cabinets SET last_heartbeat_at = $2, uptime_seconds = 160 WHERE id = $1", [k.id, new Date(first + 23 * 60_000)]);
+    }
   }
   await checkOffline(pool);
+  await checkQuietLoops(pool);
 }
 
 /** Deletes every simulated record. Real cabinets, users and the audit log are untouched (the audit log keeps who did it). */
 export async function disableDemo(pool: pg.Pool, userId: string): Promise<number> {
   return transaction(pool, async c => {
     const ids = (await c.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL")).rows.map(r => r.id);
-    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands"])
+    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.
@@ -159,7 +216,7 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
   const events = (await pool.query<{ log: string; source: string; event_id: number; level: string; occurred_at: Date; message: string; record_id: number }>(
     `SELECT source->>'log' AS log, source->>'source' AS source, (source->>'eventId')::int AS event_id, source->>'level' AS level, occurred_at,
             COALESCE(detail->>'message', '') AS message, (source->>'recordId')::bigint AS record_id
-       FROM events WHERE cabinet_id = $1 AND kind = 'error' AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
+       FROM events WHERE cabinet_id = $1 AND kind IN ('error', 'change') AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet: (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join("."),
     index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], syncBlocked: k.sync_blocked, now: new Date(),
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
@@ -211,7 +268,7 @@ export class DemoSimulator {
       if (!(await demoEnabled(this.pool))) return;
       const waiting = (await this.pool.query<{ id: string }>(
         `SELECT DISTINCT c.cabinet_id AS id FROM commands c JOIN cabinets k ON k.id = c.cabinet_id
-          WHERE c.status = 'queued' AND k.demo_scenario IS NOT NULL AND k.demo_scenario <> 'offline'`)).rows;
+          WHERE c.status = 'queued' AND k.demo_scenario IS NOT NULL AND NOT (k.demo_scenario = ANY($1::text[]))`, [LOOPING])).rows;
       for (const { id } of waiting)
         for (const command of await takeQueuedCommands(this.pool, id)) {
           const [min, max] = this.answerDelayMs;
@@ -219,7 +276,7 @@ export class DemoSimulator {
         }
       if (Date.now() - this.lastHeartbeat >= 60_000) {
         this.lastHeartbeat = Date.now();
-        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario <> 'offline'")).rows)
+        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND NOT (demo_scenario = ANY($1::text[]))", [LOOPING])).rows)
           await heartbeat(this.pool, id);
       }
     } catch (e) {

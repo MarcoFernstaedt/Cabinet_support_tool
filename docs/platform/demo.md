@@ -30,7 +30,7 @@ How to show the platform to the support team: your real agent on your own Window
 
 ## What demo mode is
 
-- **What it adds.** Demo mode adds 3 simulated clients with 17 cabinets, next to your real cabinets.
+- **What it adds.** Demo mode adds 4 simulated clients with 41 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 15 of its 24 cabinets blue-screened after a storage driver update, and 5 are still restarting.
   - The sites are in the Eastern, Central, Mountain, Arizona and Pacific time zones.
   - Each simulated client is named "Demo · …" and carries a purple **Demo** tag.
   - Each simulated cabinet says "Demo: simulated cabinet".
@@ -48,7 +48,7 @@ How to show the platform to the support team: your real agent on your own Window
 
 | Simulated client and site | Cabinet | What to find |
 |---|---|---|
-| Riverside Veterinary Group, New York | Surgery | Firewall on, unlike the client policy (blocks sync). Fix: Apply policy. |
+| Riverside Veterinary Group, New York | Pharmacy Sync | The sync cabinet's firewall is on, unlike the client policy, so its satellites cannot sync. Diagnose network on Surgery (a satellite) finds it; the fix is Apply policy on Pharmacy Sync. |
 | | Treatment Room | Fingerprint scanner disconnected after repeated reconnects. |
 | Riverside, Phoenix (Arizona time) | Main Sync | Three blue screens in 3 days (bug check 0x7E) with unexpected shutdowns. |
 | | Boarding | The scanner service will not stay running (3 failed restarts). Fix: Restart. |
@@ -58,6 +58,7 @@ How to show the platform to the support team: your real agent on your own Window
 | Lakeside Health, Denver | ICU Sync | New, unrecognized application errors for the triage view. |
 | | Step-down | Offline for 6 days. |
 | Summit Animal Hospitals, Austin | Isolation | Repeated blue screens: a second cabinet with the same crash. |
+| Harbor Pet Hospitals, 4 sites | 24 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
 
 ## A 15-minute demo script
 
@@ -72,10 +73,10 @@ How to show the platform to the support team: your real agent on your own Window
    - The Fleet page shows every client, with offline counts and major alerts.
    - The Alerts page lists the major problems across the fleet, worst first, without anyone searching for them.
 3. **The satellite that cannot reach its sync cabinet (3 minutes).**
-   - Open Surgery → Firewall.
-   - The policy panel says **Differs**: all three profiles are on, and the client policy says off.
-   - Click **Apply policy**, one click for Tier 1.
-   - The profiles change, the drift alert closes by itself, and the firewall history shows who did it.
+   - Open Surgery → Network and click **Diagnose network**. In a few seconds it checks the link, address, gateway, DNS servers, platform server, the sync cabinet and its port, and the firewall.
+   - The finding: **The firewall on Pharmacy Sync is blocking port 1433** (probable cause), with the evidence: ping works, port 1433 does not answer, and Pharmacy Sync reports its firewall on while the policy says off.
+   - Click **Apply the policy on Pharmacy Sync**, then **Apply policy** (one click for Tier 1). Run the diagnosis on Surgery again: the sync cabinet is reachable.
+   - Do the same on your own laptop: Diagnose network runs against the real network it is on.
 4. **The scanner (2 minutes).**
    - Open Treatment Room → Fingerprint scanner.
    - The checklist says it is not connected, lists the reconnects, and says what to try next.
@@ -86,7 +87,13 @@ How to show the platform to the support team: your real agent on your own Window
    - Oncology's update keeps failing.
    - These were all raised without anyone opening those cabinets.
    - On Alerts → Unrecognized errors, the new application errors wait to be mapped to an issue type once, for the whole fleet.
-6. **Safety (2 minutes).**
+6. **The overnight crash incident (3 minutes).**
+   - Open **Incidents**. 17 cabinets crashed in the last 3 days; 5 are still down and restarting repeatedly.
+   - "What the crashed cabinets have in common": the Intel RST driver was installed on 15 of 17 crashed cabinets and 1 of 24 others: it **stands out**. The Windows update was on nearly all of them, crashed or not, so it does not.
+   - Stop code 0xD1 DRIVER_IRQL_NOT_LESS_OR_EQUAL on 15 ("a driver, very often a recently installed or updated one").
+   - Open one cabinet's **Crashes and restarts**: the update, the driver, the restart, then the blue screen, in order, with the 72 hours before the first crash.
+   - **Copy case notes** gives a summary to paste into Salesforce. Everything here is labelled as correlation, not proof.
+7. **Safety (2 minutes).**
    - Show how each change is confirmed:
      - one click for everyday fixes;
      - the password for a bulk change (Firewall policy across a client);

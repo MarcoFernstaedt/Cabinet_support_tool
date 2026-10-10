@@ -9,6 +9,7 @@ import { audit, transaction, type Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { decide, ISSUE, liveRules, type LiveRule } from "./rules.js";
+import { isBootRecord, recordBoot } from "./crashes.js";
 
 export const SITE_PATTERN_WINDOW_MS = 60 * 60 * 1000;
 export const DEFAULT_OFFLINE_ALERT_DAYS = 5;
@@ -56,6 +57,11 @@ async function processOne(c: pg.PoolClient, cabinetId: string, e: Event, rules: 
   }
 
   if (e.kind === "service") return processService(c, cabinetId, e);
+  // A system change is kept for the crash timeline and the fleet comparison; it never raises an alert. Windows starting is a boot.
+  if (e.kind === "change") {
+    if (e.source && isBootRecord(e.source.source, e.source.eventId)) await recordBoot(c, cabinetId, new Date(e.occurredAt), "event");
+    return { kind: "stored" };
+  }
 
   const rule = decide(rules, e);
   if (rule?.kind === "suppress") {
@@ -109,7 +115,7 @@ async function processService(c: pg.PoolClient, cabinetId: string, e: Event): Pr
   return { kind: "issue", alertId: a.id, issueTypeId: issue.id, created: a.created };
 }
 
-async function upsertAlert(c: Queryable, a: { cabinetId: string; issueTypeId: string | null; severity: string; signature: string; title: string; seenAt: Date; ruleId: string | null; eventId: string | null }) {
+export async function upsertAlert(c: Queryable, a: { cabinetId: string; issueTypeId: string | null; severity: string; signature: string; title: string; seenAt: Date; ruleId: string | null; eventId: string | null }) {
   // An agent clock far in the future cannot push last_seen past now.
   const seen = new Date(Math.min(a.seenAt.getTime(), Date.now()));
   const r = (await c.query<{ id: string; created: boolean }>(

@@ -66,6 +66,8 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         {
             var watch = new EventLogWatch(new StateFile<EventLogWatch.State>(State("eventlog-bookmarks.json")), sources.Query);
             loops.Add(Loop("event logs", _every.EventLogs, _every.FirstEventLogLook, t => EventLogsOnceAsync(watch, t), token));
+            var changes = new ChangeWatch(new StateFile<EventLogWatch.State>(State("change-bookmarks.json")), sources.Query);
+            loops.Add(Loop("system changes", _every.EventLogs, _every.FirstEventLogLook, t => ChangesOnceAsync(changes, t), token));
         }
         if (sources.Firewall is not null)
         {
@@ -125,6 +127,16 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         {
             log($"Fingerprint scanner: {e.Device!.State.ToString().ToLowerInvariant()}.");
             Add(e);
+        }
+    }
+
+    /// <summary>One look for system changes (updates, drivers, services, software, boots), for tests and the harness.</summary>
+    public async Task ChangesOnceAsync(ChangeWatch watch, CancellationToken token)
+    {
+        foreach (string name in new[] { "System", "Application" })
+        {
+            try { foreach (var e in await watch.CheckAsync(name, clock.GetUtcNow(), token).ConfigureAwait(false)) Add(e); }
+            catch (Exception ex) when (ex is not OperationCanceledException) { log($"Could not read system changes from {name}: {ex.GetType().Name}."); }
         }
     }
 

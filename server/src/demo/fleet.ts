@@ -3,7 +3,9 @@
 
 export type Scenario =
   | "healthy" | "firewall_drift" | "scanner_disconnected" | "service_failing" | "disk_failing"
-  | "bsod" | "offline" | "dns_errors" | "update_failure" | "unknown_errors";
+  | "bsod" | "offline" | "dns_errors" | "update_failure" | "unknown_errors"
+  /** The overnight crash incident: blue screens after a storage driver update; some stuck restarting; the rest fine. */
+  | "incident_crash" | "incident_loop" | "incident_ok";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; }
@@ -26,6 +28,15 @@ export const DEMO_FLEET: DemoClient[] = [
     { name: "Denver ICU", timeZone: "Mountain Standard Time", subnet: "172.20.30", cabinets: [
       c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline")] },
   ] },
+  { name: "Demo · Harbor Pet Hospitals", sites: ["Boston Harbor", "Portland East", "Providence", "Hartford"].map((name, s) => ({
+    name, timeZone: "Eastern Standard Time", subnet: `10.6${s}.1`,
+    // 15 of 24 crashed overnight (5 of them still restarting); 9 did not.
+    cabinets: Array.from({ length: 6 }, (_, i) => c(i === 0 ? "Sync" : `Cabinet ${String(i + 1).padStart(2, "0")}`, i === 0 ? "sync" : "satellite",
+      ([["incident_crash", "incident_loop", "incident_crash", "incident_ok", "incident_crash", "incident_ok"],
+        ["incident_crash", "incident_crash", "incident_loop", "incident_ok", "incident_crash", "incident_ok"],
+        ["incident_loop", "incident_crash", "incident_ok", "incident_crash", "incident_ok", "incident_loop"],
+        ["incident_crash", "incident_ok", "incident_loop", "incident_ok", "incident_crash", "incident_ok"]] as const)[s]![i]!)),
+  })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
       c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite"), c("Isolation", "satellite", "bsod")] },
@@ -36,6 +47,8 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   healthy: "Healthy", firewall_drift: "Sync cabinet firewall on, unlike the client policy (blocks its satellites)", scanner_disconnected: "Fingerprint scanner disconnected",
   service_failing: "Scanner service will not stay running", disk_failing: "Drive predicting failure", bsod: "Repeated blue screens",
   offline: "Offline for 6 days", dns_errors: "DNS lookups failing", update_failure: "Windows update failing", unknown_errors: "New, unrecognized errors",
+  incident_crash: "Blue screen overnight after a storage driver update", incident_loop: "Blue screen after the driver update, still restarting",
+  incident_ok: "Got the same Windows update, no driver change, no crash",
 };
 
 /** A stable host name per cabinet, like a real imaging naming scheme. */

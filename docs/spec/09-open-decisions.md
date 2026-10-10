@@ -385,6 +385,5 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
   - The Security log stays unreadable.
 - **Order.** Blue screens and storage first; then network, updates, restarts and time; then fleet operations and the support call workflow (docs/spec/13-roadmap.md).
 - **Excluded by the owner:** Wake-on-LAN, and every database diagnostic or repair.
-- **Still to confirm:**
-  - The exact third fingerprint scanner model ("DigitalPersona 36"?), with its USB hardware IDs.
-  - The vendor middleware services each scanner type needs.
+- **Fingerprint scanners.** The owner confirmed two DigitalPersona models in the field: "DigitalPersona" and "DigitalPersona 36". Lumidigm is named in the module list but not confirmed as deployed.
+- **Still to confirm:** each scanner model's USB hardware IDs and the vendor service it needs. Until then the platform finds scanners automatically (the Biometric device class) and a technician can pick the model on the cabinet's Fingerprint scanner page.

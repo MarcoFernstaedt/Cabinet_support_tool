@@ -16,6 +16,7 @@ import { mkdirSync } from "node:fs";
 import { ReleaseKeys } from "./services/releases.js";
 import { checkRollouts } from "./services/rollouts.js";
 import { DemoSimulator } from "./demo/demo.js";
+import { checkQuietLoops } from "./services/crashes.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
@@ -45,6 +46,7 @@ const offlineJob = setInterval(() => {
   expireUnanswered(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "unanswered command check failed"));
   expireRules(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rule expiry failed"));
   checkRollouts(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rollout check failed"));
+  checkQuietLoops(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "reboot loop check failed"));
 }, 60_000);
 
 // Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).

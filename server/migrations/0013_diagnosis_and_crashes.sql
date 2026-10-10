@@ -17,3 +17,17 @@ CREATE TABLE diagnoses (
 );
 CREATE INDEX diagnoses_cabinet ON diagnoses (cabinet_id, started_at DESC);
 GRANT SELECT, INSERT, UPDATE, DELETE ON diagnoses TO cabinet_app;
+
+-- Boots, from the heartbeat (its uptime went back) and from the agent's change events (Windows started). Reboot loops are
+-- found from these, and the crash timeline shows them. Times within 3 minutes are the same boot.
+CREATE TABLE cabinet_boots (
+  cabinet_id  uuid NOT NULL REFERENCES cabinets(id),
+  booted_at   timestamptz NOT NULL,
+  source      text NOT NULL CHECK (source IN ('heartbeat', 'event')),
+  PRIMARY KEY (cabinet_id, booted_at)
+);
+GRANT SELECT, INSERT, DELETE ON cabinet_boots TO cabinet_app;
+
+INSERT INTO issue_types (id, key, name, severity, description, built_in) VALUES
+  ('00000000-0000-4000-8000-000000000117', 'reboot_loop', 'Restarting repeatedly (possible reboot loop)', 'major',
+   'The cabinet started 3 or more times within an hour, or restarted and then went quiet. A cabinet stuck in a crash loop cannot run the agent for long, so its evidence is what was collected before.', true);

@@ -131,7 +131,8 @@ export function DemoMode() {
   return (
     <section className="panel" aria-labelledby="demo-heading">
       <h2 id="demo-heading">Demo mode {demo.data && (on ? <Badge tone="info">On</Badge> : <Badge tone="off">Off</Badge>)}</h2>
-      <p className="muted small">Adds 3 simulated clients with 17 cabinets at sites in the Eastern, Central, Mountain, Arizona and Pacific time zones, next to your real cabinets, so you can show what the platform does at fleet scale.
+      <p className="muted small">Adds 4 simulated clients with 41 cabinets at sites in the Eastern, Central, Mountain, Arizona and Pacific time zones, next to your real cabinets, so you can show what the platform does at fleet scale.
+        One client has an overnight crash incident: 15 of its 24 cabinets blue-screened after a storage driver update, and 5 are still restarting (see Incidents).
         Each has a problem to find: firewall on unlike the policy, a disconnected scanner, a service that will not stay running, a failing drive, repeated blue screens, DNS failures, a failing Windows update, new unrecognized errors, a cabinet offline for days.
         Their alerts come from the real alerts engine, and fixes made on them take effect. Simulated clients are named "Demo · …" and marked Demo everywhere. Turning it off deletes all of them; real cabinets are never touched.</p>
       {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}{" "}

@@ -21,6 +21,7 @@ import { Setup } from "./pages/admin/Setup";
 import { Account } from "./pages/Account";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
+import { IncidentsPage } from "./pages/Crashes";
 
 export function App() {
   const [stage, setStage] = useState<Stage | "loading">("loading");
@@ -99,5 +100,6 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/account", path)) return <Account onTour={onTour} />;
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;
+  if (match("/incidents", path)) return <IncidentsPage />;
   return <FleetHome />;
 }

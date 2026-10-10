@@ -11,7 +11,7 @@ public class EventQueueTests
         Detail = new EventDetail { Message = "Drive predicts failure." },
     };
 
-    private static bool Valid(AgentEvent e)
+    internal static bool Valid(AgentEvent e)
     {
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(e, ContractJson.Options));
         return ContractSchemas.Instance.IsValid(ContractSchemas.Envelope("event"), doc.RootElement);
@@ -416,5 +416,59 @@ public class MonitorHostTests
         var e = JsonSerializer.Deserialize<AgentEvent>(Assert.Single(queue.Peek()).Json, ContractJson.Options)!;
         Assert.Equal(EventKind.Scanner, e.Kind);
         Assert.Equal(ScannerState.Disconnected, e.Device!.State);
+    }
+}
+
+public class ChangeWatchTests
+{
+    private static EventSummary Entry(long id, int minutes, string source, int eventId, EventLevel level = EventLevel.Information, string line = "Change.") => new()
+    {
+        RecordId = id, Time = Fixtures.Start.AddMinutes(minutes), Level = level, Source = source, EventId = eventId, FirstLine = line,
+    };
+
+    [Fact]
+    public async Task Reports_only_the_listed_changes_once_and_leaves_errors_to_the_error_watcher()
+    {
+        var entries = new List<EventSummary>
+        {
+            Entry(10, -600, "Microsoft-Windows-WindowsUpdateClient", 19, line: "Installation Successful: Windows successfully installed the following update: KB5050011"),
+            Entry(11, -590, "microsoft-windows-userpnp", 20001, line: "Driver Management concluded the process to install driver iastorac.inf"),
+            Entry(12, -580, "Some-Other-Source", 19),                           // same ID, not the listed source
+            Entry(13, -570, "Microsoft-Windows-WindowsUpdateClient", 19, EventLevel.Error), // an error: the error watcher reports it
+            Entry(14, -560, "Microsoft-Windows-Kernel-General", 12, line: "The operating system started at system time 2026-10-08T03:12:00Z."),
+        };
+        var asked = new List<EventlogQueryParams>();
+        Task<EventlogQueryOutput> Query(EventlogQueryParams p, CancellationToken _)
+        {
+            asked.Add(p);
+            var page = entries.Where(e => p.EventIds!.Contains(e.EventId) && (p.BeforeRecordId is null || e.RecordId < p.BeforeRecordId)).OrderByDescending(e => e.RecordId).ToList();
+            return Task.FromResult(new EventlogQueryOutput { Log = p.Log, Entries = page, NextBeforeRecordId = null, Truncated = false });
+        }
+        using var dir = new TempDir();
+        var store = new StateFile<EventLogWatch.State>(Path.Combine(dir.Path, "c.json"));
+        var first = await new ChangeWatch(store, Query).CheckAsync("System", Fixtures.Start, default);
+        Assert.Equal(new long[] { 10, 11, 14 }, first.Select(e => e.Source!.RecordId));
+        Assert.All(first, e => Assert.Equal(EventKind.Change, e.Kind));
+        Assert.Equal(Fixtures.Start - ChangeWatch.FirstLookBack, asked[0].From);
+        Assert.Null(asked[0].Levels);
+        Assert.True(asked[0].EventIds!.Count <= 20, "the query contract allows at most 20 event IDs");
+        Assert.Empty(await new ChangeWatch(store, Query).CheckAsync("System", Fixtures.Start.AddMinutes(1), default));
+        entries.Add(Entry(20, 2, "User32", 1074, line: "The process C:\\Windows\\system32\\wuauclt.exe has initiated the restart of computer CAB-01."));
+        Assert.Equal(new long[] { 20 }, (await new ChangeWatch(store, Query).CheckAsync("System", Fixtures.Start.AddMinutes(3), default)).Select(e => e.Source!.RecordId));
+        // A log with nothing listed is not read at all.
+        Assert.Empty(await new ChangeWatch(store, Query).CheckAsync("Security", Fixtures.Start, default));
+        Assert.DoesNotContain(asked, p => p.Log == "Security");
+    }
+
+    [Fact]
+    public void Every_change_event_passes_the_event_contract_and_every_listed_log_is_readable()
+    {
+        foreach (var w in ChangeWatch.List)
+        {
+            Assert.Contains(w.Log, Catalog.AllowedLogs);
+            var e = ChangeWatch.ToEvent(w.Log, Entry(1, 0, w.Source, w.EventId, line: "A change."));
+            Assert.True(EventQueueTests.Valid(e), $"{w.Source} {w.EventId}");
+        }
+        Assert.True(ChangeWatch.List.GroupBy(w => w.Log).All(g => g.Select(w => w.EventId).Distinct().Count() <= 20));
     }
 }

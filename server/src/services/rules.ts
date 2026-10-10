@@ -17,6 +17,10 @@ export const ISSUE = {
   serviceRestarted: "00000000-0000-4000-8000-000000000114",
   serviceFailing: "00000000-0000-4000-8000-000000000115",
   serviceWatch: "00000000-0000-4000-8000-000000000116",
+  crash: "00000000-0000-4000-8000-000000000109",
+  shutdown: "00000000-0000-4000-8000-000000000110",
+  hardware: "00000000-0000-4000-8000-000000000111",
+  rebootLoop: "00000000-0000-4000-8000-000000000117",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */
