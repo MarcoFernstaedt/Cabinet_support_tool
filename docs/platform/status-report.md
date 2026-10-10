@@ -1,6 +1,6 @@
 # Status report, October 2026
 
-Where the platform stands against the engineering directive (Parts 1 to 8), each item labelled:
+Where the platform stands against the October 2026 requirements, each item labelled:
 
 - **Verified**: implemented and verified by automated tests (and, where it says so, in a real browser).
 - **Not verified**: implemented, but not yet run where it matters (real Windows, the VPS).
@@ -23,7 +23,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 2. Restore GitHub Actions minutes so the Windows CI job runs again.
 3. Sign the agent package with a code-signing certificate.
 
-## Part 1: Demo mode
+## Demo mode
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -33,7 +33,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Deterministic fleet, AZ, CA, TX, NY | Verified | 101 cabinets, 4 clients, 15 sites; the same every time it is turned on or reset |
 | Isolation from real cabinets | Verified | Real cabinets are never answered by the simulator, never filed under a demo client, and never deleted with it |
 
-## Part 2: Scenarios
+## Scenarios
 
 | Scenario | Status | What it shows |
 |---|---|---|
@@ -43,7 +43,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | D: storage | Verified | A drive predicting failure, with bad blocks and retried reads raised before it dies |
 | E: mass blue screen, about 60 cabinets | Verified | 60 of 80 cabinets crashed after a driver update, 12 still restarting; the driver stands out, the update does not |
 
-## Part 3: Operations and onboarding
+## Operations and onboarding
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -52,7 +52,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Live agent onboarding without demo mode | Verified with the test agent; Not verified on Windows | Setup page, download, install command, approval |
 | Windows Time checks (`time.status`, `time.setZone`, `time.sync`) | Verified in the agent's logic and the simulator; Not verified on Windows | `tzutil` and `w32tm` by full path; only seven allowed zones |
 
-## Part 4: Evidence
+## Evidence
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -62,7 +62,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Evidence packages with hashes and provenance | Verified | Per cabinet; tampering is detected; every export audited with its hash |
 | Fleet incident evidence in one package | Not implemented | The incident page's case notes cover it for now |
 
-## Part 5: Data
+## Data
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -71,7 +71,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Local buffering on the cabinet | Verified | 5,000-event queue, flood limit, events kept while the server is away |
 | Server quotas | Verified | 3,000 events per cabinet per hour; request size limits; bounded incident queries |
 
-## Part 6: Security
+## Security
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -86,7 +86,7 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Supply chain | Partial | npm and NuGet audits clean, lock files; images pinned by tag, not digest; the agent package is unsigned |
 | Automated security tests | Verified | Hostile input on every route and contract; role, confirmation and limit tests |
 
-## Part 7: Reliability and scale
+## Reliability and scale
 
 | Deliverable | Status | Notes |
 |---|---|---|
@@ -94,6 +94,9 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Scale at 10, 60 and 100 affected cabinets | Verified against the simulator | Clock sync jobs: 10 in about 0.4 s, 60 in about 0.7 s, 98 in about 1.1 s, every reachable cabinet verified. The agent API was load-tested earlier with 8,000 simulated agents (performance.md) |
 | Real-network timing | Not verified | Real cabinets answer within their poll interval and verify on their next heartbeat (up to a minute) |
 
-## Part 8: Not started from the module list
+## Not started from the module list
+
+The remaining work, including emergency offline access, is planned milestone by milestone in [milestones.md](milestones.md).
+
 
 Restarts and Windows update installs (decided, not built), support call mode, site readiness, drift baselines, registry and environment reads, packet capture and the other phase 5 and 6 modules in [13-roadmap.md](../spec/13-roadmap.md).

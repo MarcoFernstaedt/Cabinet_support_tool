@@ -395,3 +395,16 @@ See docs/platform/security-review.md and docs/platform/threat-model.md.
 - **Tenant isolation.** Every signed-in person sees every client, because Mashura's support team supports them all. If clients or partners ever get accounts, each account needs a client scope enforced in every query, with tests. Open until that need exists.
 - **Firewall rules Tier 2 may change.** Tier 2 can change or delete any Windows firewall rule by its exact name, including Windows' own. Should built-in rules be read-only? Open for the product owner.
 - **Driver trust.** Drivers signed by Microsoft's hardware publisher are accepted when their class is allowed and a second Admin approves them. An allow-list of approved driver catalogs would be stricter; open.
+
+## Emergency offline access (milestone 14)
+
+Design: [14-emergency-access.md](14-emergency-access.md). To decide before it is built:
+
+1. **How the credential reaches the customer.** A signed credential is about 125 characters (about 25 groups of 5), too long to read aloud comfortably. Options: the technician texts or emails it and the customer types or pastes it (proposed), read aloud in checked groups, or a file on a USB stick. A shorter code would need a shared secret instead of a signature, which the requirement rules out.
+2. **Who may grant each level.** Proposed: Level 1 and 2 by Tier 1 and up, Level 3 by Tier 2 and up; each with an authenticator code.
+3. **Time limits.** Proposed: a challenge lasts 30 minutes; a session up to 60 minutes (Level 1 and 2) or 30 (Level 3).
+4. **When a cabinet counts as offline.** Proposed: no contact with the server for 5 minutes.
+5. **Reconnection.** Proposed: reconnecting ends the emergency session; support carries on from the central console.
+6. **The signing key.** A dedicated key on the server: held in a cloud key service (proposed) or in a file on the VPS outside the repository.
+7. **New operations for Level 3.** Renewing a DHCP lease and restarting an approved application are not in the catalog; adding them needs a signed agent upgrade. Approve or leave out.
+8. **Notifications.** Today Admins see security alerts in the console. Email or text notifications are not built; say whether they are needed.
