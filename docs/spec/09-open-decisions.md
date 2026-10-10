@@ -354,3 +354,12 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 - **Watched services.** Tier 2 and Admin choose them; the broker restarts them; 3 failed restarts in a row raise a major alert. The broker never starts a disabled service, never changes a start type, and never starts remote-access services.
 - **Health checks.** Collected by the agent itself once a day (a `health` event) rather than by commands the server issues at night, so no command is ever issued without a person behind it.
 - **Network lookups.** network.resolve accepts any host name but queries only the DNS servers configured on the cabinet; traceroute keeps the four fixed target kinds, so the platform still cannot be used to map a client's network.
+
+## Before milestone 11 (open, October 2026)
+
+Raised by the product owner before milestone 11; waiting for answers. Nothing here is built until it is answered.
+
+- **Installing Windows updates.** Today the platform only shows update history and pending updates (updates.status). Should a person be able to install pending updates from the console (a new write operation through the broker using the Windows Update Agent, which downloads from Microsoft or the client's WSUS, never from the platform)? Who, and with which confirmation?
+- **Pending reboot and restarting a cabinet.** Detecting a pending reboot (Windows Update, component servicing, pending file renames) is a read and is planned. Restarting the cabinet is not in the catalog. Should it be (a write that can interrupt a cabinet in use), who may do it, and should it be "restart now" or "restart at a chosen time"?
+- **Cable or switch-port faults.** Windows cannot test a cable itself (a cable test needs the network card vendor's own tool). Planned instead: link state, negotiated speed and duplex (a gigabit port linking at 100 Mbps usually means a damaged cable), error counters over time, and link up/down events. Seeing the switch's side (which switch port, LLDP) would need packet capture on the cabinet, which is not planned. Confirm this is acceptable.
+- **The console layout.** The product owner wants to change the console's layout before more screens are added. Waiting for what they want changed.
