@@ -355,11 +355,14 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 - **Health checks.** Collected by the agent itself once a day (a `health` event) rather than by commands the server issues at night, so no command is ever issued without a person behind it.
 - **Network lookups.** network.resolve accepts any host name but queries only the DNS servers configured on the cabinet; traceroute keeps the four fixed target kinds, so the platform still cannot be used to map a client's network.
 
-## Before milestone 11 (open, October 2026)
+## Before milestone 11 (decided, October 2026)
 
-Raised by the product owner before milestone 11; waiting for answers. Nothing here is built until it is answered.
+Asked of and answered by the product owner; specified in 12-milestones-8-to-12.md under "Milestone 11 additions" and "Console redesign".
 
-- **Installing Windows updates.** Today the platform only shows update history and pending updates (updates.status). Should a person be able to install pending updates from the console (a new write operation through the broker using the Windows Update Agent, which downloads from Microsoft or the client's WSUS, never from the platform)? Who, and with which confirmation?
-- **Pending reboot and restarting a cabinet.** Detecting a pending reboot (Windows Update, component servicing, pending file renames) is a read and is planned. Restarting the cabinet is not in the catalog. Should it be (a write that can interrupt a cabinet in use), who may do it, and should it be "restart now" or "restart at a chosen time"?
-- **Cable or switch-port faults.** Windows cannot test a cable itself (a cable test needs the network card vendor's own tool). Planned instead: link state, negotiated speed and duplex (a gigabit port linking at 100 Mbps usually means a damaged cable), error counters over time, and link up/down events. Seeing the switch's side (which switch port, LLDP) would need packet capture on the cabinet, which is not planned. Confirm this is acceptable.
-- **The console layout.** The product owner wants to change the console's layout before more screens are added. Waiting for what they want changed.
+- **Installing Windows updates.** Tier 1, Tier 2 and Admin, with one click; the confirmation says updates can take a long time. Security and quality updates only: never Windows version upgrades, and never drivers from Windows Update (drivers come from the software library). Updates come from Microsoft or the client's WSUS through the Windows Update Agent, never from the platform.
+- **Restart after updates.** Never automatic. The cabinet shows "restart pending" and a person restarts it now or schedules it.
+- **Restarting a cabinet.** All tiers, now or at a scheduled time, one click. Most cabinets already restart on a routine; the platform shows the pending-reboot state alongside.
+- **Bulk updates and restarts.** Allowed for a client or a site, confirmed with the password like the bulk firewall policy, up to 200 cabinets; bulk restarts are staggered.
+- **Cable or switch-port faults.** No packet capture. The diagnosis shows a physical-layer finding when the evidence supports it (no link, a gigabit port linking at 100 Mbps or less, rising receive errors, link up/down events), each paired with what to do. Every finding comes with its fix.
+- **Accounts.** Admin can do everything Tier 2 can, plus enrolment and user management (already so). A new account and an Admin password reset both force a new password at the next sign-in (already so; kept under test).
+- **Console redesign.** The product owner's brand: Midnight Navy and Electric Cyan, a dark interface, with status colours green, amber, red and blue, always with a text label. Tokens are centralised; existing workflows and security controls are kept.

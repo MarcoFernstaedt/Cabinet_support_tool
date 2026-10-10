@@ -139,6 +139,41 @@ The server then reads the results with fixed checks, written as code with tests.
 
 Each finding has a severity: problem, warning or info. A finding that the evidence cannot confirm is shown as "could not check" and is never guessed.
 
+### Milestone 11 additions (decided October 2026)
+
+New operations:
+
+- **updates.install** (write, Tier 1 and up, click). Search for and install pending security and quality updates through the Windows Update Agent in the broker. Never version upgrades or driver updates. It never restarts the cabinet. The output lists each update with its result, and says whether a restart is now needed. The confirmation says it can take a long time; the command may run for up to 2 hours, and the console shows progress as "installing".
+- **system.restart** (write, Tier 1 and up, click). Restart now (after 60 seconds, with a notice on the cabinet's screen) or at a scheduled time up to 7 days ahead; or cancel a scheduled restart. The broker keeps the schedule across agent restarts.
+- **system.info** gains a `pendingRestart` section: whether a restart is pending, and why (Windows Update, component servicing, pending file renames, a computer rename), plus any restart the platform has scheduled.
+- **network.stats** gains, per adapter: negotiated speed and duplex, the highest speed the adapter supports, and link up and down counts in the last 24 hours from the System log.
+- **drivers.list** gains, per driver, the files it installed (path, version, size), read from the driver store.
+
+Bulk: updates.install and system.restart can be sent to a client or a site like the bulk firewall policy (password, up to 200 cabinets). Restarts are staggered, at most 20 starting each minute.
+
+Physical-layer findings in the network diagnosis, each with its fix:
+
+| Finding | Evidence | What to do |
+|---|---|---|
+| No link | adapter enabled, media disconnected | Check the cable at both ends, try another switch port; if the link light stays off, swap the cable |
+| Link slower than the adapter | gigabit adapter linked at 100 Mbps or less | Usually a damaged cable pair: replace the cable; else check the switch port's speed setting |
+| Half duplex | duplex is half | Set the switch port to auto-negotiate |
+| Rising receive errors | receive errors growing between two readings 60 seconds apart | Replace the cable; move away from power cables; try another switch port |
+| Link dropping | 3 or more link-down events in 24 hours | Reseat or replace the cable; check the switch port |
+| USB device not detected | the scanner's expected IDs absent from devices.list | Reseat the cable, try another USB port, then another cable |
+| USB device failing to start | device present with problem code 43 or 10 | Try another USB port; if it persists, reinstall the driver from the library |
+
+## Console redesign (decided October 2026)
+
+The console is refined with the product owner's brand rather than rebuilt. Every colour, size and radius comes from tokens in one place:
+
+- Backgrounds: #0B111B (page), #131F2D (panels, tables, dialogs). Borders #293849, and a stronger border for form controls so they meet the 3:1 contrast rule.
+- Text: #E8F1F5 primary, #A8B8C7 secondary, #75899C tertiary (still 4.6:1 on panels).
+- Accent: #22B8CF for primary buttons (dark text), active navigation, links and focus rings only.
+- Status: #22C55E healthy, #F5B942 warning, #EF5555 critical, #60A5FA information, always with a text label.
+- Compact tables and lists instead of cards; restrained radii; no gradients, glows or heavy shadows.
+- Every page keeps its workflows, its checks on the server and its accessibility (keyboard, focus, labels, one main heading).
+
 ## Milestone 12: diagnose, trend, triage
 
 - **Diagnose this cabinet** (Tier 1): one button that runs the network diagnosis above together with:
