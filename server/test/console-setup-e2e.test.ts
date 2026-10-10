@@ -166,6 +166,19 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.getByRole("heading", { name: /Cabinets affected \(6\d\)/ }).waitFor();
     await p.getByRole("table", { name: "Cabinets affected" }).getByText("Restarting repeatedly").first().waitFor();
 
+    // Scenario C: every cabinet in the wrong time zone, corrected in one fleet operation with the password, each verified.
+    await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Fleet operations" }).click();
+    await p.getByLabel("Problem").selectOption("time_zone_wrong");
+    await p.getByRole("button", { name: "Select the 3 shown" }).click();
+    await p.getByRole("button", { name: "Preview on 3 cabinets" }).click();
+    await p.getByText(/3\s*will be changed/).waitFor();
+    await p.getByRole("button", { name: "Set each cabinet to its site's time zone on 3 cabinets" }).click();
+    const pw = p.getByRole("dialog", { name: "Confirm with your password" });
+    await pw.getByLabel("Your password").fill(password);
+    await pw.getByRole("button", { name: "Confirm" }).click();
+    await p.getByRole("heading", { name: "Set each cabinet to its site's time zone" }).waitFor();
+    await p.getByText("3 verified").waitFor({ timeout: 60_000 });
+
     // A simulated cabinet answers like a real one, and says it is simulated.
     await p.goto(origin);
     await p.getByRole("link", { name: "Demo · Riverside Veterinary Group" }).click();

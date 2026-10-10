@@ -134,7 +134,7 @@ export function SecurityAlerts() {
 
 interface Settings {
   offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number;
-  retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number };
+  retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
 }
 
 export function PlatformSettings() {
@@ -152,7 +152,7 @@ export function PlatformSettings() {
     const c: Record<string, unknown> = {};
     for (const k of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours"] as const) if (form[k] !== data[k]) c[k] = form[k];
     const r: Record<string, number> = {};
-    for (const k of ["eventsDays", "commandsDays", "alertsDays", "firewallDays"] as const) if (form.retention[k] !== data.retention[k]) r[k] = form.retention[k];
+    for (const k of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const) if (form.retention[k] !== data.retention[k]) r[k] = form.retention[k];
     if (Object.keys(r).length) c.retention = r;
     return c;
   };
@@ -185,6 +185,9 @@ export function PlatformSettings() {
             {num("Command results", form.retention.commandsDays, 7, 3650, n => setR({ commandsDays: n }), "days")}
             {num("Resolved alerts", form.retention.alertsDays, 30, 3650, n => setR({ alertsDays: n }), "days")}
             {num("Firewall history", form.retention.firewallDays, 30, 3650, n => setR({ firewallDays: n }), "days")}
+            {num("Network diagnoses", form.retention.diagnosesDays, 7, 365, n => setR({ diagnosesDays: n }), "days")}
+            {num("Boot records", form.retention.bootsDays, 30, 3650, n => setR({ bootsDays: n }), "days")}
+            {num("Fleet operation jobs", form.retention.jobsDays, 30, 3650, n => setR({ jobsDays: n }), "days")}
           </div>
           <p className="muted small">The audit log is kept forever.</p>
         </section>

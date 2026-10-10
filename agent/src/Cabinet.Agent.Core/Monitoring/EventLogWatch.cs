@@ -28,6 +28,21 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
     /// <summary>How far back the first look at a log goes, so problems from just before the install are seen.</summary>
     public static readonly TimeSpan FirstLookBack = TimeSpan.FromHours(24);
 
+    /// <summary>
+    /// Crash, storage and hardware evidence goes back further on the first look: 30 days. A cabinet installed after a run of
+    /// blue screens or disk errors then still shows what happened before (docs/spec/13-roadmap.md module 4). Only these
+    /// fixed (source, event ID) pairs, all in the System log, are read that far back.
+    /// </summary>
+    public static readonly TimeSpan EvidenceLookBack = TimeSpan.FromDays(30);
+
+    public static readonly IReadOnlyList<(string Source, int[] EventIds)> EvidenceIds =
+    [
+        ("BugCheck", [1001]), ("Microsoft-Windows-WER-SystemErrorReporting", [1001]), ("Microsoft-Windows-Kernel-Power", [41]), ("EventLog", [6008]),
+        ("disk", [7, 11, 15, 51, 52, 153, 154]), ("Ntfs", [55]), ("Microsoft-Windows-Ntfs", [55, 98, 140]),
+        ("storahci", [129]), ("stornvme", [129]), ("iaStorA", [129]), ("iaStorAVC", [129]), ("iaStorAC", [129]),
+        ("Microsoft-Windows-WHEA-Logger", [17, 18, 19, 47]),
+    ];
+
     public sealed class State
     {
         public Dictionary<string, Bookmark> Logs { get; set; } = new();
@@ -58,10 +73,22 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
             if (newer.Count < output.Entries.Count || output.NextBeforeRecordId is null) break;
             before = output.NextBeforeRecordId;
         }
+        // The first look at the System log also reads the crash, storage and hardware evidence from 30 days back to the
+        // start of the normal first look; one page per source, so a flood cannot hold the watcher up.
+        if (mark is null && log == "System")
+            foreach (var (source, ids) in EvidenceIds)
+            {
+                var older = await query(new EventlogQueryParams
+                {
+                    Log = log, Levels = LevelsFor(log), From = now - EvidenceLookBack, To = from, Source = source, EventIds = ids, PageSize = PageSize,
+                }, token).ConfigureAwait(false);
+                fresh.AddRange(older.Entries);
+            }
         var ordered = fresh.GroupBy(e => e.RecordId).Select(g => g.First()).OrderBy(e => e.RecordId).ToList();
         if (ordered.Count > 0)
         {
-            state.Logs[log] = new Bookmark { RecordId = ordered[^1].RecordId, Time = ordered.Max(e => e.Time) };
+            // After a first look everything since its start has been read, so the next look starts from now, not from the oldest evidence.
+            state.Logs[log] = new Bookmark { RecordId = ordered[^1].RecordId, Time = mark is null ? Max(now, ordered.Max(e => e.Time)) : ordered.Max(e => e.Time) };
             store.Save(state);
         }
         else if (mark is null)
@@ -71,6 +98,8 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
         }
         return Limit(log, ordered, pagesExhausted: fresh.Count >= PageSize * MaxPagesPerLook, now);
     }
+
+    private static DateTimeOffset Max(DateTimeOffset a, DateTimeOffset b) => a > b ? a : b;
 
     /// <summary>At most this many entries with the same source and event ID are sent from one look; the rest are counted.</summary>
     public const int MaxPerSourcePerLook = 20;

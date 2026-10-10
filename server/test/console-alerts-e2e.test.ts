@@ -122,7 +122,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
     await confirm.getByRole("button", { name: "Confirm" }).click();
     await confirm.waitFor({ state: "hidden" });
     await ada.getByText("No rules are waiting for approval.").waitFor();
-    for (const p of pages) await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Fleet" }).click();
+    for (const p of pages) await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Fleet", exact: true }).click();
 
     // ---- The next occurrence raises Fingerprint scanner problem, on every console at once ----
     await storeEvents(db.app, cabinetId, { events: [lockError()] });

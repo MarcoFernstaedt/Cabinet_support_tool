@@ -334,6 +334,44 @@ public class EventLogWatchTests
     }
 
     [Fact]
+    public async Task The_first_look_reads_crash_storage_and_hardware_evidence_from_30_days_back_and_nothing_else_that_far()
+    {
+        EventSummary At(long id, double days, string source, int eventId) => new()
+            { RecordId = id, Time = Fixtures.Start.AddDays(-days), Level = EventLevel.Error, Source = source, EventId = eventId, FirstLine = "x" };
+        var entries = new List<EventSummary>
+        {
+            At(1, 40, "BugCheck", 1001),                       // too old even for evidence
+            At(2, 20, "BugCheck", 1001),                       // a blue screen 20 days before the install
+            At(3, 12, "disk", 7),                              // a bad block
+            At(4, 9, "Microsoft-Windows-WHEA-Logger", 18),     // a hardware error
+            At(5, 10, "Service Control Manager", 7031),        // an ordinary error: only the normal 24 hours
+            At(6, 0.5, "Service Control Manager", 7031),       // within the normal first look
+        };
+        var asked = new List<EventlogQueryParams>();
+        Task<EventlogQueryOutput> Query(EventlogQueryParams p, CancellationToken _)
+        {
+            asked.Add(p);
+            var page = entries.Where(e => (p.From is null || e.Time >= p.From) && (p.To is null || e.Time <= p.To)
+                    && (p.Source is null || e.Source == p.Source) && (p.EventIds is null || p.EventIds.Contains(e.EventId)))
+                .OrderByDescending(e => e.RecordId).Take(p.PageSize ?? 100).ToList();
+            return Task.FromResult(new EventlogQueryOutput { Log = p.Log, Entries = page, NextBeforeRecordId = null, Truncated = false });
+        }
+        using var dir = new TempDir();
+        var store = new StateFile<EventLogWatch.State>(Path.Combine(dir.Path, "b.json"));
+        var found = await new EventLogWatch(store, Query).CheckAsync("System", Fixtures.Start, default);
+        Assert.Equal(new long[] { 2, 3, 4, 6 }, found.Select(e => e.Source!.RecordId));
+        Assert.All(asked.Where(q => q.Source is not null), q => Assert.Equal(Fixtures.Start - EventLogWatch.EvidenceLookBack, q.From));
+        // The next look starts from now, not from the oldest evidence; and only the System log reads evidence.
+        asked.Clear();
+        Assert.Empty(await new EventLogWatch(store, Query).CheckAsync("System", Fixtures.Start.AddMinutes(1), default));
+        Assert.Single(asked);
+        Assert.True(asked[0].From >= Fixtures.Start.AddMinutes(-5));
+        asked.Clear();
+        await new EventLogWatch(store, Query).CheckAsync("Application", Fixtures.Start, default);
+        Assert.DoesNotContain(asked, q => q.Source is not null);
+    }
+
+    [Fact]
     public void Warnings_are_collected_only_from_the_logs_where_hardware_trouble_shows()
     {
         // A retried read (disk 153) or a corrected machine check is a warning; the System log and the hardware logs keep them.

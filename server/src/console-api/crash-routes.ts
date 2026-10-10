@@ -5,6 +5,7 @@ import { consoleBodies } from "../contracts.js";
 import { transaction } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
+import { exportEvidence } from "../services/evidence.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -35,6 +36,16 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const w = window(consoleBodies.crashQuery.parse(request.query), 7);
     return { ...w, items: await timeline(o.pool, id(request), w.from, w.to) };
   });
+  // An evidence package: what the platform holds about one cabinet for a period, hashed, with provenance; the export is audited.
+  app.get("/api/cabinets/:id/evidence", async (request, reply) => {
+    const u = await o.guards.role(request, "tier1");
+    const w = window(consoleBodies.crashQuery.parse(request.query), 30);
+    const pkg = await exportEvidence(o.pool, id(request), w.from, w.to, { userId: u.userId, name: u.name });
+    if (!pkg) throw new Refused("not_found", 404, "no such cabinet");
+    const day = w.to.toISOString().slice(0, 10);
+    return reply.header("content-disposition", `attachment; filename="evidence-${pkg.manifest.cabinetId}-${day}.json"`).send(pkg);
+  });
+
   app.get("/api/incidents/crashes", async request => {
     const user = await o.guards.role(request, "tier1");
     const q = consoleBodies.crashQuery.parse(request.query);

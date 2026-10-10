@@ -17,6 +17,7 @@ import { ReleaseKeys } from "./services/releases.js";
 import { checkRollouts } from "./services/rollouts.js";
 import { DemoSimulator } from "./demo/demo.js";
 import { checkQuietLoops } from "./services/crashes.js";
+import { resumeJobs } from "./services/fleet-jobs.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl, 20);
@@ -52,6 +53,9 @@ const offlineJob = setInterval(() => {
 // Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
 const demo = new DemoSimulator(pool, message => app.log.error(message));
 demo.start();
+
+// Fleet jobs that were running when the server stopped carry on where they left off.
+resumeJobs(pool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: { type: (e as Error).name } }, "resuming fleet jobs failed"));
 
 // The daily audit chain check (a break raises a security alert) and retention.
 const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message));

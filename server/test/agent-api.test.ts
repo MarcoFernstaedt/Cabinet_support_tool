@@ -256,6 +256,23 @@ test("events are stored once even when the agent retries", async () => {
   assert.equal((await call("POST", "/agent/v1/events", { events: [{ ...event, kind: "run_this" }] }, cab)).status, 400);
 });
 
+test("each cabinet has an hourly event quota: over it, a batch is refused with 429 and nothing of it is stored; other cabinets are unaffected", async () => {
+  const limited = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, tempDir(), ["localhost"]), eventsPerHour: 3, logger: false });
+  await limited.listen({ host: "127.0.0.1", port: 0 });
+  const saved = port;
+  port = (limited.server.address() as { port: number }).port;
+  try {
+    const noisy = await enrolledCabinet(), quiet = await enrolledCabinet();
+    const ev = () => ({ eventId: randomUUID(), kind: "smart_warning", occurredAt: "2026-10-06T12:00:00Z", severityHint: "minor", detail: { message: "x" } });
+    assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev()] }, noisy)).status, 200);
+    const over = [ev(), ev()];
+    assert.equal((await call("POST", "/agent/v1/events", { events: over }, noisy)).status, 429);
+    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM events WHERE event_id = ANY($1::uuid[])", [over.map(e => e.eventId)])).rows[0].n, 0);
+    assert.equal((await call("POST", "/agent/v1/events", { events: [ev()] }, noisy)).status, 200, "what is left of the quota is still usable");
+    assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev(), ev()] }, quiet)).status, 200);
+  } finally { port = saved; await limited.close(); }
+});
+
 test("renewal is refused until the certificate is near expiry, then the new certificate works", async () => {
   const cab = await enrolledCabinet();
   const newKey = ecKey();

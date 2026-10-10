@@ -16,6 +16,7 @@ import { recordHeartbeat } from "../src/services/cabinets.js";
 import { storeEvents } from "../src/services/events.js";
 import { categorize, changeKey, checkQuietLoops, describeStopCode, stopCodeOf } from "../src/services/crashes.js";
 import { enableDemo, INCIDENT_DRIVER, INCIDENT_UPDATE } from "../src/demo/demo.js";
+import { verifyEvidence } from "../src/services/evidence.js";
 import { ISSUE } from "../src/services/rules.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
@@ -152,4 +153,35 @@ test("the overnight incident: who crashed, when it began, the stop code, who is 
   // The loop cabinets have their reboot-loop alert.
   const loop = harbor.find((c: { rebootLoop: boolean }) => c.rebootLoop);
   assert.equal((await db.app.query("SELECT issue_type_id FROM alerts WHERE cabinet_id = $1 AND signature = 'reboot_loop'", [loop.id])).rows[0].issue_type_id, ISSUE.rebootLoop);
+});
+
+test("an evidence package holds the cabinet's events, boots, alerts, commands and analysis, with provenance and hashes; any change is detected; the export is audited", async () => {
+  const one = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_crash' ORDER BY name LIMIT 1")).rows[0]!.id;
+  const r = await app.inject({ method: "GET", url: `/api/cabinets/${one}/evidence?days=7`, headers: { origin: ORIGIN, cookie } });
+  assert.equal(r.statusCode, 200);
+  assert.match(String(r.headers["content-disposition"]), /^attachment; filename="evidence-[0-9a-f-]{36}-\d{4}-\d{2}-\d{2}\.json"$/);
+  const pkg = JSON.parse(r.body);
+  assert.equal(pkg.manifest.format, "mashura-cabinet-evidence/1");
+  assert.deepEqual(Object.keys(pkg.sections).sort(), ["alerts", "analysis", "boots", "cabinet", "commands", "events", "timeline"]);
+  for (const s of Object.values(pkg.sections) as { provenance: string }[]) assert.ok(s.provenance.length > 20);
+  const events = pkg.sections.events.items as { kind: string; source: { log: string; recordId: number } | null }[];
+  assert.ok(events.some(e => e.kind === "error" && e.source?.recordId), "the original Windows entry is identified");
+  assert.ok(pkg.sections.analysis.items.crashes >= 1);
+  assert.match(pkg.sections.analysis.provenance, /correlation, not proof/);
+  // Integrity: as exported it verifies; one changed character in any section, or in the manifest, does not.
+  assert.equal(verifyEvidence(pkg), true);
+  const tampered = JSON.parse(r.body);
+  tampered.sections.events.items[0].occurredAt = "2020-01-01T00:00:00Z";
+  assert.equal(verifyEvidence(tampered), false);
+  const relabelled = JSON.parse(r.body);
+  relabelled.manifest.exportedBy = "Someone else";
+  assert.equal(verifyEvidence(relabelled), false);
+  const audited = (await db.app.query("SELECT details FROM audit_log WHERE action = 'evidence.export' AND target_id = $1", [one])).rows;
+  assert.equal(audited.length, 1);
+  assert.equal(audited[0].details.packageSha256, pkg.manifest.packageSha256);
+  // Hostile and unknown requests.
+  assert.equal((await call(`/api/cabinets/${randomUUID()}/evidence`)).status, 404);
+  for (const q of ["days=1000", "from=2020-01-01T00:00:00Z&to=2026-10-01T00:00:00Z", "days=7&x=1"])
+    assert.equal((await call(`/api/cabinets/${one}/evidence?${q}`)).status, 400, q);
+  assert.equal((await call(`/api/cabinets/${one}/evidence`, null)).status, 401);
 });

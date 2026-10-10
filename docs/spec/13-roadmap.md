@@ -109,4 +109,26 @@ Built (October 2026):
 - **Console.** A Time section on every cabinet, with the findings and the fixes; the zone setting on the site page.
 - **Demo.** Three cabinets in the wrong zone (Arizona, California, Texas) and one drifting clock (New York).
 
-Still to build: bulk time zone correction across many cabinets is part of Fleet operations (module 21 and 45).
+## Fleet operations (modules 21 and 45)
+
+Built (October 2026):
+
+- **Choosing cabinets.** The Fleet operations page lists active cabinets by client, site and problem (wrong time zone, clock off, firewall differs from policy); people tick cabinets one by one or all shown. The selection is kept while moving around the console in the same tab.
+- **Operations.** Set each cabinet to its site's time zone, sync clocks, apply the firewall policy. The server fills in each cabinet's parameters; nothing else can be sent.
+- **Preview.** What each cabinet would get, and which are skipped and why: offline, read-only, client paused, already right, site has no zone.
+- **Confirmation.** The password again; the token is bound to the job's ID and to {operation, cabinets, batch size}. At most 200 cabinets. The fleet and client pauses, the person's own pause and limit apply; one job counts as one write.
+- **Jobs.** The target list is fixed when the job starts. Commands go out in batches (1 to 50 at a time); the next batch starts when this one has answered. Each cabinet's result is recorded: skipped, failed (with the agent's reason or "did not answer"), verified from the cabinet's next report, or "not verified" when its report did not show the change in time. A pause during a job skips the cabinets not yet reached. Jobs survive a server restart. The person who started a job, or an Admin, can cancel the rest.
+- **Scale, measured against the simulator** (fleet-jobs.test): 10 cabinets in about 0.4 s, 60 in about 0.7 s, 98 in about 1.1 s, every reachable cabinet verified. Real cabinets answer within their poll interval and verify on their next heartbeat (up to a minute).
+
+Still to build: more operations as jobs (restarts, updates) once those operations exist; scheduling a job for later; sync-cabinet protection (module 37) for disruptive operations.
+
+## Evidence and retention (modules 12 and 39)
+
+Built (October 2026):
+
+- **Evidence packages.** On a cabinet's Crashes and restarts section, "Download evidence package": its events, boots, alerts, the commands sent to it and their results, the timeline and the crash analysis for the period, with where each part came from and SHA-256 hashes per section and for the whole; every export is audited with its hash. See [data-classification.md](../platform/data-classification.md).
+- **First look.** A newly installed agent reads 30 days back for crash, storage and hardware evidence (24 hours for other errors, 14 days for changes).
+- **Retention by class.** Network diagnoses, boot records and fleet jobs now have their own retention settings next to events, command results, alerts and firewall history.
+- **Ingest quota.** 3,000 events per cabinet per hour; over it the agent keeps them and sends later.
+
+Still open: minidump upload and packet capture (decision in 09, with safeguards to confirm), evidence for a whole fleet incident in one package.

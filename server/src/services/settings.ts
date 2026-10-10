@@ -49,19 +49,20 @@ export interface PlatformSettings {
   offlineAlertDays: number;
   sessionIdleMinutes: number;
   sessionAbsoluteHours: number;
-  retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number };
+  retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12,
-  retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365 },
+  retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
 };
 
 /** Each setting's key in the settings table, with the range it must be in (the console contract checks the same ranges). */
 const KEYS = {
   offlineAlertDays: ["alerts.offlineDays", 1, 90], sessionIdleMinutes: ["sessions.idleMinutes", 5, 240], sessionAbsoluteHours: ["sessions.absoluteHours", 1, 24],
   eventsDays: ["retention.eventsDays", 7, 3650], commandsDays: ["retention.commandsDays", 7, 3650], alertsDays: ["retention.alertsDays", 30, 3650],
-  firewallDays: ["retention.firewallDays", 30, 3650],
+  firewallDays: ["retention.firewallDays", 30, 3650], diagnosesDays: ["retention.diagnosesDays", 7, 365], bootsDays: ["retention.bootsDays", 30, 3650],
+  jobsDays: ["retention.jobsDays", 30, 3650],
 } as const;
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
@@ -77,7 +78,8 @@ export async function platformSettings(db: Queryable): Promise<PlatformSettings>
     offlineAlertDays: num("offlineAlertDays", d.offlineAlertDays), sessionIdleMinutes: num("sessionIdleMinutes", d.sessionIdleMinutes),
     sessionAbsoluteHours: num("sessionAbsoluteHours", d.sessionAbsoluteHours),
     retention: { eventsDays: num("eventsDays", d.retention.eventsDays), commandsDays: num("commandsDays", d.retention.commandsDays),
-      alertsDays: num("alertsDays", d.retention.alertsDays), firewallDays: num("firewallDays", d.retention.firewallDays) },
+      alertsDays: num("alertsDays", d.retention.alertsDays), firewallDays: num("firewallDays", d.retention.firewallDays),
+      diagnosesDays: num("diagnosesDays", d.retention.diagnosesDays), bootsDays: num("bootsDays", d.retention.bootsDays), jobsDays: num("jobsDays", d.retention.jobsDays) },
   };
 }
 
@@ -105,7 +107,7 @@ export async function updatePlatformSettings(pool: pg.Pool, adminId: string, cha
     const writes: [string, unknown][] = [];
     for (const name of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours"] as const)
       if (change[name] !== undefined) writes.push([KEYS[name][0], change[name]]);
-    for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays"] as const)
+    for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const)
       if (change.retention?.[name] !== undefined) writes.push([KEYS[name][0], change.retention[name]]);
     for (const [key, value] of writes)
       await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, $2, $3)

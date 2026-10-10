@@ -455,7 +455,7 @@ export interface CommandRequest {
  */
 export interface ConfirmPassword {
   password: string;
-  action: "bulk.firewall_policy";
+  action: "bulk.firewall_policy" | "fleet.job";
   target: string;
   paramsHash: string;
 }
@@ -559,6 +559,48 @@ export interface FirewallPolicy {
 }
 
 /**
+ * Which cabinets the Fleet operations page lists, from the query string: a client, a site, and a problem to narrow to.
+ */
+export interface FleetCabinetsQuery {
+  clientId?: string;
+  siteId?: string;
+  problem?: "any" | "time_zone_wrong" | "clock_off" | "firewall_drift";
+}
+
+/**
+ * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}.
+ */
+export interface FleetJob {
+  /**
+   * Chosen by the console, so the confirmation is bound to this one job.
+   */
+  jobId: string;
+  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy";
+  /**
+   * @minItems 1
+   * @maxItems 200
+   */
+  cabinetIds: [string, ...string[]];
+  /**
+   * How many cabinets are changed at a time; the next batch starts when this one has answered.
+   */
+  batchSize: number;
+  stepUpToken: string;
+}
+
+/**
+ * Shows what a fleet operation would do on each chosen cabinet, and which it would skip and why, without changing anything.
+ */
+export interface FleetPreview {
+  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy";
+  /**
+   * @minItems 1
+   * @maxItems 200
+   */
+  cabinetIds: [string, ...string[]];
+}
+
+/**
  * From the query string: the jump-to box's text. Matched literally (wildcards have no meaning) against client, site, cabinet and host names.
  */
 export interface FleetSearch {
@@ -639,6 +681,18 @@ export interface PlatformSettings {
     commandsDays?: number;
     alertsDays?: number;
     firewallDays?: number;
+    /**
+     * Network diagnoses and their findings.
+     */
+    diagnosesDays?: number;
+    /**
+     * Boot records used for reboot-loop detection and crash timelines.
+     */
+    bootsDays?: number;
+    /**
+     * Fleet operation jobs and their per-cabinet results (the commands and the audit log stay).
+     */
+    jobsDays?: number;
   };
   /**
    * A one-time step-up token bound to this exact action.

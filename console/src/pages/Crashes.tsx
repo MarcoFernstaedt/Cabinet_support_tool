@@ -70,6 +70,8 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
         </div>
         <label className="field inline"><span>Period</span><select value={days} onChange={e => setDays(e.target.value)}>
           {["7", "30", "90"].map(d => <option key={d} value={d}>Last {d} days</option>)}</select></label>
+        {/* Everything the platform holds about this cabinet for the period, hashed and with where each part came from; the download is audited. */}
+        <a className="btn small" href={`/api/cabinets/${cabinetId}/evidence?days=${days}`} download>Download evidence package</a>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>

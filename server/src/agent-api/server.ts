@@ -36,6 +36,8 @@ export interface AgentApiOptions {
   releases?: ReleaseStore;
   /** Enrollment submissions allowed per source address per hour. */
   enrollPerHour?: number;
+  /** How many events one cabinet may send in an hour before it is asked to slow down (its own queue holds the rest). */
+  eventsPerHour?: number;
   logger?: boolean;
 }
 
@@ -58,6 +60,10 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   });
   const longPollMs = o.longPollMs ?? 25_000;
   const enrollPerHour = o.enrollPerHour ?? 10;
+  // The ingest quota (docs/platform/data-classification.md): per cabinet, per clock hour, kept in memory. Over it, a batch
+  // is refused with 429 and the agent keeps the events in its own bounded queue and sends them later.
+  const eventsPerHour = o.eventsPerHour ?? 3000;
+  const eventCounts = new Map<string, { hour: number; n: number }>();
   const enrollAttempts = new Map<string, number[]>();
   const refusedLogged = new Map<string, number>();
 
@@ -209,8 +215,15 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
         ...(upgrade ? { upgrade: { version: upgrade } } : {}) });
     });
 
-    scoped.post("/agent/v1/events", async request => {
-      await storeEvents(o.pool, request.cabinet!.id, envelopes.eventBatch.parse(request.body));
+    scoped.post("/agent/v1/events", async (request, reply) => {
+      const batch = envelopes.eventBatch.parse(request.body);
+      const hour = Math.floor(Date.now() / 3_600_000);
+      const count = eventCounts.get(request.cabinet!.id);
+      const used = count && count.hour === hour ? count.n : 0;
+      if (used + batch.events.length > eventsPerHour) return reply.code(429).send({ error: "rate_limited" });
+      eventCounts.set(request.cabinet!.id, { hour, n: used + batch.events.length });
+      if (eventCounts.size > 50_000) for (const [k, v] of eventCounts) if (v.hour !== hour) eventCounts.delete(k);
+      await storeEvents(o.pool, request.cabinet!.id, batch);
       return { serverTime: serverTime() };
     });
 

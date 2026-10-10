@@ -187,6 +187,9 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
       "SELECT k.name FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients n ON n.id = s.client_id WHERE n.demo AND k.demo_scenario IS NULL LIMIT 1")).rows[0];
     if (real) throw new Refused("real_cabinet_in_demo_client", 409, `the real cabinet ${real.name} is filed under a simulated client; move it before turning demo mode off`);
     const ids = (await c.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL")).rows.map(r => r.id);
+    // Fleet jobs on simulated cabinets go first (they point at their commands); a job left with no cabinet goes too.
+    await c.query("DELETE FROM fleet_job_targets WHERE cabinet_id = ANY($1::uuid[])", [ids]);
+    await c.query("DELETE FROM fleet_jobs j WHERE NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = j.id)");
     for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.

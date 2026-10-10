@@ -18,10 +18,11 @@ export async function verifyChainAndAlert(pool: pg.Pool, by: { userId: string } 
   return check;
 }
 
-export interface RetentionRun { events: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number; }
+export interface RetentionRun { events: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
+  diagnoses: number; boots: number; jobs: number; }
 
 /**
- * Removes events, resolved alerts and firewall history past their retention, and clears old command results
+ * Removes events, resolved alerts, firewall history, diagnoses, boot records and finished fleet jobs past their retention, and clears old command results
  * (the command itself, who sent it and when, stays in the history). The audit log is never pruned.
  */
 export async function runRetention(pool: pg.Pool): Promise<RetentionRun> {
@@ -38,8 +39,13 @@ export async function runRetention(pool: pg.Pool): Promise<RetentionRun> {
     const firewallChanges = (await c.query("DELETE FROM firewall_changes WHERE occurred_at < now() - make_interval(days => $1)", days(r.firewallDays))).rowCount ?? 0;
     const sessions = (await c.query("DELETE FROM sessions WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
     const stepUpTokens = (await c.query("DELETE FROM step_up_tokens WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
-    const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < now() - interval '30 days'")).rowCount ?? 0;
-    const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses };
+    const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < now() - make_interval(days => $1)", days(r.diagnosesDays))).rowCount ?? 0;
+    const boots = (await c.query("DELETE FROM cabinet_boots WHERE booted_at < now() - make_interval(days => $1)", days(r.bootsDays))).rowCount ?? 0;
+    // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
+    await c.query(`DELETE FROM fleet_job_targets WHERE job_id IN
+                     (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < now() - make_interval(days => $1))`, days(r.jobsDays));
+    const jobs = (await c.query("DELETE FROM fleet_jobs WHERE state <> 'running' AND created_at < now() - make_interval(days => $1)", days(r.jobsDays))).rowCount ?? 0;
+    const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs };
     await audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } });
     return run;
   });

@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-job.schema.json",
+  "title": "fleet-job",
+  "description": "Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "jobId",
+    "operation",
+    "cabinetIds",
+    "batchSize",
+    "stepUpToken"
+  ],
+  "properties": {
+    "jobId": {
+      "description": "Chosen by the console, so the confirmation is bound to this one job.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "operation": {
+      "type": "string",
+      "enum": [
+        "time.setZone",
+        "time.sync",
+        "firewall.applyPolicy"
+      ]
+    },
+    "cabinetIds": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "../common.schema.json#/$defs/uuid"
+      }
+    },
+    "batchSize": {
+      "description": "How many cabinets are changed at a time; the next batch starts when this one has answered.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "stepUpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

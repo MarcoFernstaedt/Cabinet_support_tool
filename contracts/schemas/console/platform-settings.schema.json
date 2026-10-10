@@ -45,6 +45,24 @@
           "type": "integer",
           "minimum": 30,
           "maximum": 3650
+        },
+        "diagnosesDays": {
+          "description": "Network diagnoses and their findings.",
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 365
+        },
+        "bootsDays": {
+          "description": "Boot records used for reboot-loop detection and crash timelines.",
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3650
+        },
+        "jobsDays": {
+          "description": "Fleet operation jobs and their per-cabinet results (the commands and the audit log stay).",
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3650
         }
       }
     },

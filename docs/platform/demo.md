@@ -95,7 +95,12 @@ How to show the platform to the support team: your real agent on your own Window
    - Stop code 0xD1 DRIVER_IRQL_NOT_LESS_OR_EQUAL on 15 ("a driver, very often a recently installed or updated one").
    - Open one cabinet's **Crashes and restarts**: the update, the driver, the restart, then the blue screen, in order, with the 72 hours before the first crash.
    - **Copy case notes** gives a summary to paste into Salesforce. Everything here is labelled as correlation, not proof.
-7. **Safety (2 minutes).**
+7. **Wrong time zones across the fleet (2 minutes).**
+   - Open **Fleet operations**, set Problem to "Wrong time zone": three cabinets in Arizona, California and Texas.
+   - Select the 3 shown, choose "Set each cabinet to its site's time zone", and **Preview**: each cabinet gets its own site's zone.
+   - Start it and confirm with your password. The job page shows each cabinet sent, done, then **verified** from its next report; the "Wrong time zone" alerts close.
+   - The same page syncs clocks (New York's ICU is about 7 minutes fast) and applies the firewall policy.
+8. **Safety (2 minutes).**
    - Show how each change is confirmed:
      - one click for everyday fixes;
      - the password for a bulk change (Firewall policy across a client);

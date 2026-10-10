@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-cabinets-query.schema.json",
+  "title": "fleet-cabinets-query",
+  "description": "Which cabinets the Fleet operations page lists, from the query string: a client, a site, and a problem to narrow to.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "siteId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "problem": {
+      "type": "string",
+      "enum": [
+        "any",
+        "time_zone_wrong",
+        "clock_off",
+        "firewall_drift"
+      ]
+    }
+  }
+}
