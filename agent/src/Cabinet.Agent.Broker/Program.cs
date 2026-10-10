@@ -55,7 +55,10 @@ public sealed class BrokerService : ServiceBase
             AgentPaths.Downloads, AgentPaths.UpgradeStaging, SystemOperations.AgentVersion, new UpdaterLauncher(UpgradeTrust.Compiled, authenticode, _log.Write), clock, _log.Write);
         try { upgrades.ResumeIfNeeded(); }
         catch (Exception e) { _log.Write($"Could not resume an unfinished upgrade: {e.GetType().Name}: {OperationRunner.Truncate(e.Message)}"); }
-        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm, upgrade: upgrades.Start, watcher: serviceWatcher), _log.Write);
+        // Read-only mode and the write limit are enforced here too, from the administrator-only configuration and a write log
+        // in the broker's own folder, so a compromised network process cannot get round them.
+        var server = new BrokerPipeServer(new BrokerRequestHandler(registry, confirm: safetyNet.Confirm, upgrade: upgrades.Start, watcher: serviceWatcher,
+            readOnly: () => AgentConfigLoader.Load(AgentPaths.Config).ReadOnlyMode, writeLimit: new RateLimiter(Path.Combine(AgentPaths.Broker, "broker-writes.log"), clock), clock: clock), _log.Write);
         _serving = Task.WhenAll(server.RunAsync(_stop.Token), UpkeepAsync(writes, _stop.Token), WatchAsync(serviceWatcher, _stop.Token));
         _serving.ContinueWith(t => _log.Write($"The broker pipe stopped ({t.Exception?.InnerException?.GetType().Name ?? "stopped"})."), TaskScheduler.Default);
         _log.Write($"Broker {SystemOperations.AgentVersion} started; pipe admits only NT SERVICE\\{ServiceNames.Network}.");

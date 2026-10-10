@@ -181,7 +181,7 @@ test("going over the hourly write limit pauses that user's writes until an Admin
 
 // ---- The software library ---------------------------------------------------------------
 
-const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nCatalogFile=scanner.cat\r\n");
+const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nClass=Biometric\r\nCatalogFile=scanner.cat\r\n");
 const SYS = pe("scanner driver");
 const driver = (cat = pki.catalog(vendor, [INF, SYS])) => zip([["scanner.inf", INF], ["scanner.sys", SYS], ["scanner.cat", cat]]);
 

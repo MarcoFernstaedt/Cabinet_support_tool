@@ -74,7 +74,7 @@ test("writes in the console: library upload and two-person approval, install, fi
   const code = (secret: Buffer): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
   // The package files: one signed by the trusted vendor, and a tampered copy of it.
-  const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nCatalogFile=scanner.cat\r\n");
+  const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nClass=Biometric\r\nCatalogFile=scanner.cat\r\n");
   const SYS = pe("scanner driver");
   const cat = pki.catalog(vendor, [INF, SYS]);
   const goodFile = join(dir, "scanner-driver.zip");

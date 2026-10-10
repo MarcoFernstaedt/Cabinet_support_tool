@@ -281,7 +281,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
       (await db.app.query("SELECT 1 FROM events WHERE cabinet_id = $1 AND kind = 'security' AND detail->'fields'->>'commandId' = $2", [a.cabinetId, disable.commandId])).rows.length > 0, 30_000);
 
     // 3. A package: checked by the server, approved by a second Admin, downloaded and checked again by the agent, installed.
-    const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nCatalogFile=scanner.cat\r\n");
+    const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nClass=Biometric\r\nCatalogFile=scanner.cat\r\n");
     const SYS = pe("scanner driver");
     const good = zip([["scanner.inf", INF], ["x64/scanner.sys", SYS], ["scanner.cat", pki.catalog(vendor, [INF, SYS])]]);
     const goodFile = join(dir, "good.zip"); writeFileSync(goodFile, good);

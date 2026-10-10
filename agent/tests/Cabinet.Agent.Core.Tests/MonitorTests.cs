@@ -360,8 +360,10 @@ public class EventLogWatchTests
         }
         var found = await new EventLogWatch(new StateFile<EventLogWatch.State>(null), Query).CheckAsync("Application", Fixtures.Start, default);
         Assert.Equal(EventLogWatch.MaxPagesPerLook, calls);
-        Assert.Equal(EventLogWatch.PageSize * EventLogWatch.MaxPagesPerLook, found.Count);
-        Assert.Equal(2000, found[^1].Source!.RecordId);
+        // 500 entries read, all from one source: 20 sent, one summary for the other 480, and one saying the look overflowed.
+        Assert.Equal(EventLogWatch.MaxPerSourcePerLook, found.Count(e => e.Kind == EventKind.Error));
+        Assert.Contains(found, e => e.Kind == EventKind.AgentStatus && e.Detail!.Fields!.GetValueOrDefault("skipped") == "480");
+        Assert.Contains(found, e => e.Kind == EventKind.AgentStatus && e.Detail!.Fields!.GetValueOrDefault("overflow") == "true");
     }
 }
 
@@ -470,5 +472,30 @@ public class ChangeWatchTests
             Assert.True(EventQueueTests.Valid(e), $"{w.Source} {w.EventId}");
         }
         Assert.True(ChangeWatch.List.GroupBy(w => w.Log).All(g => g.Select(w => w.EventId).Distinct().Count() <= 20));
+    }
+}
+
+public class EventFloodTests
+{
+    [Fact]
+    public async Task A_flooded_log_sends_at_most_20_entries_per_source_and_a_summary_and_real_errors_still_get_through()
+    {
+        var entries = Enumerable.Range(1, 300).Select(i => new EventSummary
+        {
+            RecordId = i, Time = Fixtures.Start.AddSeconds(-600 + i), Level = EventLevel.Error, Source = "Spammer", EventId = 1, FirstLine = "flood",
+        }).ToList();
+        entries.Add(new EventSummary { RecordId = 301, Time = Fixtures.Start, Level = EventLevel.Critical, Source = "Microsoft-Windows-Kernel-Power", EventId = 41, FirstLine = "real" });
+        Task<EventlogQueryOutput> Query(EventlogQueryParams p, CancellationToken _)
+        {
+            var page = entries.Where(e => p.BeforeRecordId is null || e.RecordId < p.BeforeRecordId).OrderByDescending(e => e.RecordId).Take(p.PageSize!.Value).ToList();
+            return Task.FromResult(new EventlogQueryOutput { Log = p.Log, Entries = page, NextBeforeRecordId = page.Count > 0 ? page[^1].RecordId : null, Truncated = false });
+        }
+        using var dir = new TempDir();
+        var events = await new EventLogWatch(new StateFile<EventLogWatch.State>(Path.Combine(dir.Path, "b.json")), Query).CheckAsync("Application", Fixtures.Start, default);
+        Assert.Equal(20, events.Count(e => e.Source?.Source == "Spammer"));
+        Assert.Single(events, e => e.Source?.EventId == 41);
+        var summary = Assert.Single(events, e => e.Kind == EventKind.AgentStatus);
+        Assert.Equal("280", summary.Detail!.Fields!["skipped"]);
+        foreach (var e in events) Assert.True(EventQueueTests.Valid(e));
     }
 }

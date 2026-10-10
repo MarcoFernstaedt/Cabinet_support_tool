@@ -86,7 +86,11 @@ public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceW
         if (r.Day != today) { r.Day = today; r.RestartsToday = 0; }
         r.CheckedAt = now;
         if (ServiceRules.IsRefused(name)) { r.State = WatchState.Refused; r.ServiceState = null; return; }
-        var facts = platform.Query(name);
+        // Only an exact key name is watched: a display name ("Remote Desktop Services") is treated as missing.
+        string? key = platform.KeyName(name);
+        if (key is null) { r.State = WatchState.Missing; r.ServiceState = null; return; }
+        if (ServiceRules.IsRefused(key)) { r.State = WatchState.Refused; r.ServiceState = null; return; }
+        var facts = platform.Query(key);
         if (facts is null) { r.State = WatchState.Missing; r.ServiceState = null; return; }
         r.ServiceState = facts.Value.State;
         if (facts.Value.StartType == ServiceStartType.Disabled) { r.State = WatchState.Disabled; return; }
@@ -115,7 +119,7 @@ public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceW
         }
         try
         {
-            platform.Start(name);
+            platform.Start(key);
             r.RestartsToday++;
             r.LastRestartAt = now;
             r.LastStartedAt = now;

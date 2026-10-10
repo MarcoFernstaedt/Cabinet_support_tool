@@ -70,14 +70,25 @@ public sealed class BrokerRequestHandler
     private readonly Func<Guid, SafetyNetStatus>? _confirm;
     private readonly Func<string, (JsonElement? Output, ResultError? Error)>? _upgrade;
     private readonly Services.ServiceWatcher? _watcher;
+    private readonly Func<bool>? _readOnly;
+    private readonly RateLimiter? _writeLimit;
+    private readonly TimeProvider _clock;
 
+    /// <param name="readOnly">Whether the cabinet's own configuration (written by an administrator at install) puts it in
+    /// read-only mode. The broker checks it itself for every write: it does not take the network process's word.</param>
+    /// <param name="writeLimit">The broker's own write limit, kept in a file only the broker can write, so a compromised
+    /// network process cannot make more changes than the network process itself would allow.</param>
     /// <param name="confirm">Answers a confirm from the safety net; null when this broker makes no changes.</param>
     /// <param name="upgrade">Verifies a downloaded agent release and starts the updater; null when this broker installs no upgrades.</param>
     /// <param name="watcher">Keeps the watched services running; null when this broker watches none.</param>
     public BrokerRequestHandler(OperationRegistry registry, TimeSpan? timeout = null, Func<Guid, SafetyNetStatus>? confirm = null,
-        Func<string, (JsonElement? Output, ResultError? Error)>? upgrade = null, Services.ServiceWatcher? watcher = null)
+        Func<string, (JsonElement? Output, ResultError? Error)>? upgrade = null, Services.ServiceWatcher? watcher = null,
+        Func<bool>? readOnly = null, RateLimiter? writeLimit = null, TimeProvider? clock = null)
     {
         _watcher = watcher;
+        _readOnly = readOnly;
+        _writeLimit = writeLimit;
+        _clock = clock ?? TimeProvider.System;
         foreach (string name in registry.Names)
             if (!Operations.Contains(name)) throw new ArgumentException($"The broker may not run {name}.");
         _registry = registry;
@@ -138,9 +149,19 @@ public sealed class BrokerRequestHandler
                     : new BrokerResponse { RequestId = requestId, Status = BrokerStatus.Failed, Error = failure });
             }
 
+            bool write = Catalog.TryGet(request.Operation, out CatalogEntry entry) && entry.Kind == OperationKind.Write;
+            if (write)
+            {
+                // Checked here again, by the broker itself: the network process may have been compromised.
+                bool readOnly;
+                try { readOnly = _readOnly?.Invoke() ?? false; }
+                catch (Exception) { readOnly = true; } // a configuration the broker cannot read allows no changes
+                if (readOnly) return Serialize(Failed(requestId, "read_only_mode", "This cabinet's agent is installed in read-only mode."));
+                if (_writeLimit is not null && !_writeLimit.TryTake(RateClass.Write, _clock.GetUtcNow()))
+                    return Serialize(Failed(requestId, "rate_limited", "The broker's own write limit for this hour is reached."));
+            }
             // Writes take longer (an MSI install, a driver package): they get the limit for their kind.
-            TimeSpan limit = Catalog.TryGet(request.Operation, out CatalogEntry entry) && entry.Kind == OperationKind.Write
-                ? OperationRunner.BrokerTimeoutFor(request.Operation!) : _timeout;
+            TimeSpan limit = write ? OperationRunner.BrokerTimeoutFor(request.Operation!) : _timeout;
             var (output, error) = await OperationContext.RunAsync(request.CommandId, () =>
                 OperationRunner.RunAsync(_registry, request.Operation!, request.Params!.Value, limit, token)).ConfigureAwait(false);
             return Serialize(error is null

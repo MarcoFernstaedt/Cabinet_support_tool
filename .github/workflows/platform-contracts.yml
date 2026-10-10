@@ -3,6 +3,10 @@ on:
   push:
   pull_request:
 
+# The workflow only reads the repository; it never needs a token that can write.
+permissions:
+  contents: read
+
 jobs:
   contracts-server-agent:
     runs-on: ubuntu-latest
@@ -131,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           ./agent/install/Publish-CabinetAgent.ps1
-          ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
+          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
           Start-Sleep -Seconds 10
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log", "$env:ProgramData\Mashura\CabinetAgent\broker\logs\*.log"
       - name: Services run with the intended accounts
@@ -213,7 +217,7 @@ jobs:
           Start-Sleep 2
           node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
-          ./agent/install/Install-CabinetAgent.ps1 -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
+          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
             -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
@@ -399,7 +403,7 @@ jobs:
           $server = Start-Server
           Start-Sleep 5
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
-          ./agent/install/Install-CabinetAgent.ps1 -SourceDir $v0 -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
+          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -SourceDir $v0 -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
             -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token -CabinetRole standalone
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }

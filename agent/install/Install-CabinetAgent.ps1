@@ -32,7 +32,13 @@ param(
     # Preferred over -BootstrapToken: a token on the command line can be kept by process-creation auditing and script-block logging.
     [string] $BootstrapTokenFile,
     [ValidateRange(1, 65535)] [int[]] $AllowedTcpPort = @(),
-    [switch] $EnableLocalHarness
+    [switch] $EnableLocalHarness,
+    # The SHA-256 of the platform CA file as the console shows it: the installer refuses a CA file that does not match.
+    [ValidatePattern('^[0-9A-Fa-f]{64}$')] [string] $PlatformCaSha256,
+    # Development and demo builds are not code-signed. Production builds are, and are refused unless every program is.
+    [switch] $AllowUnsigned,
+    # Throwaway CI machines only: skips the check that ordinary users cannot change the source folder.
+    [switch] $SkipSourceFolderCheck
 )
 $ErrorActionPreference = 'Stop'
 if ($BootstrapTokenFile) {
@@ -43,6 +49,33 @@ if ($BootstrapTokenFile) {
 
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell.' }
+
+# 0. What is about to be installed as LocalSystem must be what was published.
+#  - The source folder must not be writable by ordinary users (a folder made under C:\ is, by default): someone could swap a program.
+$sourceFull = (Resolve-Path -LiteralPath $SourceDir).Path
+$looseRights = [Security.AccessControl.FileSystemRights]'Write, Modify, FullControl, CreateFiles, AppendData, Delete'
+$broad = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')   # Everyone, Authenticated Users, Users
+if (-not $SkipSourceFolderCheck) { foreach ($folder in @($sourceFull) + @(Get-ChildItem -LiteralPath $sourceFull -Recurse -Directory | ForEach-Object FullName)) {
+    foreach ($rule in (Get-Acl -LiteralPath $folder).Access) {
+        $sid = try { $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }
+        if ($rule.AccessControlType -eq 'Allow' -and $broad -contains $sid -and ($rule.FileSystemRights -band $looseRights)) {
+            throw "Ordinary users can change $folder. Unpack the agent into a folder only administrators can write (for example under your own Downloads folder, or C:\Program Files), then run again."
+        }
+    }
+} }
+#  - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
+$unsigned = Get-ChildItem -LiteralPath $sourceFull -Recurse -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
+if ($unsigned) {
+    if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
+    Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
+}
+#  - The platform CA must be the one the console showed.
+if ($PlatformCaFile -and $PlatformCaSha256) {
+    $caHash = (Get-FileHash -LiteralPath $PlatformCaFile -Algorithm SHA256).Hash
+    if ($caHash -ne $PlatformCaSha256.ToUpperInvariant()) { throw "platform-ca.pem does not match the console (its SHA-256 is $caHash). Download it again from the console." }
+} elseif ($PlatformCaFile) {
+    Write-Warning 'No -PlatformCaSha256 given: the platform CA file was not checked against the console.'
+}
 
 $broker = 'CabinetAgentBroker'
 $network = 'CabinetAgentNetwork'
@@ -155,6 +188,8 @@ if ($PlatformCaFile) {
 if ($BootstrapToken) {
     # The state folder admits only SYSTEM, administrators and the network service, which deletes the token once the server accepts it.
     [IO.File]::WriteAllText((Join-Path $dataDir 'state\bootstrap-token'), $BootstrapToken, (New-Object Text.UTF8Encoding($false)))
+    # The copy the administrator downloaded is no longer needed and must not be left where other people can read it.
+    if ($BootstrapTokenFile) { Remove-Item -LiteralPath $BootstrapTokenFile -Force }
 }
 
 # 6. Start.

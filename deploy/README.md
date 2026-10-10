@@ -51,10 +51,10 @@ You can run it again at any time. It keeps `deploy/.env` and the data.
 1. In the console, as an Admin, open **Admin → Set up and demo**. Step 2 there downloads the three things the laptop needs: the agent zip (`CabinetAgent-win-x64.zip`), a one-time install token (`token.txt`) and the platform CA certificate (`platform-ca.pem`). It also shows the exact PowerShell commands, with this server's address filled in.
 2. Follow `README.txt` inside the zip. In short, in PowerShell as Administrator:
    ```powershell
-   cd C:\CabinetAgent
+   cd $HOME\Downloads\CabinetAgent
    Get-ChildItem -Recurse | Unblock-File
    Set-ExecutionPolicy -Scope Process Bypass -Force
-   .\install\Install-CabinetAgent.ps1 -PlatformServerHost <domain or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapTokenFile .\token.txt
+   .\install\Install-CabinetAgent.ps1 -PlatformServerHost <domain or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -PlatformCaSha256 <the SHA-256 the console shows> -BootstrapTokenFile .\token.txt -AllowUnsigned
    ```
 3. `-PlatformServerHost` must be one of the names in `AGENT_API_HOSTNAMES` in `deploy/.env`.
 4. In the console, approve the enrollment request. The laptop comes online within a minute.
@@ -131,7 +131,7 @@ To also change the names or secrets, delete `deploy/.env` before step 2.
 
 - **Demo CA only.** The server issues agent certificates with a development CA, whose private key lives in the `pki` volume on the VPS. Production uses a CA key held in a KMS, and a real TLS certificate for the agent API (`AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE`). The server refuses the development CA when `NODE_ENV=production`, so this image does not set it.
 - **Ports.** Only 80, 443 and 8443 are published. Never publish PostgreSQL (5432). It sits on an internal Docker network with no route out.
-- **The console** is meant to sit on an internal network or VPN in production. Here it is on the internet for the demo. Use a strong password and the authenticator.
+- **The console** is meant to sit on an internal network or VPN. Set `CONSOLE_ALLOW_FROM` in `.env` to your office and VPN ranges (CIDR, space-separated) and run `docker compose up -d`: everyone else gets 403. The default allows everyone, for a first demo only. HTTPS is enforced with HSTS on a domain.
 - **Secrets** are only in `deploy/.env` (mode 600). It is ignored by git. Never commit or share it.
 - **Docker and ufw.** Ports Docker publishes bypass `ufw`. Control access with your provider's firewall.
 - **The agent zip** is an unsigned developer build. Never install it on a production cabinet.

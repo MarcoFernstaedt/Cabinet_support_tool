@@ -163,3 +163,13 @@ test("the real trusted publisher list is Microsoft only until the scanner vendor
   assert.ok(real.list.publishers.every(p => p.organization === "Microsoft Corporation"));
   assert.equal(real.match(vendor.cert, [pki.intermediate.cert], "driver"), null);
 });
+
+test("a signed driver for a kernel or unclassified device class is refused, even from a trusted publisher", () => {
+  for (const cls of ["System", "SoftwareComponent", null]) {
+    const inf = Buffer.from(`[Version]\r\nSignature="$WINDOWS NT$"\r\n${cls ? `Class=${cls}\r\n` : ""}CatalogFile=scanner.cat\r\n`);
+    const pkg = zip([["scanner.inf", inf], ["scanner.sys", SYS], ["scanner.cat", pki.catalog(vendor, [inf, SYS])]]);
+    assert.equal(refusal(() => verifyPackage(pkg, "driver", trust)), "verification_failed", String(cls));
+  }
+  const storage = Buffer.from(`[Version]\r\nSignature="$WINDOWS NT$"\r\nClass=SCSIAdapter\r\nCatalogFile=scanner.cat\r\n`);
+  assert.equal(verifyPackage(zip([["rst.inf", storage], ["rst.sys", SYS], ["scanner.cat", pki.catalog(vendor, [storage, SYS])]]), "driver", trust).signer, "Scanner Vendor Inc");
+});

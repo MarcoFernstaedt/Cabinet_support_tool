@@ -41,9 +41,21 @@ public sealed class WindowsServicePlatform : IServicePlatform
         return services;
     }
 
+    /// <summary>
+    /// The exact key name, or null. ServiceController would also accept a display name and act on whatever service has
+    /// it; the agent looks the name up among the key names only, so "Remote Desktop Services" never reaches TermService.
+    /// </summary>
+    public string? KeyName(string name)
+    {
+        ServiceController[] all = ServiceController.GetServices();
+        try { return all.FirstOrDefault(s => string.Equals(s.ServiceName, name, StringComparison.OrdinalIgnoreCase))?.ServiceName; }
+        finally { foreach (var s in all) s.Dispose(); }
+    }
+
     public (ServiceState State, ServiceStartType StartType)? Query(string name)
     {
-        using var sc = new ServiceController(name);
+        if (KeyName(name) is not { } key) return null;
+        using var sc = new ServiceController(key);
         try
         {
             return (State(sc.Status), sc.StartType switch
@@ -64,9 +76,10 @@ public sealed class WindowsServicePlatform : IServicePlatform
         sc.WaitForStatus(ServiceControllerStatus.Stopped, Wait);
     });
 
-    private static void Control(string name, Action<ServiceController> act)
+    private void Control(string name, Action<ServiceController> act)
     {
-        using var sc = new ServiceController(name);
+        if (KeyName(name) is not { } key) throw new ServiceControlException(1060, "No service has that key name.");
+        using var sc = new ServiceController(key);
         try { act(sc); }
         catch (System.ServiceProcess.TimeoutException) { throw new ServiceControlException(1053, "The service did not respond in time."); }
         catch (InvalidOperationException e) when (e.InnerException is Win32Exception w) { throw new ServiceControlException(w.NativeErrorCode, "Windows refused."); }

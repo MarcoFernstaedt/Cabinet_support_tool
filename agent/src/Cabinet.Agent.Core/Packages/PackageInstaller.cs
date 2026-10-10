@@ -56,6 +56,11 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
             (bool installed, long exit, bool reboot) outcome;
             if (p.PackageType == PackageType.Driver)
             {
+                // Class, catalog and publisher are checked before a single file is unpacked; then there must be room to unpack.
+                DriverPackage.PreCheck(copy, trust);
+                long free = FreeBytes(work);
+                if (free >= 0 && free < new FileInfo(copy).Length * 4 + MinFreeAfterBytes)
+                    throw new OperationFailedException("execution_failed", "Not enough free disk space to unpack the package safely.");
                 string folder = Path.Combine(work, "files");
                 var files = DriverPackage.Extract(copy, folder);
                 var (infs, publisher) = DriverPackage.Check(folder, files, trust);
@@ -101,6 +106,15 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
         var (removed, reboot) = platform.UninstallDriver(p.PublishedName.ToLowerInvariant());
         if (!removed) throw new OperationFailedException("not_found", "No third-party driver with that published name could be removed.");
         return new DriverUninstallOutput { PublishedName = p.PublishedName.ToLowerInvariant(), Removed = true, RebootRequired = reboot };
+    }
+
+    /// <summary>Free space the cabinet keeps after unpacking a package, so a package can never fill its drive.</summary>
+    public const long MinFreeAfterBytes = 2L * 1024 * 1024 * 1024;
+
+    private static long FreeBytes(string path)
+    {
+        try { return new DriveInfo(Path.GetPathRoot(Path.GetFullPath(path))!).AvailableFreeSpace; }
+        catch (Exception e) when (e is IOException or ArgumentException or UnauthorizedAccessException) { return -1; }
     }
 
     private static void TryDelete(string path)

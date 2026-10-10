@@ -86,6 +86,8 @@ sealed class SimulatedServices(string simulateDir, Action<string> log) : Cabinet
         ["TermService"] = ("Remote Desktop Services", ServiceState.Stopped, ServiceStartType.Manual),
     };
 
+    public string? KeyName(string name) { lock (_gate) return _services.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)); }
+
     private void ApplyStops()
     {
         string file = Path.Combine(simulateDir, "stop-services.json");

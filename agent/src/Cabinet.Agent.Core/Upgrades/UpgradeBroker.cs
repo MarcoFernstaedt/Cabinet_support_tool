@@ -22,7 +22,18 @@ public interface IUpdaterLauncher
 public sealed class UpgradeBroker(ReleaseVerifier verifier, UpgradeJournalStore journal, string downloads, string staging, string runningVersion,
     IUpdaterLauncher launcher, TimeProvider clock, Action<string> log)
 {
+    private readonly object _gate = new();
+
+    /// <summary>One upgrade at a time: two requests at once would verify into the same staging folder.</summary>
     public (JsonElement? Output, ResultError? Error) Start(string version)
+    {
+        if (!Monitor.TryEnter(_gate))
+            return (null, new ResultError { Code = "unavailable", Message = "An upgrade is already being checked.", Check = UpgradeCheck.Install });
+        try { return StartLocked(version); }
+        finally { Monitor.Exit(_gate); }
+    }
+
+    private (JsonElement? Output, ResultError? Error) StartLocked(string version)
     {
         if (launcher.Running || journal.Read() is { Final: false })
             return (null, new ResultError { Code = "unavailable", Message = "An upgrade is already in progress.", Check = UpgradeCheck.Install });

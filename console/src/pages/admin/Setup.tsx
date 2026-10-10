@@ -14,7 +14,7 @@ import { startDemoTour } from "../../components/DemoTour";
 
 interface SetupState {
   otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null;
-  agent: { host: string | null; port: number | null; package: { name: string; bytes: number; sha256: string } | null };
+  agent: { host: string | null; port: number | null; package: { name: string; bytes: number; sha256: string } | null; caSha256: string };
 }
 export interface DemoState { enabled: boolean; clients: number; cabinets: number }
 
@@ -90,8 +90,7 @@ function InstallAgent({ setup }: { setup: SetupState }) {
   const port = setup.agent.port ?? 8443;
   const command = [
     "cd $HOME\\Downloads\\CabinetAgent",
-    "Get-ChildItem -Recurse | Unblock-File",
-    `powershell -ExecutionPolicy Bypass -File .\\install\\Install-CabinetAgent.ps1 -PlatformServerHost ${host} -PlatformServerPort ${port} -PlatformCaFile .\\platform-ca.pem -BootstrapTokenFile .\\token.txt`,
+    `powershell -ExecutionPolicy Bypass -File .\\install\\Install-CabinetAgent.ps1 -PlatformServerHost ${host} -PlatformServerPort ${port} -PlatformCaFile .\\platform-ca.pem -PlatformCaSha256 ${setup.agent.caSha256} -BootstrapTokenFile .\\token.txt -AllowUnsigned`,
   ].join("\n");
   const pkg = setup.agent.package;
   return (
@@ -113,7 +112,9 @@ function InstallAgent({ setup }: { setup: SetupState }) {
         Then open PowerShell as administrator and run:
         <pre className="code" tabIndex={0}>{command}</pre>
         <button className="btn small" onClick={() => void navigator.clipboard?.writeText(command)}>Copy commands</button>
-        <p className="muted small">The computer connects out to <code>{host}:{port}</code> only; nothing connects in to it. Delete token.txt once it is approved.</p></li>
+        <p className="muted small">The computer connects out to <code>{host}:{port}</code> only; nothing connects in to it. The installer checks <code>platform-ca.pem</code> against this console,
+          refuses a folder other users could change, and deletes <code>token.txt</code> once it has used it. <code>-AllowUnsigned</code> is needed because this demo build is not code-signed;
+          production builds are, and never install on a cabinet without their signatures.</p></li>
       <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)}
         description={<p>Create a one-time token that lets one computer ask to join.</p>}
         onToken={async token => {

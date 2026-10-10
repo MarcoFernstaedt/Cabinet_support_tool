@@ -97,6 +97,7 @@ services:
     environment:
       CONSOLE_SITE: ${CONSOLE_SITE}
       CONSOLE_TLS: ${CONSOLE_TLS:-internal}
+      CONSOLE_ALLOW_FROM: ${CONSOLE_ALLOW_FROM:-0.0.0.0/0 ::/0}
     ports:
       - "80:80"
       - "443:443"

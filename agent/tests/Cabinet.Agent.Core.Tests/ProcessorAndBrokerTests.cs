@@ -278,3 +278,45 @@ public sealed class BrokerProtocolTests
         Assert.Equal("unavailable", e.Code);
     }
 }
+
+public class BrokerOwnChecksTests
+{
+    private static byte[] Restart(int n) => JsonSerializer.SerializeToUtf8Bytes(new
+    {
+        requestId = Guid.NewGuid(), kind = "operation", operation = "service.control", commandId = Guid.NewGuid(), @params = new { name = "BioScanSvc", action = "restart" },
+    });
+
+    private static BrokerResponse Response(byte[]? reply) => JsonSerializer.Deserialize<BrokerResponse>(reply!, ContractJson.Options)!;
+
+    [Fact]
+    public async Task The_broker_refuses_writes_in_read_only_mode_whatever_the_network_process_says()
+    {
+        var platform = new Cabinet.Agent.Core.Tests.FakeServices();
+        var handler = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => true);
+        var r = Response(await handler.HandleAsync(Restart(1), default));
+        Assert.Equal(BrokerStatus.Failed, r.Status);
+        Assert.Equal("read_only_mode", r.Error!.Code);
+        Assert.Empty(platform.Calls);
+        // A configuration it cannot read allows no changes either.
+        var unreadable = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => throw new IOException("locked"));
+        Assert.Equal("read_only_mode", Response(await unreadable.HandleAsync(Restart(2), default)).Error!.Code);
+        Assert.Empty(platform.Calls);
+    }
+
+    [Fact]
+    public async Task The_broker_keeps_its_own_write_limit()
+    {
+        var platform = new Cabinet.Agent.Core.Tests.FakeServices();
+        using var dir = new TempDir();
+        var clock = new ManualClock(Fixtures.Start);
+        var handler = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => false,
+            writeLimit: new RateLimiter(Path.Combine(dir.Path, "w.log"), clock), clock: clock);
+        for (int i = 0; i < 20; i++) Assert.Equal(BrokerStatus.Succeeded, Response(await handler.HandleAsync(Restart(i), default)).Status);
+        var r = Response(await handler.HandleAsync(Restart(21), default));
+        Assert.Equal("rate_limited", r.Error!.Code);
+        // The limit is kept on disk: a restarted broker still counts the hour's writes.
+        var again = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => false,
+            writeLimit: new RateLimiter(Path.Combine(dir.Path, "w.log"), clock), clock: clock);
+        Assert.Equal("rate_limited", Response(await again.HandleAsync(Restart(22), default)).Error!.Code);
+    }
+}

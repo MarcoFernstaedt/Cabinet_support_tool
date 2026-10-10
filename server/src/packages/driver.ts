@@ -8,8 +8,21 @@ import { OID, verifySignedData, type Signed } from "./signed-data.js";
 import type { Publisher, TrustList } from "./trust.js";
 import { readZip, type ZipEntry } from "./zip.js";
 
+/**
+ * The device classes a library driver package may install (the agent holds the same list, compiled in): the cabinet's
+ * peripherals, network and storage controller. The trusted driver signer certifies nearly every driver, including kernel
+ * drivers known to be exploitable, so a package for any other class (System, SoftwareComponent, none) is refused.
+ */
+export const ALLOWED_DRIVER_CLASSES = new Set(["biometric", "usb", "usbdevice", "hidclass", "keyboard", "mouse", "ports", "image", "camera", "printer",
+  "smartcardreader", "net", "bluetooth", "scsiadapter", "hdc", "display", "monitor", "media", "extension"]);
+
+/** The device class an INF declares in its [Version] section, or null. */
+export const classOf = (inf: Buffer): string | null => versionValues(inf, k => k === "class")[0] ?? null;
+
 /** The catalog files an INF names in its [Version] section (CatalogFile, or a platform-specific CatalogFile.NTxxx). */
-export function catalogFilesOf(inf: Buffer): string[] {
+export const catalogFilesOf = (inf: Buffer): string[] => versionValues(inf, k => k === "catalogfile" || k.startsWith("catalogfile."));
+
+function versionValues(inf: Buffer, wanted: (key: string) => boolean): string[] {
   const text = inf.length >= 2 && inf[0] === 0xff && inf[1] === 0xfe ? inf.subarray(2).toString("utf16le")
     : inf.length >= 3 && inf[0] === 0xef && inf[1] === 0xbb && inf[2] === 0xbf ? inf.subarray(3).toString("utf8") : inf.toString("latin1");
   const found: string[] = [];
@@ -24,7 +37,7 @@ export function catalogFilesOf(inf: Buffer): string[] {
     const eq = line.indexOf("=");
     if (eq <= 0) continue;
     const key = line.slice(0, eq).trim().toLowerCase();
-    if (key !== "catalogfile" && !key.startsWith("catalogfile.")) continue;
+    if (!wanted(key)) continue;
     const v = line.slice(eq + 1).trim().replace(/^"|"$/g, "").trim();
     if (v) found.push(v);
   }
@@ -67,6 +80,9 @@ export function checkDriverPackage(zip: Buffer, trust: TrustList): DriverCheck {
     const dir = inf.name.includes("/") ? inf.name.slice(0, inf.name.lastIndexOf("/") + 1) : "";
     const names = catalogFilesOf(inf.data);
     if (names.length === 0) throw new PackageRefused("signature_invalid", `${inf.name} does not name a signed catalog.`);
+    const cls = classOf(inf.data);
+    if (!cls || !ALLOWED_DRIVER_CLASSES.has(cls.toLowerCase()))
+      throw new PackageRefused("verification_failed", `${inf.name} is for device class "${cls ?? "none"}", which library packages may not install.`);
     for (const cat of names) {
       const entry: ZipEntry | undefined = byName.get((dir + cat.replace(/\\/g, "/")).toLowerCase());
       if (!entry) throw new PackageRefused("signature_invalid", `The catalog ${cat} named by ${inf.name} is not in the package.`);

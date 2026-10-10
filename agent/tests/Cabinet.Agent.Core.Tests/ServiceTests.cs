@@ -23,6 +23,14 @@ public sealed class FakeServices : IServicePlatform
 
     public (ServiceState State, ServiceStartType StartType)? Query(string name) => Services.TryGetValue(name, out var s) ? s : null;
 
+    /// <summary>Display names, as Windows' service manager would also accept them.</summary>
+    public Dictionary<string, string> DisplayNames { get; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Remote Desktop Services"] = "TermService", ["Mashura Cabinet Agent Network"] = "CabinetAgentNetwork", ["Biometric Scanner Service"] = "BioScanSvc",
+    };
+
+    public string? KeyName(string name) => Services.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
+
     public void Start(string name)
     {
         Calls.Add("start " + name);
@@ -235,5 +243,31 @@ public class ServiceWatchReporterTests
         Assert.Equal(["missing", "disabled"], events.Select(e => e.Detail!.Fields!["change"]));
         foreach (var e in events)
             Assert.True(ContractSchemas.Instance.IsValid(ContractSchemas.Envelope("event"), JsonSerializer.SerializeToElement(e, ContractJson.Options)));
+    }
+}
+
+public class ServiceDisplayNameTests
+{
+    [Theory]
+    [InlineData("Remote Desktop Services")]        // TermService's display name
+    [InlineData("Mashura Cabinet Agent Network")]  // the agent's own service
+    [InlineData("Biometric Scanner Service")]      // even an allowed service: key names only
+    public void A_display_name_never_reaches_a_service(string name)
+    {
+        var platform = new FakeServices();
+        var control = new ServiceControl(platform, _ => { });
+        var e = Assert.Throws<OperationFailedException>(() => control.Run(new ServiceControlParams { Name = name, Action = ServiceAction.Start }));
+        Assert.Equal("not_found", e.Code);
+        Assert.Empty(platform.Calls);
+    }
+
+    [Fact]
+    public void The_refused_list_holds_whatever_case_the_key_name_is_written_in()
+    {
+        var platform = new FakeServices();
+        var control = new ServiceControl(platform, _ => { });
+        foreach (string name in new[] { "termservice", "TERMSERVICE", "cabinetagentnetwork" })
+            Assert.Throws<OperationFailedException>(() => control.Run(new ServiceControlParams { Name = name, Action = ServiceAction.Start }));
+        Assert.Empty(platform.Calls);
     }
 }

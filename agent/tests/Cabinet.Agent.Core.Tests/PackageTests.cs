@@ -425,3 +425,22 @@ public class PackageTests : IDisposable
         Assert.Equal("not_found", Assert.Throws<OperationFailedException>(() => u.Uninstall(new DriverUninstallParams { PublishedName = "oem99.inf" })).Code);
     }
 }
+
+public class DriverClassTests
+{
+    [Theory]
+    [InlineData("[Version]\r\nClass=System\r\nCatalogFile=x.cat\r\n", "System")]
+    [InlineData("[Version]\r\nClass = SoftwareComponent\r\nCatalogFile=x.cat\r\n", "SoftwareComponent")]
+    [InlineData("[Version]\r\nCatalogFile=x.cat\r\n", null)]
+    [InlineData("[Strings]\r\nClass=Biometric\r\n[Version]\r\nCatalogFile=x.cat\r\n", null)] // Class outside [Version] does not count
+    [InlineData("[Version]\r\nClass=\"Biometric\" ; scanner\r\n", "Biometric")]
+    public void Reads_the_class_from_the_version_section_only(string inf, string? expected) =>
+        Assert.Equal(expected, DriverPackage.ClassOf(System.Text.Encoding.ASCII.GetBytes(inf)));
+
+    [Fact]
+    public void Kernel_and_unclassified_drivers_are_not_allowed_peripherals_and_storage_are()
+    {
+        foreach (string c in new[] { "System", "SoftwareComponent", "LegacyDriver", "Unknown", "" }) Assert.DoesNotContain(c, DriverPackage.AllowedClasses);
+        foreach (string c in new[] { "Biometric", "USB", "Net", "SCSIAdapter", "hidclass" }) Assert.Contains(c, DriverPackage.AllowedClasses);
+    }
+}

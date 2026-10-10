@@ -7,6 +7,12 @@ namespace Cabinet.Agent.Core.Services;
 public interface IServicePlatform
 {
     IReadOnlyList<ServiceInfo> List();
+    /// <summary>
+    /// The service's key name when <paramref name="name"/> is exactly a key name (ignoring case), else null. Windows also
+    /// accepts a display name ("Remote Desktop Services" for TermService); the agent never does, so the refused list
+    /// cannot be got round by naming a service another way.
+    /// </summary>
+    string? KeyName(string name);
     /// <summary>The service's state and start type, or null when no such service exists.</summary>
     (ServiceState State, ServiceStartType StartType)? Query(string name);
     /// <summary>Starts the service and waits (bounded) for it to run. Throws <see cref="ServiceControlException"/> with the Windows error code.</summary>
@@ -62,20 +68,22 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
     {
         if (!ServiceRules.IsValidName(p.Name)) throw new OperationFailedException("invalid_params", "Not a service name.");
         if (ServiceRules.IsRefused(p.Name)) throw new OperationFailedException("execution_failed", $"The agent never changes {p.Name}.");
-        var facts = platform.Query(p.Name) ?? throw new OperationFailedException("not_found", "No service has that name.");
+        string key = platform.KeyName(p.Name) ?? throw new OperationFailedException("not_found", "No service has that key name (display names are not accepted).");
+        if (ServiceRules.IsRefused(key)) throw new OperationFailedException("execution_failed", $"The agent never changes {key}.");
+        var facts = platform.Query(key) ?? throw new OperationFailedException("not_found", "No service has that name.");
         if (facts.StartType == ServiceStartType.Disabled && p.Action != ServiceAction.Stop)
             throw new OperationFailedException("execution_failed", "The service is disabled; the agent never changes a start type.");
         try
         {
-            if (p.Action is ServiceAction.Stop or ServiceAction.Restart) platform.Stop(p.Name);
-            if (p.Action is ServiceAction.Start or ServiceAction.Restart) platform.Start(p.Name);
+            if (p.Action is ServiceAction.Stop or ServiceAction.Restart) platform.Stop(key);
+            if (p.Action is ServiceAction.Start or ServiceAction.Restart) platform.Start(key);
         }
         catch (ServiceControlException e)
         {
             log($"Service {p.Name}: {p.Action} failed (Windows error {e.Code}).");
             throw new OperationFailedException("execution_failed", $"Windows could not {p.Action.ToString().ToLowerInvariant()} the service (error {e.Code}).");
         }
-        var after = platform.Query(p.Name)?.State ?? ServiceState.Unknown;
+        var after = platform.Query(key)?.State ?? ServiceState.Unknown;
         log($"Service {p.Name}: {p.Action.ToString().ToLowerInvariant()} done; now {after}.");
         return new ServiceControlOutput { Name = p.Name, Action = p.Action, Before = facts.State, After = after };
     }

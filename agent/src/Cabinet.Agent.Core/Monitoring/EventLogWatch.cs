@@ -69,8 +69,46 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
             state.Logs[log] = new Bookmark { RecordId = 0, Time = now };
             store.Save(state);
         }
-        return ordered.Select(e => ToEvent(log, e)).ToList();
+        return Limit(log, ordered, pagesExhausted: fresh.Count >= PageSize * MaxPagesPerLook, now);
     }
+
+    /// <summary>At most this many entries with the same source and event ID are sent from one look; the rest are counted.</summary>
+    public const int MaxPerSourcePerLook = 20;
+
+    /// <summary>
+    /// Any user at the cabinet can write to the Application log, so a flood of entries must not push real problems out of
+    /// the queue: each (source, event ID) sends at most 20 entries per look, and one summary event says how many more there
+    /// were. When more entries arrived than one look reads, the summary says so too, rather than dropping them silently.
+    /// </summary>
+    private static IReadOnlyList<AgentEvent> Limit(string log, List<EventSummary> ordered, bool pagesExhausted, DateTimeOffset now)
+    {
+        var events = new List<AgentEvent>();
+        var skipped = new Dictionary<(string Source, int Id), int>();
+        var sent = new Dictionary<(string Source, int Id), int>();
+        foreach (var e in ordered)
+        {
+            var key = (e.Source, e.EventId);
+            sent.TryGetValue(key, out int n);
+            if (n < MaxPerSourcePerLook) { events.Add(ToEvent(log, e)); sent[key] = n + 1; }
+            else skipped[key] = skipped.GetValueOrDefault(key) + 1;
+        }
+        foreach (var ((source, id), count) in skipped.OrderByDescending(k => k.Value).Take(10))
+            events.Add(Summary(log, now, $"{count} more entries from {source} (event {id}) were not sent: the log is being flooded.",
+                new Dictionary<string, string> { ["log"] = log, ["source"] = Helpers.EventText.ShortText(source), ["eventId"] = id.ToString(System.Globalization.CultureInfo.InvariantCulture), ["skipped"] = count.ToString(System.Globalization.CultureInfo.InvariantCulture) }));
+        if (pagesExhausted)
+            events.Add(Summary(log, now, $"More than {PageSize * MaxPagesPerLook} new entries arrived in {log} since the last look; older ones were not read.",
+                new Dictionary<string, string> { ["log"] = log, ["overflow"] = "true" }));
+        return events;
+    }
+
+    private static AgentEvent Summary(string log, DateTimeOffset now, string message, Dictionary<string, string> fields) => new()
+    {
+        EventId = EventIds.For($"flood|{log}|{now.ToUnixTimeMilliseconds()}|{message}"),
+        Kind = EventKind.AgentStatus,
+        OccurredAt = now,
+        SeverityHint = SeverityHint.Minor,
+        Detail = new EventDetail { Message = Helpers.EventText.ShortText(message), Fields = fields },
+    };
 
     public static AgentEvent ToEvent(string log, EventSummary e) => new()
     {

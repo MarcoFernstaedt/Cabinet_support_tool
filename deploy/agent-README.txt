@@ -8,15 +8,15 @@ You need from the platform console (Admin):
   - the server's public name or IP address, and port 8443
 
 Install:
-  1. Unzip this folder, for example to C:\CabinetAgent.
+  1. Unzip this folder into your own Downloads folder (it makes Downloads\CabinetAgent). Not directly under C:\ : other users could change files there, and the installer refuses such a folder.
      The folder must contain "install" and "out" side by side.
-  2. Put platform-ca.pem and token.txt in C:\CabinetAgent.
+  2. Put platform-ca.pem and token.txt in Downloads\CabinetAgent.
   3. Open PowerShell as Administrator.
   4. Run:
-       cd C:\CabinetAgent
+       cd $HOME\Downloads\CabinetAgent
        Get-ChildItem -Recurse | Unblock-File
        Set-ExecutionPolicy -Scope Process Bypass -Force
-       .\install\Install-CabinetAgent.ps1 -PlatformServerHost <server name or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapTokenFile .\token.txt
+       .\install\Install-CabinetAgent.ps1 -PlatformServerHost <server name or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -PlatformCaSha256 <the SHA-256 the console shows> -BootstrapTokenFile .\token.txt -AllowUnsigned
   5. In the console, approve the enrollment request (Administration).
      The agent picks up its certificate within a minute.
 

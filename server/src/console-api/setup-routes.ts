@@ -32,7 +32,9 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
               (SELECT id::text FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL ORDER BY created_at DESC LIMIT 1) AS newest`, [u.userId])).rows[0]!;
     const pkg = await packageInfo();
     return { otherUsers: Number(r.others), realCabinets: Number(r.cabinets), pendingCabinets: Number(r.pending), newestCabinetId: r.newest,
-      agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, package: pkg && { name: pkg.name, bytes: pkg.bytes, sha256: pkg.sha256 } } };
+      agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, package: pkg && { name: pkg.name, bytes: pkg.bytes, sha256: pkg.sha256 },
+        // The installer checks the CA file it is given against this (Get-FileHash), so a swapped CA file is refused.
+        caSha256: createHash("sha256").update(o.issuingKey.certificatePem, "utf8").digest("hex").toUpperCase() } };
   });
 
   app.get("/api/admin/agent-package", async (request, reply) => {

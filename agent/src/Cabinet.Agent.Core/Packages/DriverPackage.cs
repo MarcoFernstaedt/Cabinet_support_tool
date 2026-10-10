@@ -15,6 +15,67 @@ public static class DriverPackage
     public const long MaxTotalBytes = 2L * 1024 * 1024 * 1024;
     public const long MaxEntryBytes = 512L * 1024 * 1024;
 
+    public const long MaxCheckedFileBytes = 32L * 1024 * 1024;
+
+    /// <summary>
+    /// Before anything is unpacked: reads only the INF and catalog files (each at most 32 MB) from the zip into memory and
+    /// checks each INF's device class, that it names a catalog in the package, and that the catalog is signed by a trusted
+    /// publisher. A package that fails is refused without writing a single file. <see cref="Check"/> runs again on the
+    /// unpacked files and also checks every other file against the catalogs.
+    /// </summary>
+    public static void PreCheck(string zipPath, TrustList trust)
+    {
+        try
+        {
+            using ZipArchive zip = ZipFile.OpenRead(zipPath);
+            if (zip.Entries.Count > MaxEntries) throw new PackageRefusedException("verification_failed", "The package has too many files.");
+            var byName = new Dictionary<string, ZipArchiveEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (ZipArchiveEntry e in zip.Entries)
+            {
+                string name = e.FullName.Replace('\\', '/');
+                if (name.EndsWith('/')) continue;
+                if (!SafeName(name)) throw new PackageRefusedException("verification_failed", "The package contains a file name that is not allowed.");
+                if (!byName.TryAdd(name, e)) throw new PackageRefusedException("verification_failed", "The package contains the same file twice.");
+            }
+            var infs = byName.Keys.Where(n => n.EndsWith(".inf", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (infs.Count == 0) throw new PackageRefusedException("verification_failed", "The package has no INF file.");
+            foreach (string inf in infs)
+            {
+                byte[] infBytes = Read(byName[inf]);
+                var cats = CatalogFilesOf(infBytes);
+                if (cats.Count == 0) throw new PackageRefusedException("signature_invalid", $"{inf} does not name a signed catalog.");
+                string? cls = ClassOf(infBytes);
+                if (cls is null || !AllowedClasses.Contains(cls))
+                    throw new PackageRefusedException("verification_failed", $"{inf} is for device class \"{cls ?? "none"}\", which library packages may not install.");
+                string dir = inf.Contains('/') ? inf[..(inf.LastIndexOf('/') + 1)] : "";
+                foreach (string cat in cats)
+                {
+                    if (!byName.TryGetValue(dir + cat, out ZipArchiveEntry? entry))
+                        throw new PackageRefusedException("signature_invalid", $"The catalog {cat} named by {inf} is not in the package.");
+                    DriverCatalog parsed = DriverCatalog.Parse(Read(entry));
+                    if (trust.Match(parsed.Signature.Signer, parsed.Signature.Certificates, Contracts.PackageType.Driver) is null)
+                        throw new PackageRefusedException("publisher_not_trusted", "The package's catalog is not signed by a trusted publisher.");
+                }
+            }
+        }
+        catch (InvalidDataException) { throw new PackageRefusedException("verification_failed", "The package is not a valid zip file."); }
+        catch (NotSupportedException) { throw new PackageRefusedException("verification_failed", "The package uses a zip feature that is not allowed (such as encryption)."); }
+    }
+
+    private static byte[] Read(ZipArchiveEntry e)
+    {
+        using Stream input = e.Open();
+        using var buffer = new MemoryStream();
+        byte[] chunk = new byte[81920];
+        int n;
+        while ((n = input.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            if (buffer.Length + n > MaxCheckedFileBytes) throw new PackageRefusedException("verification_failed", "An INF or catalog in the package is larger than allowed.");
+            buffer.Write(chunk, 0, n);
+        }
+        return buffer.ToArray();
+    }
+
     /// <summary>Unpacks into <paramref name="target"/>, refusing unsafe names, duplicates, encryption and oversize content.</summary>
     /// <returns>The relative paths of the files written.</returns>
     public static IReadOnlyList<string> Extract(string zipPath, string target, long maxEntryBytes = MaxEntryBytes, long maxTotalBytes = MaxTotalBytes)
@@ -72,8 +133,26 @@ public static class DriverPackage
         return true;
     }
 
+    /// <summary>
+    /// The device classes a library driver package may install: the cabinet's peripherals, its network and its storage
+    /// controller. "Microsoft Windows Hardware Compatibility Publisher" signs nearly every certified driver, including
+    /// kernel drivers known to be exploitable, so the signer alone is not enough: a package for any other class (System,
+    /// SoftwareComponent, a legacy kernel service, or no class) is refused. Compiled in; the server cannot widen it.
+    /// </summary>
+    public static readonly IReadOnlySet<string> AllowedClasses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "Biometric", "USB", "USBDevice", "HIDClass", "Keyboard", "Mouse", "Ports", "Image", "Camera", "Printer", "SmartCardReader",
+        "Net", "Bluetooth", "SCSIAdapter", "HDC", "Display", "Monitor", "MEDIA", "Extension",
+    };
+
+    /// <summary>The device class an INF declares in its [Version] section (Class=), or null.</summary>
+    public static string? ClassOf(byte[] inf) => VersionValues(inf, key => key.Equals("Class", StringComparison.OrdinalIgnoreCase)).FirstOrDefault();
+
     /// <summary>The catalog file an INF names in its [Version] section (CatalogFile, or a platform-specific CatalogFile.NTxxx).</summary>
-    public static IReadOnlyList<string> CatalogFilesOf(byte[] inf)
+    public static IReadOnlyList<string> CatalogFilesOf(byte[] inf) =>
+        VersionValues(inf, key => key.Equals("CatalogFile", StringComparison.OrdinalIgnoreCase) || key.StartsWith("CatalogFile.", StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<string> VersionValues(byte[] inf, Func<string, bool> wanted)
     {
         string text = Decode(inf);
         var found = new List<string>();
@@ -87,7 +166,7 @@ public static class DriverPackage
             int eq = line.IndexOf('=');
             if (eq <= 0) continue;
             string key = line[..eq].Trim();
-            if (!key.Equals("CatalogFile", StringComparison.OrdinalIgnoreCase) && !key.StartsWith("CatalogFile.", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!wanted(key)) continue;
             string value = line[(eq + 1)..].Trim().Trim('"').Trim();
             if (value.Length > 0) found.Add(value);
         }
@@ -123,8 +202,12 @@ public static class DriverPackage
         foreach (string inf in infs)
         {
             string dir = Path.GetDirectoryName(inf.Replace('/', Path.DirectorySeparatorChar)) ?? "";
-            var names = CatalogFilesOf(File.ReadAllBytes(Path.Combine(folder, inf)));
+            byte[] infBytes = File.ReadAllBytes(Path.Combine(folder, inf));
+            var names = CatalogFilesOf(infBytes);
             if (names.Count == 0) throw new PackageRefusedException("signature_invalid", $"{Path.GetFileName(inf)} does not name a signed catalog.");
+            string? cls = ClassOf(infBytes);
+            if (cls is null || !AllowedClasses.Contains(cls))
+                throw new PackageRefusedException("verification_failed", $"{Path.GetFileName(inf)} is for device class \"{cls ?? "none"}\", which library packages may not install.");
             foreach (string cat in names)
             {
                 string rel = Path.Combine(dir, cat).Replace(Path.DirectorySeparatorChar, '/');

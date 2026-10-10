@@ -232,8 +232,9 @@ test("the setup page: Admin only; it says where cabinets connect and serves the 
   assert.equal((await call("GET", "/api/admin/setup", undefined, t2)).status, 403);
   assert.equal((await call("GET", "/api/admin/agent-package", undefined, t2)).status, 403);
   const setup = (await call("GET", "/api/admin/setup", undefined, ca)).body;
-  assert.deepEqual(setup.agent, { host: "cabinets.example.com", port: 8443,
+  assert.deepEqual({ ...setup.agent, caSha256: undefined }, { host: "cabinets.example.com", port: 8443, caSha256: undefined,
     package: { name: "CabinetAgent-win-x64.zip", bytes: agentZip.length, sha256: createHash("sha256").update(agentZip).digest("hex") } });
+  assert.match(setup.agent.caSha256, /^[0-9A-F]{64}$/, "the installer checks the CA file against this");
   assert.equal(setup.realCabinets, 1);
   assert.equal(setup.newestCabinetId, realCabinet);
   const r = await app.inject({ method: "GET", url: "/api/admin/agent-package", headers: { origin: ORIGIN, cookie: ca } });
