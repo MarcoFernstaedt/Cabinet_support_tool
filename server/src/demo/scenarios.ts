@@ -6,15 +6,16 @@ export interface ScenarioStep { label: string; path: string }
 export interface DemoScenario { id: string; title: string; story: string; steps: ScenarioStep[] }
 
 export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
-  const rows = (await db.query<{ id: string; name: string; scenario: string; site: string; client: string; client_id: string }>(
-    `SELECT k.id, k.name, k.demo_scenario AS scenario, s.name AS site, c.name AS client, c.id AS client_id
+  const rows = (await db.query<{ id: string; name: string; scenario: string; site: string; site_id: string; client: string; client_id: string }>(
+    `SELECT k.id, k.name, k.demo_scenario AS scenario, s.name AS site, s.id AS site_id, c.name AS client, c.id AS client_id
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE k.demo_scenario IS NOT NULL AND c.demo ORDER BY c.name, s.name, k.name`)).rows;
   if (rows.length === 0) return [];
   const find = (f: (r: (typeof rows)[number]) => boolean) => rows.find(f);
   const at = (client: string, site: string, name: string) => find(r => r.client.endsWith(client) && r.site.startsWith(site) && r.name === name);
   const step = (label: string, r: (typeof rows)[number] | undefined, section: string) => r ? [{ label, path: `/cabinets/${r.id}/${section}` }] : [];
-  const healthy = at("Riverside Veterinary Group", "New York", "ICU");
+  const healthy = at("Riverside Veterinary Group", "New York", "Surgery");
+  const outage = find(r => r.scenario === "site_outage");
   const scanner = find(r => r.scenario === "scanner_disconnected");
   const service = find(r => r.scenario === "service_failing");
   const syncDrift = find(r => r.scenario === "firewall_drift");
@@ -35,6 +36,8 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
       steps: [...step("Scanner checklist", scanner, "scanner"), ...step("Devices and drivers", scanner, "devices"), ...step("Scanner service", service, "services")] },
     { id: "network", title: "B: A satellite cannot reach its sync cabinet", story: "The New York sync cabinet's firewall is on, unlike the client policy, so its satellites cannot sync. Diagnose network on a satellite names it; apply the policy on the sync cabinet and run the diagnosis again. Chicago ER North shows a DNS server that no longer answers.",
       steps: [...step("Diagnose network (Surgery)", satellite, "network"), ...step("Firewall (Pharmacy Sync)", syncDrift, "firewall"), ...step("DNS failure (ER North)", dns, "network")] },
+    ...(outage ? [{ id: "outage", title: "B: A whole site offline", story: `Every cabinet at ${outage.site} stopped reporting within the same minute, 40 minutes ago. One cabinet offline is a cabinet problem; a whole site at once points at its network or power, so the platform raises "Whole site offline" instead of chasing each cabinet. Call the site before touching any one cabinet.`,
+      steps: [{ label: `The site (${outage.site})`, path: `/sites/${outage.site_id}` }, { label: "Alerts", path: "/alerts" }, ...step("One of its cabinets", outage, "alerts")] }] : []),
     ...(zoneClient ? [{ id: "time", title: "C: Wrong time zones and clocks", story: "Cabinets in Arizona, California, Texas and New York, some set to the wrong Windows time zone and one whose clock has drifted. Select them under Fleet operations, correct time zones and sync clocks, and see each one verified.",
       steps: [{ label: "Fleet operations", path: "/fleet-operations?problem=time_zone_wrong" }, ...step("Time on a wrong cabinet", wrongZone, "time"), ...step("Clock drift", drift, "time")] }] : []),
     { id: "storage", title: "D: Storage failure warning", story: "San Diego's pharmacy cabinet has retried reads, a bad block, and a drive that now predicts failure: replace the drive before it fails.",

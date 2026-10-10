@@ -23,6 +23,7 @@ export const ISSUE = {
   rebootLoop: "00000000-0000-4000-8000-000000000117",
   timeZone: "00000000-0000-4000-8000-000000000118",
   clock: "00000000-0000-4000-8000-000000000119",
+  siteOutage: "00000000-0000-4000-8000-000000000120",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */

@@ -150,7 +150,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode on" }).click();
     await confirmCode();
-    await p.getByText(/Demo mode is on\. 98 simulated cabinets/).waitFor({ timeout: 30_000 });
+    await p.getByText(/Demo mode is on\. 101 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
     await fleet.getByRole("row", { name: /Mashura Office/ }).waitFor();

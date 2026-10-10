@@ -16,6 +16,7 @@ import { checkQuietLoops, recordBoot } from "../services/crashes.js";
 import type { Event } from "../contracts.js";
 import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageErrors, hostnameFor, wrongZoneFor, type Scenario } from "./fleet.js";
 import { evaluateTime } from "../services/time.js";
+import { checkSiteOutages } from "../services/site-outage.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
 
 const SETTING = "demo.enabled";
@@ -39,7 +40,9 @@ const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z")
 export const INCIDENT_HOURS_AGO = 20;
 export const INCIDENT_UPDATE = "2026-10 Cumulative Update for Windows 10 Version 21H2 (KB5050011)";
 export const INCIDENT_DRIVER = "iastorac.inf (Intel(R) Rapid Storage Technology 19.5.0.1037)";
-const LOOPING: Scenario[] = ["offline", "incident_loop"];
+const LOOPING: Scenario[] = ["offline", "incident_loop", "site_outage"];
+/** Scenario B: when the site's cabinets stopped reporting, a few seconds apart. */
+export const OUTAGE_MINUTES_AGO = 40;
 
 /** The events a scenario has produced over the last days, oldest first. n numbers the cabinets of the incident. */
 export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Event[] {
@@ -154,11 +157,18 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
   });
   // Through the real paths, outside the transaction (as an agent's requests would be): heartbeats, then the events.
   const now = Date.now();
-  let n = 0;
+  let n = 0, outageIndex = 0;
   for (const k of cabinets) {
     const index = k.scenario.startsWith("incident_") ? n++ : 0;
     if (k.scenario === "offline") {
       await pool.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '6 days' WHERE id = $1", [k.id]);
+      continue;
+    }
+    if (k.scenario === "site_outage") {
+      // Heard from normally until the site's network went down; all of them within the same minute.
+      await heartbeat(pool, k.id);
+      await pool.query("UPDATE cabinets SET last_heartbeat_at = now() - make_interval(mins => $2) + make_interval(secs => $3) WHERE id = $1",
+        [k.id, OUTAGE_MINUTES_AGO, (outageIndex++) * 20]);
       continue;
     }
     if (k.scenario !== "incident_loop") {
@@ -177,6 +187,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
   }
   await checkOffline(pool);
   await checkQuietLoops(pool);
+  await checkSiteOutages(pool);
 }
 
 /** Deletes every simulated record. Real cabinets, users and the audit log are untouched (the audit log keeps who did it). */

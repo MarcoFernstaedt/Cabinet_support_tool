@@ -7,7 +7,9 @@ export type Scenario =
   /** The overnight crash incident: blue screens after a storage driver update; some stuck restarting; the rest fine. */
   | "incident_crash" | "incident_loop" | "incident_ok"
   /** Module 21: a cabinet set to the wrong time zone (Arizona set to Mountain, with daylight saving), and a clock drifting off. */
-  | "time_zone_wrong" | "clock_drift";
+  | "time_zone_wrong" | "clock_drift"
+  /** Scenario B: every cabinet at one site stopped reporting within the same minutes (the site's network went down). */
+  | "site_outage";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; }
@@ -45,6 +47,8 @@ export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
       c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod")] },
+    { name: "Dallas Uptown", timeZone: "Central Standard Time", subnet: "192.168.60", cabinets: [
+      c("Uptown Sync", "sync", "site_outage"), c("Uptown Exam 1", "satellite", "site_outage"), c("Uptown Exam 2", "satellite", "site_outage")] },
   ] },
 ];
 
@@ -55,6 +59,7 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   incident_crash: "Blue screen overnight after a storage driver update", incident_loop: "Blue screen after the driver update, still restarting",
   incident_ok: "Got the same Windows update, no driver change, no crash",
   time_zone_wrong: "Set to the wrong time zone", clock_drift: "Clock about 7 minutes fast",
+  site_outage: "The whole site went offline together 40 minutes ago",
 };
 
 /** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */

@@ -24,13 +24,14 @@ import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
 import { ISSUE } from "../src/services/rules.js";
 import { evaluateDrift } from "../src/services/firewall-policy.js";
 import { evaluateTime } from "../src/services/time.js";
+import { checkSiteOutages } from "../src/services/site-outage.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 const EXAMPLES = join(dirname(SCHEMA_DIR), "examples", "operations");
-const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift"];
+const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift", "site_outage"];
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
@@ -238,6 +239,29 @@ test("time: wrong zones and a drifting clock raise alerts; Tier 1 corrects them 
   assert.ok(!(await openAlert(realCabinet, ISSUE.timeZone)));
   assert.equal((await call("PUT", `/api/sites/${home}/time-zone`, { timeZone: null }, t2)).status, 200);
   assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'site.time_zone'")).rowCount! >= 2);
+});
+
+test("scenario B: a whole site going quiet together is one outage, not three cabinet problems; a lone offline cabinet or one that drifted off hours apart is not", async () => {
+  const down = (await db.app.query<{ id: string; site_id: string }>("SELECT id, site_id FROM cabinets WHERE demo_scenario = 'site_outage' ORDER BY name")).rows;
+  assert.equal(down.length, 3);
+  for (const k of down) assert.ok(await openAlert(k.id, ISSUE.siteOutage), "each cabinet at the site carries it");
+  // Denver has one offline cabinet and one online one: no site outage there.
+  assert.ok(!(await openAlert(await demoCabinet("offline"), ISSUE.siteOutage)));
+  // The Harbor sites with crash-looping cabinets are a crash incident, not a network outage.
+  assert.equal((await db.app.query(`SELECT count(*)::int AS n FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
+                                      WHERE a.issue_type_id = $1 AND a.state <> 'resolved' AND k.demo_scenario LIKE 'incident_%'`, [ISSUE.siteOutage])).rows[0].n, 0);
+  // Cabinets that stopped hours apart are not "together".
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = now() WHERE issue_type_id = $1", [ISSUE.siteOutage]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '5 hours' WHERE id = $1", [down[0]!.id]);
+  assert.equal((await checkSiteOutages(db.app)).raised, 0);
+  // Back together, then one cabinet is heard again: the site is reachable, every one of its outage alerts closes.
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '40 minutes' WHERE site_id = $1", [down[0]!.site_id]);
+  assert.equal((await checkSiteOutages(db.app)).raised, 3);
+  await recordHeartbeat(db.app, down[1]!.id, { agentVersion: "1.4.2", uptimeSeconds: 99, readOnlyMode: false });
+  assert.equal((await checkSiteOutages(db.app)).resolved, 3);
+  for (const k of down) assert.ok(!(await openAlert(k.id, ISSUE.siteOutage)));
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '40 minutes' WHERE site_id = $1", [down[0]!.site_id]);
+  await checkSiteOutages(db.app);
 });
 
 test("diagnose network on a satellite finds the sync cabinet's firewall, offers the fix on that cabinet, and finds it fixed afterwards", async () => {
