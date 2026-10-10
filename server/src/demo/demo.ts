@@ -13,7 +13,7 @@ import { checkOffline } from "../services/alerts.js";
 import { evaluateDrift } from "../services/firewall-policy.js";
 import { checkQuietLoops, recordBoot } from "../services/crashes.js";
 import type { Event } from "../contracts.js";
-import { DEMO_FLEET, hostnameFor, type Scenario } from "./fleet.js";
+import { DEMO_FLEET, harborDriverWithoutCrash, harborStorageErrors, hostnameFor, type Scenario } from "./fleet.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
 
 const SETTING = "demo.enabled";
@@ -103,9 +103,9 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
       ];
     case "incident_crash":
     case "incident_loop": {
-      const first = t0 + n * 7 * min;
+      const first = t0 + n * 3 * min;
       return [
-        ...(n === 2 ? [errAt(t0 - 3 * 3_600_000, "disk", 153, "The IO operation at logical block address 0x2f1a0 for Disk 0 was retried.", "minor", "warning")] : []),
+        ...(harborStorageErrors(n) ? [errAt(t0 - 3 * 3_600_000, "disk", 153, "The IO operation at logical block address 0x2f1a0 for Disk 0 was retried.", "minor", "warning")] : []),
         ...update(), ...driver(), ...restart(), ...crashAt(first),
         ...(scenario === "incident_loop" ? [...crashAt(first + 9 * min), ...crashAt(first + 18 * min)]
           : [change(first + 2 * min, "Microsoft-Windows-Kernel-General", 12, "The operating system started.")]),
@@ -113,7 +113,7 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
     }
     case "incident_ok":
       // One of them got the driver too and did not crash: the comparison shows it.
-      return [...update(), ...(n === 3 ? driver() : []), ...restart()];
+      return [...update(), ...(harborDriverWithoutCrash(n) ? driver() : []), ...restart()];
     case "healthy":
       return update();
     default:
@@ -165,7 +165,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
     if (events.length > 0) await storeEvents(pool, k.id, { events: events as [Event, ...Event[]] });
     if (k.scenario === "incident_loop") {
       // It kept crashing and starting again, then went quiet: last heard a few minutes after its last start.
-      const first = now - INCIDENT_HOURS_AGO * 3_600_000 + index * 7 * 60_000;
+      const first = now - INCIDENT_HOURS_AGO * 3_600_000 + index * 3 * 60_000;
       for (const m of [2, 11, 20]) await recordBoot(pool, k.id, new Date(first + m * 60_000), "heartbeat");
       await pool.query("UPDATE cabinets SET last_heartbeat_at = $2, uptime_seconds = 160 WHERE id = $1", [k.id, new Date(first + 23 * 60_000)]);
     }

@@ -318,3 +318,8 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .bar { display: inline-block; width: 80px; height: 8px; background: var(--surface-3); border-radius: var(--r-sm); overflow: hidden; vertical-align: middle; margin-right: var(--s-1); }
 .bar > span { display: block; height: 100%; }
 .bar.crit > span { background: var(--crit); } .bar.off > span { background: var(--muted); }
+
+/* The guided demo: a side panel, not a popup; the page stays usable */
+.demo-tour { position: fixed; right: var(--s-4); top: calc(var(--topbar-h) + var(--s-8) + var(--s-4)); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));
+  background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow); }
+.demo-tour h2 { font-size: var(--fs-lg); }

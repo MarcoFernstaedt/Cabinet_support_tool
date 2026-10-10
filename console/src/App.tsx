@@ -22,6 +22,8 @@ import { Account } from "./pages/Account";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
 import { IncidentsPage } from "./pages/Crashes";
+import { DemoGuide } from "./pages/DemoGuide";
+import { DemoTour } from "./components/DemoTour";
 
 export function App() {
   const [stage, setStage] = useState<Stage | "loading">("loading");
@@ -59,6 +61,7 @@ export function App() {
         <CommandStream>
           <WriteStatusProvider>
             <Layout><RoutedPages onTour={() => setTour(true)} /></Layout>
+            <DemoTour />
             {tour && <Tour onClose={() => setTour(false)} />}
           </WriteStatusProvider>
         </CommandStream>
@@ -101,5 +104,6 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;
   if (match("/incidents", path)) return <IncidentsPage />;
+  if (match("/demo", path)) return <DemoGuide />;
   return <FleetHome />;
 }

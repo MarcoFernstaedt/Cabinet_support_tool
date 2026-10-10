@@ -10,6 +10,7 @@ import { Badge, ConfirmDialog, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { NewAccount } from "./Users";
 import { PendingCard, type KnownClient, type Pending } from "./Admin";
+import { startDemoTour } from "../../components/DemoTour";
 
 interface SetupState {
   otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null;
@@ -122,27 +123,36 @@ function InstallAgent({ setup }: { setup: SetupState }) {
   );
 }
 
-/** The demo switch: Admins only (the server checks). */
+/** The demo switch: on, off, reset, the guided demo and the guide. Admins only (the server checks). */
 export function DemoMode() {
   const demo = useLoad<DemoState>("/api/demo");
-  const [ask, setAsk] = useState<boolean | null>(null);
+  const [ask, setAsk] = useState<"on" | "off" | "reset" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const on = demo.data?.enabled ?? false;
+  const text = { on: "Add the simulated demo clients, sites and cabinets for everyone signed in to see.",
+    off: "Delete every simulated demo client, site and cabinet, with their alerts and history. Real cabinets are not touched.",
+    reset: "Delete the simulated fleet and build it again from the same scenarios, as at the start of a demo. Real cabinets are not touched." };
   return (
-    <section className="panel" aria-labelledby="demo-heading">
+    <section className="panel" id="demo" aria-labelledby="demo-heading">
       <h2 id="demo-heading">Demo mode {demo.data && (on ? <Badge tone="info">On</Badge> : <Badge tone="off">Off</Badge>)}</h2>
-      <p className="muted small">Adds 4 simulated clients with 41 cabinets at sites in the Eastern, Central, Mountain, Arizona and Pacific time zones, next to your real cabinets, so you can show what the platform does at fleet scale.
-        One client has an overnight crash incident: 15 of its 24 cabinets blue-screened after a storage driver update, and 5 are still restarting (see Incidents).
-        Each has a problem to find: firewall on unlike the policy, a disconnected scanner, a service that will not stay running, a failing drive, repeated blue screens, DNS failures, a failing Windows update, new unrecognized errors, a cabinet offline for days.
-        Their alerts come from the real alerts engine, and fixes made on them take effect. Simulated clients are named "Demo · …" and marked Demo everywhere. Turning it off deletes all of them; real cabinets are never touched.</p>
-      {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}{" "}
-        <button className={on ? "btn" : "btn primary"} onClick={() => { setProblem(null); setAsk(!on); }}>{on ? "Turn demo mode off" : "Turn demo mode on"}</button></p>}
+      <p className="muted small">Adds simulated clients, sites and cabinets next to your real ones, in Arizona, California, Texas, Colorado, Illinois and the North East, so you can show the platform at fleet scale:
+        a scanner failure, a sync cabinet whose firewall blocks its satellites, wrong time zones and drifting clocks, a failing drive, a mass blue-screen incident with reboot loops, and more.
+        They answer through the same server code and contracts as a real agent, and fixes made on them take effect. They are tagged Demo everywhere; turning demo mode off deletes them. Real cabinets are never touched.</p>
+      {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}</p>}
+      <div className="row gap wrap">
+        {on ? <button className="btn" onClick={() => { setProblem(null); setAsk("off"); }}>Turn demo mode off</button>
+          : <button className="btn primary" onClick={() => { setProblem(null); setAsk("on"); }}>Turn demo mode on</button>}
+        {on && <button className="btn" onClick={() => { setProblem(null); setAsk("reset"); }}>Reset demo data</button>}
+        {on && <button className="btn" onClick={startDemoTour}>Start the guided demo</button>}
+        <Link className="btn ghost" to="/demo">Demo guide and scenario library</Link>
+      </div>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <ConfirmDialog open={ask !== null} onClose={() => setAsk(null)}
-        description={<p>{ask ? "Add the simulated demo clients, sites and cabinets for everyone signed in to see." : "Delete every simulated demo client, site and cabinet, with their alerts and history. Real cabinets are not touched."}</p>}
+      <ConfirmDialog open={ask !== null} onClose={() => setAsk(null)} description={<p>{ask ? text[ask] : ""}</p>}
         onConfirm={async () => {
-          try { await api("PUT", "/api/admin/demo", { enabled: ask }); demo.reload(); window.dispatchEvent(new Event("demo-changed")); }
-          catch (e) { setProblem(describeError(e)); throw e; }
+          try {
+            await api("PUT", "/api/admin/demo", ask === "reset" ? { enabled: true, reset: true } : { enabled: ask === "on" });
+            demo.reload(); window.dispatchEvent(new Event("demo-changed"));
+          } catch (e) { setProblem(describeError(e)); throw e; }
         }} />
     </section>
   );

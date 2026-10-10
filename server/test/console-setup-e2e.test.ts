@@ -150,7 +150,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode on" }).click();
     await p.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
-    await p.getByText(/Demo mode is on\. 41 simulated cabinets/).waitFor({ timeout: 30_000 });
+    await p.getByText(/Demo mode is on\. 97 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
     await fleet.getByRole("row", { name: /Mashura Office/ }).waitFor();
@@ -163,7 +163,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     const common = p.getByRole("table", { name: /Changes and errors before the crashes/ });
     await common.getByRole("row", { name: /Driver installed: Driver iastorac\.inf/ }).getByText("Stands out").waitFor({ timeout: 30_000 });
     assert.equal(await common.getByRole("row", { name: /Update installed: .*KB5050011/ }).getByText("Stands out").count(), 0);
-    await p.getByRole("heading", { name: /Cabinets affected \(1[5-9]\)/ }).waitFor();
+    await p.getByRole("heading", { name: /Cabinets affected \(6\d\)/ }).waitFor();
     await p.getByRole("table", { name: "Cabinets affected" }).getByText("Restarting repeatedly").first().waitFor();
 
     // A simulated cabinet answers like a real one, and says it is simulated.

@@ -2,11 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/demo-mode.schema.json",
   "title": "demo-mode",
-  "description": "An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched.",
+  "description": "An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["enabled"],
+  "required": [
+    "enabled"
+  ],
   "properties": {
-    "enabled": { "type": "boolean" }
+    "enabled": {
+      "type": "boolean"
+    },
+    "reset": {
+      "const": true
+    }
+  },
+  "if": {
+    "required": [
+      "reset"
+    ]
+  },
+  "then": {
+    "properties": {
+      "enabled": {
+        "const": true
+      }
+    }
   }
 }

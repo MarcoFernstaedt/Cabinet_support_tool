@@ -1,5 +1,6 @@
 // Fleet safety (pause writes fleet-wide or per client; people paused by their limit), security
 // alerts, and platform settings — docs/spec/06-console-spec.md "Admin screens".
+import { DemoMode } from "./Setup";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useSecurityNews } from "../../lib/commands";
@@ -188,6 +189,7 @@ export function PlatformSettings() {
         </section>
         <button className="btn primary" type="submit" disabled={Object.keys(changes()).length === 0}>Save settings</button>
       </form>
+      <DemoMode />
       {step.dialog}
     </div>
   );

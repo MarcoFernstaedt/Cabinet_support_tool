@@ -11,6 +11,14 @@ export interface DemoCabinet { name: string; role: "sync" | "satellite" | "stand
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; }
 export interface DemoClient { name: string; sites: DemoSite[]; }
 
+/** The overnight incident at Harbor Pet Hospitals: 80 cabinets, 60 crashed (12 still restarting), 20 did not. g numbers them 0-79. */
+export const HARBOR_SITES = ["Boston Harbor", "Portland East", "Providence", "Hartford", "Worcester", "Manchester", "Burlington", "New Haven"];
+export const harborAffected = (g: number) => g % 4 !== 3;
+export const harborScenario = (g: number): Scenario => !harborAffected(g) ? "incident_ok" : g % 5 === 0 ? "incident_loop" : "incident_crash";
+/** Storage errors before the crash on a few crashed cabinets; the driver on two that did not crash. */
+export const harborStorageErrors = (g: number) => harborAffected(g) && g % 9 === 0;
+export const harborDriverWithoutCrash = (g: number) => g === 3 || g === 43;
+
 const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "healthy"): DemoCabinet => ({ name, role, scenario });
 
 export const DEMO_FLEET: DemoClient[] = [
@@ -28,14 +36,9 @@ export const DEMO_FLEET: DemoClient[] = [
     { name: "Denver ICU", timeZone: "Mountain Standard Time", subnet: "172.20.30", cabinets: [
       c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline")] },
   ] },
-  { name: "Demo · Harbor Pet Hospitals", sites: ["Boston Harbor", "Portland East", "Providence", "Hartford"].map((name, s) => ({
+  { name: "Demo · Harbor Pet Hospitals", sites: HARBOR_SITES.map((name, s) => ({
     name, timeZone: "Eastern Standard Time", subnet: `10.6${s}.1`,
-    // 15 of 24 crashed overnight (5 of them still restarting); 9 did not.
-    cabinets: Array.from({ length: 6 }, (_, i) => c(i === 0 ? "Sync" : `Cabinet ${String(i + 1).padStart(2, "0")}`, i === 0 ? "sync" : "satellite",
-      ([["incident_crash", "incident_loop", "incident_crash", "incident_ok", "incident_crash", "incident_ok"],
-        ["incident_crash", "incident_crash", "incident_loop", "incident_ok", "incident_crash", "incident_ok"],
-        ["incident_loop", "incident_crash", "incident_ok", "incident_crash", "incident_ok", "incident_loop"],
-        ["incident_crash", "incident_ok", "incident_loop", "incident_ok", "incident_crash", "incident_ok"]] as const)[s]![i]!)),
+    cabinets: Array.from({ length: 10 }, (_, i) => c(i === 0 ? "Sync" : `Cabinet ${String(i + 1).padStart(2, "0")}`, i === 0 ? "sync" : "satellite", harborScenario(s * 10 + i))),
   })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
