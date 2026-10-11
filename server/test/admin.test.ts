@@ -187,6 +187,59 @@ test("a step-up token for one account's action cannot be used on another account
   assert.equal((await call("POST", `/api/admin/users/${a.id}/delete`, { stepUpToken: token }, bossCookie)).body.error, "step_up_required");
 });
 
+test("a deleted username is not free: creating it again offers the deleted account, which an Admin reactivates with a reason that goes into the audit log", async () => {
+  const username = `back.${randomBytes(3).toString("hex")}`;
+  const body = { username, name: "Back Again", role: "tier1" };
+  const made = await call("POST", "/api/admin/users", { ...body, stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet", body) }, bossCookie);
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const id = made.body.id as string;
+  assert.equal((await call("POST", `/api/admin/users/${id}/delete`, { stepUpToken: await stepUp(boss, bossCookie, "user.delete", id) }, bossCookie)).status, 200);
+  // Creating the same username again says so, and names the deleted account.
+  const again = await call("POST", "/api/admin/users", { ...body, stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet", body) }, bossCookie);
+  assert.equal(again.status, 409);
+  assert.equal(again.body.error, "username_deleted");
+  assert.equal(again.body.userId, id);
+  // Deleted accounts are listed only when asked for; the list has every username.
+  const listed = (await call("GET", "/api/admin/users", undefined, bossCookie)).body as { id: string; username: string }[];
+  assert.ok(!listed.some(u => u.id === id));
+  assert.ok(listed.every(u => typeof u.username === "string" && u.username.length > 0));
+  const withDeleted = (await call("GET", "/api/admin/users?deleted=true", undefined, bossCookie)).body as { id: string; username: string; status: string }[];
+  assert.equal(withDeleted.find(u => u.id === id)?.status, "deleted");
+  assert.equal((await call("GET", "/api/admin/users?deleted=1%27%20OR%201=1", undefined, bossCookie)).status, 400);
+  // Only an Admin; a reason is required and checked; the token is bound to this reason.
+  const t2 = await account("tier2");
+  const t2Cookie = await signIn(t2);
+  const reason = "Returned from leave; same person as before.";
+  assert.equal((await call("POST", `/api/admin/users/${id}/reactivate`, { reason, stepUpToken: await stepUp(t2, t2Cookie, "user.reactivate", id, { reason }) }, t2Cookie)).status, 403);
+  for (const bad of [{}, { reason: "ok" }, { reason: "<script>x</script>" }, { reason, role: "admin" }, { reason: "x".repeat(501) }])
+    assert.equal((await call("POST", `/api/admin/users/${id}/reactivate`, { ...bad, stepUpToken: await stepUp(boss, bossCookie, "user.reactivate", id, bad) }, bossCookie)).status, 400, JSON.stringify(bad).slice(0, 60));
+  const other = await stepUp(boss, bossCookie, "user.reactivate", id, { reason: "A different reason." });
+  assert.equal((await call("POST", `/api/admin/users/${id}/reactivate`, { reason, stepUpToken: other }, bossCookie)).body.error, "step_up_required");
+  const ok = await call("POST", `/api/admin/users/${id}/reactivate`, { reason, stepUpToken: await stepUp(boss, bossCookie, "user.reactivate", id, { reason }) }, bossCookie);
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal(ok.headers["cache-control"], "no-store");
+  // The account is back with a new temporary password and a fresh authenticator setup; the reason is in the audit log.
+  const login = await call("POST", "/api/auth/login", { username, password: ok.body.temporaryPassword });
+  assert.equal(login.status, 200);
+  assert.ok(["totp_setup", "password_change"].includes(login.body.stage), login.body.stage);
+  const audit = (await db.app.query("SELECT details FROM audit_log WHERE action = 'user.reactivate' AND target_id = $1", [id])).rows;
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].details.reason, reason);
+  assert.equal(audit[0].details.username, username);
+  // An account that is not deleted cannot be "reactivated".
+  assert.equal((await call("POST", `/api/admin/users/${id}/reactivate`, { reason, stepUpToken: await stepUp(boss, bossCookie, "user.reactivate", id, { reason }) }, bossCookie)).body.error, "not_deleted");
+  // The audit list names the person with their username.
+  const rows = (await call("GET", "/api/admin/audit?limit=20", undefined, bossCookie)).body;
+  assert.ok(JSON.stringify(rows).includes(boss.username));
+});
+
+test("each authenticator setup has its own account label, so an old entry in the app is not mistaken for the new one", async () => {
+  const a = totp.otpauthUri(totp.newSecret(), "sam");
+  const b = totp.otpauthUri(totp.newSecret(), "sam");
+  assert.match(a, /^otpauth:\/\/totp\/Mashura%20Support%20Console:sam%20\([A-Z2-7]{4}\)\?/);
+  assert.notEqual(a.split("?")[0], b.split("?")[0]);
+});
+
 // ---- Sessions, settings and presence -------------------------------------------------------
 
 test("background checks do not count as activity, so an unattended console still times out; the timeout comes from settings", async () => {

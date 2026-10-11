@@ -934,6 +934,7 @@ export interface StepUpRequest {
     | "user.create"
     | "user.update"
     | "user.delete"
+    | "user.reactivate"
     | "user.password.reset"
     | "user.totp.reset"
     | "user.resume_writes"
@@ -1026,6 +1027,17 @@ export interface UserCreate {
 }
 
 /**
+ * An Admin brings a deleted account back, with the reason in writing; the reason goes into the audit log. The server makes a new temporary password, shown once.
+ */
+export interface UserReactivate {
+  reason: string;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * An Admin changes an account's role, hourly write limit or status. At least one change.
  */
 export interface UserUpdate {
@@ -1039,6 +1051,13 @@ export interface UserUpdate {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
+}
+
+/**
+ * The query string of the Admin user list: whether to include deleted accounts.
+ */
+export interface UsersQuery {
+  deleted?: "true" | "false";
 }
 
 /**

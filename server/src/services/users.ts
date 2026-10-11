@@ -14,14 +14,15 @@ import { Refused } from "./errors.js";
 export type Role = "tier1" | "tier2" | "admin";
 const ONLINE_MINUTES = 5;
 
-export async function listUsers(db: Queryable) {
+/** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
+export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number;
     writes_paused: boolean; writes_paused_reason: string | null; last_login_at: Date | null; created_at: Date; locked: boolean; online: boolean }>(
     `SELECT u.id, u.username, u.name, u.role, u.status, u.totp_enabled, u.write_limit, u.writes_paused, u.writes_paused_reason, u.last_login_at, u.created_at,
             (u.locked_until IS NOT NULL AND u.locked_until > now()) AS locked,
             EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.stage = 'complete' AND s.expires_at > now()
                       AND s.last_activity_at > now() - make_interval(mins => $1)) AS online
-       FROM users u WHERE u.status <> 'deleted' ORDER BY u.name`, [ONLINE_MINUTES])).rows;
+       FROM users u WHERE ($2::boolean OR u.status <> 'deleted') ORDER BY (u.status = 'deleted'), u.name`, [ONLINE_MINUTES, includeDeleted])).rows;
   return rows.map(r => ({
     id: r.id, username: r.username, name: r.name, role: r.role, status: r.status, totpEnabled: r.totp_enabled, writeLimit: r.write_limit,
     writesPaused: r.writes_paused, writesPausedReason: r.writes_paused_reason, lastLoginAt: r.last_login_at?.toISOString() ?? null,
@@ -56,7 +57,9 @@ export async function createUser(pool: pg.Pool, adminId: string, u: { username: 
   const id = randomUUID();
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "user.create", "fleet");
-    const taken = (await c.query("SELECT 1 FROM users WHERE username = $1", [u.username])).rows[0];
+    const taken = (await c.query<{ id: string; status: string }>("SELECT id, status FROM users WHERE username = $1", [u.username])).rows[0];
+    // A deleted account keeps its row (its history stays in the audit log), so its username is not free: it can be reactivated instead.
+    if (taken?.status === "deleted") throw new Refused("username_deleted", 409, "that username belonged to an account that was deleted; reactivate it instead", { userId: taken.id });
     if (taken) throw new Refused("username_taken", 409, "that username is already used");
     // Tier 2 and Admin accounts set up their authenticator at first sign-in, before anything else (nextStage).
     await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password, write_limit) VALUES ($1, $2, $3, $4, $5, true, $6)",
@@ -97,6 +100,28 @@ export async function deleteUser(pool: pg.Pool, adminId: string, id: string, ste
     await endAllSessions(c, id);
     await audit(c, { actorKind: "user", actorId: adminId, action: "user.delete", targetKind: "user", targetId: id, outcome: "succeeded", details: { username: t.username } });
   });
+}
+
+/**
+ * Brings a deleted account back: active again with a new temporary password, no authenticator (set up fresh at the first
+ * sign-in), no old sessions. Needs a written reason, which goes into the audit log with who it was and what it was before.
+ */
+export async function reactivateUser(pool: pg.Pool, adminId: string, id: string, reason: string, stepUpToken: string): Promise<{ temporaryPassword: string }> {
+  const temporary = temporaryPassword();
+  const hash = await hashPassword(temporary);
+  await transaction(pool, async c => {
+    await consumeStepUpToken(c, stepUpToken, adminId, "user.reactivate", id);
+    await c.query("SELECT pg_advisory_xact_lock(hashtext('cabinet-diagnostics.accounts'))");
+    const t = (await c.query<Target>("SELECT id, username, role, status, totp_enabled FROM users WHERE id = $1 FOR UPDATE", [id])).rows[0];
+    if (!t) throw new Refused("not_found", 404, "no such user");
+    if (t.status !== "deleted") throw new Refused("not_deleted", 409, "only a deleted account can be reactivated");
+    await c.query(`UPDATE users SET status = 'active', password_hash = $2, must_change_password = true, totp_enabled = false, totp_secret_enc = NULL, totp_last_step = NULL,
+                          failed_logins = 0, locked_until = NULL, writes_paused = false, writes_paused_reason = NULL WHERE id = $1`, [id, hash]);
+    await endAllSessions(c, id);
+    await audit(c, { actorKind: "user", actorId: adminId, action: "user.reactivate", targetKind: "user", targetId: id, outcome: "succeeded",
+      details: { username: t.username, role: t.role, reason } });
+  });
+  return { temporaryPassword: temporary };
 }
 
 export async function resetPassword(pool: pg.Pool, adminId: string, id: string, stepUpToken: string): Promise<{ temporaryPassword: string }> {

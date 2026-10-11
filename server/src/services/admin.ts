@@ -166,9 +166,9 @@ export async function searchAudit(db: Queryable, f: AuditFilter) {
   const [from, to] = range(f.from, f.to);
   const limit = Math.min(Number(f.limit ?? 100), 500);
   const action = f.action ?? null;
-  const rows = (await db.query<{ seq: string; at: Date; actor_kind: string; actor_id: string; actor_name: string | null; action: string;
+  const rows = (await db.query<{ seq: string; at: Date; actor_kind: string; actor_id: string; actor_name: string | null; actor_username: string | null; action: string;
     target_kind: string | null; target_id: string | null; target_name: string | null; outcome: string; details: Record<string, unknown> }>(
-    `SELECT a.seq, a.at, a.actor_kind, a.actor_id, u.name AS actor_name, a.action, a.target_kind, a.target_id,
+    `SELECT a.seq, a.at, a.actor_kind, a.actor_id, u.name AS actor_name, u.username AS actor_username, a.action, a.target_kind, a.target_id,
             coalesce(k.name, tu.name, s.name, cl.name) AS target_name, a.outcome, a.details
        FROM audit_log a
        LEFT JOIN users u ON a.actor_kind = 'user' AND u.id::text = a.actor_id
@@ -184,7 +184,7 @@ export async function searchAudit(db: Queryable, f: AuditFilter) {
       ORDER BY a.seq DESC LIMIT $7`,
     [f.user ?? null, f.cabinet ?? null, action, from, to, f.before ? Number(f.before) : null, limit])).rows;
   return rows.map(r => ({
-    seq: Number(r.seq), at: r.at.toISOString(), actor: { kind: r.actor_kind, id: r.actor_id, name: r.actor_name ?? (r.actor_kind === "user" ? null : r.actor_id) },
+    seq: Number(r.seq), at: r.at.toISOString(), actor: { kind: r.actor_kind, id: r.actor_id, name: r.actor_name ?? (r.actor_kind === "user" ? null : r.actor_id), username: r.actor_username },
     action: r.action, target: r.target_kind ? { kind: r.target_kind, id: r.target_id, name: r.target_name } : null, outcome: r.outcome, details: r.details,
   }));
 }

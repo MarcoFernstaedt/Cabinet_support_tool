@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/users-query.schema.json",
+  "title": "users-query",
+  "description": "The query string of the Admin user list: whether to include deleted accounts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "deleted": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false"
+      ]
+    }
+  }
+}

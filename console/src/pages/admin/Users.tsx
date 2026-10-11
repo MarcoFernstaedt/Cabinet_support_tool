@@ -2,7 +2,7 @@
 // set the write limit, disable, reset password or authenticator, delete; and per person, the
 // cabinets they opened and everything they did. The server enforces every rule shown here.
 import { useState } from "react";
-import { api } from "../../lib/api";
+import { api, ApiError, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { roleName, useSession, type Role } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";
@@ -13,7 +13,7 @@ import { useLoad } from "../../lib/useLoad";
 import { AuditTable, type AuditRow } from "./Audit";
 
 export interface UserRow {
-  id: string; username: string; name: string; role: Role; status: "active" | "disabled"; totpEnabled: boolean; writeLimit: number;
+  id: string; username: string; name: string; role: Role; status: "active" | "disabled" | "deleted"; totpEnabled: boolean; writeLimit: number;
   writesPaused: boolean; writesPausedReason: string | null; lastLoginAt: string | null; createdAt: string; locked: boolean; online: boolean;
 }
 
@@ -28,23 +28,54 @@ function OneTimePassword({ who, password, onDone }: { who: string; password: str
   );
 }
 
+/** Brings a deleted account back: a written reason (kept in the audit log), then a new temporary password, shown once. */
+function Reactivate({ id, who, onPassword, onCancel }: { id: string; who: string; onPassword: (p: string) => void; onCancel?: () => void }) {
+  const step = useStepUp();
+  const [reason, setReason] = useState("");
+  const go = () => step.ask("user.reactivate", id,
+    <p>Reactivate the account <strong>{who}</strong>. It comes back with a new temporary password and a fresh authenticator setup. Your reason goes into the audit log.</p>,
+    async token => { const r = await api<{ temporaryPassword: string }>("POST", `/api/admin/users/${id}/reactivate`, { reason: reason.trim(), stepUpToken: token }); onPassword(r.temporaryPassword); },
+    { reason: reason.trim() });
+  return (
+    <form className="row gap wrap" onSubmit={e => { e.preventDefault(); go(); }}>
+      <label className="field inline grow"><span>Reason for reactivating {who}</span>
+        <input required minLength={3} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></label>
+      <button className="btn primary" type="submit">Reactivate account</button>
+      {onCancel && <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>}
+      {step.dialog}
+    </form>
+  );
+}
+
 /** The new-account form, with its one-time password; used on Users and on the setup page. */
 export function NewAccount({ onCreated, heading = "New account" }: { onCreated: (text: string) => void; heading?: string }) {
   const step = useStepUp();
   const [draft, setDraft] = useState({ username: "", name: "", role: "tier1" as Role });
   const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
-  const create = () => step.ask("user.create", "fleet",
+  const [deleted, setDeleted] = useState<{ id: string; username: string } | null>(null);
+  const create = () => { setDeleted(null); step.ask("user.create", "fleet",
     <p>Create a {roleName(draft.role)} account <strong>{draft.username}</strong> for {draft.name}. They choose their own password and set up an authenticator at their first sign-in.</p>,
     async token => {
-      const r = await api<{ id: string; temporaryPassword: string }>("POST", "/api/admin/users", { ...draft, stepUpToken: token });
+      let r: { id: string; temporaryPassword: string };
+      try { r = await api<{ id: string; temporaryPassword: string }>("POST", "/api/admin/users", { ...draft, stepUpToken: token }); }
+      catch (e) {
+        // A username that belonged to a deleted account: offer to bring that account back instead.
+        if (e instanceof ApiError && e.code === "username_deleted" && typeof e.data.userId === "string") { setDeleted({ id: e.data.userId, username: draft.username }); return; }
+        throw e;
+      }
       setShown({ who: draft.username, password: r.temporaryPassword });
       setDraft({ username: "", name: "", role: "tier1" });
       onCreated(`Account ${draft.username} created.`);
-    }, draft);
+    }, draft); };
   return (
     <section className="panel" aria-labelledby="new-user">
       <h2 id="new-user">{heading}</h2>
       {shown && <OneTimePassword who={shown.who} password={shown.password} onDone={() => setShown(null)} />}
+      {deleted && <div className="notice warn" role="status">
+        <p>The username <strong>{deleted.username}</strong> belonged to an account that was deleted. You can bring that account back instead of creating a new one.</p>
+        <Reactivate id={deleted.id} who={deleted.username} onCancel={() => setDeleted(null)}
+          onPassword={password => { setShown({ who: deleted.username, password }); setDeleted(null); setDraft({ username: "", name: "", role: "tier1" }); onCreated(`Account ${deleted.username} reactivated.`); }} />
+      </div>}
       <form className="row gap wrap" onSubmit={e => { e.preventDefault(); create(); }}>
         <label className="field inline"><span>Username</span><input required pattern="[a-z0-9._\-]{2,64}" title="Lower-case letters, digits, dot, dash or underscore"
           value={draft.username} onChange={e => setDraft(d => ({ ...d, username: e.target.value.toLowerCase() }))} /></label>
@@ -60,7 +91,8 @@ export function NewAccount({ onCreated, heading = "New account" }: { onCreated: 
 
 export function Users() {
   const { me } = useSession();
-  const { data, problem, reload } = useLoad<UserRow[]>("/api/admin/users");
+  const [showDeleted, setShowDeleted] = useState(false);
+  const { data, problem, reload } = useLoad<UserRow[]>(`/api/admin/users${showDeleted ? "?deleted=true" : ""}`);
   const step = useStepUp();
   const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -75,10 +107,11 @@ export function Users() {
       <NewAccount onCreated={after} />
 
       {problem && <p className="error" role="alert">{problem}</p>}
+      <label className="check"><input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)} /> Show deleted accounts</label>
       {data && (data.length === 0 ? <Empty>No accounts.</Empty> : (
         <table className="table">
           <caption className="sr-only">Accounts</caption>
-          <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Changes per hour</th><th scope="col">Last sign-in</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+          <thead><tr><th scope="col">Person</th><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Changes per hour</th><th scope="col">Last sign-in</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>{data.map(u => <UserLine key={u.id} u={u} self={u.id === me.id} ask={step.ask} after={after} onPassword={(password) => setShown({ who: u.username, password })} />)}</tbody>
         </table>))}
       {step.dialog}
@@ -90,6 +123,7 @@ function UserLine({ u, self, ask, after, onPassword }: { u: UserRow; self: boole
   onPassword: (p: string) => void }) {
   const [role, setRole] = useState<Role>(u.role);
   const [limit, setLimit] = useState(String(u.writeLimit));
+  const [reactivating, setReactivating] = useState(false);
   const update = (change: Record<string, unknown>, what: string) => ask("user.update", u.id, <p>{what} for <strong>{u.name}</strong> ({u.username}).</p>,
     async token => { await api("PUT", `/api/admin/users/${u.id}`, { ...change, stepUpToken: token }); after(`${u.username}: ${what.toLowerCase()}.`); }, change);
   const action = (path: string, act: string, what: string, extra?: string) => ask(act, u.id, <><p>{what} for <strong>{u.name}</strong> ({u.username}).</p>{extra && <p className="notice warn">{extra}</p>}</>,
@@ -98,12 +132,21 @@ function UserLine({ u, self, ask, after, onPassword }: { u: UserRow; self: boole
       if (r.temporaryPassword) onPassword(r.temporaryPassword);
       after(`${u.username}: ${what.toLowerCase()} done.`);
     });
+  if (u.status === "deleted") return (
+    <tr className="muted">
+      <th scope="row">{u.name} <Badge tone="off">Deleted</Badge></th>
+      <td><code>{u.username}</code></td>
+      <td colSpan={4}>{reactivating
+        ? <Reactivate id={u.id} who={u.username} onCancel={() => setReactivating(false)} onPassword={p => { onPassword(p); setReactivating(false); after(`${u.username}: reactivated.`); }} />
+        : <button className="btn small" onClick={() => setReactivating(true)}>Reactivate…</button>}</td>
+    </tr>);
   return (
     <tr>
-      <th scope="row">{u.name} <span className="muted">({u.username})</span>
+      <th scope="row">{u.name}
         <div className="small">{u.online && <Badge tone="ok">Online</Badge>} {!u.totpEnabled && <Badge tone="warn">No authenticator</Badge>} {u.locked && <Badge tone="crit">Locked</Badge>}
           {u.writesPaused && <Badge tone="warn">Changes paused</Badge>}</div>
         <Link to={`/admin/users/${u.id}`} className="small">Activity</Link></th>
+      <td><code>{u.username}</code></td>
       <td>
         <label className="sr-only" htmlFor={`role-${u.id}`}>Role for {u.username}</label>
         <select id={`role-${u.id}`} value={role} disabled={self} onChange={e => setRole(e.target.value as Role)}>

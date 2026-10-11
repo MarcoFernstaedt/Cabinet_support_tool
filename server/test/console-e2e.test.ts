@@ -91,7 +91,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByLabel(/6-digit code/).fill(code());
     await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("dialog", { name: "Welcome to Cabinet Diagnostics" }).getByRole("button", { name: "Skip tour" }).click();
+    await page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
     // ---- Creates an install token in the console; the cabinet installs with it ---------

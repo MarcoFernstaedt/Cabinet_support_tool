@@ -35,6 +35,7 @@ const MESSAGES: Record<string, string> = {
   verification_failed: "Refused: the package could not be checked.",
   unavailable: "The server has no package store configured.",
   username_taken: "That username is already used.",
+  username_deleted: "That username belonged to an account that was deleted. You can reactivate it instead.",
   totp_required: "This person must set up an authenticator before becoming Tier 2 or Admin.",
   last_admin: "This is the last active Admin account; it cannot be removed, disabled or demoted.",
   not_yourself: "Ask another Admin to change your own role, disable or delete your account.",

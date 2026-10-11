@@ -116,6 +116,15 @@ Built (October 2026):
 - **Low disk space** (Windows event 2013) is a built-in minor issue type.
 - **Bulk changes cover one site** (see [14-network-troubleshooting.md](14-network-troubleshooting.md)).
 
+## Accounts and sign-in (October 2026)
+
+- **Branding.** The console is the **Mashura Support Console**. The sign-in page asks for the Mashura Support Team credentials and says nothing about recording; the audit log still records what it must (sign-ins, account changes, cabinet access and every change to a cabinet), but the interface reads like any other web application.
+- **Authenticator setup is a QR code** drawn in the browser from the setup link (the key never goes to another service). There is no phone link. The key is behind a collapsed "Cannot scan it?" line for people who cannot scan.
+  - Each setup's account label carries a four-letter tag from its secret, for example `sam (JGCA)`, so an account set up again is a different entry in the app from the old one.
+  - **Dependency added:** `qrcode-generator` 2.0.4 in the console (MIT, no dependencies of its own), because a QR encoder is not in the standard library and writing one by hand is a risk for no benefit.
+- **Deleted usernames.** A deleted account keeps its row, so its username is not free. Creating it again answers `username_deleted`; the console then offers to reactivate that account. An Admin can also list deleted accounts and reactivate one. **Reactivation needs a written reason (3 to 500 characters)** which goes into the audit log (`user.reactivate`) with the username and role; the account comes back active with a new temporary password, no authenticator (set up afresh at first sign-in) and no sessions. Admin only, confirmed with an authenticator code bound to the reason.
+- **Usernames** have their own column on the Users page, and the audit log names the actor with their username.
+
 ## Fleet operations (modules 21 and 45)
 
 Built (October 2026):

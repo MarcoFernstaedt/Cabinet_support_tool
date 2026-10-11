@@ -58,7 +58,7 @@ export function Layout({ children }: { children: ReactNode }) {
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
       <header className="topbar">
-        <Link to="/" className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Cabinet Diagnostics</span></Link>
+        <Link to="/" className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Support Console</span></Link>
         <nav aria-label="Main">
           <Link to="/" aria-current={section === "fleet" ? "page" : undefined}>Fleet</Link>
           <AlertBadge current={section === "alerts"} />

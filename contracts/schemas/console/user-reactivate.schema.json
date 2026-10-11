@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/user-reactivate.schema.json",
+  "title": "user-reactivate",
+  "description": "An Admin brings a deleted account back, with the reason in writing; the reason goes into the audit log. The server makes a new temporary password, shown once.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reason",
+    "stepUpToken"
+  ],
+  "properties": {
+    "reason": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-/* Mashura Cabinet Diagnostics: the design system (docs/spec/12-milestones-8-to-12.md "Console redesign").
+/* Mashura Support Console: the design system (docs/spec/12-milestones-8-to-12.md "Console redesign").
    Every colour, size, space and radius below comes from these tokens; components never use raw values.
    Brand: Midnight Navy + Electric Cyan. Cyan marks interaction only (primary buttons, active navigation, links, focus).
    Status colours mean status only, and always come with a text label. */
@@ -342,3 +342,7 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .matrix td, .matrix th { white-space: nowrap; }
 .cell { font-size: .85rem; }
 .cell.ok { color: var(--ok); } .cell.warning { color: var(--warn); } .cell.problem { color: var(--crit); font-weight: 600; } .cell.unknown { color: var(--muted); }
+
+/* The authenticator QR code: dark squares on white with a quiet zone, whatever the theme. */
+.qr { width: 11rem; height: 11rem; background: #fff; border-radius: 6px; padding: 0.25rem; margin: 0.25rem auto; }
+.qr svg { display: block; width: 100%; height: 100%; }

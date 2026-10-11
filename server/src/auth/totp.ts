@@ -1,6 +1,6 @@
 // RFC 6238 time-based one-time passwords (30-second steps, 6 digits, HMAC-SHA1:
 // what every authenticator app supports), and RFC 4648 base32 for the secret.
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 export const STEP_SECONDS = 30;
@@ -44,6 +44,13 @@ export function verify(secret: Buffer, submitted: string, nowMs: number, lastUse
   return null;
 }
 
-export function otpauthUri(secret: Buffer, username: string, issuer = "Mashura Cabinet Platform"): string {
-  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(username)}?secret=${base32(secret)}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
+/**
+ * The setup link an authenticator app scans. The account label carries a short tag taken from this secret, so an account set up
+ * again (a deleted username created anew, a reset authenticator) is a different entry in the app from the old one, and nobody
+ * reads codes from the old entry by mistake.
+ */
+export function otpauthUri(secret: Buffer, username: string, issuer = "Mashura Support Console"): string {
+  const tag = base32(createHash("sha256").update(secret).digest().subarray(0, 3)).slice(0, 4);
+  const label = `${username} (${tag})`;
+  return `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(label)}?secret=${base32(secret)}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 }

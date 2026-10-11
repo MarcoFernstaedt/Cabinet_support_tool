@@ -40,6 +40,7 @@
         "user.create",
         "user.update",
         "user.delete",
+        "user.reactivate",
         "user.password.reset",
         "user.totp.reset",
         "user.resume_writes",

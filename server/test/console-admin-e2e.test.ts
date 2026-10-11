@@ -113,12 +113,16 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await signIn(sam, "sam.support", temporary);
     // Every account, Tier 1 included, sets up an authenticator first.
     await sam.getByRole("heading", { name: "Set up your authenticator" }).waitFor();
+    // A QR code to scan, not a key to type; no phone link on a desktop-first console; the key only behind "Cannot scan it?".
+    await sam.getByRole("img", { name: "QR code to scan with your authenticator app" }).locator("svg").waitFor();
+    assert.equal(await sam.getByText("open this link").count(), 0);
+    assert.equal(await sam.locator("details code.secret").isVisible(), false);
     await setUpAuthenticatorInBrowser(sam, s => { clock += 30_000; return totp.code(s, totp.stepAt(clock)); });
     await sam.getByLabel("Temporary password").fill(temporary);
     await sam.getByLabel("New password (at least 12 characters)").fill("sam's own long password");
     await sam.getByLabel("New password again").fill("sam's own long password");
     await sam.getByRole("button", { name: "Save password" }).click();
-    await sam.getByRole("dialog", { name: "Welcome to Cabinet Diagnostics" }).getByRole("button", { name: "Skip tour" }).click();
+    await sam.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
     await sam.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
     // ---- Who looked at this cabinet and when ----------------------------------------------------

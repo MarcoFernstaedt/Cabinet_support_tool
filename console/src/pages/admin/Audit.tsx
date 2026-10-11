@@ -13,7 +13,7 @@ import type { UserRow } from "./Users";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface AuditRow {
-  seq: number; at: string; actor: { kind: string; id: string; name: string | null }; action: string;
+  seq: number; at: string; actor: { kind: string; id: string; name: string | null; username?: string | null }; action: string;
   target: { kind: string; id: string | null; name: string | null } | null; outcome: string; details: Record<string, unknown>;
 }
 
@@ -35,7 +35,7 @@ export function AuditTable({ rows, onMore }: { rows: AuditRow[]; onMore?: () => 
       <tbody>{rows.map(r => (
         <tr key={r.seq}>
           <td>{fullTime(r.at)}<div className="muted small">#{r.seq}</div></td>
-          <td>{r.actor.kind === "user" ? (r.actor.name ? <Link to={`/admin/users/${r.actor.id}`}>{r.actor.name}</Link> : <code>{r.actor.id.slice(0, 8)}</code>)
+          <td>{r.actor.kind === "user" ? (r.actor.name ? <><Link to={`/admin/users/${r.actor.id}`}>{r.actor.name}</Link>{r.actor.username && <span className="muted"> ({r.actor.username})</span>}</> : <code>{r.actor.id.slice(0, 8)}</code>)
             : <span className="muted">{r.actor.kind === "agent" ? "Cabinet agent" : "Platform"} <code>{(r.actor.name ?? r.actor.id).slice(0, 24)}</code></span>}</td>
           <td>{actionLabel(r.action) ?? ""} <code>{r.action}</code></td>
           <td>{r.target ? (r.target.kind === "cabinet" && r.target.id ? <Link to={`/cabinets/${r.target.id}`}>{r.target.name ?? r.target.id.slice(0, 8)}</Link>

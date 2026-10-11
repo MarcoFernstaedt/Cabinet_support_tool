@@ -3,6 +3,7 @@
 // and anyone with a temporary password chooses a new one, before anything else.
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
+import { QrCode } from "../components/QrCode";
 
 export type Stage = "signed_out" | "totp" | "totp_setup" | "password_change" | "complete";
 
@@ -10,7 +11,7 @@ function Card({ title, intro, children }: { title: string; intro?: ReactNode; ch
   return (
     <main className="signin" id="main">
       <div className="signin-card">
-        <p className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Cabinet Diagnostics</span></p>
+        <p className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Support Console</span></p>
         <h1>{title}</h1>
         {intro && <div className="muted">{intro}</div>}
         {children}
@@ -39,7 +40,7 @@ export function SignIn({ onStage }: { onStage: (stage: Stage) => void }) {
     onStage(r.stage);
   });
   return (
-    <Card title="Sign in" intro="For Mashura support staff. Every cabinet you open and every action you take is recorded.">
+    <Card title="Sign in" intro="Sign in with your Mashura Support Team credentials.">
       <form onSubmit={submit} className="stack">
         <label className="field"><span>Username</span>
           <input autoFocus autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} /></label>
@@ -64,7 +65,7 @@ export function TotpStep({ onStage, onCancel }: { onStage: (s: Stage) => void; o
   const [code, setCode] = useState("");
   const { busy, problem, submit } = useSubmit(async () => onStage((await api<{ stage: Stage }>("POST", "/api/auth/totp", { code })).stage));
   return (
-    <Card title="Enter your code" intro="Open your authenticator app and enter the current code for Cabinet Diagnostics.">
+    <Card title="Enter your code" intro="Open your authenticator app and enter the current code for the Mashura Support Console.">
       <form onSubmit={submit} className="stack">
         <CodeField value={code} onChange={setCode} />
         {problem && <p className="error" role="alert">{problem}</p>}
@@ -75,7 +76,7 @@ export function TotpStep({ onStage, onCancel }: { onStage: (s: Stage) => void; o
   );
 }
 
-/** The secret in groups of four, which is how authenticator apps ask for a manual key. */
+/** The secret in groups of four, for the rare case a code cannot be scanned. */
 const grouped = (s: string) => s.match(/.{1,4}/g)?.join(" ") ?? s;
 
 export function TotpSetup({ onStage, onCancel, required }: { onStage: (s: Stage) => void; onCancel: () => void; required: boolean }) {
@@ -92,13 +93,17 @@ export function TotpSetup({ onStage, onCancel, required }: { onStage: (s: Stage)
       {setup && (
         <form onSubmit={submit} className="stack">
           <ol className="steps">
-            <li>In your authenticator app, add an account and choose to enter a setup key.</li>
-            <li>Account name: <strong>Cabinet Diagnostics</strong>. Key: <code className="secret" aria-label={`Setup key ${setup.secret.split("").join(" ")}`}>{grouped(setup.secret)}</code> (time-based).</li>
-            <li>On a phone, you can instead <a href={setup.otpauthUri}>open this link</a> to add it directly.</li>
-            <li>Enter the code the app now shows.</li>
+            <li>In your authenticator app, choose to add an account and scan this code.</li>
+          </ol>
+          <QrCode value={setup.otpauthUri} label="QR code to scan with your authenticator app" />
+          <details className="muted small"><summary>Cannot scan it?</summary>
+            <p>Add the account by hand with this key (time-based): <code className="secret" aria-label={`Setup key ${setup.secret.split("").join(" ")}`}>{grouped(setup.secret)}</code></p></details>
+          <ol className="steps" start={2}>
+            <li>Enter the 6-digit code the app now shows.</li>
           </ol>
           <CodeField value={code} onChange={setCode} />
           {problem && <p className="error" role="alert">{problem}</p>}
+          {problem && <p className="muted small">If your app lists an older entry for the same account, delete it and use the entry you just added; each setup has its own code.</p>}
           <button className="btn primary wide" disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Turn on two-factor"}</button>
           <button type="button" className="btn ghost wide" onClick={onCancel}>{required ? "Sign out" : "Cancel"}</button>
         </form>

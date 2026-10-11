@@ -20,7 +20,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   const asAdmin = (request: Parameters<Guards["role"]>[0]) => o.guards.role(request, "admin");
 
   // ---- Users -------------------------------------------------------------------------------
-  app.get("/api/admin/users", async request => { await asAdmin(request); return users.listUsers(o.pool); });
+  app.get("/api/admin/users", async request => { await asAdmin(request); return users.listUsers(o.pool, consoleBodies.usersQuery.parse(request.query).deleted === "true"); });
 
   app.post("/api/admin/users", async (request, reply) => {
     const u = await asAdmin(request);
@@ -42,6 +42,13 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
     const u = await asAdmin(request);
     await users.deleteUser(o.pool, u.userId, id(request), consoleBodies.stepUpOnly.parse(request.body).stepUpToken);
     return { ok: true };
+  });
+
+  app.post("/api/admin/users/:id/reactivate", async (request, reply) => {
+    const u = await asAdmin(request);
+    const b = consoleBodies.userReactivate.parse(request.body);
+    const r = await users.reactivateUser(o.pool, u.userId, id(request), b.reason.trim(), boundTo(b.stepUpToken, b));
+    return reply.header("Cache-Control", "no-store").send(r);
   });
 
   app.post("/api/admin/users/:id/reset-password", async (request, reply) => {

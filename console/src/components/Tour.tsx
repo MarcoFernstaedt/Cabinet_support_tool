@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import { atLeast, useSession } from "../lib/session";
 
 const STEPS = (admin: boolean) => [
-  { title: "Welcome to Cabinet Diagnostics", body: "This console reads what Windows reports on each cabinet so you can find problems without remoting in. Everything you open and run is recorded with your name." },
+  { title: "Welcome to the Mashura Support Console", body: "This console reads what Windows reports on each cabinet so you can find problems without remoting in." },
   { title: "Find a cabinet", body: "Go Fleet → client → site → cabinet, or type any client, site, cabinet or Windows host name into the jump box at the top of every page." },
   { title: "The cabinet view", body: "The cabinet's name, client, site and role stay at the top. The sidebar lists the other cabinets at the same site for one-click switching. Sections cover event logs, the fingerprint scanner, devices, updates, drives, network, firewall and files." },
   { title: "Fingerprint scanner", body: "One click runs the standard scanner troubleshooting on the cabinet: plugged in, Windows errors, driver, USB power saving, repeated reconnects, USB hub problems and the biometric service. Each check says what to try next. If the scanner's hardware ID is not set yet, it lists the likely scanners so you can pick it." },

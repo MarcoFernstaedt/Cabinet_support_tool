@@ -41,7 +41,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
   const { data: cabinet, problem, reload } = useLoad<CabinetDetail>(`/api/fleet/cabinets/${id}`);
   const heading = useRef<HTMLHeadingElement>(null);
   const current = (SECTIONS.find(([k]) => k === section)?.[0] ?? "overview") as SectionId;
-  useEffect(() => { if (cabinet) document.title = `${cabinet.name} · Cabinet Diagnostics`; }, [cabinet]);
+  useEffect(() => { if (cabinet) document.title = `${cabinet.name} · Mashura Support Console`; }, [cabinet]);
   if (problem) return <div className="page"><p className="error" role="alert">{problem}</p></div>;
   if (!cabinet || cabinet.id !== id) return <div className="page"><p className="muted" role="status">Loading cabinet…</p></div>;
 
