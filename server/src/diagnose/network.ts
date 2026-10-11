@@ -11,6 +11,7 @@ import { cabinetPolicy, switchesFor } from "../services/firewall-policy.js";
 import { syncForCabinet } from "../services/device-settings.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { Refused } from "../services/errors.js";
+import { fixesForFindings, markSeen } from "../services/known-fixes.js";
 import { upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
 import { layerStates, networkFindings, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
@@ -130,6 +131,9 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
     tests: evidence.tests, traces: evidence.traces };
   await pool.query("UPDATE diagnoses SET state = 'done', finished_at = now(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
+  // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
+  const seen = await fixesForFindings(pool, findings.filter(f => f.severity !== "ok").map(f => f.id));
+  await markSeen(pool, [...new Set(Object.values(seen).flat().map(f => f.id))]);
 }
 
 /** The minor alert that says a cabinet differs from its site's baseline; the same alert is kept while it differs. */

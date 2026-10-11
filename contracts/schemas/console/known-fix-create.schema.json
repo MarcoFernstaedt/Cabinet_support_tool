@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/known-fix-create.schema.json",
+  "title": "known-fix-create",
+  "description": "Saves what fixed a problem, with the problem it fixes (a finding of the diagnosis, or an issue type) and the cabinet it was seen on. The server records that cabinet's environment itself; the console does not send it. Matching is exact, never a pattern.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "solution",
+    "symptom",
+    "cabinetId"
+  ],
+  "properties": {
+    "title": {
+      "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+    },
+    "solution": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+    },
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "symptom": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key"
+          ],
+          "properties": {
+            "kind": {
+              "const": "finding"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "issueTypeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "issue"
+            },
+            "issueTypeId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

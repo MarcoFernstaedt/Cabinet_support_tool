@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/known-fix-query.schema.json",
+  "title": "known-fix-query",
+  "description": "Known fixes for a problem: by diagnosis finding key or by issue type, with the cabinet to compare the environment with. With neither, every known fix.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "findingKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+    },
+    "issueTypeId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    }
+  }
+}

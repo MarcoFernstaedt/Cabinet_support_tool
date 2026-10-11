@@ -5,6 +5,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { ago } from "../../lib/time";
 import { Badge } from "../../components/ui";
+import { KnownFixes, SaveFix, findingKey } from "../../components/KnownFixes";
 import { ReadingsView, type Readings } from "../../components/NetworkReadings";
 import { FixButton, LAYERS, PathBar, type FixAction, type Layer, type LayerState } from "../../components/NetworkFix";
 
@@ -70,13 +71,13 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
             {notOk.length === 0 ? <Badge tone="ok">No problems found</Badge> : counts.filter(([, n]) => n > 0).map(([s, n]) => <span key={s}><Badge tone={SEVERITY[s].tone}>{n} {s === "problem" ? (n === 1 ? "problem" : "problems") : (n === 1 ? "warning" : "warnings")}</Badge> </span>)}
             {" "}Run by {d.runBy} {ago(d.finishedAt ?? d.startedAt)}. {okOnes.length} checks passed.</p>
           <PathBar layers={layerStates(findings)} />
-          <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} onFixed={() => void start()} />)}</ul>
+          <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} cabinetId={cabinetId} onFixed={() => void start()} />)}</ul>
           {d.readings && (
             <details><summary>Everything that was read</summary><ReadingsView readings={d.readings} /></details>)}
           {okOnes.length > 0 && (
             <details open={showOk} onToggle={e => setShowOk((e.target as HTMLDetailsElement).open)}>
               <summary>Checks that passed ({okOnes.length})</summary>
-              <ul className="findings">{okOnes.map(f => <FindingRow key={f.id} f={f} onFixed={() => undefined} />)}</ul>
+              <ul className="findings">{okOnes.map(f => <FindingRow key={f.id} f={f} cabinetId={cabinetId} onFixed={() => undefined} />)}</ul>
             </details>)}
         </>)}
       </div>
@@ -84,8 +85,9 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
   );
 }
 
-function FindingRow({ f, onFixed }: { f: Finding; onFixed: () => void }) {
+function FindingRow({ f, cabinetId, onFixed }: { f: Finding; cabinetId: string; onFixed: () => void }) {
   const s = SEVERITY[f.severity];
+  const [fixes, setFixes] = useState(0);
   return (
     <li className={`finding ${f.severity}`}>
       <div className="finding-head">
@@ -99,6 +101,10 @@ function FindingRow({ f, onFixed }: { f: Finding; onFixed: () => void }) {
       {f.action && (f.action.kind === "open"
         ? <Link className="btn small" to={`/cabinets/${f.action.cabinetId}/${f.action.section}`}>{f.action.label}</Link>
         : <FixButton action={f.action} onDone={onFixed} />)}
+      {f.severity !== "ok" && !f.causedBy && (<>
+        <KnownFixes symptom={{ kind: "finding", key: findingKey(f.id) }} cabinetId={cabinetId} reloadKey={fixes} />
+        <SaveFix symptom={{ kind: "finding", key: findingKey(f.id) }} cabinetId={cabinetId} suggestedTitle={f.title} onSaved={() => setFixes(n => n + 1)} />
+      </>)}
     </li>
   );
 }

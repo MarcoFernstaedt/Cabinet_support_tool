@@ -152,6 +152,10 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
         err(20, "Microsoft-Windows-WindowsUpdateClient", 20, "Installation Failure: Windows failed to install the following update with error 0x80070643: 2026-10 Cumulative Update (KB5050011)."),
         ...[7, 2].map(h => err(h, "BillingExport", 4012, "The nightly export to the clearing house failed: the file C:\\Billing\\out\\batch-0412.csv is locked by another process.", "minor", "Application")),
         err(5, "Application Error", 1000, "Faulting application name: StatementViewer.exe, version: 3.8.0.0, faulting module name: ucrtbase.dll, exception code: 0xc0000409", "minor", "Application")];
+    case "scanner_errors":
+      return [...update(),
+        ...[11, 6, 2].map(h => err(h, "Microsoft-Windows-Biometrics", 1008, "The Windows Biometric Service could not start the biometric unit for Fingerprint Reader (USB\\VID_1234&PID_5678): the sensor did not respond.", "minor", "System", "error")),
+        err(5.9, "WUDFHost", 10110, "The driver for device USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2 (Fingerprint Reader) failed to load and was stopped.", "minor", "System", "error")];
     case "net_dns_wrong": case "net_static_wrong": case "net_dhcp_failed": case "net_gateway_wrong": case "net_link_slow": case "net_flaky":
       // Network faults leave the cabinet otherwise ordinary: it got the same Windows update as everyone.
       return update();

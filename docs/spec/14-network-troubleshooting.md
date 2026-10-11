@@ -77,3 +77,12 @@ A fix changes the simulated cabinet's own settings, so the next diagnosis shows 
 **Observations** (`server/src/diagnose/network-observations.ts`) turn that into findings that do not depend on the baseline: a lease that has run out or ends within two hours, a DHCP server that answered, a non-standard MTU, error and discard counts, packet loss (a problem from 20%), slow or jittery replies, ARP entries that never completed, more than one default route, and whether the sync cabinet and platform server can be reached. They state what was seen and what it often means, not a verdict.
 
 **Standards at onboarding.** A site's three standards (network baseline, time zone, client firewall policy) are suggested from what its cabinets already report (`GET /api/sites/:id/standards`; nothing is saved by that call). The site page offers "Use <cabinet>'s network", the zone most cabinets use, and the firewall profiles most cabinets have. Saving goes through the same routes and confirmations as editing them by hand.
+
+## Known fixes (October 2026)
+
+A problem the baseline cannot fix with a click is still solved by a person. They save what fixed it (`POST /api/known-fixes`: a name, the solution in plain text, the problem it fixes, and the cabinet), and the server records that cabinet's environment itself: role, agent version, time zone, firewall profiles and the network card, gateway, DNS, addressing, link speed and MTU from its latest read. The console never sends the environment.
+
+- **A problem is matched exactly.** Either by a diagnosis finding's key (the finding id without a trailing interface number: `obs-errors-12` is `obs-errors`) or by an issue type. There are no patterns.
+- **It is shown when the problem comes back.** On the cabinet's diagnosis and the batch page beside the finding; on alerts of that issue type. Beside it, the differences from the cabinet it was fixed on ("Firewall: all off then, domain on now"), so a person can tell whether it is likely to apply. A diagnosis counts each fix it shows (`seen_count`).
+- **Roles.** Tier 1 and up save one; Tier 2 and up remove one (soft: `removed_at`). Both are audited (`known_fix.save`, `known_fix.remove`).
+- **Contracts.** `console/known-fix-create` and `console/known-fix-query`; the solution is at most 2,000 characters of text without control characters.

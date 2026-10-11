@@ -60,14 +60,20 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // One scenario in the guide.
     await page.goto(`${origin}/demo`);
     await page.getByText("Monday morning at Midtown Manhattan", { exact: true }).waitFor();
-    assert.equal(await page.locator("#main li.finding").count(), 1, "one scenario, not a library");
+    assert.equal(await page.locator("#main li.finding").count(), 2, "two demos: the network one and mapping errors");
+    await page.getByText("Errors nobody has named yet", { exact: true }).waitFor();
     await page.locator("#main").getByRole("button", { name: "Start the guided demo" }).click();
 
-    // Step 1 takes you to the site; the person clicks Diagnose network.
+    // Step 1 takes you to the site; step 2 is one cabinet, Exam Room 1, checked on its own.
     await page.getByRole("heading", { name: "Midtown Manhattan", level: 1 }).waitFor();
-    await page.getByRole("button", { name: /Diagnose network/ }).click();
-    await page.getByText("Firewall blocks the sync cabinet's ports").waitFor({ timeout: 60_000 });
-    // Step 2 says what was found; step 3 is the fix, and it works: confirm, and the site is checked again and is clean.
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Exam Room 1", level: 1 }).waitFor();
+    await page.getByRole("button", { name: "Diagnose network", exact: true }).click();
+    await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
+    // Step 3 is the whole site at once.
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByText("Firewall blocks the sync cabinet's ports").first().waitFor({ timeout: 60_000 });
+    // Step 4 says what was found; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: "What the check found" }).waitFor();
     await page.getByRole("button", { name: "Next" }).click();
@@ -85,7 +91,24 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const policy = (await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles;
     assert.deepEqual(Object.values(policy), [false, false, false], "the cabinet really changed");
 
-    // Step 4: the scanner, three drops and the driver installed before the first.
+    // Step 6: Operating Room matches its baseline but loses packets. The fix is saved, with its setup, for next time.
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Operating Room", level: 1 }).waitFor();
+    await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Save what fixed this…" }).first().click();
+    await page.getByLabel("What fixed it").fill("Replaced the patch cable to the switch; the errors stopped.");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText(/Saved\. This is shown the next time/).waitFor();
+    const kf = (await db.app.query<{ solution: string; environment: { site: string; network: { gateway: string } | null } }>("SELECT solution, environment FROM known_fixes")).rows;
+    assert.equal(kf.length, 1);
+    assert.equal(kf[0]!.environment.site, "Midtown Manhattan");
+    assert.ok(kf[0]!.environment.network?.gateway, "the cabinet's network was saved with the fix");
+    // It is shown with the problem straight away, and wherever the same problem is seen again.
+    await page.getByText("Seen before").first().waitFor();
+    await page.getByText("Replaced the patch cable to the switch; the errors stopped.").first().waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/known-fix.png`, fullPage: true });
+
+    // Step 7: the scanner, three drops and the driver installed before the first.
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: /Drops/ }).waitFor({ timeout: 30_000 });
     await page.getByText("3 in the last 24 hours").waitFor();
@@ -119,6 +142,17 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("button", { name: /^Use .*'s network$/ }).waitFor({ state: "detached", timeout: 15_000 });
     const saved = (await db.app.query<{ network_baseline: { gateway: string } | null }>("SELECT network_baseline FROM sites WHERE id = $1", [phoenix])).rows[0]!.network_baseline;
     assert.ok(saved?.gateway, "the baseline was saved from the cabinet's own network");
+
+    // The second demo: errors nobody has named. Unrecognized alerts from the fingerprint reader's driver, on two cabinets, then the event log.
+    await page.goto(`${origin}/demo`);
+    await page.getByRole("button", { name: "Start this demo" }).nth(1).click();
+    await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
+    await page.getByText("Check-in Desk").first().waitFor({ timeout: 30_000 });
+    await page.getByText("Waiting Room").first().waitFor();
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Look at the error itself" }).waitFor();
+    await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Stop the guided demo" }).click();
     simulator.stop();
     assert.deepEqual(simulatorProblems, []);
     assert.deepEqual(problems, []);

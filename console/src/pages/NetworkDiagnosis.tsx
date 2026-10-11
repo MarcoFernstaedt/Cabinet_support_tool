@@ -8,6 +8,7 @@ import { useLoad } from "../lib/useLoad";
 import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty } from "../components/ui";
+import { KnownFixes, SaveFix } from "../components/KnownFixes";
 import { ReadingsView, type Readings } from "../components/NetworkReadings";
 import { FixAll, FixButton, JOB_LABEL, LAYERS, type FixAction, type Layer, type LayerState } from "../components/NetworkFix";
 
@@ -112,6 +113,7 @@ const writeFixed = (v: FixedNote | null) => { try { if (v === null) sessionStora
 
 function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: string) => void; sameFixAbove: boolean }) {
   const many = g.targets.length > 1;
+  const first = g.targets[0]?.cabinetId;
   return (
     <article className={`group-card ${g.severity}`} aria-label={g.title}>
       <div className="finding-head">
@@ -127,6 +129,8 @@ function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: str
           {!many && g.targets[0] && <FixButton action={g.targets[0].action} onDone={onFixed}>{g.targets[0].label}</FixButton>}
         </div>
       ) : <p className="muted small">No change can be made from here: someone at the site needs to look.</p>}
+      {first && <KnownFixes symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} />}
+      {first && <SaveFix symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} suggestedTitle={g.title} />}
       {many && <details><summary>Fix one at a time</summary>
         <ul className="plain">{g.targets.map(t => <li key={t.cabinetId} className="row gap wrap"><strong>{t.cabinetName}</strong> <span className="muted small">{t.label}</span>
           <FixButton action={t.action} onDone={onFixed}>Fix</FixButton></li>)}</ul>

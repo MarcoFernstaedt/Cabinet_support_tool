@@ -59,6 +59,8 @@ import type {
   RuleProposal,
   RuleRollback,
   AlertResolve,
+  KnownFixCreate,
+  KnownFixQuery,
   AlertFilter,
   EventLookup,
   FleetSearch,
@@ -154,6 +156,8 @@ export const commonDefs = {
 const consoleBody = (file: string) => ref(`console/${file}.schema.json`);
 
 /** Console request bodies. */
+export type { KnownFixCreate };
+
 export const consoleBodies = {
   login: validator<LoginRequest>("login-request", consoleBody("login-request")),
   code: validator<CodeRequest>("code-request", consoleBody("code-request")),
@@ -175,6 +179,8 @@ export const consoleBodies = {
   ruleProposal: validator<RuleProposal>("rule-proposal", consoleBody("rule-proposal")),
   ruleRollback: validator<RuleRollback>("rule-rollback", consoleBody("rule-rollback")),
   alertResolve: validator<AlertResolve>("alert-resolve", consoleBody("alert-resolve")),
+  knownFixCreate: validator<KnownFixCreate>("known-fix-create", consoleBody("known-fix-create")),
+  knownFixQuery: validator<KnownFixQuery>("known-fix-query", consoleBody("known-fix-query")),
   alertFilter: validator<AlertFilter>("alert-filter", consoleBody("alert-filter")),
   eventLookup: validator<EventLookup>("event-lookup", consoleBody("event-lookup")),
   fleetSearch: validator<FleetSearch>("fleet-search", consoleBody("fleet-search")),

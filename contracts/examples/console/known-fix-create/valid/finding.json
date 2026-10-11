@@ -1,0 +1,1 @@
+{ "title": "Failing patch cable", "solution": "Swapped the patch cable and moved the switch port; the errors stopped.", "symptom": { "kind": "finding", "key": "obs-ping-loss" }, "cabinetId": "0b7d3a52-1c2e-4a7e-9d41-7f4a5b6c8d90" }

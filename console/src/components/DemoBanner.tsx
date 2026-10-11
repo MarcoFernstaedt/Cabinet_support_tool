@@ -21,7 +21,7 @@ export function DemoBanner() {
   return (
     <div className="banner demo" role="status">
       <strong>Demo mode is on.</strong> {demo.cabinets} simulated cabinets, marked <DemoTag />, are shown next to your real ones.
-      {" "}<Link to="/demo">Demo guide</Link> · <button className="linkish" onClick={startDemoTour}>Start the guided demo</button>
+      {" "}<Link to="/demo">Demo guide</Link> · <button className="linkish" onClick={() => startDemoTour()}>Start the guided demo</button>
       {atLeast(me, "admin") && <> · <Link to="/admin/settings#demo">Turn it off or reset</Link></>}
     </div>
   );

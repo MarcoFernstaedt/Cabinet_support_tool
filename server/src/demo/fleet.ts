@@ -18,16 +18,19 @@ export type Scenario =
   /** A drive nearly full: Windows warns, and updates and the application start failing. */
   | "disk_space_low"
   /** Errors from several sources in the event logs: some match an issue type, two are new and wait to be mapped. */
-  | "mixed_errors";
+  | "mixed_errors"
+  /** Fingerprint scanner errors in the event logs that no rule names yet: the demo for mapping an error to an issue. */
+  | "scanner_errors";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; /** How this site addresses its cabinets (its network baseline); DHCP unless said. */ addressing?: "dhcp" | "static"; }
 export interface DemoClient { name: string; sites: DemoSite[]; }
 
-/** The overnight incident at Harbor Pet Hospitals: 80 cabinets, 60 crashed (12 still restarting), 20 did not. g numbers them 0-79. */
-export const HARBOR_SITES = ["Boston Harbor", "Portland East", "Providence", "Hartford", "Worcester", "Manchester", "Burlington", "New Haven"];
+/** The overnight incident at Harbor Pet Hospitals: 80 cabinets in four large sites of 20, 60 crashed (12 still restarting), 20 did not. g numbers them 0-79. */
+export const HARBOR_SITES = ["Boston Harbor", "Portland East", "Providence", "Hartford"];
+export const HARBOR_SITE_SIZE = 20;
 export const harborAffected = (g: number) => g % 4 !== 3;
-/** Never a site's sync cabinet (the first of each ten), so no Harbor site loses its sync cabinet to the crash loop. */
+/** Never a site's sync cabinet (the first of each site), so no Harbor site loses its sync cabinet to the crash loop. */
 export const harborScenario = (g: number): Scenario => !harborAffected(g) ? "incident_ok" : g % 10 === 4 || g % 10 === 7 ? "incident_loop" : "incident_crash";
 /** Storage errors before the crash on a few crashed cabinets; the driver on two that did not crash. */
 export const harborStorageErrors = (g: number) => harborAffected(g) && g % 9 === 0;
@@ -45,8 +48,10 @@ export const DEMO_FLEET: DemoClient[] = [
       c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite", "net_flaky")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
-    { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
-      c("Pharmacy", "standalone", "disk_failing"), c("Recovery", "standalone", "time_zone_wrong"), c("Intake", "standalone", "usb_missing")] },
+    // Sole sites: one standalone cabinet each, with no sync cabinet.
+    { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [c("Pharmacy", "standalone", "disk_failing")] },
+    { name: "San Diego Recovery Center", timeZone: "Pacific Standard Time", subnet: "10.45.7", cabinets: [c("Recovery", "standalone", "time_zone_wrong")] },
+    { name: "Tucson Walk-in", timeZone: "US Mountain Standard Time", subnet: "10.46.3", cabinets: [c("Intake", "standalone", "usb_missing")] },
   ] },
   { name: "Demo · Lakeside Health", sites: [
     { name: "Chicago – Main Pharmacy", timeZone: "Central Standard Time", subnet: "172.20.10", addressing: "static", cabinets: [
@@ -57,11 +62,12 @@ export const DEMO_FLEET: DemoClient[] = [
   ] },
   { name: "Demo · Harbor Pet Hospitals", sites: HARBOR_SITES.map((name, s) => ({
     name, timeZone: "Eastern Standard Time", subnet: `10.6${s}.1`,
-    cabinets: Array.from({ length: 10 }, (_, i) => c(i === 0 ? "Sync" : `Cabinet ${String(i + 1).padStart(2, "0")}`, i === 0 ? "sync" : "satellite", harborScenario(s * 10 + i))),
+    cabinets: Array.from({ length: HARBOR_SITE_SIZE }, (_, i) => c(i === 0 ? "Sync" : `Cabinet ${String(i + 1).padStart(2, "0")}`, i === 0 ? "sync" : "satellite", harborScenario(s * HARBOR_SITE_SIZE + i))),
   })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
-      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod"), c("Billing", "satellite", "mixed_errors")] },
+      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod"), c("Billing", "satellite", "mixed_errors"),
+      c("Check-in Desk", "satellite", "scanner_errors"), c("Waiting Room", "satellite", "scanner_errors")] },
     // Site-wide DNS drift: three of the four still point at the old DNS servers. One site diagnosis shows it; one bulk fix repairs it.
     { name: "Dallas Uptown", timeZone: "Central Standard Time", subnet: "192.168.60", cabinets: [
       c("Uptown Sync", "sync", "net_dns_wrong"), c("Uptown Exam 1", "satellite", "net_dns_wrong"), c("Uptown Exam 2", "satellite", "net_dns_wrong"), c("Uptown Exam 3", "satellite")] },
@@ -81,6 +87,7 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   net_gateway_wrong: "Fixed address with the wrong gateway", net_link_slow: "Link negotiated at 100 Mbps (cable)",
   net_flaky: "Matches the baseline, but loses packets to the gateway and the network card counts errors (a failing patch cable)",
   usb_missing: "No USB device detected, a fingerprint scanner expected (cabinet alert)", disk_space_low: "Drive nearly full (warning)", mixed_errors: "Errors from several sources in the event logs, mapped to issues",
+  scanner_errors: "Fingerprint scanner errors in the event logs that no rule names yet (map them to the scanner issue)",
 };
 
 /** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */

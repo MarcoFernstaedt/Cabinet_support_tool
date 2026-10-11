@@ -30,7 +30,7 @@ How to show the platform to the support team: your real agent on your own Window
 
 ## What demo mode is
 
-- **What it adds.** Demo mode adds 4 simulated clients with 112 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting (none of them a site's sync cabinet).
+- **What it adds.** Demo mode adds 4 simulated clients with 121 cabinets, next to your real cabinets. Clients have between 2 and 6 sites; some sites are a single standalone cabinet (San Diego Bay, San Diego Recovery Center, Tucson Walk-in), and the largest, at Harbor, have 20 cabinets each. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting (none of them a site's sync cabinet).
   - The sites are in the Eastern, Central, Mountain, Arizona and Pacific time zones.
   - Each simulated client is named "Demo · …" and carries a purple **Demo** tag.
   - Each simulated cabinet says "Demo: simulated cabinet".
@@ -70,11 +70,16 @@ How to show the platform to the support team: your real agent on your own Window
 | Riverside, Phoenix | Front Desk | No DHCP lease (a 169.254 address). Fix: Renew the DHCP lease (one click; the answer shows the new address). |
 | Lakeside, Chicago | Triage | A fixed address with the wrong gateway. |
 | Lakeside, Denver | Rounds | The cable negotiated only 100 Mbps (no remote fix). |
-| Harbor Pet Hospitals, 8 sites | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
+| Harbor Pet Hospitals, 4 sites of 20 | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
 
 ## The demo: one story, then your own cabinet
 
-The guided demo (Demo guide, then Start the guided demo) follows one scenario. Everything else in the demo fleet is background so the Fleet page looks like a real fleet.
+There are two guided demos (Demo guide, then Start this demo). Everything else in the demo fleet is background so the Fleet page looks like a real fleet.
+
+1. **Monday morning at Midtown Manhattan.** Check one cabinet (Exam Room 1) on its own, then the whole site at once; fix the sync cabinet's firewall with one click and watch the site come back clean; open Operating Room, which matches its baseline but whose full read shows lost packets and card errors, and save what fixed it; the scanner that dropped off three times after a driver install; then installing and approving your own agent and reading its network.
+2. **Errors nobody has named yet.** Check-in Desk and Waiting Room (Summit, Austin North) log errors from the fingerprint reader's driver that no rule knows. Find the unrecognized alerts, read the event log, map the error to the Fingerprint scanner issue, and keep what fixed it.
+
+**Known fixes.** When a problem has no click-to-fix because the baseline can't tell what's wrong, a person solves it and clicks *Save what fixed this*. The platform keeps their note with the cabinet's role, agent version, time zone, firewall and network. The next time the same finding comes up (matched by its exact key, never a pattern) or the same issue type raises an alert, the fix is shown beside it with what differs from the cabinet it was fixed on. Tier 1 and up save one; Tier 2 and up remove one.
 
 1. **Monday morning at Midtown Manhattan.** The exam rooms say they can't sync.
    - Open **Riverside → Midtown Manhattan** and click **Diagnose network**. All seven cabinets are checked at once.

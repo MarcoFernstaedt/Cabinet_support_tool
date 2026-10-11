@@ -7,6 +7,8 @@ import { Badge, Empty } from "../components/ui";
 import { DemoTag } from "../components/DemoBanner";
 import { startDemoTour } from "../components/DemoTour";
 
+const TOUR_FOR: Record<string, string> = { midtown: "network", mapping: "mapping" };
+
 interface Scenario { id: string; title: string; story: string; steps: { label: string; path: string }[] }
 
 export function DemoGuide() {
@@ -26,15 +28,16 @@ export function DemoGuide() {
       </ul>
       <p className="row gap wrap">
         {demo.data?.enabled ? <Badge tone="info">Demo mode is on: {demo.data.cabinets} simulated cabinets</Badge> : <Badge tone="off">Demo mode is off</Badge>}
-        <button className="btn primary" onClick={startDemoTour} disabled={!demo.data?.enabled}>Start the guided demo</button>
+        <button className="btn primary" onClick={() => startDemoTour("network")} disabled={!demo.data?.enabled}>Start the guided demo</button>
         {atLeast(me, "admin") && <Link to="/admin/settings#demo">Turn on, off or reset in Settings</Link>}
       </p>
-      <h2>The scenario</h2>
-      {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the scenario.</Empty>}
+      <h2>The demos</h2>
+      {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the demos.</Empty>}
       <ul className="findings">{lib.data?.scenarios.map(s => (
         <li key={s.id} className="finding info">
           <div className="finding-head"><strong>{s.title}</strong></div>
           <p>{s.story}</p>
+          {TOUR_FOR[s.id] && <p><button className="btn small primary" onClick={() => startDemoTour(TOUR_FOR[s.id]!)} disabled={!demo.data?.enabled}>Start this demo</button></p>}
           <p className="row gap wrap">{s.steps.map(st => <Link key={st.path + st.label} className="btn small" to={st.path}>{st.label}</Link>)}</p>
         </li>))}
       </ul>

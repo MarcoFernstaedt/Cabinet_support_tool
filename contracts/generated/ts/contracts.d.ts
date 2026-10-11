@@ -639,6 +639,33 @@ export interface IssueType {
 }
 
 /**
+ * Saves what fixed a problem, with the problem it fixes (a finding of the diagnosis, or an issue type) and the cabinet it was seen on. The server records that cabinet's environment itself; the console does not send it. Matching is exact, never a pattern.
+ */
+export interface KnownFixCreate {
+  title: string;
+  solution: string;
+  cabinetId: string;
+  symptom:
+    | {
+        kind: "finding";
+        key: string;
+      }
+    | {
+        kind: "issue";
+        issueTypeId: string;
+      };
+}
+
+/**
+ * Known fixes for a problem: by diagnosis finding key or by issue type, with the cabinet to compare the environment with. With neither, every known fix.
+ */
+export interface KnownFixQuery {
+  findingKey?: string;
+  issueTypeId?: string;
+  cabinetId?: string;
+}
+
+/**
  * Username and password, the first sign-in step.
  */
 export interface LoginRequest {

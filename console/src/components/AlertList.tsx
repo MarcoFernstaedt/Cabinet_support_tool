@@ -1,6 +1,8 @@
 // One list of alerts, used by the Alerts area, the cabinet view and the scanner section.
 // Clicking an unclaimed major alert claims it and opens its cabinet; if someone else got
 // there first, the list says who (docs/spec/06-console-spec.md "Alerts area").
+import { useLoad } from "../lib/useLoad";
+import { KnownFixes, SaveFix } from "./KnownFixes";
 import { useState } from "react";
 import { api, describeError } from "../lib/api";
 import { claim, type Alert, type Match, type StoredEvent } from "../lib/alerts";
@@ -30,6 +32,9 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [resolution, setResolution] = useState("");
   const [mapping, setMapping] = useState<Match | null>(null);
   const [shown, setShown] = useState(50);
+  // Which issue types have a saved fix, so only those alerts look the fix up.
+  const known = useLoad<{ fixes: { symptom: { kind: string; issueTypeId?: string } }[] }>("/api/known-fixes");
+  const withFix = new Set((known.data?.fixes ?? []).flatMap(f => f.symptom.kind === "issue" && f.symptom.issueTypeId ? [f.symptom.issueTypeId] : []));
   const say = (id: string, text: string) => setNotes(n => ({ ...n, [id]: text }));
 
   const take = async (a: Alert, open: boolean) => {
@@ -76,6 +81,8 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
                   : <>Resolved {a.resolvedBy ? <>by {a.resolvedBy.name}</> : "on its own"} {ago(a.resolvedAt)}</>}</span>
               </div>
               {a.resolution && <p className="small muted">{a.resolution}</p>}
+              {a.issueTypeId && withFix.has(a.issueTypeId) && a.state !== "resolved" && <KnownFixes symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} />}
+              {a.issueTypeId && a.state === "claimed" && (mine || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} />}
               {notes[a.id] && <p className="small error" role="alert">{notes[a.id]}</p>}
               {resolving === a.id && (
                 <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void resolve(a); }}>
