@@ -1,6 +1,7 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
 import { cabinetTime, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
+import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
@@ -125,6 +126,13 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const t = await cabinetTime(o.pool, id(request));
     if (!t) throw new Refused("not_found", 404, "no such cabinet");
     return t;
+  });
+
+  app.put("/api/sites/:id/network-baseline", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const body = consoleBodies.siteNetworkBaseline.parse(request.body);
+    await setNetworkBaseline(o.pool, u.userId, id(request), body.baseline, boundTo(body.stepUpToken, body));
+    return { baseline: body.baseline };
   });
 
   app.put("/api/sites/:id/time-zone", async request => {

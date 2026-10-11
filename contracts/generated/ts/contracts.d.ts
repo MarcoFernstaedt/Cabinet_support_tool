@@ -233,6 +233,20 @@ export interface WatchedServiceStatus {
 export type WatchedServiceNames = string[];
 
 /**
+ * What a site's network should look like (set by a Tier 2 or Admin): whether cabinets take their address from DHCP or have fixed ones, the subnet's size, the gateway, and the DNS servers. The diagnosis compares each cabinet with it.
+ */
+export interface NetworkBaseline {
+  addressing: "dhcp" | "static";
+  prefixLength: number;
+  gateway: string;
+  /**
+   * @minItems 1
+   * @maxItems 4
+   */
+  dnsServers: [string, ...string[]];
+}
+
+/**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
 export interface UpgradeKeys {
@@ -568,14 +582,14 @@ export interface FleetCabinetsQuery {
 }
 
 /**
- * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}.
+ * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.
  */
 export interface FleetJob {
   /**
    * Chosen by the console, so the confirmation is bound to this one job.
    */
   jobId: string;
-  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy";
+  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp";
   /**
    * @minItems 1
    * @maxItems 200
@@ -592,7 +606,7 @@ export interface FleetJob {
  * Shows what a fleet operation would do on each chosen cabinet, and which it would skip and why, without changing anything.
  */
 export interface FleetPreview {
-  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy";
+  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp";
   /**
    * @minItems 1
    * @maxItems 200
@@ -638,6 +652,21 @@ export interface NameChange {
    */
   stepUpToken: string;
 }
+
+/**
+ * Starts the network diagnosis on up to 60 chosen cabinets, or on every active cabinet of one site. Read only: it runs the same reads and tests as one cabinet's diagnosis, as the person who asked.
+ */
+export type NetworkDiagnosisStart =
+  | {
+      /**
+       * @minItems 1
+       * @maxItems 60
+       */
+      cabinetIds: [string, ...string[]];
+    }
+  | {
+      siteId: string;
+    };
 
 /**
  * Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.
@@ -833,6 +862,14 @@ export interface SiteCreate {
 }
 
 /**
+ * Sets a site's network baseline, or clears it with null. Confirmed with an authenticator code bound to this exact baseline. Nothing changes on a cabinet; the network diagnosis compares cabinets with it.
+ */
+export interface SiteNetworkBaseline {
+  baseline: NetworkBaseline | null;
+  stepUpToken: string;
+}
+
+/**
  * Sets the Windows time zone a site's cabinets should use (Tier 2 and up), or clears it with null. Cabinets in another zone get a minor alert; nothing changes on a cabinet until someone corrects it.
  */
 export interface SiteTimeZone {
@@ -921,7 +958,8 @@ export interface StepUpRequest {
     | "client.sync"
     | "settings.sync"
     | "client.firewall_policy"
-    | "fleet.firewall_policy";
+    | "fleet.firewall_policy"
+    | "site.network_baseline";
   /**
    * The ID the action applies to, or 'fleet'.
    */

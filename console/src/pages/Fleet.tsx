@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { api, describeError } from "../lib/api";
@@ -13,6 +13,7 @@ import { useAlertNews } from "../lib/commands";
 import { DemoTag } from "../components/DemoBanner";
 import { BulkPolicyApply, PolicyEditor, type Policy } from "../components/FirewallPolicy";
 import { WatchListEditor } from "./cabinet/Services";
+import { useStartDiagnosis } from "./NetworkDiagnosis";
 
 interface ClientRow { id: string; name: string; demo?: boolean; sites: number; cabinets: number; offline: number; openAlerts: number; openMajor: number; }
 
@@ -105,7 +106,7 @@ export function ClientPage({ id }: { id: string }) {
 }
 
 export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
-interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null;
+interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
   sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   cabinets: CabinetRow[]; }
@@ -134,6 +135,7 @@ export function SitePage({ id }: { id: string }) {
             </tr>))}
           </tbody>
         </table>
+        <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SyncSettings key={data.id} siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
@@ -148,6 +150,57 @@ export function SitePage({ id }: { id: string }) {
         <BulkPolicyApply key={`bulk-${data.id}`} scope="site" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
+  );
+}
+
+interface Baseline { addressing: "dhcp" | "static"; prefixLength: number; gateway: string; dnsServers: string[] }
+
+/**
+ * The site's network: its baseline (what the network should look like), and the diagnosis of every cabinet here at once. A
+ * baseline changes nothing on a cabinet; it is what the diagnosis compares each cabinet with. Tier 2 and up set it.
+ */
+function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { siteId: string; name: string; baseline: Baseline | null; cabinets: number; editable: boolean; onSaved: () => void }) {
+  const diagnose = useStartDiagnosis();
+  const [form, setForm] = useState({ addressing: baseline?.addressing ?? "dhcp", prefixLength: String(baseline?.prefixLength ?? 24), gateway: baseline?.gateway ?? "", dns: baseline?.dnsServers.join(", ") ?? "" });
+  const [pending, setPending] = useState<{ baseline: Baseline | null } | undefined>();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  // Opened from the demo guide: run the diagnosis straight away.
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("diagnose") === "network") void diagnose.start({ siteId }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const parsed = (): Baseline => ({ addressing: form.addressing as "dhcp" | "static", prefixLength: Number(form.prefixLength), gateway: form.gateway.trim(), dnsServers: form.dns.split(/[\s,]+/).filter(Boolean) });
+  return (
+    <section className="panel" aria-labelledby={`net-${siteId}`}>
+      <div className="panel-head">
+        <div>
+          <h2 id={`net-${siteId}`}>Network at {name}</h2>
+          <p className="muted small">Check every cabinet here at once: link, address, gateway, DNS, the sync cabinet and the firewall, compared with the baseline below. Where something differs, the fix is offered.</p>
+        </div>
+        <button className="btn primary" onClick={() => void diagnose.start({ siteId })} disabled={diagnose.busy || cabinets === 0 || cabinets > 60}>
+          {diagnose.busy ? "Starting…" : `Diagnose network (${cabinets} ${cabinets === 1 ? "cabinet" : "cabinets"})`}</button>
+      </div>
+      {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
+      {baseline
+        ? <p>Baseline: <strong>{baseline.addressing === "dhcp" ? "addresses from DHCP" : "fixed addresses"}</strong>, gateway <code>{baseline.gateway}</code>/{baseline.prefixLength}, DNS <code>{baseline.dnsServers.join(", ")}</code>.</p>
+        : <p className="notice warn">No baseline is set for this site, so the diagnosis cannot tell whether an address, gateway or DNS server is wrong.{editable ? " Set it below." : " A Tier 2 person can set it."}</p>}
+      {editable && (
+        <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setPending({ baseline: parsed() }); }}>
+          <label className="field inline"><span>Addresses</span>
+            <select value={form.addressing} onChange={e => setForm(f => ({ ...f, addressing: e.target.value as "dhcp" | "static" }))}><option value="dhcp">From DHCP</option><option value="static">Fixed</option></select></label>
+          <label className="field inline"><span>Gateway</span><input required value={form.gateway} onChange={e => setForm(f => ({ ...f, gateway: e.target.value }))} placeholder="10.21.4.1" size={14} /></label>
+          <label className="field inline"><span>Prefix length</span><input required inputMode="numeric" value={form.prefixLength} onChange={e => setForm(f => ({ ...f, prefixLength: e.target.value.replace(/\D/g, "") }))} size={3} /></label>
+          <label className="field inline"><span>DNS servers (up to 4)</span><input required value={form.dns} onChange={e => setForm(f => ({ ...f, dns: e.target.value }))} placeholder="10.21.4.10, 10.21.4.11" size={26} /></label>
+          <button className="btn" type="submit">Save baseline</button>
+          {baseline && <button className="btn ghost" type="button" onClick={() => { setProblem(null); setSaved(false); setPending({ baseline: null }); }}>Remove</button>}
+          {saved && <span className="ok" role="status">Saved.</span>}
+          {problem && <span className="error" role="alert">{problem}</span>}
+        </form>)}
+      <StepUpDialog open={pending !== undefined} action="site.network_baseline" target={siteId} params={{ baseline: pending?.baseline ?? null }} onClose={() => setPending(undefined)}
+        description={<p>{pending?.baseline ? <>Set the network baseline for <strong>{name}</strong>: {pending.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {pending.baseline.gateway}/{pending.baseline.prefixLength}, DNS {pending.baseline.dnsServers.join(", ")}.</> : <>Remove the network baseline for <strong>{name}</strong>.</>} Nothing changes on a cabinet.</p>}
+        onToken={async token => {
+          try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: pending?.baseline ?? null, stepUpToken: token }); setSaved(true); onSaved(); }
+          catch (e) { setProblem(describeError(e)); throw e; }
+        }} />
+    </section>
   );
 }
 

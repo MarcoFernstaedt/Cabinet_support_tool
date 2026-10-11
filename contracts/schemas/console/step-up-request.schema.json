@@ -67,7 +67,8 @@
         "client.sync",
         "settings.sync",
         "client.firewall_policy",
-        "fleet.firewall_policy"
+        "fleet.firewall_policy",
+        "site.network_baseline"
       ]
     },
     "target": {

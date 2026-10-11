@@ -15,7 +15,9 @@
       "enum": [
         "time.setZone",
         "time.sync",
-        "firewall.applyPolicy"
+        "firewall.applyPolicy",
+        "network.setDns",
+        "network.setIp"
       ]
     },
     "cabinetIds": {

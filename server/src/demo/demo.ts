@@ -18,6 +18,9 @@ import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageError
 import { evaluateTime } from "../services/time.js";
 import { checkSiteOutages } from "../services/site-outage.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
+import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
+import { raiseBaselineAlert } from "../diagnose/network.js";
+import type { NetworkBaseline } from "../diagnose/network-findings.js";
 
 const SETTING = "demo.enabled";
 const AGENT_VERSION = "1.4.2";
@@ -129,6 +132,7 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
 /** Adds the simulated fleet. Idempotent: does nothing if it is already there. */
 export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
   const cabinets: { id: string; scenario: Scenario }[] = [];
+  const netAlerts: { id: string; problems: string[] }[] = [];
   await transaction(pool, async c => {
     await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, 'true', $2)
                    ON CONFLICT (key) DO UPDATE SET value = 'true', changed_by = EXCLUDED.changed_by, changed_at = now()`, [SETTING, userId]);
@@ -139,16 +143,21 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
       await c.query("INSERT INTO clients (id, name, demo, watched_services, sync_ports) VALUES ($1, $2, true, $3, $4)", [clientId, client.name, ["BioScanSvc"], [1433]]);
       for (const site of client.sites) {
         const siteId = randomUUID();
-        await c.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone) VALUES ($1, $2, $3, $4, $5)", [siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone]);
+        const baseline = baselineFor(site.subnet, site.addressing);
+        await c.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone, network_baseline) VALUES ($1, $2, $3, $4, $5, $6)",
+          [siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone, safeJson(baseline)]);
         for (const [i, k] of site.cabinets.entries()) {
           const id = randomUUID();
           cabinets.push({ id, scenario: k.scenario });
+          const net = initialNet(k.scenario, baseline, site.subnet, i);
+          const problems = netProblems(net, baseline);
+          if (problems.length > 0) netAlerts.push({ id, problems });
           await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles,
-                                              time_zone_id, clock_skew_seconds)
-                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12)`,
+                                              time_zone_id, clock_skew_seconds, demo_net)
+                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12, $13)`,
             [id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
              safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
-             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3]);
+             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net)]);
         }
         siteIndex++;
       }
@@ -185,6 +194,8 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
       await pool.query("UPDATE cabinets SET last_heartbeat_at = $2, uptime_seconds = 160 WHERE id = $1", [k.id, new Date(first + 23 * 60_000)]);
     }
   }
+  // What the platform's regular check of each cabinet against its site's baseline would have found.
+  for (const a of netAlerts) await raiseBaselineAlert(pool, a.id, a.problems);
   await checkOffline(pool);
   await checkQuietLoops(pool);
   await checkSiteOutages(pool);
@@ -233,8 +244,8 @@ async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles):
 
 async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | null> {
   const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; sync_blocked: boolean; position: string;
-                               zone: string | null; skew: number | null }>(
-    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew,
+                               zone: string | null; skew: number | null; net: DemoNet | null; baseline: NetworkBaseline | null }>(
+    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew, k.demo_net AS net, s.network_baseline AS baseline,
             COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched,
             k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
               AND ((y.firewall_profiles->>'domain')::boolean OR (y.firewall_profiles->>'private')::boolean OR (y.firewall_profiles->>'public')::boolean)) AS sync_blocked,
@@ -245,9 +256,11 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
     `SELECT source->>'log' AS log, source->>'source' AS source, (source->>'eventId')::int AS event_id, source->>'level' AS level, occurred_at,
             COALESCE(detail->>'message', '') AS message, (source->>'recordId')::bigint AS record_id
        FROM events WHERE cabinet_id = $1 AND kind IN ('error', 'change') AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
-  return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet: (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join("."),
+  const subnet = (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join(".");
+  return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet,
     index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], syncBlocked: k.sync_blocked, now: new Date(),
     timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,
+    baseline: k.baseline ?? baselineFor(subnet), net: k.net ?? initialNet(k.scenario, k.baseline ?? baselineFor(subnet), subnet, Number(k.position)),
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
 }
 
@@ -272,6 +285,13 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     await pool.query("UPDATE cabinets SET demo_scenario = CASE WHEN demo_scenario = 'firewall_drift' AND NOT ($2::jsonb->>'public')::boolean THEN 'healthy' ELSE demo_scenario END WHERE id = $1",
       [cabinetId, safeJson(profiles)]);
     await heartbeat(pool, cabinetId, profiles);
+  }
+  // A network change is kept on the simulated cabinet, so the next check (and the read-back that verifies a fix) sees it.
+  if (command.operation === "network.setIp" || command.operation === "network.setDns") {
+    const p = command.params as never;
+    const next = command.operation === "network.setIp" ? applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, p) : applySetDns(ctx.net, ctx.baseline, p);
+    const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
+    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
   }
   // A corrected zone or synced clock shows in the next heartbeat, and its alert closes.
   if (command.operation === "time.setZone") {

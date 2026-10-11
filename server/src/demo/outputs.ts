@@ -1,6 +1,8 @@
 // What a simulated cabinet answers to each operation. Each answer starts from the operation's own valid contract example
 // and is changed to fit the cabinet and its scenario; the server checks every answer against the output schema exactly as
 // it does a real agent's (storeResult), so a demo answer can never show something a real cabinet could not.
+import { applySetDns, applySetIp, dnsAnswers, reachesGateway, type DemoNet } from "./network.js";
+import type { NetworkBaseline } from "../diagnose/network-findings.js";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
@@ -20,6 +22,9 @@ export interface DemoContext {
   /** The cabinet's Windows time zone and how far its clock is from the server's, as its heartbeat reports them. */
   timeZoneId: string;
   clockSkewSeconds: number;
+  /** The cabinet's own network settings and its site's baseline (what the site's network really is). */
+  net: DemoNet;
+  baseline: NetworkBaseline;
 }
 
 const cache = new Map<string, unknown>();
@@ -155,23 +160,38 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     }
     case "network.config": {
       const o = example("network.config", "one-adapter.json");
-      const a = o.adapters[0];
-      a.ipv4.addresses = [{ address: address(ctx), prefixLength: 24 }];
-      a.ipv4.gateways = [`${ctx.subnet}.1`];
-      a.dns.servers = ctx.scenario === "dns_errors" ? [`${ctx.subnet}.10`, "10.255.255.254"] : [`${ctx.subnet}.10`, `${ctx.subnet}.11`];
+      const a = o.adapters[0], n = ctx.net;
+      a.connected = n.linkUp; a.linkSpeedBps = n.linkUp ? n.speedBps : null;
+      a.ipv4 = { dhcp: n.mode === "dhcp", addresses: [{ address: n.address, prefixLength: n.prefixLength }], gateways: n.gateway ? [n.gateway] : [] };
+      a.dns = { automatic: n.dnsAutomatic, servers: [...n.dns] };
       a.macAddress = `00-1B-21-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-4F-5C`;
       a.ipv6Addresses = [];
       return o;
     }
     case "network.test": {
+      const n = ctx.net, b = ctx.baseline, up = reachesGateway(n, b);
       const ok = { target: params.target, method: params.method, resolvedTarget: null, success: true, latencyMs: 1 + (ctx.index % 4), resolvedAddresses: [], error: null };
-      const resolved = params.target === "gateway" ? `${ctx.subnet}.1` : params.target === "dns_server" ? `${ctx.subnet}.${10 + (params.dnsServerIndex ?? 0)}`
+      const fail = (resolvedTarget: string | null, error: string) => ({ ...ok, resolvedTarget, success: false, latencyMs: null, error });
+      const server = n.dns[params.dnsServerIndex ?? 0];
+      const resolved = params.target === "gateway" ? n.gateway : params.target === "dns_server" ? server ?? null
         : params.target === "sync_cabinet" ? (params.syncAddress ?? `${ctx.subnet}.20`) : null;
-      if (ctx.scenario === "dns_errors" && (params.method === "dns" || (params.target === "dns_server" && (params.dnsServerIndex ?? 0) === 1)))
-        return { ...ok, resolvedTarget: resolved, success: false, latencyMs: null, error: "No answer within 2 seconds." };
-      if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp")
-        return { ...ok, resolvedTarget: resolved, success: false, latencyMs: null, error: `Port ${params.port ?? 1433} did not answer within 3 seconds.` };
-      return { ...ok, resolvedTarget: resolved, latencyMs: params.target === "platform_server" ? 38 + ctx.index : ok.latencyMs };
+      if (!n.linkUp) return fail(resolved, "The network cable is unplugged.");
+      if (params.target === "gateway") return n.gateway === null ? fail(null, "No default gateway is set.") : up ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds.");
+      if (params.target === "dns_server") return server === undefined ? fail(null, "No DNS server is set.") : dnsAnswers(n, b, server) ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds.");
+      if (params.target === "platform_server") return up && n.dns.some(s => dnsAnswers(n, b, s)) ? { ...ok, latencyMs: 38 + ctx.index } : fail(null, "The name could not be resolved.");
+      if (params.target === "sync_cabinet" && !up) return fail(resolved, params.method === "tcp" ? `Port ${params.port ?? 1433} did not answer within 3 seconds.` : "No answer within 2 seconds.");
+      if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp") return fail(resolved, `Port ${params.port ?? 1433} did not answer within 3 seconds.`);
+      return { ...ok, resolvedTarget: resolved };
+    }
+    case "network.setIp": {
+      const next = applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, params as never);
+      const ip = (n: DemoNet) => ({ dhcp: n.mode === "dhcp", addresses: [{ address: n.address, prefixLength: n.prefixLength }], gateways: n.gateway ? [n.gateway] : [] });
+      return { interfaceIndex: params.interfaceIndex, before: ip(ctx.net), after: ip(next), safetyNetDeadline: noMs(new Date(ctx.now.getTime() + 120_000)) };
+    }
+    case "network.setDns": {
+      const next = applySetDns(ctx.net, ctx.baseline, params as never);
+      return { interfaceIndex: params.interfaceIndex, before: { automatic: ctx.net.dnsAutomatic, servers: ctx.net.dns }, after: { automatic: next.dnsAutomatic, servers: next.dns },
+        safetyNetDeadline: noMs(new Date(ctx.now.getTime() + 120_000)) };
     }
     case "eventlog.query": {
       const o = example("eventlog.query", "page.json");

@@ -6,8 +6,22 @@ import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput } from
 
 export type Severity = "problem" | "warning" | "info" | "ok";
 export type Certainty = "confirmed" | "probable" | "possible" | "not_checked";
-export type FixAction = { kind: "apply_policy"; cabinetId: string; cabinetName: string } | { kind: "open"; section: string; cabinetId: string; label: string };
-export interface Finding { id: string; severity: Severity; certainty: Certainty; title: string; evidence: string[]; fix: string | null; action?: FixAction }
+/** Where in the path a finding sits, so many cabinets can be shown side by side: the link, the address, the gateway, DNS, the platform, the sync cabinet, the firewall. */
+export type Layer = "link" | "address" | "gateway" | "dns" | "platform" | "sync" | "firewall";
+export const LAYERS: readonly Layer[] = ["link", "address", "gateway", "dns", "platform", "sync", "firewall"];
+/** A fix the platform can make. The parameters are the operation's own (network.setDns, network.setIp), filled in by the server from the site baseline. */
+export type FixAction =
+  | { kind: "apply_policy"; cabinetId: string; cabinetName: string }
+  | { kind: "open"; section: string; cabinetId: string; label: string }
+  | { kind: "set_dns"; cabinetId: string; cabinetName: string; interfaceIndex: number; servers: string[]; label: string }
+  | { kind: "use_dhcp"; cabinetId: string; cabinetName: string; interfaceIndex: number; label: string }
+  | { kind: "set_static"; cabinetId: string; cabinetName: string; interfaceIndex: number; address: string; prefixLength: number; gateway: string; label: string };
+export interface Finding {
+  id: string; layer: Layer; severity: Severity; certainty: Certainty; title: string; evidence: string[]; fix: string | null; action?: FixAction;
+  /** The id of the finding that probably explains this one (a wrong DNS setting explains "no DNS server answers"). */
+  causedBy?: string;
+}
+export interface NetworkBaseline { addressing: "dhcp" | "static"; prefixLength: number; gateway: string; dnsServers: string[] }
 
 export interface TestRun { key: string; label: string; params: Record<string, unknown>; output?: NetworkTestOutput; failure?: string }
 export interface Profiles { domain: boolean; private: boolean; public: boolean }
@@ -17,6 +31,8 @@ export interface NetworkEvidence {
   firewall?: FirewallStateOutput; firewallFailure?: string;
   /** What the client's firewall policy asks for (true = on). */
   policy: Profiles;
+  /** What the site's network should look like; null when nobody has set it. */
+  baseline?: NetworkBaseline | null;
   sync: { address: string | null; ports: number[]; cabinet: { id: string; name: string; online: boolean; minutesSilent: number | null; profiles: Profiles | null } | null };
   tests: TestRun[];
 }
@@ -25,14 +41,40 @@ const PROFILE_NAMES = ["domain", "private", "public"] as const;
 const onOff = (p: Profiles) => PROFILE_NAMES.map(k => `${k[0]!.toUpperCase()}${k.slice(1)} ${p[k] ? "on" : "off"}`).join(", ");
 const differs = (want: Profiles, have: Profiles) => PROFILE_NAMES.some(k => want[k] !== have[k]);
 const isApipa = (a: string) => a.startsWith("169.254.");
+const octets = (a: string): number | null => {
+  const p = a.split(".");
+  if (p.length !== 4) return null;
+  let n = 0;
+  for (const x of p) {
+    if (x === "" || x.length > 3 || [...x].some(ch => ch < "0" || ch > "9")) return null;
+    const v = Number(x);
+    if (v > 255) return null;
+    n = n * 256 + v;
+  }
+  return n;
+};
+/** Whether two IPv4 addresses are on the same network of this size. */
+export function sameSubnet(a: string, b: string, prefix: number): boolean {
+  const x = octets(a), y = octets(b);
+  if (x === null || y === null || prefix < 0 || prefix > 32) return false;
+  const mask = prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+  return ((x & mask) >>> 0) === ((y & mask) >>> 0);
+}
+const networkOf = (b: NetworkBaseline) => { const g = octets(b.gateway)!; const mask = b.prefixLength === 0 ? 0 : (0xffffffff << (32 - b.prefixLength)) >>> 0;
+  const n = (g & mask) >>> 0; return `${n >>> 24}.${(n >>> 16) & 255}.${(n >>> 8) & 255}.${n & 255}/${b.prefixLength}`; };
+const list = (xs: string[]) => xs.length ? xs.join(", ") : "none";
 const describe = (t: TestRun) => !t.output ? `${t.label}: no result (${t.failure ?? "no answer"})`
   : t.output.success ? `${t.label}: reached${t.output.resolvedTarget ? ` ${t.output.resolvedTarget}` : ""}${t.output.latencyMs !== null ? ` in ${t.output.latencyMs} ms` : ""}`
   : `${t.label}: failed${t.output.resolvedTarget ? ` (${t.output.resolvedTarget})` : ""}${t.output.error ? `: ${t.output.error}` : ""}`;
 const RANK: Record<Severity, number> = { problem: 0, warning: 1, info: 2, ok: 3 };
 
+const LAYER_OF: [string, Layer][] = [["link", "link"], ["speed-", "link"], ["config", "link"], ["ip-", "address"], ["baseline-addressing", "address"], ["baseline-ok", "address"], ["baseline-subnet", "address"],
+  ["gateway", "gateway"], ["baseline-gateway", "gateway"], ["dns", "dns"], ["baseline-dns", "dns"], ["platform", "platform"], ["sync", "sync"], ["firewall", "firewall"]];
+const layerOf = (id: string): Layer => LAYER_OF.filter(([p]) => id.startsWith(p)).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? "link";
+
 export function networkFindings(e: NetworkEvidence): Finding[] {
   const f: Finding[] = [];
-  const add = (x: Finding) => f.push(x);
+  const add = (x: Omit<Finding, "layer">) => f.push({ ...x, layer: layerOf(x.id) });
   const tests = (prefix: string) => e.tests.filter(t => t.key.startsWith(prefix));
   const answered = (t: TestRun) => t.output !== undefined;
   const ok = (t: TestRun) => t.output?.success === true;
@@ -52,8 +94,9 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
       if (v4.length === 0 || v4.every(isApipa))
         add({ id: `ip-${a.interfaceIndex}`, severity: "problem", certainty: "confirmed", title: `No usable IP address on ${a.name}`,
           evidence: [v4.length === 0 ? `${a.name} is connected but has no IPv4 address.` : `${a.name} has only ${v4.join(", ")}: Windows gave itself a 169.254 address because no DHCP server answered.`],
-          fix: a.ipv4.dhcp ? "The DHCP server did not answer. Check the DHCP server for this network and that the switch port is on the right VLAN; then renew the address (ipconfig /renew) or restart the adapter."
-            : "The address is set by hand but missing: set the correct static address under Network → Edit IP." });
+          fix: a.ipv4.dhcp ? "The DHCP server did not answer this cabinet. Renew the lease (one step below). If it keeps failing, check the DHCP server and that the switch port is on the right VLAN."
+            : "The address is set by hand but missing: set the correct static address under Network → Edit IP.",
+          ...(a.ipv4.dhcp ? { action: { kind: "use_dhcp" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, label: `Renew the DHCP lease on ${a.name}` } } : {}) });
       else add({ id: `ip-${a.interfaceIndex}`, severity: "ok", certainty: "confirmed", title: `${a.name} has an address`, evidence: [`${v4.join(", ")} (${a.ipv4.dhcp ? "DHCP" : "static"})`], fix: null });
       if (a.type === "ethernet" && a.linkSpeedBps !== null && a.linkSpeedBps > 0 && a.linkSpeedBps <= 100_000_000)
         add({ id: `speed-${a.interfaceIndex}`, severity: "warning", certainty: "probable", title: `${a.name} linked at only ${a.linkSpeedBps / 1e6} Mbps`,
@@ -65,6 +108,46 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
     if (connected.length > 0 && connected.every(a => a.ipv4.gateways.length === 0))
       add({ id: "gateway-none", severity: "problem", certainty: "confirmed", title: "No default gateway",
         evidence: connected.map(a => `${a.name}: no gateway`), fix: "Traffic cannot leave the local network. Fix the gateway in the adapter's IP settings (Network → Edit IP), or the DHCP scope if it is automatic." });
+
+    // ---- Against the site's baseline ---------------------------------------------------------
+    const b = e.baseline ?? null;
+    if (b) for (const a of connected) {
+      const addr = a.ipv4.addresses.find(x => !isApipa(x.address));
+      const before = f.length;
+      if (addr && !sameSubnet(addr.address, b.gateway, b.prefixLength)) {
+        add({ id: `baseline-subnet-${a.interfaceIndex}`, severity: "problem", certainty: "confirmed", title: `${a.name} has an address outside the site's network`,
+          evidence: [`${a.name} is ${addr.address}/${addr.prefixLength} (${a.ipv4.dhcp ? "DHCP" : "set by hand"}); the baseline for this site is ${networkOf(b)} with gateway ${b.gateway}.`,
+            "A cabinet on another network cannot reach the site's gateway, DNS servers or sync cabinet."],
+          fix: b.addressing === "dhcp" ? `This site uses DHCP: switch ${a.name} back to DHCP to get an address on ${networkOf(b)}.`
+            : `This site uses fixed addresses: set ${a.name}'s address to one inside ${networkOf(b)} (Network → Edit IP).`,
+          ...(b.addressing === "dhcp" ? { action: { kind: "use_dhcp" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, label: `Switch ${a.name} to DHCP` } } : {}) });
+        continue;
+      }
+      if (addr && b.addressing === "dhcp" && !a.ipv4.dhcp)
+        add({ id: `baseline-addressing-${a.interfaceIndex}`, severity: "warning", certainty: "confirmed", title: `${a.name} has a fixed address, but this site uses DHCP`,
+          evidence: [`${a.name} is set by hand to ${addr.address}. The baseline says addresses come from DHCP, so this one will not follow changes to the DHCP scope.`],
+          fix: `Switch ${a.name} to DHCP.`,
+          action: { kind: "use_dhcp" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, label: `Switch ${a.name} to DHCP` } });
+      const gw = a.ipv4.gateways[0];
+      if (addr && gw !== undefined && gw !== b.gateway)
+        add({ id: `baseline-gateway-${a.interfaceIndex}`, severity: "problem", certainty: "confirmed", title: `${a.name} uses the wrong gateway`,
+          evidence: [`${a.name}'s gateway is ${gw}; the baseline for this site is ${b.gateway}.`, "Traffic to other networks goes to an address that is not the site's router."],
+          fix: a.ipv4.dhcp ? "The gateway comes from DHCP, so the DHCP scope hands out the wrong router: fix it on the DHCP server." : `Set the gateway to ${b.gateway}; the address stays ${addr.address}.`,
+          ...(!a.ipv4.dhcp ? { action: { kind: "set_static" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, address: addr.address,
+            prefixLength: b.prefixLength, gateway: b.gateway, label: `Set the gateway to ${b.gateway}` } } : {}) });
+      const have = [...a.dns.servers].sort(), want = [...b.dnsServers].sort();
+      if (have.length > 0 && (have.length !== want.length || have.some((x, i) => x !== want[i]))) {
+        const none = !a.dns.servers.some(x => b.dnsServers.includes(x));
+        add({ id: `baseline-dns-${a.interfaceIndex}`, severity: none ? "problem" : "warning", certainty: "confirmed", title: `${a.name} uses DNS servers that are not the site's`,
+          evidence: [`${a.name} uses ${list(a.dns.servers)}; the baseline for this site is ${list(b.dnsServers)}.`,
+            none ? "None of the site's DNS servers is in use, so names on the site network may not resolve." : "Some of the site's DNS servers are missing or extra ones are listed."],
+          fix: `Set ${a.name}'s DNS servers to ${list(b.dnsServers)}.`,
+          action: { kind: "set_dns" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, servers: b.dnsServers, label: `Set DNS to ${list(b.dnsServers)}` } });
+      }
+      if (addr && f.length === before)
+        add({ id: `baseline-ok-${a.interfaceIndex}`, severity: "ok", certainty: "confirmed", title: `${a.name} matches the site baseline`,
+          evidence: [`Address ${addr.address} is on ${networkOf(b)}, the gateway is ${b.gateway}, DNS is ${list(b.dnsServers)}, ${b.addressing === "dhcp" ? "from DHCP" : "fixed"}.`], fix: null });
+    }
   }
 
   // ---- Gateway, DNS, platform ------------------------------------------------------------
@@ -149,5 +232,25 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
     else add({ id: "firewall", severity: "ok", certainty: "confirmed", title: "The firewall matches the client policy", evidence: [onOff(have)], fix: null });
   } else add({ id: "firewall", severity: "info", certainty: "not_checked", title: "Could not read the firewall", evidence: [e.firewallFailure ?? "No answer."], fix: null });
 
+  // A wrong subnet, gateway or DNS setting explains the failed tests that follow from it: link them, so the cause is fixed first.
+  const causes = f.filter(x => x.id.startsWith("baseline-") && x.severity === "problem");
+  const link = (ids: string[], layers: Layer[]) => {
+    const cause = causes.find(c => layers.includes(c.layer));
+    if (cause) for (const x of f) if (ids.some(i => x.id === i || x.id.startsWith(i)) && x.severity !== "ok" && x.severity !== "info") x.causedBy = cause.id;
+  };
+  const subnetCause = causes.find(c => c.id.startsWith("baseline-subnet"));
+  if (subnetCause) for (const x of f) if (["gateway", "dns-", "platform-dns", "sync-down", "sync-firewall", "sync-port"].some(i => x.id === i || x.id.startsWith(i)) && (x.severity === "problem" || x.severity === "warning")) x.causedBy = subnetCause.id;
+  link(["gateway"], ["gateway"]);
+  link(["dns-all", "dns-dns", "platform-dns"], ["dns"]);
   return f.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+}
+
+/** One word per layer for a cabinet: how its path looks from the link up to the firewall. "unknown" when nothing there could be checked. */
+export function layerStates(findings: Finding[]): Record<Layer, "ok" | "warning" | "problem" | "unknown"> {
+  const out = {} as Record<Layer, "ok" | "warning" | "problem" | "unknown">;
+  for (const layer of LAYERS) {
+    const mine = findings.filter(x => x.layer === layer);
+    out[layer] = mine.some(x => x.severity === "problem") ? "problem" : mine.some(x => x.severity === "warning") ? "warning" : mine.some(x => x.severity === "ok") ? "ok" : "unknown";
+  }
+  return out;
 }

@@ -1,0 +1,58 @@
+# Network troubleshooting
+
+Find where a network problem is, on one cabinet, several, or a whole site, and fix it. Built in October 2026 on the diagnosis from milestone 11. (Emergency offline access, in [14-emergency-access.md](14-emergency-access.md), is a separate milestone.)
+
+## The site baseline
+
+Each site can have a baseline: what its network should look like.
+
+| Setting | Meaning |
+|---|---|
+| Addressing | Cabinets take their address from DHCP, or have fixed addresses |
+| Gateway and prefix length | The site's router and the size of its network (for example 10.21.4.1 and /24) |
+| DNS servers | Up to four |
+
+A Tier 2 or Admin person sets it on the site page, with an authenticator code bound to the exact baseline. Setting it changes nothing on a cabinet. Without a baseline, the diagnosis still runs every check but cannot say whether an address, gateway or DNS server is wrong.
+
+## What a diagnosis does
+
+For each cabinet it reads the network settings and firewall, then tests the gateway, every DNS server, the platform server's name, and (on a satellite) the sync cabinet's ping and ports. Then it compares:
+
+- the **address** with the baseline's network (an address from another network, a 169.254 address from a failed DHCP lease, a fixed address where the site uses DHCP);
+- the **gateway** with the baseline's;
+- the **DNS servers** with the baseline's;
+- the **firewall** with the client policy, and the sync cabinet's firewall when a satellite cannot reach it.
+
+Every finding says how sure it is (confirmed, probable, possible, could not check) and where it sits in the path: link, address, gateway, DNS, platform, sync cabinet, firewall. A failed test that follows from a wrong address, gateway or DNS server is marked as probably a result of it and is not listed as a separate problem. A cabinet that differs from its baseline gets a minor "Network settings differ from the site baseline" alert, which a later clean diagnosis closes.
+
+## Fixes
+
+| Finding | Fix | Operation | Confirmation |
+|---|---|---|---|
+| Firewall differs from policy, or blocks the sync cabinet | Apply the client's policy (on the sync cabinet when it is the one blocking) | `firewall.applyPolicy` | One click (Tier 1 and up) |
+| DNS servers differ from the baseline | Set the baseline's DNS servers | `network.setDns` | Authenticator code (Tier 2 and up) |
+| Address from another network, a fixed address at a DHCP site, or no DHCP lease | Switch to DHCP, which also renews the lease | `network.setIp` | Authenticator code (Tier 2 and up) |
+| Wrong gateway on a fixed address | Set the baseline's gateway, keeping the address | `network.setIp` | Authenticator code (Tier 2 and up) |
+| Link at 100 Mbps, no link, a wrong DHCP scope | No remote fix: what to check is stated | none | none |
+
+The network changes keep the safety net: if the cabinet cannot reach the platform after the change, it goes back to its old settings by itself. The same change on several cabinets runs as a fleet operation, confirmed with the password: the server takes each cabinet's change from its latest diagnosis (at most 30 minutes old), changes the cabinets a few at a time, and reads each cabinet's settings back to check the change. Cabinets with no current finding are skipped.
+
+## Many cabinets at once
+
+"Diagnose network" on the site page checks every cabinet at the site; on Fleet operations it checks the selected cabinets (up to 60). At most 8 are checked at once; offline cabinets are listed, not waited for; one batch runs at a time per person. The result page groups the same problem on many cabinets into one row with its fix, and shows each cabinet's path in a table.
+
+## Demo
+
+Every simulated site has a baseline. The demo's network faults:
+
+| Where | Fault | Fix |
+|---|---|---|
+| Dallas Uptown (3 of 4 cabinets) | Still pointing at the old DNS servers | One bulk fix |
+| New York, Pharmacy Sync | Firewall on, blocking its satellites | One click |
+| New York, Lab | Fixed address from another network | Switch to DHCP |
+| Phoenix, Front Desk | No DHCP lease (169.254) | Renew via DHCP |
+| Chicago (fixed addresses), Triage | Wrong gateway | Set the baseline gateway |
+| Chicago, ER North | One DNS server that no longer answers | Set the baseline DNS servers |
+| Denver, Rounds | Link at 100 Mbps | None: replace the cable |
+
+A fix changes the simulated cabinet's own settings, so the next diagnosis shows it fixed.

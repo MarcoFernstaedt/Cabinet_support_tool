@@ -30,7 +30,7 @@ How to show the platform to the support team: your real agent on your own Window
 
 ## What demo mode is
 
-- **What it adds.** Demo mode adds 4 simulated clients with 101 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting.
+- **What it adds.** Demo mode adds 4 simulated clients with 106 cabinets, next to your real cabinets. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting (none of them a site's sync cabinet).
   - The sites are in the Eastern, Central, Mountain, Arizona and Pacific time zones.
   - Each simulated client is named "Demo · …" and carries a purple **Demo** tag.
   - Each simulated cabinet says "Demo: simulated cabinet".
@@ -56,11 +56,15 @@ How to show the platform to the support team: your real agent on your own Window
 | Lakeside Health, Chicago | ER North | DNS lookups failing; the second DNS server does not answer. |
 | | Oncology | Windows update KB5050011 failing (0x80070643). |
 | Lakeside Health, Denver | ICU Sync | New, unrecognized application errors for the triage view. |
-| | Step-down | Offline for 6 days. |
+| | Step-down | Offline for 6 days (the only cabinet in the demo that is simply offline). |
 | Summit Animal Hospitals, Austin | Isolation | Repeated blue screens: a second cabinet with the same crash. |
 | Riverside, New York | ICU | Clock about 7 minutes fast. Fix: Time → Sync the clock. |
 | Riverside, Phoenix; Riverside, San Diego; Summit, Austin | Exam Wing, Recovery, Surgery Suite | Set to the wrong Windows time zone (Phoenix set to Mountain with daylight saving, not Arizona). Fix: Time → Set to the site's zone. |
-| Summit Animal Hospitals, Dallas | 3 cabinets | The whole site stopped reporting within the same minute, 40 minutes ago: "Whole site offline (network or power)", not three cabinet problems. |
+| Summit Animal Hospitals, Dallas | Uptown Sync, Exam 1, Exam 2 | Still pointing at the old DNS servers (site-wide DNS drift); Exam 3 is fine. |
+| Riverside, New York | Lab | A fixed address from another network. |
+| Riverside, Phoenix | Front Desk | No DHCP lease (a 169.254 address). |
+| Lakeside, Chicago | Triage | A fixed address with the wrong gateway. |
+| Lakeside, Denver | Rounds | The cable negotiated only 100 Mbps (no remote fix). |
 | Harbor Pet Hospitals, 8 sites | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
 
 ## A 15-minute demo script
@@ -75,11 +79,11 @@ How to show the platform to the support team: your real agent on your own Window
    - Turn demo mode on.
    - The Fleet page shows every client, with offline counts and major alerts.
    - The Alerts page lists the major problems across the fleet, worst first, without anyone searching for them.
-3. **The satellite that cannot reach its sync cabinet (3 minutes).**
-   - Open Surgery → Network and click **Diagnose network**. In a few seconds it checks the link, address, gateway, DNS servers, platform server, the sync cabinet and its port, and the firewall.
-   - The finding: **The firewall on Pharmacy Sync is blocking port 1433** (probable cause), with the evidence: ping works, port 1433 does not answer, and Pharmacy Sync reports its firewall on while the policy says off.
-   - Click **Apply the policy on Pharmacy Sync**, then **Apply policy** (one click for Tier 1). Run the diagnosis on Surgery again: the sync cabinet is reachable.
-   - Do the same on your own laptop: Diagnose network runs against the real network it is on.
+3. **Network troubleshooting, a whole site at a time (5 minutes).**
+   - Open **Summit → Dallas Uptown** and click **Diagnose network**. All four cabinets are checked at once. The result groups the problem: **DNS servers differ from the site baseline** on three cabinets, with the evidence (they use the old servers; the baseline says the site's) and one fix.
+   - Click **Set the DNS servers on all 3**, preview what each gets, confirm with your password. Each cabinet is changed and its settings read back. Run the diagnosis again: clean.
+   - Open **Riverside → New York** and diagnose it: the sync cabinet's firewall blocks its satellites (one click to apply the policy, on the sync cabinet), and **Lab** has a fixed address from another network (Switch to DHCP). Phoenix has a cabinet with no DHCP lease; Chicago one with the wrong gateway; Denver a cable at 100 Mbps, which has no remote fix.
+   - On one cabinet (Surgery → Network), the same diagnosis shows the path from link to firewall and the fixes inline.
 4. **The scanner (2 minutes).**
    - Open Treatment Room → Fingerprint scanner.
    - The checklist says it is not connected, lists the reconnects, and says what to try next.

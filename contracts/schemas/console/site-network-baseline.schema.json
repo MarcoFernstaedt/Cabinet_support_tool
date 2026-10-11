@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/site-network-baseline.schema.json",
+  "title": "site-network-baseline",
+  "description": "Sets a site's network baseline, or clears it with null. Confirmed with an authenticator code bound to this exact baseline. Nothing changes on a cabinet; the network diagnosis compares cabinets with it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "baseline",
+    "stepUpToken"
+  ],
+  "properties": {
+    "baseline": {
+      "anyOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/networkBaseline"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stepUpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

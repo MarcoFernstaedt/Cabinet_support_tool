@@ -326,3 +326,19 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 
 /* Wide tables scroll inside their panel rather than the page, at phone width too. */
 .table-wrap { overflow-x: auto; max-width: 100%; }
+
+/* Network path: the layers from the link to the firewall, side by side; words as well as colour */
+.path { list-style: none; margin: var(--s-2) 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: var(--s-1); }
+.path-step { display: flex; flex-direction: column; gap: 2px; padding: var(--s-2); border: 1px solid var(--line); border-left-width: 4px; border-radius: var(--r-md, 8px); background: var(--surface); }
+.path-step .path-name { font-size: .8rem; color: var(--text-2); }
+.path-step .path-state { font-weight: 600; }
+.path-step.ok { border-left-color: var(--ok); } .path-step.warning { border-left-color: var(--warn); } .path-step.problem { border-left-color: var(--crit); } .path-step.unknown { border-left-color: var(--line); }
+.path-step.unknown .path-state { color: var(--muted); font-weight: 400; }
+.fix-action { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.group-card { padding: var(--s-3); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--r-lg); background: var(--surface); margin: var(--s-2) 0; }
+.group-card.problem { border-left-color: var(--crit); } .group-card.warning { border-left-color: var(--warn); }
+.chips { display: flex; flex-wrap: wrap; gap: var(--s-1); margin: var(--s-2) 0; padding: 0; list-style: none; }
+.chip { padding: 2px var(--s-2); border: 1px solid var(--line); border-radius: 999px; font-size: .85rem; background: var(--surface-2, var(--surface)); }
+.matrix td, .matrix th { white-space: nowrap; }
+.cell { font-size: .85rem; }
+.cell.ok { color: var(--ok); } .cell.warning { color: var(--warn); } .cell.problem { color: var(--crit); font-weight: 600; } .cell.unknown { color: var(--muted); }

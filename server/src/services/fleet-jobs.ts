@@ -6,7 +6,7 @@
 // operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import { catalog } from "../contracts.js";
+import { catalog, operations } from "../contracts.js";
 import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
@@ -15,9 +15,10 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { fleetPause, WRITE_OPERATIONS, WriteLimitReached } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
 import { CLOCK_TOLERANCE_SECONDS } from "./time.js";
-import { ROLE_RANK, type Role } from "./console-commands.js";
+import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
+import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
 
-export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy"] as const;
+export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy", "network.setDns", "network.setIp"] as const;
 export type JobOperation = (typeof JOB_OPERATIONS)[number];
 type Problem = "any" | "time_zone_wrong" | "clock_off" | "firewall_drift";
 
@@ -52,7 +53,7 @@ export async function fleetCabinets(db: Queryable, q: { clientId?: string | unde
 
 // ---- Planning: what each cabinet would get, or why it is skipped ---------------------------------------------------------
 
-interface Plan { cabinetId: string; name: string; site: string; client: string; params: Record<string, unknown> | null; skip: string | null }
+interface Plan { cabinetId: string; name: string; site: string; client: string; params: Record<string, unknown> | null; skip: string | null; detail?: string }
 
 /** For each chosen cabinet, in the order given: the parameters the server fills in, or why the operation skips it. */
 export async function plan(db: Queryable, operation: JobOperation, cabinetIds: string[]): Promise<Plan[]> {
@@ -79,6 +80,10 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
       out.push({ ...base, params: { timeZoneId: r.site_zone }, skip: null });
     } else if (operation === "time.sync") {
       out.push({ ...base, params: {}, skip: null });
+    } else if (operation === "network.setDns" || operation === "network.setIp") {
+      // The change comes from the cabinet's latest network diagnosis (at most 30 minutes old): the server never takes it from the browser.
+      const fix = await networkFix(db, id, operation);
+      out.push(fix.params ? { ...base, params: fix.params, skip: null, detail: fix.label } : skip(fix.why));
     } else {
       const p = await cabinetPolicy(db, id);
       if (p.differs === false) { out.push(skip("Already matches its client's firewall policy.")); continue; }
@@ -88,11 +93,28 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
   return out;
 }
 
+/** The change a cabinet's latest diagnosis found for this operation, as the operation's own parameters. */
+async function networkFix(db: Queryable, cabinetId: string, operation: "network.setDns" | "network.setIp"): Promise<{ params: Record<string, unknown>; label: string; why?: undefined } | { params?: undefined; label?: undefined; why: string }> {
+  const d = (await db.query<{ findings: { severity: string; action?: Record<string, unknown> }[] | null }>(
+    `SELECT findings FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'done' AND finished_at > now() - interval '30 minutes' ORDER BY started_at DESC LIMIT 1`, [cabinetId])).rows[0];
+  if (!d?.findings) return { why: "No network diagnosis from the last 30 minutes: run the diagnosis again first." };
+  const wanted = operation === "network.setDns" ? ["set_dns"] : ["use_dhcp", "set_static"];
+  const a = d.findings.find(f => f.action && wanted.includes(String(f.action.kind)))?.action;
+  if (!a) return { why: "The latest diagnosis found nothing this change would fix." };
+  const base = { interfaceIndex: a.interfaceIndex };
+  const params: Record<string, unknown> = a.kind === "set_dns" ? { ...base, mode: "static", servers: a.servers }
+    : a.kind === "use_dhcp" ? { ...base, mode: "dhcp" }
+    : { ...base, mode: "static", address: a.address, prefixLength: a.prefixLength, gateway: a.gateway };
+  const check: unknown = params;
+  if (!operations[operation].params.is(check)) return { why: "The diagnosis's suggested change is not valid for this cabinet." };
+  return { params, label: String(a.label ?? operation) };
+}
+
 export async function preview(db: Queryable, user: { role: Role }, operation: JobOperation, cabinetIds: string[]) {
   checkRole(user.role, operation);
   const p = await plan(db, operation, cabinetIds);
   return { operation, limit: BULK_LIMIT, change: p.filter(x => !x.skip).length, skip: p.filter(x => x.skip).length,
-    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, site: x.site, client: x.client, params: x.params, skip: x.skip })) };
+    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, site: x.site, client: x.client, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
 }
 
 function checkRole(role: Role, operation: JobOperation): void {
@@ -144,8 +166,8 @@ export async function runJob(pool: pg.Pool, jobId: string, timing: Timing = DEFA
   if (running.has(jobId)) return;
   running.add(jobId);
   try {
-    const job = (await pool.query<{ operation: JobOperation; created_by: string; batch_size: number; state: string }>(
-      "SELECT operation, created_by, batch_size, state FROM fleet_jobs WHERE id = $1", [jobId])).rows[0];
+    const job = (await pool.query<{ operation: JobOperation; created_by: string; batch_size: number; state: string; role: Role }>(
+      "SELECT j.operation, j.created_by, j.batch_size, j.state, u.role FROM fleet_jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $1", [jobId])).rows[0];
     if (!job || job.state !== "running") return;
     for (;;) {
       if (await cancelled(pool, jobId)) break;
@@ -154,7 +176,7 @@ export async function runJob(pool: pg.Pool, jobId: string, timing: Timing = DEFA
         "SELECT cabinet_id, command_id, params FROM fleet_job_targets WHERE job_id = $1 AND state = 'issued' ORDER BY position", [jobId])).rows;
       if (batch.length === 0) batch = await issueBatch(pool, jobId, job);
       if (batch.length === 0) break;
-      await followUp(pool, jobId, job.operation, batch, timing);
+      await followUp(pool, jobId, job.operation, batch, timing, { userId: job.created_by, role: job.role });
     }
     await pool.query(`UPDATE fleet_job_targets SET state = 'cancelled', detail = 'The job was cancelled before this cabinet was reached.', updated_at = now()
                        WHERE job_id = $1 AND state = 'pending'`, [jobId]);
@@ -217,7 +239,8 @@ const pendingLeft = async (pool: pg.Pool, jobId: string) =>
 const FAILED_STATUSES = new Set(["failed", "rejected", "expired"]);
 
 /** Waits for a batch's commands, records each result, then verifies the successes from the cabinets' next reports. */
-async function followUp(pool: pg.Pool, jobId: string, operation: JobOperation, batch: { cabinet_id: string; command_id: string; params: Record<string, unknown> }[], timing: Timing) {
+async function followUp(pool: pg.Pool, jobId: string, operation: JobOperation, batch: { cabinet_id: string; command_id: string; params: Record<string, unknown> }[], timing: Timing,
+  creator: { userId: string; role: Role }) {
   const waiting = new Map(batch.map(b => [b.command_id, b]));
   const answered: { cabinet_id: string; params: Record<string, unknown>; at: Date }[] = [];
   // A command expires 2 minutes after it was issued; the agent's answer can arrive a little after that.
@@ -246,7 +269,7 @@ async function followUp(pool: pg.Pool, jobId: string, operation: JobOperation, b
   while (left.length > 0) {
     const still: typeof left = [];
     for (const a of left) {
-      if (await verified(pool, operation, a)) await setTarget(pool, jobId, a.cabinet_id, "verified", verifiedText[operation]);
+      if (await verified(pool, operation, a, creator)) await setTarget(pool, jobId, a.cabinet_id, "verified", verifiedText[operation]);
       else still.push(a);
     }
     left = still;
@@ -260,9 +283,36 @@ const verifiedText: Record<JobOperation, string> = {
   "time.setZone": "Verified: the cabinet reports its site's time zone.",
   "time.sync": "Verified: the cabinet's clock is within two minutes of the server's.",
   "firewall.applyPolicy": "Verified: the cabinet's firewall matches its client's policy.",
+  "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
+  "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
 };
 
-async function verified(db: Queryable, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }): Promise<boolean> {
+/** Network changes are verified by reading the settings back from the cabinet (as the person who started the job), not from a heartbeat. */
+async function networkVerified(pool: pg.Pool, creator: { userId: string; role: Role }, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown> }): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const issued = await issueFromConsole(pool, creator, a.cabinet_id, "network.config", {});
+      for (const end = Date.now() + 20_000; Date.now() < end; await sleep(200)) {
+        const r = (await pool.query<{ status: string; result: { output?: NetworkConfigOutput } | null }>("SELECT status, result FROM commands WHERE id = $1", [issued.commandId])).rows[0];
+        if (r?.status === "succeeded" && r.result?.output) {
+          const ad = r.result.output.adapters.find(x => x.interfaceIndex === a.params.interfaceIndex);
+          if (!ad) return false;
+          const p = a.params;
+          if (operation === "network.setDns") { const want = [...(p.servers as string[])].sort().join(","); if (ad.dns.servers.slice().sort().join(",") === want) return true; }
+          else if (p.mode === "dhcp") { if (ad.ipv4.dhcp && ad.ipv4.addresses.some(x => !x.address.startsWith("169.254."))) return true; }
+          else if (ad.ipv4.addresses.some(x => x.address === p.address && x.prefixLength === p.prefixLength) && ad.ipv4.gateways[0] === p.gateway) return true;
+          break;
+        }
+        if (r && r.status !== "queued" && r.status !== "delivered") break;
+      }
+    } catch { /* a refused or failed read means not verified */ }
+    await sleep(1500);
+  }
+  return false;
+}
+
+async function verified(db: pg.Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
+  if (operation === "network.setDns" || operation === "network.setIp") return networkVerified(db, creator, operation, a);
   const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: Record<string, boolean> | null }>(
     "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS last, firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
   // Only a report made after the change counts.

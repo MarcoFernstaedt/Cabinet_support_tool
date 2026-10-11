@@ -23,6 +23,7 @@ import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
 import { IncidentsPage } from "./pages/Crashes";
 import { FleetJob, FleetOperations } from "./pages/FleetOperations";
+import { NetworkDiagnosisPage } from "./pages/NetworkDiagnosis";
 import { DemoGuide } from "./pages/DemoGuide";
 import { DemoTour } from "./components/DemoTour";
 
@@ -105,6 +106,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;
   if (match("/incidents", path)) return <IncidentsPage />;
+  if ((m = match("/network/diagnosis/:id", path))) return <NetworkDiagnosisPage key={m.id} id={m.id!} />;
   if (match("/fleet-operations", path)) return <FleetOperations key={path} />;
   if ((m = match("/fleet-operations/jobs/:id", path))) return <FleetJob id={m.id!} />;
   if (match("/demo", path)) return <DemoGuide />;

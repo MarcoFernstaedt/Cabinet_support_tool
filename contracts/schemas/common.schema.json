@@ -784,6 +784,43 @@
       "description": "A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.",
       "type": "string",
       "pattern": "^[A-Za-z0-9 ()+.,'-]{1,64}$"
+    },
+    "networkBaseline": {
+      "description": "What a site's network should look like (set by a Tier 2 or Admin): whether cabinets take their address from DHCP or have fixed ones, the subnet's size, the gateway, and the DNS servers. The diagnosis compares each cabinet with it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "addressing",
+        "prefixLength",
+        "gateway",
+        "dnsServers"
+      ],
+      "properties": {
+        "addressing": {
+          "type": "string",
+          "enum": [
+            "dhcp",
+            "static"
+          ]
+        },
+        "prefixLength": {
+          "type": "integer",
+          "minimum": 8,
+          "maximum": 30
+        },
+        "gateway": {
+          "$ref": "#/$defs/ipv4"
+        },
+        "dnsServers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/ipv4"
+          }
+        }
+      }
     }
   }
 }

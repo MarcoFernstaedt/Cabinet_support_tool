@@ -14,6 +14,11 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const find = (f: (r: (typeof rows)[number]) => boolean) => rows.find(f);
   const at = (client: string, site: string, name: string) => find(r => r.client.endsWith(client) && r.site.startsWith(site) && r.name === name);
   const step = (label: string, r: (typeof rows)[number] | undefined, section: string) => r ? [{ label, path: `/cabinets/${r.id}/${section}` }] : [];
+  /** A site's page with the network diagnosis started at once. */
+  const siteStep = (label: string, client: string, site: string) => {
+    const r = rows.find(x => x.client.includes(client) && x.site.startsWith(site));
+    return r ? [{ label, path: `/sites/${r.site_id}?diagnose=network` }] : [];
+  };
   const healthy = at("Riverside Veterinary Group", "New York", "Surgery");
   const outage = find(r => r.scenario === "site_outage");
   const scanner = find(r => r.scenario === "scanner_disconnected");
@@ -34,8 +39,10 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
       steps: [...step("Overview", healthy, "overview"), ...step("Event logs", healthy, "events"), ...step("Services", healthy, "services"), ...step("Network", healthy, "network")] },
     { id: "scanner", title: "A: Fingerprint scanner failure", story: "Treatment Room's scanner reconnected 7 times and then disappeared; Boarding's scanner service will not stay running after 3 automatic restarts. Run the scanner checklist, then restart the service.",
       steps: [...step("Scanner checklist", scanner, "scanner"), ...step("Devices and drivers", scanner, "devices"), ...step("Scanner service", service, "services")] },
-    { id: "network", title: "B: A satellite cannot reach its sync cabinet", story: "The New York sync cabinet's firewall is on, unlike the client policy, so its satellites cannot sync. Diagnose network on a satellite names it; apply the policy on the sync cabinet and run the diagnosis again. Chicago ER North shows a DNS server that no longer answers.",
-      steps: [...step("Diagnose network (Surgery)", satellite, "network"), ...step("Firewall (Pharmacy Sync)", syncDrift, "firewall"), ...step("DNS failure (ER North)", dns, "network")] },
+    { id: "network", title: "B: Network troubleshooting, from one cabinet to a whole site", story: "Each site has a baseline (its gateway, DNS servers and how cabinets get their address). Diagnose a whole site and the platform compares every cabinet with it and with the others: the Dallas site has three cabinets still pointing at its old DNS servers (one bulk fix); New York has a sync cabinet whose firewall blocks its satellites (one click) and a cabinet with a fixed address from another network; Phoenix has a cabinet with no DHCP lease; Chicago a fixed-address cabinet with the wrong gateway; Denver a cable that negotiated only 100 Mbps. Each problem comes with its fix, and each fix is read back to check it worked.",
+      steps: [...siteStep("Diagnose the Dallas site (old DNS servers)", "Summit", "Dallas"), ...siteStep("Diagnose New York (firewall, wrong network)", "Riverside", "New York"),
+        ...siteStep("Diagnose Phoenix (no DHCP lease)", "Riverside", "Phoenix"), ...siteStep("Diagnose Chicago (wrong gateway)", "Lakeside", "Chicago"), ...siteStep("Diagnose Denver (slow cable)", "Lakeside", "Denver"),
+        ...step("One cabinet: Surgery", satellite, "network")] },
     ...(outage ? [{ id: "outage", title: "B: A whole site offline", story: `Every cabinet at ${outage.site} stopped reporting within the same minute, 40 minutes ago. One cabinet offline is a cabinet problem; a whole site at once points at its network or power, so the platform raises "Whole site offline" instead of chasing each cabinet. Call the site before touching any one cabinet.`,
       steps: [{ label: `The site (${outage.site})`, path: `/sites/${outage.site_id}` }, { label: "Alerts", path: "/alerts" }, ...step("One of its cabinets", outage, "alerts")] }] : []),
     ...(zoneClient ? [{ id: "time", title: "C: Wrong time zones and clocks", story: "Cabinets in Arizona, California, Texas and New York, some set to the wrong Windows time zone and one whose clock has drifted. Select them under Fleet operations, correct time zones and sync clocks, and see each one verified.",

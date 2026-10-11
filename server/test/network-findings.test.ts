@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
-import { networkFindings, type NetworkEvidence, type TestRun } from "../src/diagnose/network-findings.js";
+import { layerStates, networkFindings, sameSubnet, type NetworkEvidence, type TestRun } from "../src/diagnose/network-findings.js";
 
 const OFF = { domain: false, private: false, public: false };
 const adapter = (over: Partial<NetworkConfigOutput["adapters"][number]> = {}): NetworkConfigOutput["adapters"][number] => ({
@@ -90,4 +90,96 @@ test("missing evidence is never guessed: could not check", () => {
 test("the sync cabinet itself, and a site without a sync address", () => {
   assert.ok(ids(evidence({ cabinet: { id: "s1", name: "Pharmacy Sync", role: "sync" }, tests: [pass("gateway", "G")] })).includes("info:sync-self"));
   assert.ok(ids(evidence({ sync: { address: null, ports: [], cabinet: null }, tests: [pass("gateway", "G")] })).includes("info:sync-none"));
+});
+
+// ---- Against the site's baseline -----------------------------------------------------------------------------------------
+
+const BASE = { addressing: "dhcp" as const, prefixLength: 24, gateway: "10.21.4.1", dnsServers: ["10.21.4.10", "10.21.4.11"] };
+const withAdapter = (over: Partial<NetworkConfigOutput["adapters"][number]>, e: Partial<NetworkEvidence> = {}) =>
+  evidence({ baseline: BASE, config: { adapters: [adapter(over)] }, ...e });
+const find = (e: NetworkEvidence, id: string) => networkFindings(e).find(f => f.id === id);
+
+test("baseline: a cabinet that matches its site says so, and nothing is flagged", () => {
+  const f = networkFindings(withAdapter({}));
+  assert.ok(f.some(x => x.id === "baseline-ok-12"));
+  assert.ok(f.every(x => x.severity === "ok"));
+});
+
+test("baseline: no baseline set means no baseline findings (nothing is guessed)", () => {
+  assert.ok(!networkFindings(evidence()).some(f => f.id.startsWith("baseline-")));
+});
+
+test("baseline: a fixed address from another network at a DHCP site is a confirmed problem, fixed by switching to DHCP; the failed tests that follow point back at it", () => {
+  const e = withAdapter({ ipv4: { dhcp: false, addresses: [{ address: "192.168.1.57", prefixLength: 24 }], gateways: ["192.168.1.1"] }, dns: { automatic: false, servers: ["192.168.1.1"] } },
+    { tests: [fail("gateway", "Gateway"), fail("dns-0", "DNS server 1"), fail("platform", "Platform"), fail("sync-ping", "Sync ping"), fail("sync-tcp-1433", "Sync port", { port: 1433 })] });
+  const subnet = find(e, "baseline-subnet-12")!;
+  assert.equal(subnet.severity, "problem");
+  assert.equal(subnet.certainty, "confirmed");
+  assert.deepEqual(subnet.action, { kind: "use_dhcp", cabinetId: "c1", cabinetName: "Surgery", interfaceIndex: 12, label: "Switch Ethernet to DHCP" });
+  assert.match(subnet.evidence[0]!, /10\.21\.4\.0\/24/);
+  for (const id of ["gateway", "dns-all", "sync-down"]) assert.equal(find(e, id)?.causedBy, "baseline-subnet-12", id);
+  assert.equal(networkFindings(e)[0]!.id.startsWith("baseline-") || networkFindings(e)[0]!.severity === "problem", true);
+});
+
+test("baseline: the same wrong address at a site with fixed addresses has no automatic fix, and says what to do", () => {
+  const e = evidence({ baseline: { ...BASE, addressing: "static" }, config: { adapters: [adapter({ ipv4: { dhcp: false, addresses: [{ address: "192.168.1.57", prefixLength: 24 }], gateways: ["192.168.1.1"] } })] } });
+  const f = find(e, "baseline-subnet-12")!;
+  assert.equal(f.action, undefined);
+  assert.match(f.fix!, /fixed addresses/);
+});
+
+test("baseline: a fixed address at a DHCP site that is otherwise right is a warning with the DHCP fix", () => {
+  const f = find(withAdapter({ ipv4: { dhcp: false, addresses: [{ address: "10.21.4.77", prefixLength: 24 }], gateways: ["10.21.4.1"] } }), "baseline-addressing-12")!;
+  assert.equal(f.severity, "warning");
+  assert.equal(f.action?.kind, "use_dhcp");
+});
+
+test("baseline: the wrong gateway on a fixed address is fixed by setting the baseline gateway and keeping the address", () => {
+  const f = find(evidence({ baseline: { ...BASE, addressing: "static" }, config: { adapters: [adapter({ ipv4: { dhcp: false, addresses: [{ address: "10.21.4.77", prefixLength: 24 }], gateways: ["10.21.4.254"] } })] },
+    tests: [fail("gateway", "Gateway"), fail("platform", "Platform")] }), "baseline-gateway-12")!;
+  assert.equal(f.severity, "problem");
+  assert.deepEqual(f.action, { kind: "set_static", cabinetId: "c1", cabinetName: "Surgery", interfaceIndex: 12, address: "10.21.4.77", prefixLength: 24, gateway: "10.21.4.1", label: "Set the gateway to 10.21.4.1" });
+});
+
+test("baseline: a wrong gateway handed out by DHCP has no cabinet fix (the DHCP scope is wrong)", () => {
+  const f = find(withAdapter({ ipv4: { dhcp: true, addresses: [{ address: "10.21.4.77", prefixLength: 24 }], gateways: ["10.21.4.254"] } }), "baseline-gateway-12")!;
+  assert.equal(f.action, undefined);
+  assert.match(f.fix!, /DHCP scope/);
+});
+
+test("baseline: DNS servers that are not the site's: a problem when none match, a warning when some do; the fix sets the baseline servers", () => {
+  const none = find(withAdapter({ dns: { automatic: false, servers: ["10.1.1.5", "10.1.1.6"] } }), "baseline-dns-12")!;
+  assert.equal(none.severity, "problem");
+  assert.deepEqual(none.action, { kind: "set_dns", cabinetId: "c1", cabinetName: "Surgery", interfaceIndex: 12, servers: BASE.dnsServers, label: "Set DNS to 10.21.4.10, 10.21.4.11" });
+  const some = find(withAdapter({ dns: { automatic: false, servers: ["10.21.4.10", "10.255.255.254"] } }), "baseline-dns-12")!;
+  assert.equal(some.severity, "warning");
+  // The same servers in another order are the same servers.
+  assert.equal(find(withAdapter({ dns: { automatic: false, servers: ["10.21.4.11", "10.21.4.10"] } }), "baseline-dns-12"), undefined);
+});
+
+test("baseline: no DHCP lease (169.254) offers the lease renewal; a cable fault offers no remote fix, only what to check", () => {
+  const apipa = find(withAdapter({ ipv4: { dhcp: true, addresses: [{ address: "169.254.10.200", prefixLength: 16 }], gateways: [] }, dns: { automatic: true, servers: [] } }), "ip-12")!;
+  assert.equal(apipa.action?.kind, "use_dhcp");
+  const slow = find(withAdapter({ linkSpeedBps: 100_000_000 }), "speed-12")!;
+  assert.equal(slow.action, undefined);
+  assert.match(slow.fix!, /patch cable/);
+});
+
+test("subnet arithmetic: prefix sizes, the edges, and addresses that are not addresses", () => {
+  assert.equal(sameSubnet("10.21.4.9", "10.21.4.200", 24), true);
+  assert.equal(sameSubnet("10.21.5.9", "10.21.4.1", 24), false);
+  assert.equal(sameSubnet("10.21.5.9", "10.21.4.1", 16), true);
+  assert.equal(sameSubnet("10.21.4.1", "10.21.4.1", 32), true);
+  assert.equal(sameSubnet("10.21.4.1", "10.21.4.2", 32), false);
+  for (const bad of ["", "10.21.4", "10.21.4.256", "10.21.4.1.1", "a.b.c.d", "10.21.4.-1", "10.21.4. 1"]) assert.equal(sameSubnet(bad, "10.21.4.1", 24), false, bad);
+  assert.equal(sameSubnet("10.21.4.1", "10.21.4.1", 33), false);
+});
+
+test("layers: each cabinet's path from the link up to the firewall, worst finding per layer, unknown when nothing was checked there", () => {
+  const f = networkFindings(withAdapter({ dns: { automatic: false, servers: ["10.1.1.5"] } }, { tests: [pass("gateway", "Gateway"), fail("dns-0", "DNS server 1")] }));
+  const l = layerStates(f);
+  assert.equal(l.link, "ok");
+  assert.equal(l.gateway, "ok");
+  assert.equal(l.dns, "problem");
+  assert.equal(l.sync, "unknown");
 });

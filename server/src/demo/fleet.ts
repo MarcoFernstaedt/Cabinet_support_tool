@@ -9,16 +9,19 @@ export type Scenario =
   /** Module 21: a cabinet set to the wrong time zone (Arizona set to Mountain, with daylight saving), and a clock drifting off. */
   | "time_zone_wrong" | "clock_drift"
   /** Scenario B: every cabinet at one site stopped reporting within the same minutes (the site's network went down). */
-  | "site_outage";
+  | "site_outage"
+  /** Network faults a diagnosis finds by comparing the cabinet with its site's baseline, each with a fix the platform can make. */
+  | "net_dns_wrong" | "net_static_wrong" | "net_dhcp_failed" | "net_gateway_wrong" | "net_link_slow";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
-export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; }
+export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; /** How this site addresses its cabinets (its network baseline); DHCP unless said. */ addressing?: "dhcp" | "static"; }
 export interface DemoClient { name: string; sites: DemoSite[]; }
 
 /** The overnight incident at Harbor Pet Hospitals: 80 cabinets, 60 crashed (12 still restarting), 20 did not. g numbers them 0-79. */
 export const HARBOR_SITES = ["Boston Harbor", "Portland East", "Providence", "Hartford", "Worcester", "Manchester", "Burlington", "New Haven"];
 export const harborAffected = (g: number) => g % 4 !== 3;
-export const harborScenario = (g: number): Scenario => !harborAffected(g) ? "incident_ok" : g % 5 === 0 ? "incident_loop" : "incident_crash";
+/** Never a site's sync cabinet (the first of each ten), so no Harbor site loses its sync cabinet to the crash loop. */
+export const harborScenario = (g: number): Scenario => !harborAffected(g) ? "incident_ok" : g % 10 === 4 || g % 10 === 7 ? "incident_loop" : "incident_crash";
 /** Storage errors before the crash on a few crashed cabinets; the driver on two that did not crash. */
 export const harborStorageErrors = (g: number) => harborAffected(g) && g % 9 === 0;
 export const harborDriverWithoutCrash = (g: number) => g === 3 || g === 43;
@@ -28,17 +31,18 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected")] },
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected"), c("Lab", "satellite", "net_static_wrong")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
-      c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing")] },
+      c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
       c("Pharmacy", "standalone", "disk_failing"), c("Recovery", "standalone", "time_zone_wrong")] },
   ] },
   { name: "Demo · Lakeside Health", sites: [
-    { name: "Chicago – Main Pharmacy", timeZone: "Central Standard Time", subnet: "172.20.10", cabinets: [
-      c("Central Sync", "sync"), c("ER North", "satellite", "dns_errors"), c("ER South", "satellite"), c("Oncology", "satellite", "update_failure")] },
+    { name: "Chicago – Main Pharmacy", timeZone: "Central Standard Time", subnet: "172.20.10", addressing: "static", cabinets: [
+      c("Central Sync", "sync"), c("ER North", "satellite", "dns_errors"), c("ER South", "satellite"), c("Oncology", "satellite", "update_failure"),
+      c("Triage", "satellite", "net_gateway_wrong")] },
     { name: "Denver ICU", timeZone: "Mountain Standard Time", subnet: "172.20.30", cabinets: [
-      c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline")] },
+      c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline"), c("Rounds", "satellite", "net_link_slow")] },
   ] },
   { name: "Demo · Harbor Pet Hospitals", sites: HARBOR_SITES.map((name, s) => ({
     name, timeZone: "Eastern Standard Time", subnet: `10.6${s}.1`,
@@ -47,8 +51,9 @@ export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
       c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod")] },
+    // Site-wide DNS drift: three of the four still point at the old DNS servers. One site diagnosis shows it; one bulk fix repairs it.
     { name: "Dallas Uptown", timeZone: "Central Standard Time", subnet: "192.168.60", cabinets: [
-      c("Uptown Sync", "sync", "site_outage"), c("Uptown Exam 1", "satellite", "site_outage"), c("Uptown Exam 2", "satellite", "site_outage")] },
+      c("Uptown Sync", "sync", "net_dns_wrong"), c("Uptown Exam 1", "satellite", "net_dns_wrong"), c("Uptown Exam 2", "satellite", "net_dns_wrong"), c("Uptown Exam 3", "satellite")] },
   ] },
 ];
 
@@ -60,6 +65,8 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   incident_ok: "Got the same Windows update, no driver change, no crash",
   time_zone_wrong: "Set to the wrong time zone", clock_drift: "Clock about 7 minutes fast",
   site_outage: "The whole site went offline together 40 minutes ago",
+  net_dns_wrong: "DNS servers are the old ones, not the site's", net_static_wrong: "Fixed address from another network", net_dhcp_failed: "No DHCP lease (169.254 address)",
+  net_gateway_wrong: "Fixed address with the wrong gateway", net_link_slow: "Link negotiated at 100 Mbps (cable)",
 };
 
 /** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */

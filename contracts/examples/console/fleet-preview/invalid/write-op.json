@@ -1,1 +1,1 @@
-{"operation": "network.setIp", "cabinetIds": ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]}
+{"operation":"driver.uninstall","cabinetIds":["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"]}

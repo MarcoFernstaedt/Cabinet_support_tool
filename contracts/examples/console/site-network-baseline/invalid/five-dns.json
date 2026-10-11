@@ -1,0 +1,1 @@
+{"baseline": {"addressing": "dhcp", "prefixLength": 24, "gateway": "10.21.4.1", "dnsServers": ["1.1.1.1", "1.1.1.2", "1.1.1.3", "1.1.1.4", "1.1.1.5"]}, "stepUpToken": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE"}

@@ -11,6 +11,7 @@ import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, PasswordDialog } from "../components/ui";
 import { DemoTag } from "../components/DemoBanner";
 import { ZONE_NAMES } from "./cabinet/Time";
+import { useStartDiagnosis } from "./NetworkDiagnosis";
 
 type Operation = "time.setZone" | "time.sync" | "firewall.applyPolicy";
 const OPERATIONS: [Operation, string, string][] = [
@@ -18,6 +19,8 @@ const OPERATIONS: [Operation, string, string][] = [
   ["time.sync", "Sync clocks", "Windows Time synchronizes with its configured source; the source is not changed."],
   ["firewall.applyPolicy", "Apply the firewall policy", "Each cabinet gets its client's firewall policy; cabinets that already match are skipped. The safety net applies."],
 ];
+/** Network fixes come from a network diagnosis (they need its findings), so they are started from its page; they are named here for the job page. */
+const JOB_NAMES: Record<string, string> = { "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings" };
 const PROBLEMS: [string, string][] = [["any", "Any cabinet"], ["time_zone_wrong", "Wrong time zone"], ["clock_off", "Clock is off"], ["firewall_drift", "Firewall differs from policy"]];
 const LIMIT = 200;
 
@@ -42,6 +45,7 @@ export function FleetOperations() {
   const [preview, setPreview] = useState<(Preview & { jobId: string; cabinetIds: string[] }) | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const diagnose = useStartDiagnosis();
   const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
   const query = new URLSearchParams({ ...(clientId ? { clientId } : {}), ...(siteId ? { siteId } : {}), problem }).toString();
   const list = useLoad<{ cabinets: Row[] }>(`/api/fleet-operations/cabinets?${query}`);
@@ -90,6 +94,8 @@ export function FleetOperations() {
         <p className="row gap wrap">
           <button className="btn small" onClick={selectShown} disabled={rows.length === 0}>{allShown ? "Unselect" : "Select"} the {rows.length} shown</button>
           <button className="btn small ghost" onClick={() => { setSelected({}); setPreview(null); }} disabled={ids.length === 0}>Clear selection</button>
+          <button className="btn small" onClick={() => void diagnose.start({ cabinetIds: ids })} disabled={ids.length === 0 || ids.length > 60 || diagnose.busy}>Diagnose network on the selected</button>
+          {diagnose.problem && <span className="error small" role="alert">{diagnose.problem}</span>}
           <span role="status"><strong>{ids.length}</strong> selected{ids.length > LIMIT && <span className="error"> (at most {LIMIT})</span>}</span>
         </p>
         {list.data && (rows.length === 0 ? <Empty>No cabinet matches.</Empty> : (
@@ -146,7 +152,7 @@ export function FleetOperations() {
         <h2 id="recent">Recent fleet operations</h2>
         {jobs.data && (jobs.data.jobs.length === 0 ? <Empty>None yet.</Empty> : (
           <ul className="plain">{jobs.data.jobs.map(j => (
-            <li key={j.id}><Link to={`/fleet-operations/jobs/${j.id}`}>{OPERATIONS.find(o => o[0] === j.operation)?.[1] ?? j.operation}</Link>
+            <li key={j.id}><Link to={`/fleet-operations/jobs/${j.id}`}>{OPERATIONS.find(o => o[0] === j.operation)?.[1] ?? JOB_NAMES[j.operation] ?? j.operation}</Link>
               {" "}<span className="muted small">{j.total} cabinets · {j.verified} verified{j.problems > 0 && <>, {j.problems} need a look</>} · by {j.startedBy} {ago(j.startedAt)}</span>
               {" "}<Badge tone={j.state === "running" ? "info" : "off"}>{j.state}</Badge></li>))}
           </ul>))}
@@ -172,7 +178,7 @@ export function FleetJob({ id }: { id: string }) {
     return () => clearInterval(t);
   }, [data?.state]); // eslint-disable-line react-hooks/exhaustive-deps
   const cancel = async () => { setError(null); try { await api("POST", `/api/fleet-operations/jobs/${id}/cancel`, {}); reload(); } catch (e) { setError(describeError(e)); } };
-  const label = data ? OPERATIONS.find(o => o[0] === data.operation)?.[1] ?? data.operation : "Fleet operation";
+  const label = data ? OPERATIONS.find(o => o[0] === data.operation)?.[1] ?? JOB_NAMES[data.operation] ?? data.operation : "Fleet operation";
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Fleet operations", to: "/fleet-operations" }, { label }]} />
@@ -191,7 +197,7 @@ export function FleetJob({ id }: { id: string }) {
           <caption className="sr-only">Each cabinet's result</caption>
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
           <tbody>{data.cabinets.map(c => (
-            <tr key={c.id}><th scope="row"><Link to={`/cabinets/${c.id}/${data.operation.startsWith("time") ? "time" : "firewall"}`}>{c.name}</Link></th>
+            <tr key={c.id}><th scope="row"><Link to={`/cabinets/${c.id}/${data.operation.startsWith("time") ? "time" : data.operation.startsWith("network") ? "network" : "firewall"}`}>{c.name}</Link></th>
               <td>{c.client} / {c.site}</td><td><Badge tone={STATE[c.state]?.[0] ?? "off"}>{STATE[c.state]?.[1] ?? c.state}</Badge></td><td className="small">{c.detail ?? ""}</td></tr>))}
           </tbody>
         </table></div>

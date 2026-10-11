@@ -5,11 +5,21 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { ago } from "../../lib/time";
 import { Badge } from "../../components/ui";
+import { FixButton, LAYERS, PathBar, type FixAction, type Layer, type LayerState } from "../../components/NetworkFix";
 
 type Severity = "problem" | "warning" | "info" | "ok";
 interface Finding {
-  id: string; severity: Severity; certainty: "confirmed" | "probable" | "possible" | "not_checked"; title: string; evidence: string[]; fix: string | null;
-  action?: { kind: "apply_policy"; cabinetId: string; cabinetName: string } | { kind: "open"; section: string; cabinetId: string; label: string };
+  id: string; layer: Layer; severity: Severity; certainty: "confirmed" | "probable" | "possible" | "not_checked"; title: string; evidence: string[]; fix: string | null;
+  action?: FixAction; causedBy?: string;
+}
+/** One word per layer, worst finding first; "unknown" when nothing there was checked. */
+export function layerStates(findings: Finding[]): Record<Layer, LayerState> {
+  const out = {} as Record<Layer, LayerState>;
+  for (const [layer] of LAYERS) {
+    const mine = findings.filter(f => f.layer === layer);
+    out[layer] = mine.some(f => f.severity === "problem") ? "problem" : mine.some(f => f.severity === "warning") ? "warning" : mine.some(f => f.severity === "ok") ? "ok" : "unknown";
+  }
+  return out;
 }
 interface Diagnosis { id: string; state: "running" | "done" | "failed"; startedAt: string; finishedAt: string | null; runBy: string; findings: Finding[] | null; failure: string | null }
 
@@ -45,7 +55,7 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
       <div className="panel-head">
         <div>
           <h2 id="diagnose-heading">Diagnose network</h2>
-          <p className="muted small">Checks the link, the address, the gateway, every DNS server, the platform server and the site's sync cabinet and its ports, and compares the firewall with the client policy. Is it the cable, the IP, DNS, routing or a firewall?</p>
+          <p className="muted small">Checks the link, the address, the gateway, every DNS server, the platform server and the site's sync cabinet and its ports, compares the address, gateway and DNS with the site's baseline, and compares the firewall with the client policy. Is it the cable, the IP, DNS, routing or a firewall?</p>
         </div>
         <button className="btn primary" onClick={() => void start()} disabled={d?.state === "running"} aria-busy={d?.state === "running"}>
           {d?.state === "running" ? "Diagnosing…" : d ? "Run again" : "Diagnose network"}</button>
@@ -58,11 +68,12 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
           <p className="small muted" role="status">
             {notOk.length === 0 ? <Badge tone="ok">No problems found</Badge> : counts.filter(([, n]) => n > 0).map(([s, n]) => <span key={s}><Badge tone={SEVERITY[s].tone}>{n} {s === "problem" ? (n === 1 ? "problem" : "problems") : (n === 1 ? "warning" : "warnings")}</Badge> </span>)}
             {" "}Run by {d.runBy} {ago(d.finishedAt ?? d.startedAt)}. {okOnes.length} checks passed.</p>
-          <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} />)}</ul>
+          <PathBar layers={layerStates(findings)} />
+          <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} onFixed={() => void start()} />)}</ul>
           {okOnes.length > 0 && (
             <details open={showOk} onToggle={e => setShowOk((e.target as HTMLDetailsElement).open)}>
               <summary>Checks that passed ({okOnes.length})</summary>
-              <ul className="findings">{okOnes.map(f => <FindingRow key={f.id} f={f} />)}</ul>
+              <ul className="findings">{okOnes.map(f => <FindingRow key={f.id} f={f} onFixed={() => undefined} />)}</ul>
             </details>)}
         </>)}
       </div>
@@ -70,7 +81,7 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
   );
 }
 
-function FindingRow({ f }: { f: Finding }) {
+function FindingRow({ f, onFixed }: { f: Finding; onFixed: () => void }) {
   const s = SEVERITY[f.severity];
   return (
     <li className={`finding ${f.severity}`}>
@@ -78,12 +89,13 @@ function FindingRow({ f }: { f: Finding }) {
         <Badge tone={s.tone}>{s.label}</Badge>
         <strong>{f.title}</strong>
         {f.severity !== "ok" && <span className="muted small">{CERTAINTY[f.certainty]}</span>}
+        {f.causedBy && <span className="muted small">Probably a result of another problem on this page</span>}
       </div>
       {f.evidence.length > 0 && <ul className="evidence">{f.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul>}
       {f.fix && <p className="fix"><span className="muted">Fix:</span> {f.fix}</p>}
-      {f.action && (f.action.kind === "apply_policy"
-        ? <Link className="btn small primary" to={`/cabinets/${f.action.cabinetId}/firewall`}>Apply the policy on {f.action.cabinetName}</Link>
-        : <Link className="btn small" to={`/cabinets/${f.action.cabinetId}/${f.action.section}`}>{f.action.label}</Link>)}
+      {f.action && (f.action.kind === "open"
+        ? <Link className="btn small" to={`/cabinets/${f.action.cabinetId}/${f.action.section}`}>{f.action.label}</Link>
+        : <FixButton action={f.action} onDone={onFixed} />)}
     </li>
   );
 }
