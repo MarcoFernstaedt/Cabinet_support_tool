@@ -29,8 +29,8 @@ export function DemoGuide() {
         <button className="btn primary" onClick={startDemoTour} disabled={!demo.data?.enabled}>Start the guided demo</button>
         {atLeast(me, "admin") && <Link to="/admin/settings#demo">Turn on, off or reset in Settings</Link>}
       </p>
-      <h2>Scenario library</h2>
-      {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the scenarios.</Empty>}
+      <h2>The scenario</h2>
+      {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the scenario.</Empty>}
       <ul className="findings">{lib.data?.scenarios.map(s => (
         <li key={s.id} className="finding info">
           <div className="finding-head"><strong>{s.title}</strong></div>

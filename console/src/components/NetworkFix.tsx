@@ -45,14 +45,15 @@ export function useCanFix(operation: string): boolean {
 }
 
 /** One fix on one cabinet: a button, its confirmation, and the result. */
-export function FixButton({ action, onDone, children }: { action: Doable; onDone?: () => void; children?: ReactNode }) {
+export function FixButton({ action, onDone, children }: { action: Doable; onDone?: (what: string) => void; children?: ReactNode }) {
   const { operation, params, label } = fixCommand(action);
   const write = useWrite<unknown>(action.cabinetId, operation);
   const [asking, setAsking] = useState(false);
   const can = useCanFix(operation);
   const confirm = confirmFor(operation);
-  const after = (r: { status: string; error?: { message: string } }) => { if (r.status === "succeeded") onDone?.(); };
-  const what = <p><strong>{label}</strong> on <strong>{action.cabinetName}</strong>. {operation === "network.renewLease" ? "No setting changes: the cabinet asks its DHCP server for a new lease." : operation.startsWith("network") ? "If the cabinet cannot reach the platform after the change, it goes back to its old settings by itself." : "The change is checked against the client's policy."}</p>;
+  const after = (r: { status: string; error?: { message: string } }) => { if (r.status === "succeeded") onDone?.(whatWasDone); };
+  const whatWasDone = label.includes(action.cabinetName) ? label : `${label} on ${action.cabinetName}`;
+  const what = <p><strong>{label.includes(action.cabinetName) ? label : <>{label} on {action.cabinetName}</>}</strong>. {operation === "network.renewLease" ? "No setting changes: the cabinet asks its DHCP server for a new lease." : operation.startsWith("network") ? "If the cabinet cannot reach the platform after the change, it goes back to its old settings by itself." : "The change is checked against the client's policy."}</p>;
   if (!can) return <span className="muted small">Needs Tier 2 to change this.</span>;
   return (
     <span className="fix-action">

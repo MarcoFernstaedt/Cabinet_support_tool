@@ -137,9 +137,9 @@ export function DemoMode() {
   return (
     <section className="panel" id="demo" aria-labelledby="demo-heading">
       <h2 id="demo-heading">Demo mode {demo.data && (on ? <Badge tone="info">On</Badge> : <Badge tone="off">Off</Badge>)}</h2>
-      <p className="muted small">Adds made-up clients, sites and cabinets next to your real ones, spread across Arizona, California, Texas, Colorado, Illinois and the North East, so you can show the app at fleet size:
-        a fingerprint scanner that keeps dropping off after a driver install, a sync cabinet whose firewall blocks its satellites, wrong time zones and drifting clocks, a failing drive, a night of blue screens with reboot loops, and more.
-        They answer like a real agent and fixes on them work. They're tagged Demo everywhere, and turning demo mode off deletes them. Real cabinets are never touched.</p>
+      <p className="muted small">Adds made-up clients, sites and cabinets next to your real ones, so the app looks like a real fleet. The guided demo follows one story at Midtown Manhattan:
+        the exam rooms can't sync because the sync cabinet's firewall is on, you fix it with one click and watch the site come back clean, and a scanner there has been dropping off since a driver install.
+        It then walks through installing the agent on a real computer. Demo cabinets answer like a real agent and fixes on them work. They're tagged Demo everywhere, and turning demo mode off deletes them. Real cabinets are never touched.</p>
       {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}</p>}
       <div className="row gap wrap">
         {on ? <button className="btn" onClick={() => { setProblem(null); setAsk("off"); }}>Turn demo mode off</button>

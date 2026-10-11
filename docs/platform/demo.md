@@ -72,50 +72,23 @@ How to show the platform to the support team: your real agent on your own Window
 | Lakeside, Denver | Rounds | The cable negotiated only 100 Mbps (no remote fix). |
 | Harbor Pet Hospitals, 8 sites | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
 
-## A 15-minute demo script
+## The demo: one story, then your own cabinet
 
-1. **Your real laptop (3 minutes).**
-   - Fleet → Mashura Office → your laptop.
-   - Show the event logs: browse System, filter to errors, open one in full.
-   - Show the services list (like the Services tab of Task Manager), and watch one service so the agent keeps it running.
-   - Run the fingerprint scanner checks.
-   - Point out what never happens: no remote desktop session, no shell, nothing connects in to the laptop.
-2. **The fleet at a glance (2 minutes).**
-   - Turn demo mode on.
-   - The Fleet page shows every client, with offline counts and major alerts.
-   - The Alerts page lists the major problems across the fleet, worst first, without anyone searching for them.
-3. **Network troubleshooting, a whole site at a time (5 minutes).**
-   - Open **Summit → Dallas Uptown** and click **Diagnose network**. All four cabinets are checked at once. The result groups the problem: **DNS servers differ from the site baseline** on three cabinets, with the evidence (they use the old servers; the baseline says the site's) and one fix.
-   - Click **Set the DNS servers on all 3**, preview what each gets, confirm with your password. Each cabinet is changed and its settings read back. Run the diagnosis again: clean.
-   - Open **Riverside → New York** and diagnose it: the sync cabinet's firewall blocks its satellites (one click to apply the policy, on the sync cabinet), and **Lab** has a fixed address from another network (Switch to DHCP). Phoenix's Front Desk has no DHCP lease: **Renew the DHCP lease**. Chicago has a cabinet with the wrong gateway; Denver a cable at 100 Mbps, which has no remote fix.
-   - On one cabinet (Surgery → Network), the same diagnosis shows the path from link to firewall and the fixes inline.
-4. **One service, one click (1 minute).**
-   - Open Boarding → Services: BioScanSvc (the fingerprint service) is watched and failing, with a major alert.
-   - Start it, and the alert closes.
-   - Open San Diego → Intake → Alerts: a **cabinet alert**, a USB device expected but not detected, with the logs. It is not on the fleet Alerts page, because it is for whoever is at the cabinet.
-5. **Event logs to issues (3 minutes).**
-   - Open Austin → Billing → Event logs: errors from five sources, as Windows wrote them.
-   - Then its Alerts tab: three became issues by themselves (network, drive, Windows update), with their counts.
-   - Two have never been seen. On Alerts → Unrecognized errors, a Tier 2 technician maps one to an issue type once, for the whole fleet.
-   - Also proactive: Main Sync and Isolation both crashed with the same bug check, the San Diego Pharmacy drive is predicting failure, Denver's Charting drive is nearly full, and Oncology's update keeps failing. None of these needed anyone to open the cabinet.
-6. **The overnight crash incident (3 minutes).**
-   - Open **Incidents**. 17 cabinets crashed in the last 3 days; 5 are still down and restarting repeatedly.
-   - "What the crashed cabinets have in common": the Intel RST driver was installed on 15 of 17 crashed cabinets and 1 of 24 others: it **stands out**. The Windows update was on nearly all of them, crashed or not, so it does not.
-   - Stop code 0xD1 DRIVER_IRQL_NOT_LESS_OR_EQUAL on 15 ("a driver, very often a recently installed or updated one").
-   - Open one cabinet's **Crashes and restarts**: the update, the driver, the restart, then the blue screen, in order, with the 72 hours before the first crash.
-   - **Copy case notes** gives a summary to paste into Salesforce. Everything here is labelled as correlation, not proof.
-7. **A bulk change: three of eight cabinets at one site (2 minutes).**
-   - Open **Fleet operations** and choose **New York – Upper East Side**. All eight cabinets are listed with their IPv4 addresses. A bulk change covers one site, so you cannot mix sites.
-   - Show "Wrong time zone" to narrow the list, then tick Exam 1, Exam 2 and Exam 3: **3 of 8 selected**. Choose "Set each cabinet to its site's time zone" and **Preview**: each cabinet gets its own site's zone.
-   - Start it and confirm with your password. The job page shows each cabinet sent, done, then **verified** from its next report; the "Wrong time zone" alerts close.
-   - The same page syncs clocks (New York's ICU is about 7 minutes fast) and applies the firewall policy.
-8. **Safety (2 minutes).**
-   - Show how each change is confirmed:
-     - one click for everyday fixes;
-     - the password for a bulk change (Firewall policy across a client);
-     - the authenticator code for changes that can cut a cabinet off.
-   - Show Admin → Audit log: every action, by name, in a tamper-evident chain.
-   - Turn demo mode off. Only your real laptop remains.
+The guided demo (Demo guide, then Start the guided demo) follows one scenario. Everything else in the demo fleet is background so the Fleet page looks like a real fleet.
+
+1. **Monday morning at Midtown Manhattan.** The exam rooms say they can't sync.
+   - Open **Riverside → Midtown Manhattan** and click **Diagnose network**. All seven cabinets are checked at once.
+   - Link, address, gateway and DNS are fine everywhere. Every satellite fails at the sync cabinet step, and Midtown Sync's firewall is on when the client's policy says off.
+2. **The fix, one click.**
+   - Click **Apply the policy on Midtown Sync** and confirm. The cabinet applies the client's firewall policy; if it loses contact afterwards it puts the old setting back by itself.
+   - The site is checked again straight away and comes back clean: "7 of 7 cabinets are clean", with a line saying what was done.
+3. **The scanner at the same site.** Open **Procedure Room → Fingerprint scanner**.
+   - It dropped off three times in the last day and is off now. The Drops section lists each drop and recovery, and shows the scanner's driver was installed about two hours before the first one.
+   - That is a lead to check first, not a verdict. The page says it could still be the cable or the port.
+4. **Install the agent on a real computer.** Admin → Set up and demo: create the install token, copy the commands, run them in an elevated PowerShell. Then **Pending cabinets** to approve it.
+5. **Read its network with no baseline.** On the new cabinet, Network → **Diagnose network**. The site has no baseline yet, so nothing is compared and the page says so. You get the readings straight from the machine: link, address (DHCP or fixed), gateway, DNS, and whether it can reach the platform. With a baseline set, the same check compares against it.
+
+The tour covers 1 to 5 in seven steps. Turn demo mode off at the end and only your real cabinet remains.
 
 ## Questions you may get
 

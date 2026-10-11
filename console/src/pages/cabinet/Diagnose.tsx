@@ -55,7 +55,7 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
       <div className="panel-head">
         <div>
           <h2 id="diagnose-heading">Diagnose network</h2>
-          <p className="muted small">Checks the link, the address, the gateway, every DNS server, the platform server and the site's sync cabinet and its ports, compares the address, gateway and DNS with the site's baseline, and compares the firewall with the client policy. Is it the cable, the IP, DNS, routing or a firewall?</p>
+          <p className="muted small">Checks the link, the address, the gateway, every DNS server, the platform server and the site's sync cabinet and its ports, compares the address, gateway and DNS with the site's baseline when it has one, and compares the firewall with the client policy. Is it the cable, the IP, DNS, routing or a firewall?</p>
         </div>
         <button className="btn primary" onClick={() => void start()} disabled={d?.state === "running"} aria-busy={d?.state === "running"}>
           {d?.state === "running" ? "Diagnosing…" : d ? "Run again" : "Diagnose network"}</button>

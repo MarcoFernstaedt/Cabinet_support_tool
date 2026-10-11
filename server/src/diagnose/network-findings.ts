@@ -241,6 +241,9 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
   };
   const subnetCause = causes.find(c => c.id.startsWith("baseline-subnet"));
   if (subnetCause) for (const x of f) if (["gateway", "dns-", "platform-dns", "sync-down", "sync-firewall", "sync-port"].some(i => x.id === i || x.id.startsWith(i)) && (x.severity === "problem" || x.severity === "warning")) x.causedBy = subnetCause.id;
+  // With no usable address (or no link at all), nothing above it can work: the gateway, DNS and sync results are its consequences, not separate problems.
+  const lowest = f.find(x => x.id === "link" && x.severity === "problem") ?? f.find(x => x.id.startsWith("ip-") && x.severity === "problem");
+  if (lowest) for (const x of f) if (!x.causedBy && ["gateway", "dns-", "platform-dns", "sync-down", "sync-firewall", "sync-port"].some(i => x.id === i || x.id.startsWith(i)) && (x.severity === "problem" || x.severity === "warning")) x.causedBy = lowest.id;
   link(["gateway"], ["gateway"]);
   link(["dns-all", "dns-dns", "platform-dns"], ["dns"]);
   return f.sort((a, b) => RANK[a.severity] - RANK[b.severity]);

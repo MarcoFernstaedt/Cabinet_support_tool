@@ -148,8 +148,9 @@ export async function diagnosis(db: pg.Pool, id: string) {
     `SELECT d.id, d.cabinet_id, d.kind, d.state, d.started_at, d.finished_at, d.findings, d.failure, d.commands, u.name AS run_by
        FROM diagnoses d JOIN users u ON u.id = d.run_by WHERE d.id = $1`, [id])).rows[0];
   if (!r) return null;
+  const hasBaseline = (await db.query<{ b: boolean }>("SELECT s.network_baseline IS NOT NULL AS b FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [r.cabinet_id])).rows[0]?.b ?? false;
   return { id: r.id, cabinetId: r.cabinet_id, kind: r.kind, state: r.state, startedAt: r.started_at.toISOString(), finishedAt: r.finished_at?.toISOString() ?? null,
-    runBy: r.run_by, findings: r.findings, failure: r.failure, commands: r.commands };
+    runBy: r.run_by, findings: r.findings, failure: r.failure, commands: r.commands, hasBaseline };
 }
 
 export async function latestDiagnosis(db: pg.Pool, cabinetId: string) {
@@ -247,7 +248,10 @@ export async function networkBatch(db: pg.Pool, batchId: string) {
     g.affected.add(r.name);
     if (f.action && f.action.kind !== "open") { const a = f.action as Exclude<FixAction, { kind: "open" }>; g.targets.set(a.cabinetId, { cabinetId: a.cabinetId, cabinetName: a.cabinetName, label: "label" in a ? a.label : `Apply the policy on ${a.cabinetName}`, action: a }); }
   }
-  return { id: b.id, label: b.label, siteId: b.site_id, startedAt: b.created_at.toISOString(), startedBy: b.name, total: b.total, finished,
+  // Whether every site in the batch has a network baseline; without one the readings are shown but nothing is compared.
+  const hasBaseline = rows.length > 0 && (await db.query<{ n: string }>(
+    "SELECT count(*) AS n FROM sites s JOIN cabinets k ON k.site_id = s.id WHERE k.id = ANY($1::uuid[]) AND s.network_baseline IS NULL", [rows.map(r => r.cabinet_id)])).rows[0]!.n === "0";
+  return { id: b.id, label: b.label, siteId: b.site_id, startedAt: b.created_at.toISOString(), startedBy: b.name, total: b.total, finished, hasBaseline,
     state: finished >= b.total ? "done" : "running", cabinets,
     waiting: b.total - rows.length,
     groups: [...groups.values()].sort((x, y) => Number(y.severity === "problem") - Number(x.severity === "problem") || y.affected.size - x.affected.size).map(g => ({

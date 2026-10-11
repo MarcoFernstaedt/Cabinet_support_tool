@@ -122,6 +122,7 @@ legend { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s-1
 .badge.off { color: var(--off); background: var(--off-bg); border-color: var(--line-strong); }
 .badge.demo { color: var(--demo); background: var(--demo-bg); }
 .notice { padding: var(--s-2) var(--s-3); border-radius: var(--r-md); margin: var(--s-2) 0; border: 1px solid var(--line); border-left-width: 3px; background: var(--surface-2); color: var(--text); }
+.notice.ok { border-left-color: var(--ok); background: var(--ok-bg); }
 .notice.warn { border-left-color: var(--warn); background: var(--warn-bg); } .notice.crit { border-left-color: var(--crit); background: var(--crit-bg); }
 .notice.ok { border-left-color: var(--ok); background: var(--ok-bg); }
 .notice p { margin: var(--s-1) 0; }
@@ -327,6 +328,7 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 /* The guided demo: a side panel, not a popup; the page stays usable */
 .demo-tour { position: fixed; right: var(--s-4); bottom: var(--s-4); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));
   background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow); }
+.demo-tour.left { right: auto; left: var(--s-4); }
 .demo-tour h2 { font-size: var(--fs-lg); }
 
 /* Wide tables scroll inside their panel rather than the page, at phone width too. */

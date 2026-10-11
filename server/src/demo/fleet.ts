@@ -37,8 +37,11 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_flapping"), c("Lab", "satellite", "net_static_wrong"),
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected"), c("Lab", "satellite", "net_static_wrong"),
       c("Exam 1", "satellite", "time_zone_wrong"), c("Exam 2", "satellite", "time_zone_wrong"), c("Exam 3", "satellite", "time_zone_wrong")] },
+    // The demo's one story: the sync cabinet's firewall blocks the satellites, and the scanner in Procedure Room has been dropping off since a driver install.
+    { name: "Midtown Manhattan", timeZone: "Eastern Standard Time", subnet: "10.21.9", cabinets: [
+      c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
