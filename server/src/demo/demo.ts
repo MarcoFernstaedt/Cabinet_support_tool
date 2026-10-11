@@ -19,10 +19,14 @@ import { evaluateTime } from "../services/time.js";
 import { checkSiteOutages } from "../services/site-outage.js";
 import { demoOutput, type DemoContext } from "./outputs.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
+import { saveKnownFix } from "../services/known-fixes.js";
+import { ISSUE } from "../services/rules.js";
 import { raiseBaselineAlert } from "../diagnose/network.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
 
 const SETTING = "demo.enabled";
+/** A made-up Tier 1 teammate who has already submitted a fix, so the approval queue has something to review. They cannot sign in. */
+const DEMO_MEMBER = "demo.priya";
 const AGENT_VERSION = "1.4.2";
 type Profiles = { domain: boolean; private: boolean; public: boolean };
 const ALL_OFF: Profiles = { domain: false, private: false, public: false };
@@ -229,11 +233,24 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
       await pool.query("UPDATE cabinets SET last_heartbeat_at = $2, uptime_seconds = 160 WHERE id = $1", [k.id, new Date(first + 23 * 60_000)]);
     }
   }
+  await seedSubmittedFix(pool);
   // What the platform's regular check of each cabinet against its site's baseline would have found.
   for (const a of netAlerts) await raiseBaselineAlert(pool, a.id, a.problems);
   await checkOffline(pool);
   await checkQuietLoops(pool);
   await checkSiteOutages(pool);
+}
+
+/** One fix a Tier 1 teammate has already submitted for the fingerprint scanner issue, waiting for an Admin. */
+async function seedSubmittedFix(pool: pg.Pool): Promise<void> {
+  const from = (await pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'scanner_flapping' LIMIT 1")).rows[0];
+  if (!from) return;
+  const id = randomUUID();
+  await pool.query("INSERT INTO users (id, username, name, role, password_hash, status) VALUES ($1, $2, 'Priya Nair (demo)', 'tier1', 'x', 'active') ON CONFLICT (username) DO NOTHING", [id, DEMO_MEMBER]);
+  const member = (await pool.query<{ id: string }>("SELECT id FROM users WHERE username = $1", [DEMO_MEMBER])).rows[0]!;
+  await saveKnownFix(pool, { userId: member.id, canApproveFixes: false }, { title: "Reader drops after a driver install", cabinetId: from.id,
+    symptom: { kind: "issue", issueTypeId: ISSUE.scanner },
+    solution: "Rolled the reader's driver back to the previous version from Devices and drivers, unplugged it for ten seconds and plugged it into a rear port. It has stayed connected since. Check the date of the last driver install before replacing anything." });
 }
 
 /** Deletes every simulated record. Real cabinets, users and the audit log are untouched (the audit log keeps who did it). */
@@ -247,11 +264,13 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
     // Fleet jobs on simulated cabinets go first (they point at their commands); a job left with no cabinet goes too.
     await c.query("DELETE FROM fleet_job_targets WHERE cabinet_id = ANY($1::uuid[])", [ids]);
     await c.query("DELETE FROM fleet_jobs j WHERE NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = j.id)");
-    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
+    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots", "known_fixes"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.
     await c.query("UPDATE security_alerts SET cabinet_id = NULL WHERE cabinet_id = ANY($1::uuid[])", [ids]);
+    await c.query("DELETE FROM known_fixes WHERE created_by IN (SELECT id FROM users WHERE username = $1)", [DEMO_MEMBER]);
+    await c.query("DELETE FROM users WHERE username = $1", [DEMO_MEMBER]);
     await c.query("DELETE FROM cabinets WHERE id = ANY($1::uuid[])", [ids]);
     await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo)");
     await c.query("DELETE FROM clients WHERE demo");

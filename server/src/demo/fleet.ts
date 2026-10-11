@@ -45,7 +45,8 @@ export const DEMO_FLEET: DemoClient[] = [
       c("Exam 1", "satellite", "time_zone_wrong"), c("Exam 2", "satellite", "time_zone_wrong"), c("Exam 3", "satellite", "time_zone_wrong")] },
     // The demo's one story: the sync cabinet's firewall blocks the satellites, and the scanner in Procedure Room has been dropping off since a driver install.
     { name: "Midtown Manhattan", timeZone: "Eastern Standard Time", subnet: "10.21.9", cabinets: [
-      c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite", "net_flaky")] },
+      c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite", "net_flaky"),
+      c("Reception", "satellite", "scanner_errors"), c("Waiting Room", "satellite", "scanner_errors")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
     // Sole sites: one standalone cabinet each, with no sync cabinet.
@@ -66,8 +67,7 @@ export const DEMO_FLEET: DemoClient[] = [
   })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
-      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod"), c("Billing", "satellite", "mixed_errors"),
-      c("Check-in Desk", "satellite", "scanner_errors"), c("Waiting Room", "satellite", "scanner_errors")] },
+      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod"), c("Billing", "satellite", "mixed_errors")] },
     // Site-wide DNS drift: three of the four still point at the old DNS servers. One site diagnosis shows it; one bulk fix repairs it.
     { name: "Dallas Uptown", timeZone: "Central Standard Time", subnet: "192.168.60", cabinets: [
       c("Uptown Sync", "sync", "net_dns_wrong"), c("Uptown Exam 1", "satellite", "net_dns_wrong"), c("Uptown Exam 2", "satellite", "net_dns_wrong"), c("Uptown Exam 3", "satellite")] },

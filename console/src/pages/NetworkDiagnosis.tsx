@@ -1,7 +1,7 @@
 // Network diagnosis of several cabinets or a whole site (docs/spec/14-network-troubleshooting.md): what is wrong across them,
 // grouped so the same problem on many cabinets is one row with the fix, and each cabinet's path from the link up to the
 // firewall. Read only to run; the fixes are confirmed like any change (a code for one cabinet, the password for many).
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, describeError } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
@@ -50,7 +50,14 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
   const [open, setOpen] = useState<string | null>(null);
   const [fixed, setFixedState] = useState<FixedNote | null>(readFixed);
   const setFixed = (what: string | null) => { const v = what === null ? null : { what, siteId: data?.siteId ?? null, at: Date.now() }; setFixedState(v); writeFixed(v); };
-  const rerun = () => { if (!data) return; return again.start(data.siteId ? { siteId: data.siteId } : { cabinetIds: data.cabinets.map(c => c.cabinetId) }); };
+  // A fix made while the first check is still going (the last cabinets are waiting their turn) checks again once that has finished.
+  const latest = useRef(data);
+  latest.current = data;
+  const rerun = async () => {
+    if (!data) return;
+    for (let i = 0; i < 90 && latest.current?.state === "running"; i++) await new Promise(r => setTimeout(r, 1000));
+    return again.start(data.siteId ? { siteId: data.siteId } : { cabinetIds: data.cabinets.map(c => c.cabinetId) });
+  };
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, ...(data?.siteId ? [{ label: "Site", to: `/sites/${data.siteId}` }] : []), { label: "Network diagnosis" }]} />

@@ -666,6 +666,16 @@ export interface KnownFixQuery {
 }
 
 /**
+ * Rejects a submitted known fix, with an optional reason the submitter can read.
+ */
+export interface KnownFixReject {
+  /**
+   * A single line of text with no control characters.
+   */
+  reason?: string;
+}
+
+/**
  * Username and password, the first sign-in step.
  */
 export interface LoginRequest {
@@ -1066,7 +1076,7 @@ export interface UserReactivate {
 }
 
 /**
- * An Admin changes an account's role, hourly write limit or status. At least one change.
+ * An Admin changes an account's role, hourly write limit, status, or whether a Tier 2 may approve known fixes. At least one change.
  */
 export interface UserUpdate {
   role?: "tier1" | "tier2" | "admin";
@@ -1079,6 +1089,10 @@ export interface UserUpdate {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
+  /**
+   * Whether this person may approve the known fixes members submit. An Admin always may; for a Tier 2 it is granted here.
+   */
+  canApproveFixes?: boolean;
 }
 
 /**

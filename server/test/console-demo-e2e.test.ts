@@ -60,8 +60,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // One scenario in the guide.
     await page.goto(`${origin}/demo`);
     await page.getByText("Monday morning at Midtown Manhattan", { exact: true }).waitFor();
-    assert.equal(await page.locator("#main li.finding").count(), 2, "two demos: the network one and mapping errors");
-    await page.getByText("Errors nobody has named yet", { exact: true }).waitFor();
+    assert.equal(await page.locator("#main li.finding").count(), 1, "one scenario, not a library");
     await page.locator("#main").getByRole("button", { name: "Start the guided demo" }).click();
 
     // Step 1 takes you to the site; step 2 is one cabinet, Exam Room 1, checked on its own.
@@ -81,7 +80,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("button", { name: /Apply the policy on Midtown Sync/ }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor({ timeout: 60_000 });
-    await page.getByText("6 of 7 cabinets are clean.").waitFor({ timeout: 60_000 });
+    await page.getByText("8 of 9 cabinets are clean.").waitFor({ timeout: 90_000 });
     // The one left matches its baseline, and the full read still shows why it is slow: lost packets and card errors.
     await page.getByRole("row", { name: /Operating Room/ }).getByRole("button", { name: "Full read" }).click();
     await page.getByText(/Packet loss to the gateway/).first().waitFor();
@@ -99,7 +98,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByLabel("What fixed it").fill("Replaced the patch cable to the switch; the errors stopped.");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await page.getByText(/Saved\. This is shown the next time/).waitFor();
-    const kf = (await db.app.query<{ solution: string; environment: { site: string; network: { gateway: string } | null } }>("SELECT solution, environment FROM known_fixes")).rows;
+    const kf = (await db.app.query<{ solution: string; environment: { site: string; network: { gateway: string } | null } }>("SELECT solution, environment FROM known_fixes WHERE solution LIKE 'Replaced the patch cable%'")).rows;
     assert.equal(kf.length, 1);
     assert.equal(kf[0]!.environment.site, "Midtown Manhattan");
     assert.ok(kf[0]!.environment.network?.gateway, "the cabinet's network was saved with the fix");
@@ -115,11 +114,51 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/was installed about 2 hours before the first drop/).waitFor();
     assert.equal(await page.getByText(/caused by/i).count(), 0);
 
-    // Steps 5 and 6: installing the real agent, then approving it.
+    // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
+    await page.getByText("Reception").first().waitFor({ timeout: 30_000 });
+    await page.getByText("Waiting Room").first().waitFor();
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Look at the error itself" }).waitFor();
+    await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Map it to an issue" }).waitFor();
+    await page.getByRole("button", { name: "Map to issue" }).first().click();
+    await page.getByRole("dialog").locator("select[required]").selectOption({ label: "Fingerprint scanner problem (major)" });
+    clock += 30_000;
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
+    await page.getByRole("dialog").getByRole("button", { name: "Save and go live" }).click();
+    await page.getByText(/The rule is live\. From now on this error raises/).waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+    assert.equal((await db.app.query("SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE k.name IN ('Reception', 'Waiting Room') AND a.issue_type_id = '00000000-0000-4000-8000-000000000101'")).rowCount, 2, "both cabinets' alerts are grouped under the scanner issue");
+
+    // Step 11: a teammate's fix is waiting. Nobody else sees it until it is approved.
+    const priya = "Reader drops after a driver install";
+    assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'pending'", [priya])).rowCount, 1);
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "A teammate's fix, waiting for you" }).waitFor();
+    await page.getByRole("heading", { name: /Waiting for approval \(1\)/ }).waitFor();
+    await page.getByText(priya).first().waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/fix-queue.png`, fullPage: true });
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    await page.getByText(/Approved “Reader drops after a driver install”/).waitFor();
+    assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'approved'", [priya])).rowCount, 1);
+
+    // Step 12: it now sits beside the scanner alert on Reception.
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "It shows up where the problem is" }).waitFor();
+    await page.getByText("Seen before").first().waitFor({ timeout: 30_000 });
+    await page.getByText(/Rolled the reader's driver back/).first().waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/alert-fix.png`, fullPage: true });
+
+    // The last steps, onboarding: installing the real agent, approving it, then testing it.
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: "Pending cabinets" }).waitFor();
+    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("heading", { name: "Set up and demo", level: 1 }).waitFor();
     await page.getByRole("button", { name: "Stop the guided demo" }).click();
 
     // A site with no baseline: the read is shown, and it says nothing is compared.
@@ -143,16 +182,18 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const saved = (await db.app.query<{ network_baseline: { gateway: string } | null }>("SELECT network_baseline FROM sites WHERE id = $1", [phoenix])).rows[0]!.network_baseline;
     assert.ok(saved?.gateway, "the baseline was saved from the cabinet's own network");
 
-    // The second demo: errors nobody has named. Unrecognized alerts from the fingerprint reader's driver, on two cabinets, then the event log.
-    await page.goto(`${origin}/demo`);
-    await page.getByRole("button", { name: "Start this demo" }).nth(1).click();
-    await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
-    await page.getByText("Check-in Desk").first().waitFor({ timeout: 30_000 });
-    await page.getByText("Waiting Room").first().waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
-    await page.getByRole("heading", { name: "Look at the error itself" }).waitFor();
-    await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Stop the guided demo" }).click();
+    // Test a cabinet: the read-only checks run one after another and every one passes against the simulated answers.
+    const exam = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Exam Room 2'")).rows[0]!.id;
+    await page.goto(`${origin}/cabinets/${exam}`);
+    await page.getByRole("button", { name: "Run the checks" }).click();
+    await page.getByText("11 of 11 passed").waitFor({ timeout: 90_000 });
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
+
+    if (process.env.SHOTS) for (const [name, path] of [["guide", "/demo"], ["users", "/admin/users"], ["admin", "/admin"], ["setup", "/admin/setup"]] as const) {
+      await page.goto(`${origin}${path}`);
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: `${process.env.SHOTS}/${name}.png`, fullPage: true });
+    }
     simulator.stop();
     assert.deepEqual(simulatorProblems, []);
     assert.deepEqual(problems, []);

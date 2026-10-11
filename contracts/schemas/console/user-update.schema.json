@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/user-update.schema.json",
   "title": "user-update",
-  "description": "An Admin changes an account's role, hourly write limit or status. At least one change.",
+  "description": "An Admin changes an account's role, hourly write limit, status, or whether a Tier 2 may approve known fixes. At least one change.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -31,6 +31,10 @@
       "description": "A one-time step-up token bound to this exact action.",
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "canApproveFixes": {
+      "description": "Whether this person may approve the known fixes members submit. An Admin always may; for a Tier 2 it is granted here.",
+      "type": "boolean"
     }
   },
   "required": [

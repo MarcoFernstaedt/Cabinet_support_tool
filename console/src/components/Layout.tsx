@@ -6,6 +6,7 @@ import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 import { WritePauseBanner } from "../lib/writes";
 import { DemoBanner } from "./DemoBanner";
 import { AdminLink, SecurityToasts } from "./SecurityCenter";
+import { FixesLink } from "./KnownFixes";
 
 interface Hit { kind: "client" | "site" | "cabinet"; id: string; name: string; context: string; }
 
@@ -53,7 +54,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
   const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") ? "alerts"
-    : path.startsWith("/issues") ? "issues" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/fleet-operations") ? "operations" : "fleet";
+    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/fleet-operations") ? "operations" : "fleet";
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
@@ -65,6 +66,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <Link to="/incidents" aria-current={section === "incidents" ? "page" : undefined}>Incidents</Link>
           <Link to="/fleet-operations" aria-current={section === "operations" ? "page" : undefined}>Fleet operations</Link>
           <Link to="/issues" aria-current={section === "issues" ? "page" : undefined}>Issues</Link>
+          {me.canApproveFixes && <FixesLink current={section === "fixes"} />}
           {atLeast(me, "admin") && <AdminLink current={section === "admin"} />}
         </nav>
         <JumpControl />

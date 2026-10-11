@@ -17,6 +17,7 @@ export function AdminHome() {
       <h1>Admin</h1>
       <ul className="tiles">
         <li><Link to="/admin/setup"><strong>Set up and demo</strong><span>Add the support team, install the agent on a computer, approve it, and turn demo mode on or off.</span></Link></li>
+        <li><Link to="/fixes"><strong>Known fixes</strong><span>Approve or reject the fixes members save, and see what is in use.</span></Link></li>
         <li><Link to="/admin/security"><strong>Security alerts</strong><span>Unusual write volume, failed sign-ins, new networks, audit chain, agent and certificate problems.</span></Link></li>
         <li><Link to="/admin/users"><strong>Users</strong><span>Create accounts, change roles and write limits, reset passwords and authenticators.</span></Link></li>
         <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in at the moment.</span></Link></li>

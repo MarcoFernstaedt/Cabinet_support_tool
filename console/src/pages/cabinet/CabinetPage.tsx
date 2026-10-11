@@ -14,6 +14,7 @@ import { Processes, Services } from "./Services";
 import { DemoTag } from "../../components/DemoBanner";
 import { CabinetCrashes } from "../Crashes";
 import { EventLogs } from "./EventLogs";
+import { LiveCheck } from "../../components/LiveCheck";
 import { Time } from "./Time";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
@@ -106,7 +107,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
 function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: () => void }) {
   const { navigate } = useRouter();
   const { me } = useSession();
-  return (
+  return (<>
     <section className="panel" aria-labelledby="overview-heading">
       <h2 id="overview-heading">Overview</h2>
       <KeyValues rows={[
@@ -127,7 +128,8 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
       </div>
     </section>
-  );
+    <LiveCheck cabinetId={cabinet.id} cabinetName={cabinet.name} simulated={!!cabinet.demo} />
+  </>);
 }
 
 /** An Admin changes the cabinet's role at its site (sync, satellite or standalone), with step-up. */

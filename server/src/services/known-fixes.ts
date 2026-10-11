@@ -2,6 +2,8 @@
 // solution with the environment it was seen in (the cabinet's role, agent, time zone, firewall and network as last read), and shows
 // it whenever the same problem turns up again, beside how the new cabinet's environment compares. A problem is matched exactly: by a
 // diagnosis finding's key, or by an issue type. Never by pattern. The environment is read here, never taken from the console.
+// A fix a member submits waits for approval: an Admin approves it, or a Tier 2 who has been granted that. Until then only its
+// submitter sees it (marked as waiting); an approver's own submission is approved at once.
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
 import { audit, safeJson, type Queryable } from "../db/db.js";
@@ -38,23 +40,48 @@ export async function environmentOf(db: Queryable, cabinetId: string): Promise<E
 }
 
 type Row = { id: string; title: string; solution: string; finding_key: string | null; issue_type_id: string | null; environment: Environment; created_by_name: string;
-  created_at: Date; seen_count: number; last_seen_at: Date | null; cabinet_name: string | null; issue_name: string | null };
+  created_at: Date; seen_count: number; last_seen_at: Date | null; cabinet_name: string | null; issue_name: string | null;
+  status: "pending" | "approved" | "rejected"; created_by: string; reviewer_name: string | null; reviewed_at: Date | null; review_note: string | null };
 const SELECT = `SELECT f.id, f.title, f.solution, f.finding_key, f.issue_type_id, f.environment, u.name AS created_by_name, f.created_at, f.seen_count, f.last_seen_at,
-    k.name AS cabinet_name, t.name AS issue_name
-  FROM known_fixes f JOIN users u ON u.id = f.created_by LEFT JOIN cabinets k ON k.id = f.cabinet_id LEFT JOIN issue_types t ON t.id = f.issue_type_id`;
+    k.name AS cabinet_name, t.name AS issue_name, f.status, f.created_by, rv.name AS reviewer_name, f.reviewed_at, f.review_note
+  FROM known_fixes f JOIN users u ON u.id = f.created_by LEFT JOIN users rv ON rv.id = f.reviewed_by LEFT JOIN cabinets k ON k.id = f.cabinet_id LEFT JOIN issue_types t ON t.id = f.issue_type_id`;
 const view = (r: Row) => ({ id: r.id, title: r.title, solution: r.solution, symptom: r.finding_key ? { kind: "finding" as const, key: r.finding_key } : { kind: "issue" as const, issueTypeId: r.issue_type_id!, issueName: r.issue_name },
-  environment: r.environment, savedBy: r.created_by_name, savedAt: r.created_at.toISOString(), fromCabinet: r.cabinet_name, seenCount: r.seen_count, lastSeenAt: r.last_seen_at?.toISOString() ?? null });
+  environment: r.environment, savedBy: r.created_by_name, savedAt: r.created_at.toISOString(), fromCabinet: r.cabinet_name, seenCount: r.seen_count, lastSeenAt: r.last_seen_at?.toISOString() ?? null,
+  status: r.status, submittedBy: r.created_by, reviewedBy: r.reviewer_name, reviewedAt: r.reviewed_at?.toISOString() ?? null, reviewNote: r.review_note });
 export type KnownFixView = ReturnType<typeof view>;
 
-export async function saveKnownFix(pool: pg.Pool, userId: string, b: KnownFixCreate): Promise<KnownFixView> {
+export async function saveKnownFix(pool: pg.Pool, user: { userId: string; canApproveFixes: boolean }, b: KnownFixCreate): Promise<KnownFixView> {
   const env = await environmentOf(pool, b.cabinetId);
   const key = b.symptom.kind === "finding" ? b.symptom.key : null, issue = b.symptom.kind === "issue" ? b.symptom.issueTypeId : null;
   if (issue && (await pool.query("SELECT 1 FROM issue_types WHERE id = $1", [issue])).rowCount !== 1) throw new Refused("not_found", 404, "no such issue type");
-  const id = randomUUID();
-  await pool.query("INSERT INTO known_fixes (id, title, solution, finding_key, issue_type_id, environment, cabinet_id, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-    [id, b.title, b.solution, key, issue, safeJson(env), b.cabinetId, userId]);
-  await audit(pool, { actorKind: "user", actorId: userId, action: "known_fix.save", targetKind: "cabinet", targetId: b.cabinetId, outcome: "succeeded", details: { id, title: b.title, symptom: b.symptom } });
+  const id = randomUUID(), auto = user.canApproveFixes;
+  await pool.query(`INSERT INTO known_fixes (id, title, solution, finding_key, issue_type_id, environment, cabinet_id, created_by, status, reviewed_by, reviewed_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [id, b.title, b.solution, key, issue, safeJson(env), b.cabinetId, user.userId, auto ? "approved" : "pending", auto ? user.userId : null, auto ? new Date() : null]);
+  await audit(pool, { actorKind: "user", actorId: user.userId, action: "known_fix.save", targetKind: "cabinet", targetId: b.cabinetId, outcome: "succeeded",
+    details: { id, title: b.title, symptom: b.symptom, status: auto ? "approved" : "pending" } });
   return view((await pool.query<Row>(`${SELECT} WHERE f.id = $1`, [id])).rows[0]!);
+}
+
+/** An approver's decision on a submitted fix. Only a fix still waiting can be decided, and only once. */
+export async function reviewKnownFix(pool: pg.Pool, userId: string, id: string, decision: "approved" | "rejected", note?: string): Promise<KnownFixView> {
+  const r = await pool.query("UPDATE known_fixes SET status = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4 WHERE id = $1 AND status = 'pending' AND removed_at IS NULL",
+    [id, decision, userId, note ?? null]);
+  if (r.rowCount !== 1) throw new Refused("not_pending", 409, "this fix is not waiting for approval (it may already have been decided)");
+  await audit(pool, { actorKind: "user", actorId: userId, action: decision === "approved" ? "known_fix.approve" : "known_fix.reject", targetKind: "known_fix", targetId: id, outcome: "succeeded",
+    details: note ? { note } : {} });
+  return view((await pool.query<Row>(`${SELECT} WHERE f.id = $1`, [id])).rows[0]!);
+}
+
+/** What an approver reviews: everything waiting, oldest first, and the last 30 decisions. */
+export async function reviewQueue(db: Queryable) {
+  const pending = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status = 'pending' ORDER BY f.created_at`)).rows.map(view);
+  const decided = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status <> 'pending' ORDER BY coalesce(f.reviewed_at, f.created_at) DESC LIMIT 30`)).rows.map(view);
+  return { pending, decided };
+}
+
+export async function pendingCount(db: Queryable): Promise<number> {
+  return Number((await db.query<{ n: string }>("SELECT count(*) AS n FROM known_fixes WHERE status = 'pending' AND removed_at IS NULL")).rows[0]!.n);
 }
 
 export async function removeKnownFix(pool: pg.Pool, userId: string, id: string): Promise<void> {
@@ -63,17 +90,18 @@ export async function removeKnownFix(pool: pg.Pool, userId: string, id: string):
   await audit(pool, { actorKind: "user", actorId: userId, action: "known_fix.remove", targetKind: "known_fix", targetId: id, outcome: "succeeded" });
 }
 
-export async function listKnownFixes(db: Queryable, q: { findingKey?: string; issueTypeId?: string }) {
-  const where = q.findingKey ? "AND f.finding_key = $1" : q.issueTypeId ? "AND f.issue_type_id = $1" : "";
-  const args = q.findingKey ? [q.findingKey] : q.issueTypeId ? [q.issueTypeId] : [];
-  return (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL ${where} ORDER BY f.created_at DESC LIMIT 200`, args)).rows.map(view);
+/** Approved fixes, and the viewer's own that are still waiting or were not approved. */
+export async function listKnownFixes(db: Queryable, q: { findingKey?: string; issueTypeId?: string }, viewerId: string) {
+  const where = q.findingKey ? "AND f.finding_key = $2" : q.issueTypeId ? "AND f.issue_type_id = $2" : "";
+  const args = q.findingKey ? [viewerId, q.findingKey] : q.issueTypeId ? [viewerId, q.issueTypeId] : [viewerId];
+  return (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND (f.status = 'approved' OR f.created_by = $1) ${where} ORDER BY (f.status = 'approved') DESC, f.created_at DESC LIMIT 200`, args)).rows.map(view);
 }
 
 /** The fixes saved for each finding key, newest first; counts each as seen once for this diagnosis. */
 export async function fixesForFindings(db: Queryable, findingIds: string[]): Promise<Record<string, KnownFixView[]>> {
   const keys = [...new Set(findingIds.map(findingKey))];
   if (keys.length === 0) return {};
-  const rows = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.finding_key = ANY($1::text[]) ORDER BY f.created_at DESC`, [keys])).rows;
+  const rows = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status = 'approved' AND f.finding_key = ANY($1::text[]) ORDER BY f.created_at DESC`, [keys])).rows;
   const out: Record<string, KnownFixView[]> = {};
   for (const id of findingIds) { const m = rows.filter(r => r.finding_key === findingKey(id)).map(view); if (m.length) out[id] = m; }
   return out;

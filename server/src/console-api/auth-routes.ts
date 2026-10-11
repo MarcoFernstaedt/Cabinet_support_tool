@@ -46,7 +46,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   };
 
   const describe = (u: SessionUser) => ({
-    user: { id: u.userId, username: u.username, name: u.name, role: u.role, totpEnabled: u.totpEnabled, tourCompleted: u.tourCompleted },
+    user: { id: u.userId, username: u.username, name: u.name, role: u.role, totpEnabled: u.totpEnabled, tourCompleted: u.tourCompleted, canApproveFixes: u.canApproveFixes },
     stage: u.stage,
   });
 

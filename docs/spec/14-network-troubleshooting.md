@@ -86,3 +86,7 @@ A problem the baseline cannot fix with a click is still solved by a person. They
 - **It is shown when the problem comes back.** On the cabinet's diagnosis and the batch page beside the finding; on alerts of that issue type. Beside it, the differences from the cabinet it was fixed on ("Firewall: all off then, domain on now"), so a person can tell whether it is likely to apply. A diagnosis counts each fix it shows (`seen_count`).
 - **Roles.** Tier 1 and up save one; Tier 2 and up remove one (soft: `removed_at`). Both are audited (`known_fix.save`, `known_fix.remove`).
 - **Contracts.** `console/known-fix-create` and `console/known-fix-query`; the solution is at most 2,000 characters of text without control characters.
+
+### Approval of known fixes
+
+A fix a member submits is `pending`. Only its submitter sees it (marked "Waiting for approval") until an approver decides. Approvers are Admins and any Tier 2 an Admin has granted `can_approve_fixes` (Users, "Approves fixes"; a step-up change like any role change). `GET /api/known-fixes/review` lists what waits and the last 30 decisions; `POST /api/known-fixes/:id/approve` and `/reject` (with an optional reason the submitter sees) decide, once. An approver's own submission is approved at once. The Fixes link in the main bar shows how many are waiting. Both decisions are audited (`known_fix.approve`, `known_fix.reject`).

@@ -11,7 +11,7 @@ export const DEFAULT_POLICY: SessionPolicy = { idleMinutes: 30, absoluteHours: 1
 
 export interface SessionUser {
   sessionHash: Buffer; stage: Stage; userId: string; username: string; name: string; role: "tier1" | "tier2" | "admin";
-  totpEnabled: boolean; mustChangePassword: boolean; tourCompleted: boolean;
+  totpEnabled: boolean; mustChangePassword: boolean; tourCompleted: boolean; canApproveFixes: boolean;
 }
 
 export const hashId = (id: string): Buffer => createHash("sha256").update(id, "utf8").digest();
@@ -32,15 +32,15 @@ export async function loadSession(db: Queryable, id: string | undefined, policy 
   if (!id || id.length !== 43 || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
   const live = `s.id_hash = $1 AND u.id = s.user_id AND u.status = 'active'
         AND s.expires_at > now() AND s.last_activity_at > now() - make_interval(mins => $2)`;
-  const columns = "s.stage, u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed";
+  const columns = "s.stage, u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed, u.can_approve_fixes";
   const row = (await db.query<{ stage: Stage; user_id: string; username: string; name: string; role: SessionUser["role"]; totp_enabled: boolean;
-    must_change_password: boolean; tour_completed: boolean }>(
+    must_change_password: boolean; tour_completed: boolean; can_approve_fixes: boolean }>(
     touch ? `UPDATE sessions s SET last_activity_at = now() FROM users u WHERE ${live} RETURNING ${columns}`
           : `SELECT ${columns} FROM sessions s, users u WHERE ${live}`,
     [hashId(id), policy.idleMinutes])).rows[0];
   if (!row) return null;
   return { sessionHash: hashId(id), stage: row.stage, userId: row.user_id, username: row.username, name: row.name, role: row.role,
-    totpEnabled: row.totp_enabled, mustChangePassword: row.must_change_password, tourCompleted: row.tour_completed };
+    totpEnabled: row.totp_enabled, mustChangePassword: row.must_change_password, tourCompleted: row.tour_completed, canApproveFixes: row.role === "admin" || (row.role === "tier2" && row.can_approve_fixes) };
 }
 
 export const setStage = (db: Queryable, sessionHash: Buffer, stage: Stage) =>

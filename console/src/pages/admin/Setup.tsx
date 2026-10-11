@@ -10,10 +10,11 @@ import { Badge, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { NewAccount } from "./Users";
 import { PendingCard, type KnownClient, type Pending } from "./Admin";
+import { LiveCheck } from "../../components/LiveCheck";
 import { startDemoTour } from "../../components/DemoTour";
 
 interface SetupState {
-  otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null;
+  otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null; newestCabinetName: string | null;
   agent: { host: string | null; port: number | null; package: { name: string; bytes: number; sha256: string } | null; caSha256: string };
 }
 export interface DemoState { enabled: boolean; clients: number; cabinets: number }
@@ -62,6 +63,7 @@ export function Setup() {
       </Step>
 
       <Step n={4} title="See it work" done={false}>
+        {s?.newestCabinetId && s.newestCabinetName && <LiveCheck key={s.newestCabinetId} cabinetId={s.newestCabinetId} cabinetName={s.newestCabinetName} />}
         {s?.newestCabinetId ? (
           <ul className="links">
             <li><Link to={`/cabinets/${s.newestCabinetId}/events`}>Event logs</Link>: browse System and Application errors, open any entry in full.</li>

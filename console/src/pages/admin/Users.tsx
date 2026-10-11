@@ -13,7 +13,7 @@ import { useLoad } from "../../lib/useLoad";
 import { AuditTable, type AuditRow } from "./Audit";
 
 export interface UserRow {
-  id: string; username: string; name: string; role: Role; status: "active" | "disabled" | "deleted"; totpEnabled: boolean; writeLimit: number;
+  id: string; username: string; name: string; role: Role; status: "active" | "disabled" | "deleted"; totpEnabled: boolean; writeLimit: number; canApproveFixes: boolean;
   writesPaused: boolean; writesPausedReason: string | null; lastLoginAt: string | null; createdAt: string; locked: boolean; online: boolean;
 }
 
@@ -152,6 +152,10 @@ function UserLine({ u, self, ask, after, onPassword }: { u: UserRow; self: boole
         <select id={`role-${u.id}`} value={role} disabled={self} onChange={e => setRole(e.target.value as Role)}>
           {(["tier1", "tier2", "admin"] as const).map(r => <option key={r} value={r}>{roleName(r)}</option>)}</select>
         {role !== u.role && <button className="btn small primary" onClick={() => update({ role }, `Change role to ${roleName(role)}`)}>Save</button>}
+        {u.role === "tier2" && (
+          <label className="small row gap" title="A Tier 2 who may approve or reject the known fixes members submit. An Admin always may.">
+            <input type="checkbox" checked={u.canApproveFixes} onChange={e => update({ canApproveFixes: e.target.checked }, e.target.checked ? "Allow them to approve known fixes" : "Stop them approving known fixes")} /> Approves fixes</label>)}
+        {u.role === "admin" && <div className="muted small">Approves fixes</div>}
       </td>
       <td>{u.status === "active" ? <Badge tone="ok">Active</Badge> : <Badge tone="off">Disabled</Badge>}</td>
       <td>

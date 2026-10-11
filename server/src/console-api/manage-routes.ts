@@ -34,7 +34,7 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
     const u = await asAdmin(request);
     const b = consoleBodies.userUpdate.parse(request.body);
     await users.updateUser(o.pool, u.userId, id(request), { ...(b.role ? { role: b.role } : {}), ...(b.writeLimit ? { writeLimit: b.writeLimit } : {}),
-      ...(b.status ? { status: b.status } : {}) }, boundTo(b.stepUpToken, b));
+      ...(b.status ? { status: b.status } : {}), ...(b.canApproveFixes !== undefined ? { canApproveFixes: b.canApproveFixes } : {}) }, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 

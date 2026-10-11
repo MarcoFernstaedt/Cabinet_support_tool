@@ -119,7 +119,7 @@ public sealed class CommandValidator
             {
                 RateClass.Write => "The cabinet's limit of 20 changes per hour is reached.",
                 RateClass.NetworkTest => "The cabinet's limit of 10 network tests per minute is reached.",
-                RateClass.NetworkTrace => "The cabinet's limit of 4 path traces per minute is reached.",
+                RateClass.NetworkTrace => "The cabinet's limit of 12 path traces per minute is reached.",
                 _ => "The cabinet's limit of 60 reads per minute is reached.",
             });
 

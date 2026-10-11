@@ -16,15 +16,15 @@ const ONLINE_MINUTES = 5;
 
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
-  const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number;
+  const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;
     writes_paused: boolean; writes_paused_reason: string | null; last_login_at: Date | null; created_at: Date; locked: boolean; online: boolean }>(
-    `SELECT u.id, u.username, u.name, u.role, u.status, u.totp_enabled, u.write_limit, u.writes_paused, u.writes_paused_reason, u.last_login_at, u.created_at,
+    `SELECT u.id, u.username, u.name, u.role, u.status, u.totp_enabled, u.write_limit, u.can_approve_fixes, u.writes_paused, u.writes_paused_reason, u.last_login_at, u.created_at,
             (u.locked_until IS NOT NULL AND u.locked_until > now()) AS locked,
             EXISTS (SELECT 1 FROM sessions s WHERE s.user_id = u.id AND s.stage = 'complete' AND s.expires_at > now()
                       AND s.last_activity_at > now() - make_interval(mins => $1)) AS online
        FROM users u WHERE ($2::boolean OR u.status <> 'deleted') ORDER BY (u.status = 'deleted'), u.name`, [ONLINE_MINUTES, includeDeleted])).rows;
   return rows.map(r => ({
-    id: r.id, username: r.username, name: r.name, role: r.role, status: r.status, totpEnabled: r.totp_enabled, writeLimit: r.write_limit,
+    id: r.id, username: r.username, name: r.name, role: r.role, status: r.status, totpEnabled: r.totp_enabled, writeLimit: r.write_limit, canApproveFixes: r.can_approve_fixes,
     writesPaused: r.writes_paused, writesPausedReason: r.writes_paused_reason, lastLoginAt: r.last_login_at?.toISOString() ?? null,
     createdAt: r.created_at.toISOString(), locked: r.locked, online: r.online,
   }));
@@ -70,7 +70,7 @@ export async function createUser(pool: pg.Pool, adminId: string, u: { username: 
   return { id, temporaryPassword: temporary };
 }
 
-export async function updateUser(pool: pg.Pool, adminId: string, id: string, change: { role?: Role; writeLimit?: number; status?: "active" | "disabled" },
+export async function updateUser(pool: pg.Pool, adminId: string, id: string, change: { role?: Role; writeLimit?: number; status?: "active" | "disabled"; canApproveFixes?: boolean },
   stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "user.update", id);
@@ -80,8 +80,8 @@ export async function updateUser(pool: pg.Pool, adminId: string, id: string, cha
     if (change.role && change.role !== "tier1" && !t.totp_enabled)
       throw new Refused("totp_required", 409, "this person must set up an authenticator before becoming Tier 2 or Admin");
     await keepAnAdmin(c, t, (change.role ?? t.role) === "admin" && (change.status ?? t.status) === "active");
-    await c.query(`UPDATE users SET role = coalesce($2, role), write_limit = coalesce($3, write_limit), status = coalesce($4, status) WHERE id = $1`,
-      [id, change.role ?? null, change.writeLimit ?? null, change.status ?? null]);
+    await c.query(`UPDATE users SET role = coalesce($2, role), write_limit = coalesce($3, write_limit), status = coalesce($4, status), can_approve_fixes = coalesce($5, can_approve_fixes) WHERE id = $1`,
+      [id, change.role ?? null, change.writeLimit ?? null, change.status ?? null, change.canApproveFixes ?? null]);
     // A new role or a disabled account takes effect at once: their sessions end.
     if ((change.role && change.role !== t.role) || (change.status && change.status !== t.status)) await endAllSessions(c, id);
     await audit(c, { actorKind: "user", actorId: adminId, action: "user.update", targetKind: "user", targetId: id, outcome: "succeeded",

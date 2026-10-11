@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 export type Role = "tier1" | "tier2" | "admin";
-export interface Me { id: string; username: string; name: string; role: Role; totpEnabled: boolean; tourCompleted: boolean; }
+export interface Me { id: string; username: string; name: string; role: Role; totpEnabled: boolean; tourCompleted: boolean; canApproveFixes: boolean; }
 
 export const SessionContext = createContext<{ me: Me; refresh: () => Promise<void>; signOut: () => Promise<void> } | null>(null);
 export const useSession = () => {

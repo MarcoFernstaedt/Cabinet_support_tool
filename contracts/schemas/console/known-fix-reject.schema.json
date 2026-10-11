@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/known-fix-reject.schema.json",
+  "title": "known-fix-reject",
+  "description": "Rejects a submitted known fix, with an optional reason the submitter can read.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "$ref": "../common.schema.json#/$defs/shortText"
+    }
+  }
+}

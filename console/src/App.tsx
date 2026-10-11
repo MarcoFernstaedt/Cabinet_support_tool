@@ -19,6 +19,7 @@ import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
 import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
 import { Setup } from "./pages/admin/Setup";
 import { Account } from "./pages/Account";
+import { FixQueue } from "./pages/Fixes";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
 import { IncidentsPage } from "./pages/Crashes";
@@ -103,6 +104,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/security", path)) return <SecurityAlerts />;
   if (match("/admin/settings", path)) return <PlatformSettings />;
   if (match("/account", path)) return <Account onTour={onTour} />;
+  if (match("/fixes", path)) return <FixQueue />;
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;
   if (match("/incidents", path)) return <IncidentsPage />;

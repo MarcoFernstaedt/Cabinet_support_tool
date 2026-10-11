@@ -205,10 +205,10 @@ public sealed class CommandValidatorTests
     }
 
     [Fact]
-    public void Step6_the_5th_path_trace_in_a_minute_is_rate_limited_and_has_its_own_budget()
+    public void Step6_the_13th_path_trace_in_a_minute_is_rate_limited_and_has_its_own_budget()
     {
         var validator = Validator();
-        for (int i = 0; i < 4; i++) Assert.Null(Run(Command("network.trace", new JsonObject { ["target"] = "gateway" }), validator));
+        for (int i = 0; i < 12; i++) Assert.Null(Run(Command("network.trace", new JsonObject { ["target"] = "gateway" }), validator));
         Assert.Equal("rate_limited", Run(Command("network.trace", new JsonObject { ["target"] = "gateway" }), validator));
         Assert.Null(Run(Command("network.test", new JsonObject { ["target"] = "gateway", ["method"] = "ping" }), validator));
     }
