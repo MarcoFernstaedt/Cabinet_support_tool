@@ -32,7 +32,7 @@ import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 const EXAMPLES = join(dirname(SCHEMA_DIR), "examples", "operations");
-const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift", "site_outage", "net_dns_wrong", "net_static_wrong", "net_dhcp_failed", "net_gateway_wrong", "net_link_slow", "usb_missing", "disk_space_low", "mixed_errors"];
+const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "scanner_flapping", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift", "site_outage", "net_dns_wrong", "net_static_wrong", "net_dhcp_failed", "net_gateway_wrong", "net_link_slow", "usb_missing", "disk_space_low", "mixed_errors"];
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
@@ -148,7 +148,18 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   assert.deepEqual(on.body, { enabled: true, clients: DEMO_FLEET.length, cabinets: expected });
   assert.equal((await demoChange(admin, ca, { enabled: true })).body.cabinets, expected, "turning it on twice adds nothing");
   assert.ok(await openAlert(await demoCabinet("firewall_drift"), ISSUE.firewallPolicy), "firewall drift");
-  assert.ok(await openAlert(await demoCabinet("scanner_disconnected"), ISSUE.scanner), "scanner");
+  assert.ok(await openAlert(await demoCabinet("scanner_flapping"), ISSUE.scanner), "scanner");
+  // The flapping scanner: three drops in a day, and a driver for it installed shortly before the first one.
+  const history = (await call("GET", `/api/cabinets/${await demoCabinet("scanner_flapping")}/scanner-history`, undefined, ca)).body;
+  assert.equal(history.drops24h, 3);
+  assert.equal(history.offNow, true);
+  assert.equal(history.changes.filter((c: { kind: string; relatedToScanner: boolean }) => c.kind === "driver" && c.relatedToScanner).length, 1);
+  assert.ok(history.changes[0].hoursBeforeFirstDrop > 1 && history.changes[0].hoursBeforeFirstDrop < 3);
+  assert.match(history.lead, /dropped off 3 times/);
+  assert.match(history.lead, /oem42\.inf/);
+  assert.ok(!/cause[ds]? by/i.test(history.lead), "it says what to check first, not what caused it");
+  const calm = (await call("GET", `/api/cabinets/${await demoCabinet("healthy")}/scanner-history`, undefined, ca)).body;
+  assert.deepEqual([calm.drops7d, calm.lead], [0, null]);
   assert.ok(await openAlert(await demoCabinet("service_failing"), ISSUE.serviceFailing), "service failing");
   assert.ok(await openAlert(await demoCabinet("disk_failing"), ISSUE.drive), "drive");
   assert.ok(await openAlert(await demoCabinet("bsod"), "00000000-0000-4000-8000-000000000109"), "blue screen");

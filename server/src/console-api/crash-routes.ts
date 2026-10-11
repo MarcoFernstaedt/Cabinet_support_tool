@@ -5,6 +5,7 @@ import { consoleBodies } from "../contracts.js";
 import { transaction } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
+import { scannerHistory } from "../services/scanner-history.js";
 import { exportEvidence } from "../services/evidence.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -30,6 +31,12 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const cabinetId = id(request);
     if (!(await o.pool.query("SELECT 1 FROM cabinets WHERE id = $1", [cabinetId])).rows[0]) throw new Refused("not_found", 404, "no such cabinet");
     return cabinetCrashes(o.pool, cabinetId, Number(q.days ?? 30));
+  });
+  app.get("/api/cabinets/:id/scanner-history", async request => {
+    await o.guards.role(request, "tier1");
+    const cabinetId = id(request);
+    if (!(await o.pool.query("SELECT 1 FROM cabinets WHERE id = $1", [cabinetId])).rows[0]) throw new Refused("not_found", 404, "no such cabinet");
+    return scannerHistory(o.pool, cabinetId);
   });
   app.get("/api/cabinets/:id/timeline", async request => {
     await o.guards.role(request, "tier1");

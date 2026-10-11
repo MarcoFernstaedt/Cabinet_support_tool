@@ -82,6 +82,18 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
       return [{ eventId: randomUUID(), kind: "scanner", occurredAt: at(2), severityHint: "major",
         device: { hardwareIds: ["USB\\VID_1234&PID_5678"], deviceInstanceId: "USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2", name: "Fingerprint Reader", state: "disconnected" },
         detail: { message: "The fingerprint scanner was disconnected.", fields: { usbPort: "Port_#0002.Hub_#0003" } } }];
+    case "scanner_flapping": {
+      // The scanner's driver was updated yesterday evening; since then it has dropped off three times, and it is off now.
+      const dev = { hardwareIds: ["USB\\VID_1234&PID_5678"], deviceInstanceId: "USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2", name: "Fingerprint Reader" };
+      const scanner = (h: number, state: "disconnected" | "recovered", message: string): Event => ({ eventId: randomUUID(), kind: "scanner", occurredAt: at(h),
+        severityHint: state === "disconnected" ? "major" : "minor", device: { ...dev, hardwareIds: [dev.hardwareIds[0]!] as [string, ...string[]], state }, detail: { message, fields: { usbPort: "Port_#0002.Hub_#0003" } } });
+      return [
+        change(now - 22 * 3_600_000, "Microsoft-Windows-UserPnp", 20001, "Driver Management concluded the process to install driver oem42.inf for Device Instance ID USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2 with the following status: 0x0."),
+        scanner(20, "disconnected", "The fingerprint scanner was disconnected."), scanner(19.8, "recovered", "The fingerprint scanner is back."),
+        scanner(11, "disconnected", "The fingerprint scanner was disconnected."), scanner(10.8, "recovered", "The fingerprint scanner is back."),
+        scanner(2, "disconnected", "The fingerprint scanner was disconnected."),
+      ];
+    }
     case "service_failing":
       return [3, 1].map((h): Event => ({ eventId: randomUUID(), kind: "service", occurredAt: at(h), severityHint: "minor",
         detail: { message: "BioScanSvc stopped and was started again.", fields: { service: "BioScanSvc", change: "restarted", restartsToday: "1" } } }))
@@ -123,6 +135,7 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
       // One of them got the driver too and did not crash: the comparison shows it.
       return [...update(), ...(harborDriverWithoutCrash(n) ? driver() : []), ...restart()];
     case "healthy":
+      return update();
     case "usb_missing":
       return [...update(), { eventId: randomUUID(), kind: "scanner", occurredAt: at(3), severityHint: "minor",
         device: { hardwareIds: ["USB\\VID_1234&PID_5678"], deviceInstanceId: "USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2", name: "Fingerprint Reader", state: "disconnected" },

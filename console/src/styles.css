@@ -325,7 +325,7 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .bar.crit > span { background: var(--crit); } .bar.off > span { background: var(--muted); }
 
 /* The guided demo: a side panel, not a popup; the page stays usable */
-.demo-tour { position: fixed; right: var(--s-4); top: calc(var(--topbar-h) + var(--s-8) + var(--s-4)); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));
+.demo-tour { position: fixed; right: var(--s-4); bottom: var(--s-4); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));
   background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow); }
 .demo-tour h2 { font-size: var(--fs-lg); }
 
@@ -351,3 +351,9 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 /* The authenticator QR code: dark squares on white with a quiet zone, whatever the theme. */
 .qr { width: 11rem; height: 11rem; background: #fff; border-radius: 6px; padding: 0.25rem; margin: 0.25rem auto; }
 .qr svg { display: block; width: 100%; height: 100%; }
+
+/* A short list of what happened, in order. */
+.timeline { list-style: none; padding: 0; margin: var(--s-3) 0; display: grid; gap: var(--s-2); }
+.timeline li { display: grid; grid-template-columns: 12rem 1fr; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-left: 3px solid var(--line); }
+.timeline .when { color: var(--text-2); font-size: var(--fs-sm); }
+@media (max-width: 40rem) { .timeline li { grid-template-columns: 1fr; } }

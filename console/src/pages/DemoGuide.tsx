@@ -16,13 +16,13 @@ export function DemoGuide() {
   return (
     <div className="page narrow">
       <h1>Demo guide</h1>
-      <p>Demo mode adds simulated clients, sites and cabinets next to the real ones so the platform can be shown at fleet scale without touching a customer's cabinet.
-        Simulated cabinets are tagged <DemoTag /> everywhere and say "Demo: simulated cabinet"; your real cabinets say "Live agent".</p>
+      <p>Demo mode adds made-up clients, sites and cabinets alongside the real ones, so you can show the app at fleet size without touching a customer's cabinet.
+        They are tagged <DemoTag /> everywhere and say "Demo: simulated cabinet". Real cabinets say "Live agent".</p>
       <ul className="links">
-        <li>They send heartbeats and events, and answer every diagnostic, through the same server code and contracts as a real agent, so what you see is what a real cabinet would show.</li>
-        <li>Fixes made on them take effect: a firewall policy applied, a service restarted, a time zone corrected, each verified afterwards.</li>
-        <li>They are never mixed with real cabinets: a command to a real cabinet is never answered by the simulation, and a simulated one never reaches a real cabinet.</li>
-        <li>Roles and confirmations are the same as for real cabinets; demo mode is not a way around them.</li>
+        <li>They send heartbeats and events and answer every check through the same server code a real agent uses, so what you see is what a real cabinet would show.</li>
+        <li>Fixes work on them: apply a firewall policy, restart a service, correct a time zone, and each one is checked afterwards.</li>
+        <li>They never get mixed up with real cabinets. A real cabinet is never answered by the simulation, and a demo one never reaches a real cabinet.</li>
+        <li>Roles and confirmations are the same as for real cabinets.</li>
       </ul>
       <p className="row gap wrap">
         {demo.data?.enabled ? <Badge tone="info">Demo mode is on: {demo.data.cabinets} simulated cabinets</Badge> : <Badge tone="off">Demo mode is off</Badge>}
@@ -39,8 +39,7 @@ export function DemoGuide() {
         </li>))}
       </ul>
       <h2>A live agent too</h2>
-      <p>To show genuine Windows diagnostics, install the agent on a test computer from <Link to="/admin/setup">Admin → Set up and demo</Link> (no demo mode needed).
-        Its data is always live: the simulation never answers for it.</p>
+      <p>To show real Windows data, install the agent on a test computer from <Link to="/admin/setup">Admin → Set up and demo</Link>. You don't need demo mode for that, and its data is always live.</p>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 // database, so nobody mistakes it for a real customer. Each cabinet has one scenario: the problem it shows.
 
 export type Scenario =
-  | "healthy" | "firewall_drift" | "scanner_disconnected" | "service_failing" | "disk_failing"
+  | "healthy" | "firewall_drift" | "scanner_disconnected" | "scanner_flapping" | "service_failing" | "disk_failing"
   | "bsod" | "offline" | "dns_errors" | "update_failure" | "unknown_errors"
   /** The overnight crash incident: blue screens after a storage driver update; some stuck restarting; the rest fine. */
   | "incident_crash" | "incident_loop" | "incident_ok"
@@ -37,7 +37,7 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected"), c("Lab", "satellite", "net_static_wrong"),
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_flapping"), c("Lab", "satellite", "net_static_wrong"),
       c("Exam 1", "satellite", "time_zone_wrong"), c("Exam 2", "satellite", "time_zone_wrong"), c("Exam 3", "satellite", "time_zone_wrong")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
@@ -66,6 +66,7 @@ export const DEMO_FLEET: DemoClient[] = [
 
 export const SCENARIO_LABEL: Record<Scenario, string> = {
   healthy: "Healthy", firewall_drift: "Sync cabinet firewall on, unlike the client policy (blocks its satellites)", scanner_disconnected: "Fingerprint scanner disconnected",
+  scanner_flapping: "Fingerprint scanner dropped off 3 times in a day, a driver for it was installed just before",
   service_failing: "Scanner service will not stay running", disk_failing: "Drive predicting failure", bsod: "Repeated blue screens",
   offline: "Offline for 6 days", dns_errors: "DNS lookups failing", update_failure: "Windows update failing", unknown_errors: "New, unrecognized errors",
   incident_crash: "Blue screen overnight after a storage driver update", incident_loop: "Blue screen after the driver update, still restarting",

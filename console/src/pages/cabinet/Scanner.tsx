@@ -14,6 +14,26 @@ import { PackageList, type LibraryPackage } from "./Software";
 import { useLoad } from "../../lib/useLoad";
 import { SCANNER_SOURCE, ScannerIdsEditor } from "../../components/DeviceSettings";
 
+interface History { drops24h: number; drops7d: number; offNow: boolean; lead: string | null; firstDropAt: string | null;
+  episodes: { at: string; state: string }[]; changes: { at: string; kind: "driver" | "update"; title: string; relatedToScanner: boolean; hoursBeforeFirstDrop: number }[] }
+
+/** How often the scanner has dropped off lately, and what was installed on the cabinet just before it started. */
+function Drops({ cabinetId }: { cabinetId: string }) {
+  const { data } = useLoad<History>(`/api/cabinets/${cabinetId}/scanner-history`);
+  if (!data || data.drops7d === 0) return null;
+  const timeline = [...data.episodes.map(e => ({ at: e.at, text: e.state === "recovered" ? "Scanner came back" : e.state === "disconnected" ? "Scanner dropped off" : e.state === "driver_missing" ? "Scanner had no driver" : "Scanner reported an error", tone: e.state === "recovered" ? "ok" as const : "crit" as const })),
+    ...data.changes.map(c => ({ at: c.at, text: `${c.kind === "driver" ? "Driver installed" : "Windows update installed"}: ${c.title}`, tone: "info" as const }))].sort((a, b) => a.at.localeCompare(b.at));
+  return (
+    <section className="panel" aria-labelledby="drops-heading">
+      <h2 id="drops-heading">Drops <Badge tone={data.drops24h >= 3 ? "crit" : "warn"}>{data.drops24h} in the last 24 hours</Badge></h2>
+      {data.lead && <p>{data.lead}</p>}
+      <ol className="timeline">{timeline.map((t, i) => (
+        <li key={i}><span className="when" title={fullTime(t.at)}>{fullTime(t.at)}</span><span className="what"><Badge tone={t.tone}>{t.text.split(":")[0]!}</Badge>{t.text.includes(":") ? t.text.slice(t.text.indexOf(":")) : ""}</span></li>))}</ol>
+      {data.changes.some(c => c.kind === "driver") && <p className="small muted">Next: look at the driver under Devices and drivers. If the software library has the previous version for this scanner, it can go back on from Scanner drivers, further down this page.</p>}
+    </section>
+  );
+}
+
 const CHECK_NAME: Record<string, string> = {
   device_present: "Scanner plugged in", no_device_error: "No Windows device error", driver_installed: "Driver installed", driver_signed: "Driver signed",
   usb_power_saving: "USB power saving", recent_reconnects: "Reconnects in the last 24 hours", usb_controller_errors: "USB controllers and hubs", biometric_service: "Windows Biometric Service",
@@ -24,6 +44,7 @@ export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail
   useEffect(() => { void status.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const rerun = () => void status.start();
   return (<>
+    <Drops cabinetId={cabinet.id} />
     <OperationPanel title="Fingerprint scanner" description="Runs the standard scanner troubleshooting on the cabinet and says what to try next."
       run={status} onRun={rerun} buttonLabel="Check the scanner">
       {out => <ScannerResult out={out} cabinet={cabinet} onUse={() => { onSettingsChanged(); rerun(); }} />}

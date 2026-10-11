@@ -82,7 +82,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     }
     case "peripheral.status": {
       const o = example("peripheral.status", "connected.json");
-      if (ctx.scenario !== "scanner_disconnected" && ctx.scenario !== "usb_missing") {
+      if (ctx.scenario !== "scanner_disconnected" && ctx.scenario !== "scanner_flapping" && ctx.scenario !== "usb_missing") {
         o.checks = o.checks.map((c: any) => c.check === "recent_reconnects" ? { ...c, outcome: "pass", summary: "No disconnects in the last 24 hours." } : c);
         return o;
       }
@@ -98,7 +98,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         checks: [
           { check: "device_present", outcome: "fail", summary: "The fingerprint scanner is not connected. It was last seen 2 hours ago on Port_#0002.Hub_#0003." },
           { check: "driver_installed", outcome: "pass", summary: "Driver oem42.inf 3.1.0.7 is installed." },
-          { check: "recent_reconnects", outcome: "warn", summary: "Disconnected and reconnected 7 times in the last 24 hours before it went away: check the cable and USB port." },
+          { check: "recent_reconnects", outcome: "warn", summary: ctx.scenario === "scanner_flapping" ? "Disconnected and reconnected 2 times in the last 24 hours, and it has now gone away for good: 3 drops in all." : "Disconnected and reconnected 7 times in the last 24 hours before it went away: check the cable and USB port." },
           { check: "usb_power_saving", outcome: "warn", summary: "USB selective suspend is enabled for this device; Windows may power it off when idle." },
           { check: "usb_controller_errors", outcome: "pass", summary: "No USB controller or hub reports a problem." },
           { check: "biometric_service", outcome: "pass", summary: "Windows Biometric Service is running." },
@@ -114,7 +114,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { instanceId: "USB\\ROOT_HUB30\\4&2A1B3C4D&0&0", class: "USB", name: "USB Root Hub (USB 3.0)", status: "OK", errorCode: null, errorText: null,
           hardwareIds: ["USB\\ROOT_HUB30"], driver: { name: "usbhub3.inf", version: "10.0.19041.4355", provider: "Microsoft" } },
       ].map(d => ({ ...d, driver: { ...scanner.driver, ...d.driver } }));
-      if (ctx.scenario === "scanner_disconnected" || ctx.scenario === "usb_missing") return { devices: others, truncated: false };
+      if (ctx.scenario === "scanner_disconnected" || ctx.scenario === "scanner_flapping" || ctx.scenario === "usb_missing") return { devices: others, truncated: false };
       if (params.problemsOnly) return { devices: [], truncated: false };
       return { devices: [ok, ...others], truncated: false };
     }
