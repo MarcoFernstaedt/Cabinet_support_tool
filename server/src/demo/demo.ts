@@ -123,6 +123,8 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
       // One of them got the driver too and did not crash: the comparison shows it.
       return [...update(), ...(harborDriverWithoutCrash(n) ? driver() : []), ...restart()];
     case "healthy":
+    case "net_dns_wrong": case "net_static_wrong": case "net_dhcp_failed": case "net_gateway_wrong": case "net_link_slow":
+      // Network faults leave the cabinet otherwise ordinary: it got the same Windows update as everyone.
       return update();
     default:
       return [];

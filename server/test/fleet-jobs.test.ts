@@ -114,7 +114,7 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
     assert.deepEqual(c.params, { timeZoneId: site });
   }
   assert.equal((await db.app.query("SELECT count(*)::int AS n FROM commands WHERE operation = 'time.setZone'")).rows[0].n, 0);
-  for (const body of [{ operation: "network.setIp", cabinetIds: wrong }, { operation: "time.sync", cabinetIds: [] }, { operation: "time.sync", cabinetIds: ["../x"] },
+  for (const body of [{ operation: "driver.uninstall", cabinetIds: wrong }, { operation: "time.sync", cabinetIds: [] }, { operation: "time.sync", cabinetIds: ["../x"] },
     { operation: "time.sync", cabinetIds: Array.from({ length: 201 }, () => randomUUID()) }])
     assert.equal((await call("POST", "/api/fleet-operations/preview", body, t1)).status, 400, JSON.stringify(body).slice(0, 80));
   assert.equal((await call("POST", "/api/fleet-operations/preview", { operation: "time.sync", cabinetIds: [randomUUID()] }, t1)).status, 404);
