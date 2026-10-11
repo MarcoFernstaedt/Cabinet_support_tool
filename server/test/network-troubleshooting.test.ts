@@ -14,6 +14,7 @@ import { paramsHash } from "../src/auth/canonical.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
+import { initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -130,31 +131,53 @@ test("a whole site at once: Dallas shows three cabinets with the old DNS servers
   for (const name of ["Uptown Sync", "Uptown Exam 1", "Uptown Exam 2"]) assert.ok(!(await openAlert((await cab(name)).id)), `${name}: the baseline alert closed`);
 });
 
-test("a cabinet with no DHCP lease: the diagnosis names it, one authenticator-code fix renews the lease, and the next diagnosis is clean", async () => {
-  const t1 = await account("tier1"), t2 = await account("tier2");
+test("a cabinet with no DHCP lease: the diagnosis offers a lease renewal; one click (Tier 1) renews it, the answer says the new address, and the next diagnosis is clean", async () => {
+  const t1 = await account("tier1");
   const fd = await cab("Front Desk");
   const started = await call("POST", `/api/cabinets/${fd.id}/diagnose/network`, {}, t1);
   const d = await (async () => { for (;;) { const r = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body; if (r.state !== "running") return r; await new Promise(r => setTimeout(r, 100)); } })();
   const f = d.findings.find((x: { id: string }) => x.id === "ip-12");
   assert.equal(f.severity, "problem");
   assert.match(f.evidence[0], /169\.254/);
-  assert.equal(f.action.kind, "use_dhcp");
-  const params = { interfaceIndex: f.action.interfaceIndex, mode: "dhcp" };
-  // Tier 1 cannot change the network; Tier 2 needs the authenticator code, bound to exactly these parameters.
-  assert.equal((await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.setIp", params }, t1)).status, 403);
-  const wrong = await codeToken(t2, "network.setIp", fd.id, { ...params, mode: "static" });
-  assert.equal((await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.setIp", params, stepUpToken: wrong }, t2)).status, 403, "a code confirmed for other parameters");
-  const issued = await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.setIp", params, stepUpToken: await codeToken(t2, "network.setIp", fd.id, params) }, t2);
+  assert.equal(f.action.kind, "renew_lease");
+  assert.match(f.action.label, /Renew the DHCP lease/);
+  const params = { interfaceIndex: f.action.interfaceIndex };
+  // Renewing a lease changes no setting, so it needs no code: Tier 1 may do it. Anything else in the parameters is refused.
+  for (const bad of [{}, { ...params, server: "10.0.0.1" }, { interfaceIndex: "12; ipconfig /release" }, { interfaceIndex: -1 }])
+    assert.equal((await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.renewLease", params: bad }, t1)).status, 400, JSON.stringify(bad));
+  const issued = await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.renewLease", params }, t1);
   assert.equal(issued.status, 202, JSON.stringify(issued.body));
   for (const end = Date.now() + 10_000; Date.now() < end; await new Promise(r => setTimeout(r, 50)))
     if ((await db.app.query("SELECT status FROM commands WHERE id = $1", [issued.body.commandId])).rows[0].status === "succeeded") break;
   const out = (await db.app.query("SELECT result FROM commands WHERE id = $1", [issued.body.commandId])).rows[0].result.output;
-  assert.equal(out.after.dhcp, true);
-  assert.ok(!out.after.addresses[0].address.startsWith("169.254."));
-  assert.ok(out.safetyNetDeadline, "the change comes with its safety-net deadline");
+  assert.equal(out.result, "renewed");
+  assert.match(out.addressBefore, /^169\.254\./);
+  assert.ok(!out.addressAfter.startsWith("169.254."));
   const again = await runBatch(t1, { cabinetIds: [fd.id] });
   assert.equal(problemGroups(again).length, 0, JSON.stringify(again.groups));
   assert.ok(!(await openAlert(fd.id)));
+  // The cabinet list shows the address it now has (read by that diagnosis).
+  assert.equal((await db.app.query("SELECT ipv4 FROM cabinets WHERE id = $1", [fd.id])).rows[0].ipv4, out.addressAfter);
+});
+
+test("renewing leases for several cabinets is a fleet job with the password, read back from each; a fixed-address cabinet answers not_dhcp and is not touched", async () => {
+  const t1 = await account("tier1");
+  const fd = await cab("Front Desk");
+  // Break it again the way the demo does: no lease, a 169.254 address.
+  const baseline = (await db.app.query("SELECT s.network_baseline AS b FROM sites s WHERE s.id = $1", [fd.site_id])).rows[0].b;
+  await db.app.query("UPDATE cabinets SET demo_scenario = 'net_dhcp_failed', demo_net = $2 WHERE id = $1", [fd.id, JSON.stringify(initialNet("net_dhcp_failed", baseline, "10.33.8", 0))]);
+  const b = await runBatch(t1, { cabinetIds: [fd.id] });
+  const g = b.groups.find((x: { kind: string | null }) => x.kind === "renew_lease");
+  assert.ok(g, JSON.stringify(b.groups));
+  assert.equal(g.operation, "network.renewLease");
+  const j = await runJob(t1, "network.renewLease", [fd.id]);
+  assert.deepEqual(j.counts, { verified: 1 }, JSON.stringify(j.cabinets));
+  assert.match(j.cabinets[0].detail, /read back/);
+  // A fixed-address cabinet (Triage) in a job of its own: no diagnosis finding for a lease, so the preview skips it.
+  const triage = await cab("Triage");
+  await runBatch(t1, { cabinetIds: [triage.id] });
+  const pre = (await call("POST", "/api/fleet-operations/preview", { operation: "network.renewLease", cabinetIds: [triage.id] }, t1)).body;
+  assert.equal(pre.change, 0);
 });
 
 test("a fixed address from another network (DHCP site) and a wrong gateway (fixed-address site) each get their own fix, run as jobs", async () => {
@@ -167,9 +190,16 @@ test("a fixed address from another network (DHCP site) and a wrong gateway (fixe
   const tg = b1.groups.find((g: { key: string }) => g.key.startsWith("baseline-gateway"));
   assert.equal(tg.kind, "set_static");
   assert.equal(tg.targets[0].label, "Set the gateway to 172.20.10.1");
-  // Both are network.setIp; each cabinet gets its own change from its own diagnosis.
-  const j = await runJob(t2, "network.setIp", [lab.id, triage.id]);
-  assert.deepEqual(j.counts, { verified: 2 }, JSON.stringify(j.cabinets));
+  // Both are network.setIp, each cabinet gets its own change from its own diagnosis, and a job covers one site: two sites, two jobs.
+  const jobId = randomUUID();
+  const t = await call("POST", "/api/auth/confirm-password", { password: t2.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10 }) }, t2);
+  const mixed = await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10, stepUpToken: t.body.token }, t2);
+  assert.equal(mixed.status, 409, JSON.stringify(mixed.body));
+  assert.equal(mixed.body.error, "one_site_only");
+  for (const one of [lab, triage]) {
+    const j = await runJob(t2, "network.setIp", [one.id]);
+    assert.deepEqual(j.counts, { verified: 1 }, JSON.stringify(j.cabinets));
+  }
   // What was wrong with the two cabinets is gone; the sync cabinet's firewall (a different site problem) is still there until it is fixed.
   const b2 = await runBatch(t1, { cabinetIds: [lab.id, triage.id] });
   assert.deepEqual(b2.groups.filter((g: { key: string }) => g.key.startsWith("baseline-")), [], JSON.stringify(b2.groups));

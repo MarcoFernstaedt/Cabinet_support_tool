@@ -119,8 +119,8 @@ export async function upsertAlert(c: Queryable, a: { cabinetId: string; issueTyp
   // An agent clock far in the future cannot push last_seen past now.
   const seen = new Date(Math.min(a.seenAt.getTime(), Date.now()));
   const r = (await c.query<{ id: string; created: boolean }>(
-    `INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, rule_id, last_event_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)
+    `INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, rule_id, last_event_id, scope)
+     VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, COALESCE((SELECT scope FROM issue_types WHERE id = $2::uuid), 'fleet'))
      ON CONFLICT (cabinet_id, signature) WHERE state <> 'resolved' DO UPDATE
        SET occurrences = alerts.occurrences + 1, first_seen = LEAST(alerts.first_seen, EXCLUDED.first_seen),
            last_seen = GREATEST(alerts.last_seen, EXCLUDED.last_seen), last_event_id = COALESCE(EXCLUDED.last_event_id, alerts.last_event_id),
@@ -150,7 +150,7 @@ async function flagSitePattern(c: pg.PoolClient, cabinetId: string, signature: s
 
 const ALERT_SELECT = `
   SELECT a.id, a.cabinet_id, k.name AS cabinet_name, s.id AS site_id, s.name AS site_name, c.id AS client_id, c.name AS client_name,
-         a.issue_type_id, a.severity, a.title, a.state, a.occurrences, a.first_seen, a.last_seen, a.site_pattern, a.rule_id,
+         a.scope, a.issue_type_id, a.severity, a.title, a.state, a.occurrences, a.first_seen, a.last_seen, a.site_pattern, a.rule_id,
          a.last_event_id, a.claimed_by, cu.name AS claimed_by_name, a.claimed_at, a.resolved_by, ru.name AS resolved_by_name, a.resolved_at, a.resolution
     FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
     LEFT JOIN users cu ON cu.id = a.claimed_by LEFT JOIN users ru ON ru.id = a.resolved_by`;
@@ -158,12 +158,12 @@ const ALERT_SELECT = `
 interface AlertRow {
   id: string; cabinet_id: string; cabinet_name: string; site_id: string; site_name: string; client_id: string; client_name: string;
   issue_type_id: string | null; severity: string; title: string; state: string; occurrences: number; first_seen: Date; last_seen: Date;
-  site_pattern: boolean; rule_id: string | null; last_event_id: string | null; claimed_by: string | null; claimed_by_name: string | null;
+  scope: string; site_pattern: boolean; rule_id: string | null; last_event_id: string | null; claimed_by: string | null; claimed_by_name: string | null;
   claimed_at: Date | null; resolved_by: string | null; resolved_by_name: string | null; resolved_at: Date | null; resolution: string | null;
 }
 
 export const alertView = (r: AlertRow) => ({
-  id: r.id, cabinet: { id: r.cabinet_id, name: r.cabinet_name }, site: { id: r.site_id, name: r.site_name }, client: { id: r.client_id, name: r.client_name },
+  id: r.id, scope: r.scope, cabinet: { id: r.cabinet_id, name: r.cabinet_name }, site: { id: r.site_id, name: r.site_name }, client: { id: r.client_id, name: r.client_name },
   issueTypeId: r.issue_type_id, unrecognized: r.issue_type_id === null, severity: r.severity, title: r.title, state: r.state, occurrences: r.occurrences,
   firstSeen: r.first_seen.toISOString(), lastSeen: r.last_seen.toISOString(), sitePattern: r.site_pattern, ruleId: r.rule_id, lastEventId: r.last_event_id,
   claimedBy: r.claimed_by ? { id: r.claimed_by, name: r.claimed_by_name } : null, claimedAt: r.claimed_at?.toISOString() ?? null,
@@ -178,6 +178,7 @@ export async function listAlerts(db: Queryable, f: AlertFilter, me: string) {
        AND ($4::boolean IS NULL OR (a.issue_type_id IS NULL) = $4)
        AND ($5::uuid IS NULL OR c.id = $5) AND ($6::uuid IS NULL OR s.id = $6) AND ($7::uuid IS NULL OR k.id = $7)
        AND ($8::uuid IS NULL OR a.claimed_by = $8)
+       AND (a.scope = 'fleet' OR $7::uuid IS NOT NULL)
      ORDER BY (a.state = 'resolved'), (a.severity = 'major') DESC, a.last_seen DESC LIMIT 500`,
     [state, f.severity ?? null, f.issueTypeId ?? null, f.unrecognized === undefined ? null : f.unrecognized === "true",
      f.clientId ?? null, f.siteId ?? null, f.cabinetId ?? null, f.claimedBy === "me" ? me : f.claimedBy ?? null])).rows;
@@ -194,7 +195,7 @@ export async function summary(db: Queryable) {
   const r = (await db.query<{ open_major: string; active: string; unrecognized: string }>(
     `SELECT count(*) FILTER (WHERE state = 'open' AND severity = 'major') AS open_major,
             count(*) FILTER (WHERE state <> 'resolved') AS active,
-            count(*) FILTER (WHERE state <> 'resolved' AND issue_type_id IS NULL) AS unrecognized FROM alerts`)).rows[0]!;
+            count(*) FILTER (WHERE state <> 'resolved' AND issue_type_id IS NULL) AS unrecognized FROM alerts WHERE scope = 'fleet'`)).rows[0]!;
   return { openMajor: Number(r.open_major), active: Number(r.active), unrecognized: Number(r.unrecognized) };
 }
 

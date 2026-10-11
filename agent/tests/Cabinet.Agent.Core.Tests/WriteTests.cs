@@ -55,6 +55,15 @@ public sealed class FakeNetwork : INetworkControl
         Ip = Ip with { Gateways = [g] };
     }
     public void SetDns(int i, DnsSettings d) { Read(i); Dns = d; }
+    /// <summary>What a DHCP server would give: null means none answers and the adapter keeps no real address.</summary>
+    public string? LeaseAddress = "10.20.0.77";
+    public int RenewCode;
+    public int RenewLease(int i)
+    {
+        Read(i);
+        Ip = Ip with { Addresses = [new() { Address = LeaseAddress ?? "169.254.9.9", PrefixLength = LeaseAddress is null ? 16 : 24 }] };
+        return RenewCode;
+    }
     public void Restore(int i, Ipv4Settings ip) { Read(i); Ip = ip; }
 }
 
@@ -151,6 +160,39 @@ public class BrokerWriteTests
         Name = name, Direction = FirewallDirection.In, Action = FirewallAction.Allow, Protocol = FirewallProtocol.Tcp,
         LocalPorts = [new PortRange { From = 1433, To = 1433 }], Profiles = [FirewallProfile.Domain, FirewallProfile.Private], Enabled = true,
     };
+
+    [Fact]
+    public void Renewing_a_lease_reports_the_new_address_and_changes_no_setting()
+    {
+        var output = As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 }));
+        Assert.Equal(RenewLeaseResult.Renewed, output.Result);
+        Assert.Equal("10.20.0.31", output.AddressBefore);
+        Assert.Equal("10.20.0.77", output.AddressAfter);
+        Assert.True(_net.Ip.Dhcp); // still on DHCP; nothing was armed for the safety net
+        Assert.Empty(_safety.Pending);
+    }
+
+    [Fact]
+    public void A_lease_that_comes_back_as_the_self_assigned_address_is_a_failure_not_a_success()
+    {
+        _net.LeaseAddress = null;
+        var output = As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 }));
+        Assert.Equal(RenewLeaseResult.Failed, output.Result);
+        Assert.Equal("169.254.9.9", output.AddressAfter);
+        _net.LeaseAddress = "10.20.0.77"; _net.RenewCode = 5;
+        Assert.Equal(RenewLeaseResult.Failed, As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 })).Result);
+    }
+
+    [Fact]
+    public void An_adapter_with_a_fixed_address_is_left_alone_and_an_unknown_adapter_is_not_found()
+    {
+        _net.Ip = _net.Ip with { Dhcp = false };
+        var output = As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 }));
+        Assert.Equal(RenewLeaseResult.NotDhcp, output.Result);
+        Assert.Equal("10.20.0.31", _net.Ip.Addresses[0].Address);
+        var e = Assert.Throws<OperationFailedException>(() => As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 99 })));
+        Assert.Equal("not_found", e.Code);
+    }
 
     [Fact]
     public void Applying_the_client_policy_turns_every_profile_off_with_no_timer_and_is_undone_if_unconfirmed()

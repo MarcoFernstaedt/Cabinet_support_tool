@@ -245,7 +245,8 @@
         "service.control",
         "time.status",
         "time.setZone",
-        "time.sync"
+        "time.sync",
+        "network.renewLease"
       ]
     },
     "rejectionCode": {

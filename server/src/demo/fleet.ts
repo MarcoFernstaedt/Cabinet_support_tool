@@ -11,7 +11,13 @@ export type Scenario =
   /** Scenario B: every cabinet at one site stopped reporting within the same minutes (the site's network went down). */
   | "site_outage"
   /** Network faults a diagnosis finds by comparing the cabinet with its site's baseline, each with a fix the platform can make. */
-  | "net_dns_wrong" | "net_static_wrong" | "net_dhcp_failed" | "net_gateway_wrong" | "net_link_slow";
+  | "net_dns_wrong" | "net_static_wrong" | "net_dhcp_failed" | "net_gateway_wrong" | "net_link_slow"
+  /** Nothing is plugged into any USB port although a fingerprint scanner is expected: a cabinet alert, not a fleet one. */
+  | "usb_missing"
+  /** A drive nearly full: Windows warns, and updates and the application start failing. */
+  | "disk_space_low"
+  /** Errors from several sources in the event logs: some match an issue type, two are new and wait to be mapped. */
+  | "mixed_errors";
 
 export interface DemoCabinet { name: string; role: "sync" | "satellite" | "standalone"; scenario: Scenario; }
 export interface DemoSite { name: string; timeZone: string; subnet: string; cabinets: DemoCabinet[]; /** How this site addresses its cabinets (its network baseline); DHCP unless said. */ addressing?: "dhcp" | "static"; }
@@ -31,18 +37,19 @@ const c = (name: string, role: DemoCabinet["role"], scenario: Scenario = "health
 export const DEMO_FLEET: DemoClient[] = [
   { name: "Demo · Riverside Veterinary Group", sites: [
     { name: "New York – Upper East Side", timeZone: "Eastern Standard Time", subnet: "10.21.4", cabinets: [
-      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected"), c("Lab", "satellite", "net_static_wrong")] },
+      c("Pharmacy Sync", "sync", "firewall_drift"), c("Surgery", "satellite"), c("ICU", "satellite", "clock_drift"), c("Treatment Room", "satellite", "scanner_disconnected"), c("Lab", "satellite", "net_static_wrong"),
+      c("Exam 1", "satellite", "time_zone_wrong"), c("Exam 2", "satellite", "time_zone_wrong"), c("Exam 3", "satellite", "time_zone_wrong")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
-      c("Pharmacy", "standalone", "disk_failing"), c("Recovery", "standalone", "time_zone_wrong")] },
+      c("Pharmacy", "standalone", "disk_failing"), c("Recovery", "standalone", "time_zone_wrong"), c("Intake", "standalone", "usb_missing")] },
   ] },
   { name: "Demo · Lakeside Health", sites: [
     { name: "Chicago – Main Pharmacy", timeZone: "Central Standard Time", subnet: "172.20.10", addressing: "static", cabinets: [
       c("Central Sync", "sync"), c("ER North", "satellite", "dns_errors"), c("ER South", "satellite"), c("Oncology", "satellite", "update_failure"),
       c("Triage", "satellite", "net_gateway_wrong")] },
     { name: "Denver ICU", timeZone: "Mountain Standard Time", subnet: "172.20.30", cabinets: [
-      c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline"), c("Rounds", "satellite", "net_link_slow")] },
+      c("ICU Sync", "sync", "unknown_errors"), c("Step-down", "satellite", "offline"), c("Rounds", "satellite", "net_link_slow"), c("Charting", "satellite", "disk_space_low")] },
   ] },
   { name: "Demo · Harbor Pet Hospitals", sites: HARBOR_SITES.map((name, s) => ({
     name, timeZone: "Eastern Standard Time", subnet: `10.6${s}.1`,
@@ -50,7 +57,7 @@ export const DEMO_FLEET: DemoClient[] = [
   })) },
   { name: "Demo · Summit Animal Hospitals", sites: [
     { name: "Austin North", timeZone: "Central Standard Time", subnet: "192.168.40", cabinets: [
-      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod")] },
+      c("Front Pharmacy", "sync"), c("Surgery Suite", "satellite", "time_zone_wrong"), c("Isolation", "satellite", "bsod"), c("Billing", "satellite", "mixed_errors")] },
     // Site-wide DNS drift: three of the four still point at the old DNS servers. One site diagnosis shows it; one bulk fix repairs it.
     { name: "Dallas Uptown", timeZone: "Central Standard Time", subnet: "192.168.60", cabinets: [
       c("Uptown Sync", "sync", "net_dns_wrong"), c("Uptown Exam 1", "satellite", "net_dns_wrong"), c("Uptown Exam 2", "satellite", "net_dns_wrong"), c("Uptown Exam 3", "satellite")] },
@@ -67,6 +74,7 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   site_outage: "The whole site went offline together 40 minutes ago",
   net_dns_wrong: "DNS servers are the old ones, not the site's", net_static_wrong: "Fixed address from another network", net_dhcp_failed: "No DHCP lease (169.254 address)",
   net_gateway_wrong: "Fixed address with the wrong gateway", net_link_slow: "Link negotiated at 100 Mbps (cable)",
+  usb_missing: "No USB device detected, a fingerprint scanner expected (cabinet alert)", disk_space_low: "Drive nearly full (warning)", mixed_errors: "Errors from several sources in the event logs, mapped to issues",
 };
 
 /** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */

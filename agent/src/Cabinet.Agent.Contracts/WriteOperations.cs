@@ -24,6 +24,22 @@ public sealed record NetworkSetIpOutput
     public required DateTimeOffset SafetyNetDeadline { get; init; }
 }
 
+public sealed record NetworkRenewLeaseParams
+{
+    public required int InterfaceIndex { get; init; }
+}
+
+public enum RenewLeaseResult { Renewed, Failed, NotDhcp }
+
+public sealed record NetworkRenewLeaseOutput
+{
+    public required int InterfaceIndex { get; init; }
+    public required RenewLeaseResult Result { get; init; }
+    public required string Message { get; init; }
+    public required string? AddressBefore { get; init; }
+    public required string? AddressAfter { get; init; }
+}
+
 public enum DnsMode { Automatic, Static }
 
 public sealed record NetworkSetDnsParams

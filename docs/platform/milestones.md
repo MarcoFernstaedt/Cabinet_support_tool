@@ -12,4 +12,6 @@ Milestones 0 to 12, the demo, crash investigation, time zones, fleet operations 
 | **18. Baselines and drift** | Versioned baselines per client and model (services, drivers, updates, allowlisted registry values); configuration snapshots; software inventory and approved repair or removal | L | Nothing |
 | **19. Advanced diagnostics** | Performance counters and bottleneck findings; Windows servicing health (DISM and SFC as Tier 2 with a code); Defender, BitLocker, certificates, power plans | M | Nothing |
 
+Added to the demo since the table was written: `network.renewLease` (ships in the next signed agent release, milestone 13), cabinet-only alerts, one-site bulk changes, three more scenarios (a USB device missing, low disk space, event-log errors mapped to issues) and one guided tour. Still to build for the USB alert on real cabinets: an agent monitor that reports "nothing on any USB port while a scanner is expected".
+
 Open product questions that do not block a milestone: the third fingerprint scanner model and its hardware IDs; whether Tier 2 may delete Windows' built-in firewall rules; whether signed scripts are ever allowed (kept out for now).

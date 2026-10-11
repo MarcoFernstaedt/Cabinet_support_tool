@@ -4,7 +4,7 @@
 // The server and the agent check all of it again; nothing here is the protection.
 import { useEffect, useState, type ReactNode } from "react";
 import type { DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
-  FirewallStateOutput, NetworkConfigOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
+  FirewallStateOutput, NetworkConfigOutput, NetworkRenewLeaseOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
 import { useWrite, type CommandResult } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
 import { canWrite, useWriteStatus } from "../../lib/writes";
@@ -54,24 +54,28 @@ const deadlineNote = (deadline: string) => <> The safety net kept the change: th
 export function useAdapterWrites(cabinet: CabinetDetail, onChanged: () => void) {
   const ip = useConfirmedWrite<NetworkSetIpOutput>(cabinet, "network.setIp", r => { if (r.status === "succeeded") onChanged(); });
   const dns = useConfirmedWrite<NetworkSetDnsOutput>(cabinet, "network.setDns", r => { if (r.status === "succeeded") onChanged(); });
+  const renew = useConfirmedWrite<NetworkRenewLeaseOutput>(cabinet, "network.renewLease", r => { if (r.status === "succeeded") onChanged(); });
   return {
-    ip, dns,
+    ip, dns, renew,
     outcome: <>
+      <WriteOutcome run={renew.run} done={o => o.result === "renewed" ? <>Lease renewed: the cabinet now has {o.addressAfter}{o.addressBefore && o.addressBefore !== o.addressAfter ? <> (it had {o.addressBefore})</> : null}.</>
+        : <>{o.message}</>} />
       <WriteOutcome run={ip.run} done={o => <>IP settings changed: {o.after.dhcp ? "DHCP" : o.after.addresses.map(a => `${a.address}/${a.prefixLength}`).join(", ")}.{deadlineNote(o.safetyNetDeadline)}</>} />
       <WriteOutcome run={dns.run} done={o => <>DNS changed: {o.after.automatic ? "automatic" : o.after.servers.join(", ")}.{deadlineNote(o.safetyNetDeadline)}</>} />
     </>,
-    dialog: <>{ip.dialog}{dns.dialog}</>,
+    dialog: <>{ip.dialog}{dns.dialog}{renew.dialog}</>,
   };
 }
 
 export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDetail; adapter: Adapter; writes: ReturnType<typeof useAdapterWrites> }) {
   const allowed = useCanWrite(cabinet, "network.setIp");
-  const { ip, dns } = writes;
+  const canRenew = useCanWrite(cabinet, "network.renewLease");
+  const { ip, dns, renew } = writes;
   const current = adapter.ipv4.addresses[0];
   const [editing, setEditing] = useState<null | "ip" | "dns">(null);
   const [ipForm, setIpForm] = useState({ mode: adapter.ipv4.dhcp ? "dhcp" : "static", address: current?.address ?? "", prefix: String(current?.prefixLength ?? 24), gateway: adapter.ipv4.gateways[0] ?? "" });
   const [dnsForm, setDnsForm] = useState({ mode: adapter.dns.automatic ? "automatic" : "static", servers: adapter.dns.servers.join(", ") });
-  if (!allowed) return null;
+  if (!allowed && !canRenew) return null;
 
   const warn = <div className="notice warn"><p>The cabinet may drop off the network for a moment while the adapter changes.</p><p>{SAFETY_NET_NOTE}</p></div>;
   const reviewIp = () => {
@@ -102,10 +106,13 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
   return (
     <div className="write-actions">
       <div className="row gap wrap">
-        <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "ip" ? null : "ip")} aria-expanded={editing === "ip"}>Edit IP settings</button>
-        <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "dns" ? null : "dns")} aria-expanded={editing === "dns"}>Edit DNS</button>
+        {canRenew && adapter.ipv4.dhcp && <button className="btn" disabled={renew.run.state === "running"}
+          onClick={() => renew.ask({ interfaceIndex: adapter.interfaceIndex }, <><p>Ask the DHCP server for a new lease on adapter <strong>{adapter.name}</strong>.</p>
+            <p className="muted small">No setting changes. If no server answers, the cabinet keeps what it has and the answer says so.</p></>)}>Renew DHCP lease</button>}
+        {allowed && <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "ip" ? null : "ip")} aria-expanded={editing === "ip"}>Edit IP settings</button>}
+        {allowed && <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "dns" ? null : "dns")} aria-expanded={editing === "dns"}>Edit DNS</button>}
       </div>
-      {editing === "ip" && (
+      {allowed && editing === "ip" && (
         <form className="form" aria-label={`IP settings for ${adapter.name}`} onSubmit={e => { e.preventDefault(); reviewIp(); }}>
           <fieldset><legend>Addressing</legend>
             {(["dhcp", "static"] as const).map(m => <label key={m} className="check"><input type="radio" name={`mode-${adapter.interfaceIndex}`} checked={ipForm.mode === m}
@@ -118,7 +125,7 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
           </div>}
           <button className="btn primary" type="submit">Review the change</button>
         </form>)}
-      {editing === "dns" && (
+      {allowed && editing === "dns" && (
         <form className="form" aria-label={`DNS for ${adapter.name}`} onSubmit={e => { e.preventDefault(); reviewDns(); }}>
           <fieldset><legend>DNS servers</legend>
             {(["automatic", "static"] as const).map(m => <label key={m} className="check"><input type="radio" name={`dns-${adapter.interfaceIndex}`} checked={dnsForm.mode === m}

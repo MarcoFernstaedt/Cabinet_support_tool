@@ -109,6 +109,13 @@ Built (October 2026):
 - **Console.** A Time section on every cabinet, with the findings and the fixes; the zone setting on the site page.
 - **Demo.** Three cabinets in the wrong zone (Arizona, California, Texas) and one drifting clock (New York).
 
+## Cabinet alerts and the one-site rule (October 2026)
+
+- **Cabinet alerts.** An issue type can have the scope "cabinet": its alerts show on that cabinet's page (and its logs) but not in the fleet alert list, the badge count or the client and site counts. The first is "Expected USB device not detected" (a minor alert: the cabinet has USB ports, a fingerprint scanner is expected on one, and nothing is detected on any).
+  - **Differs from what the real agent does today:** the agent's scanner monitor reports a scanner that disconnected, with its port. Reporting "nothing is detected on any USB port although a device is expected" (from the cabinet's USB port count and the device list) is an agent monitor still to be written; the platform side (the rule, the scope, the alert and its logs) is built and the demo shows it.
+- **Low disk space** (Windows event 2013) is a built-in minor issue type.
+- **Bulk changes cover one site** (see [14-network-troubleshooting.md](14-network-troubleshooting.md)).
+
 ## Fleet operations (modules 21 and 45)
 
 Built (October 2026):

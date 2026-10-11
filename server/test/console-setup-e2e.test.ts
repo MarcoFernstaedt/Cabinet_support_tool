@@ -150,7 +150,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.goto(`${origin}/admin/setup`);
     await p.getByRole("button", { name: "Turn demo mode on" }).click();
     await confirmCode();
-    await p.getByText(/Demo mode is on\. 106 simulated cabinets/).waitFor({ timeout: 30_000 });
+    await p.getByText(/Demo mode is on\. 112 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
     await fleet.getByRole("row", { name: /Mashura Office/ }).waitFor();
@@ -168,8 +168,13 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
 
     // Scenario C: every cabinet in the wrong time zone, corrected in one fleet operation with the password, each verified.
     await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Fleet operations" }).click();
-    await p.getByLabel("Problem").selectOption("time_zone_wrong");
-    await p.getByRole("button", { name: "Select the 3 shown" }).click();
+    // A bulk change covers one site: choose New York, see all eight with their addresses, tick three of them.
+    await p.getByText("Choose a site to see its cabinets.").waitFor();
+    await p.locator("select").filter({ hasText: "Choose a site" }).selectOption({ label: "New York – Upper East Side (8)" });
+    await p.getByRole("row", { name: /Exam 1 .*10\.21\.4\.\d+/ }).waitFor();
+    await p.getByText(/0\s*of 8 selected/).waitFor();
+    for (const name of ["Exam 1", "Exam 2", "Exam 3"]) await p.getByLabel(`Select ${name}`).check();
+    await p.getByText(/3\s*of 8 selected/).waitFor();
     await p.getByRole("button", { name: "Preview on 3 cabinets" }).click();
     await p.getByText(/3\s*will be changed/).waitFor();
     await p.getByRole("button", { name: "Set each cabinet to its site's time zone on 3 cabinets" }).click();

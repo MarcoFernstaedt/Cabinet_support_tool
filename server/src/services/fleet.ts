@@ -26,8 +26,8 @@ export async function clients(db: Queryable) {
   const rows = (await db.query<{ id: string; name: string; demo: boolean; sites: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT c.id, c.name, c.demo, count(DISTINCT s.id) AS sites,
             count(k.id) FILTER (WHERE k.status = 'active') AS cabinets,
-            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved') AS open_alerts,
-            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved' AND a.severity = 'major') AS open_major,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved' AND a.scope = 'fleet') AS open_alerts,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id JOIN sites s2 ON s2.id = k2.site_id WHERE s2.client_id = c.id AND a.state <> 'resolved' AND a.scope = 'fleet' AND a.severity = 'major') AS open_major,
             count(k.id) FILTER (WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $1))) AS offline
        FROM clients c LEFT JOIN sites s ON s.client_id = c.id AND s.removed_at IS NULL LEFT JOIN cabinets k ON k.site_id = s.id
       WHERE c.removed_at IS NULL GROUP BY c.id ORDER BY c.name`, [OFFLINE_AFTER_MS / 1000])).rows;
@@ -41,8 +41,8 @@ export async function client(db: Queryable, id: string) {
   if (!c) return null;
   const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT s.id, s.name, count(k.id) FILTER (WHERE k.status = 'active') AS cabinets,
-            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved') AS open_alerts,
-            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved' AND a.severity = 'major') AS open_major,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved' AND a.scope = 'fleet') AS open_alerts,
+            (SELECT count(*) FROM alerts a JOIN cabinets k2 ON k2.id = a.cabinet_id WHERE k2.site_id = s.id AND a.state <> 'resolved' AND a.scope = 'fleet' AND a.severity = 'major') AS open_major,
             count(k.id) FILTER (WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $2))) AS offline
        FROM sites s LEFT JOIN cabinets k ON k.site_id = s.id WHERE s.client_id = $1 AND s.removed_at IS NULL GROUP BY s.id ORDER BY s.name`, [id, OFFLINE_AFTER_MS / 1000])).rows;
   const [fleetIds, fleetPorts] = [await fleetScannerIds(db), await fleetSyncPorts(db)];

@@ -3,7 +3,7 @@ import { api, ApiError, describeError } from "./api";
 
 export interface Person { id: string; name: string }
 export interface Alert {
-  id: string; cabinet: { id: string; name: string }; site: { id: string; name: string }; client: { id: string; name: string };
+  id: string; scope: "fleet" | "cabinet"; cabinet: { id: string; name: string }; site: { id: string; name: string }; client: { id: string; name: string };
   issueTypeId: string | null; unrecognized: boolean; severity: "major" | "minor"; title: string; state: "open" | "claimed" | "resolved";
   occurrences: number; firstSeen: string; lastSeen: string; sitePattern: boolean; ruleId: string | null; lastEventId: string | null;
   claimedBy: Person | null; claimedAt: string | null; resolvedBy: Person | null; resolvedAt: string | null; resolution: string | null;

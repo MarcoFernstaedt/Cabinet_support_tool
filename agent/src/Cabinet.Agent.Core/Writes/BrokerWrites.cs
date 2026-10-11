@@ -19,6 +19,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
     public OperationRegistry Register(OperationRegistry registry) => registry
         .Register<NetworkSetIpParams, NetworkSetIpOutput>(Catalog.NetworkSetIp, (p, _) => Task.FromResult(SetIp(p)))
         .Register<NetworkSetDnsParams, NetworkSetDnsOutput>(Catalog.NetworkSetDns, (p, _) => Task.FromResult(SetDns(p)))
+        .Register<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(Catalog.NetworkRenewLease, (p, _) => Task.FromResult(RenewLease(p)))
         .Register<FirewallSetProfileParams, FirewallSetProfileOutput>(Catalog.FirewallSetProfile, (p, _) => Task.FromResult(SetProfile(p)))
         .Register<FirewallApplyPolicyParams, FirewallApplyPolicyOutput>(Catalog.FirewallApplyPolicy, (p, _) => Task.FromResult(ApplyPolicy(p)))
         .Register<FirewallSetRuleParams, FirewallSetRuleOutput>(Catalog.FirewallSetRule, (p, _) => Task.FromResult(SetRule(p)))
@@ -46,6 +47,31 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             return new NetworkSetIpOutput { InterfaceIndex = p.InterfaceIndex, Before = ip, After = network.Read(p.InterfaceIndex).Ip, SafetyNetDeadline = deadline };
         }
     }
+
+    /// <summary>
+    /// Asks the DHCP server for a new lease. It changes no setting, so there is nothing for the safety net to undo; an adapter
+    /// with a fixed address is left alone. "Renewed" needs a real address afterwards (not the 169.254 one Windows gives itself).
+    /// </summary>
+    public NetworkRenewLeaseOutput RenewLease(NetworkRenewLeaseParams p)
+    {
+        Command();
+        lock (_gate)
+        {
+            string? before = FirstAddress(network.Read(p.InterfaceIndex).Ip);
+            if (!network.Read(p.InterfaceIndex).Ip.Dhcp)
+                return new() { InterfaceIndex = p.InterfaceIndex, Result = RenewLeaseResult.NotDhcp, Message = "This adapter has a fixed address, so there is no lease to renew.", AddressBefore = before, AddressAfter = before };
+            int code = network.RenewLease(p.InterfaceIndex);
+            string? after = FirstAddress(network.Read(p.InterfaceIndex).Ip);
+            bool leased = code == 0 && after is not null && !after.StartsWith("169.254.", StringComparison.Ordinal);
+            return new()
+            {
+                InterfaceIndex = p.InterfaceIndex, Result = leased ? RenewLeaseResult.Renewed : RenewLeaseResult.Failed, AddressBefore = before, AddressAfter = after,
+                Message = leased ? "The DHCP server gave a lease." : code == 0 ? "No DHCP server answered, so there is no lease." : $"Windows could not renew the lease (code {code}).",
+            };
+        }
+    }
+
+    private static string? FirstAddress(Ipv4Settings ip) => ip.Addresses.Count > 0 ? ip.Addresses[0].Address : null;
 
     public NetworkSetDnsOutput SetDns(NetworkSetDnsParams p)
     {

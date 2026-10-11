@@ -1,7 +1,8 @@
 // Fleet operations (docs/spec/13-roadmap.md modules 21 and 45): choose cabinets by client, site, problem or by hand,
 // preview what one fixed operation would do on each (and what it would skip, and why), confirm with the password, then
 // follow the job: each cabinet's result and whether its next report verified the change. The selection survives moving
-// around the console in this tab. The server checks the role, the confirmation, the limits and the pauses again.
+// around the console in this tab. A bulk change covers the cabinets of one site: choose the site, then tick the cabinets in it
+// (3 of 8, say). The server checks the role, the confirmation, the one-site rule, the limits and the pauses again.
 import { useEffect, useMemo, useState } from "react";
 import { api, describeError } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
@@ -20,39 +21,50 @@ const OPERATIONS: [Operation, string, string][] = [
   ["firewall.applyPolicy", "Apply the firewall policy", "Each cabinet gets its client's firewall policy; cabinets that already match are skipped. The safety net applies."],
 ];
 /** Network fixes come from a network diagnosis (they need its findings), so they are started from its page; they are named here for the job page. */
-const JOB_NAMES: Record<string, string> = { "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings" };
+const JOB_NAMES: Record<string, string> = { "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings", "network.renewLease": "Renew the DHCP lease" };
 const PROBLEMS: [string, string][] = [["any", "Any cabinet"], ["time_zone_wrong", "Wrong time zone"], ["clock_off", "Clock is off"], ["firewall_drift", "Firewall differs from policy"]];
 const LIMIT = 200;
 
 interface Row { id: string; name: string; role: string; site: { id: string; name: string; timeZone: string | null }; client: { id: string; name: string }; demo: boolean;
-  readOnly: boolean | null; online: boolean; timeZoneId: string | null; clockSkewSeconds: number | null; openAlerts: number }
-interface Preview { operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; site: string; client: string; params: unknown; skip: string | null }[] }
+  readOnly: boolean | null; online: boolean; timeZoneId: string | null; clockSkewSeconds: number | null; ipv4: string | null; openAlerts: number }
+interface Preview { operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
+interface SiteOption { id: string; name: string; client: { id: string; name: string }; demo: boolean; cabinets: number }
 
 const KEY = "fleet-ops-selection";
-const readSelection = (): Record<string, string> => { try { return JSON.parse(sessionStorage.getItem(KEY) ?? "{}") as Record<string, string>; } catch { return {}; } };
-const writeSelection = (s: Record<string, string>) => { try { sessionStorage.setItem(KEY, JSON.stringify(s)); } catch { /* storage unavailable */ } };
+/** The chosen site and the ticked cabinets, kept for this tab. */
+const readSelection = (): { siteId: string; selected: Record<string, string> } => {
+  try { const v = JSON.parse(sessionStorage.getItem(KEY) ?? "{}") as { siteId?: string; selected?: Record<string, string> }; return { siteId: v.siteId ?? "", selected: v.selected ?? {} }; }
+  catch { return { siteId: "", selected: {} }; }
+};
+const writeSelection = (siteId: string, selected: Record<string, string>) => { try { sessionStorage.setItem(KEY, JSON.stringify({ siteId, selected })); } catch { /* storage unavailable */ } };
 const zone = (id: string | null) => id ? ZONE_NAMES[id] ?? id : "—";
 
 export function FleetOperations() {
   const { navigate } = useRouter();
   const initial = new URLSearchParams(window.location.search);
-  const [clientId, setClientId] = useState(initial.get("client") ?? "");
-  const [siteId, setSiteId] = useState("");
+  const saved = useMemo(readSelection, []);
+  const [siteId, setSiteId] = useState(initial.get("site") ?? saved.siteId);
   const [problem, setProblem] = useState(initial.get("problem") ?? "any");
-  const [selected, setSelected] = useState<Record<string, string>>(readSelection);
+  const [selected, setSelected] = useState<Record<string, string>>(initial.get("site") && initial.get("site") !== saved.siteId ? {} : saved.selected);
   const [operation, setOperation] = useState<Operation>(initial.get("problem") === "clock_off" ? "time.sync" : "time.setZone");
   const [batchSize, setBatchSize] = useState(20);
   const [preview, setPreview] = useState<(Preview & { jobId: string; cabinetIds: string[] }) | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const diagnose = useStartDiagnosis();
-  const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
-  const query = new URLSearchParams({ ...(clientId ? { clientId } : {}), ...(siteId ? { siteId } : {}), problem }).toString();
-  const list = useLoad<{ cabinets: Row[] }>(`/api/fleet-operations/cabinets?${query}`);
+  const siteList = useLoad<{ sites: SiteOption[] }>("/api/fleet-operations/sites");
+  const query = new URLSearchParams({ siteId, problem }).toString();
+  const list = useLoad<{ cabinets: Row[] }>(siteId ? `/api/fleet-operations/cabinets?${query}` : null);
   const jobs = useLoad<{ jobs: { id: string; operation: string; state: string; startedAt: string; total: number; startedBy: string; verified: number; problems: number }[] }>("/api/fleet-operations/jobs");
-  useEffect(() => writeSelection(selected), [selected]);
+  useEffect(() => writeSelection(siteId, selected), [siteId, selected]);
   const rows = list.data?.cabinets ?? [];
-  const sites = useMemo(() => [...new Map(rows.map(r => [r.site.id, `${r.client.name} / ${r.site.name}`])).entries()], [rows]);
+  const site = siteList.data?.sites.find(x => x.id === siteId);
+  const byClient = useMemo(() => {
+    const m = new Map<string, SiteOption[]>();
+    for (const x of siteList.data?.sites ?? []) m.set(x.client.name, [...(m.get(x.client.name) ?? []), x]);
+    return [...m.entries()];
+  }, [siteList.data]);
+  const chooseSite = (id: string) => { setSiteId(id); setSelected({}); setPreview(null); };
   const ids = Object.keys(selected).sort();
   const toggle = (r: Row) => { setPreview(null); setSelected(s => { const n = { ...s }; if (n[r.id]) delete n[r.id]; else n[r.id] = r.name; return n; }); };
   const allShown = rows.length > 0 && rows.every(r => selected[r.id]);
@@ -82,32 +94,34 @@ export function FleetOperations() {
 
       <section className="panel" aria-labelledby="choose">
         <h2 id="choose">1. Choose cabinets</h2>
+        <p className="muted small">A change covers the cabinets of one site, so a mistake can only reach one place. Choose the site, then tick the cabinets in it.</p>
         <form className="row gap wrap" onSubmit={e => e.preventDefault()}>
-          <label className="field inline"><span>Client</span><select value={clientId} onChange={e => { setClientId(e.target.value); setSiteId(""); }}>
-            <option value="">All clients</option>{clients.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label className="field inline"><span>Site</span><select value={siteId} onChange={e => setSiteId(e.target.value)}>
-            <option value="">All sites</option>{sites.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
-          <label className="field inline"><span>Problem</span><select value={problem} onChange={e => setProblem(e.target.value)}>
+          <label className="field inline"><span>Site</span><select value={siteId} onChange={e => chooseSite(e.target.value)}>
+            <option value="">Choose a site…</option>
+            {byClient.map(([client, list]) => <optgroup key={client} label={client}>{list.map(x => <option key={x.id} value={x.id}>{x.name} ({x.cabinets})</option>)}</optgroup>)}</select></label>
+          <label className="field inline"><span>Show</span><select value={problem} onChange={e => setProblem(e.target.value)}>
             {PROBLEMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         </form>
+        {siteList.problem && <p className="error" role="alert">{siteList.problem}</p>}
         {list.problem && <p className="error" role="alert">{list.problem}</p>}
         <p className="row gap wrap">
           <button className="btn small" onClick={selectShown} disabled={rows.length === 0}>{allShown ? "Unselect" : "Select"} the {rows.length} shown</button>
           <button className="btn small ghost" onClick={() => { setSelected({}); setPreview(null); }} disabled={ids.length === 0}>Clear selection</button>
           <button className="btn small" onClick={() => void diagnose.start({ cabinetIds: ids })} disabled={ids.length === 0 || ids.length > 60 || diagnose.busy}>Diagnose network on the selected</button>
           {diagnose.problem && <span className="error small" role="alert">{diagnose.problem}</span>}
-          <span role="status"><strong>{ids.length}</strong> selected{ids.length > LIMIT && <span className="error"> (at most {LIMIT})</span>}</span>
+          <span role="status"><strong>{ids.length}</strong>{site ? <> of {site.cabinets}</> : null} selected{ids.length > LIMIT && <span className="error"> (at most {LIMIT})</span>}</span>
         </p>
+        {!siteId && <Empty>Choose a site to see its cabinets.</Empty>}
         {list.data && (rows.length === 0 ? <Empty>No cabinet matches.</Empty> : (
           <div className="table-wrap"><table className="table compact">
             <caption className="sr-only">Cabinets to choose from</caption>
-            <thead><tr><th scope="col"><span className="sr-only">Selected</span></th><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">Status</th>
+            <thead><tr><th scope="col"><span className="sr-only">Selected</span></th><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">Status</th>
               <th scope="col">Time zone (site's)</th><th scope="col">Clock</th><th scope="col">Alerts</th></tr></thead>
             <tbody>{rows.map(r => (
               <tr key={r.id}>
                 <td><input type="checkbox" checked={!!selected[r.id]} onChange={() => toggle(r)} aria-label={`Select ${r.name}`} /></td>
                 <th scope="row"><Link to={`/cabinets/${r.id}`}>{r.name}</Link>{r.demo && <> <DemoTag /></>}</th>
-                <td>{r.client.name} / {r.site.name}</td>
+                <td>{r.ipv4 ?? <span className="muted">Not read yet</span>}</td>
                 <td><OnlineBadge online={r.online} />{r.readOnly && <> <Badge tone="info">Read-only</Badge></>}</td>
                 <td>{zone(r.timeZoneId)}{r.site.timeZone && r.timeZoneId !== r.site.timeZone ? <> <Badge tone="warn">site: {zone(r.site.timeZone)}</Badge></> : null}</td>
                 <td>{r.clockSkewSeconds === null ? "—" : Math.abs(r.clockSkewSeconds) > 120 ? <Badge tone="warn">{Math.round(r.clockSkewSeconds / 60)} min off</Badge> : "In step"}</td>
@@ -133,9 +147,9 @@ export function FleetOperations() {
           <p role="status"><strong>{preview.change}</strong> will be changed; <strong>{preview.skip}</strong> will be skipped.</p>
           <div className="table-wrap"><table className="table compact">
             <caption className="sr-only">What each cabinet would get</caption>
-            <thead><tr><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">What happens</th></tr></thead>
+            <thead><tr><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">What happens</th></tr></thead>
             <tbody>{preview.cabinets.map(c => (
-              <tr key={c.id}><th scope="row">{c.name}</th><td>{c.client} / {c.site}</td>
+              <tr key={c.id}><th scope="row">{c.name}</th><td>{c.ipv4 ?? "—"}</td>
                 <td>{c.skip ? <><Badge tone="off">Skipped</Badge> {c.skip}</> : preview.operation === "time.setZone"
                   ? <>Set to {zone((c.params as { timeZoneId: string }).timeZoneId)}</> : preview.operation === "time.sync" ? "Sync the clock" : "Apply its client's policy"}</td></tr>))}
             </tbody>

@@ -20,39 +20,41 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
     return r ? [{ label, path: `/sites/${r.site_id}?diagnose=network` }] : [];
   };
   const healthy = at("Riverside Veterinary Group", "New York", "Surgery");
-  const outage = find(r => r.scenario === "site_outage");
-  const scanner = find(r => r.scenario === "scanner_disconnected");
   const service = find(r => r.scenario === "service_failing");
-  const syncDrift = find(r => r.scenario === "firewall_drift");
+  const usb = find(r => r.scenario === "usb_missing");
+  const lowSpace = find(r => r.scenario === "disk_space_low");
+  const mixed = find(r => r.scenario === "mixed_errors");
   const satellite = at("Riverside Veterinary Group", "New York", "Surgery");
-  const dns = find(r => r.scenario === "dns_errors");
   const disk = find(r => r.scenario === "disk_failing");
   const update = find(r => r.scenario === "update_failure");
   const crash = find(r => r.scenario === "incident_crash");
   const offline = find(r => r.scenario === "offline");
   const wrongZone = find(r => r.scenario === "time_zone_wrong");
   const drift = find(r => r.scenario === "clock_drift");
+  const ny = rows.find(r => r.client.includes("Riverside") && r.site.startsWith("New York"));
   const incidentClient = rows.find(r => r.scenario.startsWith("incident_"))?.client_id;
   const zoneClient = (wrongZone ?? drift)?.client_id;
   const list: DemoScenario[] = [
     { id: "healthy", title: "A healthy cabinet", story: "What every cabinet shows: its system, event logs, services and processes, drivers, drive health and network, read live from the cabinet in about a second each.",
       steps: [...step("Overview", healthy, "overview"), ...step("Event logs", healthy, "events"), ...step("Services", healthy, "services"), ...step("Network", healthy, "network")] },
-    { id: "scanner", title: "A: Fingerprint scanner failure", story: "Treatment Room's scanner reconnected 7 times and then disappeared; Boarding's scanner service will not stay running after 3 automatic restarts. Run the scanner checklist, then restart the service.",
-      steps: [...step("Scanner checklist", scanner, "scanner"), ...step("Devices and drivers", scanner, "devices"), ...step("Scanner service", service, "services")] },
-    { id: "network", title: "B: Network troubleshooting, from one cabinet to a whole site", story: "Each site has a baseline (its gateway, DNS servers and how cabinets get their address). Diagnose a whole site and the platform compares every cabinet with it and with the others: the Dallas site has three cabinets still pointing at its old DNS servers (one bulk fix); New York has a sync cabinet whose firewall blocks its satellites (one click) and a cabinet with a fixed address from another network; Phoenix has a cabinet with no DHCP lease; Chicago a fixed-address cabinet with the wrong gateway; Denver a cable that negotiated only 100 Mbps. Each problem comes with its fix, and each fix is read back to check it worked.",
-      steps: [...siteStep("Diagnose the Dallas site (old DNS servers)", "Summit", "Dallas"), ...siteStep("Diagnose New York (firewall, wrong network)", "Riverside", "New York"),
-        ...siteStep("Diagnose Phoenix (no DHCP lease)", "Riverside", "Phoenix"), ...siteStep("Diagnose Chicago (wrong gateway)", "Lakeside", "Chicago"), ...siteStep("Diagnose Denver (slow cable)", "Lakeside", "Denver"),
+    { id: "network", title: "A: Network troubleshooting, from one cabinet to a whole site", story: "Each site has a baseline (its gateway, DNS servers and how cabinets get their address). Diagnose a whole site and the platform checks every layer on every cabinet (link, address, gateway, DNS, platform, sync cabinet, firewall), compares each with the baseline and with the others, and says where the problem is. New York: a sync cabinet whose firewall blocks its satellites (one click) and a cabinet with a fixed address from another network. Phoenix: a cabinet with no DHCP lease (renew it). Dallas: three cabinets still pointing at the old DNS servers (one bulk fix). Chicago: a fixed-address cabinet with the wrong gateway. Denver: a cable that negotiated only 100 Mbps. Each fix is read back to check it worked.",
+      steps: [...siteStep("Diagnose New York (firewall, wrong network)", "Riverside", "New York"), ...siteStep("Diagnose Phoenix (no DHCP lease)", "Riverside", "Phoenix"),
+        ...siteStep("Diagnose the Dallas site (old DNS servers)", "Summit", "Dallas"), ...siteStep("Diagnose Chicago (wrong gateway)", "Lakeside", "Chicago"), ...siteStep("Diagnose Denver (slow cable)", "Lakeside", "Denver"),
         ...step("One cabinet: Surgery", satellite, "network")] },
-    ...(outage ? [{ id: "outage", title: "B: A whole site offline", story: `Every cabinet at ${outage.site} stopped reporting within the same minute, 40 minutes ago. One cabinet offline is a cabinet problem; a whole site at once points at its network or power, so the platform raises "Whole site offline" instead of chasing each cabinet. Call the site before touching any one cabinet.`,
-      steps: [{ label: `The site (${outage.site})`, path: `/sites/${outage.site_id}` }, { label: "Alerts", path: "/alerts" }, ...step("One of its cabinets", outage, "alerts")] }] : []),
-    ...(zoneClient ? [{ id: "time", title: "C: Wrong time zones and clocks", story: "Cabinets in Arizona, California, Texas and New York, some set to the wrong Windows time zone and one whose clock has drifted. Select them under Fleet operations, correct time zones and sync clocks, and see each one verified.",
-      steps: [{ label: "Fleet operations", path: "/fleet-operations?problem=time_zone_wrong" }, ...step("Time on a wrong cabinet", wrongZone, "time"), ...step("Clock drift", drift, "time")] }] : []),
-    { id: "storage", title: "D: Storage failure warning", story: "San Diego's pharmacy cabinet has retried reads, a bad block, and a drive that now predicts failure: replace the drive before it fails.",
-      steps: [...step("Drive health", disk, "drives"), ...step("Crashes and restarts (storage errors)", disk, "crashes"), ...step("Alerts", disk, "alerts")] },
-    ...(incidentClient ? [{ id: "bsod", title: "E: Mass blue screen and reboot loops", story: "Overnight, most of Harbor Pet Hospitals' cabinets blue-screened with 0xD1 after a Windows update and a storage driver update; some are stuck restarting. Incidents compares the crashed cabinets with the others: the driver stands out, the update does not.",
+    { id: "time", title: "B: Bulk changes: three of eight cabinets at one site", story: "A bulk change covers one site. At New York, three of the eight cabinets are set to the wrong time zone, and the list shows every cabinet's IPv4 address. Tick the three, preview what each gets, confirm with your password, and watch each one verified; the same page syncs clocks.",
+      steps: [...(ny ? [{ label: "Fleet operations at New York (3 of 8 wrong)", path: `/fleet-operations?site=${ny.site_id}&problem=time_zone_wrong` }] : []), ...step("Time on a wrong cabinet", wrongZone, "time"), ...step("Clock drift", drift, "time")].filter(() => !!zoneClient) },
+    { id: "service", title: "C: The fingerprint service is off: one click turns it back on", story: "BioScanSvc is watched: the agent restarted it three times, it would not stay running, and the platform raised a major alert. Open the cabinet's services and start it; the alert closes when it runs.",
+      steps: [...step("Services: BioScanSvc", service, "services"), ...step("Alerts on the cabinet", service, "alerts")] },
+    { id: "usb", title: "D: A USB device that should be there is not (a cabinet alert)", story: "The cabinet has three USB ports and a fingerprint scanner is expected on one of them, but Windows sees nothing on any port. The platform raises a cabinet alert with the logs that go with it. It shows on this cabinet only, not on the fleet dashboard, because it is for whoever is at the cabinet: check the cable and the port.",
+      steps: [...step("The cabinet's alerts", usb, "alerts"), ...step("Event logs", usb, "events"), ...step("Scanner checklist", usb, "scanner"), { label: "The fleet alert list (it is not here)", path: "/alerts" }] },
+    { id: "events", title: "E: Event log errors, collected and mapped to issues", story: "Billing's event logs hold errors from five sources. The platform collected them as they happened and mapped three to issue types by itself (network, drive, Windows update); two it has never seen (an export job and an application crash) wait to be mapped to an issue type by a Tier 2 technician, after which the same error on any cabinet is recognized.",
+      steps: [...step("The raw event logs", mixed, "events"), ...step("What they became: alerts, mapped to issues", mixed, "alerts"), { label: "Unrecognized errors across the fleet", path: "/alerts" }] },
+    { id: "storage", title: "F: Storage: a failing drive and a nearly full one", story: "San Diego's pharmacy cabinet has retried reads, a bad block, and a drive that now predicts failure: replace the drive before it fails. Denver's charting cabinet is nearly full: a minor alert before updates and the application start failing.",
+      steps: [...step("Drive health", disk, "drives"), ...step("Crashes and restarts (storage errors)", disk, "crashes"), ...step("Low disk space", lowSpace, "alerts")] },
+    ...(incidentClient ? [{ id: "bsod", title: "G: Mass blue screen and reboot loops", story: "Overnight, most of Harbor Pet Hospitals' cabinets blue-screened with 0xD1 after a Windows update and a storage driver update; some are stuck restarting. Incidents compares the crashed cabinets with the others: the driver stands out, the update does not.",
       steps: [{ label: "Incidents", path: `/incidents?client=${incidentClient}` }, ...step("One crashed cabinet", crash, "crashes"), { label: "Alerts", path: "/alerts" }] }] : []),
-    { id: "other", title: "More: updates, offline, new errors", story: "A Windows update that keeps failing, a cabinet offline for 6 days, and new application errors waiting to be mapped to an issue type.",
-      steps: [...step("Failing update", update, "updates"), ...step("Offline cabinet", offline, "overview"), { label: "Unrecognized errors", path: "/alerts" }] },
+    { id: "other", title: "More: updates and an offline cabinet", story: "A Windows update that keeps failing, and a cabinet offline for 6 days.",
+      steps: [...step("Failing update", update, "updates"), ...step("Offline cabinet", offline, "overview")] },
   ];
   return list.filter(s => s.steps.length > 0);
 }

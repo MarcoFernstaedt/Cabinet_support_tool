@@ -32,7 +32,7 @@ import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 const EXAMPLES = join(dirname(SCHEMA_DIR), "examples", "operations");
-const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift", "site_outage", "net_dns_wrong", "net_static_wrong", "net_dhcp_failed", "net_gateway_wrong", "net_link_slow"];
+const SCENARIOS: Scenario[] = ["healthy", "firewall_drift", "scanner_disconnected", "service_failing", "disk_failing", "bsod", "offline", "dns_errors", "update_failure", "unknown_errors", "time_zone_wrong", "clock_drift", "site_outage", "net_dns_wrong", "net_static_wrong", "net_dhcp_failed", "net_gateway_wrong", "net_link_slow", "usb_missing", "disk_space_low", "mixed_errors"];
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;

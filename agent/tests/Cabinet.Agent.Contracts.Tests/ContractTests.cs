@@ -99,6 +99,7 @@ public sealed class ContractTests
         new object[] { typeof(AdapterType), "operations/network.config.schema.json", "/$defs/output/properties/adapters/items/properties/type/enum" },
         new object[] { typeof(IpMode), "operations/network.setIp.schema.json", "/$defs/params/properties/mode/enum" },
         new object[] { typeof(DnsMode), "operations/network.setDns.schema.json", "/$defs/params/properties/mode/enum" },
+        new object[] { typeof(RenewLeaseResult), "operations/network.renewLease.schema.json", "/$defs/output/properties/result/enum" },
         new object[] { typeof(RuleChange), "operations/firewall.setRule.schema.json", "/$defs/params/properties/change/enum" },
         new object[] { typeof(PackageType), "operations/package.install.schema.json", "/$defs/params/properties/packageType/enum" },
         new object[] { typeof(CheckOutcome), "operations/package.install.schema.json", "/$defs/output/properties/checks/properties/hash/enum" },

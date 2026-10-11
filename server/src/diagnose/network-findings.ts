@@ -14,6 +14,7 @@ export type FixAction =
   | { kind: "apply_policy"; cabinetId: string; cabinetName: string }
   | { kind: "open"; section: string; cabinetId: string; label: string }
   | { kind: "set_dns"; cabinetId: string; cabinetName: string; interfaceIndex: number; servers: string[]; label: string }
+  | { kind: "renew_lease"; cabinetId: string; cabinetName: string; interfaceIndex: number; label: string }
   | { kind: "use_dhcp"; cabinetId: string; cabinetName: string; interfaceIndex: number; label: string }
   | { kind: "set_static"; cabinetId: string; cabinetName: string; interfaceIndex: number; address: string; prefixLength: number; gateway: string; label: string };
 export interface Finding {
@@ -96,7 +97,7 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
           evidence: [v4.length === 0 ? `${a.name} is connected but has no IPv4 address.` : `${a.name} has only ${v4.join(", ")}: Windows gave itself a 169.254 address because no DHCP server answered.`],
           fix: a.ipv4.dhcp ? "The DHCP server did not answer this cabinet. Renew the lease (one step below). If it keeps failing, check the DHCP server and that the switch port is on the right VLAN."
             : "The address is set by hand but missing: set the correct static address under Network → Edit IP.",
-          ...(a.ipv4.dhcp ? { action: { kind: "use_dhcp" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, label: `Renew the DHCP lease on ${a.name}` } } : {}) });
+          ...(a.ipv4.dhcp ? { action: { kind: "renew_lease" as const, cabinetId: e.cabinet.id, cabinetName: e.cabinet.name, interfaceIndex: a.interfaceIndex, label: `Renew the DHCP lease on ${a.name}` } } : {}) });
       else add({ id: `ip-${a.interfaceIndex}`, severity: "ok", certainty: "confirmed", title: `${a.name} has an address`, evidence: [`${v4.join(", ")} (${a.ipv4.dhcp ? "DHCP" : "static"})`], fix: null });
       if (a.type === "ethernet" && a.linkSpeedBps !== null && a.linkSpeedBps > 0 && a.linkSpeedBps <= 100_000_000)
         add({ id: `speed-${a.interfaceIndex}`, severity: "warning", certainty: "probable", title: `${a.name} linked at only ${a.linkSpeedBps / 1e6} Mbps`,

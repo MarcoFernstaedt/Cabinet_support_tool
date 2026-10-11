@@ -55,6 +55,7 @@ sealed class MemoryNetwork : INetworkControl
     public void SetDhcp(int i) { Read(i); Ip = Ip with { Dhcp = true }; }
     public void SetStatic(int i, string a, int p, string g) { Read(i); Ip = new() { Dhcp = false, Addresses = [new() { Address = a, PrefixLength = p }], Gateways = [g] }; }
     public void SetDns(int i, DnsSettings d) { Read(i); Dns = d; }
+    public int RenewLease(int i) { Read(i); Ip = Ip with { Addresses = [new() { Address = "10.20.0.77", PrefixLength = 24 }] }; return 0; }
     public void Restore(int i, Ipv4Settings ip) { Read(i); Ip = ip; }
 }
 

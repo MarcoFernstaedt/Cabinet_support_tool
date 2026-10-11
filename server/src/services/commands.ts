@@ -124,6 +124,13 @@ export async function storeResult(pool: pg.Pool, cabinetId: string, result: Resu
         throw new Refused("invalid_output", 400, "the output does not match the operation's output schema");
     }
     await c.query("UPDATE commands SET status = $2, result = $3, result_at = now() WHERE id = $1", [result.commandId, result.status, safeJson(result)]);
+    // The address a cabinet reports in its network settings is kept on the cabinet, so lists of cabinets can show it.
+    if (result.status === "succeeded" && command.operation === "network.config") {
+      const adapters = (result.output as { adapters?: { connected: boolean; ipv4: { addresses: { address: string }[] } }[] }).adapters ?? [];
+      const all = adapters.filter(a => a.connected).flatMap(a => a.ipv4.addresses.map(x => x.address));
+      const address = all.find(a => !a.startsWith("169.254.")) ?? all[0];
+      if (address) await c.query("UPDATE cabinets SET ipv4 = $2, ipv4_at = now() WHERE id = $1", [cabinetId, address]);
+    }
     // A firewall write's before and after go into the cabinet's firewall history as a change made through the platform.
     if (result.status === "succeeded" && command.operation.startsWith("firewall.") && command.operation !== "firewall.state") {
       const out = result.output as { before?: unknown; after?: unknown };

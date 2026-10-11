@@ -33,6 +33,8 @@ public interface INetworkControl
     void SetDhcp(int interfaceIndex);
     void SetStatic(int interfaceIndex, string address, int prefixLength, string gateway);
     void SetDns(int interfaceIndex, DnsSettings dns);
+    /// <summary>Asks the DHCP server for a new lease (the adapter's RenewDHCPLease); returns Windows' result code, 0 for success.</summary>
+    int RenewLease(int interfaceIndex);
     /// <summary>Puts back settings read earlier (the safety net's rollback).</summary>
     void Restore(int interfaceIndex, Ipv4Settings ip);
 }

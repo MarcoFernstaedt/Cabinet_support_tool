@@ -31,7 +31,8 @@ Every finding says how sure it is (confirmed, probable, possible, could not chec
 |---|---|---|---|
 | Firewall differs from policy, or blocks the sync cabinet | Apply the client's policy (on the sync cabinet when it is the one blocking) | `firewall.applyPolicy` | One click (Tier 1 and up) |
 | DNS servers differ from the baseline | Set the baseline's DNS servers | `network.setDns` | Authenticator code (Tier 2 and up) |
-| Address from another network, a fixed address at a DHCP site, or no DHCP lease | Switch to DHCP, which also renews the lease | `network.setIp` | Authenticator code (Tier 2 and up) |
+| No DHCP lease (a 169.254 address) on an adapter that uses DHCP | Renew the DHCP lease | `network.renewLease` | A click (Tier 1 and up); no setting changes, so no safety net |
+| Address from another network, or a fixed address at a DHCP site | Switch to DHCP | `network.setIp` | Authenticator code (Tier 2 and up) |
 | Wrong gateway on a fixed address | Set the baseline's gateway, keeping the address | `network.setIp` | Authenticator code (Tier 2 and up) |
 | Link at 100 Mbps, no link, a wrong DHCP scope | No remote fix: what to check is stated | none | none |
 
@@ -39,7 +40,14 @@ The network changes keep the safety net: if the cabinet cannot reach the platfor
 
 ## Many cabinets at once
 
+A change made on many cabinets covers the cabinets of **one site**: the server refuses a job whose cabinets are from two sites (`one_site_only`), and Fleet operations starts by choosing the site, then ticking the cabinets in it (3 of 8, say), each listed with the IPv4 address it last reported. The address is kept from every `network.config` answer, so a cabinet that has not been read yet shows "Not read yet".
+
+
 "Diagnose network" on the site page checks every cabinet at the site; on Fleet operations it checks the selected cabinets (up to 60). At most 8 are checked at once; offline cabinets are listed, not waited for; one batch runs at a time per person. The result page groups the same problem on many cabinets into one row with its fix, and shows each cabinet's path in a table.
+
+## Renewing a lease (`network.renewLease`)
+
+Added after the first network release. The agent asks the adapter itself (its `RenewDHCPLease` method, through the same management interface the other network writes use), so no program is launched. It changes no setting, which is why it is a click and has no safety net. An adapter with a fixed address answers `not_dhcp` and nothing happens; an answer that leaves the cabinet with a 169.254 address, or a non-zero code, is `failed`, never "renewed". The fleet job reads the adapter back to confirm a real address.
 
 ## Demo
 
@@ -50,7 +58,7 @@ Every simulated site has a baseline. The demo's network faults:
 | Dallas Uptown (3 of 4 cabinets) | Still pointing at the old DNS servers | One bulk fix |
 | New York, Pharmacy Sync | Firewall on, blocking its satellites | One click |
 | New York, Lab | Fixed address from another network | Switch to DHCP |
-| Phoenix, Front Desk | No DHCP lease (169.254) | Renew via DHCP |
+| Phoenix, Front Desk | No DHCP lease (169.254) | Renew the DHCP lease (`network.renewLease`) |
 | Chicago (fixed addresses), Triage | Wrong gateway | Set the baseline gateway |
 | Chicago, ER North | One DNS server that no longer answers | Set the baseline DNS servers |
 | Denver, Rounds | Link at 100 Mbps | None: replace the cable |

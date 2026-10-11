@@ -82,10 +82,18 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     }
     case "peripheral.status": {
       const o = example("peripheral.status", "connected.json");
-      if (ctx.scenario !== "scanner_disconnected") {
+      if (ctx.scenario !== "scanner_disconnected" && ctx.scenario !== "usb_missing") {
         o.checks = o.checks.map((c: any) => c.check === "recent_reconnects" ? { ...c, outcome: "pass", summary: "No disconnects in the last 24 hours." } : c);
         return o;
       }
+      if (ctx.scenario === "usb_missing") return { ...o, connected: false, status: null, errorCode: null, errorText: null, driver: o.driver, locationInfo: null,
+        checks: [
+          { check: "device_present", outcome: "fail", summary: "Nothing is detected on any of this cabinet's 3 USB ports. The scanner was expected on Port_#0002.Hub_#0003 and was last seen 3 hours ago." },
+          { check: "driver_installed", outcome: "pass", summary: "Driver oem42.inf 3.1.0.7 is installed." },
+          { check: "recent_reconnects", outcome: "pass", summary: "No disconnects before it went away: it was unplugged, or its cable came out." },
+          { check: "usb_controller_errors", outcome: "pass", summary: "No USB controller or hub reports a problem, so the ports themselves look fine." },
+          { check: "biometric_service", outcome: "pass", summary: "Windows Biometric Service is running." },
+        ] };
       return { ...o, connected: false, status: null, errorCode: null, errorText: null, driver: o.driver, locationInfo: null,
         checks: [
           { check: "device_present", outcome: "fail", summary: "The fingerprint scanner is not connected. It was last seen 2 hours ago on Port_#0002.Hub_#0003." },
@@ -106,7 +114,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { instanceId: "USB\\ROOT_HUB30\\4&2A1B3C4D&0&0", class: "USB", name: "USB Root Hub (USB 3.0)", status: "OK", errorCode: null, errorText: null,
           hardwareIds: ["USB\\ROOT_HUB30"], driver: { name: "usbhub3.inf", version: "10.0.19041.4355", provider: "Microsoft" } },
       ].map(d => ({ ...d, driver: { ...scanner.driver, ...d.driver } }));
-      if (ctx.scenario === "scanner_disconnected") return { devices: others, truncated: false };
+      if (ctx.scenario === "scanner_disconnected" || ctx.scenario === "usb_missing") return { devices: others, truncated: false };
       if (params.problemsOnly) return { devices: [], truncated: false };
       return { devices: [ok, ...others], truncated: false };
     }
@@ -187,6 +195,12 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       const next = applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, params as never);
       const ip = (n: DemoNet) => ({ dhcp: n.mode === "dhcp", addresses: [{ address: n.address, prefixLength: n.prefixLength }], gateways: n.gateway ? [n.gateway] : [] });
       return { interfaceIndex: params.interfaceIndex, before: ip(ctx.net), after: ip(next), safetyNetDeadline: noMs(new Date(ctx.now.getTime() + 120_000)) };
+    }
+    case "network.renewLease": {
+      const fixed = ctx.net.mode === "dhcp";
+      const after = !fixed ? ctx.net.address : ctx.scenario === "net_dhcp_failed" ? `${ctx.subnet}.${100 + ctx.index}` : ctx.net.address;
+      return { interfaceIndex: params.interfaceIndex, result: !fixed ? "not_dhcp" : "renewed",
+        message: !fixed ? "This adapter has a fixed address, so there is no lease to renew." : "The DHCP server gave a lease.", addressBefore: ctx.net.address, addressAfter: after };
     }
     case "network.setDns": {
       const next = applySetDns(ctx.net, ctx.baseline, params as never);

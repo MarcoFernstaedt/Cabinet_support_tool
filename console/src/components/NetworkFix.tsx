@@ -18,6 +18,7 @@ export type FixAction =
   | { kind: "apply_policy"; cabinetId: string; cabinetName: string }
   | { kind: "open"; section: string; cabinetId: string; label: string }
   | { kind: "set_dns"; cabinetId: string; cabinetName: string; interfaceIndex: number; servers: string[]; label: string }
+  | { kind: "renew_lease"; cabinetId: string; cabinetName: string; interfaceIndex: number; label: string }
   | { kind: "use_dhcp"; cabinetId: string; cabinetName: string; interfaceIndex: number; label: string }
   | { kind: "set_static"; cabinetId: string; cabinetName: string; interfaceIndex: number; address: string; prefixLength: number; gateway: string; label: string };
 type Doable = Exclude<FixAction, { kind: "open" }>;
@@ -27,12 +28,13 @@ export function fixCommand(a: Doable): { operation: string; params: Record<strin
   switch (a.kind) {
     case "apply_policy": return { operation: "firewall.applyPolicy", params: {}, label: `Apply the policy on ${a.cabinetName}` };
     case "set_dns": return { operation: "network.setDns", params: { interfaceIndex: a.interfaceIndex, mode: "static", servers: a.servers }, label: a.label };
+    case "renew_lease": return { operation: "network.renewLease", params: { interfaceIndex: a.interfaceIndex }, label: a.label };
     case "use_dhcp": return { operation: "network.setIp", params: { interfaceIndex: a.interfaceIndex, mode: "dhcp" }, label: a.label };
     case "set_static": return { operation: "network.setIp", params: { interfaceIndex: a.interfaceIndex, mode: "static", address: a.address, prefixLength: a.prefixLength, gateway: a.gateway }, label: a.label };
   }
 }
 export const JOB_LABEL: Record<string, string> = {
-  "firewall.applyPolicy": "Apply the firewall policy", "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings",
+  "firewall.applyPolicy": "Apply the firewall policy", "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings", "network.renewLease": "Renew the DHCP lease",
   "time.setZone": "Set each cabinet to its site's time zone", "time.sync": "Sync clocks",
 };
 
@@ -50,7 +52,7 @@ export function FixButton({ action, onDone, children }: { action: Doable; onDone
   const can = useCanFix(operation);
   const confirm = confirmFor(operation);
   const after = (r: { status: string; error?: { message: string } }) => { if (r.status === "succeeded") onDone?.(); };
-  const what = <p><strong>{label}</strong> on <strong>{action.cabinetName}</strong>. {operation.startsWith("network") ? "If the cabinet cannot reach the platform after the change, it goes back to its old settings by itself." : "The change is checked against the client's policy."}</p>;
+  const what = <p><strong>{label}</strong> on <strong>{action.cabinetName}</strong>. {operation === "network.renewLease" ? "No setting changes: the cabinet asks its DHCP server for a new lease." : operation.startsWith("network") ? "If the cabinet cannot reach the platform after the change, it goes back to its old settings by itself." : "The change is checked against the client's policy."}</p>;
   if (!can) return <span className="muted small">Needs Tier 2 to change this.</span>;
   return (
     <span className="fix-action">

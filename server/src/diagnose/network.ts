@@ -217,8 +217,8 @@ const GROUP_TITLE: Record<string, string> = {
   firewall: "Firewall differs from the client policy",
 };
 const baseId = (id: string) => id.replace(/-\d+$/, "");
-export const JOB_FOR: Record<string, "firewall.applyPolicy" | "network.setDns" | "network.setIp"> = {
-  apply_policy: "firewall.applyPolicy", set_dns: "network.setDns", use_dhcp: "network.setIp", set_static: "network.setIp",
+export const JOB_FOR: Record<string, "firewall.applyPolicy" | "network.setDns" | "network.setIp" | "network.renewLease"> = {
+  apply_policy: "firewall.applyPolicy", renew_lease: "network.renewLease", set_dns: "network.setDns", use_dhcp: "network.setIp", set_static: "network.setIp",
 };
 
 export async function networkBatch(db: pg.Pool, batchId: string) {

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.renewLease.schema.json",
+  "title": "network.renewLease",
+  "description": "Ask the DHCP server for a new lease on one adapter now (the adapter's own RenewDHCPLease method, run by the broker; no external program). Changes no setting, so it needs no safety net: an adapter with a fixed address answers not_dhcp and nothing happens. Tier 1 and up, a confirmation click.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaceIndex"
+      ],
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interfaceIndex",
+        "result",
+        "message",
+        "addressBefore",
+        "addressAfter"
+      ],
+      "properties": {
+        "interfaceIndex": {
+          "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "result": {
+          "description": "renewed: the DHCP server answered and the adapter has a lease; failed: it asked and no lease came back; not_dhcp: the adapter has a fixed address, so nothing was asked.",
+          "type": "string",
+          "enum": [
+            "renewed",
+            "failed",
+            "not_dhcp"
+          ]
+        },
+        "message": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "addressBefore": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "addressAfter": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipv4"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

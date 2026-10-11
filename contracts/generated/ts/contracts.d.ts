@@ -456,7 +456,8 @@ export interface CommandRequest {
     | "service.control"
     | "time.status"
     | "time.setZone"
-    | "time.sync";
+    | "time.sync"
+    | "network.renewLease";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -589,7 +590,8 @@ export interface FleetJob {
    * Chosen by the console, so the confirmation is bound to this one job.
    */
   jobId: string;
-  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp";
+  operation:
+    "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp" | "network.renewLease";
   /**
    * @minItems 1
    * @maxItems 200
@@ -606,7 +608,8 @@ export interface FleetJob {
  * Shows what a fleet operation would do on each chosen cabinet, and which it would skip and why, without changing anything.
  */
 export interface FleetPreview {
-  operation: "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp";
+  operation:
+    "time.setZone" | "time.sync" | "firewall.applyPolicy" | "network.setDns" | "network.setIp" | "network.renewLease";
   /**
    * @minItems 1
    * @maxItems 200
@@ -1093,7 +1096,8 @@ export interface Command {
     | "service.control"
     | "time.status"
     | "time.setZone"
-    | "time.sync";
+    | "time.sync"
+    | "network.renewLease";
   params: {};
   issuedBy: string;
   /**
@@ -2515,6 +2519,30 @@ export interface TimeSyncOutput {
   lastSuccessfulSyncAfter: string | null;
 }
 
+export interface NetworkRenewLeaseParams {
+  /**
+   * Windows network interface index.
+   */
+  interfaceIndex: number;
+}
+
+export interface NetworkRenewLeaseOutput {
+  /**
+   * Windows network interface index.
+   */
+  interfaceIndex: number;
+  /**
+   * renewed: the DHCP server answered and the adapter has a lease; failed: it asked and no lease came back; not_dhcp: the adapter has a fixed address, so nothing was asked.
+   */
+  result: "renewed" | "failed" | "not_dhcp";
+  /**
+   * A single line of text with no control characters.
+   */
+  message: string;
+  addressBefore: string | null;
+  addressAfter: string | null;
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -2525,7 +2553,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2561,4 +2589,5 @@ export interface OperationTypes {
   "time.status": { params: TimeStatusParams; output: TimeStatusOutput };
   "time.setZone": { params: TimeSetZoneParams; output: TimeSetZoneOutput };
   "time.sync": { params: TimeSyncParams; output: TimeSyncOutput };
+  "network.renewLease": { params: NetworkRenewLeaseParams; output: NetworkRenewLeaseOutput };
 }

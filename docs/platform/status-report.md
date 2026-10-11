@@ -38,7 +38,8 @@ Before showing it to customers or relying on it for real cabinets, do three thin
 | Scenario | Status | What it shows |
 |---|---|---|
 | A: fingerprint scanner | Verified | Disconnected scanner with reconnects; a scanner service that will not stay running, fixed with Restart |
-| B: network | Verified | A sync cabinet's firewall blocking its satellites (Diagnose network finds it, the fix is offered); a whole site offline together (Dallas), raised as one site outage rather than three cabinet problems |
+| B: network | Verified | A sync cabinet's firewall blocking its satellites (Diagnose network finds it, the fix is offered); site baselines; whole-site diagnosis with one-click and bulk fixes read back from each cabinet; DHCP lease renewal (`network.renewLease`, in the agent, contracts, server and demo; not yet run on a real Windows cabinet) |
+| Cabinet alerts and bulk selection | Verified in the simulated fleet | A USB-device-missing alert that stays on its cabinet; bulk changes limited to one site with the cabinets ticked by hand and their IPv4 addresses shown. The agent monitor that reports "no USB device on any port" is not written yet (see 13-roadmap) |
 | C: time zones, with bulk correction | Verified, in the browser too | Wrong zones in Arizona, California and Texas and a drifting clock in New York; corrected from Fleet operations with the password, each cabinet verified |
 | D: storage | Verified | A drive predicting failure, with bad blocks and retried reads raised before it dies |
 | E: mass blue screen, about 60 cabinets | Verified | 60 of 80 cabinets crashed after a driver update, 12 still restarting; the driver stands out, the update does not |

@@ -523,6 +523,24 @@
         },
         "type": "object"
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "network.renewLease"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.renewLease.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
     }
   ]
 }

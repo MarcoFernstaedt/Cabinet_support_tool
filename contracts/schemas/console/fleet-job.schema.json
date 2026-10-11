@@ -24,7 +24,8 @@
         "time.sync",
         "firewall.applyPolicy",
         "network.setDns",
-        "network.setIp"
+        "network.setIp",
+        "network.renewLease"
       ]
     },
     "cabinetIds": {

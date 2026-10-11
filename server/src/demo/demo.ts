@@ -123,6 +123,22 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
       // One of them got the driver too and did not crash: the comparison shows it.
       return [...update(), ...(harborDriverWithoutCrash(n) ? driver() : []), ...restart()];
     case "healthy":
+    case "usb_missing":
+      return [...update(), { eventId: randomUUID(), kind: "scanner", occurredAt: at(3), severityHint: "minor",
+        device: { hardwareIds: ["USB\\VID_1234&PID_5678"], deviceInstanceId: "USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2", name: "Fingerprint Reader", state: "disconnected" },
+        detail: { message: "No USB device detected on any of this cabinet's 3 USB ports; the fingerprint scanner is expected on Port_#0002.Hub_#0003.",
+          fields: { usbPorts: "3", usbDevicesDetected: "0", expectedPort: "Port_#0002.Hub_#0003" } } },
+        err(3, "Microsoft-Windows-USB-USBHUB3", 43, "The USB hub on Port_#0002.Hub_#0003 reports that no device is attached; the last device on it was removed 3 hours ago.", "minor", "System", "warning"),
+        err(3.1, "Microsoft-Windows-Kernel-PnP", 411, "The device USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2 (Fingerprint Reader) was removed and has not come back.", "minor", "System", "warning")];
+    case "disk_space_low":
+      return [...update(), ...[30, 12, 2].map(h => err(h, "srv", 2013, "The C: disk is at or near capacity. You may need to delete some files.", "minor", "System", "error"))];
+    case "mixed_errors":
+      return [...update(),
+        ...[9, 4, 1].map(h => err(h, "Microsoft-Windows-DNS-Client", 1014, "Name resolution for the name sync.clinic.example timed out after none of the configured DNS servers responded.", "minor", "System", "error")),
+        ...[26, 3].map(h => err(h, "disk", 153, "The IO operation at logical block address 0x1d2f3 for Disk 0 was retried.", "minor", "System", "warning")),
+        err(20, "Microsoft-Windows-WindowsUpdateClient", 20, "Installation Failure: Windows failed to install the following update with error 0x80070643: 2026-10 Cumulative Update (KB5050011)."),
+        ...[7, 2].map(h => err(h, "BillingExport", 4012, "The nightly export to the clearing house failed: the file C:\\Billing\\out\\batch-0412.csv is locked by another process.", "minor", "Application")),
+        err(5, "Application Error", 1000, "Faulting application name: StatementViewer.exe, version: 3.8.0.0, faulting module name: ucrtbase.dll, exception code: 0xc0000409", "minor", "Application")];
     case "net_dns_wrong": case "net_static_wrong": case "net_dhcp_failed": case "net_gateway_wrong": case "net_link_slow":
       // Network faults leave the cabinet otherwise ordinary: it got the same Windows update as everyone.
       return update();
@@ -155,11 +171,11 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
           const problems = netProblems(net, baseline);
           if (problems.length > 0) netAlerts.push({ id, problems });
           await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles,
-                                              time_zone_id, clock_skew_seconds, demo_net)
-                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12, $13)`,
+                                              time_zone_id, clock_skew_seconds, demo_net, ipv4, ipv4_at)
+                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14, now())`,
             [id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
              safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
-             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net)]);
+             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net), net.address]);
         }
         siteIndex++;
       }
@@ -292,6 +308,12 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
   if (command.operation === "network.setIp" || command.operation === "network.setDns") {
     const p = command.params as never;
     const next = command.operation === "network.setIp" ? applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, p) : applySetDns(ctx.net, ctx.baseline, p);
+    const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
+    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
+  }
+  if (command.operation === "network.renewLease" && (output as { result: string }).result === "renewed") {
+    const after = (output as { addressAfter: string }).addressAfter;
+    const next = { ...ctx.net, address: after, prefixLength: ctx.baseline.prefixLength, gateway: ctx.baseline.gateway, dns: ctx.net.dnsAutomatic ? [...ctx.baseline.dnsServers] : ctx.net.dns };
     const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
     await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
   }

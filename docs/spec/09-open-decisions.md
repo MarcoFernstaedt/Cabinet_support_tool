@@ -406,7 +406,7 @@ Design: [14-emergency-access.md](14-emergency-access.md). To decide before it is
 4. **When a cabinet counts as offline.** Proposed: no contact with the server for 5 minutes.
 5. **Reconnection.** Proposed: reconnecting ends the emergency session; support carries on from the central console.
 6. **The signing key.** A dedicated key on the server: held in a cloud key service (proposed) or in a file on the VPS outside the repository.
-7. **New operations for Level 3.** Renewing a DHCP lease and restarting an approved application are not in the catalog; adding them needs a signed agent upgrade. Approve or leave out.
+7. **New operations for Level 3.** Renewing a DHCP lease is now in the catalog (`network.renewLease`); restarting an approved application is not, and adding it needs a signed agent upgrade. Approve or leave out.
 8. **Notifications.** Today Admins see security alerts in the console. Email or text notifications are not built; say whether they are needed.
 
 ## Network troubleshooting (October 2026)
@@ -416,4 +416,4 @@ Built as described in [14-network-troubleshooting.md](14-network-troubleshooting
 1. **Confirmation for network fixes.** Changing a DNS server or an address keeps the authenticator code for one cabinet (a mistake can cut a cabinet off; the safety net rolls it back). The same change on several cabinets uses the password, as other bulk changes do. If you want a single click for DNS fixes, say so: the safety net is what makes that reasonable.
 2. **Fixed-address sites.** A site whose cabinets have fixed addresses can have its gateway corrected remotely, but a wrong address cannot: the platform does not know which address each cabinet should have. An address list per site would allow that.
 3. **How often the baseline is compared.** Today a cabinet is compared when someone runs the diagnosis (and the demo seeds the alert a regular check would raise). A scheduled nightly check of every cabinet against its baseline is not built.
-4. **DHCP lease renewal** is done by switching the adapter to DHCP (`network.setIp`). A separate "renew only" operation would need an agent upgrade.
+4. **DHCP lease renewal.** Decided: a separate `network.renewLease` operation (Tier 1, a click, no setting changes, no safety net) is built; it needs the agent upgrade that carries it. Switching to DHCP with `network.setIp` stays for a fixed address that should not be fixed.

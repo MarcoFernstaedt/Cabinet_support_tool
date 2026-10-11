@@ -18,7 +18,7 @@ import { CLOCK_TOLERANCE_SECONDS } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
 
-export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy", "network.setDns", "network.setIp"] as const;
+export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy", "network.setDns", "network.setIp", "network.renewLease"] as const;
 export type JobOperation = (typeof JOB_OPERATIONS)[number];
 type Problem = "any" | "time_zone_wrong" | "clock_off" | "firewall_drift";
 
@@ -40,15 +40,24 @@ export async function fleetCabinets(db: Queryable, q: { clientId?: string | unde
   if (q.problem === "firewall_drift") where.push(open(ISSUE.firewallPolicy));
   args.push(OFFLINE_AFTER_MS / 1000);
   const rows = (await db.query<{ id: string; name: string; role: string; site_id: string; site: string; client_id: string; client: string; demo: boolean; read_only: boolean | null;
-    online: boolean; time_zone_id: string | null; site_zone: string | null; skew: number | null; alerts: string }>(
+    online: boolean; time_zone_id: string | null; site_zone: string | null; skew: number | null; alerts: string; ipv4: string | null }>(
     `SELECT k.id, k.name, k.role, s.id AS site_id, s.name AS site, cl.id AS client_id, cl.name AS client, k.demo_scenario IS NOT NULL AS demo, k.read_only,
             COALESCE(k.last_heartbeat_at > now() - make_interval(secs => $${args.length}), false) AS online,
-            k.time_zone_id, s.time_zone AS site_zone, k.clock_skew_seconds AS skew,
+            k.time_zone_id, s.time_zone AS site_zone, k.clock_skew_seconds AS skew, k.ipv4,
             (SELECT count(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved') AS alerts
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
       WHERE ${where.join(" AND ")} ORDER BY cl.name, s.name, k.name LIMIT 500`, args)).rows;
   return rows.map(r => ({ id: r.id, name: r.name, role: r.role, site: { id: r.site_id, name: r.site, timeZone: r.site_zone }, client: { id: r.client_id, name: r.client },
-    demo: r.demo, readOnly: r.read_only, online: r.online, timeZoneId: r.time_zone_id, clockSkewSeconds: r.skew, openAlerts: Number(r.alerts) }));
+    demo: r.demo, readOnly: r.read_only, online: r.online, timeZoneId: r.time_zone_id, clockSkewSeconds: r.skew, ipv4: r.ipv4, openAlerts: Number(r.alerts) }));
+}
+
+/** The sites to choose from: a bulk change covers one site, so the page starts by choosing one. */
+export async function fleetSites(db: Queryable) {
+  const rows = (await db.query<{ id: string; name: string; client_id: string; client: string; demo: boolean; cabinets: string }>(
+    `SELECT s.id, s.name, cl.id AS client_id, cl.name AS client, cl.demo, count(k.id) AS cabinets
+       FROM sites s JOIN clients cl ON cl.id = s.client_id LEFT JOIN cabinets k ON k.site_id = s.id AND k.status = 'active'
+      WHERE s.removed_at IS NULL AND cl.removed_at IS NULL GROUP BY s.id, cl.id ORDER BY cl.name, s.name`)).rows;
+  return rows.map(r => ({ id: r.id, name: r.name, client: { id: r.client_id, name: r.client }, demo: r.demo, cabinets: Number(r.cabinets) }));
 }
 
 // ---- Planning: what each cabinet would get, or why it is skipped ---------------------------------------------------------
@@ -57,13 +66,16 @@ interface Plan { cabinetId: string; name: string; site: string; client: string; 
 
 /** For each chosen cabinet, in the order given: the parameters the server fills in, or why the operation skips it. */
 export async function plan(db: Queryable, operation: JobOperation, cabinetIds: string[]): Promise<Plan[]> {
-  const rows = new Map((await db.query<{ id: string; name: string; site: string; client: string; status: string; read_only: boolean | null; paused: boolean;
+  const rows = new Map((await db.query<{ id: string; site_id: string; name: string; site: string; client: string; status: string; read_only: boolean | null; paused: boolean;
     online: boolean; zone: string | null; site_zone: string | null; skew: number | null }>(
-    `SELECT k.id, k.name, s.name AS site, cl.name AS client, k.status, k.read_only, cl.write_paused AS paused,
+    `SELECT k.id, k.site_id, k.name, s.name AS site, cl.name AS client, k.status, k.read_only, cl.write_paused AS paused,
             COALESCE(k.last_heartbeat_at > now() - make_interval(secs => $2), false) AS online,
             k.time_zone_id AS zone, s.time_zone AS site_zone, k.clock_skew_seconds AS skew
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = ANY($1::uuid[])`,
     [cabinetIds, OFFLINE_AFTER_MS / 1000])).rows.map(r => [r.id, r]));
+  // A bulk change covers the cabinets of one site: a mistake in the choice can only reach one place.
+  if (new Set([...rows.values()].map(r => r.site_id)).size > 1)
+    throw new Refused("one_site_only", 409, "a fleet operation covers the cabinets of one site; choose the site first, then the cabinets in it");
   const out: Plan[] = [];
   for (const id of cabinetIds) {
     const r = rows.get(id);
@@ -80,7 +92,7 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
       out.push({ ...base, params: { timeZoneId: r.site_zone }, skip: null });
     } else if (operation === "time.sync") {
       out.push({ ...base, params: {}, skip: null });
-    } else if (operation === "network.setDns" || operation === "network.setIp") {
+    } else if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") {
       // The change comes from the cabinet's latest network diagnosis (at most 30 minutes old): the server never takes it from the browser.
       const fix = await networkFix(db, id, operation);
       out.push(fix.params ? { ...base, params: fix.params, skip: null, detail: fix.label } : skip(fix.why));
@@ -94,15 +106,15 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
 }
 
 /** The change a cabinet's latest diagnosis found for this operation, as the operation's own parameters. */
-async function networkFix(db: Queryable, cabinetId: string, operation: "network.setDns" | "network.setIp"): Promise<{ params: Record<string, unknown>; label: string; why?: undefined } | { params?: undefined; label?: undefined; why: string }> {
+async function networkFix(db: Queryable, cabinetId: string, operation: "network.setDns" | "network.setIp" | "network.renewLease"): Promise<{ params: Record<string, unknown>; label: string; why?: undefined } | { params?: undefined; label?: undefined; why: string }> {
   const d = (await db.query<{ findings: { severity: string; action?: Record<string, unknown> }[] | null }>(
     `SELECT findings FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'done' AND finished_at > now() - interval '30 minutes' ORDER BY started_at DESC LIMIT 1`, [cabinetId])).rows[0];
   if (!d?.findings) return { why: "No network diagnosis from the last 30 minutes: run the diagnosis again first." };
-  const wanted = operation === "network.setDns" ? ["set_dns"] : ["use_dhcp", "set_static"];
+  const wanted = operation === "network.setDns" ? ["set_dns"] : operation === "network.renewLease" ? ["renew_lease"] : ["use_dhcp", "set_static"];
   const a = d.findings.find(f => f.action && wanted.includes(String(f.action.kind)))?.action;
   if (!a) return { why: "The latest diagnosis found nothing this change would fix." };
   const base = { interfaceIndex: a.interfaceIndex };
-  const params: Record<string, unknown> = a.kind === "set_dns" ? { ...base, mode: "static", servers: a.servers }
+  const params: Record<string, unknown> = a.kind === "renew_lease" ? { ...base } : a.kind === "set_dns" ? { ...base, mode: "static", servers: a.servers }
     : a.kind === "use_dhcp" ? { ...base, mode: "dhcp" }
     : { ...base, mode: "static", address: a.address, prefixLength: a.prefixLength, gateway: a.gateway };
   const check: unknown = params;
@@ -113,8 +125,9 @@ async function networkFix(db: Queryable, cabinetId: string, operation: "network.
 export async function preview(db: Queryable, user: { role: Role }, operation: JobOperation, cabinetIds: string[]) {
   checkRole(user.role, operation);
   const p = await plan(db, operation, cabinetIds);
+  const ipv4s = new Map((await db.query<{ id: string; ipv4: string | null }>("SELECT id, ipv4 FROM cabinets WHERE id = ANY($1::uuid[])", [cabinetIds])).rows.map(r => [r.id, r.ipv4]));
   return { operation, limit: BULK_LIMIT, change: p.filter(x => !x.skip).length, skip: p.filter(x => x.skip).length,
-    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, site: x.site, client: x.client, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
+    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, site: x.site, client: x.client, ipv4: ipv4s.get(x.cabinetId) ?? null, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
 }
 
 function checkRole(role: Role, operation: JobOperation): void {
@@ -285,6 +298,7 @@ const verifiedText: Record<JobOperation, string> = {
   "firewall.applyPolicy": "Verified: the cabinet's firewall matches its client's policy.",
   "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
   "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
+  "network.renewLease": "Verified: read back from the cabinet, it has a real address from the DHCP server.",
 };
 
 /** Network changes are verified by reading the settings back from the cabinet (as the person who started the job), not from a heartbeat. */
@@ -298,7 +312,8 @@ async function networkVerified(pool: pg.Pool, creator: { userId: string; role: R
           const ad = r.result.output.adapters.find(x => x.interfaceIndex === a.params.interfaceIndex);
           if (!ad) return false;
           const p = a.params;
-          if (operation === "network.setDns") { const want = [...(p.servers as string[])].sort().join(","); if (ad.dns.servers.slice().sort().join(",") === want) return true; }
+          if (operation === "network.renewLease") { if (ad.ipv4.dhcp && ad.ipv4.addresses.some(x => !x.address.startsWith("169.254."))) return true; }
+          else if (operation === "network.setDns") { const want = [...(p.servers as string[])].sort().join(","); if (ad.dns.servers.slice().sort().join(",") === want) return true; }
           else if (p.mode === "dhcp") { if (ad.ipv4.dhcp && ad.ipv4.addresses.some(x => !x.address.startsWith("169.254."))) return true; }
           else if (ad.ipv4.addresses.some(x => x.address === p.address && x.prefixLength === p.prefixLength) && ad.ipv4.gateways[0] === p.gateway) return true;
           break;
@@ -312,7 +327,7 @@ async function networkVerified(pool: pg.Pool, creator: { userId: string; role: R
 }
 
 async function verified(db: pg.Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
-  if (operation === "network.setDns" || operation === "network.setIp") return networkVerified(db, creator, operation, a);
+  if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") return networkVerified(db, creator, operation, a);
   const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: Record<string, boolean> | null }>(
     "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS last, firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
   // Only a report made after the change counts.

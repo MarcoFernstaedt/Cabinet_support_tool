@@ -159,7 +159,7 @@ test("baseline: DNS servers that are not the site's: a problem when none match, 
 
 test("baseline: no DHCP lease (169.254) offers the lease renewal; a cable fault offers no remote fix, only what to check", () => {
   const apipa = find(withAdapter({ ipv4: { dhcp: true, addresses: [{ address: "169.254.10.200", prefixLength: 16 }], gateways: [] }, dns: { automatic: true, servers: [] } }), "ip-12")!;
-  assert.equal(apipa.action?.kind, "use_dhcp");
+  assert.equal(apipa.action?.kind, "renew_lease");
   const slow = find(withAdapter({ linkSpeedBps: 100_000_000 }), "speed-12")!;
   assert.equal(slow.action, undefined);
   assert.match(slow.fix!, /patch cable/);

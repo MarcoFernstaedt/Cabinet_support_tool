@@ -44,6 +44,7 @@ public static class Catalog
     public const string TimeStatus = "time.status";
     public const string TimeSetZone = "time.setZone";
     public const string TimeSync = "time.sync";
+    public const string NetworkRenewLease = "network.renewLease";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
         new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
@@ -80,6 +81,7 @@ public static class Catalog
         Write<ServiceControlParams, ServiceControlOutput>(ServiceControl, safetyNet: false, Confirm.Click),
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
+        Write<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(NetworkRenewLease, safetyNet: false, Confirm.Click, "tier1"),
     };
 
     private static readonly Dictionary<string, CatalogEntry> ByName = All.ToDictionary(e => e.Name, StringComparer.Ordinal);

@@ -63,7 +63,7 @@ public sealed class BrokerRequestHandler
         Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall,
         Catalog.ServicesList, Catalog.ProcessesList, Catalog.ServiceControl,
-        Catalog.TimeStatus, Catalog.TimeSetZone, Catalog.TimeSync,
+        Catalog.TimeStatus, Catalog.TimeSetZone, Catalog.TimeSync, Catalog.NetworkRenewLease,
     };
 
     private readonly OperationRegistry _registry;

@@ -47,7 +47,8 @@
         "service.control",
         "time.status",
         "time.setZone",
-        "time.sync"
+        "time.sync",
+        "network.renewLease"
       ]
     },
     "params": {
@@ -132,7 +133,8 @@
                 "driver.uninstall",
                 "service.control",
                 "time.setZone",
-                "time.sync"
+                "time.sync",
+                "network.renewLease"
               ]
             }
           },
@@ -620,6 +622,27 @@
         "properties": {
           "params": {
             "$ref": "../operations/time.sync.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "network.renewLease"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.renewLease.schema.json#/$defs/params"
           }
         }
       }

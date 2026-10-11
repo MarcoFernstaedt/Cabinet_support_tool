@@ -60,6 +60,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
               <div className="row gap wrap">
                 <Badge tone={a.severity === "major" ? "crit" : "info"}>{a.severity === "major" ? "Major" : "Minor"}</Badge>
                 {a.unrecognized && <Badge tone="off">Unrecognized</Badge>}
+                {a.scope === "cabinet" && <span title="Stays on this cabinet: it is not in the fleet alert list or its counts."><Badge tone="info">Cabinet alert</Badge></span>}
                 {a.sitePattern && <Badge tone="warn">Site-wide pattern</Badge>}
                 {a.state === "open" && a.severity === "major"
                   ? <button className="linkish title" onClick={() => void take(a, true)} title="Claim this alert and open its cabinet">{a.title}</button>

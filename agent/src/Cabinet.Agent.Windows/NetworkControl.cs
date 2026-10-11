@@ -79,6 +79,13 @@ public sealed class NetworkControl : INetworkControl
         Invoke(a, "SetDNSServerSearchOrder", p => p["DNSServerSearchOrder"] = dns.Automatic ? null : dns.Servers.ToArray());
     }
 
+    public int RenewLease(int interfaceIndex)
+    {
+        using ManagementObject a = Adapter(interfaceIndex);
+        using ManagementBaseObject? result = a.InvokeMethod("RenewDHCPLease", null, null);
+        return result?["ReturnValue"] is uint code ? (int)code : -1;
+    }
+
     public void Restore(int interfaceIndex, Ipv4Settings ip)
     {
         using ManagementObject a = Adapter(interfaceIndex);
