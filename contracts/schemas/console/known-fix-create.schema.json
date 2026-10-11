@@ -60,6 +60,10 @@
           }
         }
       ]
+    },
+    "alertId": {
+      "description": "The alert this fix was saved from, if any. Resolving that alert then carries the fix's note into its resolution.",
+      "$ref": "../common.schema.json#/$defs/uuid"
     }
   }
 }

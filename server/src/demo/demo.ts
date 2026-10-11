@@ -264,7 +264,7 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
     // Fleet jobs on simulated cabinets go first (they point at their commands); a job left with no cabinet goes too.
     await c.query("DELETE FROM fleet_job_targets WHERE cabinet_id = ANY($1::uuid[])", [ids]);
     await c.query("DELETE FROM fleet_jobs j WHERE NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = j.id)");
-    for (const table of ["firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots", "known_fixes"])
+    for (const table of ["known_fixes", "firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
       await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.

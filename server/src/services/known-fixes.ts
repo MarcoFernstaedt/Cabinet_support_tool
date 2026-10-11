@@ -54,10 +54,11 @@ export async function saveKnownFix(pool: pg.Pool, user: { userId: string; canApp
   const env = await environmentOf(pool, b.cabinetId);
   const key = b.symptom.kind === "finding" ? b.symptom.key : null, issue = b.symptom.kind === "issue" ? b.symptom.issueTypeId : null;
   if (issue && (await pool.query("SELECT 1 FROM issue_types WHERE id = $1", [issue])).rowCount !== 1) throw new Refused("not_found", 404, "no such issue type");
+  if (b.alertId && (await pool.query("SELECT 1 FROM alerts WHERE id = $1", [b.alertId])).rowCount !== 1) throw new Refused("not_found", 404, "no such alert");
   const id = randomUUID(), auto = user.canApproveFixes;
-  await pool.query(`INSERT INTO known_fixes (id, title, solution, finding_key, issue_type_id, environment, cabinet_id, created_by, status, reviewed_by, reviewed_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-    [id, b.title, b.solution, key, issue, safeJson(env), b.cabinetId, user.userId, auto ? "approved" : "pending", auto ? user.userId : null, auto ? new Date() : null]);
+  await pool.query(`INSERT INTO known_fixes (id, title, solution, finding_key, issue_type_id, environment, cabinet_id, created_by, status, reviewed_by, reviewed_at, alert_id)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+    [id, b.title, b.solution, key, issue, safeJson(env), b.cabinetId, user.userId, auto ? "approved" : "pending", auto ? user.userId : null, auto ? new Date() : null, b.alertId ?? null]);
   await audit(pool, { actorKind: "user", actorId: user.userId, action: "known_fix.save", targetKind: "cabinet", targetId: b.cabinetId, outcome: "succeeded",
     details: { id, title: b.title, symptom: b.symptom, status: auto ? "approved" : "pending" } });
   return view((await pool.query<Row>(`${SELECT} WHERE f.id = $1`, [id])).rows[0]!);

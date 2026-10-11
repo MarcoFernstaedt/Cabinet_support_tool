@@ -9,7 +9,7 @@ import { claim, type Alert, type Match, type StoredEvent } from "../lib/alerts";
 import { Link, useRouter } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
 import { ago, fullTime } from "../lib/time";
-import { Badge, Empty } from "./ui";
+import { Badge, ConfirmDialog, Empty } from "./ui";
 import { MapToIssue } from "./MapToIssue";
 
 /** The pre-filled match for an event: log, source, event ID and hardware ID when there is one (docs/spec/05-server-spec.md). */
@@ -30,6 +30,8 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [resolving, setResolving] = useState<string | null>(null);
   const [resolution, setResolution] = useState("");
+  const [asFix, setAsFix] = useState(false);
+  const [confirmFix, setConfirmFix] = useState<Alert | null>(null);
   const [mapping, setMapping] = useState<Match | null>(null);
   const [shown, setShown] = useState(50);
   // Which issue types have a saved fix, so only those alerts look the fix up.
@@ -46,11 +48,16 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
     else if (r.takenBy) { say(a.id, `${r.takenBy.name} claimed this first.`); onChanged(); }
     else say(a.id, r.problem ?? "Could not claim.");
   };
-  const resolve = async (a: Alert) => {
+  const resolve = async (a: Alert, saveFix = false) => {
     try {
+      // The same words become a possible fix for every cabinet, tied to this alert.
+      if (saveFix && a.issueTypeId && resolution.trim()) {
+        await api("POST", "/api/known-fixes", { title: a.title.slice(0, 120), solution: resolution.trim(), symptom: { kind: "issue", issueTypeId: a.issueTypeId }, cabinetId: a.cabinet.id, alertId: a.id });
+        window.dispatchEvent(new Event("fixes-changed")); known.reload();
+      }
       await api("POST", `/api/alerts/${a.id}/resolve`, resolution.trim() ? { note: resolution.trim().slice(0, 256) } : {});
-      setResolving(null); setResolution(""); onChanged();
-    } catch (e) { say(a.id, describeError(e)); }
+      setResolving(null); setResolution(""); setAsFix(false); onChanged();
+    } catch (e) { say(a.id, describeError(e)); throw e; }
   };
   const map = async (a: Alert) => {
     if (!a.lastEventId) return;
@@ -86,11 +93,12 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
               </div>
               {a.resolution && <p className="small muted">{a.resolution}</p>}
               {a.issueTypeId && withFix.has(a.issueTypeId) && a.state !== "resolved" && <KnownFixes symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} />}
-              {a.issueTypeId && a.state === "claimed" && (mine || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} />}
+              {a.issueTypeId && a.state === "claimed" && (mine || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} alertId={a.id} />}
               {notes[a.id] && <p className="small error" role="alert">{notes[a.id]}</p>}
               {resolving === a.id && (
-                <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void resolve(a); }}>
+                <form className="row gap wrap" onSubmit={e => { e.preventDefault(); if (asFix && me.canApproveFixes && resolution.trim()) setConfirmFix(a); else void resolve(a, asFix).catch(() => undefined); }}>
                   <label className="field"><span>What fixed it (optional)</span><input value={resolution} maxLength={256} onChange={e => setResolution(e.target.value)} autoFocus /></label>
+                  {a.issueTypeId && resolution.trim() && <label className="check small"><input type="checkbox" checked={asFix} onChange={e => setAsFix(e.target.checked)} /> Also keep this as a possible fix for every cabinet{me.canApproveFixes ? "" : " (an Admin approves it first)"}</label>}
                   <button className="btn primary small">Resolve</button>
                   <button type="button" className="btn ghost small" onClick={() => setResolving(null)}>Cancel</button>
                 </form>)}
@@ -105,6 +113,8 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
       })}
     </ul>
     {alerts.length > shown && <p className="row gap"><button className="btn" onClick={() => setShown(n => n + 50)}>Show {Math.min(50, alerts.length - shown)} more</button><span className="muted small" role="status">Showing {shown} of {alerts.length}</span></p>}
+    <ConfirmDialog open={confirmFix !== null} title="Save this as a fix too?" confirmLabel="Resolve and save the fix" onClose={() => setConfirmFix(null)} onConfirm={() => resolve(confirmFix!, true)}
+      description={<p>“{resolution.trim()}” is written into the alert's resolution and kept as a possible fix for every cabinet. It needs no approval because you can approve fixes; it is logged under your name.</p>} />
     <MapToIssue open={mapping !== null} initial={mapping ?? {}} onClose={() => { setMapping(null); onChanged(); }} />
   </>);
 }

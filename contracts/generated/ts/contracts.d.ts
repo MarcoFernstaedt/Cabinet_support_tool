@@ -654,6 +654,10 @@ export interface KnownFixCreate {
         kind: "issue";
         issueTypeId: string;
       };
+  /**
+   * The alert this fix was saved from, if any. Resolving that alert then carries the fix's note into its resolution.
+   */
+  alertId?: string;
 }
 
 /**

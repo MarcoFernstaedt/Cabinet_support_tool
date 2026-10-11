@@ -254,6 +254,11 @@ export async function claimAlert(pool: pg.Pool, userId: string, alertId: string)
 /** The person who claimed an alert resolves it; an Admin may resolve any active alert. */
 export async function resolveAlert(pool: pg.Pool, user: { userId: string; role: string }, alertId: string, note: string | undefined) {
   return transaction(pool, async c => {
+    // No note typed: a fix this person saved from this alert is what fixed it, so its text becomes the resolution.
+    if (!note) {
+      const fix = (await c.query<{ solution: string }>("SELECT solution FROM known_fixes WHERE alert_id = $1 AND created_by = $2 AND removed_at IS NULL ORDER BY created_at DESC LIMIT 1", [alertId, user.userId])).rows[0];
+      if (fix) note = [...fix.solution].map(ch => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? " " : ch)).join("").trim().slice(0, 256) || undefined;
+    }
     const r = await c.query(
       `UPDATE alerts SET state = 'resolved', resolved_by = $2, resolved_at = now(), resolution = $3
         WHERE id = $1 AND (state = 'claimed' AND claimed_by = $2 OR $4 AND state <> 'resolved')`,

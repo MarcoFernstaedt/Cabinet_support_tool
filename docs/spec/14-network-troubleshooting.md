@@ -90,3 +90,7 @@ A problem the baseline cannot fix with a click is still solved by a person. They
 ### Approval of known fixes
 
 A fix a member submits is `pending`. Only its submitter sees it (marked "Waiting for approval") until an approver decides. Approvers are Admins and any Tier 2 an Admin has granted `can_approve_fixes` (Users, "Approves fixes"; a step-up change like any role change). `GET /api/known-fixes/review` lists what waits and the last 30 decisions; `POST /api/known-fixes/:id/approve` and `/reject` (with an optional reason the submitter sees) decide, once. An approver's own submission is approved at once. The Fixes link in the main bar shows how many are waiting. Both decisions are audited (`known_fix.approve`, `known_fix.reject`).
+
+### Real cabinets, and the alert's resolution
+
+Nothing about known fixes is demo-only: the matching, the approval, the environment (read from the cabinet's heartbeat and its latest diagnosis) and the "possible fix" mark work the same for a cabinet with no demo scenario. `server/test/real-cabinet-fixes.test.ts` runs it on cabinets with no demo scenario, answering commands through the same queue and result paths the agent API uses (the answers are synthetic; on Windows they come from the machine). A fix saved from an alert carries `alertId`; resolving that alert with no note writes the fix's text (first 256 characters, on one line) as its resolution.

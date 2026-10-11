@@ -90,7 +90,7 @@ export function KnownFixes({ symptom, cabinetId, reloadKey }: { symptom: Symptom
 }
 
 /** "Save what fixed this": the person types what worked; the platform records the cabinet's setup with it. */
-export function SaveFix({ symptom, cabinetId, suggestedTitle, onSaved }: { symptom: Symptom; cabinetId: string; suggestedTitle: string; onSaved?: () => void }) {
+export function SaveFix({ symptom, cabinetId, suggestedTitle, alertId, onSaved }: { symptom: Symptom; cabinetId: string; suggestedTitle: string; alertId?: string; onSaved?: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState(suggestedTitle.slice(0, 120));
   const [solution, setSolution] = useState("");
@@ -102,7 +102,7 @@ export function SaveFix({ symptom, cabinetId, suggestedTitle, onSaved }: { sympt
   if (!open) return <button className="btn small ghost" onClick={() => setOpen(true)}>Save what fixed this…</button>;
   const save = async () => {
     setProblem(null);
-    try { const r = await api<{ status: "approved" | "pending" }>("POST", "/api/known-fixes", { title: title.trim(), solution: solution.trim(), symptom, cabinetId }); setSaved(r.status === "approved" ? "approved" : "pending"); window.dispatchEvent(new Event("fixes-changed")); onSaved?.(); }
+    try { const r = await api<{ status: "approved" | "pending" }>("POST", "/api/known-fixes", { title: title.trim(), solution: solution.trim(), symptom, cabinetId, ...(alertId ? { alertId } : {}) }); setSaved(r.status === "approved" ? "approved" : "pending"); window.dispatchEvent(new Event("fixes-changed")); onSaved?.(); }
     catch (err) { setProblem(describeError(err)); throw err; }
   };
   return (<>
