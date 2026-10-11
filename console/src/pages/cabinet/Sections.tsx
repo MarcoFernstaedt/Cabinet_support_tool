@@ -1,8 +1,9 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
+import { adapterRows, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
-  NetworkTestOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
+  NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
@@ -125,25 +126,39 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
       {out => <div className="cards">{out.adapters.map(a => (
         <article key={a.interfaceIndex} className="card" aria-label={`Adapter ${a.name}`}>
           <h3>{a.name} <Badge tone={a.connected ? "ok" : "off"}>{a.connected ? "Connected" : "Disconnected"}</Badge></h3>
-          <KeyValues rows={[["Type", a.type === "wifi" ? "Wi-Fi" : a.type === "ethernet" ? "Ethernet" : "Other"], ["Description", a.description],
-            ["Link speed", a.linkSpeedBps ? `${(a.linkSpeedBps / 1e6).toLocaleString()} Mbps` : null], ["MAC address", a.macAddress],
-            ["Addressing", a.ipv4.dhcp ? "DHCP" : "Static"], ["IPv4", a.ipv4.addresses.map(x => `${x.address}/${x.prefixLength}`).join(", ") || null],
-            ["Gateway", a.ipv4.gateways.join(", ") || null], ["DNS servers", `${a.dns.servers.join(", ") || "none"} (${a.dns.automatic ? "automatic" : "set by hand"})`],
-            ["DNS suffix", a.dnsSuffix]]} />
+          <KeyValues rows={adapterRows(a as never)} />
           <AdapterEdit key={`${a.interfaceIndex}-${config.at}`} cabinet={cabinet} adapter={a} writes={adapterWrites} />
         </article>))}</div>}
     </OperationPanel>
     {adapterWrites.outcome}{adapterWrites.dialog}
+    {config.result?.output && (config.result.output.routes || config.result.output.neighbors) && (
+      <section className="panel" aria-labelledby="routes-heading">
+        <h2 id="routes-heading">Routes and ARP table</h2>
+        <p className="muted small">Where this cabinet sends traffic, and which machines on its network it has talked to lately and whether they answered.</p>
+        <RoutesTable routes={(config.result.output.routes ?? []) as never} />
+        <NeighborsTable neighbors={(config.result.output.neighbors ?? []) as never} />
+      </section>)}
     <section className="panel" aria-labelledby="tests-heading">
       <h2 id="tests-heading">Connectivity tests</h2>
       <p className="muted small">Each test goes only to one of these targets; the sync cabinet's address and ports come from the site's settings.</p>
       <div className="tests">
-        <NetTest cabinetId={cabinetId} label="Gateway (ping)" params={{ target: "gateway", method: "ping" }} />
+        <NetTest cabinetId={cabinetId} label="Gateway (ping, 5 requests)" params={{ target: "gateway", method: "ping", count: 5 }} />
         {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
           <NetTest key={i} cabinetId={cabinetId} label={`DNS server ${i + 1} (lookup)`} params={{ target: "dns_server", method: "dns", dnsServerIndex: i }} />))}
-        <NetTest cabinetId={cabinetId} label="Sync cabinet (ping)" params={{ target: "sync_cabinet", method: "ping" }} />
+        <NetTest cabinetId={cabinetId} label="Sync cabinet (ping, 5 requests)" params={{ target: "sync_cabinet", method: "ping", count: 5 }} />
         <SyncTcpTest cabinetId={cabinetId} />
         <NetTest cabinetId={cabinetId} label="Platform server (DNS)" params={{ target: "platform_server", method: "dns" }} />
+      </div>
+    </section>
+    <section className="panel" aria-labelledby="paths-heading">
+      <h2 id="paths-heading">Path to a target</h2>
+      <p className="muted small">The route hop by hop, found by the cabinet itself with echo requests of rising time-to-live. It shows where replies stop or slow down. Some networks block these probes, so a trace that stops is a lead, not proof.</p>
+      <div className="tests">
+        <TraceTest cabinetId={cabinetId} label="Path to the gateway" params={{ target: "gateway" }} />
+        {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
+          <TraceTest key={i} cabinetId={cabinetId} label={`Path to DNS server ${i + 1}`} params={{ target: "dns_server", dnsServerIndex: i }} />))}
+        <TraceTest cabinetId={cabinetId} label="Path to the sync cabinet" params={{ target: "sync_cabinet" }} />
+        <TraceTest cabinetId={cabinetId} label="Path to the platform server" params={{ target: "platform_server" }} />
       </div>
     </section>
   </>);
@@ -159,7 +174,21 @@ function NetTest({ cabinetId, label, params }: { cabinetId: string; label: strin
       {op.result && op.result.status !== "succeeded" && <span className="error">{op.result.error?.message}</span>}
       {out && <span>{out.success ? <Badge tone="ok">Reached</Badge> : <Badge tone="crit">Failed</Badge>}{" "}
         {out.resolvedTarget && <code>{out.resolvedTarget}</code>}{out.latencyMs !== null && ` in ${out.latencyMs} ms`}
-        {out.resolvedAddresses.length > 0 && <> → {out.resolvedAddresses.join(", ")}</>}{out.error && <span className="muted"> — {out.error}</span>}</span>}
+        {out.resolvedAddresses.length > 0 && <> → {out.resolvedAddresses.join(", ")}</>}{out.error && <span className="muted"> — {out.error}</span>}
+        {out.statistics && <> <PingSummary s={out.statistics as never} /></>}</span>}
+    </div>
+  );
+}
+
+function TraceTest({ cabinetId, label, params }: { cabinetId: string; label: string; params: Record<string, unknown> }) {
+  const op = useOperation<NetworkTraceOutput>(cabinetId, "network.trace");
+  const out = op.result?.output;
+  return (
+    <div className="test" aria-live="polite">
+      <button className="btn" onClick={() => void op.start(params)} disabled={op.state === "running"}>{op.state === "running" ? "Tracing…" : label}</button>
+      {op.problem && <span className="error">{op.problem}</span>}
+      {op.result && op.result.status !== "succeeded" && <span className="error">{op.result.error?.message}</span>}
+      {out && <TraceTable t={out as never} />}
     </div>
   );
 }

@@ -258,6 +258,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "network.trace"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.trace.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "firewall.state"
           }
         },

@@ -442,6 +442,7 @@ export interface CommandRequest {
     | "files.list"
     | "network.config"
     | "network.test"
+    | "network.trace"
     | "firewall.state"
     | "network.setIp"
     | "network.setDns"
@@ -1101,6 +1102,7 @@ export interface Command {
     | "files.list"
     | "network.config"
     | "network.test"
+    | "network.trace"
     | "firewall.state"
     | "network.setIp"
     | "network.setDns"
@@ -2105,6 +2107,52 @@ export interface NetworkConfigOutput {
     ipv6Addresses: string[];
     dns: DnsSettings;
     dnsSuffix: string | null;
+    /**
+     * Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null.
+     */
+    details?: {
+      dhcpServer: string | null;
+      leaseObtained: string | null;
+      leaseExpires: string | null;
+      mtu: number | null;
+      statistics: {
+        bytesReceived: number;
+        bytesSent: number;
+        receiveErrors: number;
+        sendErrors: number;
+        receiveDiscards: number;
+        sendDiscards: number;
+      } | null;
+    };
+  }[];
+  /**
+   * Optional: the cabinet's IPv4 routes other than loopback, multicast and host routes (at most 128).
+   *
+   * @maxItems 128
+   */
+  routes?: {
+    destination: string;
+    prefixLength: number;
+    nextHop: string;
+    metric: number;
+    /**
+     * Windows network interface index.
+     */
+    interfaceIndex: number;
+  }[];
+  /**
+   * Optional: the cabinet's ARP table, the other machines it has talked to on its networks lately (at most 64).
+   *
+   * @maxItems 64
+   */
+  neighbors?: {
+    /**
+     * Windows network interface index.
+     */
+    interfaceIndex: number;
+    address: string;
+    macAddress: string | null;
+    state: "reachable" | "stale" | "incomplete" | "unreachable" | "other";
   }[];
 }
 
@@ -2130,6 +2178,10 @@ export interface NetworkTestParams {
    * @maxItems 4
    */
   syncPorts?: [number, ...number[]];
+  /**
+   * Ping only: how many echo requests to send, 1 to 10 (default 1). With more than one, the output carries loss and jitter.
+   */
+  count?: number;
 }
 
 export interface NetworkTestOutput {
@@ -2142,6 +2194,52 @@ export interface NetworkTestOutput {
    * @maxItems 16
    */
   resolvedAddresses: string[];
+  error: string | null;
+  /**
+   * Optional: ping only, when more than one request was sent.
+   */
+  statistics?: null | {
+    sent: number;
+    received: number;
+    lossPercent: number;
+    minMs: number | null;
+    avgMs: number | null;
+    maxMs: number | null;
+    jitterMs: number | null;
+  };
+}
+
+export interface NetworkTraceParams {
+  target: "gateway" | "dns_server" | "sync_cabinet" | "platform_server";
+  dnsServerIndex?: number;
+  /**
+   * The site's sync cabinet as set in the console; accepted only if it is a private IPv4 address on one of the cabinet's own connected networks.
+   */
+  syncAddress?: string;
+  /**
+   * How far to go before giving up (default 12).
+   */
+  maxHops?: number;
+}
+
+export interface NetworkTraceOutput {
+  target: "gateway" | "dns_server" | "sync_cabinet" | "platform_server";
+  resolvedTarget: string | null;
+  reached: boolean;
+  /**
+   * @maxItems 20
+   */
+  hops: {
+    hop: number;
+    address: string | null;
+    /**
+     * One entry per probe; null for a probe that got no reply.
+     *
+     * @minItems 1
+     * @maxItems 3
+     */
+    rttMs: [number | null, ...(number | null)[]];
+  }[];
   error: string | null;
 }
 
@@ -2572,7 +2670,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2593,6 +2691,7 @@ export interface OperationTypes {
   "files.list": { params: FilesListParams; output: FilesListOutput };
   "network.config": { params: NetworkConfigParams; output: NetworkConfigOutput };
   "network.test": { params: NetworkTestParams; output: NetworkTestOutput };
+  "network.trace": { params: NetworkTraceParams; output: NetworkTraceOutput };
   "firewall.state": { params: FirewallStateParams; output: FirewallStateOutput };
   "services.list": { params: ServicesListParams; output: ServicesListOutput };
   "processes.list": { params: ProcessesListParams; output: ProcessesListOutput };

@@ -174,6 +174,22 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       a.dns = { automatic: n.dnsAutomatic, servers: [...n.dns] };
       a.macAddress = `00-1B-21-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-4F-5C`;
       a.ipv6Addresses = [];
+      // The full read: the DHCP lease, the size limit, the card's counters, the routes and the ARP table.
+      const hasLease = n.mode === "dhcp" && !n.address.startsWith("169.254.");
+      const flaky = ctx.scenario === "net_flaky", slow = ctx.scenario === "net_link_slow";
+      a.details = {
+        dhcpServer: hasLease ? `${ctx.subnet}.2` : null,
+        leaseObtained: hasLease ? ago(ctx, 8 * 60) : null, leaseExpires: hasLease ? iso(new Date(ctx.now.getTime() + 16 * 3_600_000)) : null,
+        mtu: 1500,
+        statistics: { bytesReceived: 8_123_456_789 + ctx.index * 1_000_000, bytesSent: 2_123_456_789 + ctx.index * 500_000,
+          receiveErrors: flaky ? 4_812 : slow ? 37 : 0, sendErrors: flaky ? 96 : 0, receiveDiscards: flaky ? 912 : 3, sendDiscards: 0 },
+      };
+      const mac = (last: number) => `AC-1F-6B-${ctx.subnet.split(".").map(x => Number(x).toString(16).toUpperCase().padStart(2, "0")).slice(1, 3).join("-")}-${last.toString(16).toUpperCase().padStart(2, "0")}`;
+      o.routes = n.gateway ? [{ destination: "0.0.0.0", prefixLength: 0, nextHop: n.gateway, metric: 25, interfaceIndex: a.interfaceIndex },
+        { destination: ctx.subnet + ".0", prefixLength: n.prefixLength, nextHop: "0.0.0.0", metric: 281, interfaceIndex: a.interfaceIndex }] : [];
+      o.neighbors = !n.linkUp || !n.gateway ? [] : [
+        { interfaceIndex: a.interfaceIndex, address: n.gateway, macAddress: reachesGateway(n, ctx.baseline) ? mac(1) : null, state: reachesGateway(n, ctx.baseline) ? (flaky ? "stale" : "reachable") : "incomplete" },
+        ...(ctx.role === "sync" ? [] : [{ interfaceIndex: a.interfaceIndex, address: `${ctx.subnet}.20`, macAddress: mac(20), state: "stale" }])];
       return o;
     }
     case "network.test": {
@@ -183,13 +199,37 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       const server = n.dns[params.dnsServerIndex ?? 0];
       const resolved = params.target === "gateway" ? n.gateway : params.target === "dns_server" ? server ?? null
         : params.target === "sync_cabinet" ? (params.syncAddress ?? `${ctx.subnet}.20`) : null;
+      const series = (r: any) => {
+        if (params.method !== "ping" || !(params.count > 1)) return r;
+        const sent = params.count;
+        if (!r.success) return { ...r, statistics: { sent, received: 0, lossPercent: 100, minMs: null, avgMs: null, maxMs: null, jitterMs: null } };
+        const flaky = ctx.scenario === "net_flaky" && params.target === "gateway";
+        const received = flaky ? Math.max(1, sent - Math.ceil(sent / 4)) : sent;
+        const avg = flaky ? 24.3 : r.latencyMs ?? 1;
+        return { ...r, latencyMs: avg, statistics: { sent, received, lossPercent: Math.round(1000 * (sent - received) / sent) / 10,
+          minMs: flaky ? 1.8 : Math.max(0.2, avg - 0.4), avgMs: avg, maxMs: flaky ? 61.2 : avg + 0.5, jitterMs: flaky ? 18.4 : 0.2 } };
+      };
       if (!n.linkUp) return fail(resolved, "The network cable is unplugged.");
-      if (params.target === "gateway") return n.gateway === null ? fail(null, "No default gateway is set.") : up ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds.");
+      if (params.target === "gateway") return series(n.gateway === null ? fail(null, "No default gateway is set.") : up ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds."));
       if (params.target === "dns_server") return server === undefined ? fail(null, "No DNS server is set.") : dnsAnswers(n, b, server) ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds.");
       if (params.target === "platform_server") return up && n.dns.some(s => dnsAnswers(n, b, s)) ? { ...ok, latencyMs: 38 + ctx.index } : fail(null, "The name could not be resolved.");
       if (params.target === "sync_cabinet" && !up) return fail(resolved, params.method === "tcp" ? `Port ${params.port ?? 1433} did not answer within 3 seconds.` : "No answer within 2 seconds.");
       if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp") return fail(resolved, `Port ${params.port ?? 1433} did not answer within 3 seconds.`);
       return { ...ok, resolvedTarget: resolved };
+    }
+    case "network.trace": {
+      const n = ctx.net, b = ctx.baseline, up = reachesGateway(n, b);
+      const rtt = (base: number) => [0, 1, 2].map(i => Math.round((base + (ctx.index % 3) * 0.1 + i * 0.1) * 10) / 10);
+      const silent = (from: number, count: number) => Array.from({ length: count }, (_, i) => ({ hop: from + i, address: null, rttMs: [null, null, null] }));
+      const target = params.target === "gateway" ? n.gateway : params.target === "sync_cabinet" ? (params.syncAddress ?? `${ctx.subnet}.20`)
+        : params.target === "platform_server" ? "203.0.113.10" : n.dns[params.dnsServerIndex ?? 0] ?? null;
+      if (!n.linkUp || target === null || !up) return { target: params.target, resolvedTarget: target, reached: false, hops: silent(1, 4), error: "No reply after hop 0." };
+      const flaky = ctx.scenario === "net_flaky";
+      const first = { hop: 1, address: b.gateway, rttMs: flaky ? [0.9, null, 21.4] : rtt(0.5) };
+      if (params.target === "gateway") return { target: params.target, resolvedTarget: target, reached: true, hops: [first], error: null };
+      if (params.target === "dns_server" || params.target === "sync_cabinet") return { target: params.target, resolvedTarget: target, reached: true, hops: [{ ...first, address: target, rttMs: flaky ? [1.2, null, 25.6] : rtt(0.6) }], error: null };
+      return { target: params.target, resolvedTarget: target, reached: true, error: null,
+        hops: [first, { hop: 2, address: "100.64.0.1", rttMs: rtt(4.2) }, { hop: 3, address: "198.51.100.9", rttMs: rtt(8.7) }, { hop: 4, address: target, rttMs: rtt(12.1 + (ctx.index % 5)) }] };
     }
     case "network.setIp": {
       const next = applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, params as never);

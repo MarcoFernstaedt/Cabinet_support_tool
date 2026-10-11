@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.config.schema.json",
   "title": "network.config",
-  "description": "Every network adapter with addressing, gateway and DNS.",
+  "description": "Every network adapter with addressing, gateway, DNS, DHCP lease, MTU and traffic counters, plus the routes and ARP table.",
   "$defs": {
     "params": {
       "$ref": "../common.schema.json#/$defs/emptyParams"
@@ -66,6 +66,113 @@
               },
               "dnsSuffix": {
                 "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "details": {
+                "description": "Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "dhcpServer",
+                  "leaseObtained",
+                  "leaseExpires",
+                  "mtu",
+                  "statistics"
+                ],
+                "properties": {
+                  "dhcpServer": {
+                    "anyOf": [
+                      {
+                        "$ref": "../common.schema.json#/$defs/ipv4"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "leaseObtained": {
+                    "anyOf": [
+                      {
+                        "$ref": "../common.schema.json#/$defs/timestamp"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "leaseExpires": {
+                    "anyOf": [
+                      {
+                        "$ref": "../common.schema.json#/$defs/timestamp"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mtu": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 68,
+                        "maximum": 65535
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "statistics": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "bytesReceived",
+                          "bytesSent",
+                          "receiveErrors",
+                          "sendErrors",
+                          "receiveDiscards",
+                          "sendDiscards"
+                        ],
+                        "properties": {
+                          "bytesReceived": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "bytesSent": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "receiveErrors": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "sendErrors": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "receiveDiscards": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "sendDiscards": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
               }
             },
             "required": [
@@ -81,6 +188,86 @@
               "dns",
               "dnsSuffix"
             ]
+          }
+        },
+        "routes": {
+          "description": "Optional: the cabinet's IPv4 routes other than loopback, multicast and host routes (at most 128).",
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "destination",
+              "prefixLength",
+              "nextHop",
+              "metric",
+              "interfaceIndex"
+            ],
+            "properties": {
+              "destination": {
+                "$ref": "../common.schema.json#/$defs/ipv4"
+              },
+              "prefixLength": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 32
+              },
+              "nextHop": {
+                "$ref": "../common.schema.json#/$defs/ipv4"
+              },
+              "metric": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "interfaceIndex": {
+                "$ref": "../common.schema.json#/$defs/interfaceIndex"
+              }
+            }
+          }
+        },
+        "neighbors": {
+          "description": "Optional: the cabinet's ARP table, the other machines it has talked to on its networks lately (at most 64).",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "interfaceIndex",
+              "address",
+              "macAddress",
+              "state"
+            ],
+            "properties": {
+              "interfaceIndex": {
+                "$ref": "../common.schema.json#/$defs/interfaceIndex"
+              },
+              "address": {
+                "$ref": "../common.schema.json#/$defs/ipv4"
+              },
+              "macAddress": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/macAddress"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "reachable",
+                  "stale",
+                  "incomplete",
+                  "unreachable",
+                  "other"
+                ]
+              }
+            }
           }
         }
       },

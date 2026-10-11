@@ -13,6 +13,7 @@ export type Scenario =
   /** Network faults a diagnosis finds by comparing the cabinet with its site's baseline, each with a fix the platform can make. */
   | "net_dns_wrong" | "net_static_wrong" | "net_dhcp_failed" | "net_gateway_wrong" | "net_link_slow"
   /** Nothing is plugged into any USB port although a fingerprint scanner is expected: a cabinet alert, not a fleet one. */
+  | "net_flaky"
   | "usb_missing"
   /** A drive nearly full: Windows warns, and updates and the application start failing. */
   | "disk_space_low"
@@ -41,7 +42,7 @@ export const DEMO_FLEET: DemoClient[] = [
       c("Exam 1", "satellite", "time_zone_wrong"), c("Exam 2", "satellite", "time_zone_wrong"), c("Exam 3", "satellite", "time_zone_wrong")] },
     // The demo's one story: the sync cabinet's firewall blocks the satellites, and the scanner in Procedure Room has been dropping off since a driver install.
     { name: "Midtown Manhattan", timeZone: "Eastern Standard Time", subnet: "10.21.9", cabinets: [
-      c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite")] },
+      c("Midtown Sync", "sync", "firewall_drift"), c("Exam Room 1", "satellite"), c("Exam Room 2", "satellite"), c("Exam Room 3", "satellite"), c("Procedure Room", "satellite", "scanner_flapping"), c("Check-in", "satellite"), c("Operating Room", "satellite", "net_flaky")] },
     { name: "Phoenix Clinic", timeZone: "US Mountain Standard Time", subnet: "10.33.8", cabinets: [
       c("Main Sync", "sync", "bsod"), c("Exam Wing", "satellite", "time_zone_wrong"), c("Boarding", "satellite", "service_failing"), c("Front Desk", "satellite", "net_dhcp_failed")] },
     { name: "San Diego Bay", timeZone: "Pacific Standard Time", subnet: "10.45.2", cabinets: [
@@ -78,6 +79,7 @@ export const SCENARIO_LABEL: Record<Scenario, string> = {
   site_outage: "The whole site went offline together 40 minutes ago",
   net_dns_wrong: "DNS servers are the old ones, not the site's", net_static_wrong: "Fixed address from another network", net_dhcp_failed: "No DHCP lease (169.254 address)",
   net_gateway_wrong: "Fixed address with the wrong gateway", net_link_slow: "Link negotiated at 100 Mbps (cable)",
+  net_flaky: "Matches the baseline, but loses packets to the gateway and the network card counts errors (a failing patch cable)",
   usb_missing: "No USB device detected, a fingerprint scanner expected (cabinet alert)", disk_space_low: "Drive nearly full (warning)", mixed_errors: "Errors from several sources in the event logs, mapped to issues",
 };
 

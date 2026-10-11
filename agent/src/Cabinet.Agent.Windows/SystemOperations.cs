@@ -160,6 +160,7 @@ public sealed class SystemOperations(AgentConfig config)
     public Task<NetworkConfigOutput> NetworkConfigAsync(EmptyParams _, CancellationToken token)
     {
         var adapters = new List<NetworkAdapter>();
+        var leases = NetworkExtras.Leases();
         foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (adapters.Count == 64) break;
@@ -198,9 +199,28 @@ public sealed class SystemOperations(AgentConfig config)
                     .Select(a => a.Address.ToString()).Where(a => a.Length <= 45).Take(16).ToList(),
                 Dns = new DnsSettings { Automatic = !HasStaticDns(nic.Id), Servers = dnsServers },
                 DnsSuffix = props.DnsSuffix is { Length: > 0 } suffix ? EventText.ShortText(suffix) : null,
+                Details = new AdapterDetails
+                {
+                    DhcpServer = props.DhcpServerAddresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork)?.ToString(),
+                    LeaseObtained = v4.IsDhcpEnabled && leases.TryGetValue(v4.Index, out var lease) ? lease.Obtained : null,
+                    LeaseExpires = v4.IsDhcpEnabled && leases.TryGetValue(v4.Index, out var lease2) ? lease2.Expires : null,
+                    Mtu = v4.Mtu is >= 68 and <= 65535 ? v4.Mtu : null,
+                    Statistics = Statistics(nic),
+                },
             });
         }
-        return Task.FromResult(new NetworkConfigOutput { Adapters = adapters });
+        return Task.FromResult(new NetworkConfigOutput { Adapters = adapters, Routes = NetworkExtras.Routes(), Neighbors = NetworkExtras.Neighbors() });
+    }
+
+    private static AdapterStatistics? Statistics(NetworkInterface nic)
+    {
+        try
+        {
+            IPv4InterfaceStatistics s = nic.GetIPv4Statistics();
+            return new AdapterStatistics { BytesReceived = s.BytesReceived, BytesSent = s.BytesSent, ReceiveErrors = s.IncomingPacketsWithErrors, SendErrors = s.OutgoingPacketsWithErrors,
+                ReceiveDiscards = s.IncomingPacketsDiscarded, SendDiscards = s.OutgoingPacketsDiscarded };
+        }
+        catch (NetworkInformationException) { return null; }
     }
 
     /// <summary>DNS servers typed in by hand are stored as NameServer on the interface; DHCP-supplied ones are not.</summary>
@@ -252,6 +272,7 @@ public static class NetworkOperations
             .Register<PeripheralStatusParams, PeripheralStatusOutput>(Catalog.PeripheralStatus, devices.PeripheralStatusAsync)
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
+            .Register<NetworkTraceParams, NetworkTraceOutput>(Catalog.NetworkTrace, network.TraceAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);
         packages?.Register(registry, broker.RunAsync);
         broker.RegisterForwarders(registry);

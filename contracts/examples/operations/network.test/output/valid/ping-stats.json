@@ -1,0 +1,1 @@
+{"target": "gateway", "method": "ping", "resolvedTarget": "10.21.9.1", "success": true, "latencyMs": 0.6, "resolvedAddresses": [], "error": null, "statistics": {"sent": 5, "received": 4, "lossPercent": 20, "minMs": 0.5, "avgMs": 0.7, "maxMs": 1.1, "jitterMs": 0.2}}

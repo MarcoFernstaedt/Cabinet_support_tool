@@ -231,6 +231,7 @@
         "files.list",
         "network.config",
         "network.test",
+        "network.trace",
         "firewall.state",
         "network.setIp",
         "network.setDns",

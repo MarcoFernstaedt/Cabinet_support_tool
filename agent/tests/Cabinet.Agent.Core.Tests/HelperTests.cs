@@ -327,6 +327,33 @@ public sealed class NetworkTesterTests
         Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Output(Catalog.NetworkTest), JsonSerializer.SerializeToElement(o, ContractJson.Options)));
 
     [Fact]
+    public void Ping_statistics_say_how_many_came_back_how_fast_and_how_much_the_times_jump()
+    {
+        PingStatistics s = NetworkTester.Summarize(5, [0.5, 0.7, 1.1, 0.7]);
+        Assert.Equal(5, s.Sent);
+        Assert.Equal(4, s.Received);
+        Assert.Equal(20.0, s.LossPercent);
+        Assert.Equal([0.5, 0.8, 1.1], [s.MinMs!.Value, s.AvgMs!.Value, s.MaxMs!.Value]);
+        Assert.Equal(0.3, s.JitterMs!.Value, 1);
+        PingStatistics none = NetworkTester.Summarize(3, []);
+        Assert.Equal([100.0, null, null, null, null], [none.LossPercent, none.MinMs, none.AvgMs, none.MaxMs, none.JitterMs]);
+        Assert.Equal(0, NetworkTester.Summarize(2, [4.0, 4.0]).JitterMs);
+    }
+
+    [Fact]
+    public async Task A_trace_with_no_gateway_or_a_missing_dns_server_is_a_clear_empty_trace()
+    {
+        var none = await Tester(Config(), Down).TraceAsync(new NetworkTraceParams { Target = NetworkTestTarget.Gateway }, default);
+        Assert.False(none.Reached);
+        Assert.Empty(none.Hops);
+        Assert.Contains("no default gateway", none.Error);
+        var far = await Tester(Config(), Lan).TraceAsync(new NetworkTraceParams { Target = NetworkTestTarget.DnsServer, DnsServerIndex = 3 }, default);
+        Assert.Contains("2 DNS server", far.Error);
+        foreach (var o in new[] { none, far })
+            Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Output(Catalog.NetworkTrace), JsonSerializer.SerializeToElement(o, ContractJson.Options)));
+    }
+
+    [Fact]
     public async Task No_gateway_on_a_connected_adapter_is_a_clear_failed_test()
     {
         var o = await Tester(Config(), Down).RunAsync(new NetworkTestParams { Target = NetworkTestTarget.Gateway, Method = NetworkTestMethod.Ping }, default);

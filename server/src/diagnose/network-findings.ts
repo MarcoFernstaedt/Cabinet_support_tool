@@ -3,6 +3,7 @@
 // how sure they are, and the fix. A check whose evidence is missing says "could not check"; nothing is guessed. Pure
 // functions: no database, no network, no regular expressions.
 import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput } from "@mashura/cabinet-contracts/types";
+import { observations, type TraceRun } from "./network-observations.js";
 
 export type Severity = "problem" | "warning" | "info" | "ok";
 export type Certainty = "confirmed" | "probable" | "possible" | "not_checked";
@@ -36,6 +37,10 @@ export interface NetworkEvidence {
   baseline?: NetworkBaseline | null;
   sync: { address: string | null; ports: number[]; cabinet: { id: string; name: string; online: boolean; minutesSilent: number | null; profiles: Profiles | null } | null };
   tests: TestRun[];
+  /** The routes to the sync cabinet and the platform server, hop by hop (absent from diagnoses made before traces existed). */
+  traces?: TraceRun[];
+  /** When the read was made, for lease times; defaults to now. */
+  now?: number;
 }
 
 const PROFILE_NAMES = ["domain", "private", "public"] as const;
@@ -70,7 +75,7 @@ const describe = (t: TestRun) => !t.output ? `${t.label}: no result (${t.failure
 const RANK: Record<Severity, number> = { problem: 0, warning: 1, info: 2, ok: 3 };
 
 const LAYER_OF: [string, Layer][] = [["link", "link"], ["speed-", "link"], ["config", "link"], ["ip-", "address"], ["baseline-addressing", "address"], ["baseline-ok", "address"], ["baseline-subnet", "address"],
-  ["gateway", "gateway"], ["baseline-gateway", "gateway"], ["dns", "dns"], ["baseline-dns", "dns"], ["platform", "platform"], ["sync", "sync"], ["firewall", "firewall"]];
+  ["gateway", "gateway"], ["baseline-gateway", "gateway"], ["obs-lease", "address"], ["obs-dhcp", "address"], ["obs-mtu", "link"], ["obs-errors", "link"], ["obs-ping", "gateway"], ["obs-arp", "gateway"], ["obs-routes", "gateway"], ["obs-trace-sync", "sync"], ["obs-trace-platform", "platform"], ["dns", "dns"], ["baseline-dns", "dns"], ["platform", "platform"], ["sync", "sync"], ["firewall", "firewall"]];
 const layerOf = (id: string): Layer => LAYER_OF.filter(([p]) => id.startsWith(p)).sort((a, b) => b[0].length - a[0].length)[0]?.[1] ?? "link";
 
 export function networkFindings(e: NetworkEvidence): Finding[] {
@@ -246,6 +251,7 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
   if (lowest) for (const x of f) if (!x.causedBy && ["gateway", "dns-", "platform-dns", "sync-down", "sync-firewall", "sync-port"].some(i => x.id === i || x.id.startsWith(i)) && (x.severity === "problem" || x.severity === "warning")) x.causedBy = lowest.id;
   link(["gateway"], ["gateway"]);
   link(["dns-all", "dns-dns", "platform-dns"], ["dns"]);
+  observations(e, e.traces ?? [], add, e.now);
   return f.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
 }
 

@@ -2,7 +2,7 @@ namespace Cabinet.Agent.Contracts;
 
 public enum OperationKind { Read, Write }
 
-public enum RateClass { Read, Write, NetworkTest }
+public enum RateClass { Read, Write, NetworkTest, NetworkTrace }
 
 /// <summary>How a person confirms an operation (docs/spec/12-milestones-8-to-12.md): none for reads, a click, or an authenticator code.</summary>
 public enum Confirm { None, Click, Code }
@@ -29,6 +29,7 @@ public static class Catalog
     public const string FilesList = "files.list";
     public const string NetworkConfig = "network.config";
     public const string NetworkTest = "network.test";
+    public const string NetworkTrace = "network.trace";
     public const string FirewallState = "firewall.state";
     public const string NetworkSetIp = "network.setIp";
     public const string NetworkSetDns = "network.setDns";
@@ -66,6 +67,7 @@ public static class Catalog
         Read<FilesListParams, FilesListOutput>(FilesList),
         Read<EmptyParams, NetworkConfigOutput>(NetworkConfig),
         Read<NetworkTestParams, NetworkTestOutput>(NetworkTest, RateClass.NetworkTest),
+        Read<NetworkTraceParams, NetworkTraceOutput>(NetworkTrace, RateClass.NetworkTrace),
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),

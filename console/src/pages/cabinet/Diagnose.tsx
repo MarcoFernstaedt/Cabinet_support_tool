@@ -5,6 +5,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { ago } from "../../lib/time";
 import { Badge } from "../../components/ui";
+import { ReadingsView, type Readings } from "../../components/NetworkReadings";
 import { FixButton, LAYERS, PathBar, type FixAction, type Layer, type LayerState } from "../../components/NetworkFix";
 
 type Severity = "problem" | "warning" | "info" | "ok";
@@ -21,7 +22,7 @@ export function layerStates(findings: Finding[]): Record<Layer, LayerState> {
   }
   return out;
 }
-interface Diagnosis { id: string; state: "running" | "done" | "failed"; startedAt: string; finishedAt: string | null; runBy: string; findings: Finding[] | null; failure: string | null }
+interface Diagnosis { id: string; state: "running" | "done" | "failed"; startedAt: string; finishedAt: string | null; runBy: string; findings: Finding[] | null; failure: string | null; readings?: Readings | null }
 
 const SEVERITY: Record<Severity, { label: string; tone: "crit" | "warn" | "info" | "ok" }> = {
   problem: { label: "Problem", tone: "crit" }, warning: { label: "Warning", tone: "warn" }, info: { label: "Note", tone: "info" }, ok: { label: "OK", tone: "ok" },
@@ -70,6 +71,8 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
             {" "}Run by {d.runBy} {ago(d.finishedAt ?? d.startedAt)}. {okOnes.length} checks passed.</p>
           <PathBar layers={layerStates(findings)} />
           <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} onFixed={() => void start()} />)}</ul>
+          {d.readings && (
+            <details><summary>Everything that was read</summary><ReadingsView readings={d.readings} /></details>)}
           {okOnes.length > 0 && (
             <details open={showOk} onToggle={e => setShowOk((e.target as HTMLDetailsElement).open)}>
               <summary>Checks that passed ({okOnes.length})</summary>

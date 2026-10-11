@@ -3,7 +3,7 @@
 // network-findings.ts. The run is stored, so the next person sees what was found.
 import { randomUUID } from "node:crypto";
 import type pg from "pg";
-import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput } from "@mashura/cabinet-contracts/types";
+import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import type { Role } from "../services/console-commands.js";
 import { safeJson } from "../db/db.js";
 import { issueFromConsole } from "../services/console-commands.js";
@@ -14,6 +14,7 @@ import { Refused } from "../services/errors.js";
 import { upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
 import { layerStates, networkFindings, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
+import type { TraceRun } from "./network-observations.js";
 
 /** How long the whole run may take; a cabinet answers reads in about a second. */
 export const RUN_LIMIT_MS = 60_000;
@@ -83,7 +84,7 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
   const connected = configOut?.adapters.filter(a => a.connected) ?? [];
   const dnsCount = Math.min(4, Math.max(1, ...connected.map(a => a.dns.servers.length)));
   const sync = await syncForCabinet(pool, cabinetId);
-  const tests: Issued[] = [await issue("gateway", "Gateway (ping)", "network.test", { target: "gateway", method: "ping" })];
+  const tests: Issued[] = [await issue("gateway", "Gateway (ping)", "network.test", { target: "gateway", method: "ping", count: 4 })];
   for (let i = 0; i < dnsCount; i++) tests.push(await issue(`dns-${i}`, `DNS server ${i + 1}`, "network.test", { target: "dns_server", method: "dns", dnsServerIndex: i }));
   tests.push(await issue("platform", "Platform server name", "network.test", { target: "platform_server", method: "dns" }));
   if (cabinet.role !== "sync" && sync?.address) {
@@ -91,7 +92,10 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
     for (const port of sync.effective.slice(0, 4))
       tests.push(await issue(`sync-tcp-${port}`, `Sync cabinet port ${port}`, "network.test", { target: "sync_cabinet", method: "tcp", port }));
   }
-  const all = [...first, ...tests];
+  // The routes to the sync cabinet and the platform server: where along the way replies stop or slow down.
+  const traces: Issued[] = [await issue("trace-platform", "Path to the platform server", "network.trace", { target: "platform_server" })];
+  if (cabinet.role !== "sync" && sync?.address) traces.push(await issue("trace-sync", "Path to the sync cabinet", "network.trace", { target: "sync_cabinet" }));
+  const all = [...first, ...tests, ...traces];
   await pool.query("UPDATE diagnoses SET commands = $2 WHERE id = $1", [id, safeJson(all.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
   const results = await waitFor(pool, all.map(c => c.commandId), deadline);
   const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: "no answer within a minute" };
@@ -116,8 +120,15 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
       return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as NetworkTestOutput } : { failure: o.failure ?? o.status }) };
     }),
   };
+  evidence.traces = traces.map((t): TraceRun => {
+    const o = outcome(t);
+    return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as NetworkTraceOutput } : { failure: o.failure ?? o.status }) };
+  });
   const findings = networkFindings(evidence);
-  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = now(), findings = $2 WHERE id = $1", [id, safeJson(findings)]);
+  // Everything that was read, kept whether or not anything is wrong, so the console can show the full read.
+  const readings = { takenAt: new Date().toISOString(), adapters: configOut?.adapters ?? [], routes: configOut?.routes ?? [], neighbors: configOut?.neighbors ?? [],
+    tests: evidence.tests, traces: evidence.traces };
+  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = now(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
 }
 
@@ -144,13 +155,13 @@ async function reconcileBaselineAlert(pool: pg.Pool, cabinetId: string, findings
 }
 
 export async function diagnosis(db: pg.Pool, id: string) {
-  const r = (await db.query<{ id: string; cabinet_id: string; kind: string; state: string; started_at: Date; finished_at: Date | null; findings: unknown; failure: string | null; commands: unknown; run_by: string }>(
-    `SELECT d.id, d.cabinet_id, d.kind, d.state, d.started_at, d.finished_at, d.findings, d.failure, d.commands, u.name AS run_by
+  const r = (await db.query<{ id: string; cabinet_id: string; kind: string; state: string; started_at: Date; finished_at: Date | null; findings: unknown; failure: string | null; commands: unknown; readings: unknown; run_by: string }>(
+    `SELECT d.id, d.cabinet_id, d.kind, d.state, d.started_at, d.finished_at, d.findings, d.failure, d.commands, d.readings, u.name AS run_by
        FROM diagnoses d JOIN users u ON u.id = d.run_by WHERE d.id = $1`, [id])).rows[0];
   if (!r) return null;
   const hasBaseline = (await db.query<{ b: boolean }>("SELECT s.network_baseline IS NOT NULL AS b FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [r.cabinet_id])).rows[0]?.b ?? false;
   return { id: r.id, cabinetId: r.cabinet_id, kind: r.kind, state: r.state, startedAt: r.started_at.toISOString(), finishedAt: r.finished_at?.toISOString() ?? null,
-    runBy: r.run_by, findings: r.findings, failure: r.failure, commands: r.commands, hasBaseline };
+    runBy: r.run_by, findings: r.findings, failure: r.failure, commands: r.commands, readings: r.readings, hasBaseline };
 }
 
 export async function latestDiagnosis(db: pg.Pool, cabinetId: string) {

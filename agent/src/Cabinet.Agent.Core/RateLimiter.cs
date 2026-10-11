@@ -17,12 +17,13 @@ public sealed class RateLimiter
         {
             [RateClass.Write] = (20, TimeSpan.FromHours(1)),
             [RateClass.NetworkTest] = (10, TimeSpan.FromMinutes(1)),
+            [RateClass.NetworkTrace] = (4, TimeSpan.FromMinutes(1)),
             [RateClass.Read] = (60, TimeSpan.FromMinutes(1)),
         };
 
     private readonly Dictionary<RateClass, Queue<DateTimeOffset>> _taken = new()
     {
-        [RateClass.Write] = new(), [RateClass.NetworkTest] = new(), [RateClass.Read] = new(),
+        [RateClass.Write] = new(), [RateClass.NetworkTest] = new(), [RateClass.NetworkTrace] = new(), [RateClass.Read] = new(),
     };
     private readonly string? _writeLog;
     private readonly object _gate = new();

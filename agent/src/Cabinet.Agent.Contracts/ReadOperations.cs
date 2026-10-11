@@ -282,11 +282,53 @@ public sealed record NetworkAdapter
     public required IReadOnlyList<string> Ipv6Addresses { get; init; }
     public required DnsSettings Dns { get; init; }
     public required string? DnsSuffix { get; init; }
+    /// <summary>The DHCP lease, size limit and traffic counters; absent from older agents, and any reading that failed is null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AdapterDetails? Details { get; init; }
+}
+
+public sealed record AdapterStatistics
+{
+    public required long BytesReceived { get; init; }
+    public required long BytesSent { get; init; }
+    public required long ReceiveErrors { get; init; }
+    public required long SendErrors { get; init; }
+    public required long ReceiveDiscards { get; init; }
+    public required long SendDiscards { get; init; }
+}
+
+public sealed record AdapterDetails
+{
+    public required string? DhcpServer { get; init; }
+    public required DateTimeOffset? LeaseObtained { get; init; }
+    public required DateTimeOffset? LeaseExpires { get; init; }
+    public required int? Mtu { get; init; }
+    public required AdapterStatistics? Statistics { get; init; }
+}
+
+public sealed record RouteEntry
+{
+    public required string Destination { get; init; }
+    public required int PrefixLength { get; init; }
+    public required string NextHop { get; init; }
+    public required long Metric { get; init; }
+    public required int InterfaceIndex { get; init; }
+}
+
+public enum NeighborState { Reachable, Stale, Incomplete, Unreachable, Other }
+
+public sealed record NeighborEntry
+{
+    public required int InterfaceIndex { get; init; }
+    public required string Address { get; init; }
+    public required string? MacAddress { get; init; }
+    public required NeighborState State { get; init; }
 }
 
 public sealed record NetworkConfigOutput
 {
     public required IReadOnlyList<NetworkAdapter> Adapters { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<RouteEntry>? Routes { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<NeighborEntry>? Neighbors { get; init; }
 }
 
 public enum NetworkTestTarget { Gateway, DnsServer, SyncCabinet, PlatformServer }
@@ -300,6 +342,43 @@ public sealed record NetworkTestParams
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Port { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? SyncAddress { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<int>? SyncPorts { get; init; }
+    /// <summary>Ping only: how many echo requests to send (1 to 10, default 1).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Count { get; init; }
+}
+
+public sealed record PingStatistics
+{
+    public required int Sent { get; init; }
+    public required int Received { get; init; }
+    public required double LossPercent { get; init; }
+    public required double? MinMs { get; init; }
+    public required double? AvgMs { get; init; }
+    public required double? MaxMs { get; init; }
+    public required double? JitterMs { get; init; }
+}
+
+public sealed record NetworkTraceParams
+{
+    public required NetworkTestTarget Target { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? DnsServerIndex { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? SyncAddress { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? MaxHops { get; init; }
+}
+
+public sealed record TraceHop
+{
+    public required int Hop { get; init; }
+    public required string? Address { get; init; }
+    public required IReadOnlyList<double?> RttMs { get; init; }
+}
+
+public sealed record NetworkTraceOutput
+{
+    public required NetworkTestTarget Target { get; init; }
+    public required string? ResolvedTarget { get; init; }
+    public required bool Reached { get; init; }
+    public required IReadOnlyList<TraceHop> Hops { get; init; }
+    public required string? Error { get; init; }
 }
 
 public sealed record NetworkTestOutput
@@ -311,6 +390,7 @@ public sealed record NetworkTestOutput
     public required double? LatencyMs { get; init; }
     public required IReadOnlyList<string> ResolvedAddresses { get; init; }
     public required string? Error { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PingStatistics? Statistics { get; init; }
 }
 
 public sealed record FirewallSnapshotInfo

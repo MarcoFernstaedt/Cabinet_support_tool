@@ -52,6 +52,12 @@
           "items": {
             "$ref": "../common.schema.json#/$defs/port"
           }
+        },
+        "count": {
+          "description": "Ping only: how many echo requests to send, 1 to 10 (default 1). With more than one, the output carries loss and jitter.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
         }
       },
       "allOf": [
@@ -128,6 +134,23 @@
               ]
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "method": {
+                "const": "ping"
+              }
+            },
+            "type": "object"
+          },
+          "else": {
+            "not": {
+              "required": [
+                "count"
+              ]
+            }
+          }
         }
       ]
     },
@@ -186,6 +209,92 @@
         },
         "error": {
           "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "statistics": {
+          "description": "Optional: ping only, when more than one request was sent.",
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sent",
+                "received",
+                "lossPercent",
+                "minMs",
+                "avgMs",
+                "maxMs",
+                "jitterMs"
+              ],
+              "properties": {
+                "sent": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "received": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 10
+                },
+                "lossPercent": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "minMs": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 600000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "avgMs": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 600000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "maxMs": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 600000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "jitterMs": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 600000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
         }
       },
       "required": [

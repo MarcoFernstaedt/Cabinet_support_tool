@@ -13,8 +13,8 @@ const EXAMPLES = join(SCHEMA_DIR, "..", "examples");
 const load = (rel: string): unknown => JSON.parse(readFileSync(join(EXAMPLES, rel), "utf8"));
 const files = (rel: string): string[] => (existsSync(join(EXAMPLES, rel)) ? readdirSync(join(EXAMPLES, rel)).filter(f => f.endsWith(".json")) : []);
 
-test("the server's catalog has all 28 operations", () => {
-  assert.equal(catalog.size, 28);
+test("the server's catalog has all 29 operations", () => {
+  assert.equal(catalog.size, 29);
   assert.equal(isOperationName("files.list"), true);
   assert.equal(isOperationName("shell.run"), false);
   assert.equal(isOperationName({}), false);

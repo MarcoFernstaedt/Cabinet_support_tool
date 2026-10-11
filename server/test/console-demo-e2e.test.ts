@@ -74,9 +74,13 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("heading", { name: "Fix it" }).waitFor();
     await page.getByRole("button", { name: /Apply the policy on Midtown Sync/ }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
-    await page.getByText("No problems found").waitFor({ timeout: 60_000 });
-    await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor();
-    assert.equal(await page.getByText("7 of 7 cabinets are clean.").count(), 1);
+    await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor({ timeout: 60_000 });
+    await page.getByText("6 of 7 cabinets are clean.").waitFor({ timeout: 60_000 });
+    // The one left matches its baseline, and the full read still shows why it is slow: lost packets and card errors.
+    await page.getByRole("row", { name: /Operating Room/ }).getByRole("button", { name: "Full read" }).click();
+    await page.getByText(/Packet loss to the gateway/).first().waitFor();
+    await page.getByText("Everything that was read").click();
+    await page.getByRole("heading", { name: "Routes" }).waitFor();
     const policy = (await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles;
     assert.deepEqual(Object.values(policy), [false, false, false], "the cabinet really changed");
 

@@ -138,6 +138,13 @@ public sealed class CommandValidatorTests
         new object[] { "network.test", """{"target":"8.8.8.8","method":"ping"}""" },
         new object[] { "network.test", """{"target":"gateway","method":"tcp"}""" },
         new object[] { "network.test", """{"target":"gateway","method":"ping","host":"10.0.0.1"}""" },
+        new object[] { "network.test", """{"target":"gateway","method":"dns","count":3}""" },
+        new object[] { "network.test", """{"target":"gateway","method":"ping","count":500}""" },
+        new object[] { "network.trace", """{"target":"8.8.8.8"}""" },
+        new object[] { "network.trace", """{"target":"gateway","maxHops":999}""" },
+        new object[] { "network.trace", """{"target":"gateway","host":"10.0.0.1"}""" },
+        new object[] { "network.trace", """{"target":"dns_server"}""" },
+        new object[] { "network.trace", """{"target":"gateway","syncAddress":"10.0.0.5"}""" },
     };
 
     [Theory]
@@ -195,6 +202,15 @@ public sealed class CommandValidatorTests
         Assert.Equal("rate_limited", Run(Command(), validator));
         _clock.Advance(TimeSpan.FromSeconds(61));
         Assert.Null(Run(Command(issued: _clock.Now), validator));
+    }
+
+    [Fact]
+    public void Step6_the_5th_path_trace_in_a_minute_is_rate_limited_and_has_its_own_budget()
+    {
+        var validator = Validator();
+        for (int i = 0; i < 4; i++) Assert.Null(Run(Command("network.trace", new JsonObject { ["target"] = "gateway" }), validator));
+        Assert.Equal("rate_limited", Run(Command("network.trace", new JsonObject { ["target"] = "gateway" }), validator));
+        Assert.Null(Run(Command("network.test", new JsonObject { ["target"] = "gateway", ["method"] = "ping" }), validator));
     }
 
     [Fact]

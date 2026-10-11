@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.trace.schema.json",
+  "title": "network.trace",
+  "description": "The route from this cabinet to one of four fixed target kinds, hop by hop: ICMP echo requests with a rising time-to-live, sent by the agent itself (no external program). Shows where along the path replies stop or slow down. No free-form targets.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "dns_server",
+            "sync_cabinet",
+            "platform_server"
+          ]
+        },
+        "dnsServerIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "syncAddress": {
+          "description": "The site's sync cabinet as set in the console; accepted only if it is a private IPv4 address on one of the cabinet's own connected networks.",
+          "$ref": "../common.schema.json#/$defs/ipv4"
+        },
+        "maxHops": {
+          "description": "How far to go before giving up (default 12).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "dns_server"
+              }
+            },
+            "type": "object"
+          },
+          "then": {
+            "required": [
+              "dnsServerIndex"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "dnsServerIndex"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "const": "sync_cabinet"
+              }
+            }
+          },
+          "then": {
+            "type": "object"
+          },
+          "else": {
+            "type": "object",
+            "not": {
+              "required": [
+                "syncAddress"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "resolvedTarget",
+        "reached",
+        "hops",
+        "error"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": [
+            "gateway",
+            "dns_server",
+            "sync_cabinet",
+            "platform_server"
+          ]
+        },
+        "resolvedTarget": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipAddress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reached": {
+          "type": "boolean"
+        },
+        "hops": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "hop",
+              "address",
+              "rttMs"
+            ],
+            "properties": {
+              "hop": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 20
+              },
+              "address": {
+                "anyOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/ipAddress"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rttMs": {
+                "description": "One entry per probe; null for a probe that got no reply.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 3,
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 600000
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "error": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        }
+      }
+    }
+  }
+}

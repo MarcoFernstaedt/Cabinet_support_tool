@@ -119,6 +119,7 @@ public sealed class CommandValidator
             {
                 RateClass.Write => "The cabinet's limit of 20 changes per hour is reached.",
                 RateClass.NetworkTest => "The cabinet's limit of 10 network tests per minute is reached.",
+                RateClass.NetworkTrace => "The cabinet's limit of 4 path traces per minute is reached.",
                 _ => "The cabinet's limit of 60 reads per minute is reached.",
             });
 
@@ -133,6 +134,12 @@ public sealed class CommandValidator
     /// </summary>
     private string? LocalPolicy(CatalogEntry entry, JsonElement parameters)
     {
+        if (entry.Name == Catalog.NetworkTrace)
+        {
+            var t = parameters.Deserialize<NetworkTraceParams>(ContractJson.Options)!;
+            return t.SyncAddress is { } a && !LocalNetwork.IsPrivateOnLocalNetwork(a, _localNetworks())
+                ? "The sync cabinet address from the server is not a private address on this cabinet's own network." : null;
+        }
         if (entry.Name != Catalog.NetworkTest) return null;
         var p = parameters.Deserialize<NetworkTestParams>(ContractJson.Options)!;
         if (p.SyncAddress is { } address && !LocalNetwork.IsPrivateOnLocalNetwork(address, _localNetworks()))

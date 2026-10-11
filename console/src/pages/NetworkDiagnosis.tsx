@@ -1,13 +1,14 @@
 // Network diagnosis of several cabinets or a whole site (docs/spec/14-network-troubleshooting.md): what is wrong across them,
 // grouped so the same problem on many cabinets is one row with the fix, and each cabinet's path from the link up to the
 // firewall. Read only to run; the fixes are confirmed like any change (a code for one cabinet, the password for many).
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api, describeError } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty } from "../components/ui";
+import { ReadingsView, type Readings } from "../components/NetworkReadings";
 import { FixAll, FixButton, JOB_LABEL, LAYERS, type FixAction, type Layer, type LayerState } from "../components/NetworkFix";
 
 interface Group {
@@ -45,6 +46,7 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
   const warnings = data?.groups.filter(g => g.severity === "warning") ?? [];
   const checked = data?.cabinets.filter(c => c.state === "done") ?? [];
   const clean = checked.filter(c => c.problems === 0 && c.warnings === 0).length;
+  const [open, setOpen] = useState<string | null>(null);
   const [fixed, setFixedState] = useState<FixedNote | null>(readFixed);
   const setFixed = (what: string | null) => { const v = what === null ? null : { what, siteId: data?.siteId ?? null, at: Date.now() }; setFixedState(v); writeFixed(v); };
   const rerun = () => { if (!data) return; return again.start(data.siteId ? { siteId: data.siteId } : { cabinetIds: data.cabinets.map(c => c.cabinetId) }); };
@@ -84,12 +86,15 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
             <caption className="sr-only">Each cabinet's network path</caption>
             <thead><tr><th scope="col">Cabinet</th>{LAYERS.map(([k, n]) => <th key={k} scope="col">{n}</th>)}</tr></thead>
             <tbody>
-              {data.cabinets.map(c => (
-                <tr key={c.cabinetId}>
-                  <th scope="row"><Link to={`/cabinets/${c.cabinetId}/network`}>{c.name}</Link><div className="muted small">{c.site}</div></th>
+              {data.cabinets.map(c => (<Fragment key={c.cabinetId}>
+                <tr>
+                  <th scope="row"><Link to={`/cabinets/${c.cabinetId}/network`}>{c.name}</Link><div className="muted small">{c.site}</div>
+                    {c.layers && <button className="btn small ghost" aria-expanded={open === c.diagnosisId} onClick={() => setOpen(o => o === c.diagnosisId ? null : c.diagnosisId)}>{open === c.diagnosisId ? "Hide the full read" : "Full read"}</button>}</th>
                   {c.layers ? LAYERS.map(([k]) => <td key={k}><span className={`cell ${c.layers![k]}`}>{CELL[c.layers![k]]}</span></td>)
                     : <td colSpan={LAYERS.length} className="muted small">{c.state === "offline" ? "Offline: not heard from in the last 5 minutes, so nothing was checked." : c.state === "running" ? "Checking…" : c.failure ?? "Could not be checked."}</td>}
-                </tr>))}
+                </tr>
+                {open === c.diagnosisId && <tr><td colSpan={LAYERS.length + 1}><CabinetRead id={c.diagnosisId} /></td></tr>}
+              </Fragment>))}
               {data.waiting > 0 && <tr><td colSpan={LAYERS.length + 1} className="muted small">{data.waiting} more waiting their turn…</td></tr>}
             </tbody>
           </table></div>
@@ -127,5 +132,23 @@ function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: str
           <FixButton action={t.action} onDone={onFixed}>Fix</FixButton></li>)}</ul>
       </details>}
     </article>
+  );
+}
+
+interface ReadFinding { id: string; severity: "problem" | "warning" | "info" | "ok"; title: string; evidence: string[]; fix: string | null }
+
+/** One cabinet's whole check: every finding (including the ones that passed and the observations) and everything that was read. */
+function CabinetRead({ id }: { id: string }) {
+  const { data, problem } = useLoad<{ findings: ReadFinding[] | null; readings: Readings | null }>(`/api/diagnoses/${id}`);
+  if (problem) return <p className="error" role="alert">{problem}</p>;
+  if (!data) return <p className="muted" role="status">Loading…</p>;
+  const tone = { problem: "crit", warning: "warn", info: "info", ok: "ok" } as const;
+  return (
+    <div className="stack">
+      <ul className="plain">{(data.findings ?? []).map(f => (
+        <li key={f.id}><Badge tone={tone[f.severity]}>{{ problem: "Problem", warning: "Warning", info: "Note", ok: "OK" }[f.severity]}</Badge> <strong>{f.title}</strong>
+          {f.evidence.length > 0 && <div className="muted small">{f.evidence.join(" ")}</div>}{f.fix && f.severity !== "ok" && <div className="small"><span className="muted">Fix:</span> {f.fix}</div>}</li>))}</ul>
+      {data.readings ? <details><summary>Everything that was read</summary><ReadingsView readings={data.readings} /></details> : <p className="muted small">The full read was not kept for this check.</p>}
+    </div>
   );
 }

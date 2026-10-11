@@ -111,6 +111,9 @@ public sealed class NetworkTester
             address = resolved[0];
         }
 
+        if (p.Method == NetworkTestMethod.Ping && p.Count is > 1)
+            return await PingSeriesAsync(address, names, p.Count.Value, Result, token).ConfigureAwait(false);
+
         if (p.Method == NetworkTestMethod.Ping)
         {
             using var ping = new Ping();
@@ -146,6 +149,121 @@ public sealed class NetworkTester
                 ? $"TCP port {p.Port} refused the connection."
                 : $"TCP port {p.Port} could not be reached ({e.SocketErrorCode}).");
         }
+    }
+
+    /// <summary>Several echo requests in a row: how many came back, how fast, and how much the times jump around.</summary>
+    private static async Task<NetworkTestOutput> PingSeriesAsync(IPAddress address, IReadOnlyList<IPAddress>? names, int count,
+        Func<bool, IPAddress?, double?, IReadOnlyList<IPAddress>?, string?, NetworkTestOutput> result, CancellationToken token)
+    {
+        var times = new List<double>();
+        IPStatus lastFailure = IPStatus.Success;
+        using var ping = new Ping();
+        for (int i = 0; i < count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                PingReply reply = await ping.SendPingAsync(address, Timeout, cancellationToken: token).ConfigureAwait(false);
+                if (reply.Status == IPStatus.Success) times.Add(watch.Elapsed.TotalMilliseconds); else lastFailure = reply.Status;
+            }
+            catch (PingException) { lastFailure = IPStatus.Unknown; }
+            if (i < count - 1) await Task.Delay(100, token).ConfigureAwait(false);
+        }
+        PingStatistics stats = Summarize(count, times);
+        NetworkTestOutput basis = times.Count > 0
+            ? result(true, address, stats.AvgMs, names, null)
+            : result(false, address, null, names, $"No reply to any of {count} requests ({lastFailure}).");
+        return basis with { Statistics = stats };
+    }
+
+    /// <summary>Loss, fastest, average, slowest and jitter (the average gap between one reply's time and the next) of a series of pings.</summary>
+    public static PingStatistics Summarize(int sent, IReadOnlyList<double> times)
+    {
+        double? Round(double? v) => v is null ? null : Math.Round(v.Value, 1);
+        double jitter = times.Count > 1 ? times.Zip(times.Skip(1), (a, b) => Math.Abs(b - a)).Average() : 0;
+        return new PingStatistics
+        {
+            Sent = sent, Received = times.Count, LossPercent = Math.Round(100.0 * (sent - times.Count) / sent, 1),
+            MinMs = times.Count > 0 ? Round(times.Min()) : null, AvgMs = times.Count > 0 ? Round(times.Average()) : null,
+            MaxMs = times.Count > 0 ? Round(times.Max()) : null, JitterMs = times.Count > 1 ? Round(jitter) : times.Count == 1 ? 0 : null,
+        };
+    }
+
+    /// <summary>
+    /// network.trace: the route to one of the four fixed target kinds, found with echo requests of rising time-to-live, sent by the
+    /// agent itself (no external program). Three probes a hop, a second each; it stops at the target, at the hop limit, or after four hops in
+    /// a row that never answer, so a trace takes at most about a minute.
+    /// </summary>
+    public async Task<NetworkTraceOutput> TraceAsync(NetworkTraceParams p, CancellationToken token)
+    {
+        NetworkTraceOutput Out(IPAddress? target, bool reached, IReadOnlyList<TraceHop> hops, string? error) => new()
+        { Target = p.Target, ResolvedTarget = target?.ToString(), Reached = reached, Hops = hops, Error = error is null ? null : EventText.ShortText(error) };
+
+        IPAddress? address;
+        string? name = null;
+        switch (p.Target)
+        {
+            case NetworkTestTarget.Gateway:
+                address = _adapters().Where(a => a.Connected).SelectMany(a => a.Gateways).FirstOrDefault();
+                if (address is null) return Out(null, false, Array.Empty<TraceHop>(), "This cabinet has no default gateway on a connected adapter.");
+                break;
+            case NetworkTestTarget.DnsServer:
+                var servers = _adapters().Where(a => a.Connected).SelectMany(a => a.DnsServers).Distinct().ToList();
+                if (p.DnsServerIndex!.Value >= servers.Count)
+                    return Out(null, false, Array.Empty<TraceHop>(), $"This cabinet has {servers.Count} DNS server(s) configured; there is no server {p.DnsServerIndex.Value + 1}.");
+                address = servers[p.DnsServerIndex.Value];
+                break;
+            case NetworkTestTarget.SyncCabinet:
+                (address, name) = Parse(p.SyncAddress ?? _config.SyncCabinet.Address);
+                if (address is null && name is null) throw new OperationFailedException("unavailable", "The sync cabinet's address is not set for this site or cabinet yet.");
+                break;
+            default:
+                (address, name) = Parse(_config.PlatformServer.Host);
+                if (address is null && name is null) throw new OperationFailedException("unavailable", "The platform server's host name is not configured on this cabinet yet.");
+                break;
+        }
+        if (address is null)
+        {
+            var (resolved, _, resolveError) = await ResolveAsync(name!, token).ConfigureAwait(false);
+            if (resolveError is not null) return Out(null, false, Array.Empty<TraceHop>(), resolveError);
+            address = resolved.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? resolved[0];
+        }
+        if (address.AddressFamily != AddressFamily.InterNetwork) return Out(address, false, Array.Empty<TraceHop>(), "Only IPv4 targets can be traced.");
+
+        int max = p.MaxHops ?? 12;
+        var hops = new List<TraceHop>();
+        int silent = 0;
+        using var ping = new Ping();
+        byte[] payload = new byte[32];
+        for (int hop = 1; hop <= max; hop++)
+        {
+            var times = new List<double?>();
+            IPAddress? seen = null;
+            bool reached = false;
+            for (int probe = 0; probe < 3; probe++)
+            {
+                token.ThrowIfCancellationRequested();
+                var watch = Stopwatch.StartNew();
+                try
+                {
+                    PingReply reply = await ping.SendPingAsync(address, TimeSpan.FromSeconds(1), payload, new PingOptions(hop, true), token).ConfigureAwait(false);
+                    if (reply.Status is IPStatus.TtlExpired or IPStatus.TimeExceeded or IPStatus.Success)
+                    {
+                        seen ??= reply.Address;
+                        times.Add(Math.Round(watch.Elapsed.TotalMilliseconds, 1));
+                        if (reply.Status == IPStatus.Success) reached = true;
+                    }
+                    else times.Add(null);
+                }
+                catch (PingException) { times.Add(null); }
+            }
+            hops.Add(new TraceHop { Hop = hop, Address = seen?.ToString(), RttMs = times });
+            if (reached) return Out(address, true, hops, null);
+            silent = seen is null ? silent + 1 : 0;
+            if (silent >= 4) break;
+        }
+        return Out(address, false, hops, hops.Count >= max ? $"The target was not reached within {max} hops." : $"No reply after hop {hops.Count - silent}.");
     }
 
     private static (IPAddress? Address, string? Name) Parse(string? configured) =>
