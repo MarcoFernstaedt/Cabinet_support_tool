@@ -96,7 +96,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
     await page.getByRole("button", { name: "Save what fixed this…" }).first().click();
     await page.getByLabel("What fixed it").fill("Replaced the patch cable to the switch; the errors stopped.");
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("button", { name: "Save…", exact: true }).click();
+    // An Admin needs no approval: the fix is logged, and a confirmation asks first.
+    await page.getByRole("dialog").getByText(/does not need approval because you can approve fixes/).waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "Save the fix" }).click();
     await page.getByText(/Saved\. This is shown the next time/).waitFor();
     const kf = (await db.app.query<{ solution: string; environment: { site: string; network: { gateway: string } | null } }>("SELECT solution, environment FROM known_fixes WHERE solution LIKE 'Replaced the patch cable%'")).rows;
     assert.equal(kf.length, 1);

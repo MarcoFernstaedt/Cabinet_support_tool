@@ -6,7 +6,7 @@ import { useLoad } from "../lib/useLoad";
 import { atLeast, useSession } from "../lib/session";
 import { fullTime } from "../lib/time";
 import { Link } from "../lib/router";
-import { Badge } from "./ui";
+import { Badge, ConfirmDialog } from "./ui";
 
 interface Environment {
   client: string; site: string; role: string; agentVersion: string | null; timeZone: string | null;
@@ -96,21 +96,30 @@ export function SaveFix({ symptom, cabinetId, suggestedTitle, onSaved }: { sympt
   const [solution, setSolution] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState<"approved" | "pending" | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const { me } = useSession();
   if (saved) return <p className="ok small" role="status">{saved === "approved" ? "Saved. This is shown the next time the same problem comes up." : "Sent for approval. It is shown to everyone once an Admin approves it."}</p>;
   if (!open) return <button className="btn small ghost" onClick={() => setOpen(true)}>Save what fixed this…</button>;
-  return (
-    <form className="stack" onSubmit={async e => {
-      e.preventDefault(); setProblem(null);
-      try { const r = await api<{ status: "approved" | "pending" }>("POST", "/api/known-fixes", { title: title.trim(), solution: solution.trim(), symptom, cabinetId }); setSaved(r.status === "approved" ? "approved" : "pending"); window.dispatchEvent(new Event("fixes-changed")); onSaved?.(); }
-      catch (err) { setProblem(describeError(err)); }
+  const save = async () => {
+    setProblem(null);
+    try { const r = await api<{ status: "approved" | "pending" }>("POST", "/api/known-fixes", { title: title.trim(), solution: solution.trim(), symptom, cabinetId }); setSaved(r.status === "approved" ? "approved" : "pending"); window.dispatchEvent(new Event("fixes-changed")); onSaved?.(); }
+    catch (err) { setProblem(describeError(err)); throw err; }
+  };
+  return (<>
+    <form className="stack" onSubmit={e => {
+      e.preventDefault();
+      // Someone who can approve fixes needs no approval: it is logged, and they confirm it first. Everyone else sends it for approval.
+      if (me.canApproveFixes) setConfirming(true); else void save().catch(() => undefined);
     }}>
       <label className="field"><span>Name</span><input required maxLength={120} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label className="field"><span>What fixed it</span><textarea required rows={3} maxLength={2000} value={solution} onChange={e => setSolution(e.target.value)} placeholder="Swapped the patch cable and moved the port on the switch; the errors stopped." /></label>
       <p className="muted small">The cabinet's role, agent, time zone, firewall and network are saved with it, so a person can see later whether the same fix is likely to apply.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <div className="row gap"><button className="btn primary small" disabled={!title.trim() || !solution.trim()}>Save</button><button type="button" className="btn ghost small" onClick={() => setOpen(false)}>Cancel</button></div>
+      <div className="row gap"><button className="btn primary small" disabled={!title.trim() || !solution.trim()}>{me.canApproveFixes ? "Save…" : "Send for approval"}</button><button type="button" className="btn ghost small" onClick={() => setOpen(false)}>Cancel</button></div>
     </form>
-  );
+    <ConfirmDialog open={confirming} title="Save this fix?" confirmLabel="Save the fix" onClose={() => setConfirming(false)} onConfirm={save}
+        description={<><p>“{title.trim()}” is shown to everyone the next time this problem comes up, with the setup it was fixed on. It does not need approval because you can approve fixes; it is logged under your name and stays until a Tier 2 or an Admin removes it.</p></>} />
+  </>);
 }
 
 /** The nav link for people who approve fixes, with how many are waiting. */
