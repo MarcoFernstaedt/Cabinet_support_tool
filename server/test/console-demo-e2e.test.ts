@@ -106,7 +106,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal(kf[0]!.environment.site, "Midtown Manhattan");
     assert.ok(kf[0]!.environment.network?.gateway, "the cabinet's network was saved with the fix");
     // It is shown with the problem straight away, and wherever the same problem is seen again.
-    await page.getByText("Seen before").first().waitFor();
+    await page.getByText("Possible fix", { exact: true }).first().waitFor();
     await page.getByText("Replaced the patch cable to the switch; the errors stopped.").first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/known-fix.png`, fullPage: true });
 
@@ -151,11 +151,15 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Step 12: it now sits beside the scanner alert on Reception.
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: "It shows up where the problem is" }).waitFor();
-    await page.getByText("Seen before").first().waitFor({ timeout: 30_000 });
+    await page.getByText("Possible fix", { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText(/Rolled the reader's driver back/).first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/alert-fix.png`, fullPage: true });
 
     // The last steps, onboarding: installing the real agent, approving it, then testing it.
+    // The alert list carries a "possible fix" mark for the issue, whichever cabinet or site the alert is on.
+    await page.goto(`${origin}/alerts`);
+    await page.getByText(/\d possible fix/).first().waitFor({ timeout: 30_000 });
+    await page.goBack();
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
     await page.getByRole("button", { name: "Next" }).click();

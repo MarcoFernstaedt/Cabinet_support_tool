@@ -74,9 +74,9 @@ export function KnownFixes({ symptom, cabinetId, reloadKey }: { symptom: Symptom
           </div>);
         return (
           <div key={f.id} className="notice ok">
-            <div className="row gap wrap"><Badge tone="ok">Seen before</Badge> <strong>{f.title}</strong></div>
+            <div className="row gap wrap"><Badge tone="ok">Possible fix</Badge> <strong>{f.title}</strong></div>
             <p className="pre">{f.solution}</p>
-            <p className="muted small">Saved by {f.savedBy} on {fullTime(f.savedAt)}{f.fromCabinet ? <> at {f.fromCabinet} ({f.environment.site})</> : null}. {f.seenCount > 0 && <> Shown {f.seenCount} {f.seenCount === 1 ? "time" : "times"} since.</>}</p>
+            <p className="muted small">Worked before: saved by {f.savedBy} on {fullTime(f.savedAt)}{f.fromCabinet ? <> at {f.fromCabinet} ({f.environment.site})</> : null}. {f.seenCount > 0 && <> Shown {f.seenCount} {f.seenCount === 1 ? "time" : "times"} since.</>}</p>
             {data.now && (diff.length === 0
               ? <p className="small">This cabinet's setup matches the one it was fixed on.</p>
               : <details><summary className="small">{diff.length} {diff.length === 1 ? "difference" : "differences"} from the cabinet it was fixed on</summary><ul className="plain small">{diff.map(x => <li key={x}>{x}</li>)}</ul></details>)}

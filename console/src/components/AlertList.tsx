@@ -33,8 +33,11 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [mapping, setMapping] = useState<Match | null>(null);
   const [shown, setShown] = useState(50);
   // Which issue types have a saved fix, so only those alerts look the fix up.
-  const known = useLoad<{ fixes: { symptom: { kind: string; issueTypeId?: string } }[] }>("/api/known-fixes");
-  const withFix = new Set((known.data?.fixes ?? []).flatMap(f => f.symptom.kind === "issue" && f.symptom.issueTypeId ? [f.symptom.issueTypeId] : []));
+  const known = useLoad<{ fixes: { status: string; symptom: { kind: string; issueTypeId?: string } }[] }>("/api/known-fixes");
+  // Approved fixes apply to every cabinet in the fleet: the alert's issue type is all that has to match.
+  const fixCount = new Map<string, number>();
+  for (const f of known.data?.fixes ?? []) if (f.status === "approved" && f.symptom.kind === "issue" && f.symptom.issueTypeId) fixCount.set(f.symptom.issueTypeId, (fixCount.get(f.symptom.issueTypeId) ?? 0) + 1);
+  const withFix = new Set(fixCount.keys());
   const say = (id: string, text: string) => setNotes(n => ({ ...n, [id]: text }));
 
   const take = async (a: Alert, open: boolean) => {
@@ -68,6 +71,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
                 {a.unrecognized && <Badge tone="off">Unrecognized</Badge>}
                 {a.scope === "cabinet" && <span title="Stays on this cabinet: it is not in the fleet alert list or its counts."><Badge tone="info">Cabinet alert</Badge></span>}
                 {a.sitePattern && <Badge tone="warn">Site-wide pattern</Badge>}
+                {a.issueTypeId && a.state !== "resolved" && fixCount.has(a.issueTypeId) && <Link to={`/cabinets/${a.cabinet.id}/alerts`} title="A fix that worked on this problem before is saved. Open the cabinet to read it."><Badge tone="ok">{fixCount.get(a.issueTypeId)} possible {fixCount.get(a.issueTypeId) === 1 ? "fix" : "fixes"}</Badge></Link>}
                 {a.state === "open" && a.severity === "major"
                   ? <button className="linkish title" onClick={() => void take(a, true)} title="Claim this alert and open its cabinet">{a.title}</button>
                   : <Link className="title" to={`/cabinets/${a.cabinet.id}/alerts`}>{a.title}</Link>}
