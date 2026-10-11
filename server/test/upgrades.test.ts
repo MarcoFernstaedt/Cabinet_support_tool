@@ -21,7 +21,7 @@ import { buildAgentApi } from "../src/agent-api/server.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests } from "../src/services/enrollment.js";
 import { listCabinets } from "../src/services/cabinets.js";
 import { addRelease, compareVersions, isVersion, listReleases, receiveReleasePackage, releaseForAgent, releasePackageForAgent, ReleaseKeys, type ReleaseStore } from "../src/services/releases.js";
-import { changeRollout, checkRollouts, listRollouts, offerFor, recordUpgradeStatus, rolloutTargets, setInOffice, startRollout } from "../src/services/rollouts.js";
+import { changeRollout, checkRollouts, listRollouts, offerFor, recordUpgradeStatus, rolloutTargets, startRollout } from "../src/services/rollouts.js";
 import { Refused } from "../src/services/errors.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";

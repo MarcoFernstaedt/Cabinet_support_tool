@@ -5,8 +5,7 @@
 import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
-import { transaction } from "../db/db.js";
-import { endAllSessions } from "../auth/sessions.js";
+
 import * as admin from "../services/admin.js";
 import * as users from "../services/users.js";
 import { listSecurityAlerts, openSecurityAlertCount, resolveSecurityAlert } from "../services/security.js";

@@ -7,8 +7,6 @@ import { Badge, Empty } from "../components/ui";
 import { DemoTag } from "../components/DemoBanner";
 import { startDemoTour } from "../components/DemoTour";
 
-const TOUR_FOR: Record<string, string> = { midtown: "network" };
-
 interface Scenario { id: string; title: string; story: string; steps: { label: string; path: string }[] }
 
 export function DemoGuide() {

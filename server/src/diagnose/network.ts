@@ -11,7 +11,7 @@ import { cabinetPolicy, switchesFor } from "../services/firewall-policy.js";
 import { syncForCabinet } from "../services/device-settings.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { Refused } from "../services/errors.js";
-import { fixesForFindings, markSeen } from "../services/known-fixes.js";
+import { findingKey, fixesForFindings, markSeen } from "../services/known-fixes.js";
 import { upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
 import { layerStates, networkFindings, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
@@ -232,7 +232,6 @@ const GROUP_TITLE: Record<string, string> = {
   "baseline-addressing": "Fixed address where the site uses DHCP", ip: "No DHCP lease (address 169.254.x.x)", "sync-firewall": "Firewall blocks the sync cabinet's ports",
   firewall: "Firewall differs from the client policy",
 };
-const baseId = (id: string) => id.replace(/-\d+$/, "");
 export const JOB_FOR: Record<string, "firewall.applyPolicy" | "network.setDns" | "network.setIp" | "network.renewLease"> = {
   apply_policy: "firewall.applyPolicy", renew_lease: "network.renewLease", set_dns: "network.setDns", use_dhcp: "network.setIp", set_static: "network.setIp",
 };
@@ -254,7 +253,7 @@ export async function networkBatch(db: pg.Pool, batchId: string) {
   for (const r of rows) for (const f of r.findings ?? []) {
     if (f.severity !== "problem" && f.severity !== "warning") continue;
     if (f.causedBy) continue;
-    const base = baseId(f.id);
+    const base = findingKey(f.id);
     const kind = f.action && f.action.kind !== "open" ? f.action.kind : null;
     const key = `${base}|${kind ?? "none"}`;
     const g = groups.get(key) ?? groups.set(key, { key, title: GROUP_TITLE[base] ?? f.title, severity: f.severity, kind, operation: kind ? JOB_FOR[kind] ?? null : null,

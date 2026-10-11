@@ -2,6 +2,7 @@
 // was seen in next to this cabinet's, so a person can tell whether it is likely to apply. Saved by Tier 1 and up; removed by Tier 2 and up.
 import { useEffect, useState } from "react";
 import { api, describeError } from "../lib/api";
+import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
 import { atLeast, useSession } from "../lib/session";
 import { fullTime } from "../lib/time";
@@ -36,6 +37,12 @@ export const symptomLabel = (s: KnownFix["symptom"] & { issueName?: string | nul
 
 const profiles = (f: Environment["firewall"]) => f ? (["domain", "private", "public"] as const).map(k => `${k} ${f[k] ? "on" : "off"}`).join(", ") : "unknown";
 
+/** The setup a fix was saved from, as labelled rows. */
+export const environmentRows = (e: Environment): [string, string][] => [
+  ["Site", `${e.client} / ${e.site} (${e.role})`], ["Agent", e.agentVersion ?? "unknown"], ["Time zone", e.timeZone ?? "unknown"], ["Firewall", profiles(e.firewall)],
+  ["Network", e.network ? `${e.network.addressing === "dhcp" ? "DHCP" : "Fixed"}, gateway ${e.network.gateway ?? "none"}, DNS ${e.network.dnsServers.join(", ") || "none"}${e.network.linkSpeedMbps ? `, ${e.network.linkSpeedMbps} Mbps` : ""}${e.network.adapter ? `, ${e.network.adapter}` : ""}` : "Not read"],
+];
+
 /** What differs between the environment a fix was saved in and this cabinet's now; empty means the same. */
 export function differences(then: Environment, now: Environment): string[] {
   const d: string[] = [];
@@ -60,9 +67,9 @@ export function KnownFixes({ symptom, cabinetId, reloadKey }: { symptom: Symptom
   const query = symptom.kind === "finding" ? `findingKey=${encodeURIComponent(symptom.key)}` : `issueTypeId=${symptom.issueTypeId}`;
   const { data, reload } = useLoad<{ fixes: KnownFix[]; now: Environment | null }>(`/api/known-fixes?${query}&cabinetId=${cabinetId}`);
   useEffect(() => { if (reloadKey) reload(); }, [reloadKey]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, problem } = useAction();
   if (!data || data.fixes.length === 0) return null;
-  const remove = async (id: string) => { try { await api("POST", `/api/known-fixes/${id}/remove`, {}); reload(); } catch (e) { setProblem(describeError(e)); } };
+  const remove = async (id: string) => { if (await run(() => api("POST", `/api/known-fixes/${id}/remove`, {}))) reload(); };
   return (
     <div className="known-fixes" aria-label="Fixes saved for this problem">
       {data.fixes.slice(0, 3).map(f => {

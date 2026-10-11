@@ -40,7 +40,6 @@ export function example(operation: string, file?: string): any {
 
 const iso = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "Z");
 const ago = (ctx: DemoContext, minutes: number) => iso(new Date(ctx.now.getTime() - minutes * 60_000));
-const address = (ctx: DemoContext) => `${ctx.subnet}.${20 + ctx.index}`;
 
 /** Standard UTC offset (minutes), display name, and whether the zone observes United States daylight saving. */
 const ZONES: Record<string, [number, string, boolean]> = {

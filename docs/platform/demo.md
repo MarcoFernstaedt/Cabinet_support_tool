@@ -30,78 +30,56 @@ How to show the platform to the support team: your real agent on your own Window
 
 ## What demo mode is
 
-- **What it adds.** Demo mode adds 4 simulated clients with 121 cabinets, next to your real cabinets. Clients have between 2 and 6 sites; some sites are a single standalone cabinet (San Diego Bay, San Diego Recovery Center, Tucson Walk-in), and the largest, at Harbor, have 20 cabinets each. One of them, Harbor Pet Hospitals, has an overnight crash incident like the 60-cabinet one: 60 of its 80 cabinets blue-screened after a storage driver update, and 12 are still restarting (none of them a site's sync cabinet).
-  - The sites are in the Eastern, Central, Mountain, Arizona and Pacific time zones.
-  - Each simulated client is named "Demo · …" and carries a purple **Demo** tag.
-  - Each simulated cabinet says "Demo: simulated cabinet".
-  - A banner on every page says demo mode is on.
-- **They behave like real cabinets.**
-  - Simulated cabinets send heartbeats and events through the same server code as a real agent.
-  - Their alerts come from the real alerts engine.
-  - Every answer they give is checked against the same output schema as a real agent's.
-  - Fixes take effect:
-    - Applying the firewall policy closes the drift alert.
-    - Starting the failing scanner service closes its alert.
-    - Renewing a DHCP lease, setting the DNS servers or a fixed address changes what the next network check sees.
-  - The offline cabinet never answers, so its commands stay queued, exactly as with a real offline cabinet.
-- **Turning it off** deletes every simulated client, site, cabinet, alert, event and command. Your real cabinets and their history are never touched. The audit log records who turned demo mode on and off.
-- **Who can change it.** Only an Admin can turn it on or off, and everyone signed in sees the banner.
+Demo mode adds four made-up clients and 121 cabinets next to your real ones, so the Fleet page looks like a real fleet. Every client is named "Demo · …" and tagged **Demo**, every cabinet says "Demo: simulated cabinet", and a banner on every page says demo mode is on.
 
-| Simulated client and site | Cabinet | What to find |
+The made-up cabinets use the same server code as a real agent. They send heartbeats and events, their alerts come from the real alerts engine, and every answer they give is checked against the same output schema. Fixes work: applying the firewall policy closes its drift alert, starting the failing scanner service closes its alert, and renewing a lease or setting DNS changes what the next network check sees. The offline cabinet never answers, so its commands stay queued, like a real offline cabinet.
+
+Only an Admin can turn it on or off. Turning it off deletes every made-up client, site, cabinet, alert, event, command and the demo teammate. Real cabinets and their history are never touched, and the audit log keeps who did it.
+
+### The fleet
+
+| Client | Sites |
+|---|---|
+| Riverside Veterinary Group | Upper East Side (8 cabinets), Midtown Manhattan (9), Phoenix Clinic (4), and three single-cabinet sites: San Diego Bay, San Diego Recovery Center, Tucson Walk-in |
+| Lakeside Health | Chicago, Main Pharmacy (5, fixed addresses), Denver ICU (4) |
+| Summit Animal Hospitals | Austin North (4), Dallas Uptown (4) |
+| Harbor Pet Hospitals | Boston Harbor, Portland East, Providence, Hartford: 20 cabinets each |
+
+The cabinets worth looking at:
+
+| Where | Cabinet | What is wrong |
 |---|---|---|
-| Riverside Veterinary Group, New York | Pharmacy Sync | The sync cabinet's firewall is on, unlike the client policy, so its satellites cannot sync. Diagnose network on Surgery (a satellite) finds it; the fix is Apply policy on Pharmacy Sync. |
-| | Treatment Room | Fingerprint scanner disconnected after repeated reconnects (not in the guided tour: the platform cannot fix a scanner remotely). |
-| | Exam 1, Exam 2, Exam 3 | Set to the wrong Windows time zone: three of New York's eight cabinets, for the one-site bulk change. |
-| Riverside, Phoenix (Arizona time) | Main Sync | Three blue screens in 3 days (bug check 0x7E) with unexpected shutdowns. |
-| | Boarding | The scanner service will not stay running (3 failed restarts). Fix: Restart. |
-| Riverside, San Diego | Pharmacy | Drive predicting failure: bad blocks and reallocated sectors. |
-| Lakeside Health, Chicago | ER North | DNS lookups failing; the second DNS server does not answer. |
-| | Oncology | Windows update KB5050011 failing (0x80070643). |
-| Lakeside Health, Denver | ICU Sync | New, unrecognized application errors for the triage view. |
-| | Step-down | Offline for 6 days (the only cabinet in the demo that is simply offline). |
-| Summit Animal Hospitals, Austin | Isolation | Repeated blue screens: a second cabinet with the same crash. |
-| Riverside, New York | ICU | Clock about 7 minutes fast. Fix: Time → Sync the clock. |
-| Riverside, Phoenix; Riverside, San Diego; Summit, Austin | Exam Wing, Recovery, Surgery Suite | Also set to the wrong Windows time zone (Phoenix set to Mountain with daylight saving, not Arizona). Fix: Time → Set to the site's zone. |
-| Riverside, San Diego | Intake | **A cabinet alert.** Three USB ports, a fingerprint scanner expected on one, nothing detected on any. The alert and its logs (USB hub, device removed) are on this cabinet only: not in the fleet alert list, the badge or the site counts. |
-| Lakeside, Denver | Charting | A drive nearly full (Windows event 2013): a minor "Low disk space" alert. |
-| Summit, Austin | Billing | Event log errors from five sources: DNS, a retried disk read and a failing update map to issue types by themselves; an export job (BillingExport) and an application crash wait to be mapped. |
-| Summit Animal Hospitals, Dallas | Uptown Sync, Exam 1, Exam 2 | Still pointing at the old DNS servers (site-wide DNS drift); Exam 3 is fine. |
-| Riverside, New York | Lab | A fixed address from another network. |
-| Riverside, Phoenix | Front Desk | No DHCP lease (a 169.254 address). Fix: Renew the DHCP lease (one click; the answer shows the new address). |
-| Lakeside, Chicago | Triage | A fixed address with the wrong gateway. |
-| Lakeside, Denver | Rounds | The cable negotiated only 100 Mbps (no remote fix). |
-| Harbor Pet Hospitals, 4 sites of 20 | 80 cabinets | Overnight: Windows update KB5050011 on almost all, then a storage driver (Intel RST 19.5) on 16; 15 blue-screened with 0xD1, 5 still restarting. Incidents shows the driver stands out and the update does not. |
+| Midtown | Midtown Sync | Its firewall is on, unlike the client policy, so the satellites can't sync. One click fixes it. |
+| Midtown | Operating Room | Matches its baseline, but loses packets to the gateway and the card counts errors. A bad cable. |
+| Midtown | Procedure Room | Scanner dropped off three times in a day; its driver was installed about two hours before the first drop. |
+| Midtown | Reception, Waiting Room | Keep logging errors from the scanner's driver that no rule knows yet. |
+| Upper East Side | Pharmacy Sync, Lab, ICU, Treatment Room, Exam 1 to 3 | The same firewall problem as Midtown Sync, a fixed address from another network, a clock 7 minutes fast, a disconnected scanner, the wrong time zone (three of them, for the one-site bulk fix). |
+| Phoenix | Main Sync, Boarding, Front Desk, Exam Wing | Repeated blue screens, a scanner service that won't stay running, no DHCP lease, the wrong time zone. |
+| San Diego Bay | Pharmacy | Drive predicting failure. |
+| San Diego Recovery Center | Recovery | The wrong time zone. |
+| Tucson Walk-in | Intake | Three USB ports, a scanner expected, nothing detected. A cabinet alert only. |
+| Chicago | ER North, Oncology, Triage | DNS lookups failing, a Windows update failing, a fixed address with the wrong gateway. |
+| Denver | ICU Sync, Step-down, Rounds, Charting | Unrecognized errors, offline for 6 days, a 100 Mbps link, a nearly full drive. |
+| Austin | Surgery Suite, Isolation, Billing | The wrong time zone, repeated blue screens, errors from five sources (some map by themselves, two wait to be mapped). |
+| Dallas | Uptown Sync, Exam 1, Exam 2 | Still on the old DNS servers; Exam 3 is fine. |
+| Harbor | 80 cabinets | An overnight incident: a Windows update on almost all, then a storage driver on 16. 60 blue-screened and 12 are still restarting. Incidents shows the driver stands out and the update doesn't. |
 
-## The demo: one story, then your own cabinet
+## The guided demo
 
-The guided demo (Demo guide, then Start the guided demo) is one story, about 16 steps, ending with onboarding a real agent. Everything else in the demo fleet is background so the Fleet page looks like a real fleet.
+Open the Demo guide and click **Start the guided demo**. It is one story of about sixteen steps, in a panel at the side of the real console.
 
-1. **Monday morning at Midtown Manhattan.** Check one cabinet (Exam Room 1) on its own, then the whole site at once. Fix the sync cabinet's firewall with one click and watch the site come back clean. Open Operating Room, which matches its baseline but whose full read shows lost packets and card errors, and save what fixed it.
-2. **The scanner and the errors nobody has named.** Procedure Room's scanner dropped off three times after a driver install. Reception and Waiting Room keep logging driver errors no rule knows: map one to the Fingerprint scanner issue. Priya, a made-up Tier 1 teammate, has already submitted a fix for that issue; approve it from the Fixes page and it appears beside the alert.
-3. **Onboarding last** (the demo ends here, on the real cabinet's network page when one is installed). Install the agent on a computer, approve it, run *Test the live cabinet*, read its network, and set the site's standards (network baseline, time zone, firewall policy) from that cabinet.
+1. **Midtown Manhattan on a Monday morning.** The exam rooms say they can't sync. Check Exam Room 1 on its own, then the whole site at once. Link, address, gateway and DNS are fine, and the sync cabinet's firewall is what blocks the satellites. Apply the client policy with one click and the site checks itself again and comes back clean, apart from Operating Room, whose full read shows the packet loss and card errors. Save what fixed it once someone swaps the cable.
+2. **The scanner and the errors nobody has named.** Procedure Room's drops and the driver install. Then the unrecognized errors at Reception and Waiting Room: read the log, map the error to the Fingerprint scanner issue, then approve the fix that Priya (a made-up Tier 1 teammate) already submitted. It now shows up beside the alert as a possible fix.
+3. **A real cabinet, last.** Install the agent on a Windows computer, approve it, run the live test, read its network, and set the site's standards from it. The demo ends here, on the new cabinet's network page.
 
-**Known fixes.** A fix applies to every cabinet in the fleet, at any client or site. Alerts of an issue that has fixes show a *possible fix* mark in every alert list, and the cabinet's alert page shows the fix with the problem. When a problem has no click-to-fix because the baseline can't tell what's wrong, a person solves it and clicks *Save what fixed this*. The platform keeps their note with the cabinet's role, agent version, time zone, firewall and network. The next time the same finding comes up (matched by its exact key, never a pattern) or the same issue type raises an alert, the fix is shown beside it with what differs from the cabinet it was fixed on. Tier 1 and up submit one. It stays visible only to its submitter until an Admin, or a Tier 2 an Admin has granted it (Admin → Users → *Approves fixes*), approves it on the **Fixes** page; a fix an approver submits is approved at once, logged under their name, after a confirmation dialog. Tier 2 and up remove one.
+### Known fixes
 
-1. **Monday morning at Midtown Manhattan.** The exam rooms say they can't sync.
-   - Open **Riverside → Midtown Manhattan** and click **Diagnose network**. All seven cabinets are checked at once.
-   - Link, address, gateway and DNS are fine everywhere. Every satellite fails at the sync cabinet step, and Midtown Sync's firewall is on when the client's policy says off.
-2. **The fix, one click.**
-   - Click **Apply the policy on Midtown Sync** and confirm. The cabinet applies the client's firewall policy; if it loses contact afterwards it puts the old setting back by itself.
-   - The site is checked again straight away and comes back clean: "7 of 7 cabinets are clean", with a line saying what was done.
-3. **The scanner at the same site.** Open **Procedure Room → Fingerprint scanner**.
-   - It dropped off three times in the last day and is off now. The Drops section lists each drop and recovery, and shows the scanner's driver was installed about two hours before the first one.
-   - That is a lead to check first, not a verdict. The page says it could still be the cable or the port.
-4. **Install the agent on a real computer.** Admin → Set up and demo: create the install token, copy the commands, run them in an elevated PowerShell. Then **Pending cabinets** to approve it.
-5. **Read its network with no baseline.** On the new cabinet, Network → **Diagnose network**. The site has no baseline yet, so nothing is compared and the page says so. You get the readings straight from the machine: link, address (DHCP or fixed), gateway, DNS, and whether it can reach the platform. Open **Everything that was read** for the lease, DHCP server, MTU, card errors, routes, ARP table, ping loss and jitter, and the path to the platform. Then go to the site page: **Standards for <site>** offers "Use <cabinet>'s network" (with the authenticator code), the site time zone and the client firewall policy, so a new site is set up from a cabinet that is already right. With a baseline set, the same check compares against it.
+When a problem has no click-to-fix, a person solves it and clicks **Save what fixed this**. The platform keeps their note with the cabinet's role, agent version, time zone, firewall and network. The next time the same finding or the same issue type comes up on any cabinet, at any client or site, the fix appears beside it as a possible fix, with a list of what differs from the cabinet it was fixed on. An alert whose issue has fixes carries a "possible fix" mark in every alert list.
 
-   *Operating Room* at Midtown shows the other half: it matches its baseline, yet its full read shows packet loss to the gateway and receive errors on the card (a failing patch cable).
-
-The tour covers 1 to 5 in seven steps. Turn demo mode off at the end and only your real cabinet remains.
+A member's fix waits for approval and only they can see it. An Admin, or a Tier 2 an Admin has allowed (Admin, Users, "Approves fixes"), approves it on the Fixes page. People who can approve skip the wait: they confirm in a dialog and it is logged under their name. Fixes don't expire. Tier 2 and up can remove one.
 
 ## Questions you may get
 
-- **Is this live data?**
-  - Your laptop: yes.
-  - The cabinets tagged Demo: no, they are simulated. They answer through the same code paths and contracts as a real agent, so what you see is what a real cabinet would show.
-- **Can it run commands on a cabinet?** Only the fixed operations in its catalog, each with a role check on the server and on the cabinet itself. There is no shell, no script runner and no general file transfer.
-- **What does a cabinet need?** Outbound HTTPS to the server on port 8443, and nothing inbound.
+- **Is this live data?** Your laptop's is. The cabinets tagged Demo are simulated, but they answer through the same code and contracts as a real agent.
+- **Can it run commands on a cabinet?** Only the fixed operations in its catalog, each with a role check on the server and again on the cabinet. There is no shell, no script runner and no general file transfer.
+- **What does a cabinet need?** Outbound HTTPS to the server on port 8443 and nothing inbound.

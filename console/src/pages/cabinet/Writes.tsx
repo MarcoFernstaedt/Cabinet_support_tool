@@ -6,7 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
   FirewallStateOutput, NetworkConfigOutput, NetworkRenewLeaseOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
 import { useWrite, type CommandResult } from "../../lib/commands";
-import { atLeast, useSession } from "../../lib/session";
+import { useSession } from "../../lib/session";
 import { canWrite, useWriteStatus } from "../../lib/writes";
 import { fullTime } from "../../lib/time";
 import { useLoad } from "../../lib/useLoad";

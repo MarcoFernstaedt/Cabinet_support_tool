@@ -1,7 +1,7 @@
 // Certificate signing requests in, X.509 v3 certificates out.
 // The private key that signs certificates is reached only through
 // IssuingKey.signTbs, so the development key can be swapped for the KMS
-// (docs/spec/10-coding-agent-handoff.md milestone 2) without touching this file.
+// (see docs/spec/08-build-plan.md, milestone 2) without touching this file.
 import { createHash, createPublicKey, randomBytes, verify, X509Certificate, type KeyObject } from "node:crypto";
 import * as der from "./der.js";
 

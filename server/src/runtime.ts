@@ -6,7 +6,7 @@ import type { IssuingKey } from "./pki/x509.js";
 
 /**
  * The issuing key. Milestone 2 has only the development key; the KMS-backed
- * IssuingKey replaces this one function (docs/spec/10-coding-agent-handoff.md).
+ * IssuingKey replaces this one function (docs/spec/07-upgrade-channel.md).
  */
 export async function issuingKey(config: Config): Promise<IssuingKey> {
   if (config.devPkiDir) return developmentIssuingKey(config.devPkiDir);

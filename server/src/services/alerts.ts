@@ -12,7 +12,6 @@ import { decide, ISSUE, liveRules, type LiveRule } from "./rules.js";
 import { isBootRecord, recordBoot } from "./crashes.js";
 
 export const SITE_PATTERN_WINDOW_MS = 60 * 60 * 1000;
-export const DEFAULT_OFFLINE_ALERT_DAYS = 5;
 
 /** What one event led to, for tests and logs. */
 export type Outcome =

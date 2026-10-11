@@ -2,22 +2,17 @@
 // has been granted it, approves or rejects. An approved fix is shown to everyone wherever the same problem comes up. The server checks the
 // permission on every request; this page only hides what the person cannot use.
 import { useState } from "react";
-import { api, describeError } from "../lib/api";
+import { api } from "../lib/api";
+import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
 import { atLeast, useSession } from "../lib/session";
 import { Link } from "../lib/router";
 import { ago, fullTime } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, KeyValues } from "../components/ui";
-import { symptomLabel, type Environment, type KnownFix } from "../components/KnownFixes";
+import { environmentRows, symptomLabel, type KnownFix } from "../components/KnownFixes";
 
 type Fix = KnownFix & { symptom: KnownFix["symptom"] & { issueName?: string | null } };
-
-const where = (e: Environment) => [
-  ["Site", `${e.client} / ${e.site} (${e.role})`], ["Agent", e.agentVersion ?? "unknown"], ["Time zone", e.timeZone ?? "unknown"],
-  ["Firewall", e.firewall ? (["domain", "private", "public"] as const).map(k => `${k} ${e.firewall![k] ? "on" : "off"}`).join(", ") : "unknown"],
-  ["Network", e.network ? `${e.network.addressing === "dhcp" ? "DHCP" : "Fixed"}, gateway ${e.network.gateway ?? "none"}, DNS ${e.network.dnsServers.join(", ") || "none"}${e.network.linkSpeedMbps ? `, ${e.network.linkSpeedMbps} Mbps` : ""}${e.network.adapter ? `, ${e.network.adapter}` : ""}` : "Not read"],
-] as [string, string][];
 
 export function FixQueue() {
   const { me } = useSession();
@@ -31,20 +26,17 @@ function Queue() {
   const { me } = useSession();
   const queue = useLoad<{ pending: Fix[]; decided: Fix[] }>("/api/known-fixes/review");
   const inUse = useLoad<{ fixes: Fix[] }>("/api/known-fixes");
-  const [problem, setProblem] = useState<string | null>(null);
+  const { run, problem } = useAction();
   const [note, setNote] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const done = (text: string) => { setNote(text); queue.reload(); inUse.reload(); window.dispatchEvent(new Event("fixes-changed")); };
   const decide = async (f: Fix, verb: "approve" | "reject") => {
-    setProblem(null);
-    try {
-      await api("POST", `/api/known-fixes/${f.id}/${verb}`, verb === "reject" && reason.trim() ? { reason: reason.trim() } : {});
-      setRejecting(null); setReason("");
-      done(verb === "approve" ? `Approved “${f.title}”. It is now shown to everyone wherever the same problem comes up.` : `Rejected “${f.title}”. ${f.savedBy} can see why.`);
-    } catch (e) { setProblem(describeError(e)); }
+    if (!await run(() => api("POST", `/api/known-fixes/${f.id}/${verb}`, verb === "reject" && reason.trim() ? { reason: reason.trim() } : {}))) return;
+    setRejecting(null); setReason("");
+    done(verb === "approve" ? `Approved “${f.title}”. It is now shown to everyone wherever the same problem comes up.` : `Rejected “${f.title}”. ${f.savedBy} can see why.`);
   };
-  const remove = async (f: Fix) => { setProblem(null); try { await api("POST", `/api/known-fixes/${f.id}/remove`, {}); done(`Removed “${f.title}”.`); } catch (e) { setProblem(describeError(e)); } };
+  const remove = async (f: Fix) => { if (await run(() => api("POST", `/api/known-fixes/${f.id}/remove`, {}))) done(`Removed “${f.title}”.`); };
   const approved = (inUse.data?.fixes ?? []).filter(f => f.status === "approved");
   return (
     <div className="page">
@@ -63,7 +55,7 @@ function Queue() {
             <p className="muted small">For: {symptomLabel(f.symptom)}</p>
             <p className="pre">{f.solution}</p>
             <p className="muted small">From {f.savedBy}, <span title={fullTime(f.savedAt)}>{ago(f.savedAt)}</span>{f.fromCabinet ? <>, on <strong>{f.fromCabinet}</strong></> : null}.</p>
-            <details><summary className="small">The setup it was fixed on</summary><KeyValues rows={where(f.environment)} /></details>
+            <details><summary className="small">The setup it was fixed on</summary><KeyValues rows={environmentRows(f.environment)} /></details>
             {rejecting === f.id
               ? (<form className="row gap wrap" onSubmit={e => { e.preventDefault(); void decide(f, "reject"); }}>
                   <label className="field"><span>Why (optional, they will see it)</span><input autoFocus maxLength={256} value={reason} onChange={e => setReason(e.target.value)} /></label>

@@ -9,51 +9,26 @@ import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
 import { SecretBox } from "../src/auth/secrets.js";
-import { hashPassword } from "../src/auth/passwords.js";
 import { paramsHash } from "../src/auth/canonical.js";
-import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
+import { ConsoleHarness, ORIGIN, type Account, type Role } from "./console-harness.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
 
-const ORIGIN = "https://console.test";
 const TIMING = { pollMs: 50, verifyMs: 5_000 };
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
 let sim: DemoSimulator;
-let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 
-interface Account { id: string; username: string; password: string; secret: Buffer; cookie?: string }
-async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
-  const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, write_limit) VALUES ($1, $2, $3, $4, $5, false, true, $6, 100)`,
-    [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
-  const login = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify({ username: a.username, password: a.password }) });
-  a.cookie = String(login.headers["set-cookie"]).split(";")[0]!;
-  clock += 30_000;
-  assert.equal((await call("POST", "/api/auth/totp", { code: totp.code(a.secret, totp.stepAt(clock)) }, a)).body.stage, "complete");
-  return a;
-}
-async function call(method: "GET" | "POST" | "PUT", url: string, body: unknown, a?: Account) {
-  const headers: Record<string, string> = { origin: ORIGIN };
-  if (a?.cookie) headers.cookie = a.cookie;
-  if (body !== undefined) headers["content-type"] = "application/json";
-  const r = await app.inject({ method, url, headers, ...(body === undefined ? {} : { payload: JSON.stringify(body) }) });
-  let parsed: any = r.body; try { parsed = JSON.parse(r.body); } catch { /* not JSON */ }
-  return { status: r.statusCode, body: parsed };
-}
-/** An authenticator-code token for one action on one target, bound to the exact parameters. */
-async function codeToken(a: Account, action: string, target: string, params: unknown) {
-  clock += 30_000;
-  const r = await call("POST", "/api/auth/step-up", { code: totp.code(a.secret, totp.stepAt(clock)), action, target, paramsHash: paramsHash(params) }, a);
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  return r.body.token as string;
-}
+const h = new ConsoleHarness(secrets);
+const account = (role: Role) => h.account(role);
+const call = h.call.bind(h);
+const codeToken = h.codeToken.bind(h);
 async function runBatch(a: Account, body: unknown, ms = 60_000) {
   const started = await call("POST", "/api/diagnose/network", body, a);
   assert.equal(started.status, 202, JSON.stringify(started.body));
@@ -86,7 +61,8 @@ test.before(async () => {
   const key = await developmentIssuingKey(tempDir());
   stream = new ResultStream(db.appUrl, db.app);
   await stream.start();
-  app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock, fleetJobTiming: TIMING });
+  app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => h.clock, fleetJobTiming: TIMING });
+  h.db = db; h.app = app;
   const owner = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);

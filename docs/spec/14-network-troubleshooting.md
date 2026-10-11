@@ -65,32 +65,29 @@ Every simulated site has a baseline. The demo's network faults:
 
 A fix changes the simulated cabinet's own settings, so the next diagnosis shows it fixed.
 
-## The full read, and standards at onboarding (October 2026)
+## The full read
 
-**Everything is read, whether or not it differs from the baseline.** A diagnosis now keeps the whole reading (`diagnoses.readings`) and shows it under "Everything that was read", per cabinet on the cabinet page and as "Full read" on the batch page:
+A diagnosis keeps everything it read (`diagnoses.readings`), whether or not anything differs from the baseline. The cabinet's diagnosis shows it under "Everything that was read", and the batch page has a "Full read" button per cabinet. It holds:
 
-- each card's DHCP server, lease start and end, MTU and packet, error and discard counters;
+- each card's DHCP server, lease start and end, MTU, and packet, error and discard counters;
 - the routing table and the ARP table;
-- five pings to the gateway with loss, minimum, average, maximum and jitter, and a lookup through each DNS server;
-- a path (`network.trace`) to the platform server and to the sync cabinet.
+- five pings to the gateway, with loss, minimum, average, maximum and jitter, and a lookup through each DNS server;
+- a path to the platform server and one to the sync cabinet (`network.trace`).
 
-**Observations** (`server/src/diagnose/network-observations.ts`) turn that into findings that do not depend on the baseline: a lease that has run out or ends within two hours, a DHCP server that answered, a non-standard MTU, error and discard counts, packet loss (a problem from 20%), slow or jittery replies, ARP entries that never completed, more than one default route, and whether the sync cabinet and platform server can be reached. They state what was seen and what it often means, not a verdict.
+`server/src/diagnose/network-observations.ts` turns that into findings that don't need a baseline. It flags a lease that has run out or ends within two hours, a non-standard MTU, error and discard counts, packet loss (a problem from 20%), slow or uneven replies, ARP entries that never completed, more than one default route, and whether the sync cabinet and the platform server can be reached. Each says what was seen and what it often means. None is a verdict.
 
-**Standards at onboarding.** A site's three standards (network baseline, time zone, client firewall policy) are suggested from what its cabinets already report (`GET /api/sites/:id/standards`; nothing is saved by that call). The site page offers "Use <cabinet>'s network", the zone most cabinets use, and the firewall profiles most cabinets have. Saving goes through the same routes and confirmations as editing them by hand.
+## Site standards
 
-## Known fixes (October 2026)
+A site is compared with three standards: a network baseline, a time zone and the client's firewall policy. When one isn't set, the site page shows "Standards for <site>" and offers to adopt what a cabinet there already reports. `GET /api/sites/:id/standards` works the suggestions out and saves nothing. Saving goes through the usual routes with the usual confirmations: an authenticator code bound to the exact baseline or policy, and a plain save for the time zone.
 
-A problem the baseline cannot fix with a click is still solved by a person. They save what fixed it (`POST /api/known-fixes`: a name, the solution in plain text, the problem it fixes, and the cabinet), and the server records that cabinet's environment itself: role, agent version, time zone, firewall profiles and the network card, gateway, DNS, addressing, link speed and MTU from its latest read. The console never sends the environment.
+## Known fixes
 
-- **A problem is matched exactly.** Either by a diagnosis finding's key (the finding id without a trailing interface number: `obs-errors-12` is `obs-errors`) or by an issue type. There are no patterns.
-- **It is shown when the problem comes back.** On the cabinet's diagnosis and the batch page beside the finding; on alerts of that issue type. Beside it, the differences from the cabinet it was fixed on ("Firewall: all off then, domain on now"), so a person can tell whether it is likely to apply. A diagnosis counts each fix it shows (`seen_count`).
-- **Roles.** Tier 1 and up save one; Tier 2 and up remove one (soft: `removed_at`). Both are audited (`known_fix.save`, `known_fix.remove`).
-- **Contracts.** `console/known-fix-create` and `console/known-fix-query`; the solution is at most 2,000 characters of text without control characters.
+Some problems have no click-to-fix because the baseline can't tell what is wrong. A person solves one, then saves what fixed it: a name, the solution in plain text (up to 2,000 characters), the problem, and the cabinet. The server records that cabinet's environment itself, and the console never sends it: role, agent version, time zone, firewall profiles, and the card, gateway, DNS, addressing, link speed and MTU from its latest read.
 
-### Approval of known fixes
+- **Matching is exact.** A fix belongs to a diagnosis finding's key (the finding id without a trailing interface number, so `obs-errors-12` is `obs-errors`) or to an issue type. There are no patterns.
+- **A fix applies to every cabinet in the fleet**, at any client or site. It is shown beside the finding on the diagnosis and batch pages, and on the alert page of that issue, with a list of what differs from the cabinet it was fixed on. An alert whose issue has fixes carries a "possible fix" mark in every alert list. Fixes don't expire.
+- **Approval.** A member's fix is `pending` and only they can see it. An Admin, or a Tier 2 with `can_approve_fixes` (Users, "Approves fixes"), approves or rejects it from the Fixes page. A rejection can carry a reason the submitter reads. A fix from someone who can approve is approved straight away, after a confirmation dialog, and logged under their name. Tier 2 and up can remove a fix.
+- **The alert's resolution.** A fix saved from an alert is tied to it (`alertId`). Resolving that alert without typing a note uses the fix's words, cut to the first 256 characters on one line. The resolve form can also keep a typed note as a possible fix.
+- **It works on real cabinets.** Nothing here is limited to demo ones. `server/test/real-cabinet-fixes.test.ts` runs the whole thing on cabinets with no demo scenario, answering commands through the queue and result paths the agent API uses. The answers in that test are synthetic. On Windows they come from the machine.
 
-A fix a member submits is `pending`. Only its submitter sees it (marked "Waiting for approval") until an approver decides. Approvers are Admins and any Tier 2 an Admin has granted `can_approve_fixes` (Users, "Approves fixes"; a step-up change like any role change). `GET /api/known-fixes/review` lists what waits and the last 30 decisions; `POST /api/known-fixes/:id/approve` and `/reject` (with an optional reason the submitter sees) decide, once. An approver's own submission is approved at once. The Fixes link in the main bar shows how many are waiting. Both decisions are audited (`known_fix.approve`, `known_fix.reject`).
-
-### Real cabinets, and the alert's resolution
-
-Nothing about known fixes is demo-only: the matching, the approval, the environment (read from the cabinet's heartbeat and its latest diagnosis) and the "possible fix" mark work the same for a cabinet with no demo scenario. `server/test/real-cabinet-fixes.test.ts` runs it on cabinets with no demo scenario, answering commands through the same queue and result paths the agent API uses (the answers are synthetic; on Windows they come from the machine). A fix saved from an alert carries `alertId`; resolving that alert with no note writes the fix's text (first 256 characters, on one line) as its resolution.
+Contracts: `console/known-fix-create`, `known-fix-query` and `known-fix-reject`. Audit actions: `known_fix.save`, `known_fix.approve`, `known_fix.reject`, `known_fix.remove`.

@@ -21,6 +21,10 @@ The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, 
   - **Software:** approved packages that match the cabinet's hardware, with Install (Tier 2 and Admin). The answer names the exact check that failed, if one did.
   - **Files**
   - **Command history**
+- **Diagnosing.** Network has a Diagnose network button that checks the link, address, gateway, DNS, the sync cabinet and the firewall in order, keeps everything it read, and offers the fix where the platform can make one. A site page does the same for every cabinet at once. A cabinet's Overview has a live test that runs eleven read-only checks and copies a plain report.
+- **Known fixes.** "Save what fixed this" appears under findings and on alerts. Approved fixes show beside the same problem on any cabinet, and alerts whose issue has fixes carry a "possible fix" mark. Admins, and Tier 2 people they allow, review submissions on the Fixes page.
+- **Site standards.** A site page offers to set its network baseline, time zone and firewall policy from a cabinet that is already right.
+- **Demo.** The Demo guide and a side-panel tour that walks one story from a firewall fix to onboarding a real agent.
 - **Write actions** (Milestone 5) appear only for Tier 2 and Admin, and only on cabinets that accept changes while writes are not paused.
   - Each one opens a confirmation that says exactly what will change on which cabinet, then asks for the authenticator code. Network and IP changes show the old and new values side by side, and explain the 2-minute safety net.
   - Devices and drivers can uninstall a third-party driver.

@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { api, describeError } from "../lib/api";
+import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
 import { parseSyncPorts, SYNC_PORTS_RULE } from "../lib/ports";
 import { Link } from "../lib/router";
@@ -170,6 +171,7 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
   const { data, reload } = useLoad<Standards>(`/api/sites/${siteId}/standards`);
   const [ask, setAsk] = useState<null | "baseline" | "firewall">(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const timeZone = useAction();
   const diagnose = useStartDiagnosis();
   if (!data) return null;
   const canTier2 = role === "tier2" || role === "admin", canAdmin = role === "admin";
@@ -183,8 +185,7 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
         : <button className="btn" disabled={diagnose.busy} onClick={() => void diagnose.start({ siteId })}>Read the network first</button> },
     { label: "Time zone", value: cur.timeZone ? zoneName(cur.timeZone) : null,
       action: cur.timeZone || !canTier2 || !sug.timeZone ? null : <button className="btn" onClick={async () => {
-        setProblem(null);
-        try { await api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: sug.timeZone!.timeZone }); done(); } catch (e) { setProblem(describeError(e)); }
+        if (await timeZone.run(() => api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: sug.timeZone!.timeZone }))) done();
       }}>Use {zoneName(sug.timeZone.timeZone)} (from {sug.timeZone.fromCabinet.name})</button> },
     { label: "Firewall", value: cur.clientFirewall ? describePolicy(cur.clientFirewall) : null,
       action: cur.clientFirewall || !canAdmin || !sug.firewall ? null : <button className="btn" onClick={() => setAsk("firewall")}>Use {sug.firewall.fromCabinet.name}'s settings for the client</button> },
@@ -197,7 +198,7 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
       <ul className="plain">{rows.map(r => (
         <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; the fleet default applies (${describePolicy(cur.fleetFirewall)})` : ""}</span>} {r.action}</li>))}</ul>
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
-      {problem && <p className="error" role="alert">{problem}</p>}
+      {(problem ?? timeZone.problem) && <p className="error" role="alert">{problem ?? timeZone.problem}</p>}
       {sug.networkBaseline && !cur.networkBaseline && <StepUpDialog open={ask === "baseline"} action="site.network_baseline" target={siteId} params={{ baseline: sug.networkBaseline.baseline }} onClose={() => setAsk(null)}
         description={<p>Set the network baseline for <strong>{name}</strong> from <strong>{sug.networkBaseline.fromCabinet.name}</strong>: {sug.networkBaseline.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {sug.networkBaseline.baseline.gateway}/{sug.networkBaseline.baseline.prefixLength}, DNS {sug.networkBaseline.baseline.dnsServers.join(", ")}. Check that this cabinet's network is the right one first. Nothing changes on a cabinet.</p>}
         onToken={async token => { try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: sug.networkBaseline!.baseline, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
@@ -265,13 +266,8 @@ function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { 
  */
 function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: string; name: string; current: string | null; editable: boolean; onSaved: () => void }) {
   const [zone, setZone] = useState(current ?? "");
-  const [problem, setProblem] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const save = async () => {
-    setProblem(null); setSaved(false);
-    try { await api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: zone || null }); setSaved(true); onSaved(); }
-    catch (e) { setProblem(describeError(e)); }
-  };
+  const { run, problem, saved } = useAction();
+  const save = async () => { if (await run(() => api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: zone || null }))) onSaved(); };
   return (
     <section className="panel" aria-labelledby={`tz-${siteId}`}>
       <h2 id={`tz-${siteId}`}>Time zone at {name}</h2>

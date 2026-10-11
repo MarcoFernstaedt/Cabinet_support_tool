@@ -26,7 +26,6 @@ export const nullValue = (): Buffer => tlv(Tag.Null, Buffer.alloc(0));
 export const boolean = (v: boolean): Buffer => tlv(Tag.Boolean, Buffer.from([v ? 0xff : 0x00]));
 export const octetString = (b: Buffer): Buffer => tlv(Tag.OctetString, b);
 export const utf8 = (s: string): Buffer => tlv(Tag.Utf8String, Buffer.from(s, "utf8"));
-export const ia5 = (s: string): Buffer => tlv(Tag.Ia5String, Buffer.from(s, "ascii"));
 /** BIT STRING with the given number of unused bits in the last byte. */
 export const bitString = (b: Buffer, unusedBits = 0): Buffer => tlv(Tag.BitString, Buffer.concat([Buffer.from([unusedBits]), b]));
 /** Context-specific tag [n]: constructed (explicit) or primitive (implicit). */

@@ -6,7 +6,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
-import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
+import { Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
 

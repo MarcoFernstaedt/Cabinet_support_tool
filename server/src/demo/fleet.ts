@@ -74,22 +74,6 @@ export const DEMO_FLEET: DemoClient[] = [
   ] },
 ];
 
-export const SCENARIO_LABEL: Record<Scenario, string> = {
-  healthy: "Healthy", firewall_drift: "Sync cabinet firewall on, unlike the client policy (blocks its satellites)", scanner_disconnected: "Fingerprint scanner disconnected",
-  scanner_flapping: "Fingerprint scanner dropped off 3 times in a day, a driver for it was installed just before",
-  service_failing: "Scanner service will not stay running", disk_failing: "Drive predicting failure", bsod: "Repeated blue screens",
-  offline: "Offline for 6 days", dns_errors: "DNS lookups failing", update_failure: "Windows update failing", unknown_errors: "New, unrecognized errors",
-  incident_crash: "Blue screen overnight after a storage driver update", incident_loop: "Blue screen after the driver update, still restarting",
-  incident_ok: "Got the same Windows update, no driver change, no crash",
-  time_zone_wrong: "Set to the wrong time zone", clock_drift: "Clock about 7 minutes fast",
-  site_outage: "The whole site went offline together 40 minutes ago",
-  net_dns_wrong: "DNS servers are the old ones, not the site's", net_static_wrong: "Fixed address from another network", net_dhcp_failed: "No DHCP lease (169.254 address)",
-  net_gateway_wrong: "Fixed address with the wrong gateway", net_link_slow: "Link negotiated at 100 Mbps (cable)",
-  net_flaky: "Matches the baseline, but loses packets to the gateway and the network card counts errors (a failing patch cable)",
-  usb_missing: "No USB device detected, a fingerprint scanner expected (cabinet alert)", disk_space_low: "Drive nearly full (warning)", mixed_errors: "Errors from several sources in the event logs, mapped to issues",
-  scanner_errors: "Fingerprint scanner errors in the event logs that no rule names yet (map them to the scanner issue)",
-};
-
 /** The wrong zone a time_zone_wrong cabinet was set to: the classic mistakes (Arizona set to Mountain, which observes daylight saving). */
 export function wrongZoneFor(siteZone: string): string {
   return ({ "US Mountain Standard Time": "Mountain Standard Time", "Pacific Standard Time": "US Mountain Standard Time",

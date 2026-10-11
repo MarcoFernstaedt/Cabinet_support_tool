@@ -137,7 +137,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
     const opened = await Promise.all(pages.map(p => p.getByRole("heading", { name: "ICU cabinet", level: 1 }).waitFor({ timeout: 5000 }).then(() => true, () => false)));
     assert.equal(opened.filter(Boolean).length, 1, "exactly one console claimed it");
     const winner = people[opened.indexOf(true)]!;
-    for (const [i, p] of pages.entries()) if (!opened[i]) await toasts[i]!.getByText(`Claimed by ${winner.name}`).waitFor();
+    for (const i of pages.keys()) if (!opened[i]) await toasts[i]!.getByText(`Claimed by ${winner.name}`).waitFor();
     const claimed = (await db.app.query<{ state: string; claimed_by: string }>("SELECT state, claimed_by FROM alerts WHERE issue_type_id = $1", [ISSUE.scanner])).rows;
     assert.deepEqual(claimed, [{ state: "claimed", claimed_by: ids[opened.indexOf(true)] }]);
 

@@ -2,7 +2,7 @@
 // set the write limit, disable, reset password or authenticator, delete; and per person, the
 // cabinets they opened and everything they did. The server enforces every rule shown here.
 import { useState } from "react";
-import { api, ApiError, describeError } from "../../lib/api";
+import { api, ApiError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { roleName, useSession, type Role } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";

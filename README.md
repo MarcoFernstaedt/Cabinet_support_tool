@@ -18,7 +18,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 | [`console/`](console/README.md) | The support console, served by the server from the same origin. | React 19, TypeScript, Vite |
 | [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 10 (LTS), self-contained |
 | [`deploy/`](deploy/README.md) | Runs the whole platform on one Linux VPS with Docker Compose (PostgreSQL, server, console behind Caddy HTTPS), and builds the Windows agent package the console offers for download. For demos and pilots. | Docker, Caddy |
-| [`docs/platform/`](docs/platform/) | Platform documentation beyond the spec: [performance and capacity](docs/platform/performance.md) (including the command round trip) and the [October 2026 review](docs/platform/review-2026-10.md) (fixes, open items, recommendations). | |
+| [`docs/platform/`](docs/platform/) | Documentation beyond the spec: the [demo guide](docs/platform/demo.md), [testing a live agent](docs/platform/live-test.md), [performance](docs/platform/performance.md), the [threat model](docs/platform/threat-model.md), the [security review](docs/platform/security-review.md) and [data classification](docs/platform/data-classification.md). | |
 
 ## How it fits together
 
@@ -55,19 +55,16 @@ To run the platform on a VPS and demo it with your own laptop and a simulated fl
 
 Do not install the agent on a production cabinet from a developer build. Release builds come only from the build pipeline, signed ([upgrade channel](docs/spec/07-upgrade-channel.md)).
 
-## Status
+## Where it stands
 
-- **Built:** all seven milestones of the [build plan](docs/spec/08-build-plan.md), milestones 8 to 10 ([12](docs/spec/12-milestones-8-to-12.md)), demo mode with the Set up and demo page, and the Midnight Navy and Electric Cyan design system, plus:
-  - the alert catalog and per-symptom severity;
-  - scanner IDs and sync ports set per client;
-  - the 8,000-agent load test.
-- **Before the first real release:** the release signing key in a KMS, and the production code-signing certificate.
-- **Before field rollout:**
-  - a test on a real cabinet;
-  - the load test repeated on production hosting;
-  - an independent security test;
-  - incident-response steps and a database restore test.
+Everything in the build plan is built: the agent, both APIs, the console, signed upgrades, the firewall policy, services, network diagnosis with the full read and path trace, crash investigation, time zones, fleet operations, evidence packages, known fixes with approval, and demo mode. The Midnight Navy and Electric Cyan design system is used throughout.
 
-Decisions taken and still open are recorded in [open decisions](docs/spec/09-open-decisions.md). What comes next, module by module, is in the [roadmap](docs/spec/13-roadmap.md).
+Still to do before a field rollout:
 
-The earlier C# demo (Server, Agent, web Console and demo tools) that this platform replaced was removed in October 2026; it remains in git history.
+- Run the agent on a real cabinet. The Windows-only readers (leases, routes, ARP, card counters) compile and have unit tests but haven't run on Windows yet. [Testing a live agent](docs/platform/live-test.md) explains how to check.
+- Put the release signing key in a KMS and get the production code-signing certificate.
+- Repeat the load test on production hosting, get an independent security test, and write the incident-response steps and a database restore test.
+
+Decisions made and still open are in [open decisions](docs/spec/09-open-decisions.md). What comes next, module by module, is in the [roadmap](docs/spec/13-roadmap.md).
+
+The earlier C# demo that this platform replaced was removed in October 2026. It is still in git history.
