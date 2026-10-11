@@ -81,6 +81,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/Packet loss to the gateway/).first().waitFor();
     await page.getByText("Everything that was read").click();
     await page.getByRole("heading", { name: "Routes" }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/batch-fullread.png`, fullPage: true });
     const policy = (await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles;
     assert.deepEqual(Object.values(policy), [false, false, false], "the cabinet really changed");
 
@@ -105,6 +106,19 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/This site has no baseline set, so nothing is compared/).waitFor({ timeout: 60_000 });
     await page.getByText("No DHCP lease (address 169.254.x.x)").waitFor({ timeout: 60_000 });
     assert.equal(await page.getByText("No default gateway").count(), 0, "what follows from having no address is not listed as separate problems");
+
+    // Onboarding: the same site can adopt a cabinet's network as its baseline, with the authenticator code, and then it is compared.
+    await page.goto(`${origin}/sites/${phoenix}`);
+    await page.getByRole("heading", { name: "Standards for Phoenix Clinic" }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/standards.png`, fullPage: true });
+    await page.getByRole("button", { name: /^Use .*'s network$/ }).click();
+    clock += 30_000;
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByRole("heading", { name: "Standards for Phoenix Clinic" }).waitFor();
+    await page.getByRole("button", { name: /^Use .*'s network$/ }).waitFor({ state: "detached", timeout: 15_000 });
+    const saved = (await db.app.query<{ network_baseline: { gateway: string } | null }>("SELECT network_baseline FROM sites WHERE id = $1", [phoenix])).rows[0]!.network_baseline;
+    assert.ok(saved?.gateway, "the baseline was saved from the cabinet's own network");
     simulator.stop();
     assert.deepEqual(simulatorProblems, []);
     assert.deepEqual(problems, []);

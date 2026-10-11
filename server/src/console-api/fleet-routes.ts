@@ -1,6 +1,7 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
 import { cabinetTime, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
+import { siteStandards } from "../services/site-standards.js";
 import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
@@ -126,6 +127,12 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const t = await cabinetTime(o.pool, id(request));
     if (!t) throw new Refused("not_found", 404, "no such cabinet");
     return t;
+  });
+
+  /** What the site's standards could be, taken from what its cabinets report (nothing is saved). */
+  app.get("/api/sites/:id/standards", async request => {
+    await o.guards.role(request, "tier1");
+    return (await siteStandards(o.pool, id(request))) ?? Promise.reject(new Refused("not_found", 404, "no such site"));
   });
 
   app.put("/api/sites/:id/network-baseline", async request => {

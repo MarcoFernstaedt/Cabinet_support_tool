@@ -417,3 +417,12 @@ Built as described in [14-network-troubleshooting.md](14-network-troubleshooting
 2. **Fixed-address sites.** A site whose cabinets have fixed addresses can have its gateway corrected remotely, but a wrong address cannot: the platform does not know which address each cabinet should have. An address list per site would allow that.
 3. **How often the baseline is compared.** Today a cabinet is compared when someone runs the diagnosis (and the demo seeds the alert a regular check would raise). A scheduled nightly check of every cabinet against its baseline is not built.
 4. **DHCP lease renewal.** Decided: a separate `network.renewLease` operation (Tier 1, a click, no setting changes, no safety net) is built; it needs the agent upgrade that carries it. Switching to DHCP with `network.setIp` stays for a fixed address that should not be fixed.
+
+### Full network read and site standards (October 2026)
+
+Built on `main`; see [14-network-troubleshooting.md](14-network-troubleshooting.md). To confirm:
+
+5. **New operation `network.trace`.** Read-only, Tier 1, 4 per minute per cabinet, ICMP with an increasing TTL sent by the unprivileged network service (no external program). It lists the hops to the gateway, a DNS server, the sync cabinet or the platform server. Some firewalls drop these probes; silent hops are shown as such, not as failures. Approve or leave out.
+6. **Larger `network.config` and `network.test` outputs.** `network.config` now also returns each card's DHCP server, lease times, MTU and packet/error counters, plus the routing table (up to 128 routes) and the ARP table (up to 64 neighbours). `network.test` accepts `count` (1–10) for pings and returns loss and jitter. These need the matching agent upgrade; the Windows readers have been compiled but not run on real Windows.
+7. **Migration numbering.** `main` uses `0019_network_readings.sql`; the `baseline-recovery` branch has its own `0019`. Renumber one when the branches meet.
+8. **Site standards at onboarding.** A site without a network baseline, time zone or client firewall policy shows "Standards for <site>" with buttons that adopt what a cabinet here already reports. The network baseline and firewall policy keep their authenticator-code confirmation (the code is bound to the exact values); the time zone keeps its existing one-step save. Nothing is changed on a cabinet by setting a standard.

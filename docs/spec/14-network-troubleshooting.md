@@ -64,3 +64,16 @@ Every simulated site has a baseline. The demo's network faults:
 | Denver, Rounds | Link at 100 Mbps | None: replace the cable |
 
 A fix changes the simulated cabinet's own settings, so the next diagnosis shows it fixed.
+
+## The full read, and standards at onboarding (October 2026)
+
+**Everything is read, whether or not it differs from the baseline.** A diagnosis now keeps the whole reading (`diagnoses.readings`) and shows it under "Everything that was read", per cabinet on the cabinet page and as "Full read" on the batch page:
+
+- each card's DHCP server, lease start and end, MTU and packet, error and discard counters;
+- the routing table and the ARP table;
+- five pings to the gateway with loss, minimum, average, maximum and jitter, and a lookup through each DNS server;
+- a path (`network.trace`) to the platform server and to the sync cabinet.
+
+**Observations** (`server/src/diagnose/network-observations.ts`) turn that into findings that do not depend on the baseline: a lease that has run out or ends within two hours, a DHCP server that answered, a non-standard MTU, error and discard counts, packet loss (a problem from 20%), slow or jittery replies, ARP entries that never completed, more than one default route, and whether the sync cabinet and platform server can be reached. They state what was seen and what it often means, not a verdict.
+
+**Standards at onboarding.** A site's three standards (network baseline, time zone, client firewall policy) are suggested from what its cabinets already report (`GET /api/sites/:id/standards`; nothing is saved by that call). The site page offers "Use <cabinet>'s network", the zone most cabinets use, and the firewall profiles most cabinets have. Saving goes through the same routes and confirmations as editing them by hand.

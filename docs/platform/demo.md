@@ -86,7 +86,9 @@ The guided demo (Demo guide, then Start the guided demo) follows one scenario. E
    - It dropped off three times in the last day and is off now. The Drops section lists each drop and recovery, and shows the scanner's driver was installed about two hours before the first one.
    - That is a lead to check first, not a verdict. The page says it could still be the cable or the port.
 4. **Install the agent on a real computer.** Admin → Set up and demo: create the install token, copy the commands, run them in an elevated PowerShell. Then **Pending cabinets** to approve it.
-5. **Read its network with no baseline.** On the new cabinet, Network → **Diagnose network**. The site has no baseline yet, so nothing is compared and the page says so. You get the readings straight from the machine: link, address (DHCP or fixed), gateway, DNS, and whether it can reach the platform. With a baseline set, the same check compares against it.
+5. **Read its network with no baseline.** On the new cabinet, Network → **Diagnose network**. The site has no baseline yet, so nothing is compared and the page says so. You get the readings straight from the machine: link, address (DHCP or fixed), gateway, DNS, and whether it can reach the platform. Open **Everything that was read** for the lease, DHCP server, MTU, card errors, routes, ARP table, ping loss and jitter, and the path to the platform. Then go to the site page: **Standards for <site>** offers "Use <cabinet>'s network" (with the authenticator code), the site time zone and the client firewall policy, so a new site is set up from a cabinet that is already right. With a baseline set, the same check compares against it.
+
+   *Operating Room* at Midtown shows the other half: it matches its baseline, yet its full read shows packet loss to the gateway and receive errors on the card (a failing patch cable).
 
 The tour covers 1 to 5 in seven steps. Turn demo mode off at the end and only your real cabinet remains.
 

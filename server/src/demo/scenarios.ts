@@ -18,11 +18,11 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const list: DemoScenario[] = [
     { id: "midtown", title: "Monday morning at Midtown Manhattan",
       story: "The exam rooms say they can't sync. Check the whole site with one click: link, address, gateway and DNS are fine everywhere, and the sync cabinet's firewall is what's blocking the satellites. "
-        + "Apply the client's firewall policy with one click, and the site is checked again right away. While you're there, Procedure Room's fingerprint scanner has dropped off three times since its driver was installed.",
+        + "Apply the client's firewall policy with one click, and the site is checked again right away. Operating Room still shows a warning: it matches the baseline, but open its full read and you'll see it loses packets to the gateway and the card is counting errors, so look at the cable. While you're there, Procedure Room's fingerprint scanner has dropped off three times since its driver was installed.",
       steps: [{ label: "The site", path: `/sites/${site.site_id}` }, { label: "Check the network", path: `/sites/${site.site_id}?diagnose=network` },
         ...(scanner ? [{ label: "Procedure Room's scanner", path: `/cabinets/${scanner.id}/scanner` }] : [])] },
     ...(real ? [{ id: "real", title: "Your own cabinet",
-      story: `${real.name} is a real cabinet running the agent. Its network page reads the adapter, address, DHCP or fixed, gateway and DNS straight from the machine, and Diagnose network checks every layer. No baseline is needed for that; with one, the same check also compares against it.`,
+      story: `${real.name} is a real cabinet running the agent. Its network page reads the adapter, address, DHCP or fixed, gateway and DNS straight from the machine, and Diagnose network checks every layer. No baseline is needed for that, and the site page can set one from this cabinet's own network, along with the site's time zone and firewall policy. With a baseline, the same check also compares against it.`,
       steps: [{ label: `${real.name}: network`, path: `/cabinets/${real.id}/network` }] }] : []),
   ];
   return list;

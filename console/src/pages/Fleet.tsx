@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { api, describeError } from "../lib/api";
@@ -11,7 +11,7 @@ import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
 import { DemoTag } from "../components/DemoBanner";
-import { BulkPolicyApply, PolicyEditor, type Policy } from "../components/FirewallPolicy";
+import { BulkPolicyApply, describePolicy, PolicyEditor, type Policy } from "../components/FirewallPolicy";
 import { WatchListEditor } from "./cabinet/Services";
 import { useStartDiagnosis } from "./NetworkDiagnosis";
 
@@ -135,6 +135,7 @@ export function SitePage({ id }: { id: string }) {
             </tr>))}
           </tbody>
         </table>
+        <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SyncSettings key={data.id} siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
@@ -150,6 +151,60 @@ export function SitePage({ id }: { id: string }) {
         <BulkPolicyApply key={`bulk-${data.id}`} scope="site" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
     </div>
+  );
+}
+
+interface Standards {
+  clientId: string;
+  current: { networkBaseline: Baseline | null; timeZone: string | null; clientFirewall: Policy | null; fleetFirewall: Policy };
+  suggested: { networkBaseline: { baseline: Baseline; fromCabinet: { id: string; name: string }; readAt: string } | null;
+    timeZone: { timeZone: string; fromCabinet: { id: string; name: string } } | null; firewall: { policy: Policy; fromCabinet: { id: string; name: string } } | null };
+}
+
+/**
+ * Onboarding for a site: the three standards cabinets are compared with (network baseline, time zone, firewall policy), each with a
+ * button to adopt what a cabinet here already reports. Those settings only say what "right" looks like; nothing changes on a cabinet.
+ * The server checks the role and the authenticator code for each save.
+ */
+function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: string; role: string; onSaved: () => void }) {
+  const { data, reload } = useLoad<Standards>(`/api/sites/${siteId}/standards`);
+  const [ask, setAsk] = useState<null | "baseline" | "firewall">(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const diagnose = useStartDiagnosis();
+  if (!data) return null;
+  const canTier2 = role === "tier2" || role === "admin", canAdmin = role === "admin";
+  const { current: cur, suggested: sug } = data;
+  const done = () => { reload(); onSaved(); };
+  const rows: { label: string; value: ReactNode | null; action: ReactNode }[] = [
+    { label: "Network",
+      value: cur.networkBaseline ? <>{cur.networkBaseline.addressing === "dhcp" ? "DHCP" : "Fixed addresses"}, gateway <code>{cur.networkBaseline.gateway}</code>, DNS <code>{cur.networkBaseline.dnsServers.join(", ")}</code></> : null,
+      action: cur.networkBaseline || !canTier2 ? null : sug.networkBaseline
+        ? <button className="btn" onClick={() => setAsk("baseline")}>Use {sug.networkBaseline.fromCabinet.name}'s network</button>
+        : <button className="btn" disabled={diagnose.busy} onClick={() => void diagnose.start({ siteId })}>Read the network first</button> },
+    { label: "Time zone", value: cur.timeZone ? zoneName(cur.timeZone) : null,
+      action: cur.timeZone || !canTier2 || !sug.timeZone ? null : <button className="btn" onClick={async () => {
+        setProblem(null);
+        try { await api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: sug.timeZone!.timeZone }); done(); } catch (e) { setProblem(describeError(e)); }
+      }}>Use {zoneName(sug.timeZone.timeZone)} (from {sug.timeZone.fromCabinet.name})</button> },
+    { label: "Firewall", value: cur.clientFirewall ? describePolicy(cur.clientFirewall) : null,
+      action: cur.clientFirewall || !canAdmin || !sug.firewall ? null : <button className="btn" onClick={() => setAsk("firewall")}>Use {sug.firewall.fromCabinet.name}'s settings for the client</button> },
+  ];
+  const missing = rows.filter(r => !r.value).length;
+  return (
+    <section className="panel" aria-labelledby={`std-${siteId}`}>
+      <h2 id={`std-${siteId}`}>Standards for {name}</h2>
+      <p className="muted small">What this site's cabinets are compared with. {missing === 0 ? "All three are set." : "Set them once, from a cabinet that is already right, and every cabinet here is checked against them."} Nothing changes on a cabinet.</p>
+      <ul className="plain">{rows.map(r => (
+        <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; the fleet default applies (${describePolicy(cur.fleetFirewall)})` : ""}</span>} {r.action}</li>))}</ul>
+      {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {sug.networkBaseline && !cur.networkBaseline && <StepUpDialog open={ask === "baseline"} action="site.network_baseline" target={siteId} params={{ baseline: sug.networkBaseline.baseline }} onClose={() => setAsk(null)}
+        description={<p>Set the network baseline for <strong>{name}</strong> from <strong>{sug.networkBaseline.fromCabinet.name}</strong>: {sug.networkBaseline.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {sug.networkBaseline.baseline.gateway}/{sug.networkBaseline.baseline.prefixLength}, DNS {sug.networkBaseline.baseline.dnsServers.join(", ")}. Check that this cabinet's network is the right one first. Nothing changes on a cabinet.</p>}
+        onToken={async token => { try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: sug.networkBaseline!.baseline, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
+      {sug.firewall && !cur.clientFirewall && <StepUpDialog open={ask === "firewall"} action="client.firewall_policy" target={data.clientId} params={{ policy: sug.firewall.policy }} onClose={() => setAsk(null)}
+        description={<p>Set the client's firewall policy to <strong>{describePolicy(sug.firewall.policy)}</strong>, as {sug.firewall.fromCabinet.name} has it now. It applies to every site of this client. Nothing changes on a cabinet until someone applies it.</p>}
+        onToken={async token => { try { await api("PUT", `/api/clients/${data.clientId}/firewall-policy`, { policy: sug.firewall!.policy, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
+    </section>
   );
 }
 
