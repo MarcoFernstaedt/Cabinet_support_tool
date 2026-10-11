@@ -40,7 +40,7 @@ export function SignIn({ onStage }: { onStage: (stage: Stage) => void }) {
     onStage(r.stage);
   });
   return (
-    <Card title="Sign in" intro="Sign in with your Mashura Support Team credentials.">
+    <Card title="Sign in" intro="Use the username and password your administrator gave you.">
       <form onSubmit={submit} className="stack">
         <label className="field"><span>Username</span>
           <input autoFocus autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} /></label>
@@ -65,7 +65,7 @@ export function TotpStep({ onStage, onCancel }: { onStage: (s: Stage) => void; o
   const [code, setCode] = useState("");
   const { busy, problem, submit } = useSubmit(async () => onStage((await api<{ stage: Stage }>("POST", "/api/auth/totp", { code })).stage));
   return (
-    <Card title="Enter your code" intro="Open your authenticator app and enter the current code for the Mashura Support Console.">
+    <Card title="Enter your code" intro="Enter the 6-digit code shown in your authenticator app.">
       <form onSubmit={submit} className="stack">
         <CodeField value={code} onChange={setCode} />
         {problem && <p className="error" role="alert">{problem}</p>}

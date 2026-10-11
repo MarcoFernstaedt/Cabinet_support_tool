@@ -66,7 +66,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             {" "}<OnlineBadge online={cabinet.online} />
             {cabinet.readOnly && <> <Badge tone="info">Read-only cabinet</Badge></>}
             {cabinet.demo ? <> <DemoTag long /></> : <> <Badge tone="ok">Live agent</Badge></>}
-            {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Who opened this cabinet</Link></>}
+            {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Access history</Link></>}
           </p>
           <nav aria-label="Cabinet sections" className="tabs">
             {SECTIONS.map(([key, label]) => (

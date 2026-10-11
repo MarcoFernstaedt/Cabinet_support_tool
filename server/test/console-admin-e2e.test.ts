@@ -133,7 +133,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await samOnline.getByRole("link", { name: "ICU cabinet" }).waitFor();
     await shot(ada, "m6-2-online");
     await goto(`/cabinets/${cabinetId}`);
-    await ada.getByRole("link", { name: "Who opened this cabinet" }).click();
+    await ada.getByRole("link", { name: "Access history" }).click();
     await ada.getByRole("heading", { name: "Audit log", level: 1 }).waitFor();
     const viewRow = ada.getByRole("row").filter({ hasText: "Sam Support" }).filter({ hasText: "cabinet.view" }).first();
     await viewRow.waitFor();

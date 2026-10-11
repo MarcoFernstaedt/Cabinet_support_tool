@@ -100,6 +100,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .field input, .field select, .field textarea, .jump input {
   min-height: var(--control-h); padding: var(--s-1) var(--s-2); border-radius: var(--r-md); border: 1px solid var(--line-strong);
   background: var(--bg); color: var(--text); font-size: var(--fs-md); }
+/* Controls placed straight in a table cell look like the rest. */
+.table select, .table input:not([type="checkbox"]):not([type="radio"]) {
+  min-height: var(--control-h); padding: var(--s-1) var(--s-2); border-radius: var(--r-md); border: 1px solid var(--line-strong);
+  background: var(--bg); color: var(--text); font-size: var(--fs-md); }
+.table select:disabled { opacity: .6; }
 .field input:hover, .field select:hover, .field textarea:hover { border-color: var(--text-2); }
 .field input:focus-visible, .field select:focus-visible, .field textarea:focus-visible, .jump input:focus-visible { outline-offset: 0; border-color: var(--accent); }
 .field input[aria-invalid="true"] { border-color: var(--crit); }

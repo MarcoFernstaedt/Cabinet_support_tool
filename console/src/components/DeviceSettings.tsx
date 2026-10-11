@@ -8,9 +8,9 @@ import { StepUpDialog } from "./ui";
 
 export const SCANNER_SOURCE: Record<string, string> = {
   cabinet: "this cabinet's own setting", site: "the site's setting", client: "the client's setting", fleet: "the fleet default",
-  automatic: "nowhere: the cabinet finds its scanner automatically (the Biometric device)",
+  automatic: "automatic detection: the cabinet finds its scanner itself (the Biometric device)",
 };
-export const PORTS_SOURCE: Record<string, string> = { site: "this site's own setting", client: "the client's default", fleet: "the fleet default", none: "nowhere (no ports set)" };
+export const PORTS_SOURCE: Record<string, string> = { site: "this site's own setting", client: "the client's default", fleet: "the fleet default", none: "no setting (no ports set)" };
 
 const parseIds = (text: string) => text.split(/\s+/).map(s => s.trim()).filter(Boolean);
 

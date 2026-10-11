@@ -73,7 +73,7 @@ export function ClientPage({ id }: { id: string }) {
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
         <h1>{data.name}</h1>
-        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> major alerts</span></div>
+        <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> major {alerts === 1 ? "alert" : "alerts"}</span></div>
         <table className="table">
           <caption className="sr-only">Sites of {data.name}</caption>
           <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>

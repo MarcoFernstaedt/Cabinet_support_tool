@@ -19,7 +19,7 @@ export function AdminHome() {
         <li><Link to="/admin/setup"><strong>Set up and demo</strong><span>Add the support team, install the agent on a computer, approve it, and turn demo mode on or off.</span></Link></li>
         <li><Link to="/admin/security"><strong>Security alerts</strong><span>Unusual write volume, failed sign-ins, new networks, audit chain, agent and certificate problems.</span></Link></li>
         <li><Link to="/admin/users"><strong>Users</strong><span>Create accounts, change roles and write limits, reset passwords and authenticators.</span></Link></li>
-        <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in, their role, last activity and the cabinet they have open.</span></Link></li>
+        <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in at the moment.</span></Link></li>
         <li><Link to="/admin/audit"><strong>Audit log</strong><span>Search by person, cabinet, action and date; verify the chain.</span></Link></li>
         <li><Link to="/admin/safety"><strong>Fleet safety</strong><span>Pause changes fleet-wide or per client; resume people paused by their limit.</span></Link></li>
         <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>Approve or reject cabinets asking to join{data ? ` (${data.length} waiting)` : ""}.</span></Link></li>

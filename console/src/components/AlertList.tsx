@@ -29,6 +29,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [resolving, setResolving] = useState<string | null>(null);
   const [resolution, setResolution] = useState("");
   const [mapping, setMapping] = useState<Match | null>(null);
+  const [shown, setShown] = useState(50);
   const say = (id: string, text: string) => setNotes(n => ({ ...n, [id]: text }));
 
   const take = async (a: Alert, open: boolean) => {
@@ -52,7 +53,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   if (alerts.length === 0) return <Empty>{empty}</Empty>;
   return (<>
     <ul className="alert-list">
-      {alerts.map(a => {
+      {alerts.slice(0, shown).map(a => {
         const mine = a.claimedBy?.id === me.id;
         return (
           <li key={a.id} className={`alert-row ${a.severity} ${a.state}`}>
@@ -92,6 +93,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
           </li>);
       })}
     </ul>
+    {alerts.length > shown && <p className="row gap"><button className="btn" onClick={() => setShown(n => n + 50)}>Show {Math.min(50, alerts.length - shown)} more</button><span className="muted small" role="status">Showing {shown} of {alerts.length}</span></p>}
     <MapToIssue open={mapping !== null} initial={mapping ?? {}} onClose={() => { setMapping(null); onChanged(); }} />
   </>);
 }

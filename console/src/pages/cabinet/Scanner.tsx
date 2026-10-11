@@ -56,7 +56,7 @@ function ScannerResult({ out, cabinet, onUse }: { out: PeripheralStatusOutput; c
       {!out.configured && !out.name ? <Badge tone="warn">No scanner found</Badge>
         : out.connected ? <Badge tone="ok">Scanner connected</Badge> : <Badge tone="crit">Scanner not connected</Badge>}
       {!out.configured && out.name && <> <Badge tone="info">Found automatically</Badge></>}
-      {" "}{problems.length === 0 && (out.configured || out.name) ? "Every check passed." : `${problems.length} check${problems.length === 1 ? "" : "s"} need attention.`}
+      {" "}{problems.length === 0 && (out.configured || out.name) ? "Every check passed." : `${problems.length} check${problems.length === 1 ? " needs" : "s need"} attention.`}
     </p>
     <ul className="checklist" aria-label="Scanner checks">
       {out.checks.map(c => (
@@ -142,7 +142,7 @@ function ScannerIds({ cabinet, onSaved }: { cabinet: CabinetDetail; onSaved: () 
   return (
     <section className="panel" aria-labelledby="scanner-ids">
       <h2 id="scanner-ids">Scanner hardware IDs</h2>
-      <p>In use: {sc.effective?.length ? <code>{sc.effective.join(", ")}</code> : <span className="muted">none (automatic)</span>} <span className="muted">— from {SCANNER_SOURCE[sc.source] ?? sc.source}.</span></p>
+      <p>In use: {sc.effective?.length ? <code>{sc.effective.join(", ")}</code> : <span className="muted">automatic detection (the Biometric device)</span>}{sc.effective?.length ? <span className="muted"> — from {SCANNER_SOURCE[sc.source] ?? sc.source}.</span> : null}</p>
       <p className="muted small">Usually set once for the whole client, on <Link to={`/clients/${cabinet.client.id}`}>{cabinet.client.name}</Link>; a site (<Link to={`/sites/${cabinet.site.id}`}>{cabinet.site.name}</Link>) or this cabinet can differ.
         The fleet default is under <Link to="/admin/scanner">Admin → Device defaults</Link>.</p>
       <ScannerIdsEditor label="This cabinet's own scanner IDs" current={sc.cabinetHardwareIds} inherited={above}
