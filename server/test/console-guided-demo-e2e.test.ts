@@ -34,7 +34,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   const stream = new ResultStream(db.appUrl, db.app);
   await stream.start();
-  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, logger: false, now: () => clock });
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
