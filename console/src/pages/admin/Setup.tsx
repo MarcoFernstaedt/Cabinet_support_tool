@@ -145,9 +145,9 @@ export function DemoMode() {
       {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}</p>}
       <div className="row gap wrap">
         {on ? <button className="btn" onClick={() => { setProblem(null); setAsk("off"); }}>Turn demo mode off</button>
-          : <button className="btn primary" onClick={() => { setProblem(null); setAsk("on"); }}>Turn demo mode on</button>}
+          : <button className="btn" onClick={() => { setProblem(null); setAsk("on"); }}>Turn demo mode on</button>}
         {on && <button className="btn" onClick={() => { setProblem(null); setAsk("reset"); }}>Reset demo data</button>}
-        {on && <button className="btn" onClick={() => startDemoTour()}>Start the guided demo</button>}
+        <button className="btn primary" onClick={() => startDemoTour()}>Start the guided demo</button>
         <Link className="btn ghost" to="/demo">Demo guide and scenario library</Link>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}

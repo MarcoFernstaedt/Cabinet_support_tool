@@ -26,7 +26,7 @@ export function DemoGuide() {
       </ul>
       <p className="row gap wrap">
         {demo.data?.enabled ? <Badge tone="info">Demo mode is on: {demo.data.cabinets} simulated cabinets</Badge> : <Badge tone="off">Demo mode is off</Badge>}
-        <button className="btn primary" onClick={() => startDemoTour("network")} disabled={!demo.data?.enabled}>Start the guided demo</button>
+        <button className="btn primary" onClick={() => startDemoTour("network")}>Start the guided demo</button>
         {atLeast(me, "admin") && <Link to="/admin/settings#demo">Turn on, off or reset in Settings</Link>}
       </p>
       <h2>The demo</h2>

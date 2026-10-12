@@ -29,7 +29,7 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
         ...(operating ? [{ label: "Operating Room's network", path: `/cabinets/${operating.id}/network` }] : []),
         ...(scanner ? [{ label: "Procedure Room's scanner", path: `/cabinets/${scanner.id}/scanner` }] : []),
         { label: "Unrecognized errors", path: "/alerts?view=unrecognized" },
-        ...(reception ? [{ label: "Reception: event logs", path: `/cabinets/${reception.id}/events` }, { label: "Reception: alerts", path: `/cabinets/${reception.id}/alerts` }] : []),
+        ...(reception ? [{ label: "Reception: event logs", path: `/cabinets/${reception.id}/events?log=System` }, { label: "Reception: alerts", path: `/cabinets/${reception.id}/alerts` }] : []),
         { label: "Known fixes", path: "/fixes" }] },
     ...(real ? [{ id: "real", title: "Your own cabinet",
       story: `${real.name} is a real cabinet running the agent. Its network page reads the adapter, address, DHCP or fixed, gateway and DNS straight from the machine, and Diagnose network checks every layer. No baseline is needed for that, and the site page can set one from this cabinet's own network, along with the site's time zone and firewall policy. With a baseline, the same check also compares against it.`,

@@ -25,6 +25,8 @@ export function MajorAlertToasts() {
   const [items, setItems] = useState<(AlertNews & { note?: string })[]>([]);
   const [said, setSaid] = useState("");
   useAlertNews(n => {
+    // Simulated cabinets (their client is named "Demo · …") raise alerts all the time while the demo is being set up; those never pop up.
+    if (n.client.name.startsWith("Demo · ")) return;
     if (n.change === "created" && n.severity === "major") {
       setItems(list => [n, ...list.filter(x => x.alertId !== n.alertId)].slice(0, 3));
       setSaid(`New major alert: ${n.title} on ${n.cabinet.name}, ${n.client.name}, ${n.site.name}.`);

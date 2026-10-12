@@ -35,10 +35,29 @@ export async function demoEnabled(db: pg.Pool | pg.PoolClient): Promise<boolean>
   return (await db.query<{ value: boolean }>("SELECT value FROM settings WHERE key = $1", [SETTING])).rows[0]?.value === true;
 }
 
+/** Error sources only the demo's cabinets log. A rule someone maps for them during the guided demo goes when the demo is turned off or reset. */
+const DEMO_ERROR_SOURCES = ["Microsoft-Windows-Biometrics", "WUDFHost", "BillingExport", "MedSyncAgent"];
+
+/**
+ * Whether the guided demo's story can be followed from its first step: the sync cabinet's firewall is still wrong, nobody has mapped the
+ * scanner driver's errors, the teammate's fix is still waiting, and Reception still has an unrecognized alert. Once any of that has been
+ * used up, starting the guided demo resets the demo first.
+ */
+export async function storyReady(pool: pg.Pool): Promise<boolean> {
+  if (!(await demoEnabled(pool))) return false;
+  const r = (await pool.query<{ ok: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM cabinets WHERE name = 'Midtown Sync' AND demo_scenario = 'firewall_drift')
+        AND NOT EXISTS (SELECT 1 FROM symptom_rules WHERE NOT built_in AND state IN ('live', 'proposed') AND match->>'source' = ANY($1::text[]))
+        AND EXISTS (SELECT 1 FROM known_fixes f JOIN users u ON u.id = f.created_by WHERE u.username = $2 AND f.status = 'pending' AND f.removed_at IS NULL)
+        AND EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE k.name = 'Reception' AND k.demo_scenario IS NOT NULL AND a.issue_type_id IS NULL AND a.state <> 'resolved') AS ok`,
+    [DEMO_ERROR_SOURCES, DEMO_MEMBER])).rows[0]!;
+  return r.ok;
+}
+
 export async function demoStatus(pool: pg.Pool) {
   const n = (await pool.query<{ clients: string; cabinets: string }>(
     `SELECT (SELECT count(*) FROM clients WHERE demo) AS clients, (SELECT count(*) FROM cabinets WHERE demo_scenario IS NOT NULL) AS cabinets`)).rows[0]!;
-  return { enabled: await demoEnabled(pool), clients: Number(n.clients), cabinets: Number(n.cabinets) };
+  return { enabled: await demoEnabled(pool), clients: Number(n.clients), cabinets: Number(n.cabinets), storyReady: await storyReady(pool) };
 }
 
 const iso = (ms: number) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -269,6 +288,8 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.
     await c.query("UPDATE security_alerts SET cabinet_id = NULL WHERE cabinet_id = ANY($1::uuid[])", [ids]);
+    // A rule mapped during the guided demo is switched off (rules and their history are never deleted), so the next run starts unmapped.
+    await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = now() WHERE NOT built_in AND state IN ('live', 'proposed') AND match->>'source' = ANY($1::text[])", [DEMO_ERROR_SOURCES]);
     await c.query("DELETE FROM known_fixes WHERE created_by IN (SELECT id FROM users WHERE username = $1)", [DEMO_MEMBER]);
     await c.query("DELETE FROM users WHERE username = $1", [DEMO_MEMBER]);
     await c.query("DELETE FROM cabinets WHERE id = ANY($1::uuid[])", [ids]);

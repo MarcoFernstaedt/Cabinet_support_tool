@@ -26,7 +26,8 @@ function group(log: string): string {
 
 export function EventLogs({ cabinetId }: { cabinetId: string }) {
   const channels = useOperation<EventlogChannelsOutput>(cabinetId, "eventlog.channels");
-  const [log, setLog] = useState<string | null>(null);
+  // A link can open one log directly (the guided demo does: ?log=System); the server checks the name against the readable logs.
+  const [log, setLog] = useState<string | null>(() => { const l = new URLSearchParams(window.location.search).get("log"); return l && l.length <= 80 && ![...l].some(ch => ch.charCodeAt(0) < 32) ? l : null; });
   useEffect(() => { void channels.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (log) return <LogView cabinetId={cabinetId} log={log} onBack={() => setLog(null)} />;
   return (
