@@ -170,7 +170,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.equal(await storyReady(db.app), false);
     await page.getByRole("link", { name: "Admin", exact: true }).click();
     await page.getByRole("link", { name: /Set up and demo/ }).click();
-    await page.getByRole("button", { name: "Start the guided demo" }).click();
+    await page.getByLabel("Demo mode").getByRole("button", { name: "Start the guided demo" }).click();
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();
     await confirmWithCode();
     await panel.getByRole("heading", { name: "Monday morning at Midtown Manhattan" }).waitFor({ timeout: 90_000 });
