@@ -51,7 +51,9 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
   try {
     const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
-    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
+    // After a reset the pages that were open may still ask for cabinets that no longer exist: a 404 is expected then, and only then.
+    let resetting = false;
+    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text()) && !(resetting && /status of 404/.test(m.text()))) problems.push(m.text()); });
     const code = async () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
     const confirmWithCode = async () => {
       await page.getByRole("dialog").getByLabel("Authenticator code").fill(await code());
@@ -171,6 +173,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await page.getByRole("link", { name: "Admin", exact: true }).click();
     await page.getByRole("link", { name: /Set up and demo/ }).click();
     await page.getByLabel("Demo mode").getByRole("button", { name: "Start the guided demo" }).click();
+    resetting = true;
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();
     await confirmWithCode();
     await panel.getByRole("heading", { name: "Monday morning at Midtown Manhattan" }).waitFor({ timeout: 90_000 })
