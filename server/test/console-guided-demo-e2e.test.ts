@@ -173,7 +173,8 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await page.getByLabel("Demo mode").getByRole("button", { name: "Start the guided demo" }).click();
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();
     await confirmWithCode();
-    await panel.getByRole("heading", { name: "Monday morning at Midtown Manhattan" }).waitFor({ timeout: 90_000 });
+    await panel.getByRole("heading", { name: "Monday morning at Midtown Manhattan" }).waitFor({ timeout: 90_000 })
+      .catch(async e => { throw new Error(`${e.message}\nalerts on the page: ${JSON.stringify(await page.locator("[role=alert]").allTextContents())}`); });
     assert.equal(await storyReady(db.app), true, "the reset put the story back at its start, with the mapped rule switched off");
     assert.deepEqual(simulatorProblems, []);
     assert.deepEqual(problems, []);
