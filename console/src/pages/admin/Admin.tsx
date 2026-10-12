@@ -80,9 +80,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
         ["Running since", fullTime(p.fingerprints.onlineSince)], ["Request ID", <code>{p.id}</code>]]} />
       {done ? <p className="ok" role="status">{done}</p> : (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setConfirm("approve"); }}>
-          <label className="field"><span>Client</span><input required maxLength={128} list={`${lists}-clients`} value={form.client} onChange={e => setForm(f => ({ ...f, client: e.target.value }))} /></label>
+          <label className="field"><span>Client</span><input required maxLength={128} placeholder="e.g. Mashura Office" list={`${lists}-clients`} value={form.client} onChange={e => setForm(f => ({ ...f, client: e.target.value }))} /></label>
           <datalist id={`${lists}-clients`}>{clients.map(c => <option key={c.id} value={c.name} />)}</datalist>
-          <label className="field"><span>Site</span><input required maxLength={128} list={`${lists}-sites`} value={form.site} onChange={e => setForm(f => ({ ...f, site: e.target.value }))} /></label>
+          <label className="field"><span>Site</span><input required maxLength={128} placeholder="e.g. Support desk" list={`${lists}-sites`} value={form.site} onChange={e => setForm(f => ({ ...f, site: e.target.value }))} /></label>
           <datalist id={`${lists}-sites`}>{sites.map(n => <option key={n} value={n} />)}</datalist>
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>

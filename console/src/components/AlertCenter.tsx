@@ -34,6 +34,12 @@ export function MajorAlertToasts() {
     }
   });
   const dismiss = (id: string) => setItems(list => list.filter(x => x.alertId !== id));
+  // A toast that nobody touches goes away by itself after a while; the alert stays in the list.
+  useEffect(() => {
+    if (items.length === 0) return;
+    const t = setTimeout(() => setItems(list => list.slice(0, -1)), 12_000);
+    return () => clearTimeout(t);
+  }, [items]);
   const take = async (n: AlertNews) => {
     const r = await claim(n.alertId);
     if (r.alert) { dismiss(n.alertId); navigate(`/cabinets/${n.cabinet.id}/alerts`); }

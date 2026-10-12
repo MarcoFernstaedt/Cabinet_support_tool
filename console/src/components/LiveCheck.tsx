@@ -2,7 +2,7 @@
 // what it read or why it could not. Nothing here changes the cabinet. It is how you confirm a freshly installed agent is doing the real
 // thing (event logs, services, firewall, the network and the path to the platform) and not simulated data. "Copy results" gives a plain
 // report to paste into a ticket.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRunner } from "../lib/commands";
 import { Badge } from "./ui";
 
@@ -43,6 +43,9 @@ type State = { status: "waiting" | "running" | "passed" | "failed"; text: string
 
 export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabinetId: string; cabinetName: string; simulated?: boolean }) {
   const run = useRunner();
+  const section = useRef<HTMLElement>(null);
+  // The guided demo links here with #live-check, so the panel is on screen when the step opens.
+  useEffect(() => { if (window.location.hash === "#live-check") section.current?.scrollIntoView({ block: "start" }); }, []);
   const [rows, setRows] = useState<Record<string, State>>({});
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -68,7 +71,7 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
   const report = () => [`Live check of ${cabinetName} at ${new Date().toISOString()}`, ...CHECKS.map(c => `${rows[c.id]?.status === "passed" ? "PASS" : rows[c.id]?.status === "failed" ? "FAIL" : "----"}  ${c.label} (${c.operation}): ${rows[c.id]?.text ?? ""}`)].join("\n");
   const copy = async () => { try { await navigator.clipboard.writeText(report()); setCopied(true); } catch { setCopied(false); } };
   return (
-    <section className="panel" aria-labelledby="live-check">
+    <section className="panel" aria-labelledby="live-check" ref={section}>
       <div className="panel-head">
         <div>
           <h2 id="live-check">Test {cabinetName}</h2>

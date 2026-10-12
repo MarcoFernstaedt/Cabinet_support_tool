@@ -5,7 +5,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { ago } from "../../lib/time";
 import { Badge } from "../../components/ui";
-import { KnownFixes, SaveFix, findingKey } from "../../components/KnownFixes";
+import { KEY_LABEL, KnownFixes, SaveFix, findingKey } from "../../components/KnownFixes";
 import { ReadingsView, type Readings } from "../../components/NetworkReadings";
 import { FixButton, LAYERS, PathBar, type FixAction, type Layer, type LayerState } from "../../components/NetworkFix";
 
@@ -103,7 +103,7 @@ function FindingRow({ f, cabinetId, onFixed }: { f: Finding; cabinetId: string; 
         : <FixButton action={f.action} onDone={onFixed} />)}
       {f.severity !== "ok" && !f.causedBy && (<>
         <KnownFixes symptom={{ kind: "finding", key: findingKey(f.id) }} cabinetId={cabinetId} reloadKey={fixes} />
-        <SaveFix symptom={{ kind: "finding", key: findingKey(f.id) }} cabinetId={cabinetId} suggestedTitle={f.title} onSaved={() => setFixes(n => n + 1)} />
+        <SaveFix symptom={{ kind: "finding", key: findingKey(f.id) }} cabinetId={cabinetId} suggestedTitle={KEY_LABEL[findingKey(f.id)] ?? f.title} onSaved={() => setFixes(n => n + 1)} />
       </>)}
     </li>
   );

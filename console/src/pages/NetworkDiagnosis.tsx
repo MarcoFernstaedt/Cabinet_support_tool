@@ -8,7 +8,7 @@ import { useLoad } from "../lib/useLoad";
 import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty } from "../components/ui";
-import { KnownFixes, SaveFix } from "../components/KnownFixes";
+import { KEY_LABEL, KnownFixes, SaveFix } from "../components/KnownFixes";
 import { ReadingsView, type Readings } from "../components/NetworkReadings";
 import { FixAll, FixButton, JOB_LABEL, LAYERS, type FixAction, type Layer, type LayerState } from "../components/NetworkFix";
 
@@ -137,7 +137,7 @@ function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: str
         </div>
       ) : <p className="muted small">No change can be made from here: someone at the site needs to look.</p>}
       {first && <KnownFixes symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} />}
-      {first && <SaveFix symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} suggestedTitle={g.title} />}
+      {first && <SaveFix symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} suggestedTitle={KEY_LABEL[g.key.split("|")[0]!] ?? g.title} />}
       {many && <details><summary>Fix one at a time</summary>
         <ul className="plain">{g.targets.map(t => <li key={t.cabinetId} className="row gap wrap"><strong>{t.cabinetName}</strong> <span className="muted small">{t.label}</span>
           <FixButton action={t.action} onDone={onFixed}>Fix</FixButton></li>)}</ul>

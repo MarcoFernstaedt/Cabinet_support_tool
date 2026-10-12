@@ -76,7 +76,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
           </nav>
         </header>
         <WritePauseBanner clientId={cabinet.client.id} clientOnly />
-        {!cabinet.online && <div className="notice warn" role="status">This cabinet has not been heard from {ago(cabinet.lastHeartbeatAt)}. Diagnostics will wait for it to come back, and expire if it does not.</div>}
+        {!cabinet.online && <div className="notice warn" role="status">{cabinet.lastHeartbeatAt ? <>This cabinet has not been heard from since {ago(cabinet.lastHeartbeatAt)}.</> : "This cabinet has not connected yet."} Diagnostics will wait for it to come back, and expire if it does not.</div>}
         <Section current={current} cabinet={cabinet} reload={reload} />
       </div>
     </div>

@@ -26,7 +26,7 @@ export const TOURS: Record<string, { name: string; steps: Step[] }> = {
     { title: "It shows up where the problem is", body: "Back on Reception's alert, the approved fix now sits beside the problem as a possible fix, with what differs from the cabinet it was fixed on. A fix applies to every cabinet in the fleet, at any client or site, and the alert carries a \"possible fix\" mark in every list, so the next person to see this error starts from the answer.", path: page("midtown", "Reception: alerts") },
     { title: "Now your own cabinet: install the agent", body: "Create a one-time install token, copy the install commands onto a Windows computer and run them in an elevated PowerShell. The computer connects out to the server. Nothing connects in to it.", path: "/admin/setup" },
     { title: "Approve it", body: "Within a minute of installing, the computer shows up here asking to join. Check its host name and serial number, then file it under a client and site.", path: "/admin/pending" },
-    { title: "Check it works", body: "On the Set up page, Test the live cabinet runs the real checks on the real machine: system information, event logs, services, firewall and the network. Each one says what it read, or why it couldn't.", path: "/admin/setup" },
+    { title: "Check it works", body: "On the Set up page, Test the live cabinet runs the real checks on the real machine: system information, event logs, services, firewall and the network. Each one says what it read, or why it couldn't.", path: "/admin/setup#live-check" },
     { title: "Read its network", body: "Open the new cabinet's Network page and click Diagnose network. You get the readings straight from the machine: link, address, DHCP or fixed, gateway, DNS, the lease, the routes and the path to the platform. If its site has no baseline yet, the site page can set one from this cabinet's own network, along with the time zone and the firewall policy. That is the whole loop: check without remote desktop, find the layer that's broken, fix it in a click, keep what you learn, and bring a new cabinet on.", path: page("real", "") },
   ] },
 };
@@ -59,7 +59,7 @@ export function DemoTour() {
     if (place === null) return;
     api<{ scenarios: { id: string; steps: { label: string; path: string }[] }[] }>("GET", "/api/demo/scenarios")
       .then(r => setScenarios(Object.fromEntries(r.scenarios.map(s => [s.id, s.steps]))), () => undefined);
-  }, [place?.tour]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [place?.tour, place?.step]); // eslint-disable-line react-hooks/exhaustive-deps
   // Steps whose page is not available in this demo (no real cabinet yet, say) are left out.
   const steps = place ? TOURS[place.tour]!.steps.filter(s => typeof s.path === "string" || Object.keys(scenarios).length === 0 || s.path(scenarios) !== null) : [];
   const go = useCallback((n: number | null) => {

@@ -14,8 +14,9 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
+import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { createTestDatabase } from "./database.js";
-import { tempDir } from "./helpers.js";
+import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -63,19 +64,25 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal(await page.locator("#main li.finding").count(), 1, "one scenario, not a library");
     await page.locator("#main").getByRole("button", { name: "Start the guided demo" }).click();
 
+    // With SHOTS set, every step is photographed after it settles, for reviewing the screens.
+    let shots = 0;
+    const next = async () => {
+      await page.getByRole("button", { name: "Next" }).click();
+      if (process.env.SHOTS) { await page.waitForTimeout(2500); await page.screenshot({ path: `${process.env.SHOTS}/tour-${String(++shots).padStart(2, "0")}.png` }); }
+    };
     // Step 1 takes you to the site; step 2 is one cabinet, Exam Room 1, checked on its own.
     await page.getByRole("heading", { name: "Midtown Manhattan", level: 1 }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Exam Room 1", level: 1 }).waitFor();
     await page.getByRole("button", { name: "Diagnose network", exact: true }).click();
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
     // Step 3 is the whole site at once.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByText("Firewall blocks the sync cabinet's ports").first().waitFor({ timeout: 60_000 });
     // Step 4 says what was found; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "What the check found" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Fix it" }).waitFor();
     await page.getByRole("button", { name: /Apply the policy on Midtown Sync/ }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
@@ -91,7 +98,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.deepEqual(Object.values(policy), [false, false, false], "the cabinet really changed");
 
     // Step 6: Operating Room matches its baseline but loses packets. The fix is saved, with its setup, for next time.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Operating Room", level: 1 }).waitFor();
     await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
     await page.getByRole("button", { name: "Save what fixed this…" }).first().click();
@@ -111,21 +118,21 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/known-fix.png`, fullPage: true });
 
     // Step 7: the scanner, three drops and the driver installed before the first.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: /Drops/ }).waitFor({ timeout: 30_000 });
     await page.getByText("3 in the last 24 hours").waitFor();
     await page.getByText(/was installed about 2 hours before the first drop/).waitFor();
     assert.equal(await page.getByText(/caused by/i).count(), 0);
 
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
     await page.getByText("Reception").first().waitFor({ timeout: 30_000 });
     await page.getByText("Waiting Room").first().waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Look at the error itself" }).waitFor();
     await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "Map it to an issue" }).waitFor();
     await page.getByRole("button", { name: "Map to issue" }).first().click();
     await page.getByRole("dialog").locator("select[required]").selectOption({ label: "Fingerprint scanner problem (major)" });
@@ -139,7 +146,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Step 11: a teammate's fix is waiting. Nobody else sees it until it is approved.
     const priya = "Reader drops after a driver install";
     assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'pending'", [priya])).rowCount, 1);
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "A teammate's fix, waiting for you" }).waitFor();
     await page.getByRole("heading", { name: /Waiting for approval \(1\)/ }).waitFor();
     await page.getByText(priya).first().waitFor();
@@ -149,7 +156,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'approved'", [priya])).rowCount, 1);
 
     // Step 12: it now sits beside the scanner alert on Reception.
-    await page.getByRole("button", { name: "Next" }).click();
+    await next();
     await page.getByRole("heading", { name: "It shows up where the problem is" }).waitFor();
     await page.getByText("Possible fix", { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText(/Rolled the reader's driver back/).first().waitFor();
@@ -160,13 +167,35 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.goto(`${origin}/alerts`);
     await page.getByText(/\d possible fix/).first().waitFor({ timeout: 30_000 });
     await page.goBack();
-    await page.getByRole("button", { name: "Next" }).click();
+    // The ending is onboarding a real agent. The computer asks to join while the presenter is on the install step.
+    await next();
     await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    const { token } = await createBootstrapToken(db.app, adminId);
+    await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
+      hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),
+      osVersion: "Windows 11 Pro", agentVersion: "0.2.0" } }, "127.0.0.1");
+    await next();
     await page.getByRole("heading", { name: "Pending cabinets" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
-    await page.getByRole("heading", { name: "Set up and demo", level: 1 }).waitFor();
-    await page.getByRole("button", { name: "Stop the guided demo" }).click();
+    await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
+    await page.getByLabel("Site", { exact: true }).fill("Support desk");
+    await page.getByRole("button", { name: "Approve", exact: true }).click();
+    clock += 30_000;
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByText(/Approved\. SUPPORT-LAPTOP will come online within a minute/).waitFor();
+    assert.equal((await db.app.query("SELECT 1 FROM cabinets WHERE hostname = 'SUPPORT-LAPTOP' AND status = 'active' AND demo_scenario IS NULL")).rowCount, 1, "a real cabinet, not a simulated one");
+    // The tour notices the new cabinet and offers its steps: the live test, then its network, which is the end.
+    await next();
+    await page.getByRole("heading", { name: "Check it works" }).waitFor();
+    await page.getByRole("heading", { name: "Test SUPPORT-LAPTOP" }).waitFor({ timeout: 30_000 });
+    await next();
+    await page.getByRole("heading", { name: "Read its network" }).waitFor();
+    await page.getByRole("heading", { name: "SUPPORT-LAPTOP", level: 1 }).waitFor();
+    await page.getByRole("button", { name: "Diagnose network", exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Next" }).count(), 0, "the onboarding is the last step");
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/tour-end.png` });
+    await page.getByRole("button", { name: "Finish" }).click();
+    assert.equal(await page.locator("aside.demo-tour").count(), 0, "the tour is over");
 
     // A site with no baseline: the read is shown, and it says nothing is compared.
     await db.app.query("UPDATE sites SET network_baseline = NULL WHERE name = 'Phoenix Clinic'");

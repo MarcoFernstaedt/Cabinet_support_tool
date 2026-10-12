@@ -31,7 +31,7 @@ const WORD = /^[a-z0-9-]{1,40}$/i;
  */
 export function match(pattern: string, path: string): Record<string, string> | null {
   const p = pattern.split("/").filter(Boolean);
-  const actual = (path.split("?")[0] ?? "").split("/").filter(Boolean);
+  const actual = (path.split("#")[0]!.split("?")[0] ?? "").split("/").filter(Boolean);
   if (p.length !== actual.length) return null;
   const params: Record<string, string> = {};
   for (let i = 0; i < p.length; i++) {
