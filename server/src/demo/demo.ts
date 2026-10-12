@@ -292,6 +292,8 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
     await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = now() WHERE NOT built_in AND state IN ('live', 'proposed') AND match->>'source' = ANY($1::text[])", [DEMO_ERROR_SOURCES]);
     await c.query("DELETE FROM known_fixes WHERE created_by IN (SELECT id FROM users WHERE username = $1)", [DEMO_MEMBER]);
     await c.query("DELETE FROM users WHERE username = $1", [DEMO_MEMBER]);
+    // Site and cabinet checks people ran (the guided demo runs one on Midtown) point at the demo sites.
+    await c.query("DELETE FROM diagnosis_batches WHERE site_id IN (SELECT s.id FROM sites s JOIN clients n ON n.id = s.client_id WHERE n.demo) OR cabinet_ids && $1::uuid[]", [ids]);
     await c.query("DELETE FROM cabinets WHERE id = ANY($1::uuid[])", [ids]);
     await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo)");
     await c.query("DELETE FROM clients WHERE demo");
