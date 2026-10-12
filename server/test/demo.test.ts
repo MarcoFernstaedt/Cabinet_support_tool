@@ -137,7 +137,7 @@ test("only an Admin turns demo mode on or off; hostile bodies are refused", asyn
   for (const body of [{}, { enabled: "true" }, { enabled: 1 }, { enabled: true, scenario: "bsod" }, [true], null])
     assert.equal((await call("PUT", "/api/admin/demo", body, ca)).status, 400, JSON.stringify(body));
   assert.equal((await call("PUT", "/api/admin/demo", { enabled: true })).status, 401);
-  assert.deepEqual((await call("GET", "/api/demo", undefined, t2)).body, { enabled: false, clients: 0, cabinets: 0 });
+  assert.deepEqual((await call("GET", "/api/demo", undefined, t2)).body, { enabled: false, clients: 0, cabinets: 0, storyReady: false });
 });
 
 test("demo mode adds the simulated fleet, and its problems become real alerts through the alerts engine", async () => {
@@ -145,7 +145,7 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   const ca = await signIn(admin);
   const on = await demoChange(admin, ca, { enabled: true });
   const expected = DEMO_FLEET.flatMap(c => c.sites.flatMap(s => s.cabinets)).length;
-  assert.deepEqual(on.body, { enabled: true, clients: DEMO_FLEET.length, cabinets: expected });
+  assert.deepEqual(on.body, { enabled: true, clients: DEMO_FLEET.length, cabinets: expected, storyReady: true });
   assert.equal((await demoChange(admin, ca, { enabled: true })).body.cabinets, expected, "turning it on twice adds nothing");
   assert.ok(await openAlert(await demoCabinet("firewall_drift"), ISSUE.firewallPolicy), "firewall drift");
   assert.ok(await openAlert(await demoCabinet("scanner_flapping"), ISSUE.scanner), "scanner");
@@ -364,7 +364,7 @@ test("turning demo mode off deletes every simulated record and leaves the real c
   const admin = await account("admin");
   const ca = await signIn(admin);
   const off = await demoChange(admin, ca, { enabled: false });
-  assert.deepEqual(off.body, { enabled: false, clients: 0, cabinets: 0 });
+  assert.deepEqual(off.body, { enabled: false, clients: 0, cabinets: 0, storyReady: false });
   for (const table of ["alerts", "events", "commands", "firewall_changes"])
     assert.equal((await db.app.query(`SELECT count(*)::int AS n FROM ${table} t JOIN cabinets k ON k.id = t.cabinet_id WHERE k.demo_scenario IS NOT NULL`)).rows[0].n, 0, table);
   assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE id = $1 AND status = 'active'", [realCabinet])).rows[0].n, 1);
