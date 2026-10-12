@@ -191,11 +191,15 @@ export async function startNetworkBatch(pool: pg.Pool, user: { userId: string; r
   if (rows.length > BATCH_LIMIT) throw new Refused("too_many_cabinets", 409, `a network diagnosis covers at most ${BATCH_LIMIT} cabinets at a time`);
   if ("cabinetIds" in selection && rows.length !== selection.cabinetIds.length) throw new Refused("not_found", 404, "one of the chosen cabinets does not exist or is not active");
   // A batch is running until every one of its cabinets has a finished diagnosis (or it is older than a run can last).
-  const mine = Number((await pool.query<{ n: string }>(
-    `SELECT count(*) AS n FROM diagnosis_batches b
+  const running = (await pool.query<{ id: string; total: number; cabinet_ids: string[] }>(
+    `SELECT b.id, b.total, b.cabinet_ids FROM diagnosis_batches b
       WHERE b.created_by = $1 AND b.created_at > now() - make_interval(secs => $2)
-        AND (SELECT count(*) FROM diagnoses d WHERE d.batch_id = b.id AND d.state <> 'running') < b.total`, [user.userId, RUN_LIMIT_MS / 1000 + 30])).rows[0]!.n);
-  if (mine > 0) throw new Refused("rate_limited", 429, "your previous network diagnosis is still running; wait for it to finish");
+        AND (SELECT count(*) FROM diagnoses d WHERE d.batch_id = b.id AND d.state <> 'running') < b.total ORDER BY b.created_at DESC`, [user.userId, RUN_LIMIT_MS / 1000 + 30])).rows;
+  // Asking again for the very same cabinets while that check is still going (a second click, a page reload) joins it; a different set waits.
+  const ids = new Set(rows.map(r => r.id));
+  const same = running.find(b => b.cabinet_ids.length === ids.size && b.cabinet_ids.every(id => ids.has(id)));
+  if (same) return { batchId: same.id, total: same.total, offline: 0 };
+  if (running.length > 0) throw new Refused("rate_limited", 429, "your previous network diagnosis is still running; wait for it to finish");
   const sites = new Set(rows.map(r => r.site));
   const label = sites.size === 1 ? `${rows[0]!.site}: ${rows.length} ${rows.length === 1 ? "cabinet" : "cabinets"}` : `${rows.length} cabinets at ${sites.size} sites`;
   const batchId = randomUUID();

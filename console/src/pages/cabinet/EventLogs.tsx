@@ -119,7 +119,7 @@ function LogView({ cabinetId, log, onBack }: { cabinetId: string; log: string; o
             <ol className="entries" aria-label={`Entries in ${log}, newest first`}>
               {out.entries.map(e => (
                 <li key={e.recordId}>
-                  <button className="entry" onClick={() => setEntry(e.recordId)} aria-label={`${LEVEL_LABEL[e.level as Level]} at ${fullTime(e.time)}, ${e.source} event ${e.eventId}: ${e.firstLine}. Open details.`}>
+                  <button className="entry" data-tour="event-entry" onClick={() => setEntry(e.recordId)} aria-label={`${LEVEL_LABEL[e.level as Level]} at ${fullTime(e.time)}, ${e.source} event ${e.eventId}: ${e.firstLine}. Open details.`}>
                     <span className="when">{fullTime(e.time)}</span>
                     <Badge tone={LEVEL_TONE[e.level as Level]}>{LEVEL_LABEL[e.level as Level]}</Badge>
                     <span className="source">{e.source} <span className="muted">· {e.eventId}</span></span>

@@ -71,7 +71,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
       {alerts.slice(0, shown).map(a => {
         const mine = a.claimedBy?.id === me.id;
         return (
-          <li key={a.id} className={`alert-row ${a.severity} ${a.state}`}>
+          <li key={a.id} data-cabinet={a.cabinet.name} className={`alert-row ${a.severity} ${a.state}`}>
             <div>
               <div className="row gap wrap">
                 <Badge tone={a.severity === "major" ? "crit" : "info"}>{a.severity === "major" ? "Major" : "Minor"}</Badge>
@@ -107,7 +107,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
               {a.state === "open" && <button className="btn small" onClick={() => void take(a, false)}>Claim</button>}
               {a.state !== "resolved" && (mine || atLeast(me, "admin")) && resolving !== a.id &&
                 <button className="btn small" onClick={() => { setResolving(a.id); setResolution(""); }}>Resolve…</button>}
-              {a.unrecognized && a.state !== "resolved" && atLeast(me, "tier2") && a.lastEventId && <button className="btn small" onClick={() => void map(a)}>Map to issue</button>}
+              {a.unrecognized && a.state !== "resolved" && atLeast(me, "tier2") && a.lastEventId && <button className="btn small" data-tour="map-to-issue" onClick={() => void map(a)}>Map to issue</button>}
             </div>
           </li>);
       })}

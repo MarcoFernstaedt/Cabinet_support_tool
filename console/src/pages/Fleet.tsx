@@ -231,7 +231,7 @@ function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { 
           <h2 id={`net-${siteId}`}>Network at {name}</h2>
           <p className="muted small">Check every cabinet here at once: link, address, gateway, DNS, the sync cabinet and the firewall, compared with the baseline below. Where something differs, the fix is offered.</p>
         </div>
-        <button className="btn primary" onClick={() => void diagnose.start({ siteId })} disabled={diagnose.busy || cabinets === 0 || cabinets > 60}>
+        <button className="btn primary" data-tour="site-diagnose" onClick={() => void diagnose.start({ siteId })} disabled={diagnose.busy || cabinets === 0 || cabinets > 60}>
           {diagnose.busy ? "Starting…" : `Diagnose network (${cabinets} ${cabinets === 1 ? "cabinet" : "cabinets"})`}</button>
       </div>
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}

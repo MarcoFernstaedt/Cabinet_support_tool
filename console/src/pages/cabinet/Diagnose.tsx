@@ -59,7 +59,7 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
           <h2 id="diagnose-heading">Diagnose network</h2>
           <p className="muted small">Checks the link, the address, the gateway, every DNS server, the platform server and the site's sync cabinet and its ports, compares the address, gateway and DNS with the site's baseline when it has one, and compares the firewall with the client policy. Is it the cable, the IP, DNS, routing or a firewall?</p>
         </div>
-        <button className="btn primary" onClick={() => void start()} disabled={d?.state === "running"} aria-busy={d?.state === "running"}>
+        <button className="btn primary" data-tour="diagnose" onClick={() => void start()} disabled={d?.state === "running"} aria-busy={d?.state === "running"}>
           {d?.state === "running" ? "Diagnosing…" : d ? "Run again" : "Diagnose network"}</button>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
@@ -73,7 +73,7 @@ export function DiagnoseNetwork({ cabinetId, cabinetName }: { cabinetId: string;
           <PathBar layers={layerStates(findings)} />
           <ul className="findings">{notOk.map(f => <FindingRow key={f.id} f={f} cabinetId={cabinetId} onFixed={() => void start()} />)}</ul>
           {d.readings && (
-            <details><summary>Everything that was read</summary><ReadingsView readings={d.readings} /></details>)}
+            <details data-tour="full-read"><summary>Everything that was read</summary><ReadingsView readings={d.readings} /></details>)}
           {okOnes.length > 0 && (
             <details open={showOk} onToggle={e => setShowOk((e.target as HTMLDetailsElement).open)}>
               <summary>Checks that passed ({okOnes.length})</summary>

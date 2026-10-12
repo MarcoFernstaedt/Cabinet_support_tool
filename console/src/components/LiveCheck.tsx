@@ -77,7 +77,7 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
           <h2 id="live-check">Test {cabinetName}</h2>
           <p className="muted small">Runs read-only checks on the real machine, one after another: system information, event logs, services, firewall, time, the network (adapters, gateway ping, name lookup) and the path to the platform. It changes nothing. Each says what it read, or why it could not.{simulated && <> This is a simulated cabinet, so the answers are made up; on a live agent they come from the machine.</>}</p>
         </div>
-        <button className="btn primary" onClick={() => void start()} disabled={busy}>{busy ? `Running ${finished + 1} of ${CHECKS.length}…` : finished > 0 ? "Run again" : "Run the checks"}</button>
+        <button className="btn primary" data-tour="live-run" onClick={() => void start()} disabled={busy}>{busy ? `Running ${finished + 1} of ${CHECKS.length}…` : finished > 0 ? "Run again" : "Run the checks"}</button>
       </div>
       {finished > 0 && <p role="status" className="small"><Badge tone={passed === CHECKS.length ? "ok" : finished === CHECKS.length ? "warn" : "info"}>{passed} of {CHECKS.length} passed</Badge> {!busy && <button className="btn small ghost" onClick={() => void copy()}>{copied ? "Copied" : "Copy results"}</button>}</p>}
       <ul className="plain live-check">{CHECKS.map(c => {

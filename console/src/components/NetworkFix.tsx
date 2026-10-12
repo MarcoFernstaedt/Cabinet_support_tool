@@ -57,7 +57,7 @@ export function FixButton({ action, onDone, children }: { action: Doable; onDone
   if (!can) return <span className="muted small">Needs Tier 2 to change this.</span>;
   return (
     <span className="fix-action">
-      <button className="btn small primary" onClick={() => setAsking(true)} disabled={write.state === "running"} aria-busy={write.state === "running"}>
+      <button className="btn small primary" data-tour={`fix-${action.kind}`} onClick={() => setAsking(true)} disabled={write.state === "running"} aria-busy={write.state === "running"}>
         {write.state === "running" ? "Working…" : children ?? label}</button>
       {write.state === "done" && write.result?.status === "succeeded" && <span className="ok small" role="status"> Done. Run the diagnosis again to confirm.</span>}
       {write.state === "done" && write.result && write.result.status !== "succeeded" && <span className="error small" role="alert"> The cabinet could not make the change{write.result.error ? `: ${write.result.error.message}` : ""}.</span>}

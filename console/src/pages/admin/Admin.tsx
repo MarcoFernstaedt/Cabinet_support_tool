@@ -87,7 +87,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
-          <button className="btn primary" disabled={!!client.near || !!site.near}>Approve</button>
+          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near}>Approve</button>
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
           {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
           <button type="button" className="btn danger" onClick={() => { setProblem(null); setConfirm("reject"); }}>Reject</button>
@@ -130,7 +130,7 @@ export function InstallTokens() {
           <span className="muted small">A token file keeps the token out of the command line, which Windows can record. Delete the file once the cabinet is approved.</span></li>
         <li>The cabinet then appears under <Link to="/admin/pending">Pending cabinets</Link> for approval.</li>
       </ol>
-      <button className="btn primary" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
+      <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
       {problem && <p className="error" role="alert">{problem}</p>}
       {issued && (
         <section className="panel" aria-live="polite">

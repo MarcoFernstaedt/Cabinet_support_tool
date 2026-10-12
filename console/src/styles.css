@@ -359,3 +359,8 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .timeline li { display: grid; grid-template-columns: 12rem 1fr; gap: var(--s-3); padding: var(--s-2) var(--s-3); border-left: 3px solid var(--line); }
 .timeline .when { color: var(--text-2); font-size: var(--fs-sm); }
 @media (max-width: 40rem) { .timeline li { grid-template-columns: 1fr; } }
+
+/* The control the guided demo's "Show me" points at. */
+.tour-target { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-md); animation: tour-pulse 1.4s ease-in-out 4; }
+@keyframes tour-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); } 50% { box-shadow: 0 0 0 10px var(--accent-soft); } }
+@media (prefers-reduced-motion: reduce) { .tour-target { animation: none; } }

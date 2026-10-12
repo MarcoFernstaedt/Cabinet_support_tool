@@ -2,7 +2,7 @@
 // grouped so the same problem on many cabinets is one row with the fix, and each cabinet's path from the link up to the
 // firewall. Read only to run; the fixes are confirmed like any change (a code for one cabinet, the password for many).
 import { Fragment, useEffect, useRef, useState } from "react";
-import { api, describeError } from "../lib/api";
+import { api, ApiError, describeError } from "../lib/api";
 import { Link, useRouter } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { ago } from "../lib/time";
@@ -29,8 +29,13 @@ export function useStartDiagnosis() {
   const [problem, setProblem] = useState<string | null>(null);
   const start = async (body: { cabinetIds: string[] } | { siteId: string }) => {
     setBusy(true); setProblem(null);
-    try { const r = await api<{ batchId: string }>("POST", "/api/diagnose/network", body); navigate(`/network/diagnosis/${r.batchId}`); }
-    catch (e) { setProblem(describeError(e)); setBusy(false); }
+    try {
+      // An earlier check by this person may still be finishing: wait for it (up to a minute) instead of showing an error.
+      for (let tries = 0; ; tries++) {
+        try { const r = await api<{ batchId: string }>("POST", "/api/diagnose/network", body); navigate(`/network/diagnosis/${r.batchId}`); return; }
+        catch (e) { if (!(e instanceof ApiError) || e.status !== 429 || tries >= 30) throw e; setProblem("Your earlier check is still finishing. Starting this one when it is done…"); await new Promise(r => setTimeout(r, 2000)); }
+      }
+    } catch (e) { setProblem(describeError(e)); setBusy(false); }
   };
   return { start, busy, problem };
 }
@@ -122,7 +127,7 @@ function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: str
   const many = g.targets.length > 1;
   const first = g.targets[0]?.cabinetId;
   return (
-    <article className={`group-card ${g.severity}`} aria-label={g.title}>
+    <article className={`group-card ${g.severity}`} data-tour={`group-${g.key.split("|")[0]}`} aria-label={g.title}>
       <div className="finding-head">
         <Badge tone={g.severity === "problem" ? "crit" : "warn"}>{g.severity === "problem" ? "Problem" : "Warning"}</Badge>
         <strong>{g.title}</strong>

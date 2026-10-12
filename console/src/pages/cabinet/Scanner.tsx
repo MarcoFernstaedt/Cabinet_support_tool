@@ -25,7 +25,7 @@ function Drops({ cabinetId }: { cabinetId: string }) {
     ...data.changes.map(c => ({ at: c.at, text: `${c.kind === "driver" ? "Driver installed" : "Windows update installed"}: ${c.title}`, tone: "info" as const }))].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <section className="panel" aria-labelledby="drops-heading">
-      <h2 id="drops-heading">Drops <Badge tone={data.drops24h >= 3 ? "crit" : "warn"}>{data.drops24h} in the last 24 hours</Badge></h2>
+      <h2 id="drops-heading" data-tour="scanner-drops">Drops <Badge tone={data.drops24h >= 3 ? "crit" : "warn"}>{data.drops24h} in the last 24 hours</Badge></h2>
       {data.lead && <p>{data.lead}</p>}
       <ol className="timeline">{timeline.map((t, i) => (
         <li key={i}><span className="when" title={fullTime(t.at)}>{fullTime(t.at)}</span><span className="what"><Badge tone={t.tone}>{t.text.split(":")[0]!}</Badge>{t.text.includes(":") ? t.text.slice(t.text.indexOf(":")) : ""}</span></li>))}</ol>

@@ -66,7 +66,7 @@ The cabinets worth looking at:
 
 ## The guided demo
 
-Open the Demo guide and click **Start the guided demo**. It is one story of about sixteen steps, in a panel at the side of the real console.
+Open the Demo guide and click **Start the guided demo**. It is one story of about sixteen steps, in a panel at the side of the real console. **Show me** scrolls to the control the step is about and outlines it, so you never have to hunt for it. It only points. It never clicks or starts a check for you.
 
 1. **Midtown Manhattan on a Monday morning.** The exam rooms say they can't sync. Check Exam Room 1 on its own, then the whole site at once. Link, address, gateway and DNS are fine, and the sync cabinet's firewall is what blocks the satellites. Apply the client policy with one click and the site checks itself again and comes back clean, apart from Operating Room, whose full read shows the packet loss and card errors. Save what fixed it once someone swaps the cable.
 2. **The scanner and the errors nobody has named.** Procedure Room's drops and the driver install. Then the unrecognized errors at Reception and Waiting Room: read the log, map the error to the Fingerprint scanner issue, then approve the fix that Priya (a made-up Tier 1 teammate) already submitted. It now shows up beside the alert as a possible fix.

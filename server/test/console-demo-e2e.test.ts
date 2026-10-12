@@ -74,16 +74,33 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("heading", { name: "Midtown Manhattan", level: 1 }).waitFor();
     await next();
     await page.getByRole("heading", { name: "Exam Room 1", level: 1 }).waitFor();
+    // "Show me" outlines the control the step is about, however often it is pressed, and never starts anything by itself.
+    const marked = (selector: string) => page.locator(`${selector}.tour-target`).first().waitFor({ timeout: 30_000 });
+    await marked('[data-tour="diagnose"]');
+    await page.getByRole("button", { name: "Show me" }).click();
+    await page.getByRole("button", { name: "Show me" }).click();
+    await marked('[data-tour="diagnose"]');
     await page.getByRole("button", { name: "Diagnose network", exact: true }).click();
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
-    // Step 3 is the whole site at once.
+    // Step 3 is the whole site at once: the page waits for the click.
     await next();
+    await marked('[data-tour="site-diagnose"]');
+    await page.getByRole("button", { name: "Show me" }).click();
+    await page.getByRole("button", { name: "Show me" }).click();
+    assert.equal(await page.getByText("Firewall blocks the sync cabinet's ports").count(), 0, "Show me does not start a check");
+    await page.getByRole("button", { name: /Diagnose network \(9 cabinets\)/ }).click();
     await page.getByText("Firewall blocks the sync cabinet's ports").first().waitFor({ timeout: 60_000 });
-    // Step 4 says what was found; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
+    // Step 4 says what was found and points at it; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
     await next();
     await page.getByRole("heading", { name: "What the check found" }).waitFor();
+    await marked('[data-tour="group-sync-firewall"]');
     await next();
     await page.getByRole("heading", { name: "Fix it" }).waitFor();
+    await marked('[data-tour="fix-apply_policy"]');
+    await page.getByRole("button", { name: "Show me" }).click();
+    await page.getByRole("button", { name: "Show me" }).click();
+    await page.getByRole("button", { name: "Show me" }).click();
+    await marked('[data-tour="fix-apply_policy"]');
     await page.getByRole("button", { name: /Apply the policy on Midtown Sync/ }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor({ timeout: 60_000 });
@@ -100,6 +117,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Step 6: Operating Room matches its baseline but loses packets. The fix is saved, with its setup, for next time.
     await next();
     await page.getByRole("heading", { name: "Operating Room", level: 1 }).waitFor();
+    await marked('[data-tour="full-read"]');
     await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
     await page.getByRole("button", { name: "Save what fixed this…" }).first().click();
     await page.getByLabel("What fixed it").fill("Replaced the patch cable to the switch; the errors stopped.");
@@ -120,6 +138,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Step 7: the scanner, three drops and the driver installed before the first.
     await next();
     await page.getByRole("heading", { name: /Drops/ }).waitFor({ timeout: 30_000 });
+    await marked('[data-tour="scanner-drops"]');
     await page.getByText("3 in the last 24 hours").waitFor();
     await page.getByText(/was installed about 2 hours before the first drop/).waitFor();
     assert.equal(await page.getByText(/caused by/i).count(), 0);
@@ -127,6 +146,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
     await next();
     await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
+    await marked('[data-cabinet="Reception"]');
     await page.getByText("Reception").first().waitFor({ timeout: 30_000 });
     await page.getByText("Waiting Room").first().waitFor();
     await next();
@@ -134,6 +154,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
     await next();
     await page.getByRole("heading", { name: "Map it to an issue" }).waitFor();
+    await marked('[data-tour="map-to-issue"]');
     await page.getByRole("button", { name: "Map to issue" }).first().click();
     await page.getByRole("dialog").locator("select[required]").selectOption({ label: "Fingerprint scanner problem (major)" });
     clock += 30_000;
@@ -148,6 +169,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'pending'", [priya])).rowCount, 1);
     await next();
     await page.getByRole("heading", { name: "A teammate's fix, waiting for you" }).waitFor();
+    await marked('[data-tour="fix-approve"]');
     await page.getByRole("heading", { name: /Waiting for approval \(1\)/ }).waitFor();
     await page.getByText(priya).first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/fix-queue.png`, fullPage: true });
@@ -158,6 +180,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Step 12: it now sits beside the scanner alert on Reception.
     await next();
     await page.getByRole("heading", { name: "It shows up where the problem is" }).waitFor();
+    await marked('.known-fixes');
     await page.getByText("Possible fix", { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText(/Rolled the reader's driver back/).first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/alert-fix.png`, fullPage: true });
@@ -170,12 +193,14 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // The ending is onboarding a real agent. The computer asks to join while the presenter is on the install step.
     await next();
     await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
+    await marked('[data-tour="create-token"]');
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),
       osVersion: "Windows 11 Pro", agentVersion: "0.2.0" } }, "127.0.0.1");
     await next();
     await page.getByRole("heading", { name: "Pending cabinets" }).waitFor();
+    await marked('[data-tour="approve-cabinet"]');
     await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
     await page.getByLabel("Site", { exact: true }).fill("Support desk");
     await page.getByRole("button", { name: "Approve", exact: true }).click();
@@ -188,8 +213,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await next();
     await page.getByRole("heading", { name: "Check it works" }).waitFor();
     await page.getByRole("heading", { name: "Test SUPPORT-LAPTOP" }).waitFor({ timeout: 30_000 });
+    await marked('[data-tour="live-run"]');
     await next();
     await page.getByRole("heading", { name: "Read its network" }).waitFor();
+    await marked('[data-tour="diagnose"]');
     await page.getByRole("heading", { name: "SUPPORT-LAPTOP", level: 1 }).waitFor();
     await page.getByRole("button", { name: "Diagnose network", exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "Next" }).count(), 0, "the onboarding is the last step");

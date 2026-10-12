@@ -60,7 +60,7 @@ function Queue() {
               ? (<form className="row gap wrap" onSubmit={e => { e.preventDefault(); void decide(f, "reject"); }}>
                   <label className="field"><span>Why (optional, they will see it)</span><input autoFocus maxLength={256} value={reason} onChange={e => setReason(e.target.value)} /></label>
                   <button className="btn small">Reject</button><button type="button" className="btn small ghost" onClick={() => { setRejecting(null); setReason(""); }}>Cancel</button></form>)
-              : (<div className="row gap"><button className="btn primary small" onClick={() => void decide(f, "approve")}>Approve</button>
+              : (<div className="row gap"><button className="btn primary small" data-tour="fix-approve" onClick={() => void decide(f, "approve")}>Approve</button>
                   <button className="btn small" onClick={() => { setRejecting(f.id); setReason(""); }}>Reject…</button></div>)}
           </li>))}
         </ul>

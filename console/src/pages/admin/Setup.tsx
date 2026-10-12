@@ -101,7 +101,7 @@ function InstallAgent({ setup }: { setup: SetupState }) {
         {pkg ? <a className="btn" href="/api/admin/agent-package" download={pkg.name}>Download {pkg.name}</a>
           : <span className="muted">this server has no agent package (see deploy/README.md); build one with agent/install/Publish-CabinetAgent.ps1.</span>}</li>
       <li>Create a one-time install token. It works once and expires in 7 days.{" "}
-        <button className="btn primary" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
+        <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
         {problem && <p className="error" role="alert">{problem}</p>}
         {issued && files && (
           <div className="notice warn" aria-live="polite">

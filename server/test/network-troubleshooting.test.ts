@@ -247,3 +247,16 @@ test("hostile and excessive diagnosis requests are refused; one batch at a time 
   await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = now() WHERE state = 'running'");
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '20 hours' WHERE id = $1", [quiet]);
 });
+
+test("asking again for the same cabinets while a check is running joins it; a different set waits", async () => {
+  const t1 = await account("tier1");
+  const dallas = await siteOf("Dallas Uptown"), austin = await siteOf("Austin North");
+  const first = await call("POST", "/api/diagnose/network", { siteId: dallas }, t1);
+  const again = await call("POST", "/api/diagnose/network", { siteId: dallas }, t1);
+  assert.equal(first.status, 202);
+  assert.equal(again.status, 202, JSON.stringify(again.body));
+  assert.equal(again.body.batchId, first.body.batchId, "the second click joins the running check");
+  assert.equal((await call("POST", "/api/diagnose/network", { siteId: austin }, t1)).status, 429, "a different set waits for the first");
+  for (const end = Date.now() + 60_000; Date.now() < end; await new Promise(r => setTimeout(r, 100)))
+    if ((await call("GET", `/api/diagnose/network/batches/${first.body.batchId}`, undefined, t1)).body.state === "done") break;
+});
