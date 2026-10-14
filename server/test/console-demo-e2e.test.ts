@@ -254,7 +254,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // The adapter read carries what ipconfig /all, the network profile, the driver and the proxy would show, and can be copied as text.
     await page.goto(`${origin}/cabinets/${exam}/network`);
-    await page.getByText("Network profile").first().waitFor({ timeout: 60_000 });
+    await page.getByText("Network profile").first().waitFor({ timeout: 60_000 }).catch(async e => { throw new Error(`${e.message}\n${(await page.locator("#main").innerText()).slice(0, 1500)}\nsimulator: ${simulatorProblems.join("; ")}`); });
     await page.getByText("Interface metric").first().waitFor();
     await page.getByText(/WinHTTP proxy:/).waitFor();
     await page.getByRole("button", { name: "Copy as ipconfig text" }).waitFor();
