@@ -262,7 +262,9 @@ main:focus { outline: none; }
   .panel { min-width: 0; overflow-x: auto; }
   .page { padding: var(--s-4); }
   .cabinet-main { padding: 0 var(--s-4) var(--s-8); }
-  .table { display: block; overflow-x: auto; }
+  .table { display: block; overflow-x: auto; max-width: 100%; }
+  .page, .cabinet-main, #main { min-width: 0; max-width: 100vw; }
+  .row.wrap, .filters { max-width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 
