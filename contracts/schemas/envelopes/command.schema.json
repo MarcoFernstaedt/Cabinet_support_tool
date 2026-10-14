@@ -631,6 +631,24 @@
         },
         "type": "object"
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "usb.ports"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/usb.ports.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
     }
   ]
 }

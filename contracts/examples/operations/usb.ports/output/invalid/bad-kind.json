@@ -1,0 +1,21 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "truncated": false,
+  "devices": [
+    {
+      "instanceId": "USB\\VID_27C6&PID_5395\\6&2B1A3C&0&2",
+      "name": "Goodix Fingerprint Device",
+      "kind": "controller",
+      "location": "Port_#0002.Hub_#0004",
+      "hubNumber": 4,
+      "portNumber": 2,
+      "present": true,
+      "status": "OK",
+      "errorCode": null,
+      "errorText": null,
+      "hardwareIds": [
+        "USB\\VID_27C6&PID_5395"
+      ]
+    }
+  ]
+}

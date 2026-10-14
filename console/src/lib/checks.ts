@@ -3,6 +3,7 @@
 // match on text: they read fields of the answer.
 import { useCallback, useState } from "react";
 import { useRunner } from "./commands";
+import { analyseUsb, type UsbDevice } from "./usb";
 
 export type Out = Record<string, unknown>;
 export interface Check { id: string; label: string; operation: string; params: Record<string, unknown>; summarize: (o: Out) => { ok: boolean; text: string } }
@@ -68,6 +69,8 @@ const checkList: Check[] = [
   { id: "updates", label: "Windows updates", operation: "updates.status", params: {},
     summarize: o => { const i = arr(o.installed), p = arr(o.pending), failed = i.filter(x => x.result !== "succeeded");
       return { ok: failed.length === 0, text: `${i.length} recent, ${failed.length} failed, ${p.length} waiting${i[0] ? `; latest ${String(i[0].kb ?? i[0].title)} on ${String(i[0].installedAt ?? "?")}` : ""}${o.lastInstallResult ? `; last install ${String(o.lastInstallResult)}` : ""}` }; } },
+  { id: "usb", label: "USB ports and the fingerprint scanner", operation: "usb.ports", params: {},
+    summarize: o => { const a = analyseUsb(arr(o.devices) as unknown as UsbDevice[], [], null, o.truncated === true); return { ok: a.tone === "ok", text: a.summary }; } },
   { id: "devices", label: "Devices with a problem", operation: "devices.list", params: { problemsOnly: true },
     summarize: o => { const d = arr(o.devices); return { ok: d.length === 0, text: d.length === 0 ? "Device Manager shows nothing wrong." : `${d.length} with a problem: ${d.slice(0, 4).map(x => `${String(x.name)} (code ${String(x.errorCode ?? "?")})`).join(", ")}${d.length > 4 ? ", …" : ""}` }; } },
 ];

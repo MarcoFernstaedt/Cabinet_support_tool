@@ -81,6 +81,32 @@ public sealed class DeviceOperations
         });
     }
 
+    private const int MaxUsbDevices = 500;
+
+    /// <summary>usb.ports: every USB hub and device Windows has a record of, with the hub and port from its location text.</summary>
+    public Task<UsbPortsOutput> UsbPortsAsync(EmptyParams _, CancellationToken token)
+    {
+        var usb = ReadDevices()
+            .Where(d => d.InstanceId.StartsWith(@"USB\", StringComparison.OrdinalIgnoreCase) && !d.InstanceId.Contains("&MI_", StringComparison.OrdinalIgnoreCase)
+                && !d.InstanceId.Contains("..", StringComparison.Ordinal))
+            .OrderBy(d => d.InstanceId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var devices = new List<UsbPortDevice>();
+        foreach (var d in usb.Take(MaxUsbDevices))
+        {
+            token.ThrowIfCancellationRequested();
+            string? location = DeviceRegistryText(d.InstanceId, "LocationInformation");
+            var (hub, port) = UsbLocation.Parse(location);
+            devices.Add(new UsbPortDevice
+            {
+                InstanceId = d.InstanceId, Name = d.Name, Kind = UsbLocation.KindOf(d.Name, d.Class), Location = location, HubNumber = hub, PortNumber = port,
+                Present = d.Present, Status = d.Present ? d.Status ?? "Unknown" : "Not connected",
+                ErrorCode = d.ProblemCode is > 0 and <= uint.MaxValue ? d.ProblemCode : null, ErrorText = DeviceProblems.Describe(d.ProblemCode), HardwareIds = d.HardwareIds,
+            });
+        }
+        return Task.FromResult(new UsbPortsOutput { TakenAt = _clock.GetUtcNow(), Devices = devices, Truncated = usb.Count > MaxUsbDevices });
+    }
+
     public Task<DriversListOutput> DriversListAsync(EmptyParams _, CancellationToken token)
     {
         var rows = Wmi.Query(Wmi.CimV2, "SELECT InfName, DriverVersion, DriverDate, DriverProviderName, DeviceClass, Signer FROM Win32_PnPSignedDriver")

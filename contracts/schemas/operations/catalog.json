@@ -17,6 +17,7 @@
     {"name": "network.trace", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "network_trace"},
     {"name": "system.performance", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "network.listeners", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "usb.ports", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "firewall.state", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "services.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "processes.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},

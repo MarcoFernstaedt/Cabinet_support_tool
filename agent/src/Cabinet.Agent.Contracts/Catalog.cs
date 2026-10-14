@@ -48,6 +48,7 @@ public static class Catalog
     public const string TimeSync = "time.sync";
     public const string SystemPerformance = "system.performance";
     public const string NetworkListeners = "network.listeners";
+    public const string UsbPorts = "usb.ports";
     public const string NetworkRenewLease = "network.renewLease";
     public const string NetworkFlushDns = "network.flushDns";
 
@@ -75,6 +76,7 @@ public static class Catalog
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
         Read<EmptyParams, SystemPerformanceOutput>(SystemPerformance),
         Read<EmptyParams, NetworkListenersOutput>(NetworkListeners),
+        Read<EmptyParams, UsbPortsOutput>(UsbPorts),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),
         Read<EmptyParams, TimeStatusOutput>(TimeStatus),

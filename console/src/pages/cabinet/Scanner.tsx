@@ -13,6 +13,7 @@ import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
 import { PackageList, type LibraryPackage } from "./Software";
 import { useLoad } from "../../lib/useLoad";
 import { SCANNER_SOURCE, ScannerIdsEditor } from "../../components/DeviceSettings";
+import { UsbPorts } from "../../components/UsbPorts";
 
 interface History { drops24h: number; drops7d: number; offNow: boolean; lead: string | null; firstDropAt: string | null;
   episodes: { at: string; state: string }[]; changes: { at: string; kind: "driver" | "update"; title: string; relatedToScanner: boolean; hoursBeforeFirstDrop: number }[] }
@@ -49,6 +50,7 @@ export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail
       run={status} onRun={rerun} buttonLabel="Check the scanner">
       {out => <ScannerResult out={out} cabinet={cabinet} onUse={() => { onSettingsChanged(); rerun(); }} />}
     </OperationPanel>
+    <UsbPorts cabinetId={cabinet.id} scannerIds={status.result?.output?.hardwareIds ?? []} scannerName={status.result?.output?.name ?? null} />
     <CabinetAlerts cabinetId={cabinet.id} issueTypeId={SCANNER_ISSUE} title="Scanner alerts" />
     <ScannerIds cabinet={cabinet} onSaved={() => { onSettingsChanged(); rerun(); }} />
     <ScannerDrivers cabinet={cabinet} />

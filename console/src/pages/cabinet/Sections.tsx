@@ -3,6 +3,7 @@ import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, Tr
 import { PortCheck } from "../../components/PortCheck";
 import { PacketPath } from "../../components/PacketPath";
 import { DrawerCheck } from "./DrawerCheck";
+import { UsbPorts } from "../../components/UsbPorts";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
@@ -22,6 +23,7 @@ export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const uninstall = useDriverUninstall(cabinet, () => void drivers.start());
   useEffect(() => { void devices.start({ problemsOnly: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (<>
+    <UsbPorts cabinetId={cabinetId} />
     <OperationPanel title="Devices" run={devices}
       onRun={() => void devices.start({ problemsOnly })} buttonLabel="List devices">
       {out => {

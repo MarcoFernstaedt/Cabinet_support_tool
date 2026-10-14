@@ -13,6 +13,7 @@ interface Playbook { id: string; symptom: string; steps: Step[]; next: { to: str
 const PLAYBOOKS: Playbook[] = [
   { id: "scanner", symptom: "The fingerprint scanner is not detected, or is detected but does not work",
     steps: [
+      { check: "usb", why: "The hub and port the scanner was last on, and any port that reports a problem. Not connected on its last port means reseat, change port or change cable." },
       { check: "devices", why: "A scanner Windows can see but cannot use shows here with a code: 10 means the driver would not start, 43 means the device reported a problem." },
       { check: "services", why: "Look for the scanner vendor's service and the Windows Biometric Service. A stopped one explains a scanner that is detected but dead." },
       { check: "system-log", why: "Look for USB, driver or biometric errors around the time it stopped." },

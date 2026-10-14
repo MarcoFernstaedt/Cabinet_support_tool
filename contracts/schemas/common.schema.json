@@ -224,6 +224,7 @@
         "eventlog.query",
         "eventlog.get",
         "devices.list",
+        "usb.ports",
         "drivers.list",
         "peripheral.status",
         "updates.status",

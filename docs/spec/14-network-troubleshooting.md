@@ -129,3 +129,14 @@ Some cabinets connect their cash drawers through the monitor over a spoofed Ethe
 - Copy as text for the ticket.
 
 The drawer network is `172.20.1.0/24`, fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has. Open question in 09-open-decisions.md: whether the address should be a platform setting.
+
+## USB ports
+
+Peripherals on the monitors (the fingerprint scanner above all) fail on the port or the cable far more often than on the software. The Fingerprint scanner and Devices and drivers tabs have a **USB ports** panel (`console/src/components/UsbPorts.tsx`, logic in `console/src/lib/usb.ts`, covered by `console/test/usb.test.ts`) fed by the read-only `usb.ports` operation, and the Overview and Troubleshoot checks include it.
+
+- Every hub and device with its hub and port, connected or not, and Windows' problem code. The scanner is picked out by its hardware IDs, its name, or the words fingerprint/biometric in its name.
+- A scanner that is not connected is tied to the port it was last on: "last on hub 3, port 2. Have them reseat the cable, move it to a different port, or swap the cable."
+- A device that fails to start on a port (an "Unknown USB Device" with code 43 or 10) is flagged with its port; a hub with a problem says every device behind it is down.
+- Devices remembered but not connected are counted, not alarmed.
+
+Not built: a free-port count (Windows does not report a hub's empty ports), and per-port alerts. The existing scanner alerts (drops, USB missing) still raise on their own.

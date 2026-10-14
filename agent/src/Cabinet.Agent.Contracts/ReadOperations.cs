@@ -527,3 +527,26 @@ public sealed record NetworkListenersOutput
     public required ConnectionCounts Counts { get; init; }
     public required bool Truncated { get; init; }
 }
+
+public sealed record UsbPortDevice
+{
+    public required string InstanceId { get; init; }
+    public required string Name { get; init; }
+    /// <summary>"hub" or "device".</summary>
+    public required string Kind { get; init; }
+    public required string? Location { get; init; }
+    public required int? HubNumber { get; init; }
+    public required int? PortNumber { get; init; }
+    public required bool Present { get; init; }
+    public required string Status { get; init; }
+    public required long? ErrorCode { get; init; }
+    public required string? ErrorText { get; init; }
+    public required IReadOnlyList<string> HardwareIds { get; init; }
+}
+
+public sealed record UsbPortsOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required IReadOnlyList<UsbPortDevice> Devices { get; init; }
+    public required bool Truncated { get; init; }
+}

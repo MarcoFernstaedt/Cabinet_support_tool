@@ -443,6 +443,7 @@ export interface CommandRequest {
     | "eventlog.query"
     | "eventlog.get"
     | "devices.list"
+    | "usb.ports"
     | "drivers.list"
     | "peripheral.status"
     | "updates.status"
@@ -1153,6 +1154,7 @@ export interface Command {
     | "eventlog.query"
     | "eventlog.get"
     | "devices.list"
+    | "usb.ports"
     | "drivers.list"
     | "peripheral.status"
     | "updates.status"
@@ -2443,6 +2445,44 @@ export interface NetworkListenersOutput {
 /**
  * Operations that take no parameters accept only an empty object.
  */
+export interface UsbPortsParams {}
+
+export interface UsbPortsOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 500
+   */
+  devices: {
+    instanceId: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    kind: "hub" | "device";
+    location: string | null;
+    hubNumber: number | null;
+    portNumber: number | null;
+    present: boolean;
+    /**
+     * A single line of text with no control characters.
+     */
+    status: string;
+    errorCode: number | null;
+    errorText: string | null;
+    /**
+     * @maxItems 32
+     */
+    hardwareIds: string[];
+  }[];
+  truncated: boolean;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
 export interface FirewallStateParams {}
 
 export interface FirewallStateOutput {
@@ -2886,7 +2926,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2910,6 +2950,7 @@ export interface OperationTypes {
   "network.trace": { params: NetworkTraceParams; output: NetworkTraceOutput };
   "system.performance": { params: SystemPerformanceParams; output: SystemPerformanceOutput };
   "network.listeners": { params: NetworkListenersParams; output: NetworkListenersOutput };
+  "usb.ports": { params: UsbPortsParams; output: UsbPortsOutput };
   "firewall.state": { params: FirewallStateParams; output: FirewallStateOutput };
   "services.list": { params: ServicesListParams; output: ServicesListOutput };
   "processes.list": { params: ProcessesListParams; output: ProcessesListOutput };

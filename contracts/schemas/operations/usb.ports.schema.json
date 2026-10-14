@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/usb.ports.schema.json",
+  "title": "usb.ports",
+  "description": "The USB hubs and devices Windows knows about, each with the hub and port it was plugged into, whether it is connected now, and its problem code. Devices that were plugged in before and are not now are included (present false). For finding out whether a device such as the fingerprint scanner is seen on a port, and which port to move it away from.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "devices": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "instanceId": {
+                "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "kind": {
+                "enum": [
+                  "hub",
+                  "device"
+                ]
+              },
+              "location": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "hubNumber": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "portNumber": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 65535
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "present": {
+                "type": "boolean"
+              },
+              "status": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "errorCode": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "errorText": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "hardwareIds": {
+                "type": "array",
+                "maxItems": 32,
+                "items": {
+                  "$ref": "../common.schema.json#/$defs/hardwareId"
+                }
+              }
+            },
+            "required": [
+              "instanceId",
+              "name",
+              "kind",
+              "location",
+              "hubNumber",
+              "portNumber",
+              "present",
+              "status",
+              "errorCode",
+              "errorText",
+              "hardwareIds"
+            ]
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "takenAt",
+        "devices",
+        "truncated"
+      ]
+    }
+  }
+}

@@ -18,6 +18,7 @@ Use this after you install the agent on a real computer, to check that what the 
    | Resolve the platform server's name | `network.test` | The name resolved. |
    | Path to the platform server | `network.trace` | At least one hop answered. |
    | Processor, memory, drives and busiest programs | `system.performance` | Processor use, free memory, free space and busy time per drive, and the heaviest programs were read. The line names anything that looks strained. |
+   | USB ports and the fingerprint scanner | `usb.ports` | The hub and port each USB device is on. On a cabinet with a scanner, the line names its port; unplug the scanner and run again: it should say it was last on that port. Plug a faulty cable in to see an "Unknown USB Device" with code 43. |
    | Ports listening and connections in use | `network.listeners` | The TCP ports the machine listens on, with the program that owns each, and how many connections are open. |
 
 3. Open **What the cabinet sent** under a row to see the raw answer, and compare a few values with the machine: `ipconfig /all`, Event Viewer, `Get-Service`, `tracert`, Task Manager (for the performance row) and `Get-NetTCPConnection -State Listen` (for the listeners row).

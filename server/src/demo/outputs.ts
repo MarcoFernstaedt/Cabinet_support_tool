@@ -117,6 +117,23 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       if (params.problemsOnly) return { devices: [], truncated: false };
       return { devices: [ok, ...others], truncated: false };
     }
+    case "usb.ports": {
+      // The USB tree behind the monitor: the scanner on port 2 of hub 3, and what Windows still remembers of it when it is gone.
+      const down = ctx.scenario === "scanner_disconnected" || ctx.scenario === "scanner_flapping" || ctx.scenario === "usb_missing";
+      const dev = (instanceId: string, name: string, kind: "hub" | "device", hub: number | null, port: number | null, over: Record<string, unknown> = {}) => ({
+        instanceId, name, kind, location: hub === null ? null : `Port_#${String(port).padStart(4, "0")}.Hub_#${String(hub).padStart(4, "0")}`, hubNumber: hub, portNumber: port,
+        present: true, status: "OK", errorCode: null, errorText: null, hardwareIds: [instanceId.split("\\").slice(0, 2).join("\\")], ...over });
+      const devices = [
+        dev("USB\\ROOT_HUB30\\4&2A1B3C4D&0&0", "USB Root Hub (USB 3.0)", "hub", null, null),
+        dev("USB\\VID_0BDA&PID_5411\\5&2F3A1B&0&1", "Generic USB Hub", "hub", 1, 1),
+        dev("USB\\VID_046D&PID_C31C\\5&2F3A1B&0&3", "USB Input Device", "device", 3, 3),
+        dev("USB\\VID_27C6&PID_5395\\6&2B1A3C&0&2", "Goodix Fingerprint Device", "device", 3, 2,
+          down ? { present: false, status: "Not connected" } : {}),
+        ...(ctx.scenario === "scanner_flapping" ? [dev("USB\\VID_0000&PID_0002\\5&2F3A1B&0&4", "Unknown USB Device (Device Descriptor Request Failed)", "device", 3, 4,
+          { status: "Error", errorCode: 43, errorText: "Windows stopped this device because it reported problems. Unplug it, wait ten seconds and plug it into a different USB port.", hardwareIds: [] })] : []),
+      ];
+      return { takenAt: noMs(ctx.now), devices, truncated: false };
+    }
     case "firewall.state": {
       const o = example("firewall.state", "typical.json");
       o.profiles = o.profiles.map((p: any) => ({ ...p, enabled: ctx.firewallProfiles[p.profile as "domain"], reenableAt: null }));

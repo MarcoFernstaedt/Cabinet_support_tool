@@ -142,6 +142,12 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("3 in the last 24 hours").waitFor();
     await page.getByText(/was installed about 2 hours before the first drop/).waitFor();
     assert.equal(await page.getByText(/caused by/i).count(), 0);
+    // USB ports: the scanner is not connected now, the port it was last on is named, and the port with a failed device is flagged.
+    await page.getByRole("heading", { name: "USB ports" }).waitFor();
+    await page.getByRole("table", { name: "USB ports" }).waitFor({ timeout: 30_000 });
+    await page.getByText(/last on hub 3, port 2/).first().waitFor();
+    await page.getByRole("row", { name: /Unknown USB Device.*Problem/ }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/usb-ports.png`, fullPage: true });
 
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
     await next();

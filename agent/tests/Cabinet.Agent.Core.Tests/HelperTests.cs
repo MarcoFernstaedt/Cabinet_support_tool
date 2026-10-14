@@ -531,3 +531,35 @@ public sealed class SmartDecoderTests
     public void Health_combines_windows_status_and_smart(int? status, bool? predict, long? realloc, long? pending, DriveHealth expected) =>
         Assert.Equal(expected, SmartDecoder.Health(status, predict, realloc, pending));
 }
+
+public class UsbLocationTests
+{
+    [Theory]
+    [InlineData("Port_#0003.Hub_#0001", 1, 3)]
+    [InlineData("Port_#0002.Hub_#0004", 4, 2)]
+    [InlineData("Port_#0000.Hub_#0000", 0, 0)]
+    [InlineData("Hub_#0007", 7, null)]
+    [InlineData("Port_#0009", null, 9)]
+    public void Hub_and_port_are_read_from_the_location_text(string text, int? hub, int? port) => Assert.Equal((hub, port), Cabinet.Agent.Core.Helpers.UsbLocation.Parse(text));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("PCI bus 0, device 20, function 0")]
+    [InlineData("Port_#.Hub_#")]
+    [InlineData("Port_#-3.Hub_#x")]
+    [InlineData("Port_#99999999999999999999.Hub_#99999999")]
+    [InlineData("Port_#0001 Port_#0002 \u0000 \n <script>")]
+    public void Hostile_or_odd_text_gives_no_numbers_and_never_throws(string? text)
+    {
+        var (hub, port) = Cabinet.Agent.Core.Helpers.UsbLocation.Parse(text);
+        Assert.True(hub is null or >= 0 and <= 65535);
+        Assert.True(port is null or >= 0 and <= 65535);
+    }
+
+    [Fact]
+    public void An_overlong_location_is_ignored() => Assert.Equal((null, null), Cabinet.Agent.Core.Helpers.UsbLocation.Parse(new string('a', 500) + "Port_#0001"));
+
+    [Fact]
+    public void Hubs_are_told_from_devices() { Assert.Equal("hub", Cabinet.Agent.Core.Helpers.UsbLocation.KindOf("Generic USB Hub", "USB")); Assert.Equal("device", Cabinet.Agent.Core.Helpers.UsbLocation.KindOf("Goodix Fingerprint Device", "Biometric")); }
+}

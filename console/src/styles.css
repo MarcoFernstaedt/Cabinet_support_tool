@@ -374,3 +374,5 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .cards.adapters { grid-template-columns: 1fr; }
 .cards.adapters .kv { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 .tests.row { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+
+tr.highlight > * { background: color-mix(in srgb, var(--accent, #22d3ee) 12%, transparent); }
