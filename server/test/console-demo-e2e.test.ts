@@ -254,7 +254,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
     // A different cabinet from the one the live check just used, so the per-cabinet limit on network tests is not in the way.
-    const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND name <> 'Exam Room 2' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
+    const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND demo_scenario = 'healthy' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${other}/network`);
     await page.getByRole("button", { name: "Trace and ping" }).click();
     await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 }).catch(async e => {
