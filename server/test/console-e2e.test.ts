@@ -202,13 +202,13 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByText("The DNS cache was emptied.").waitFor({ timeout: 60_000 });
 
     // The symptom workbench runs its fixed reads against the same cabinet.
-    await page.getByRole("link", { name: "Troubleshoot" }).click();
+    await page.getByRole("link", { name: "Troubleshoot", exact: true }).click();
     await page.getByLabel("Symptom").selectOption({ label: "The computer is slow, or the application freezes" });
     await page.getByRole("button", { name: "Run", exact: true }).click();
     await page.getByRole("button", { name: "Run again" }).waitFor({ timeout: 90_000 });
     await page.getByText(/memory .* GB free of/).waitFor();
 
-    await page.getByRole("link", { name: "Processes" }).click();
+    await page.getByRole("link", { name: "Processes", exact: true }).click();
     await page.getByRole("group", { name: "Processor" }).waitFor({ timeout: 60_000 });
 
     await page.getByRole("link", { name: "Files" }).click();

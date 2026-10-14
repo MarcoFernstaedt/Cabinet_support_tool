@@ -17,7 +17,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "services", why: "Look for the scanner vendor's service and the Windows Biometric Service. A stopped one explains a scanner that is detected but dead." },
       { check: "system-log", why: "Look for USB, driver or biometric errors around the time it stopped." },
       { check: "updates", why: "If it stopped after an update, the installed update or driver from the same day is the first suspect." },
-    ], next: [{ to: "scanner", label: "Fingerprint scanner section (port, driver and drop history)" }, { to: "devices", label: "Devices and drivers" }] },
+    ], next: [{ to: "scanner", label: "Fingerprint scanner section" }, { to: "devices", label: "Devices and drivers" }] },
   { id: "network", symptom: "No network, or the internet works but the cabinet's application cannot connect",
     steps: [
       { check: "net", why: "An address starting 169.254 means the DHCP server never answered. No gateway means nothing can leave the subnet." },
@@ -26,7 +26,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "trace", why: "Shows where the path stops. A first hop that answers and then silence points at the firewall or the router beyond it." },
       { check: "listeners", why: "If the application is the one that cannot be reached, confirm it is listening on its port and see who is connected to it." },
       { check: "firewall", why: "A profile that is on with a block rule for the application's port stops connections even when the network is fine. Never switch the whole firewall off." },
-    ], next: [{ to: "network", label: "Network section (full read, one-click diagnosis)" }, { to: "firewall", label: "Firewall section" }] },
+    ], next: [{ to: "network", label: "Network section" }, { to: "firewall", label: "Firewall section" }] },
   { id: "sync", symptom: "The cabinet is not syncing, or remote access is unavailable",
     steps: [
       { check: "ping", why: "The gateway first: if this fails, nothing past it will work." },
@@ -41,7 +41,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "disk", why: "A drive that is failing makes everything slow long before it fails outright." },
       { check: "storage-log", why: "Disk errors and retries in the System log back up a slow drive." },
       { check: "scm-log", why: "Services timing out or restarting over and over can be the load itself." },
-    ], next: [{ to: "processes", label: "Processes (sort by processor or memory)" }, { to: "drives", label: "Drive health" }] },
+    ], next: [{ to: "processes", label: "Processes" }, { to: "drives", label: "Drive health" }] },
   { id: "restart", symptom: "Random restarts or blue screens",
     steps: [
       { check: "critical-log", why: "Kernel-Power 41 means the machine lost power or froze without shutting down. BugCheck 1001 means a blue screen with a code." },
@@ -49,7 +49,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "devices", why: "A device with a problem code can be the driver that is crashing the machine." },
       { check: "updates", why: "If the first crash came soon after an update or driver install, that is the change to look at first." },
       { check: "perf", why: "Memory almost full, or a drive nearly full, can both end in crashes." },
-    ], next: [{ to: "crashes", label: "Crashes and restarts (timeline and reboot loops)" }, { to: "drives", label: "Drive health" }] },
+    ], next: [{ to: "crashes", label: "Crashes and restarts" }, { to: "drives", label: "Drive health" }] },
   { id: "update", symptom: "A Windows update fails, or something stopped working after an update",
     steps: [
       { check: "updates", why: "Failed installs with their error codes, and what is still waiting. Compare the install dates with when the problem began." },
@@ -68,7 +68,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "services", why: "State, start type, the account it runs as and the program it launches. Restart it once and watch; repeated restarts hide the cause." },
       { check: "scm-log", why: "The reason Windows gives for each stop: a dependency that did not start, a timeout, a crash." },
       { check: "app-log", why: "The application's own errors from the same minute." },
-    ], next: [{ to: "services", label: "Services (restart, watch and auto-restart)" }] },
+    ], next: [{ to: "services", label: "Services" }] },
 ];
 
 const STATUS_TEXT = { passed: "Looks fine", failed: "Look closer", running: "Running", waiting: "Waiting" } as const;
