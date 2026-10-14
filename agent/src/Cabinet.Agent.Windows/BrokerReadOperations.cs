@@ -18,7 +18,9 @@ public static class BrokerReadOperations
         .Register<EventlogGetParams, EventlogGetOutput>(Catalog.EventlogGet, EventLogOperations.GetAsync)
         .Register<EmptyParams, UpdatesStatusOutput>(Catalog.UpdatesStatus, SystemOperations.UpdatesStatusAsync)
         .Register<EmptyParams, DiskSmartOutput>(Catalog.DiskSmart, DiskSmartAsync)
-        .Register<FilesListParams, FilesListOutput>(Catalog.FilesList, FilesListAsync);
+        .Register<FilesListParams, FilesListOutput>(Catalog.FilesList, FilesListAsync)
+        .Register<EmptyParams, SystemPerformanceOutput>(Catalog.SystemPerformance, new LiveReadings().PerformanceAsync)
+        .Register<EmptyParams, NetworkListenersOutput>(Catalog.NetworkListeners, new LiveReadings().ListenersAsync);
 
     /// <summary>
     /// Lists one directory on C:. Listing only: no file is opened. The path

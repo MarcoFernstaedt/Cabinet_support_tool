@@ -271,7 +271,6 @@ public static class NetworkOperations
         var system = new SystemOperations(config);
         var devices = new DeviceOperations(config, broker, clock);
         var network = new NetworkTester(config);
-        var live = new LiveReadings();
         var registry = new OperationRegistry()
             .Register<EmptyParams, SystemInfoOutput>(Catalog.SystemInfo, system.SystemInfoAsync)
             .Register<DevicesListParams, DevicesListOutput>(Catalog.DevicesList, devices.DevicesListAsync)
@@ -280,9 +279,7 @@ public static class NetworkOperations
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<NetworkTraceParams, NetworkTraceOutput>(Catalog.NetworkTrace, network.TraceAsync)
-            .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync)
-            .Register<EmptyParams, SystemPerformanceOutput>(Catalog.SystemPerformance, live.PerformanceAsync)
-            .Register<EmptyParams, NetworkListenersOutput>(Catalog.NetworkListeners, live.ListenersAsync);
+            .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);
         packages?.Register(registry, broker.RunAsync);
         broker.RegisterForwarders(registry);
         return registry;

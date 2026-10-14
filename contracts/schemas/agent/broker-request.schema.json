@@ -45,6 +45,8 @@
         "updates.uninstall",
         "services.list",
         "processes.list",
+        "system.performance",
+        "network.listeners",
         "service.control",
         "time.status",
         "time.setZone",
@@ -563,6 +565,48 @@
         "properties": {
           "params": {
             "$ref": "../operations/processes.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "system.performance"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.performance.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "network.listeners"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.listeners.schema.json#/$defs/params"
           }
         }
       }

@@ -193,6 +193,21 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("button", { name: "Trace and ping" }).click();
     await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 });
 
+    // The DNS cache flush is a Tier 1 write that goes through the broker like every other write.
+    await page.getByRole("button", { name: "Flush DNS cache" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await page.getByText("The DNS cache was emptied.").waitFor({ timeout: 60_000 });
+
+    // The symptom workbench runs its fixed reads against the same cabinet.
+    await page.getByRole("link", { name: "Troubleshoot" }).click();
+    await page.getByLabel("Symptom").selectOption({ label: "The computer is slow, or the application freezes" });
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await page.getByRole("button", { name: "Run again" }).waitFor({ timeout: 90_000 });
+    await page.getByText(/memory .* GB free of/).waitFor();
+
+    await page.getByRole("link", { name: "Processes" }).click();
+    await page.getByRole("group", { name: "Processor" }).waitFor({ timeout: 60_000 });
+
     await page.getByRole("link", { name: "Files" }).click();
     await page.getByRole("table", { name: /Contents of/ }).waitFor({ timeout: 30_000 });
 

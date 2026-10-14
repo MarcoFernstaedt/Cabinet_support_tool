@@ -62,7 +62,7 @@ public sealed class BrokerRequestHandler
         Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
         Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall, Catalog.UpdatesUninstall,
-        Catalog.ServicesList, Catalog.ProcessesList, Catalog.ServiceControl,
+        Catalog.ServicesList, Catalog.ProcessesList, Catalog.SystemPerformance, Catalog.NetworkListeners, Catalog.ServiceControl,
         Catalog.TimeStatus, Catalog.TimeSetZone, Catalog.TimeSync, Catalog.NetworkRenewLease, Catalog.NetworkFlushDns,
     };
 
