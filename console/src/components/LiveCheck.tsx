@@ -21,7 +21,7 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
       <div className="panel-head">
         <div>
           <h2 id="live-check">Test {cabinetName}</h2>
-          <p className="muted small">Runs read-only checks on the real machine, one after another: system information, event logs, services, firewall, time, the network (adapters, gateway ping, name lookup), the path to the platform, and how hard the machine is working. It changes nothing. Each says what it read, or why it could not.{simulated && <> This is a simulated cabinet, so the answers are made up; on a live agent they come from the machine.</>}</p>
+          <p className="muted small">Read-only. Changes nothing on the machine.{simulated && <> Simulated cabinet: answers are generated.</>}</p>
         </div>
         <button className="btn primary" data-tour="live-run" onClick={() => { setCopied(false); void start(); }} disabled={busy}>{busy ? `Running ${finished + 1} of ${CHECKS.length}…` : finished > 0 ? "Run again" : "Run the checks"}</button>
       </div>

@@ -31,7 +31,7 @@ export function EventLogs({ cabinetId }: { cabinetId: string }) {
   useEffect(() => { void channels.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   if (log) return <LogView cabinetId={cabinetId} log={log} onBack={() => setLog(null)} />;
   return (
-    <OperationPanel title="Event logs" description="Every log this agent may read. The Security log and logs that record sign-ins, typed commands or printed documents are never readable."
+    <OperationPanel title="Event logs"
       run={channels} onRun={() => void channels.start()} buttonLabel="Load logs">
       {out => {
         const groups = new Map<string, EventlogChannelsOutput["channels"]>();
@@ -57,6 +57,9 @@ export function EventLogs({ cabinetId }: { cabinetId: string }) {
     </OperationPanel>
   );
 }
+
+/** A datetime-local value for a moment, in the technician's own time zone. */
+const localStamp = (ms: number) => { const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60_000); return d.toISOString().slice(0, 19); };
 
 interface Filters { levels: Level[]; from: string; to: string; source: string; eventIds: string; pageSize: number; }
 
@@ -99,6 +102,11 @@ function LogView({ cabinetId, log, onBack }: { cabinetId: string; log: string; o
             <label key={l} className="check"><input type="checkbox" checked={filters.levels.includes(l)}
               onChange={e => setFilters(f => ({ ...f, levels: e.target.checked ? [...f.levels, l] : f.levels.filter(x => x !== l) }))} /> {LEVEL_LABEL[l]}</label>))}
         </fieldset>
+        <div className="row gap" role="group" aria-label="Range">
+          {([["1 h", 1], ["24 h", 24], ["3 d", 72], ["7 d", 168]] as const).map(([label, h]) => (
+            <button key={label} type="button" className="btn small" onClick={() => setFilters(f => ({ ...f, from: localStamp(Date.now() - h * 3_600_000), to: "" }))}>{label}</button>))}
+          <button type="button" className="btn small ghost" onClick={() => setFilters(f => ({ ...f, from: "", to: "" }))}>Any time</button>
+        </div>
         <label className="field"><span>From</span><input type="datetime-local" step={1} value={filters.from} onChange={e => setFilters(f => ({ ...f, from: e.target.value }))} /></label>
         <label className="field"><span>To</span><input type="datetime-local" step={1} value={filters.to} onChange={e => setFilters(f => ({ ...f, to: e.target.value }))} /></label>
         <label className="field"><span>Source</span><input value={filters.source} maxLength={256} onChange={e => setFilters(f => ({ ...f, source: e.target.value }))} /></label>

@@ -64,7 +64,7 @@ export function Time({ cabinet }: { cabinet: CabinetDetail }) {
         {setZone.dialog}{sync.dialog}
       </>)}
     </section>
-    <OperationPanel title="Windows Time on the cabinet" description="Read now from the cabinet: its zone, local time, and Windows Time's state and last synchronization."
+    <OperationPanel title="Windows Time on the cabinet"
       run={status} onRun={() => void status.start()}>
       {out => (<>
         <KeyValues rows={[

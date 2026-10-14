@@ -190,8 +190,8 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await shot("5-drive-health");
 
     await page.getByRole("link", { name: "Network" }).click();
-    await page.getByRole("button", { name: "Gateway (ping)" }).click();
-    await page.getByText(/Reached|Failed/).first().waitFor({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Trace and ping" }).click();
+    await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 });
 
     await page.getByRole("link", { name: "Files" }).click();
     await page.getByRole("table", { name: /Contents of/ }).waitFor({ timeout: 30_000 });

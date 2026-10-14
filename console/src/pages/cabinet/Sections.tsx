@@ -1,5 +1,6 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
 import { adapterRows, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
+import { PacketPath } from "../../components/PacketPath";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
@@ -19,7 +20,7 @@ export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const uninstall = useDriverUninstall(cabinet, () => void drivers.start());
   useEffect(() => { void devices.start({ problemsOnly: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (<>
-    <OperationPanel title="Devices" description="Plug and Play devices, with Windows error codes in plain words." run={devices}
+    <OperationPanel title="Devices" run={devices}
       onRun={() => void devices.start({ problemsOnly })} buttonLabel="List devices">
       {out => {
         const f = filter.toLowerCase();
@@ -67,7 +68,7 @@ export function Updates({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<UpdatesStatusOutput>(cabinetId, "updates.status");
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <OperationPanel title="Windows updates" description="From Windows Update's own records on the cabinet; nothing is downloaded." run={op} onRun={() => void op.start()}>
+    <OperationPanel title="Windows updates" run={op} onRun={() => void op.start()}>
       {out => (<>
         <KeyValues rows={[["Last check", fullTime(out.lastCheckAt)], ["Last install", fullTime(out.lastInstallAt)],
           ["Last install result", out.lastInstallResult ? <Badge tone={RESULT_TONE[out.lastInstallResult] ?? "off"}>{out.lastInstallResult.replaceAll("_", " ")}</Badge> : null],
@@ -95,7 +96,7 @@ export function DriveHealth({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<DiskSmartOutput>(cabinetId, "disk.smart");
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <OperationPanel title="Drive health" description="SMART health and reliability counters. Any reallocated or pending sectors mean the drive should be replaced before it fails."
+    <OperationPanel title="Drive health"
       run={op} onRun={() => void op.start()}>
       {out => out.drives.length === 0 ? <Empty>No drive reported health data.</Empty> : (
         <div className="cards">{out.drives.map((d, i) => {
@@ -134,31 +135,17 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
     {config.result?.output && (config.result.output.routes || config.result.output.neighbors) && (
       <section className="panel" aria-labelledby="routes-heading">
         <h2 id="routes-heading">Routes and ARP table</h2>
-        <p className="muted small">Where this cabinet sends traffic, and which machines on its network it has talked to lately and whether they answered.</p>
         <RoutesTable routes={(config.result.output.routes ?? []) as never} />
         <NeighborsTable neighbors={(config.result.output.neighbors ?? []) as never} />
       </section>)}
+    <PacketPath cabinetId={cabinetId} dnsCount={dnsCount} />
     <section className="panel" aria-labelledby="tests-heading">
-      <h2 id="tests-heading">Connectivity tests</h2>
-      <p className="muted small">Each test goes only to one of these targets; the sync cabinet's address and ports come from the site's settings.</p>
+      <h2 id="tests-heading">Probes</h2>
       <div className="tests">
-        <NetTest cabinetId={cabinetId} label="Gateway (ping, 5 requests)" params={{ target: "gateway", method: "ping", count: 5 }} />
         {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
           <NetTest key={i} cabinetId={cabinetId} label={`DNS server ${i + 1} (lookup)`} params={{ target: "dns_server", method: "dns", dnsServerIndex: i }} />))}
-        <NetTest cabinetId={cabinetId} label="Sync cabinet (ping, 5 requests)" params={{ target: "sync_cabinet", method: "ping", count: 5 }} />
         <SyncTcpTest cabinetId={cabinetId} />
         <NetTest cabinetId={cabinetId} label="Platform server (DNS)" params={{ target: "platform_server", method: "dns" }} />
-      </div>
-    </section>
-    <section className="panel" aria-labelledby="paths-heading">
-      <h2 id="paths-heading">Path to a target</h2>
-      <p className="muted small">The route hop by hop, found by the cabinet itself with echo requests of rising time-to-live. It shows where replies stop or slow down. Some networks block these probes, so a trace that stops is a lead, not proof.</p>
-      <div className="tests">
-        <TraceTest cabinetId={cabinetId} label="Path to the gateway" params={{ target: "gateway" }} />
-        {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
-          <TraceTest key={i} cabinetId={cabinetId} label={`Path to DNS server ${i + 1}`} params={{ target: "dns_server", dnsServerIndex: i }} />))}
-        <TraceTest cabinetId={cabinetId} label="Path to the sync cabinet" params={{ target: "sync_cabinet" }} />
-        <TraceTest cabinetId={cabinetId} label="Path to the platform server" params={{ target: "platform_server" }} />
       </div>
     </section>
   </>);
@@ -180,19 +167,6 @@ function NetTest({ cabinetId, label, params }: { cabinetId: string; label: strin
   );
 }
 
-function TraceTest({ cabinetId, label, params }: { cabinetId: string; label: string; params: Record<string, unknown> }) {
-  const op = useOperation<NetworkTraceOutput>(cabinetId, "network.trace");
-  const out = op.result?.output;
-  return (
-    <div className="test" aria-live="polite">
-      <button className="btn" onClick={() => void op.start(params)} disabled={op.state === "running"}>{op.state === "running" ? "Tracing…" : label}</button>
-      {op.problem && <span className="error">{op.problem}</span>}
-      {op.result && op.result.status !== "succeeded" && <span className="error">{op.result.error?.message}</span>}
-      {out && <TraceTable t={out as never} />}
-    </div>
-  );
-}
-
 function SyncTcpTest({ cabinetId }: { cabinetId: string }) {
   const [port, setPort] = useState("");
   const n = Number(port);
@@ -201,7 +175,7 @@ function SyncTcpTest({ cabinetId }: { cabinetId: string }) {
       <label className="field inline"><span>Sync cabinet TCP port</span><input inputMode="numeric" value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ""))} size={6} /></label>
       {Number.isInteger(n) && n >= 1 && n <= 65535
         ? <NetTest cabinetId={cabinetId} label={`Sync cabinet port ${n} (TCP)`} params={{ target: "sync_cabinet", method: "tcp", port: n }} />
-        : <span className="muted small">Enter one of the site's sync ports.</span>}
+        : <span className="muted small">Port 1–65535</span>}
     </div>
   );
 }
@@ -217,7 +191,7 @@ export function Firewall({ cabinet }: { cabinet: CabinetDetail }) {
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return (<>
     <FirewallPolicyPanel cabinet={cabinet} version={changes} onChanged={changed} />
-    <OperationPanel title="Firewall" description="Profiles and every rule. Rules the platform created are marked." run={op} onRun={() => void op.start()}>
+    <OperationPanel title="Firewall" run={op} onRun={() => void op.start()}>
       {out => {
         const f = filter.text.toLowerCase();
         const shown = out.rules.filter(r => (!f || r.name.toLowerCase().includes(f) || (r.localPorts ?? "").includes(f) || (r.remotePorts ?? "").includes(f))
@@ -268,22 +242,29 @@ export function Files({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<FilesListOutput>(cabinetId, "files.list");
   const [path, setPath] = useState("C:\\");
   const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<"name" | "size" | "modified">("name");
   const open = (p: string, n = 1) => { setPath(p); setPage(n); void op.start({ path: p, page: n, pageSize: 200 }); };
   useEffect(() => { open("C:\\"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const parts = useMemo(() => path.slice(3).split("\\").filter(Boolean), [path]);
   return (
-    <OperationPanel title="Files" description="Lists one folder on drive C: at a time. Listing only: no file is opened, copied or changed." run={op}
+    <OperationPanel title="Files" run={op}
       onRun={() => open(path, page)} buttonLabel="List">
       {out => (<>
         <nav aria-label="Folder path" className="crumbs"><ol>
           <li><button className="linkish" onClick={() => open("C:\\")}>C:</button></li>
           {parts.map((p, i) => <li key={i}><button className="linkish" onClick={() => open("C:\\" + parts.slice(0, i + 1).join("\\"))}>{p}</button></li>)}
         </ol></nav>
-        {out.entries.length === 0 ? <Empty>This folder is empty.</Empty> : (
+        <div className="row gap wrap filters">
+          <label className="field inline"><span>Filter</span><input value={filter} onChange={e => setFilter(e.target.value)} placeholder="name" /></label>
+          <label className="field inline"><span>Sort</span><select value={sort} onChange={e => setSort(e.target.value as typeof sort)}><option value="name">Name</option><option value="size">Size</option><option value="modified">Modified</option></select></label>
+          <span className="muted small">{out.path}</span>
+        </div>
+        {out.entries.length === 0 ? <Empty>Empty folder.</Empty> : (
           <table className="table compact">
             <caption className="sr-only">Contents of {out.path}</caption>
             <thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified</th></tr></thead>
-            <tbody>{out.entries.map(e => (
+            <tbody>{[...out.entries].filter(e => !filter || e.name.toLowerCase().includes(filter.toLowerCase())).sort((a, b) => (a.type === b.type ? 0 : a.type === "directory" ? -1 : 1) || (sort === "size" ? (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) : sort === "modified" ? String(b.modifiedAt ?? "").localeCompare(String(a.modifiedAt ?? "")) : a.name.localeCompare(b.name))).map(e => (
               <tr key={e.name}>
                 <th scope="row">{e.type === "directory"
                   ? <button className="linkish" onClick={() => open((out.path.endsWith("\\") ? out.path : out.path + "\\") + e.name)}>📁 {e.name}</button>

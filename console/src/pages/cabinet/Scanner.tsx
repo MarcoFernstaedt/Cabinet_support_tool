@@ -45,7 +45,7 @@ export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail
   const rerun = () => void status.start();
   return (<>
     <Drops cabinetId={cabinet.id} />
-    <OperationPanel title="Fingerprint scanner" description="Runs the standard scanner troubleshooting on the cabinet and says what to try next."
+    <OperationPanel title="Fingerprint scanner"
       run={status} onRun={rerun} buttonLabel="Check the scanner">
       {out => <ScannerResult out={out} cabinet={cabinet} onUse={() => { onSettingsChanged(); rerun(); }} />}
     </OperationPanel>

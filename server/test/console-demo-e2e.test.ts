@@ -252,12 +252,21 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("13 of 13 passed").waitFor({ timeout: 90_000 });
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
 
+    // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
+    await page.goto(`${origin}/cabinets/${exam}/network`);
+    await page.getByRole("button", { name: "All targets" }).click();
+    await page.getByRole("button", { name: "All targets" }).and(page.locator(":enabled")).waitFor({ timeout: 90_000 });
+    await page.getByRole("table", { name: /^gateway/ }).waitFor();
+    assert.ok(await page.getByRole("cell", { name: "Clean" }).count() >= 1, "at least one healthy path is marked clean");
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/packets.png`, fullPage: true });
+
     // Troubleshoot: pick a symptom, the fixed checks for it run and explain themselves, and the case notes carry the findings.
     await page.goto(`${origin}/cabinets/${exam}/troubleshoot`);
-    await page.getByLabel("What is wrong?").selectOption({ label: "The computer is slow, or the application freezes" });
-    await page.getByRole("button", { name: "Run the checks", exact: true }).click();
-    await page.getByRole("button", { name: "Run the checks again" }).waitFor({ timeout: 60_000 });
+    await page.getByLabel("Symptom").selectOption({ label: "The computer is slow, or the application freezes" });
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    await page.getByRole("button", { name: "Run again" }).waitFor({ timeout: 60_000 });
     await page.getByText(/memory .* GB free of/).waitFor();
+    await page.locator("summary", { hasText: "Case notes" }).click();
     await page.getByLabel("Actions taken").fill("Closed the extra programs");
     await page.getByRole("button", { name: "Copy case notes" }).click();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/troubleshoot.png`, fullPage: true });

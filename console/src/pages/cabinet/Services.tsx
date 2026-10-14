@@ -3,12 +3,13 @@
 // restart (Tier 2 and up, a confirmation click); and the processes, as Task Manager shows them. The agent refuses its own
 // and remote-access services and never changes a start type; the server checks every role again.
 import { useEffect, useState, type ReactNode } from "react";
-import type { ProcessesListOutput, ServiceControlOutput, ServicesListOutput } from "@mashura/cabinet-contracts/types";
+import type { ProcessesListOutput, ServiceControlOutput, ServicesListOutput, SystemPerformanceOutput } from "@mashura/cabinet-contracts/types";
 import { api, describeError } from "../../lib/api";
 import { useOperation } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
 import { useLoad } from "../../lib/useLoad";
 import { ago } from "../../lib/time";
+import { PerformanceStrip } from "../../components/PerformanceStrip";
 import { Badge, ConfirmDialog, Empty, OperationPanel, WriteOutcome } from "../../components/ui";
 import { useCanWrite, useConfirmedWrite } from "./Writes";
 import type { CabinetDetail } from "./CabinetPage";
@@ -83,7 +84,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
   </>);
   return (<>
     <WatchedPanel cabinet={cabinet} levels={levels.data} watched={op.result?.output?.watched ?? []} onChanged={levels.reload} />
-    <OperationPanel title="Services" description="Every Windows service on the cabinet. Paths are shown without their arguments." run={op} onRun={() => void op.start()}>
+    <OperationPanel title="Services" run={op} onRun={() => void op.start()}>
       {out => {
         const t = filter.text.toLowerCase();
         const shown = out.services.filter(s => (!t || s.name.toLowerCase().includes(t) || s.displayName.toLowerCase().includes(t) || (s.executablePath ?? "").toLowerCase().includes(t))
@@ -137,40 +138,53 @@ const megabytes = (b: number) => `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 10
 
 export function Processes({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<ProcessesListOutput>(cabinetId, "processes.list");
+  const perf = useOperation<SystemPerformanceOutput>(cabinetId, "system.performance");
   const [text, setText] = useState("");
-  const [sort, setSort] = useState<"cpu" | "memory" | "name">("cpu");
-  useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <OperationPanel title="Processes" description="Every running process, with CPU over a one-second sample and memory, like Task Manager. Command lines are never read." run={op} onRun={() => void op.start()}>
+  const [sort, setSort] = useState<"cpu" | "memory" | "threads" | "handles" | "name">("cpu");
+  const [live, setLive] = useState(false);
+  const refresh = () => { void op.start(); void perf.start(); };
+  useEffect(() => { refresh(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const busy = op.state === "running" || perf.state === "running";
+  // Live: ask again 3 seconds after the last answer arrived, so reads never pile up on a slow cabinet.
+  useEffect(() => {
+    if (!live || busy) return;
+    const t = setTimeout(refresh, 3000);
+    return () => clearTimeout(t);
+  }, [live, busy, op.at, perf.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sorters = { cpu: (a: P, b: P) => b.cpuPercent - a.cpuPercent, memory: (a: P, b: P) => b.workingSetBytes - a.workingSetBytes, threads: (a: P, b: P) => b.threads - a.threads,
+    handles: (a: P, b: P) => b.handles - a.handles, name: (a: P, b: P) => a.name.localeCompare(b.name) };
+  return (<>
+    {perf.result?.output && <section className="panel" aria-label="Performance"><PerformanceStrip p={perf.result.output} /></section>}
+    <OperationPanel title="Processes" run={op} onRun={refresh}>
       {out => {
         const t = text.toLowerCase();
-        const shown = out.processes.filter(p => !t || p.name.toLowerCase().includes(t) || (p.executablePath ?? "").toLowerCase().includes(t) || String(p.processId) === t)
-          .sort((a, b) => sort === "cpu" ? b.cpuPercent - a.cpuPercent : sort === "memory" ? b.workingSetBytes - a.workingSetBytes : a.name.localeCompare(b.name));
-        const totalCpu = out.processes.reduce((n, p) => n + p.cpuPercent, 0);
+        const shown = out.processes.filter(p => !t || p.name.toLowerCase().includes(t) || (p.executablePath ?? "").toLowerCase().includes(t) || String(p.processId) === t).sort(sorters[sort]);
         return (<>
           <div className="row gap wrap filters">
-            <label className="field inline"><span>Name, path or PID</span><input value={text} onChange={e => setText(e.target.value)} /></label>
-            <label className="field inline"><span>Sort by</span><select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
-              <option value="cpu">CPU</option><option value="memory">Memory</option><option value="name">Name</option></select></label>
-            <span className="muted small">{out.processes.length} processes{out.truncated ? " (the first 2,000)" : ""} · CPU in use {Math.min(100, totalCpu).toFixed(0)}%</span>
+            <label className="field inline"><span>Filter</span><input value={text} onChange={e => setText(e.target.value)} placeholder="name, path or PID" /></label>
+            <label className="field inline"><span>Sort</span><select value={sort} onChange={e => setSort(e.target.value as typeof sort)}>
+              <option value="cpu">CPU</option><option value="memory">Memory</option><option value="threads">Threads</option><option value="handles">Handles</option><option value="name">Name</option></select></label>
+            <label className="field inline"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} /><span>Live</span></label>
+            <span className="muted small">{shown.length} of {out.processes.length}{out.truncated ? " (first 2,000)" : ""}</span>
           </div>
-          <table className="table">
+          <table className="table compact">
             <caption className="sr-only">Running processes</caption>
-            <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Runs as</th><th scope="col">Started</th></tr></thead>
+            <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Threads</th><th scope="col">Handles</th><th scope="col">Account</th><th scope="col">Started</th></tr></thead>
             <tbody>{shown.slice(0, 500).map(p => (
               <tr key={p.processId}>
                 <th scope="row">{p.name}{p.executablePath && <div className="muted small wrap">{p.executablePath}</div>}</th>
-                <td>{p.processId}</td><td>{p.cpuPercent.toFixed(1)}%</td><td>{megabytes(p.workingSetBytes)}</td>
-                <td className="small">{p.account ?? <span className="muted">unknown</span>}</td><td className="small">{p.startTime ? ago(p.startTime) : <span className="muted">unknown</span>}</td>
+                <td>{p.processId}</td><td>{p.cpuPercent.toFixed(1)}%</td><td>{megabytes(p.workingSetBytes)}</td><td>{p.threads}</td><td>{p.handles}</td>
+                <td className="small">{p.account ?? <span className="muted">—</span>}</td><td className="small">{p.startTime ? ago(p.startTime) : <span className="muted">—</span>}</td>
               </tr>))}
             </tbody>
           </table>
-          {shown.length > 500 && <p className="muted small">Showing the first 500; narrow the search to see more.</p>}
         </>);
       }}
     </OperationPanel>
-  );
+  </>);
 }
+
+type P = ProcessesListOutput["processes"][number];
 
 /** A watch list editor for a client, a site or the fleet default (one name per line). */
 export function WatchListEditor({ endpoint, own, inherited, what, editable, onSaved }: {
