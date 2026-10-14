@@ -2,6 +2,7 @@
 import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
 import { PortCheck } from "../../components/PortCheck";
 import { PacketPath } from "../../components/PacketPath";
+import { DrawerCheck } from "./DrawerCheck";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
@@ -132,6 +133,7 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
   return (<>
     <PacketPath cabinetId={cabinetId} dnsCount={dnsCount} />
     <DiagnoseNetwork cabinetId={cabinet.id} cabinetName={cabinet.name} />
+    <DrawerCheck cabinet={cabinet} />
     <OperationPanel title="Network adapters" run={config} onRun={() => void config.start()}>
       {out => <div className="cards adapters">{out.adapters.map(a => (
         <article key={a.interfaceIndex} className="card" aria-label={`Adapter ${a.name}`}>

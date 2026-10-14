@@ -317,6 +317,18 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.ok(await page.getByRole("cell", { name: "Clean" }).count() >= 1, "at least one healthy path is marked clean");
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/packets.png`, fullPage: true });
 
+    // Cash drawer: the drawer link is found among the adapters (unidentified network, fixed address), its settings and packet counters are
+    // checked over two readings, and the firewall state is reported.
+    const withDrawer = (await db.app.query<{ id: string }>(
+      `SELECT k.id FROM cabinets k WHERE k.demo_scenario = 'healthy' AND (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) % 3 = 0 ORDER BY k.name LIMIT 1`)).rows[0]!.id;
+    await page.goto(`${origin}/cabinets/${withDrawer}/network`);
+    await page.getByRole("button", { name: "Check drawer" }).click();
+    await page.getByRole("table", { name: "Drawer check" }).waitFor({ timeout: 60_000 });
+    await page.getByRole("row", { name: /^IPv4/ }).getByText(/inside 176\.20\.1\.0\/24/).waitFor();
+    await page.getByRole("row", { name: /^Packets/ }).getByText(/bytes in/).waitFor();
+    await page.getByRole("row", { name: /^Firewall/ }).waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/drawer.png`, fullPage: true });
+
     // Troubleshoot: pick a symptom, the fixed checks for it run and explain themselves, and the case notes carry the findings.
     await page.goto(`${origin}/cabinets/${exam}/troubleshoot`);
     await page.getByLabel("Symptom").selectOption({ label: "The computer is slow, or the application freezes" });

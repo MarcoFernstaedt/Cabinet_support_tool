@@ -209,3 +209,11 @@ test("layers: each cabinet's path from the link up to the firewall, worst findin
   assert.equal(l.dns, "problem");
   assert.equal(l.sync, "unknown");
 });
+
+test("the cash drawer link is not judged against the site's network or gateway", () => {
+  const drawer = adapter({ interfaceIndex: 13, name: "Ethernet 2", ipv4: { dhcp: false, addresses: [{ address: "176.20.1.12", prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] } });
+  const e = evidence({ config: { adapters: [adapter(), drawer] }, baseline: { addressing: "dhcp", gateway: "10.21.4.1", prefixLength: 24, dnsServers: ["10.21.4.10", "10.21.4.11"] } as never });
+  const f = networkFindings(e);
+  assert.ok(f.every(x => !x.id.endsWith("-13")), JSON.stringify(f.filter(x => x.id.endsWith("-13"))));
+  assert.ok(f.every(x => x.severity === "ok"), JSON.stringify(f.filter(x => x.severity !== "ok")));
+});

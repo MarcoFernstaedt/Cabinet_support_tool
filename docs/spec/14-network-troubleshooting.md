@@ -118,3 +118,14 @@ Not built: the network connection category (Public, Private, Domain) on each ada
 `network.flushDns` empties the resolver cache with `ipconfig.exe /flushdns` (full path, fixed arguments). Tier 1 and up, one click, no setting changes and nothing for the safety net to undo.
 
 What a technician can change from the Network section, by role: Tier 1 renews a DHCP lease and flushes the DNS cache; Tier 2 and up sets a fixed IP address, gateway or DHCP, and sets DNS servers or automatic DNS, each with an authenticator code and the safety net that puts the old setting back if the cabinet loses contact.
+
+## Cash drawer check
+
+Some cabinets connect their cash drawers through the monitor over a spoofed Ethernet link. Windows lists it as an Ethernet adapter on an "Unidentified network" with a fixed address and no gateway. The Network tab has a **Cash drawer** panel (`console/src/pages/cabinet/DrawerCheck.tsx`, logic in `console/src/lib/drawer.ts`, covered by `console/test/drawer.test.ts`):
+
+- Finds the drawer adapter: an Ethernet adapter with an address in the drawer network, else one on an unidentified network. Wi-Fi is never chosen. If none is found, the panel says so and points at the cable and Devices and drivers.
+- Checks status (link, disabled), IPv4 (inside the drawer network, right prefix, static, no gateway) and packet counters. `network.config` is read twice, five seconds apart, so the panel reports traffic and new errors or drops in that window, not just totals since boot.
+- Reads the firewall state and shows each profile that is on, with the ordinary **Turn off…** control (`firewall.setProfile`, the same confirmation and safety net as the Firewall tab). The drawer network is unidentified, which Windows treats as Public.
+- Copy as text for the ticket.
+
+The drawer network is `176.20.1.0/24`, fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has. Open question in 09-open-decisions.md: whether the address should be a platform setting.
