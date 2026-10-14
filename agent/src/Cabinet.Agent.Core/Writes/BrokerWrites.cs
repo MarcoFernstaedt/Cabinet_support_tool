@@ -20,6 +20,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         .Register<NetworkSetIpParams, NetworkSetIpOutput>(Catalog.NetworkSetIp, (p, _) => Task.FromResult(SetIp(p)))
         .Register<NetworkSetDnsParams, NetworkSetDnsOutput>(Catalog.NetworkSetDns, (p, _) => Task.FromResult(SetDns(p)))
         .Register<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(Catalog.NetworkRenewLease, (p, _) => Task.FromResult(RenewLease(p)))
+        .Register<EmptyParams, NetworkFlushDnsOutput>(Catalog.NetworkFlushDns, (_, _) => Task.FromResult(FlushDns()))
         .Register<FirewallSetProfileParams, FirewallSetProfileOutput>(Catalog.FirewallSetProfile, (p, _) => Task.FromResult(SetProfile(p)))
         .Register<FirewallApplyPolicyParams, FirewallApplyPolicyOutput>(Catalog.FirewallApplyPolicy, (p, _) => Task.FromResult(ApplyPolicy(p)))
         .Register<FirewallSetRuleParams, FirewallSetRuleOutput>(Catalog.FirewallSetRule, (p, _) => Task.FromResult(SetRule(p)))
@@ -69,6 +70,13 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
                 Message = leased ? "The DHCP server gave a lease." : code == 0 ? "No DHCP server answered, so there is no lease." : $"Windows could not renew the lease (code {code}).",
             };
         }
+    }
+
+    /// <summary>Empties the resolver cache. It changes no setting, so there is nothing for the safety net to undo.</summary>
+    public NetworkFlushDnsOutput FlushDns()
+    {
+        Command();
+        lock (_gate) return new() { Flushed = network.FlushDns() };
     }
 
     private static string? FirstAddress(Ipv4Settings ip) => ip.Addresses.Count > 0 ? ip.Addresses[0].Address : null;

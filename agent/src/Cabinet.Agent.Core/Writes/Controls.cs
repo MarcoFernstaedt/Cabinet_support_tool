@@ -35,6 +35,8 @@ public interface INetworkControl
     void SetDns(int interfaceIndex, DnsSettings dns);
     /// <summary>Asks the DHCP server for a new lease (the adapter's RenewDHCPLease); returns Windows' result code, 0 for success.</summary>
     int RenewLease(int interfaceIndex);
+    /// <summary>Empties the DNS resolver cache; true when Windows reported success.</summary>
+    bool FlushDns();
     /// <summary>Puts back settings read earlier (the safety net's rollback).</summary>
     void Restore(int interfaceIndex, Ipv4Settings ip);
 }

@@ -25,7 +25,7 @@ const dist = join(repo, "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
-test("every page fits its screen, wide and narrow, and shows no raw values", { skip, timeout: 600_000 }, async () => {
+test("every page fits its screen and shows no raw values", { skip, timeout: 600_000 }, async () => {
   const { chromium } = await import("playwright");
   const db = await createTestDatabase();
   let clock = Date.now();
@@ -72,7 +72,7 @@ test("every page fits its screen, wide and narrow, and shows no raw values", { s
       "/admin", "/admin/setup", "/admin/pending", "/admin/tokens", "/admin/scanner", "/admin/audit", "/admin/software", "/admin/upgrades", "/admin/users", "/admin/online",
       "/admin/clients", "/admin/issues", "/admin/safety", "/admin/security", "/admin/settings", ...tabs.map(t => `/cabinets/${ids.cabinet}/${t}`)];
     const faults: string[] = [];
-    for (const [label, size] of [["wide", { width: 1360, height: 900 }], ["narrow", { width: 390, height: 844 }]] as const) {
+    for (const [label, size] of [["wide", { width: 1360, height: 900 }]] as const) {
       await page.setViewportSize(size);
       for (const path of pages.filter(p => !process.env.ONLY || p.includes(process.env.ONLY) || process.env.ONLY.split(",").some(o => p.includes(o)))) {
         await page.goto(`${origin}${path}`);

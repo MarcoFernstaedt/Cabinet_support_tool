@@ -64,6 +64,8 @@ public sealed class FakeNetwork : INetworkControl
         Ip = Ip with { Addresses = [new() { Address = LeaseAddress ?? "169.254.9.9", PrefixLength = LeaseAddress is null ? 16 : 24 }] };
         return RenewCode;
     }
+    public int Flushes;
+    public bool FlushDns() { Flushes++; return true; }
     public void Restore(int i, Ipv4Settings ip) { Read(i); Ip = ip; }
 }
 
@@ -160,6 +162,13 @@ public class BrokerWriteTests
         Name = name, Direction = FirewallDirection.In, Action = FirewallAction.Allow, Protocol = FirewallProtocol.Tcp,
         LocalPorts = [new PortRange { From = 1433, To = 1433 }], Profiles = [FirewallProfile.Domain, FirewallProfile.Private], Enabled = true,
     };
+
+    [Fact]
+    public void Flushing_the_dns_cache_changes_no_setting_and_arms_no_safety_net()
+    {
+        var output = As(Guid.NewGuid(), () => _writes.FlushDns());
+        Assert.True(output.Flushed);
+    }
 
     [Fact]
     public void Renewing_a_lease_reports_the_new_address_and_changes_no_setting()

@@ -582,6 +582,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "network.flushDns"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.flushDns.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "system.performance"
           }
         },

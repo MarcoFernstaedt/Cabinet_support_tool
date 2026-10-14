@@ -86,6 +86,8 @@ public sealed class NetworkControl : INetworkControl
         return result?["ReturnValue"] is uint code ? (int)code : -1;
     }
 
+    public bool FlushDns() => ExternalProgram.Run("ipconfig.exe", ["/flushdns"], TimeSpan.FromSeconds(30)).ExitCode == 0;
+
     public void Restore(int interfaceIndex, Ipv4Settings ip)
     {
         using ManagementObject a = Adapter(interfaceIndex);

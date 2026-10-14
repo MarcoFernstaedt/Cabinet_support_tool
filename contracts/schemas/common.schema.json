@@ -250,7 +250,8 @@
         "time.status",
         "time.setZone",
         "time.sync",
-        "network.renewLease"
+        "network.renewLease",
+        "network.flushDns"
       ]
     },
     "rejectionCode": {

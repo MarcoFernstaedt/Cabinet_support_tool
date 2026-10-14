@@ -3,7 +3,7 @@
 // which cabinet: a click for quick, self-healing changes, or an authenticator code bound to the exact parameters.
 // The server and the agent check all of it again; nothing here is the protection.
 import { useEffect, useState, type ReactNode } from "react";
-import type { UpdatesUninstallOutput, DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
+import type { NetworkFlushDnsOutput, UpdatesUninstallOutput, DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
   FirewallStateOutput, NetworkConfigOutput, NetworkRenewLeaseOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
 import { useWrite, type CommandResult } from "../../lib/commands";
 import { useSession } from "../../lib/session";
@@ -506,6 +506,20 @@ export function useUpdateRollback(cabinet: CabinetDetail, onChanged: () => void)
           <p className="notice warn">The update is removed with Windows' own uninstaller. The cabinet is not restarted; if Windows needs a restart to finish, it is reported and waits.</p></>)}>Roll back</button>
       : null,
     outcome: <WriteOutcome run={w.run} done={o => <>{o.kb} was rolled back.{o.rebootRequired && " Windows needs a restart to finish; the cabinet has not been restarted."}</>} />,
+    dialog: w.dialog,
+  };
+}
+
+// ---- DNS cache ------------------------------------------------------------------------------
+
+/** Empties the Windows DNS resolver cache (ipconfig /flushdns). Changes no setting. */
+export function useFlushDns(cabinet: CabinetDetail) {
+  const allowed = useCanWrite(cabinet, "network.flushDns");
+  const w = useConfirmedWrite<NetworkFlushDnsOutput>(cabinet, "network.flushDns");
+  return {
+    allowed,
+    button: allowed ? <button className="btn small" onClick={() => w.ask({}, <p>Empty the DNS resolver cache on <strong>{cabinet.name}</strong>. No setting changes; names are looked up again on next use.</p>)}>Flush DNS cache</button> : null,
+    outcome: <WriteOutcome run={w.run} done={o => <>{o.flushed ? "The DNS cache was emptied." : "Windows did not report success."}</>} />,
     dialog: w.dialog,
   };
 }

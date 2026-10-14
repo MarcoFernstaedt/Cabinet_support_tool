@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.flushDns.schema.json",
+  "title": "network.flushDns",
+  "description": "Empty the Windows DNS resolver cache (ipconfig /flushdns). Changes no setting.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "flushed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "flushed"
+      ]
+    }
+  }
+}

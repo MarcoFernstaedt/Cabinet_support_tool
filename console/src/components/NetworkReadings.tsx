@@ -7,8 +7,11 @@ import { fullTime } from "../lib/time";
 
 export interface AdapterReading {
   interfaceIndex: number; name: string; description: string | null; type: string; connected: boolean; linkSpeedBps: number | null; macAddress: string | null;
-  ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { automatic: boolean; servers: string[] }; dnsSuffix: string | null;
+  ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; ipv6Addresses?: string[]; dns: { automatic: boolean; servers: string[] }; dnsSuffix: string | null;
   details?: { dhcpServer: string | null; leaseObtained: string | null; leaseExpires: string | null; mtu: number | null;
+    interfaceMetric?: number | null; adminStatus?: string | null; netbios?: string | null;
+    driver?: { provider: string | null; version: string | null; date: string | null } | null;
+    networkProfile?: { name: string | null; category: string } | null;
     statistics: { bytesReceived: number; bytesSent: number; receiveErrors: number; sendErrors: number; receiveDiscards: number; sendDiscards: number } | null };
 }
 export interface RouteReading { destination: string; prefixLength: number; nextHop: string; metric: number; interfaceIndex: number }
@@ -23,23 +26,45 @@ const mb = (n: number) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${(n / 1e6)
 const count = (n: number) => n.toLocaleString("en-US");
 const ms = (v: number | null) => v === null ? "no reply" : `${v} ms`;
 
+const CATEGORY: Record<string, string> = { public: "Public", private: "Private", domain: "Domain" };
+
 export function adapterRows(a: AdapterReading): [string, ReactNode][] {
   const d = a.details;
   const s = d?.statistics;
+  const net = d?.networkProfile;
+  const drv = d?.driver;
   return [
+    ["Status", `${a.connected ? "Connected" : "Disconnected"}${d?.adminStatus && d.adminStatus !== "up" ? `, admin ${d.adminStatus}` : ""}`],
     ["Type", a.type === "wifi" ? "Wi-Fi" : a.type === "ethernet" ? "Ethernet" : "Other"], ["Description", a.description],
     ["Link speed", a.linkSpeedBps ? `${(a.linkSpeedBps / 1e6).toLocaleString()} Mbps` : null], ["MAC address", a.macAddress],
     ["Addressing", a.ipv4.dhcp ? "DHCP" : "Static"], ["IPv4", a.ipv4.addresses.map(x => `${x.address}/${x.prefixLength}`).join(", ") || null],
     ["Gateway", a.ipv4.gateways.join(", ") || null], ["DNS servers", `${a.dns.servers.join(", ") || "none"} (${a.dns.automatic ? "automatic" : "set by hand"})`], ["DNS suffix", a.dnsSuffix],
+    ["IPv6", a.ipv6Addresses?.length ? a.ipv6Addresses.join(", ") : "none"],
     ...(d ? [
-      ["DHCP server", a.ipv4.dhcp ? d.dhcpServer : "Not used: the address is set by hand"],
+      ["Network profile", net ? `${net.name ?? "unnamed"} (${CATEGORY[net.category] ?? net.category})` : null],
+      ["Interface metric", d.interfaceMetric ?? null],
+      ["DHCP server", a.ipv4.dhcp ? d.dhcpServer : "Not used"],
       ["Lease obtained", d.leaseObtained ? fullTime(d.leaseObtained) : null], ["Lease ends", d.leaseExpires ? fullTime(d.leaseExpires) : null],
-      ["Packet size (MTU)", d.mtu === null ? null : `${d.mtu}${d.mtu === 1500 ? "" : " (not the usual 1500)"}`],
-      ["Traffic since Windows started", s ? `${mb(s.bytesReceived)} in, ${mb(s.bytesSent)} out` : null],
-      ["Card errors", s ? `${count(s.receiveErrors)} in, ${count(s.sendErrors)} out${s.receiveErrors + s.sendErrors > 0 ? " (growing counts point at the cable, port or card)" : ""}` : null],
+      ["MTU", d.mtu === null ? null : `${d.mtu}${d.mtu === 1500 ? "" : " (not 1500)"}`],
+      ["NetBIOS over TCP/IP", d.netbios ?? null],
+      ["Driver", drv ? [drv.provider, drv.version, drv.date ? drv.date.slice(0, 10) : null].filter(Boolean).join(" · ") || null : null],
+      ["Traffic", s ? `${mb(s.bytesReceived)} in, ${mb(s.bytesSent)} out` : null],
+      ["Card errors", s ? `${count(s.receiveErrors)} in, ${count(s.sendErrors)} out` : null],
       ["Dropped packets", s ? `${count(s.receiveDiscards)} in, ${count(s.sendDiscards)} out` : null],
     ] as [string, ReactNode][] : []),
   ];
+}
+
+/** The adapters as plain text in the order of `ipconfig /all`, for pasting into a ticket. */
+export function ipconfigText(cabinet: string, adapters: AdapterReading[], proxy?: { winHttp: string | null } | null): string {
+  const lines = [`${cabinet}: network configuration`, ""];
+  for (const a of adapters) {
+    lines.push(`${a.type === "wifi" ? "Wireless LAN adapter" : "Ethernet adapter"} ${a.name}:`);
+    for (const [k, v] of adapterRows(a)) if (v !== null && v !== undefined && v !== "") lines.push(`   ${k.padEnd(22, ".")}: ${typeof v === "string" || typeof v === "number" ? v : ""}`);
+    lines.push("");
+  }
+  if (proxy) lines.push(`WinHTTP proxy: ${proxy.winHttp ?? "direct access"}`);
+  return lines.join("\n");
 }
 
 export function RoutesTable({ routes }: { routes: RouteReading[] }) {

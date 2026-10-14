@@ -68,7 +68,7 @@
                 "$ref": "../common.schema.json#/$defs/nullableShortText"
               },
               "details": {
-                "description": "Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null.",
+                "description": "Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null. Newer agents also send the interface metric, admin status, driver, NetBIOS setting and the Windows network profile; each is optional and null when it could not be read.",
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
@@ -164,6 +164,128 @@
                             "type": "integer",
                             "minimum": 0,
                             "maximum": 9007199254740991
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "interfaceMetric": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9999
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "adminStatus": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "up",
+                          "down",
+                          "testing"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "driver": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "provider",
+                          "version",
+                          "date"
+                        ],
+                        "properties": {
+                          "provider": {
+                            "anyOf": [
+                              {
+                                "$ref": "../common.schema.json#/$defs/shortText"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "version": {
+                            "anyOf": [
+                              {
+                                "$ref": "../common.schema.json#/$defs/shortText"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "date": {
+                            "anyOf": [
+                              {
+                                "$ref": "../common.schema.json#/$defs/timestamp"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "netbios": {
+                    "anyOf": [
+                      {
+                        "enum": [
+                          "default",
+                          "enabled",
+                          "disabled"
+                        ]
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "networkProfile": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "name",
+                          "category"
+                        ],
+                        "properties": {
+                          "name": {
+                            "anyOf": [
+                              {
+                                "$ref": "../common.schema.json#/$defs/shortText"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "category": {
+                            "enum": [
+                              "public",
+                              "private",
+                              "domain"
+                            ]
                           }
                         }
                       },
@@ -269,6 +391,54 @@
               }
             }
           }
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "winHttp",
+                "userProxyEnabled",
+                "userProxyServer"
+              ],
+              "properties": {
+                "winHttp": {
+                  "anyOf": [
+                    {
+                      "$ref": "../common.schema.json#/$defs/shortText"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "userProxyEnabled": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "userProxyServer": {
+                  "anyOf": [
+                    {
+                      "$ref": "../common.schema.json#/$defs/shortText"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [

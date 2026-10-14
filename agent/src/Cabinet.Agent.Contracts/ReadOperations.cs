@@ -303,6 +303,32 @@ public sealed record AdapterDetails
     public required DateTimeOffset? LeaseExpires { get; init; }
     public required int? Mtu { get; init; }
     public required AdapterStatistics? Statistics { get; init; }
+    /// <summary>The next five are optional: older agents do not send them, and a reading that failed is null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? InterfaceMetric { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AdminStatus { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AdapterDriver? Driver { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Netbios { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public NetworkProfile? NetworkProfile { get; init; }
+}
+
+public sealed record AdapterDriver
+{
+    public required string? Provider { get; init; }
+    public required string? Version { get; init; }
+    public required DateTimeOffset? Date { get; init; }
+}
+
+public sealed record NetworkProfile
+{
+    public required string? Name { get; init; }
+    public required string Category { get; init; }
+}
+
+public sealed record ProxySettings
+{
+    public required string? WinHttp { get; init; }
+    public required bool? UserProxyEnabled { get; init; }
+    public required string? UserProxyServer { get; init; }
 }
 
 public sealed record RouteEntry
@@ -329,6 +355,7 @@ public sealed record NetworkConfigOutput
     public required IReadOnlyList<NetworkAdapter> Adapters { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<RouteEntry>? Routes { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<NeighborEntry>? Neighbors { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ProxySettings? Proxy { get; init; }
 }
 
 public enum NetworkTestTarget { Gateway, DnsServer, SyncCabinet, PlatformServer }

@@ -49,6 +49,7 @@ public static class Catalog
     public const string SystemPerformance = "system.performance";
     public const string NetworkListeners = "network.listeners";
     public const string NetworkRenewLease = "network.renewLease";
+    public const string NetworkFlushDns = "network.flushDns";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
         new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
@@ -90,6 +91,7 @@ public static class Catalog
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
         Write<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(NetworkRenewLease, safetyNet: false, Confirm.Click, "tier1"),
+        Write<EmptyParams, NetworkFlushDnsOutput>(NetworkFlushDns, safetyNet: false, Confirm.Click, "tier1"),
     };
 
     private static readonly Dictionary<string, CatalogEntry> ByName = All.ToDictionary(e => e.Name, StringComparer.Ordinal);

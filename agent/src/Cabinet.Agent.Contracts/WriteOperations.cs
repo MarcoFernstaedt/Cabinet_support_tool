@@ -29,6 +29,11 @@ public sealed record NetworkRenewLeaseParams
     public required int InterfaceIndex { get; init; }
 }
 
+public sealed record NetworkFlushDnsOutput
+{
+    public required bool Flushed { get; init; }
+}
+
 public enum RenewLeaseResult { Renewed, Failed, NotDhcp }
 
 public sealed record NetworkRenewLeaseOutput

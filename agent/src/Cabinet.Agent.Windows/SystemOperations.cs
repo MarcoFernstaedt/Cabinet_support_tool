@@ -161,6 +161,7 @@ public sealed class SystemOperations(AgentConfig config)
     {
         var adapters = new List<NetworkAdapter>();
         var leases = NetworkExtras.Leases();
+        var extras = NetworkExtras.Extras();
         foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (adapters.Count == 64) break;
@@ -206,10 +207,15 @@ public sealed class SystemOperations(AgentConfig config)
                     LeaseExpires = v4.IsDhcpEnabled && leases.TryGetValue(v4.Index, out var lease2) ? lease2.Expires : null,
                     Mtu = v4.Mtu is >= 68 and <= 65535 ? v4.Mtu : null,
                     Statistics = Statistics(nic),
+                    InterfaceMetric = extras.TryGetValue(v4.Index, out var extra) ? extra.Metric : null,
+                    AdminStatus = extra?.AdminStatus,
+                    Driver = extra?.Driver,
+                    Netbios = extra?.Netbios,
+                    NetworkProfile = extra?.Profile,
                 },
             });
         }
-        return Task.FromResult(new NetworkConfigOutput { Adapters = adapters, Routes = NetworkExtras.Routes(), Neighbors = NetworkExtras.Neighbors() });
+        return Task.FromResult(new NetworkConfigOutput { Adapters = adapters, Routes = NetworkExtras.Routes(), Neighbors = NetworkExtras.Neighbors(), Proxy = NetworkExtras.Proxy() });
     }
 
     private static AdapterStatistics? Statistics(NetworkInterface nic)

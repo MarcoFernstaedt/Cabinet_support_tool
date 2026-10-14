@@ -1,5 +1,5 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
-import { adapterRows, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
+import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
 import { PacketPath } from "../../components/PacketPath";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
@@ -9,7 +9,7 @@ import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
-import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites, useUpdateRollback } from "./Writes";
+import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites, useUpdateRollback, useFlushDns } from "./Writes";
 
 export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const cabinetId = cabinet.id;
@@ -135,6 +135,7 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
           <AdapterEdit key={`${a.interfaceIndex}-${config.at}`} cabinet={cabinet} adapter={a} writes={adapterWrites} />
         </article>))}</div>}
     </OperationPanel>
+    {config.result?.output && <AdapterTools cabinet={cabinet} output={config.result.output as never} />}
     {adapterWrites.outcome}{adapterWrites.dialog}
     {config.result?.output && (config.result.output.routes || config.result.output.neighbors) && (
       <section className="panel" aria-labelledby="routes-heading">
@@ -283,5 +284,20 @@ export function Files({ cabinetId }: { cabinetId: string }) {
         </div>
       </>)}
     </OperationPanel>
+  );
+}
+
+/** Machine-wide proxy and a copy of the whole read as `ipconfig /all`-style text. */
+function AdapterTools({ cabinet, output }: { cabinet: CabinetDetail; output: { adapters: never[]; proxy?: { winHttp: string | null } | null } }) {
+  const [copied, setCopied] = useState(false);
+  const flush = useFlushDns(cabinet);
+  const copy = async () => { try { await navigator.clipboard.writeText(ipconfigText(cabinet.name, output.adapters, output.proxy)); setCopied(true); } catch { setCopied(false); } };
+  return (
+    <p className="row gap wrap small">
+      <span>WinHTTP proxy: <strong>{output.proxy === undefined || output.proxy === null ? "not reported" : output.proxy.winHttp ?? "direct access"}</strong></span>
+      <button className="btn small" onClick={() => void copy()}>{copied ? "Copied" : "Copy as ipconfig text"}</button>
+      {flush.button}
+      {flush.outcome}{flush.dialog}
+    </p>
   );
 }

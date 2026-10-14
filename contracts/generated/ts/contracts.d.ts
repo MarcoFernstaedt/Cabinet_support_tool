@@ -461,7 +461,8 @@ export interface CommandRequest {
     | "time.status"
     | "time.setZone"
     | "time.sync"
-    | "network.renewLease";
+    | "network.renewLease"
+    | "network.flushDns";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -1170,7 +1171,8 @@ export interface Command {
     | "time.status"
     | "time.setZone"
     | "time.sync"
-    | "network.renewLease";
+    | "network.renewLease"
+    | "network.flushDns";
   params: {};
   issuedBy: string;
   /**
@@ -2160,7 +2162,7 @@ export interface NetworkConfigOutput {
     dns: DnsSettings;
     dnsSuffix: string | null;
     /**
-     * Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null.
+     * Optional: what the adapter's DHCP lease, size limits and traffic counters say. A reading that failed is null. Newer agents also send the interface metric, admin status, driver, NetBIOS setting and the Windows network profile; each is optional and null when it could not be read.
      */
     details?: {
       dhcpServer: string | null;
@@ -2174,6 +2176,18 @@ export interface NetworkConfigOutput {
         sendErrors: number;
         receiveDiscards: number;
         sendDiscards: number;
+      } | null;
+      interfaceMetric?: number | null;
+      adminStatus?: ("up" | "down" | "testing") | null;
+      driver?: {
+        provider: string | null;
+        version: string | null;
+        date: string | null;
+      } | null;
+      netbios?: ("default" | "enabled" | "disabled") | null;
+      networkProfile?: {
+        name: string | null;
+        category: "public" | "private" | "domain";
       } | null;
     };
   }[];
@@ -2206,6 +2220,11 @@ export interface NetworkConfigOutput {
     macAddress: string | null;
     state: "reachable" | "stale" | "incomplete" | "unreachable" | "other";
   }[];
+  proxy?: {
+    winHttp: string | null;
+    userProxyEnabled: boolean | null;
+    userProxyServer: string | null;
+  } | null;
 }
 
 export interface NetworkTestParams {
@@ -2836,6 +2855,15 @@ export interface NetworkRenewLeaseOutput {
   addressAfter: string | null;
 }
 
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface NetworkFlushDnsParams {}
+
+export interface NetworkFlushDnsOutput {
+  flushed: boolean;
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -2846,7 +2874,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2887,4 +2915,5 @@ export interface OperationTypes {
   "time.setZone": { params: TimeSetZoneParams; output: TimeSetZoneOutput };
   "time.sync": { params: TimeSyncParams; output: TimeSyncOutput };
   "network.renewLease": { params: NetworkRenewLeaseParams; output: NetworkRenewLeaseOutput };
+  "network.flushDns": { params: NetworkFlushDnsParams; output: NetworkFlushDnsOutput };
 }

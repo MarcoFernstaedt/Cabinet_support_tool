@@ -172,7 +172,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       a.ipv4 = { dhcp: n.mode === "dhcp", addresses: [{ address: n.address, prefixLength: n.prefixLength }], gateways: n.gateway ? [n.gateway] : [] };
       a.dns = { automatic: n.dnsAutomatic, servers: [...n.dns] };
       a.macAddress = `00-1B-21-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-4F-5C`;
-      a.ipv6Addresses = [];
+      a.ipv6Addresses = n.linkUp ? [`fe80::${(0x21b + ctx.index).toString(16)}:4fff:fe5c:${(100 + ctx.index).toString(16)}`] : [];
       // The full read: the DHCP lease, the size limit, the card's counters, the routes and the ARP table.
       const hasLease = n.mode === "dhcp" && !n.address.startsWith("169.254.");
       const flaky = ctx.scenario === "net_flaky", slow = ctx.scenario === "net_link_slow";
@@ -180,6 +180,9 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         dhcpServer: hasLease ? `${ctx.subnet}.2` : null,
         leaseObtained: hasLease ? ago(ctx, 8 * 60) : null, leaseExpires: hasLease ? iso(new Date(ctx.now.getTime() + 16 * 3_600_000)) : null,
         mtu: 1500,
+        interfaceMetric: 25, adminStatus: "up", netbios: "default",
+        driver: { provider: "Intel", version: "12.19.1.37", date: "2022-03-14T00:00:00Z" },
+        networkProfile: n.linkUp ? { name: "clinic.example", category: ctx.firewallProfiles.domain ? "domain" : "private" } : null,
         statistics: { bytesReceived: 8_123_456_789 + ctx.index * 1_000_000, bytesSent: 2_123_456_789 + ctx.index * 500_000,
           receiveErrors: flaky ? 4_812 : slow ? 37 : 0, sendErrors: flaky ? 96 : 0, receiveDiscards: flaky ? 912 : 3, sendDiscards: 0 },
       };
@@ -189,6 +192,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       o.neighbors = !n.linkUp || !n.gateway ? [] : [
         { interfaceIndex: a.interfaceIndex, address: n.gateway, macAddress: reachesGateway(n, ctx.baseline) ? mac(1) : null, state: reachesGateway(n, ctx.baseline) ? (flaky ? "stale" : "reachable") : "incomplete" },
         ...(ctx.role === "sync" ? [] : [{ interfaceIndex: a.interfaceIndex, address: `${ctx.subnet}.20`, macAddress: mac(20), state: "stale" }])];
+      o.proxy = { winHttp: null, userProxyEnabled: null, userProxyServer: null };
       return o;
     }
     case "network.test": {

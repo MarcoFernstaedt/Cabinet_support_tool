@@ -110,3 +110,11 @@ The console's **Troubleshoot** page starts from the symptom. Each of the eight s
 **Processes** has a performance strip (processor, memory, each volume, each physical disk), sorting by CPU, memory, threads or handles, and a Live switch that asks again three seconds after the last answer. **Files** filters and sorts a folder listing (listing only). **Event logs** has 1 h, 24 h, 3 d and 7 d range buttons.
 
 Not built: the network connection category (Public, Private, Domain) on each adapter. The firewall profile that is actually in use is already visible in the firewall read, so the category is left until a real cabinet shows a case that needs it.
+
+## Adapter detail and DNS cache
+
+`network.config` now also reports, per adapter, the interface metric, admin status, driver (provider, version, date), the NetBIOS setting and the Windows network profile (name and Public, Private or Domain), and, once per read, the machine-wide WinHTTP proxy. All of it is optional: an older agent leaves it out and a reading that fails is null. The per-user proxy belongs to a signed-in person and is reported as not readable. The Network section shows these next to the addresses, gateways, DNS, DHCP lease, MTU and counters, and copies the lot as `ipconfig /all`-style text.
+
+`network.flushDns` empties the resolver cache with `ipconfig.exe /flushdns` (full path, fixed arguments). Tier 1 and up, one click, no setting changes and nothing for the safety net to undo.
+
+What a technician can change from the Network section, by role: Tier 1 renews a DHCP lease and flushes the DNS cache; Tier 2 and up sets a fixed IP address, gateway or DHCP, and sets DNS servers or automatic DNS, each with an authenticator code and the safety net that puts the old setting back if the cabinet loses contact.

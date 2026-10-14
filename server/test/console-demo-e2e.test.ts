@@ -252,6 +252,14 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("13 of 13 passed").waitFor({ timeout: 90_000 });
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
 
+    // The adapter read carries what ipconfig /all, the network profile, the driver and the proxy would show, and can be copied as text.
+    await page.goto(`${origin}/cabinets/${exam}/network`);
+    await page.getByText("Network profile").first().waitFor({ timeout: 60_000 });
+    await page.getByText("Interface metric").first().waitFor();
+    await page.getByText(/WinHTTP proxy:/).waitFor();
+    await page.getByRole("button", { name: "Copy as ipconfig text" }).waitFor();
+    await page.getByRole("button", { name: "Flush DNS cache" }).waitFor();
+
     // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
     // A different cabinet from the one the live check just used, so the per-cabinet limit on network tests is not in the way.
     const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND demo_scenario = 'healthy' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
