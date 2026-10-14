@@ -78,6 +78,10 @@ export function Updates({ cabinet }: { cabinet: CabinetDetail }) {
           ["Pending", `${out.pending.length} (${out.pending.filter(p => p.isSecurity).length} security)`]]} />
         {out.pending.length > 0 && (<><h3>Pending</h3>
           <ul className="plain">{out.pending.map((p, i) => <li key={i}>{p.isSecurity && <Badge tone="warn">Security</Badge>} {p.title} <span className="muted">{p.classification ?? ""}</span></li>)}</ul></>)}
+        {rollback.allowed && (() => {
+          const latest = [...out.installed].filter(u => u.result === "succeeded" && u.kb).sort((x, y) => String(y.installedAt ?? "").localeCompare(String(x.installedAt ?? "")))[0];
+          return latest ? <p className="row gap wrap"><span>Most recent update: <strong>{latest.kb}</strong> {latest.title}</span>{rollback.button(latest, "Roll back the last update")}</p> : null;
+        })()}
         <h3>History</h3>
         {out.installed.length === 0 ? <Empty>No update history.</Empty> : (
           <table className="table compact">

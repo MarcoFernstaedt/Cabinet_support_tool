@@ -76,7 +76,7 @@ const STATUS_TEXT = { passed: "Looks fine", failed: "Look closer", running: "Run
 for (const p of PLAYBOOKS) { KEY_LABEL[`tsh-${p.id}`] = p.symptom; for (const s of p.steps) KEY_LABEL[`chk-${s.check}`] = CHECK_BY_ID[s.check]!.label; }
 
 export function Troubleshoot({ cabinetId, cabinetName }: { cabinetId: string; cabinetName: string }) {
-  const [id, setId] = useState(PLAYBOOKS[0]!.id);
+  const [id, setId] = useState(() => { const q = new URLSearchParams(window.location.search).get("symptom"); return PLAYBOOKS.some(p => p.id === q) ? q! : PLAYBOOKS[0]!.id; });
   const playbook = PLAYBOOKS.find(p => p.id === id)!;
   const checks = useMemo<Check[]>(() => playbook.steps.map(s => CHECK_BY_ID[s.check]!), [playbook]);
   const { rows, busy, start } = useChecks(cabinetId, checks);

@@ -14,6 +14,8 @@ import { Processes, Services } from "./Services";
 import { DemoTag } from "../../components/DemoBanner";
 import { CabinetCrashes } from "../Crashes";
 import { EventLogs } from "./EventLogs";
+import { Changes } from "./Changes";
+import { Compare } from "./Compare";
 import { Troubleshoot } from "./Troubleshoot";
 import { CaseNotes } from "../../components/CaseNotes";
 import { LiveCheck } from "../../components/LiveCheck";
@@ -34,7 +36,7 @@ export interface CabinetDetail extends CabinetRow {
 }
 
 export const SECTIONS = [
-  ["overview", "Overview"], ["troubleshoot", "Troubleshoot"], ["alerts", "Alerts"],
+  ["overview", "Overview"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
   ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
   ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
   ["software", "Software"], ["history", "Command history"],
@@ -90,6 +92,8 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
 function Section({ current, cabinet, reload }: { current: SectionId; cabinet: CabinetDetail; reload: () => void }): ReactNode {
   switch (current) {
     case "alerts": return <><CabinetAlerts cabinetId={cabinet.id} /><MonitorEvents cabinetId={cabinet.id} /></>;
+    case "changes": return <Changes cabinetId={cabinet.id} />;
+    case "compare": return <Compare cabinet={cabinet} />;
     case "troubleshoot": return <Troubleshoot cabinetId={cabinet.id} cabinetName={cabinet.name} />;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;

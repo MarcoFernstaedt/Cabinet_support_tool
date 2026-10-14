@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../lib/commands";
 import { Badge } from "./ui";
+import { WatchLink } from "./WatchLink";
 
 interface Target { key: string; label: string; trace: Record<string, unknown>; ping: Record<string, unknown> | null }
 type Reading = { trace: NetworkTraceOutput | null; ping: NetworkTestOutput | null; problem: string | null };
@@ -33,6 +34,7 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
   const targets = targetsFor(dnsCount);
   const [key, setKey] = useState("gateway");
   const [busy, setBusy] = useState(false);
+  const [syncPort, setSyncPort] = useState("");
   const [readings, setReadings] = useState<Record<string, Reading>>({});
   const probe = async (t: Target) => {
     const [trace, ping] = await Promise.allSettled([run<NetworkTraceOutput>(cabinetId, "network.trace", t.trace), t.ping ? run<NetworkTestOutput>(cabinetId, "network.test", t.ping) : Promise.resolve(null)]);
@@ -43,6 +45,7 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
   const start = async (list: Target[]) => { setBusy(true); try { for (const t of list) await probe(t); } finally { setBusy(false); } };
   const current = targets.find(t => t.key === key) ?? targets[0]!;
   const reading = readings[current.key];
+  const tcpPort = Number.isInteger(Number(syncPort)) && Number(syncPort) >= 1 && Number(syncPort) <= 65535 ? Number(syncPort) : null;
   return (
     <section className="panel" aria-labelledby="packets-heading" data-tour="packet-path">
       <div className="panel-head">
@@ -69,6 +72,13 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
             </tr>);
         })}</tbody>
       </table>
+      {current.ping && (<>
+        {current.key === "sync" && (
+          <label className="field inline"><span>Sync TCP port (optional)</span>
+            <input inputMode="numeric" size={6} value={syncPort} onChange={e => setSyncPort(e.target.value.replace(/\D/g, "").slice(0, 5))} /></label>)}
+        <WatchLink key={`${current.key}-${tcpPort ?? 0}`} cabinetId={cabinetId} label={current.label} ping={{ target: current.ping.target, method: "ping", ...(current.ping.dnsServerIndex !== undefined ? { dnsServerIndex: current.ping.dnsServerIndex } : {}) }}
+          tcp={current.key === "sync" && tcpPort ? { target: "sync_cabinet", method: "tcp", port: tcpPort } : null} />
+      </>)}
       {reading?.problem && <p className="error" role="alert">{reading.problem}</p>}
       {reading?.trace && <HopTable trace={reading.trace} />}
     </section>

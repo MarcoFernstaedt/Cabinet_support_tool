@@ -499,10 +499,10 @@ export function useUpdateRollback(cabinet: CabinetDetail, onChanged: () => void)
   const w = useConfirmedWrite<UpdatesUninstallOutput>(cabinet, "updates.uninstall", r => { if (r.status === "succeeded") onChanged(); });
   return {
     allowed,
-    button: (u: { kb: string | null; title: string }) => allowed && u.kb && /^KB[0-9]{6,8}$/.test(u.kb)
+    button: (u: { kb: string | null; title: string }, label = "Roll back") => allowed && u.kb && /^KB[0-9]{6,8}$/.test(u.kb)
       ? <button className="btn small danger" onClick={() => w.ask({ kb: u.kb }, <>
           <p>Roll back <strong>{u.kb}</strong>: {u.title}.</p>
-          <p className="notice warn">The update is removed with Windows' own uninstaller. The cabinet is not restarted; if Windows needs a restart to finish, it is reported and waits.</p></>)}>Roll back</button>
+          <p className="notice warn">The update is removed with Windows' own uninstaller. The cabinet is not restarted; if Windows needs a restart to finish, it is reported and waits.</p></>)}>{label}</button>
       : null,
     outcome: <WriteOutcome run={w.run} done={o => <>{o.kb} was rolled back.{o.rebootRequired && " Windows needs a restart to finish; the cabinet has not been restarted."}</>} />,
     dialog: w.dialog,

@@ -1,6 +1,7 @@
 // One list of alerts, used by the Alerts area, the cabinet view and the scanner section.
 // Clicking an unclaimed major alert claims it and opens its cabinet; if someone else got
 // there first, the list says who (docs/spec/06-console-spec.md "Alerts area").
+import { symptomForAlert } from "../lib/symptoms";
 import { useLoad } from "../lib/useLoad";
 import { KnownFixes, SaveFix } from "./KnownFixes";
 import { useState } from "react";
@@ -104,6 +105,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
                 </form>)}
             </div>
             <div className="actions">
+              {a.state !== "resolved" && symptomForAlert(a.title) && <Link className="btn small" to={`/cabinets/${a.cabinet.id}/troubleshoot?symptom=${symptomForAlert(a.title)}`}>Troubleshoot</Link>}
               {a.state === "open" && <button className="btn small" onClick={() => void take(a, false)}>Claim</button>}
               {a.state !== "resolved" && (mine || atLeast(me, "admin")) && resolving !== a.id &&
                 <button className="btn small" onClick={() => { setResolving(a.id); setResolution(""); }}>Resolve…</button>}

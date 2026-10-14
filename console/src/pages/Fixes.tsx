@@ -37,7 +37,11 @@ function Queue() {
     done(verb === "approve" ? `Approved “${f.title}”. It is now shown to everyone wherever the same problem comes up.` : `Rejected “${f.title}”. ${f.savedBy} can see why.`);
   };
   const remove = async (f: Fix) => { if (await run(() => api("POST", `/api/known-fixes/${f.id}/remove`, {}))) done(`Removed “${f.title}”.`); };
-  const approved = (inUse.data?.fixes ?? []).filter(f => f.status === "approved");
+  const [find, setFind] = useState("");
+  const [by, setBy] = useState<"used" | "newest">("used");
+  const approved = (inUse.data?.fixes ?? []).filter(f => f.status === "approved")
+    .filter(f => !find.trim() || `${f.title} ${f.solution} ${symptomLabel(f.symptom)}`.toLowerCase().includes(find.trim().toLowerCase()))
+    .sort((a, b) => by === "used" ? b.seenCount - a.seenCount || b.savedAt.localeCompare(a.savedAt) : b.savedAt.localeCompare(a.savedAt));
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Known fixes" }]} />
@@ -68,7 +72,11 @@ function Queue() {
 
       <section className="panel" aria-labelledby="fix-inuse">
         <h2 id="fix-inuse">In use{inUse.data ? ` (${approved.length})` : ""}</h2>
-        {inUse.data && approved.length === 0 && <Empty>No approved fixes yet.</Empty>}
+        <div className="row gap wrap filters">
+          <label className="field inline"><span>Search</span><input value={find} onChange={e => setFind(e.target.value)} placeholder="title, solution or problem" /></label>
+          <label className="field inline"><span>Sort</span><select value={by} onChange={e => setBy(e.target.value as typeof by)}><option value="used">Most shown</option><option value="newest">Newest</option></select></label>
+        </div>
+        {inUse.data && approved.length === 0 && <Empty>{find.trim() ? "No fix matches." : "No approved fixes yet."}</Empty>}
         <div className="table-wrap">{approved.length > 0 && <table className="table compact">
           <caption className="sr-only">Approved known fixes</caption>
           <thead><tr><th scope="col">Fix</th><th scope="col">For</th><th scope="col">Saved by</th><th scope="col">Approved by</th><th scope="col">Shown</th><th scope="col"></th></tr></thead>
