@@ -39,7 +39,7 @@ export function FleetSafety() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Fleet safety" }]} />
       <h1>Fleet safety</h1>
-      <p className="muted">Pausing stops every change to cabinets at once, for incidents or anything that looks wrong. Diagnostics keep working.</p>
+      <p className="muted">Pausing blocks all changes; diagnostics continue.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && <>

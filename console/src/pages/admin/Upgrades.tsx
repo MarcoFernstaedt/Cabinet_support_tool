@@ -62,8 +62,7 @@ export function Upgrades() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Upgrades" }]} />
       <h1>Agent upgrades</h1>
-      <p className="muted">Releases are signed by the build pipeline with a key this server never holds; every cabinet checks the signature, the package hash, the version and the
-        Authenticode signature on every program before it installs. A cabinet whose new version does not check in within 5 minutes restores the old one on its own.</p>
+      <p className="muted">Releases are signed outside this server; cabinets verify signature, hash and version.</p>
       {done && <p className={`notice ${done.ok ? "ok" : "error"}`} role="status">{done.text}</p>}
 
       <section className="panel" aria-labelledby="rollouts">

@@ -90,7 +90,7 @@ export function FleetOperations() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Fleet operations" }]} />
       <h1>Fleet operations</h1>
-      <p className="muted">Choose cabinets by client, site or problem, or tick them one by one, then run one change on all of them. You see what each cabinet would get before anything is sent; each one's result is checked from its next report.</p>
+      <p className="muted">Preview per cabinet before anything is sent.</p>
 
       <section className="panel" aria-labelledby="choose">
         <h2 id="choose">1. Choose cabinets</h2>

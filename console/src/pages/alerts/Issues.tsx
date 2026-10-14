@@ -29,7 +29,7 @@ export function IssuesPage() {
   return (
     <div className="page">
       <h1>Issues</h1>
-      <p className="muted">Each issue is a known problem. Symptom rules say which errors are symptoms of it. Tier 2 and Admins add rules with Map to issue from any error.</p>
+      <p className="muted">Symptom rules are matched on log, source and event ID.</p>
       {issues.problem && <p className="error" role="alert">{issues.problem}</p>}
       {issues.data && (
         <table className="table">

@@ -92,10 +92,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("Firewall blocks the sync cabinet's ports").first().waitFor({ timeout: 60_000 });
     // Step 4 says what was found and points at it; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
     await next();
-    await page.getByRole("heading", { name: "What the check found" }).waitFor();
+    await page.getByRole("heading", { name: "Diagnosis results" }).waitFor();
     await marked('[data-tour="group-sync-firewall"]');
     await next();
-    await page.getByRole("heading", { name: "Fix it" }).waitFor();
+    await page.getByRole("heading", { name: "Remediation" }).waitFor();
     await marked('[data-tour="fix-apply_policy"]');
     await page.getByRole("button", { name: "Show me" }).click();
     await page.getByRole("button", { name: "Show me" }).click();
@@ -145,15 +145,15 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
     await next();
-    await page.getByRole("heading", { name: "Errors with no name" }).waitFor();
+    await page.getByRole("heading", { name: "Unrecognized alerts" }).waitFor();
     await marked('[data-cabinet="Reception"]');
     await page.getByText("Reception").first().waitFor({ timeout: 30_000 });
     await page.getByText("Waiting Room").first().waitFor();
     await next();
-    await page.getByRole("heading", { name: "Look at the error itself" }).waitFor();
+    await page.getByRole("heading", { name: "Event log inspection" }).waitFor();
     await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
     await next();
-    await page.getByRole("heading", { name: "Map it to an issue" }).waitFor();
+    await page.getByRole("heading", { name: "Event-to-issue mapping" }).waitFor();
     await marked('[data-tour="map-to-issue"]');
     await page.getByRole("button", { name: "Map to issue" }).first().click();
     await page.getByRole("dialog").locator("select[required]").selectOption({ label: "Fingerprint scanner problem (major)" });
@@ -168,7 +168,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const priya = "Reader drops after a driver install";
     assert.equal((await db.app.query("SELECT 1 FROM known_fixes WHERE title = $1 AND status = 'pending'", [priya])).rowCount, 1);
     await next();
-    await page.getByRole("heading", { name: "A teammate's fix, waiting for you" }).waitFor();
+    await page.getByRole("heading", { name: "Fix approval" }).waitFor();
     await marked('[data-tour="fix-approve"]');
     await page.getByRole("heading", { name: /Waiting for approval \(1\)/ }).waitFor();
     await page.getByText(priya).first().waitFor();
@@ -179,7 +179,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // Step 12: it now sits beside the scanner alert on Reception.
     await next();
-    await page.getByRole("heading", { name: "It shows up where the problem is" }).waitFor();
+    await page.getByRole("heading", { name: "Learned fixes on the alert" }).waitFor();
     await marked('.known-fixes');
     await page.getByText("Possible fix", { exact: true }).first().waitFor({ timeout: 30_000 });
     await page.getByText(/Rolled the reader's driver back/).first().waitFor();
@@ -211,11 +211,11 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal((await db.app.query("SELECT 1 FROM cabinets WHERE hostname = 'SUPPORT-LAPTOP' AND status = 'active' AND demo_scenario IS NULL")).rowCount, 1, "a real cabinet, not a simulated one");
     // The tour notices the new cabinet and offers its steps: the live test, then its network, which is the end.
     await next();
-    await page.getByRole("heading", { name: "Check it works" }).waitFor();
+    await page.getByRole("heading", { name: "Live verification" }).waitFor();
     await page.getByRole("heading", { name: "Test SUPPORT-LAPTOP" }).waitFor({ timeout: 30_000 });
     await marked('[data-tour="live-run"]');
     await next();
-    await page.getByRole("heading", { name: "Read its network" }).waitFor();
+    await page.getByRole("heading", { name: "Network reading from a live cabinet" }).waitFor();
     await marked('[data-tour="diagnose"]');
     await page.getByRole("heading", { name: "SUPPORT-LAPTOP", level: 1 }).waitFor();
     await page.getByRole("button", { name: "Diagnose network", exact: true }).waitFor();

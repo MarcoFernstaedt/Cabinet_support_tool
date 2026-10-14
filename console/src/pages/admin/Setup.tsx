@@ -41,7 +41,7 @@ export function Setup() {
     <div className="page narrow">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Set up and demo" }]} />
       <h1>Set up and demo</h1>
-      <p className="muted">From an empty platform to a working one: add your support team, put the agent on a computer, approve it, and see its event logs, services and scanner checks. Demo mode then adds simulated cabinets so you can show the platform at fleet scale.</p>
+      <p className="muted">Add the team, enroll an agent, approve it, verify the readings. Demo mode adds simulated cabinets.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       {state.problem && <p className="error" role="alert">{state.problem}</p>}
 

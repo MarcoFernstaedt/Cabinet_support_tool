@@ -40,7 +40,6 @@ export function ClientsAndSites() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Clients and sites" }]} />
       <h1>Clients and sites</h1>
-      <p className="muted">Cabinets join a client and site when they are approved. A client or site can be removed once it has no active or pending cabinets; its history stays.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       <form className="row gap wrap" onSubmit={e => { e.preventDefault(); const name = newClient.trim();
         // The name is cleared only once the client exists, so cancelling the confirmation keeps what was typed.

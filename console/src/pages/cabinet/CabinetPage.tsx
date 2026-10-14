@@ -33,8 +33,10 @@ export interface CabinetDetail extends CabinetRow {
 }
 
 export const SECTIONS = [
-  ["overview", "Overview"], ["troubleshoot", "Troubleshoot"], ["alerts", "Alerts"], ["crashes", "Crashes and restarts"], ["events", "Event logs"], ["scanner", "Fingerprint scanner"], ["devices", "Devices and drivers"],
-  ["updates", "Windows updates"], ["time", "Time"], ["drives", "Drive health"], ["network", "Network"], ["firewall", "Firewall"], ["services", "Services"], ["processes", "Processes"], ["software", "Software"], ["files", "Files"], ["history", "Command history"],
+  ["overview", "Overview"], ["troubleshoot", "Troubleshoot"], ["alerts", "Alerts"],
+  ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
+  ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
+  ["software", "Software"], ["history", "Command history"],
 ] as const;
 export type SectionId = (typeof SECTIONS)[number][0];
 

@@ -136,7 +136,7 @@ export function IncidentsPage() {
   return (
     <div className="page">
       <h1>Incidents</h1>
-      <p className="muted">Blue screens, unexpected restarts and reboot loops across the fleet: who, when it began, the stop codes, and what the cabinets that crashed have in common that the others do not.</p>
+      <p className="muted">Stop codes, onset and what the crashed cabinets share.</p>
       <div className="row gap wrap filters">
         <label className="field inline"><span>Period</span><select value={range} onChange={e => setRange(e.target.value)}>
           {[["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["14", "Last 14 days"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>

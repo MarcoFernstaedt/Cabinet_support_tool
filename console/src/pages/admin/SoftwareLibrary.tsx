@@ -49,7 +49,7 @@ export function SoftwareLibrary() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Software library" }]} />
       <h1>Software library</h1>
-      <p className="muted">The only way files reach a cabinet. Each package is checked by the server on upload and again by the cabinet before it installs, and needs a second Admin's approval.</p>
+      <p className="muted">Packages are verified by hash, signature and publisher on upload and again on the cabinet; a second Admin approves.</p>
 
       <section className="panel" aria-labelledby="upload-heading">
         <h2 id="upload-heading">Upload a package</h2>

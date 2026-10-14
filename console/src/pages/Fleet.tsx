@@ -34,7 +34,6 @@ export function FleetHome() {
   return (
     <div className="page">
       <h1>Fleet</h1>
-      <p className="muted">Clients, their sites and cabinets. Use the jump box at the top to go straight to any cabinet.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && data.length === 0 && <Empty>No cabinets have been approved yet. {atLeast(me, "admin")
         ? <>Start with <Link to="/admin/setup">Admin → Set up and demo</Link>: add your team, install the agent on a computer, or turn on demo mode.</>

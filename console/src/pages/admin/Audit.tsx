@@ -101,7 +101,7 @@ export function AuditLog() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Audit log" }]} />
       <h1>Audit log</h1>
-      <p className="muted">A searchable history of sign-ins, changes made to cabinets and their results, account and settings changes, and admin actions, with exact times. Entries are chained by hash, so a changed or removed entry is found.</p>
+      <p className="muted">Hash-chained history of sign-ins, changes and results.</p>
       <div className="row gap wrap">
         <button className="btn" onClick={() => void verify()}>Verify the chain</button>
         {check && (check.ok ? <Badge tone="ok">Chain intact: {check.entries.toLocaleString()} entries</Badge>
