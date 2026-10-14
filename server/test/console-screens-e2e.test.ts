@@ -74,14 +74,18 @@ test("every page fits its screen, wide and narrow, and shows no raw values", { s
     const faults: string[] = [];
     for (const [label, size] of [["wide", { width: 1360, height: 900 }], ["narrow", { width: 390, height: 844 }]] as const) {
       await page.setViewportSize(size);
-      for (const path of pages) {
+      for (const path of pages.filter(p => !process.env.ONLY || p.includes(process.env.ONLY) || process.env.ONLY.split(",").some(o => p.includes(o)))) {
         await page.goto(`${origin}${path}`);
         await page.locator("#main, main").first().waitFor();
         await page.waitForTimeout(2200);
         const check = await page.evaluate(() => ({
           text: document.body.innerText,
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-          wide: [...document.querySelectorAll<HTMLElement>("#main *")].filter(e => e.getBoundingClientRect().right > window.innerWidth + 1 && getComputedStyle(e).position !== "fixed" && !e.closest(".table-wrap, pre, table, .tabs, .sr-only")).slice(0, 3).map(e => `${e.tagName.toLowerCase()}.${e.className}`),
+          wide: [...document.querySelectorAll<HTMLElement>("#main *, .topbar *")].filter(e => {
+            if (e.getBoundingClientRect().right <= window.innerWidth + 1 || getComputedStyle(e).position === "fixed") return false;
+            for (let a = e.parentElement; a && a !== document.body; a = a.parentElement) if (getComputedStyle(a).overflowX !== "visible") return false;
+            return true;
+          }).slice(0, 3).map(e => `${e.tagName.toLowerCase()}.${e.className} ${Math.round(e.getBoundingClientRect().right)}px`),
         }));
         if (/undefined|\[object|NaN|null\b/.test(check.text.replace(/Demo mode.*$/m, ""))) faults.push(`${label} ${path}: shows a raw value (${(check.text.match(/.{0,30}(undefined|\[object|NaN|\bnull\b).{0,30}/) ?? [""])[0].replace(/\s+/g, " ")})`);
         if (check.overflow > 1) faults.push(`${label} ${path}: page scrolls sideways by ${check.overflow}px (${check.wide.join(", ")})`);
