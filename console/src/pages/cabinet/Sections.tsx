@@ -1,5 +1,6 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
 import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
+import { PortCheck } from "../../components/PortCheck";
 import { PacketPath } from "../../components/PacketPath";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState } from "react";
@@ -210,6 +211,7 @@ export function Firewall({ cabinet }: { cabinet: CabinetDetail }) {
               {!p.enabled && p.reenableAt && <p className="small"><Countdown until={p.reenableAt} /></p>}
               <ProfileControl key={`${p.profile}-${op.at}`} cabinet={cabinet} profile={p} write={profileWrite} />
             </article>))}</div>
+          <PortCheck cabinetId={cabinet.id} firewall={out} />
           {allowed && <div className="row gap"><button className="btn" onClick={rules.add}>Add a rule…</button></div>}
           {rules.editor}
           <div className="row gap wrap filters">
