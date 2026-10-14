@@ -419,7 +419,6 @@ export function Snapshots({ cabinet, state, onChanged }: { cabinet: CabinetDetai
   return (
     <section className="panel" aria-labelledby="snapshots-heading">
       <h3 id="snapshots-heading">Saved snapshots</h3>
-      <p className="muted small">The cabinet saves the whole firewall before every change the platform makes (the last 20 are kept).</p>
       {state.snapshots.length === 0 ? <Empty>No snapshots yet.</Empty> : (
         <ul className="plain">{state.snapshots.map(s => (
           <li key={s.snapshotId} className="row gap">

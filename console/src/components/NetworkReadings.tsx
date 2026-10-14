@@ -44,7 +44,7 @@ export function adapterRows(a: AdapterReading): [string, ReactNode][] {
       ["Network profile", net ? `${net.name ?? "unnamed"} (${CATEGORY[net.category] ?? net.category})` : null],
       ["Interface metric", d.interfaceMetric ?? null],
       ["DHCP server", a.ipv4.dhcp ? d.dhcpServer : "Not used"],
-      ["Lease obtained", d.leaseObtained ? fullTime(d.leaseObtained) : null], ["Lease ends", d.leaseExpires ? fullTime(d.leaseExpires) : null],
+      ["Lease obtained", a.ipv4.dhcp ? (d.leaseObtained ? fullTime(d.leaseObtained) : null) : "Not used"], ["Lease ends", a.ipv4.dhcp ? (d.leaseExpires ? fullTime(d.leaseExpires) : null) : "Not used"],
       ["MTU", d.mtu === null ? null : `${d.mtu}${d.mtu === 1500 ? "" : " (not 1500)"}`],
       ["NetBIOS over TCP/IP", d.netbios ?? null],
       ["Driver", drv ? [drv.provider, drv.version, drv.date ? drv.date.slice(0, 10) : null].filter(Boolean).join(" · ") || null : null],
