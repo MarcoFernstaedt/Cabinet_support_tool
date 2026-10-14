@@ -128,4 +128,4 @@ Some cabinets connect their cash drawers through the monitor over a spoofed Ethe
 - Reads the firewall state and shows each profile that is on, with the ordinary **Turn off…** control (`firewall.setProfile`, the same confirmation and safety net as the Firewall tab). The drawer network is unidentified, which Windows treats as Public.
 - Copy as text for the ticket.
 
-The drawer network is `176.20.1.0/24`, fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has. Open question in 09-open-decisions.md: whether the address should be a platform setting.
+The drawer network is `172.20.1.0/24`, fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has. Open question in 09-open-decisions.md: whether the address should be a platform setting.

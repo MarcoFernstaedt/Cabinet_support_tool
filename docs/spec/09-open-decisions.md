@@ -449,4 +449,4 @@ TCP series are limited to 10 attempts (ping stays at 20): answered by the team, 
 
 ### Cash drawer check
 
-Built as a panel on the Network tab from existing reads (`network.config` twice, `firewall.state`) and the existing `firewall.setProfile`. The drawer network is written as `176.20.1.0/24` because the team said "176.20.1.0". Open: is that the real range (not, say, 172.20.1.x), and is `.0` the network address or a literal host address? The check matches the whole /24, so either way works. Open: should the range be an Admin platform setting instead of a constant in `console/src/lib/drawer.ts` and `server/src/diagnose/network-findings.ts`? Left as a constant until the range is confirmed.
+Built as a panel on the Network tab from existing reads (`network.config` twice, `firewall.state`) and the existing `firewall.setProfile`. The drawer network is `172.20.1.0/24` (the team first wrote 176.20.1.0 and confirmed 172). The check matches the whole /24. Open: should the range be an Admin platform setting instead of a constant in `console/src/lib/drawer.ts` and `server/src/diagnose/network-findings.ts`? Left as a constant.

@@ -4,7 +4,7 @@
 import type { AdapterReading } from "../components/NetworkReadings";
 
 /** Every drawer is set to an address in this network. Change it here if the drawers move. */
-export const DRAWER_NETWORK = { address: "176.20.1.0", prefixLength: 24 };
+export const DRAWER_NETWORK = { address: "172.20.1.0", prefixLength: 24 };
 
 export interface FirewallProfileReading { profile: string; enabled: boolean }
 export type Tone = "ok" | "warn" | "crit" | "info";
