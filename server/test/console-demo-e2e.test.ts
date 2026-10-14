@@ -257,7 +257,9 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND name <> 'Exam Room 2' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${other}/network`);
     await page.getByRole("button", { name: "Trace and ping" }).click();
-    await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 });
+    await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 }).catch(async e => {
+      throw new Error(`${e.message}\n${await page.locator("#packets-heading").locator("xpath=ancestor::section").innerText()}`);
+    });
     assert.ok(await page.getByRole("cell", { name: "Clean" }).count() >= 1, "at least one healthy path is marked clean");
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/packets.png`, fullPage: true });
 
