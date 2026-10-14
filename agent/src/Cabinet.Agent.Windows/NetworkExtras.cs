@@ -75,6 +75,32 @@ internal static class NetworkExtras
         return result;
     }
 
+    /// <summary>The Wi-Fi network name and signal strength (dBm) of each wireless adapter, by the adapter's description. Absent for wired adapters and when Windows does not say.</summary>
+    public static Dictionary<string, AdapterWifi> Wifi()
+    {
+        var result = new Dictionary<string, AdapterWifi>(StringComparer.OrdinalIgnoreCase);
+        var signal = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var ssid = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Try(() =>
+        {
+            foreach (var row in Wmi.Query(Wmi.RootWmi, "SELECT InstanceName, Ndis80211ReceivedSignalStrength FROM MSNdis_80211_ReceivedSignalStrength", 16))
+                if (row.Text("InstanceName") is { } name && row.Long("Ndis80211ReceivedSignalStrength") is { } dbm && dbm is >= -120 and <= 0) signal[name] = (int)dbm;
+        });
+        Try(() =>
+        {
+            foreach (var row in Wmi.Query(Wmi.RootWmi, "SELECT InstanceName, Ndis80211SsId FROM MSNdis_80211_ServiceSetIdentifier", 16))
+                if (row.Text("InstanceName") is { } name && row.TryGetValue("Ndis80211SsId", out object? raw) && raw is byte[] bytes)
+                {
+                    int end = Array.IndexOf(bytes, (byte)0);
+                    string text = System.Text.Encoding.UTF8.GetString(bytes, 0, end < 0 ? Math.Min(bytes.Length, 32) : Math.Min(end, 32));
+                    if (text.Length > 0) ssid[name] = Clip(text)!;
+                }
+        });
+        foreach (string name in signal.Keys.Concat(ssid.Keys).Distinct(StringComparer.OrdinalIgnoreCase))
+            result[name] = new AdapterWifi { Ssid = ssid.GetValueOrDefault(name), SignalDbm = signal.TryGetValue(name, out int d) ? d : null };
+        return result;
+    }
+
     /// <summary>The machine-wide WinHTTP proxy from the registry. The per-user proxy belongs to a signed-in person, which this service is not, so it is reported as unknown.</summary>
     public static ProxySettings Proxy()
     {

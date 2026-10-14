@@ -130,6 +130,8 @@ public sealed class NetworkTester
             }
         }
 
+        if (p.Count is > 1) return await TcpSeriesAsync(address, p.Port!.Value, p.Count.Value, names, Result, token).ConfigureAwait(false);
+
         using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
         limit.CancelAfter(Timeout);
@@ -174,6 +176,38 @@ public sealed class NetworkTester
         NetworkTestOutput basis = times.Count > 0
             ? result(true, address, stats.AvgMs, names, null)
             : result(false, address, null, names, $"No reply to any of {count} requests ({lastFailure}).");
+        return basis with { Statistics = stats };
+    }
+
+    /// <summary>
+    /// Several TCP connections in a row to one port: how many were made, how long each took and how much that jumps around. Built for weak links
+    /// (a satellite on poor Wi-Fi) where one try says little: the output separates "never answers" from "answers some of the time".
+    /// </summary>
+    private static async Task<NetworkTestOutput> TcpSeriesAsync(IPAddress address, int port, int count, IReadOnlyList<IPAddress>? names,
+        Func<bool, IPAddress?, double?, IReadOnlyList<IPAddress>?, string?, NetworkTestOutput> result, CancellationToken token)
+    {
+        var times = new List<double>();
+        string? lastFailure = null;
+        for (int i = 0; i < count; i++)
+        {
+            token.ThrowIfCancellationRequested();
+            using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
+            limit.CancelAfter(TimeSpan.FromSeconds(2));
+            var watch = Stopwatch.StartNew();
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, port), limit.Token).ConfigureAwait(false);
+                times.Add(watch.Elapsed.TotalMilliseconds);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested) { lastFailure = $"No answer on TCP port {port} within 2 seconds."; }
+            catch (SocketException e) { lastFailure = e.SocketErrorCode == SocketError.ConnectionRefused ? $"TCP port {port} refused the connection." : $"TCP port {port} could not be reached ({e.SocketErrorCode})."; }
+            if (i < count - 1) await Task.Delay(300, token).ConfigureAwait(false);
+        }
+        PingStatistics stats = Summarize(count, times);
+        NetworkTestOutput basis = times.Count > 0
+            ? result(true, address, stats.AvgMs, names, null)
+            : result(false, address, null, names, lastFailure ?? $"TCP port {port} did not answer.");
         return basis with { Statistics = stats };
     }
 

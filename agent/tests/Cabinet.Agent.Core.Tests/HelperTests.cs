@@ -403,6 +403,29 @@ public sealed class NetworkTesterTests
     }
 
     [Fact]
+    public async Task A_tcp_series_counts_every_connection_and_tells_a_dead_port_from_a_weak_one()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var up = await Tester(Config(sync: "127.0.0.1", ports: [port]), Lan).RunAsync(
+            new NetworkTestParams { Target = NetworkTestTarget.SyncCabinet, Method = NetworkTestMethod.Tcp, Port = port, Count = 4 }, default);
+        Assert.True(up.Success, up.Error);
+        Assert.Equal(4, up.Statistics!.Sent);
+        Assert.Equal(4, up.Statistics.Received);
+        Assert.Equal(0, up.Statistics.LossPercent);
+        AssertValid(up);
+        listener.Stop();
+
+        var down = await Tester(Config(sync: "127.0.0.1", ports: [port]), Lan).RunAsync(
+            new NetworkTestParams { Target = NetworkTestTarget.SyncCabinet, Method = NetworkTestMethod.Tcp, Port = port, Count = 3 }, default);
+        Assert.False(down.Success);
+        Assert.Equal(100, down.Statistics!.LossPercent);
+        Assert.Contains("refused", down.Error);
+        AssertValid(down);
+    }
+
+    [Fact]
     public async Task A_name_that_does_not_resolve_is_a_failed_test_not_an_error()
     {
         var o = await Tester(Config(platform: "does-not-exist.invalid"), Lan).RunAsync(

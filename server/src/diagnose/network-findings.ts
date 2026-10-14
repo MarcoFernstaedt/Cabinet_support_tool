@@ -72,6 +72,8 @@ const list = (xs: string[]) => xs.length ? xs.join(", ") : "none";
 const describe = (t: TestRun) => !t.output ? `${t.label}: no result (${t.failure ?? "no answer"})`
   : t.output.success ? `${t.label}: reached${t.output.resolvedTarget ? ` ${t.output.resolvedTarget}` : ""}${t.output.latencyMs !== null ? ` in ${t.output.latencyMs} ms` : ""}`
   : `${t.label}: failed${t.output.resolvedTarget ? ` (${t.output.resolvedTarget})` : ""}${t.output.error ? `: ${t.output.error}` : ""}`;
+/** How a series of attempts went, for a weak link: "3 of 5 connected (40% lost), slowest 840 ms, jitter 210 ms". */
+const series = (t: TestRun) => { const s = t.output?.statistics; return s ? `${t.label}: ${s.received} of ${s.sent} ${t.params.method === "tcp" ? "connected" : "replies"} (${s.lossPercent}% lost)${s.maxMs !== null ? `, slowest ${s.maxMs} ms, jitter ${s.jitterMs} ms` : ""}` : describe(t); };
 const RANK: Record<Severity, number> = { problem: 0, warning: 1, info: 2, ok: 3 };
 
 const LAYER_OF: [string, Layer][] = [["link", "link"], ["speed-", "link"], ["config", "link"], ["ip-", "address"], ["baseline-addressing", "address"], ["baseline-ok", "address"], ["baseline-subnet", "address"],
@@ -201,6 +203,14 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
     const scName = sc ? sc.name : `the sync cabinet (${e.sync.address})`;
     const scFirewallOn = sc?.profiles ? PROFILE_NAMES.filter(k => sc.profiles![k] && !e.policy[k]) : [];
     const silent = sc && !sc.online ? [`${sc.name} has not checked in with the platform for ${sc.minutesSilent ?? "?"} minutes: it may be off, restarting, or off the network.`] : [];
+    // A weak link: some attempts get through and some do not. Pings tolerate a little loss; a TCP connection that fails some of the time is what drops a sync.
+    const partial = (t: TestRun) => { const s = t.output?.statistics; return !!s && s.received > 0 && s.lossPercent > 0; };
+    const weak = [ping, ...ports].filter((t): t is TestRun => !!t && answered(t) && partial(t) && (t.params.method === "tcp" || t.output!.statistics!.lossPercent >= 10));
+    const wifi = (e.config?.adapters ?? []).filter(a => a.connected && a.details?.wifi).map(a => a.details!.wifi!)[0];
+    if (weak.length > 0)
+      add({ id: "sync-flaky", severity: weak.some(t => t.output!.statistics!.lossPercent >= 50) ? "problem" : "warning", certainty: "probable", title: `The connection to ${scName} is unreliable`,
+        evidence: [...weak.map(series), ...(wifi ? [`This cabinet is on Wi-Fi${wifi.ssid ? ` "${wifi.ssid}"` : ""}${wifi.signalDbm !== null ? ` at ${wifi.signalDbm} dBm` : ""}${wifi.signalDbm !== null && wifi.signalDbm < -67 ? " (weak: below -67 dBm streaming and sync drop out)" : ""}.`] : []), ...silent],
+        fix: wifi ? "Move the access point closer or add one, or put this cabinet on a cable. A sync that starts and then stalls is almost always a weak link, not a setting." : "Check the cable, the switch port and any link between the two rooms; run the watch on the Network page for a few minutes to see how often it drops." });
     if (ping && answered(ping) && !ok(ping) && portsOk.length === 0)
       add({ id: "sync-down", severity: "problem", certainty: "probable", title: `Cannot reach ${scName}`,
         evidence: [describe(ping), ...portsBad.map(describe), ...silent],
@@ -218,7 +228,7 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
           evidence: [...(ping ? [describe(ping)] : []), ...portsBad.map(describe), ...(sc?.profiles ? [`${sc.name} reports ${onOff(sc.profiles)}, as the policy asks.`] : ["The sync cabinet's firewall state is not known to the platform."]), ...silent],
           fix: `The sync software's service on ${scName} may be stopped (check its Services section), or another firewall or rule blocks the port.`,
           ...(sc ? { action: { kind: "open" as const, section: "services", cabinetId: sc.id, label: `Open ${sc.name}'s services` } } : {}) });
-    } else if (portsOk.length > 0 || (ping && ok(ping)))
+    } else if (weak.length === 0 && (portsOk.length > 0 || (ping && ok(ping))))
       add({ id: "sync-ok", severity: "ok", certainty: "confirmed", title: `${scName} is reachable`, evidence: [...(ping ? [describe(ping)] : []), ...portsOk.map(describe),
         ...(ports.length === 0 ? ["No sync ports are set for this site, so only ping was tested."] : [])], fix: null });
     if (ping && answered(ping) && !ok(ping) && portsOk.length > 0)

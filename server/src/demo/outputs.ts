@@ -203,10 +203,10 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       const resolved = params.target === "gateway" ? n.gateway : params.target === "dns_server" ? server ?? null
         : params.target === "sync_cabinet" ? (params.syncAddress ?? `${ctx.subnet}.20`) : null;
       const series = (r: any) => {
-        if (params.method !== "ping" || !(params.count > 1)) return r;
+        if ((params.method !== "ping" && params.method !== "tcp") || !(params.count > 1)) return r;
         const sent = params.count;
         if (!r.success) return { ...r, statistics: { sent, received: 0, lossPercent: 100, minMs: null, avgMs: null, maxMs: null, jitterMs: null } };
-        const flaky = ctx.scenario === "net_flaky" && params.target === "gateway";
+        const flaky = ctx.scenario === "net_flaky" && (params.target === "gateway" || (params.target === "sync_cabinet" && params.method === "tcp"));
         const received = flaky ? Math.max(1, sent - Math.ceil(sent / 4)) : sent;
         const avg = flaky ? 24.3 : r.latencyMs ?? 1;
         return { ...r, latencyMs: avg, statistics: { sent, received, lossPercent: Math.round(1000 * (sent - received) / sent) / 10,
@@ -216,9 +216,9 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       if (params.target === "gateway") return series(n.gateway === null ? fail(null, "No default gateway is set.") : up ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds."));
       if (params.target === "dns_server") return server === undefined ? fail(null, "No DNS server is set.") : dnsAnswers(n, b, server) ? { ...ok, resolvedTarget: resolved } : fail(resolved, "No answer within 2 seconds.");
       if (params.target === "platform_server") return up && n.dns.some(s => dnsAnswers(n, b, s)) ? { ...ok, latencyMs: 38 + ctx.index } : fail(null, "The name could not be resolved.");
-      if (params.target === "sync_cabinet" && !up) return fail(resolved, params.method === "tcp" ? `Port ${params.port ?? 1433} did not answer within 3 seconds.` : "No answer within 2 seconds.");
-      if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp") return fail(resolved, `Port ${params.port ?? 1433} did not answer within 3 seconds.`);
-      return { ...ok, resolvedTarget: resolved };
+      if (params.target === "sync_cabinet" && !up) return series(fail(resolved, params.method === "tcp" ? `Port ${params.port ?? 1433} did not answer within 3 seconds.` : "No answer within 2 seconds."));
+      if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp") return series(fail(resolved, `Port ${params.port ?? 1433} did not answer within 3 seconds.`));
+      return series({ ...ok, resolvedTarget: resolved });
     }
     case "network.trace": {
       const n = ctx.net, b = ctx.baseline, up = reachesGateway(n, b);

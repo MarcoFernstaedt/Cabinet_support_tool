@@ -293,6 +293,45 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "wifi": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "ssid",
+                          "signalDbm"
+                        ],
+                        "properties": {
+                          "ssid": {
+                            "anyOf": [
+                              {
+                                "$ref": "../common.schema.json#/$defs/shortText"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "signalDbm": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -120,
+                                "maximum": 0
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }

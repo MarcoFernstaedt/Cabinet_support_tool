@@ -1,0 +1,18 @@
+{
+  "target": "sync_cabinet",
+  "method": "tcp",
+  "resolvedTarget": "10.21.4.20",
+  "success": true,
+  "latencyMs": 3.2,
+  "resolvedAddresses": [],
+  "error": null,
+  "statistics": {
+    "sent": 5,
+    "received": 4,
+    "lossPercent": 20,
+    "minMs": 1.9,
+    "avgMs": 3.2,
+    "maxMs": 6.1,
+    "jitterMs": 2.4
+  }
+}

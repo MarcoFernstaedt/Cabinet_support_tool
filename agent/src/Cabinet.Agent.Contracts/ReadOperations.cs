@@ -309,6 +309,13 @@ public sealed record AdapterDetails
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AdapterDriver? Driver { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Netbios { get; init; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public NetworkProfile? NetworkProfile { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public AdapterWifi? Wifi { get; init; }
+}
+
+public sealed record AdapterWifi
+{
+    public required string? Ssid { get; init; }
+    public required int? SignalDbm { get; init; }
 }
 
 public sealed record AdapterDriver

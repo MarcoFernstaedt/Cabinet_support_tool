@@ -140,6 +140,8 @@ public sealed class CommandValidatorTests
         new object[] { "network.test", """{"target":"gateway","method":"ping","host":"10.0.0.1"}""" },
         new object[] { "network.test", """{"target":"gateway","method":"dns","count":3}""" },
         new object[] { "network.test", """{"target":"gateway","method":"ping","count":500}""" },
+        new object[] { "network.test", """{"target":"sync_cabinet","method":"tcp","port":1433,"count":500}""" },
+        new object[] { "network.test", """{"target":"gateway","method":"dns","count":2}""" },
         new object[] { "network.trace", """{"target":"8.8.8.8"}""" },
         new object[] { "network.trace", """{"target":"gateway","maxHops":999}""" },
         new object[] { "network.trace", """{"target":"gateway","host":"10.0.0.1"}""" },

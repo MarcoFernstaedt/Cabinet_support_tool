@@ -162,6 +162,7 @@ public sealed class SystemOperations(AgentConfig config)
         var adapters = new List<NetworkAdapter>();
         var leases = NetworkExtras.Leases();
         var extras = NetworkExtras.Extras();
+        var wifi = NetworkExtras.Wifi();
         foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
         {
             if (adapters.Count == 64) break;
@@ -212,6 +213,7 @@ public sealed class SystemOperations(AgentConfig config)
                     Driver = extra?.Driver,
                     Netbios = extra?.Netbios,
                     NetworkProfile = extra?.Profile,
+                    Wifi = nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 && wifi.TryGetValue(nic.Description, out var w) ? w : null,
                 },
             });
         }

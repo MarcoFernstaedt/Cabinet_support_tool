@@ -2197,6 +2197,10 @@ export interface NetworkConfigOutput {
         name: string | null;
         category: "public" | "private" | "domain";
       } | null;
+      wifi?: {
+        ssid: string | null;
+        signalDbm: number | null;
+      } | null;
     };
   }[];
   /**
@@ -2258,7 +2262,7 @@ export interface NetworkTestParams {
    */
   syncPorts?: [number, ...number[]];
   /**
-   * Ping only: how many echo requests to send, 1 to 20 (default 1). With more than one, the output carries loss and jitter.
+   * Ping or TCP only: how many attempts to make, 1 to 20 (default 1). With more than one, the output carries loss and jitter (for TCP, how many connections were made and how long each took).
    */
   count?: number;
 }

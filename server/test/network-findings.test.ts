@@ -53,6 +53,32 @@ test("the sync cabinet unreachable, and silent on the platform too", () => {
   assert.ok(f.evidence.some(x => x.includes("42 minutes")));
 });
 
+const series = (key: string, label: string, method: "ping" | "tcp", sent: number, received: number, params: Record<string, unknown> = {}): TestRun =>
+  ({ key, label, params: { method, ...params }, output: { target: "sync_cabinet", method, resolvedTarget: "10.21.4.20", success: received > 0, latencyMs: received ? 40 : null, resolvedAddresses: [], error: received ? null : "No answer",
+    statistics: { sent, received, lossPercent: Math.round(1000 * (sent - received) / sent) / 10, minMs: received ? 3 : null, avgMs: received ? 40 : null, maxMs: received ? 840 : null, jitterMs: received ? 210 : null } } as never });
+
+test("a weak link to the sync cabinet is its own finding: some attempts get through and some do not", () => {
+  const base = [pass("gateway", "Gateway"), pass("dns-0", "DNS 1"), pass("platform", "Platform")];
+  // Three of five connections made: reachable, but not a link a sync can rely on.
+  const weak = evidence({ tests: [...base, series("sync-ping", "Sync ping", "ping", 10, 9), series("sync-tcp-1433", "Sync port 1433", "tcp", 5, 3, { port: 1433 })] });
+  const f = networkFindings(weak);
+  const flaky = f.find(x => x.id === "sync-flaky")!;
+  assert.ok(flaky, JSON.stringify(f.map(x => x.id)));
+  assert.equal(flaky.severity, "warning");
+  assert.ok(flaky.evidence.some(x => x.includes("3 of 5 connected (40% lost)")));
+  assert.ok(!f.some(x => x.id === "sync-ok" || x.id === "sync-down"), "neither healthy nor down");
+  // Mostly lost is a problem, and nothing at all is the existing "down" finding.
+  assert.equal(networkFindings(evidence({ tests: [...base, series("sync-ping", "Sync ping", "ping", 10, 3), pass("sync-tcp-1433", "Sync port 1433", { port: 1433 })] })).find(x => x.id === "sync-flaky")!.severity, "problem");
+  assert.equal(networkFindings(evidence({ tests: [...base, series("sync-ping", "Sync ping", "ping", 10, 0), series("sync-tcp-1433", "Sync port 1433", "tcp", 5, 0, { port: 1433 })] }))[0]!.id, "sync-down");
+  // A little ping loss alone is tolerated; a clean series is healthy.
+  assert.ok(!networkFindings(evidence({ tests: [...base, series("sync-ping", "Sync ping", "ping", 20, 19), series("sync-tcp-1433", "Sync port 1433", "tcp", 5, 5, { port: 1433 })] })).some(x => x.id === "sync-flaky"));
+  // On Wi-Fi the signal strength is in the evidence, and weak signal is called out.
+  const wifi = adapter({ type: "wifi", details: { dhcpServer: null, leaseObtained: null, leaseExpires: null, mtu: 1500, statistics: null, wifi: { ssid: "ClinicGuest", signalDbm: -74 } } } as never);
+  const onWifi = networkFindings({ ...weak, config: { adapters: [wifi] } }).find(x => x.id === "sync-flaky")!;
+  assert.ok(onWifi.evidence.some(x => x.includes("ClinicGuest") && x.includes("-74 dBm") && x.includes("weak")));
+  assert.match(onWifi.fix ?? "", /access point|cable/);
+});
+
 test("physical layer: no link, a 169.254 address, and a gigabit adapter at 100 Mbps", () => {
   assert.deepEqual(ids(evidence({ config: { adapters: [adapter({ connected: false })] }, tests: [] })).filter(x => x.startsWith("problem")), ["problem:link"]);
   assert.ok(ids(evidence({ config: { adapters: [adapter({ ipv4: { dhcp: true, addresses: [{ address: "169.254.10.3", prefixLength: 16 }], gateways: [] } })] } })).includes("problem:ip-12"));

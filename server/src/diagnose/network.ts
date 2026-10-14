@@ -89,9 +89,9 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
   for (let i = 0; i < dnsCount; i++) tests.push(await issue(`dns-${i}`, `DNS server ${i + 1}`, "network.test", { target: "dns_server", method: "dns", dnsServerIndex: i }));
   tests.push(await issue("platform", "Platform server name", "network.test", { target: "platform_server", method: "dns" }));
   if (cabinet.role !== "sync" && sync?.address) {
-    tests.push(await issue("sync-ping", "Sync cabinet (ping)", "network.test", { target: "sync_cabinet", method: "ping" }));
+    tests.push(await issue("sync-ping", "Sync cabinet (ping)", "network.test", { target: "sync_cabinet", method: "ping", count: 10 }));
     for (const port of sync.effective.slice(0, 4))
-      tests.push(await issue(`sync-tcp-${port}`, `Sync cabinet port ${port}`, "network.test", { target: "sync_cabinet", method: "tcp", port }));
+      tests.push(await issue(`sync-tcp-${port}`, `Sync cabinet port ${port}`, "network.test", { target: "sync_cabinet", method: "tcp", port, count: 5 }));
   }
   // The routes to the sync cabinet and the platform server: where along the way replies stop or slow down.
   const traces: Issued[] = [await issue("trace-platform", "Path to the platform server", "network.trace", { target: "platform_server" })];
