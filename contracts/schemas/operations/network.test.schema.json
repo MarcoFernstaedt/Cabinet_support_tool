@@ -232,12 +232,12 @@
                 "sent": {
                   "type": "integer",
                   "minimum": 1,
-                  "maximum": 10
+                  "maximum": 20
                 },
                 "received": {
                   "type": "integer",
                   "minimum": 0,
-                  "maximum": 10
+                  "maximum": 20
                 },
                 "lossPercent": {
                   "type": "number",
