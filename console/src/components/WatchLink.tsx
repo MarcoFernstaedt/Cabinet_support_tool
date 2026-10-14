@@ -67,7 +67,7 @@ export function WatchLink({ cabinetId, label, ping, tcp }: { cabinetId: string; 
         {samples.length > 0 && !on && <button className="btn small" onClick={() => void copy()}>{copied ? "Copied" : "Copy summary"}</button>}
       </div>
       {samples.length > 0 && (<>
-        <svg role="img" aria-label="Round trip per sample" width="100%" height="56" viewBox={`0 0 ${MAX_SAMPLES * 20} 56`} preserveAspectRatio="none">
+        <svg role="img" aria-label="Round trip per sample, one bar each" width={MAX_SAMPLES * 20} height="56" viewBox={`0 0 ${MAX_SAMPLES * 20} 56`}>
           {samples.map((s, i) => {
             const h = Math.max(2, 50 * ((s.avg ?? 0) / top)), bad = s.received < s.sent || s.tcpReceived < s.tcpSent || s.failure;
             return <g key={i}><rect x={i * 20 + 3} y={54 - h} width="14" height={h} fill={bad ? "var(--warn, #d97706)" : "var(--accent, #22d3ee)"} opacity={s.received === 0 ? 0.25 : 1} />

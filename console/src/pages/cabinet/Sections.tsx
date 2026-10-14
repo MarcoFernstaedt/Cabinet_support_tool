@@ -299,7 +299,7 @@ function AdapterTools({ cabinet, output }: { cabinet: CabinetDetail; output: { a
   const flush = useFlushDns(cabinet);
   const copy = async () => { try { await navigator.clipboard.writeText(ipconfigText(cabinet.name, output.adapters, output.proxy)); setCopied(true); } catch { setCopied(false); } };
   return (
-    <p className="row gap wrap small">
+    <p className="panel row gap wrap small">
       <span>WinHTTP proxy: <strong>{output.proxy === undefined || output.proxy === null ? "not reported" : output.proxy.winHttp ?? "direct access"}</strong></span>
       <button className="btn small" onClick={() => void copy()}>{copied ? "Copied" : "Copy as ipconfig text"}</button>
       {flush.button}
