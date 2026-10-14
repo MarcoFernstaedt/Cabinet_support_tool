@@ -191,7 +191,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
 
     await page.getByRole("link", { name: "Network" }).click();
     await page.getByRole("button", { name: "Trace and ping" }).click();
-    await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 }).catch(async e => {
+    await page.getByRole("table", { name: /→/ }).waitFor({ timeout: 60_000 }).catch(async e => {
       const rows = (await db.app.query("SELECT operation, status, params FROM commands ORDER BY issued_at DESC LIMIT 6")).rows;
       throw new Error(`${e.message}\n${(await page.locator("#packets-heading").locator("xpath=ancestor::section").innerText())}\n${JSON.stringify(rows)}`);
     });
