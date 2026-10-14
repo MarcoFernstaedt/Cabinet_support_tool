@@ -39,6 +39,7 @@ public static class Catalog
     public const string FirewallRestore = "firewall.restore";
     public const string PackageInstall = "package.install";
     public const string DriverUninstall = "driver.uninstall";
+    public const string UpdatesUninstall = "updates.uninstall";
     public const string ServicesList = "services.list";
     public const string ProcessesList = "processes.list";
     public const string ServiceControl = "service.control";
@@ -84,6 +85,7 @@ public static class Catalog
         Write<FirewallRestoreParams, FirewallRestoreOutput>(FirewallRestore, safetyNet: true, Confirm.Code),
         Write<PackageInstallParams, PackageInstallOutput>(PackageInstall, safetyNet: false, Confirm.Code),
         Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false, Confirm.Code),
+        Write<UpdatesUninstallParams, UpdatesUninstallOutput>(UpdatesUninstall, safetyNet: false, Confirm.Code),
         Write<ServiceControlParams, ServiceControlOutput>(ServiceControl, safetyNet: false, Confirm.Click),
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),

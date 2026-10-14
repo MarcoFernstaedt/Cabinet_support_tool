@@ -14,6 +14,8 @@ public interface IPackagePlatform
     (bool Installed, long ExitCode, bool RebootRequired) InstallDriver(IReadOnlyList<string> infPaths);
     (bool Installed, long ExitCode, bool RebootRequired) InstallMsi(string msiPath);
     (bool Removed, bool RebootRequired) UninstallDriver(string publishedName);
+    /// <summary>Rolls back one installed update by KB number. Never restarts the machine.</summary>
+    (bool Removed, bool RebootRequired) UninstallUpdate(string kb);
 }
 
 /// <summary>
@@ -31,7 +33,8 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
 
     public OperationRegistry Register(OperationRegistry registry) => registry
         .Register<PackageInstallParams, PackageInstallOutput>(Catalog.PackageInstall, (p, _) => Task.FromResult(Install(p)))
-        .Register<DriverUninstallParams, DriverUninstallOutput>(Catalog.DriverUninstall, (p, _) => Task.FromResult(Uninstall(p)));
+        .Register<DriverUninstallParams, DriverUninstallOutput>(Catalog.DriverUninstall, (p, _) => Task.FromResult(Uninstall(p)))
+        .Register<UpdatesUninstallParams, UpdatesUninstallOutput>(Catalog.UpdatesUninstall, (p, _) => Task.FromResult(UninstallUpdate(p)));
 
     public PackageInstallOutput Install(PackageInstallParams p)
     {
@@ -106,6 +109,17 @@ public sealed class PackageInstaller(string downloads, string staging, TrustList
         var (removed, reboot) = platform.UninstallDriver(p.PublishedName.ToLowerInvariant());
         if (!removed) throw new OperationFailedException("not_found", "No third-party driver with that published name could be removed.");
         return new DriverUninstallOutput { PublishedName = p.PublishedName.ToLowerInvariant(), Removed = true, RebootRequired = reboot };
+    }
+
+    /// <summary>updates.uninstall: the KB is checked again here (the schema already did) before it reaches the program's argument list.</summary>
+    public UpdatesUninstallOutput UninstallUpdate(UpdatesUninstallParams p)
+    {
+        string kb = p.Kb;
+        if (kb.Length < 8 || kb.Length > 10 || !kb.StartsWith("KB", StringComparison.Ordinal) || !kb.Skip(2).All(char.IsAsciiDigit))
+            throw new OperationFailedException("invalid_params", "That is not a KB number.");
+        var (removed, reboot) = platform.UninstallUpdate(kb);
+        if (!removed) throw new OperationFailedException("not_found", "That update is not installed, or Windows could not roll it back.");
+        return new UpdatesUninstallOutput { Kb = kb, Removed = true, RebootRequired = reboot };
     }
 
     /// <summary>Free space the cabinet keeps after unpacking a package, so a package can never fill its drive.</summary>

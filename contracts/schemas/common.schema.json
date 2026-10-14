@@ -243,6 +243,7 @@
         "firewall.restore",
         "package.install",
         "driver.uninstall",
+        "updates.uninstall",
         "services.list",
         "processes.list",
         "service.control",

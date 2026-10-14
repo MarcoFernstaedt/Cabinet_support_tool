@@ -238,7 +238,7 @@ export async function timeline(db: Queryable, cabinetId: string, from: Date, to:
   for (const w of writes) items.push({ at: w.issued_at.toISOString(), category: "platform_change", title: `Platform change: ${w.operation}`, detail: `By ${w.name}; ${w.status}.` });
   return items.sort((a, b) => a.at.localeCompare(b.at));
 }
-const WRITE_OPS = ["firewall.setProfile", "firewall.setRule", "firewall.restore", "firewall.applyPolicy", "network.setIp", "network.setDns", "package.install", "driver.uninstall", "service.control", "time.setZone", "time.sync", "network.renewLease"];
+const WRITE_OPS = ["firewall.setProfile", "firewall.setRule", "firewall.restore", "firewall.applyPolicy", "network.setIp", "network.setDns", "package.install", "driver.uninstall", "updates.uninstall", "service.control", "time.setZone", "time.sync", "network.renewLease"];
 
 const DAY = 86_400_000;
 export const BEFORE_HOURS = 72;

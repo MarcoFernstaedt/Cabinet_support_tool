@@ -435,3 +435,8 @@ All of this is built on `main`; the design is in [14-network-troubleshooting.md]
 - Raised the `network.test` ping count limit from 10 to 20 so packet loss has more samples. Say if you want a different ceiling; the rate limit for network tests is unchanged.
 - Did not add the network connection category (Public/Private/Domain) to `network.config`. Open: do you want it as its own field, or is the firewall profile in the firewall read enough?
 - `system.performance` is a single WMI snapshot, not an average over time. Open: do you want a short sampling window (for example three samples a second apart) on the agent?
+
+## Rolling back Windows
+
+- Added `updates.uninstall` (roll back one installed update by KB number, never restarts). It does not roll back a whole Windows version (the "Go back to the previous version" feature) or use System Restore points: those are larger, harder to undo and need a decision on which cabinets may use them. Open: do you want either, and who may run them?
+- `wusa.exe` is now on the list of programs the broker may start (`pnputil`, `msiexec`, `netsh`, `tzutil`, `w32tm`, `wusa`).

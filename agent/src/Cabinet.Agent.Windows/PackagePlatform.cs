@@ -65,6 +65,14 @@ public sealed class PackagePlatform(Action<string> log) : IPackagePlatform
         log($"pnputil /delete-driver {publishedName}: exit code {r.ExitCode}.");
         return (r.ExitCode is 0 or 3010, r.ExitCode == 3010);
     }
+
+    /// <summary>wusa.exe /uninstall /kb:NNN /quiet /norestart: fixed arguments, the KB digits already checked, and never a restart.</summary>
+    public (bool Removed, bool RebootRequired) UninstallUpdate(string kb)
+    {
+        var r = ExternalProgram.Run("wusa.exe", ["/uninstall", "/kb:" + kb[2..], "/quiet", "/norestart"], InstallTimeout);
+        log($"wusa /uninstall {kb}: exit code {r.ExitCode}.");
+        return (r.ExitCode is 0 or 3010, r.ExitCode == 3010);
+    }
 }
 
 /// <summary>WinVerifyTrust and CryptQueryObject, the Windows trust APIs, declared by hand.</summary>

@@ -98,6 +98,7 @@ Software:
 - Driver package: a zip containing the driver's INF file, its signed catalog file and its binaries. The agent checks the zip's SHA-256 hash against the command, verifies the catalog signature with Windows trust verification, checks the signer against its trusted publisher list, then installs with pnputil add-driver and install.
 - MSI installer: the agent checks the hash, verifies the Authenticode signature, checks the signer against its trusted publisher list, then runs msiexec with fixed silent-install arguments. The server cannot add or change installer arguments.
 - driver.uninstall: remove one third-party driver by its published name, which must match the oemNN.inf pattern, using pnputil.
+- updates.uninstall: roll back one installed Windows update by KB number (`^KB[0-9]{6,8}$`), using `wusa.exe /uninstall /kb:NNN /quiet /norestart`, run by full path with an argument array. It never restarts the cabinet; when Windows needs a restart it reports `rebootRequired` and waits. Tier 2 and up, confirmed with an authenticator code, no safety net (an uninstalled update is put back by installing it again).
 
 Not supported, on purpose: EXE installers, scripts, and any general file transfer. A vendor EXE usually contains the driver's INF files, which can be extracted and uploaded as a driver package. Anything else the agent needs on disk arrives inside a signed agent upgrade.
 

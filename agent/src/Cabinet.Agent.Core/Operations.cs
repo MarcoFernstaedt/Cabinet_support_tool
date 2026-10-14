@@ -90,7 +90,7 @@ public static class OperationRunner
     /// </summary>
     public static TimeSpan BrokerTimeoutFor(string operation) => operation switch
     {
-        Catalog.PackageInstall or Catalog.DriverUninstall => TimeSpan.FromMinutes(20),
+        Catalog.PackageInstall or Catalog.DriverUninstall or Catalog.UpdatesUninstall => TimeSpan.FromMinutes(20),
         _ when Catalog.TryGet(operation, out CatalogEntry e) && e.Kind == OperationKind.Write => TimeSpan.FromMinutes(5),
         _ => DefaultTimeout,
     };

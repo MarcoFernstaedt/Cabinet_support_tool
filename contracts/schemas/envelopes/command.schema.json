@@ -438,6 +438,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "updates.uninstall"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/updates.uninstall.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "services.list"
           }
         },

@@ -91,7 +91,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;
     case "devices": return <DevicesDrivers cabinet={cabinet} />;
-    case "updates": return <Updates cabinetId={cabinet.id} />;
+    case "updates": return <Updates cabinet={cabinet} />;
     case "time": return <Time cabinet={cabinet} />;
     case "drives": return <DriveHealth cabinetId={cabinet.id} />;
     case "network": return <Network cabinet={cabinet} />;

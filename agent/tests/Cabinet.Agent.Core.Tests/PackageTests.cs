@@ -183,6 +183,8 @@ public sealed class FakePackagePlatform : IPackagePlatform
     public (bool Installed, long ExitCode, bool RebootRequired) InstallDriver(IReadOnlyList<string> infs) { Installed.AddRange(infs.Select(Path.GetFileName)!); return (true, 0, false); }
     public (bool Installed, long ExitCode, bool RebootRequired) InstallMsi(string msi) { Installed.Add(Path.GetFileName(msi)); return (true, 3010, true); }
     public (bool Removed, bool RebootRequired) UninstallDriver(string name) => (name == "oem12.inf", false);
+    public List<string> RolledBack { get; } = new();
+    public (bool Removed, bool RebootRequired) UninstallUpdate(string kb) { RolledBack.Add(kb); return (kb == "KB5034123", true); }
 }
 
 public class PackageTests : IDisposable
@@ -423,6 +425,31 @@ public class PackageTests : IDisposable
         var u = Installer();
         Assert.True(u.Uninstall(new DriverUninstallParams { PublishedName = "OEM12.INF" }).Removed);
         Assert.Equal("not_found", Assert.Throws<OperationFailedException>(() => u.Uninstall(new DriverUninstallParams { PublishedName = "oem99.inf" })).Code);
+    }
+
+    [Fact]
+    public void Update_rollback_names_one_kb_and_reports_a_needed_restart_without_restarting()
+    {
+        var u = Installer();
+        var done = u.UninstallUpdate(new UpdatesUninstallParams { Kb = "KB5034123" });
+        Assert.True(done.Removed);
+        Assert.True(done.RebootRequired);
+        Assert.Equal("not_found", Assert.Throws<OperationFailedException>(() => u.UninstallUpdate(new UpdatesUninstallParams { Kb = "KB9999999" })).Code);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("5034123")]
+    [InlineData("kb5034123")]
+    [InlineData("KB5034123 /quiet")]
+    [InlineData("KB5034123&calc")]
+    [InlineData("KB123")]
+    [InlineData("KB12345678901")]
+    [InlineData("..\\KB5034123")]
+    public void Update_rollback_refuses_anything_that_is_not_a_kb_number(string kb)
+    {
+        var u = Installer();
+        Assert.Equal("execution_failed", Assert.Throws<OperationFailedException>(() => u.UninstallUpdate(new UpdatesUninstallParams { Kb = kb })).Code);
     }
 }
 

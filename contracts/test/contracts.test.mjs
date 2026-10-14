@@ -149,7 +149,7 @@ test("catalog rules follow the security model", () => {
   assert.deepEqual(safetyNet, ["firewall.applyPolicy", "firewall.restore", "firewall.setProfile", "firewall.setRule", "network.setDns", "network.setIp"]);
   // Writes that can strand or alter a cabinet keep the authenticator code.
   const code = catalog.operations.filter(o => o.confirm === "code").map(o => o.name).sort();
-  assert.deepEqual(code, ["driver.uninstall", "firewall.restore", "network.setDns", "network.setIp", "package.install"]);
+  assert.deepEqual(code, ["driver.uninstall", "firewall.restore", "network.setDns", "network.setIp", "package.install", "updates.uninstall"]);
 });
 
 test("no schema allows the Security log or a generic command", () => {

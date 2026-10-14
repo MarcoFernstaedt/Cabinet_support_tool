@@ -27,6 +27,7 @@
     {"name": "firewall.setRule", "kind": "write", "minimumRole": "tier2", "confirm": "click", "expirySeconds": 120, "rateClass": "write", "safetyNet": true},
     {"name": "firewall.restore", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write", "safetyNet": true},
     {"name": "package.install", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
+    {"name": "updates.uninstall", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "driver.uninstall", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "service.control", "kind": "write", "minimumRole": "tier2", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
     {"name": "time.status", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},

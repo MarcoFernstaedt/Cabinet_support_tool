@@ -3,7 +3,7 @@
 // which cabinet: a click for quick, self-healing changes, or an authenticator code bound to the exact parameters.
 // The server and the agent check all of it again; nothing here is the protection.
 import { useEffect, useState, type ReactNode } from "react";
-import type { DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
+import type { UpdatesUninstallOutput, DriverUninstallOutput, FirewallApplyPolicyOutput, FirewallProfileState, FirewallRestoreOutput, FirewallRule, FirewallSetProfileOutput, FirewallSetRuleOutput,
   FirewallStateOutput, NetworkConfigOutput, NetworkRenewLeaseOutput, NetworkSetDnsOutput, NetworkSetIpOutput, ReportedFirewallRule } from "@mashura/cabinet-contracts/types";
 import { useWrite, type CommandResult } from "../../lib/commands";
 import { useSession } from "../../lib/session";
@@ -488,6 +488,24 @@ export function useDriverUninstall(cabinet: CabinetDetail, onChanged: () => void
           <p className="notice warn">Devices using it stop working until another driver is installed. The cabinet may need a restart.</p></>)}>Uninstall</button>
       : null,
     outcome: <WriteOutcome run={w.run} done={o => <>{o.publishedName} was removed.{o.rebootRequired && " The cabinet needs a restart to finish."}</>} />,
+    dialog: w.dialog,
+  };
+}
+
+// ---- Windows update rollback ----------------------------------------------------------------
+
+/** Rolls back one installed update by KB number (wusa /uninstall). The cabinet is never restarted; if Windows needs one, the result says so. */
+export function useUpdateRollback(cabinet: CabinetDetail, onChanged: () => void) {
+  const allowed = useCanWrite(cabinet, "updates.uninstall");
+  const w = useConfirmedWrite<UpdatesUninstallOutput>(cabinet, "updates.uninstall", r => { if (r.status === "succeeded") onChanged(); });
+  return {
+    allowed,
+    button: (u: { kb: string | null; title: string }) => allowed && u.kb && /^KB[0-9]{6,8}$/.test(u.kb)
+      ? <button className="btn small danger" onClick={() => w.ask({ kb: u.kb }, <>
+          <p>Roll back <strong>{u.kb}</strong>: {u.title}.</p>
+          <p className="notice warn">The update is removed with Windows' own uninstaller. The cabinet is not restarted; if Windows needs a restart to finish, it is reported and waits.</p></>)}>Roll back</button>
+      : null,
+    outcome: <WriteOutcome run={w.run} done={o => <>{o.kb} was rolled back.{o.rebootRequired && " Windows needs a restart to finish; the cabinet has not been restarted."}</>} />,
     dialog: w.dialog,
   };
 }

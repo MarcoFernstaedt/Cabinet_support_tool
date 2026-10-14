@@ -42,6 +42,7 @@
         "firewall.restore",
         "package.install",
         "driver.uninstall",
+        "updates.uninstall",
         "services.list",
         "processes.list",
         "service.control",
@@ -131,6 +132,7 @@
                 "firewall.restore",
                 "package.install",
                 "driver.uninstall",
+                "updates.uninstall",
                 "service.control",
                 "time.setZone",
                 "time.sync",
@@ -448,6 +450,27 @@
         "properties": {
           "params": {
             "$ref": "../operations/driver.uninstall.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "updates.uninstall"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/updates.uninstall.schema.json#/$defs/params"
           }
         }
       }

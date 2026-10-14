@@ -68,6 +68,7 @@ sealed class SimulatedPackagePlatform(Action<string> log) : IPackagePlatform
     public (bool Installed, long ExitCode, bool RebootRequired) InstallDriver(IReadOnlyList<string> infs) { log($"Simulated install of {string.Join(", ", infs.Select(Path.GetFileName))}."); return (true, 0, false); }
     public (bool Installed, long ExitCode, bool RebootRequired) InstallMsi(string msi) => (false, 1603, false);
     public (bool Removed, bool RebootRequired) UninstallDriver(string name) => (name.StartsWith("oem", StringComparison.OrdinalIgnoreCase), false);
+    public (bool Removed, bool RebootRequired) UninstallUpdate(string kb) => (kb == "KB5034123", true);
 }
 
 /// <summary>

@@ -32,6 +32,7 @@
         "firewall.restore",
         "package.install",
         "driver.uninstall",
+        "updates.uninstall",
         "package.upload",
         "package.approve",
         "package.retire",

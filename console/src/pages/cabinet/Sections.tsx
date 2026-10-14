@@ -9,7 +9,7 @@ import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
-import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites } from "./Writes";
+import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites, useUpdateRollback } from "./Writes";
 
 export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const cabinetId = cabinet.id;
@@ -64,10 +64,12 @@ export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
 
 const RESULT_TONE: Record<string, "ok" | "warn" | "crit" | "info" | "off"> = { succeeded: "ok", succeeded_with_errors: "warn", failed: "crit", aborted: "warn", in_progress: "info", unknown: "off" };
 
-export function Updates({ cabinetId }: { cabinetId: string }) {
+export function Updates({ cabinet }: { cabinet: CabinetDetail }) {
+  const cabinetId = cabinet.id;
   const op = useOperation<UpdatesStatusOutput>(cabinetId, "updates.status");
+  const rollback = useUpdateRollback(cabinet, () => void op.start());
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
+  return (<>
     <OperationPanel title="Windows updates" run={op} onRun={() => void op.start()}>
       {out => (<>
         <KeyValues rows={[["Last check", fullTime(out.lastCheckAt)], ["Last install", fullTime(out.lastInstallAt)],
@@ -79,13 +81,14 @@ export function Updates({ cabinetId }: { cabinetId: string }) {
         {out.installed.length === 0 ? <Empty>No update history.</Empty> : (
           <table className="table compact">
             <caption className="sr-only">Installed updates</caption>
-            <thead><tr><th scope="col">Installed</th><th scope="col">Update</th><th scope="col">Result</th></tr></thead>
+            <thead><tr><th scope="col">Installed</th><th scope="col">Update</th><th scope="col">Result</th>{rollback.allowed && <th scope="col"><span className="sr-only">Roll back</span></th>}</tr></thead>
             <tbody>{out.installed.map((u, i) => <tr key={i}><td>{fullTime(u.installedAt)}</td><td>{u.title}</td>
-              <td><Badge tone={RESULT_TONE[u.result] ?? "off"}>{u.result.replaceAll("_", " ")}</Badge>{u.errorCode ? <span className="muted small"> 0x{(u.errorCode >>> 0).toString(16)}</span> : null}</td></tr>)}</tbody>
+              <td><Badge tone={RESULT_TONE[u.result] ?? "off"}>{u.result.replaceAll("_", " ")}</Badge>{u.errorCode ? <span className="muted small"> 0x{(u.errorCode >>> 0).toString(16)}</span> : null}</td>{rollback.allowed && <td>{u.result === "succeeded" ? rollback.button(u) : null}</td>}</tr>)}</tbody>
           </table>)}
       </>)}
     </OperationPanel>
-  );
+    {rollback.outcome}{rollback.dialog}
+  </>);
 }
 
 const HEALTH: Record<string, ["ok" | "warn" | "crit" | "off", string]> = {

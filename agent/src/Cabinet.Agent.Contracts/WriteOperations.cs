@@ -167,6 +167,18 @@ public sealed record DriverUninstallParams
     public required string PublishedName { get; init; }
 }
 
+public sealed record UpdatesUninstallParams
+{
+    public required string Kb { get; init; }
+}
+
+public sealed record UpdatesUninstallOutput
+{
+    public required string Kb { get; init; }
+    public required bool Removed { get; init; }
+    public required bool RebootRequired { get; init; }
+}
+
 public sealed record DriverUninstallOutput
 {
     public required string PublishedName { get; init; }

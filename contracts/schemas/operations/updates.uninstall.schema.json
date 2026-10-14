@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/updates.uninstall.schema.json",
+  "title": "updates.uninstall",
+  "description": "Roll back one installed Windows update by its KB number (wusa /uninstall). Never restarts the cabinet: if a restart is needed it says so and waits.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kb": {
+          "type": "string",
+          "pattern": "^KB[0-9]{6,8}$"
+        }
+      },
+      "required": [
+        "kb"
+      ]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kb": {
+          "type": "string",
+          "pattern": "^KB[0-9]{6,8}$"
+        },
+        "removed": {
+          "type": "boolean"
+        },
+        "rebootRequired": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "kb",
+        "removed",
+        "rebootRequired"
+      ]
+    }
+  }
+}

@@ -454,6 +454,7 @@ export interface CommandRequest {
     | "firewall.restore"
     | "package.install"
     | "driver.uninstall"
+    | "updates.uninstall"
     | "services.list"
     | "processes.list"
     | "service.control"
@@ -970,6 +971,7 @@ export interface StepUpRequest {
     | "firewall.restore"
     | "package.install"
     | "driver.uninstall"
+    | "updates.uninstall"
     | "package.upload"
     | "package.approve"
     | "package.retire"
@@ -1161,6 +1163,7 @@ export interface Command {
     | "firewall.restore"
     | "package.install"
     | "driver.uninstall"
+    | "updates.uninstall"
     | "services.list"
     | "processes.list"
     | "service.control"
@@ -2670,6 +2673,16 @@ export interface PackageInstallOutput {
   rebootRequired: boolean;
 }
 
+export interface UpdatesUninstallParams {
+  kb: string;
+}
+
+export interface UpdatesUninstallOutput {
+  kb: string;
+  removed: boolean;
+  rebootRequired: boolean;
+}
+
 export interface DriverUninstallParams {
   publishedName: string;
 }
@@ -2833,7 +2846,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2867,6 +2880,7 @@ export interface OperationTypes {
   "firewall.setRule": { params: FirewallSetRuleParams; output: FirewallSetRuleOutput };
   "firewall.restore": { params: FirewallRestoreParams; output: FirewallRestoreOutput };
   "package.install": { params: PackageInstallParams; output: PackageInstallOutput };
+  "updates.uninstall": { params: UpdatesUninstallParams; output: UpdatesUninstallOutput };
   "driver.uninstall": { params: DriverUninstallParams; output: DriverUninstallOutput };
   "service.control": { params: ServiceControlParams; output: ServiceControlOutput };
   "time.status": { params: TimeStatusParams; output: TimeStatusOutput };
