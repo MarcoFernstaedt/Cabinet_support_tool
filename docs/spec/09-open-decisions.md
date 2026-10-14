@@ -445,4 +445,4 @@ All of this is built on `main`; the design is in [14-network-troubleshooting.md]
 
 Two independent reviews (server and console; agent) found no critical or high defects. Fixed: the port check no longer says "nothing is listening" or "blocked" when the listener or rule list was cut short, and treats rules limited to a program or address as "limited" rather than allowed; a watch sample the cabinet refused or did not answer no longer counts as packet loss; compare pairs adapters by name, keeps duplicate rule names and shows when its list is cut at 200; the activity report reads only the error code of each command; listener counts are not silently capped at 5,000; control characters in SSIDs and profile names are replaced; a 20-ping series uses 2-second timeouts so a dead target reports 100% loss instead of timing out.
 
-Left as is, on purpose: a series of 20 TCP connections uses one network-test slot (the target is still only the configured sync cabinet and its allowed ports). Open: do you want TCP series limited to 10?
+TCP series are limited to 10 attempts (ping stays at 20): answered by the team, enforced in the network.test contract and so by the agent.

@@ -2262,7 +2262,7 @@ export interface NetworkTestParams {
    */
   syncPorts?: [number, ...number[]];
   /**
-   * Ping or TCP only: how many attempts to make, 1 to 20 (default 1). With more than one, the output carries loss and jitter (for TCP, how many connections were made and how long each took).
+   * Ping or TCP only: how many attempts to make, 1 to 20 for ping and 1 to 10 for TCP (default 1). With more than one, the output carries loss and jitter (for TCP, how many connections were made and how long each took).
    */
   count?: number;
 }
