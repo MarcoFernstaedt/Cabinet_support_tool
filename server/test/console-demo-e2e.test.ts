@@ -253,10 +253,11 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
 
     // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
-    await page.goto(`${origin}/cabinets/${exam}/network`);
-    await page.getByRole("button", { name: "All targets" }).click();
-    await page.getByRole("button", { name: "All targets" }).and(page.locator(":enabled")).waitFor({ timeout: 90_000 });
-    await page.getByRole("table", { name: /^gateway/ }).waitFor();
+    // A different cabinet from the one the live check just used, so the per-cabinet limit on network tests is not in the way.
+    const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND name <> 'Exam Room 2' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
+    await page.goto(`${origin}/cabinets/${other}/network`);
+    await page.getByRole("button", { name: "Trace and ping" }).click();
+    await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 });
     assert.ok(await page.getByRole("cell", { name: "Clean" }).count() >= 1, "at least one healthy path is marked clean");
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/packets.png`, fullPage: true });
 
