@@ -69,9 +69,7 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
       <h1>Network diagnosis{data ? `: ${data.label}` : ""}</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
-        <p className="muted">Run by {data.startedBy} {ago(data.startedAt)}. Each cabinet's link, address, gateway, DNS servers, the platform, the sync cabinet and its firewall are checked
-          {data.hasBaseline ? ", and its address, gateway and DNS are compared with the site's baseline" : ""}.
-          {!data.hasBaseline && " This site has no baseline set, so nothing is compared; these are the readings straight from the cabinets."}</p>
+        <p className="muted">Run by {data.startedBy} {ago(data.startedAt)}</p>
         <p className="row gap wrap" role="status" aria-live="polite">
           {data.state === "running"
             ? <Badge tone="info">Checking: {data.finished} of {data.total} done</Badge>

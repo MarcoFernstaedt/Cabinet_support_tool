@@ -65,6 +65,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByLabel(/6-digit code/).fill(await code());
     await page.getByRole("button", { name: "Continue" }).click();
+    if (process.env.SHOTS) { await page.waitForTimeout(500); await page.screenshot({ path: `${process.env.SHOTS}/wizard.png` }); }
     await page.getByRole("button", { name: "Skip tour" }).click();
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 

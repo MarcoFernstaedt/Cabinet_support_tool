@@ -167,7 +167,7 @@ export function DemoTour() {
         {step < steps.length - 1 ? <button className="btn small primary" onClick={() => go(step + 1)}>Next</button>
           : <button className="btn small primary" onClick={() => go(null)}>Finish</button>}
         <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Show me</button>
-        <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen">{left ? "Move right" : "Move left"}</button>
+        <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen" title="Move panel">{left ? "⇥" : "⇤"}</button>
         <button className="btn small ghost" onClick={() => go(null)} aria-label="Stop the guided demo">Stop</button>
       </div>
     </aside>
