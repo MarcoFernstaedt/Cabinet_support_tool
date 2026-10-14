@@ -16,21 +16,21 @@ export function AdminHome() {
     <div className="page">
       <h1>Admin</h1>
       <ul className="tiles">
-        <li><Link to="/admin/setup"><strong>Set up and demo</strong><span>Add the support team, install the agent on a computer, approve it, and turn demo mode on or off.</span></Link></li>
-        <li><Link to="/fixes"><strong>Known fixes</strong><span>Approve or reject the fixes members save, and see what is in use.</span></Link></li>
-        <li><Link to="/admin/security"><strong>Security alerts</strong><span>Unusual write volume, failed sign-ins, new networks, audit chain, agent and certificate problems.</span></Link></li>
-        <li><Link to="/admin/users"><strong>Users</strong><span>Create accounts, change roles and write limits, reset passwords and authenticators.</span></Link></li>
-        <li><Link to="/admin/online"><strong>Online now</strong><span>Who is signed in at the moment.</span></Link></li>
-        <li><Link to="/admin/audit"><strong>Audit log</strong><span>Search by person, cabinet, action and date; verify the chain.</span></Link></li>
-        <li><Link to="/admin/safety"><strong>Fleet safety</strong><span>Pause changes fleet-wide or per client; resume people paused by their limit.</span></Link></li>
-        <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>Approve or reject cabinets asking to join{data ? ` (${data.length} waiting)` : ""}.</span></Link></li>
-        <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Create a one-time install token and get the files the installer needs.</span></Link></li>
-        <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Create, rename and remove clients and sites.</span></Link></li>
-        <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Create and edit issue types; review, renew and disable suppressions.</span></Link></li>
-        <li><Link to="/admin/software"><strong>Software library</strong><span>Upload driver packages and installers, approve another Admin's uploads, retire old versions.</span></Link></li>
-        <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Add signed agent releases, run staged rollouts, pause or stop them, and see each cabinet's result.</span></Link></li>
-        <li><Link to="/admin/scanner"><strong>Device defaults</strong><span>The fingerprint scanner's hardware IDs and the sync cabinet ports for any client that has none of its own.</span></Link></li>
-        <li><Link to="/admin/settings"><strong>Settings</strong><span>Offline alerts, sign-in timeouts, two-factor for everyone, how long data is kept.</span></Link></li>
+        <li><Link to="/admin/setup"><strong>Set up and demo</strong><span>Team, agent, demo</span></Link></li>
+        <li><Link to="/fixes"><strong>Known fixes</strong><span>Review saved fixes</span></Link></li>
+        <li><Link to="/admin/security"><strong>Security alerts</strong><span>Security events</span></Link></li>
+        <li><Link to="/admin/users"><strong>Users</strong><span>Accounts and roles</span></Link></li>
+        <li><Link to="/admin/online"><strong>Online now</strong><span>Active sessions</span></Link></li>
+        <li><Link to="/admin/audit"><strong>Audit log</strong><span>Search and verify</span></Link></li>
+        <li><Link to="/admin/safety"><strong>Fleet safety</strong><span>Pause and resume changes</span></Link></li>
+        <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>{data ? `${data.length} waiting` : "Approve or reject"}</span></Link></li>
+        <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Install tokens and files</span></Link></li>
+        <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Clients and sites</span></Link></li>
+        <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Types and suppressions</span></Link></li>
+        <li><Link to="/admin/software"><strong>Software library</strong><span>Packages</span></Link></li>
+        <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Releases and rollouts</span></Link></li>
+        <li><Link to="/admin/scanner"><strong>Device defaults</strong><span>Scanner IDs, sync ports</span></Link></li>
+        <li><Link to="/admin/settings"><strong>Settings</strong><span>Timeouts, retention, 2FA</span></Link></li>
       </ul>
     </div>
   );
@@ -157,10 +157,8 @@ export function ScannerDefault() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Device defaults" }]} />
       <h1>Device defaults</h1>
-      <p className="muted">Fleet-wide defaults. A client, a site or a cabinet can have its own, set on its page; the most specific one applies, and cabinets pick changes up at their next heartbeat.</p>
       <section className="panel" aria-labelledby="fleet-scanner">
         <h2 id="fleet-scanner">Fingerprint scanner</h2>
-        <p className="muted small">Find the IDs on a cabinet under Fingerprint scanner → Likely scanners. With none set anywhere, cabinets find their scanner automatically.</p>
         {scanner.data && <ScannerIdsEditor label="Fleet default scanner IDs" current={scanner.data.hardwareIds}
           inherited="cabinets find the scanner automatically (the Biometric device)." endpoint="/api/settings/scanner" action="settings.scanner" target="fleet"
           what="every cabinet without its own setting" editable onSaved={scanner.reload} />}
@@ -172,13 +170,11 @@ export function ScannerDefault() {
       </section>
       <section className="panel" aria-labelledby="fleet-firewall">
         <h2 id="fleet-firewall">Firewall policy (fleet default)</h2>
-        <p className="muted small">Applies to every client without its own policy. All three profiles off is the default, because that fixes most satellite-to-sync connection problems.</p>
         {firewall.data && <PolicyEditor current={firewall.data.policy} inherited={null} endpoint="/api/admin/firewall-policy" action="fleet.firewall_policy" target="fleet"
           what="the fleet" editable onSaved={firewall.reload} />}
       </section>
       <section className="panel" aria-labelledby="fleet-watched">
         <h2 id="fleet-watched">Watched services (fleet default)</h2>
-        <p className="muted small">Services every cabinet keeps running unless its client, site or the cabinet has its own list. The agent never watches itself or remote-access services.</p>
         {watched.data && <WatchListEditor endpoint="/api/admin/watched-services" own={watched.data.names} inherited="no services are watched."
           what="every cabinet without its own list" editable onSaved={watched.reload} />}
       </section>

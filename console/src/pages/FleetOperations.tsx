@@ -94,7 +94,6 @@ export function FleetOperations() {
 
       <section className="panel" aria-labelledby="choose">
         <h2 id="choose">1. Choose cabinets</h2>
-        <p className="muted small">A change covers the cabinets of one site, so a mistake can only reach one place. Choose the site, then tick the cabinets in it.</p>
         <form className="row gap wrap" onSubmit={e => e.preventDefault()}>
           <label className="field inline"><span>Site</span><select value={siteId} onChange={e => chooseSite(e.target.value)}>
             <option value="">Choose a site…</option>

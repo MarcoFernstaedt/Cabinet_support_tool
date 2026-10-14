@@ -42,7 +42,6 @@ export function MonitorEvents({ cabinetId }: { cabinetId: string }) {
   return (
     <section className="panel" aria-labelledby="monitor-heading">
       <h2 id="monitor-heading">Reported by the cabinet</h2>
-      <p className="muted small">Errors, scanner changes, drive warnings and firewall changes the agent noticed on its own.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && events.length === 0 && <Empty>Nothing reported yet.</Empty>}
       {events.length > 0 && (

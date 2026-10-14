@@ -46,8 +46,6 @@ export function Setup() {
       {state.problem && <p className="error" role="alert">{state.problem}</p>}
 
       <Step n={1} title="Add your support team" done={(s?.otherUsers ?? 0) > 0}>
-        <p className="muted small">Tier 1 runs diagnostics and the everyday fixes (firewall policy, scanner checks, restarts). Tier 2 also changes services, rules and network settings. Admins also enrol cabinets and manage accounts.
-          Each person gets a temporary password and must choose their own, and set up an authenticator, at first sign-in.</p>
         {s && <p>{s.otherUsers === 0 ? "Only you so far." : `${s.otherUsers} other ${s.otherUsers === 1 ? "account" : "accounts"}.`} <Link to="/admin/users">Manage all accounts</Link></p>}
         <NewAccount heading="New support account" onCreated={t => { setDone(t); state.reload(); }} />
       </Step>
@@ -57,7 +55,6 @@ export function Setup() {
       </Step>
 
       <Step n={3} title="Approve it" done={(s?.realCabinets ?? 0) > 0}>
-        <p className="muted small">Within a minute of installing, the computer asks to join. Check its host name and serial number, then file it under a client and site.</p>
         {pending.data && pending.data.length === 0 && <p className="muted">Nothing is waiting yet. This list refreshes by itself.</p>}
         {pending.data?.map(p => <PendingCard key={p.id} p={p} clients={clients.data ?? []} onDone={() => { pending.reload(); state.reload(); clients.reload(); }} />)}
       </Step>
@@ -139,9 +136,6 @@ export function DemoMode() {
   return (
     <section className="panel" id="demo" aria-labelledby="demo-heading">
       <h2 id="demo-heading">Demo mode {demo.data && (on ? <Badge tone="info">On</Badge> : <Badge tone="off">Off</Badge>)}</h2>
-      <p className="muted small">Adds made-up clients, sites and cabinets next to your real ones, so the app looks like a real fleet. The guided demo follows one story at Midtown Manhattan:
-        the exam rooms can't sync because the sync cabinet's firewall is on, you fix it with one click and watch the site come back clean, and a scanner there has been dropping off since a driver install.
-        It then walks through installing the agent on a real computer. Demo cabinets answer like a real agent and fixes on them work. They're tagged Demo everywhere, and turning demo mode off deletes them. Real cabinets are never touched.</p>
       {demo.data && <p>{on ? `${demo.data.cabinets} simulated cabinets in ${demo.data.clients} clients.` : "No simulated cabinets."}</p>}
       <div className="row gap wrap">
         {on ? <button className="btn" onClick={() => { setProblem(null); setAsk("off"); }}>Turn demo mode off</button>

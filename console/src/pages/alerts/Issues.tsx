@@ -29,7 +29,6 @@ export function IssuesPage() {
   return (
     <div className="page">
       <h1>Issues</h1>
-      <p className="muted">Symptom rules are matched on log, source and event ID.</p>
       {issues.problem && <p className="error" role="alert">{issues.problem}</p>}
       {issues.data && (
         <table className="table">

@@ -65,8 +65,6 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
       <div className="panel-head">
         <div>
           <h2 id="crashes-heading">Crashes and restarts</h2>
-          <p className="muted small">Blue screens, unexpected restarts and reboot loops, with what changed on the cabinet before them: updates, drivers, services, software, storage and hardware errors.
-            Collected as it happened, so it is here even if the cabinet can no longer start.</p>
         </div>
         <label className="field inline"><span>Period</span><select value={days} onChange={e => setDays(e.target.value)}>
           {["7", "30", "90"].map(d => <option key={d} value={d}>Last {d} days</option>)}</select></label>
@@ -136,7 +134,6 @@ export function IncidentsPage() {
   return (
     <div className="page">
       <h1>Incidents</h1>
-      <p className="muted">Stop codes, onset and what the crashed cabinets share.</p>
       <div className="row gap wrap filters">
         <label className="field inline"><span>Period</span><select value={range} onChange={e => setRange(e.target.value)}>
           {[["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["14", "Last 14 days"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
@@ -157,7 +154,6 @@ export function IncidentsPage() {
 
         <section className="panel" aria-labelledby="common-heading">
           <h2 id="common-heading">What the crashed cabinets have in common</h2>
-          <p className="muted small">Each change, and each kind of error, recorded in the 72 hours before a cabinet's first crash, compared with the cabinets that did not crash in the same period. {CORRELATION}</p>
           {data.comparisons.length === 0 ? <Empty>No changes or errors were recorded before these crashes.</Empty> : (
             <table className="table compact">
               <caption className="sr-only">Changes and errors before the crashes, affected against unaffected cabinets</caption>
@@ -201,7 +197,6 @@ export function IncidentsPage() {
 
         <section className="panel" aria-labelledby="affected-heading">
           <h2 id="affected-heading">Cabinets affected ({data.affected})</h2>
-          <p className="muted small">Those still down first. A cabinet stuck restarting cannot run the agent for long; what it sent before is under its Crashes and restarts section.</p>
           <table className="table compact">
             <caption className="sr-only">Cabinets affected</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">Status</th><th scope="col">First crash</th><th scope="col">Stop code</th><th scope="col">Blue screens</th><th scope="col">Starts</th></tr></thead>

@@ -256,6 +256,10 @@ main:focus { outline: none; }
   .sidebar { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); }
   .entry { grid-template-columns: 1fr; gap: 2px; }
   .topbar { flex-wrap: wrap; padding: var(--s-2) var(--s-4); gap: var(--s-2); }
+  .topbar nav { flex-wrap: wrap; width: 100%; align-self: auto; }
+  .topbar nav a { padding: var(--s-2) var(--s-3); }
+  select, input:not([type="checkbox"]):not([type="radio"]), textarea { max-width: 100%; }
+  .panel { min-width: 0; overflow-x: auto; }
   .page { padding: var(--s-4); }
   .cabinet-main { padding: 0 var(--s-4) var(--s-8); }
   .table { display: block; overflow-x: auto; }
@@ -364,3 +368,7 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .tour-target { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-md); animation: tour-pulse 1.4s ease-in-out 4; }
 @keyframes tour-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); } 50% { box-shadow: 0 0 0 10px var(--accent-soft); } }
 @media (prefers-reduced-motion: reduce) { .tour-target { animation: none; } }
+
+.cards.adapters { grid-template-columns: 1fr; }
+.cards.adapters .kv { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.tests.row { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-3); }

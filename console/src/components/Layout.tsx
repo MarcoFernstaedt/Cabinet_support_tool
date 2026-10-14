@@ -26,7 +26,7 @@ export function JumpControl() {
   return (
     <div className="jump" role="search">
       <label className="sr-only" htmlFor={`${listId}-input`}>Jump to a client, site or cabinet</label>
-      <input id={`${listId}-input`} type="search" placeholder="Jump to client, site or cabinet…" value={q} autoComplete="off"
+      <input id={`${listId}-input`} type="search" placeholder="Jump to…" aria-label="Jump to client, site or cabinet" value={q} autoComplete="off"
         role="combobox" aria-expanded={hits.length > 0} aria-controls={listId} aria-activedescendant={hits[active] ? `${listId}-${active}` : undefined}
         onChange={e => setQ(e.target.value)}
         onKeyDown={e => {

@@ -94,7 +94,6 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
 
         <section className="panel" aria-labelledby="by-cabinet">
           <h2 id="by-cabinet">Cabinet by cabinet</h2>
-          <p className="muted small">The path from the network link up to the firewall. A problem low down (the link, the address) explains the ones above it.</p>
           <div className="table-wrap"><table className="table compact matrix">
             <caption className="sr-only">Each cabinet's network path</caption>
             <thead><tr><th scope="col">Cabinet</th>{LAYERS.map(([k, n]) => <th key={k} scope="col">{n}</th>)}</tr></thead>

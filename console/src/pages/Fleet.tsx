@@ -85,14 +85,12 @@ export function ClientPage({ id }: { id: string }) {
         </table>
         <section className="panel" aria-labelledby="client-scanner">
           <h2 id="client-scanner">Fingerprint scanner for {data.name}</h2>
-          <p className="muted small">Every cabinet of this client looks for these hardware IDs, unless its site or the cabinet has its own. When the client changes scanner, change it here once.</p>
           <ScannerIdsEditor key={data.id} label="This client's scanner IDs" current={data.scanner.hardwareIds}
             inherited={data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
             endpoint={`/api/clients/${data.id}/scanner`} action="client.scanner" target={data.id} what={`every cabinet of ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
         </section>
         <section className="panel" aria-labelledby="client-ports">
           <h2 id="client-ports">Sync cabinet ports for {data.name}</h2>
-          <p className="muted small">The TCP ports the "Test sync cabinet" checks use at every site of this client, unless a site has its own.</p>
           <PortsEditor key={data.id} current={data.syncPorts.ports}
             inherited={data.syncPorts.fleetPorts?.length ? <>the fleet default applies (<strong>{data.syncPorts.fleetPorts.join(", ")}</strong>).</> : "no ports are set, so only ping and DNS tests run."}
             endpoint={`/api/clients/${data.id}/sync-ports`} action="client.sync" target={data.id} what={`every site of ${data.name}`} editable={atLeast(me, "admin")} onSaved={reload} />
@@ -141,7 +139,6 @@ export function SitePage({ id }: { id: string }) {
         <SyncSettings key={data.id} siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
           <h2 id="site-scanner">Fingerprint scanner at {data.name}</h2>
-          <p className="muted small">Only when this site uses a different scanner from the rest of {data.client.name}.</p>
           <ScannerIdsEditor key={data.id} label="This site's scanner IDs" current={data.scanner.hardwareIds}
             inherited={data.scanner.clientHardwareIds ? <>the client's setting applies (<code>{data.scanner.clientHardwareIds.join(", ")}</code>).</>
               : data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
@@ -193,7 +190,6 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
   return (
     <section className="panel" aria-labelledby={`std-${siteId}`}>
       <h2 id={`std-${siteId}`}>Standards for {name}</h2>
-      <p className="muted small">What this site's cabinets are compared with. {missing === 0 ? "All three are set." : "Set them once, from a cabinet that is already right, and every cabinet here is checked against them."} Nothing changes on a cabinet.</p>
       <ul className="plain">{rows.map(r => (
         <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; the fleet default applies (${describePolicy(cur.fleetFirewall)})` : ""}</span>} {r.action}</li>))}</ul>
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
@@ -228,7 +224,6 @@ function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { 
       <div className="panel-head">
         <div>
           <h2 id={`net-${siteId}`}>Network at {name}</h2>
-          <p className="muted small">Check every cabinet here at once: link, address, gateway, DNS, the sync cabinet and the firewall, compared with the baseline below. Where something differs, the fix is offered.</p>
         </div>
         <button className="btn primary" data-tour="site-diagnose" onClick={() => void diagnose.start({ siteId })} disabled={diagnose.busy || cabinets === 0 || cabinets > 60}>
           {diagnose.busy ? "Starting…" : `Diagnose network (${cabinets} ${cabinets === 1 ? "cabinet" : "cabinets"})`}</button>
@@ -270,7 +265,6 @@ function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: st
   return (
     <section className="panel" aria-labelledby={`tz-${siteId}`}>
       <h2 id={`tz-${siteId}`}>Time zone at {name}</h2>
-      <p className="muted small">The zone this site's cabinets should use. A cabinet in another zone gets a "Wrong time zone" alert; nothing changes on a cabinet until someone corrects it.</p>
       {editable ? (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void save(); }}>
           <label className="field inline"><span>Time zone</span>
@@ -294,8 +288,6 @@ function WatchedServices({ level, id, name, editable }: { level: "clients" | "si
   return (
     <section className="panel" aria-labelledby={`${level}-watched`}>
       <h2 id={`${level}-watched`}>Watched services for {name}</h2>
-      <p className="muted small">Windows services that must always run, such as the fingerprint scanner's. The agent starts them again whenever they stop and raises
-        an alert after 3 failed restarts. A site or a cabinet can have its own list; the most specific one applies.</p>
       {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above}
         what={level === "clients" ? `every cabinet of ${name}` : `every cabinet at ${name}`} editable={editable} onSaved={reload} />}
     </section>
@@ -313,7 +305,6 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
   return (
     <section className="panel" aria-labelledby="sync-heading">
       <h2 id="sync-heading">Sync cabinet</h2>
-      <p className="muted small">Used by the "Test sync cabinet" network tests on this site's cabinets. Cabinets only accept a private address on their own network.</p>
       <p>{sync.address ? <>Address <code>{sync.address}</code></> : "No address set yet."} · Ports in use: <strong>{sync.effectivePorts.length ? sync.effectivePorts.join(", ") : "none"}</strong>
         <span className="muted"> (from {PORTS_SOURCE[sync.portsSource] ?? sync.portsSource})</span></p>
       {editable && (
@@ -346,8 +337,6 @@ function ClientFirewallPolicy({ clientId, name, editable }: { clientId: string; 
   return (
     <section className="panel" aria-labelledby="client-firewall">
       <h2 id="client-firewall">Firewall policy for {name}</h2>
-      <p className="muted small">Which Windows firewall profiles this client's cabinets should have on or off. Cabinets that differ raise a minor alert;
-        Tier 1 and up apply the policy from the cabinet page, or to all of them below.</p>
       {data && <PolicyEditor current={data.own} inherited={data.fleet} endpoint={`/api/clients/${clientId}/firewall-policy`} action="client.firewall_policy"
         target={clientId} what={name} editable={editable} onSaved={reload} />}
     </section>

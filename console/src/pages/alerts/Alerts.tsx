@@ -49,9 +49,6 @@ function AlertsView({ unrecognized }: { unrecognized: boolean }) {
   const { data, problem, reload } = useLoad<Alert[]>(`/api/alerts?${q.toString()}`);
   useAlertNews(reload);
   return (<>
-    {unrecognized
-      ? <p className="muted">Errors no rule recognizes yet, from every cabinet. Map one to an issue (or create a new issue type for it) and choose how serious it is; the next time it appears the team is told what it means.</p>
-      : <p className="muted">Major alerts from every cabinet. Minor alerts show only on their cabinet's Alerts section.</p>}
     <form className="filters" onSubmit={e => e.preventDefault()} aria-label="Filter alerts">
       {!unrecognized && <label className="field"><span>Issue</span>
         <select value={f.issueTypeId} onChange={e => setF({ ...f, issueTypeId: e.target.value })}><option value="">Any</option>

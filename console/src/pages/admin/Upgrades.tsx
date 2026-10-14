@@ -141,7 +141,6 @@ function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean)
   return (
     <section className="panel" aria-labelledby="add-release">
       <h2 id="add-release">Add a release</h2>
-      <p className="muted">The three files from the build pipeline. The server checks the signature against the release key and the package against the manifest.</p>
       <form key={key} className="row gap wrap" onSubmit={e => { e.preventDefault(); void submit(); }}>
         <label className="field inline"><span>Manifest (manifest.json)</span><input type="file" accept=".json,application/json" required onChange={e => setFiles(f => ({ ...f, manifest: e.target.files?.[0] ?? null }))} /></label>
         <label className="field inline"><span>Signature (signature.json)</span><input type="file" accept=".json,application/json" required onChange={e => setFiles(f => ({ ...f, signature: e.target.files?.[0] ?? null }))} /></label>
@@ -200,7 +199,6 @@ function InOffice({ candidates, problem, ask, after }: { candidates: Candidate[]
   return (
     <section className="panel" aria-labelledby="office">
       <h2 id="office">In-office cabinets</h2>
-      <p className="muted">Batch 2 of every rollout. Search to add a cabinet.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       <label className="field inline"><span>Find a cabinet</span><input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name, client or site" /></label>
       {shown.length === 0 ? <Empty>No in-office cabinets yet.</Empty> : (

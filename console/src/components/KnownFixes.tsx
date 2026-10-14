@@ -120,7 +120,6 @@ export function SaveFix({ symptom, cabinetId, suggestedTitle, alertId, onSaved }
     }}>
       <label className="field"><span>Name</span><input required maxLength={120} value={title} onChange={e => setTitle(e.target.value)} /></label>
       <label className="field"><span>What fixed it</span><textarea required rows={3} maxLength={2000} value={solution} onChange={e => setSolution(e.target.value)} placeholder="Swapped the patch cable and moved the port on the switch; the errors stopped." /></label>
-      <p className="muted small">The cabinet's role, agent, time zone, firewall and network are saved with it, so a person can see later whether the same fix is likely to apply.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="row gap"><button className="btn primary small" disabled={!title.trim() || !solution.trim()}>{me.canApproveFixes ? "Save…" : "Send for approval"}</button><button type="button" className="btn ghost small" onClick={() => setOpen(false)}>Cancel</button></div>
     </form>

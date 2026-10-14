@@ -40,7 +40,6 @@ export function Software({ cabinet }: { cabinet: CabinetDetail }) {
   return (
     <section className="panel" aria-labelledby="software-heading">
       <h2 id="software-heading">Software</h2>
-      <p className="muted small">Approved packages from the software library. Before installing, the cabinet checks the file's hash, its signature and that the publisher is on its trusted list, and refuses it if any check fails.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       {devices.state === "running" && <p className="muted" role="status">Reading this cabinet's hardware to find matching packages…</p>}
       {devices.result && devices.result.status !== "succeeded" && <ResultProblem result={devices.result} />}
@@ -83,7 +82,6 @@ function PackageRow({ cabinet, p }: { cabinet: CabinetDetail; p: LibraryPackage 
             <li>Size: {p.sizeBytes === null ? "unknown" : bytes(p.sizeBytes)}</li>
             <li>SHA-256: <code className="wrap">{p.sha256}</code></li>
           </ul>
-          <p className="muted small">The cabinet checks the hash, signature and publisher again before installing, and refuses the package if any check fails.</p>
         </>)}>{w.run.state === "running" ? "Installing…" : "Install"}</button>}
       </div>
       <InstallOutcome run={w.run} />

@@ -177,7 +177,6 @@ export function PlatformSettings() {
             {num("Sign out after idle", form.sessionIdleMinutes, 5, 240, n => set({ sessionIdleMinutes: n }), "minutes")}
             {num("Sign out after at most", form.sessionAbsoluteHours, 1, 24, n => set({ sessionAbsoluteHours: n }), "hours")}
           </div>
-          <p className="muted small">Every account, Tier 1 included, signs in with a password and an authenticator code.</p>
         </section>
         <section className="panel" aria-labelledby="s-retention"><h2 id="s-retention">Keep data for</h2>
           <div className="row gap wrap">

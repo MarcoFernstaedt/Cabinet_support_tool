@@ -151,7 +151,6 @@ export function IssueTypesAndSuppressions() {
 
       <section className="panel" aria-labelledby="supps">
         <h2 id="supps">Active suppressions</h2>
-        <p className="muted">A suppression marks a known harmless event as ignore on every cabinet. It needs a written reason and expires after 90 days unless renewed.</p>
         {suppressions.problem && <p className="error" role="alert">{suppressions.problem}</p>}
         {suppressions.data && (suppressions.data.length === 0 ? <Empty>No active suppressions.</Empty> : (
           <table className="table compact">

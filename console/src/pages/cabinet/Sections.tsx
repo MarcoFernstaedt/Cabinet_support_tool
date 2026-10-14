@@ -125,9 +125,10 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
   useEffect(() => { void config.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const dnsCount = Math.min(4, Math.max(0, ...(config.result?.output?.adapters.filter(a => a.connected).map(a => a.dns.servers.length) ?? [0])));
   return (<>
+    <PacketPath cabinetId={cabinetId} dnsCount={dnsCount} />
     <DiagnoseNetwork cabinetId={cabinet.id} cabinetName={cabinet.name} />
     <OperationPanel title="Network adapters" run={config} onRun={() => void config.start()}>
-      {out => <div className="cards">{out.adapters.map(a => (
+      {out => <div className="cards adapters">{out.adapters.map(a => (
         <article key={a.interfaceIndex} className="card" aria-label={`Adapter ${a.name}`}>
           <h3>{a.name} <Badge tone={a.connected ? "ok" : "off"}>{a.connected ? "Connected" : "Disconnected"}</Badge></h3>
           <KeyValues rows={adapterRows(a as never)} />
@@ -141,10 +142,9 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
         <RoutesTable routes={(config.result.output.routes ?? []) as never} />
         <NeighborsTable neighbors={(config.result.output.neighbors ?? []) as never} />
       </section>)}
-    <PacketPath cabinetId={cabinetId} dnsCount={dnsCount} />
     <section className="panel" aria-labelledby="tests-heading">
       <h2 id="tests-heading">Probes</h2>
-      <div className="tests">
+      <div className="tests row">
         {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
           <NetTest key={i} cabinetId={cabinetId} label={`DNS server ${i + 1} (lookup)`} params={{ target: "dns_server", method: "dns", dnsServerIndex: i }} />))}
         <SyncTcpTest cabinetId={cabinetId} />
