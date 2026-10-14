@@ -161,13 +161,13 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
       source: { log: "System", source: "disk", eventId, level, recordId: ++record }, detail: { message } });
     await storeEvents(db.app, cabinetId, { events: [warn(153, "warning", "The IO operation at logical block address 0x1f was retried.")] });
     await tess.goto(`${origin}/alerts`);
-    await tess.getByText("Major alerts from every cabinet.").waitFor();
+    await tess.getByRole("heading", { name: "Alerts", level: 1 }).waitFor();
     assert.equal(await tess.locator(".alert-row").filter({ hasText: "Drive failing" }).count(), 0, "a minor alert is not on the Alerts tab");
     await tess.goto(`${origin}/cabinets/${cabinetId}/alerts`);
     await tess.locator(".alert-row").filter({ hasText: "Drive failing" }).waitFor();
     await shot(tess, "m4-6-minor-on-cabinet");
     await tess.goto(`${origin}/alerts`);
-    await tess.getByText("Major alerts from every cabinet.").waitFor();
+    await tess.getByRole("heading", { name: "Alerts", level: 1 }).waitFor();
     for (let i = 0; i < 50 && (await stream.count) < 3; i++) await new Promise(r => setTimeout(r, 100)); // every console's live stream is connected again
     await storeEvents(db.app, cabinetId, { events: [warn(7, "error", "The device, \\Device\\Harddisk0\\DR0, has a bad block.")] });
     await tess.getByRole("complementary", { name: "New major alerts" }).getByText("Drive failing").waitFor({ timeout: 15_000 });

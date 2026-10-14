@@ -228,7 +228,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await db.app.query("UPDATE sites SET network_baseline = NULL WHERE name = 'Phoenix Clinic'");
     const phoenix = (await db.app.query<{ id: string }>("SELECT id FROM sites WHERE name = 'Phoenix Clinic'")).rows[0]!.id;
     await page.goto(`${origin}/sites/${phoenix}?diagnose=network`);
-    await page.getByText(/This site has no baseline set, so nothing is compared/).waitFor({ timeout: 60_000 });
+    await page.getByText(/No site baseline set; nothing is compared/).waitFor({ timeout: 60_000 });
     await page.getByText("No DHCP lease (address 169.254.x.x)").waitFor({ timeout: 60_000 });
     assert.equal(await page.getByText("No default gateway").count(), 0, "what follows from having no address is not listed as separate problems");
 

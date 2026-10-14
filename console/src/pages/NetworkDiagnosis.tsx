@@ -69,7 +69,7 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
       <h1>Network diagnosis{data ? `: ${data.label}` : ""}</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
-        <p className="muted">Run by {data.startedBy} {ago(data.startedAt)}</p>
+        <p className="muted">Run by {data.startedBy} {ago(data.startedAt)}.{data.hasBaseline ? " Compared with the site baseline." : " No site baseline set; nothing is compared."}</p>
         <p className="row gap wrap" role="status" aria-live="polite">
           {data.state === "running"
             ? <Badge tone="info">Checking: {data.finished} of {data.total} done</Badge>
