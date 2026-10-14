@@ -122,7 +122,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await sam.getByLabel("New password (at least 12 characters)").fill("sam's own long password");
     await sam.getByLabel("New password again").fill("sam's own long password");
     await sam.getByRole("button", { name: "Save password" }).click();
-    await sam.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
+    await sam.getByRole("dialog", { name: "Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
     await sam.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
     // ---- Who looked at this cabinet and when ----------------------------------------------------
