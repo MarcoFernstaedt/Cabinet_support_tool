@@ -249,8 +249,18 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const exam = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Exam Room 2'")).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${exam}`);
     await page.getByRole("button", { name: "Run the checks" }).click();
-    await page.getByText("11 of 11 passed").waitFor({ timeout: 90_000 });
+    await page.getByText("13 of 13 passed").waitFor({ timeout: 90_000 });
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
+
+    // Troubleshoot: pick a symptom, the fixed checks for it run and explain themselves, and the case notes carry the findings.
+    await page.goto(`${origin}/cabinets/${exam}/troubleshoot`);
+    await page.getByLabel("What is wrong?").selectOption({ label: "The computer is slow, or the application freezes" });
+    await page.getByRole("button", { name: "Run the checks", exact: true }).click();
+    await page.getByRole("button", { name: "Run the checks again" }).waitFor({ timeout: 60_000 });
+    await page.getByText(/memory .* GB free of/).waitFor();
+    await page.getByLabel("Actions taken").fill("Closed the extra programs");
+    await page.getByRole("button", { name: "Copy case notes" }).click();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/troubleshoot.png`, fullPage: true });
 
     if (process.env.SHOTS) for (const [name, path] of [["guide", "/demo"], ["users", "/admin/users"], ["admin", "/admin"], ["setup", "/admin/setup"]] as const) {
       await page.goto(`${origin}${path}`);

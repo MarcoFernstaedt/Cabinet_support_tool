@@ -54,10 +54,10 @@
           }
         },
         "count": {
-          "description": "Ping only: how many echo requests to send, 1 to 10 (default 1). With more than one, the output carries loss and jitter.",
+          "description": "Ping only: how many echo requests to send, 1 to 20 (default 1). With more than one, the output carries loss and jitter.",
           "type": "integer",
           "minimum": 1,
-          "maximum": 10
+          "maximum": 20
         }
       },
       "allOf": [

@@ -232,6 +232,8 @@
         "network.config",
         "network.test",
         "network.trace",
+        "system.performance",
+        "network.listeners",
         "firewall.state",
         "network.setIp",
         "network.setDns",

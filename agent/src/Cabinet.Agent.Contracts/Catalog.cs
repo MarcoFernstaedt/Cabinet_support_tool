@@ -45,6 +45,8 @@ public static class Catalog
     public const string TimeStatus = "time.status";
     public const string TimeSetZone = "time.setZone";
     public const string TimeSync = "time.sync";
+    public const string SystemPerformance = "system.performance";
+    public const string NetworkListeners = "network.listeners";
     public const string NetworkRenewLease = "network.renewLease";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
@@ -69,6 +71,8 @@ public static class Catalog
         Read<NetworkTestParams, NetworkTestOutput>(NetworkTest, RateClass.NetworkTest),
         Read<NetworkTraceParams, NetworkTraceOutput>(NetworkTrace, RateClass.NetworkTrace),
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
+        Read<EmptyParams, SystemPerformanceOutput>(SystemPerformance),
+        Read<EmptyParams, NetworkListenersOutput>(NetworkListeners),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),
         Read<EmptyParams, TimeStatusOutput>(TimeStatus),

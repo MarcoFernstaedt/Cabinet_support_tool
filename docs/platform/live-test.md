@@ -3,7 +3,7 @@
 Use this after you install the agent on a real computer, to check that what the console shows is the machine's own data and not a simulation.
 
 1. Install and approve the agent (Admin, Set up and demo, steps 2 and 3). A live cabinet is tagged **Live agent**. Simulated ones say **Demo: simulated cabinet**.
-2. Open the cabinet and look at its **Overview**. Under "Test <cabinet>" click **Run the checks**. The same panel is on the Set up page, step 4. It runs eleven read-only checks one after another and changes nothing on the machine:
+2. Open the cabinet and look at its **Overview**. Under "Test <cabinet>" click **Run the checks**. The same panel is on the Set up page, step 4. It runs thirteen read-only checks one after another and changes nothing on the machine:
 
    | Check | What it asks the agent | A pass means |
    |---|---|---|
@@ -17,10 +17,13 @@ Use this after you install the agent on a real computer, to check that what the 
    | Ping the gateway | `network.test` | The gateway answered; loss and average time are shown. |
    | Resolve the platform server's name | `network.test` | The name resolved. |
    | Path to the platform server | `network.trace` | At least one hop answered. |
+   | Processor, memory, drives and busiest programs | `system.performance` | Processor use, free memory, free space and busy time per drive, and the heaviest programs were read. The line names anything that looks strained. |
+   | Ports listening and connections in use | `network.listeners` | The TCP ports the machine listens on, with the program that owns each, and how many connections are open. |
 
-3. Open **What the cabinet sent** under a row to see the raw answer, and compare a few values with the machine: `ipconfig /all`, Event Viewer, `Get-Service`, `tracert`.
+3. Open **What the cabinet sent** under a row to see the raw answer, and compare a few values with the machine: `ipconfig /all`, Event Viewer, `Get-Service`, `tracert`, Task Manager (for the performance row) and `Get-NetTCPConnection -State Listen` (for the listeners row).
 4. **Copy results** puts a plain report on the clipboard. Paste it into a ticket. A failed row shows the agent's error code.
-5. Then try the real pages: Event logs, Network and Diagnose network, Services, Firewall and the Fingerprint scanner.
+5. Open **Troubleshoot** on the cabinet, pick a symptom and run it. On a live agent, check the packet loss row against `Test-Connection <gateway> -Count 20` run on the machine itself.
+6. Then try the real pages: Event logs, Network and Diagnose network, Services, Firewall and the Fingerprint scanner.
 
 Things to know:
 

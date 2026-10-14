@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.listeners.schema.json",
+  "title": "network.listeners",
+  "description": "The TCP ports the cabinet is listening on and its established connections, each with the process that owns it. For finding out whether an application is listening where it should and who it is talking to.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "listeners": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "protocol": {
+                "enum": [
+                  "tcp"
+                ]
+              },
+              "address": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "port": {
+                "$ref": "../common.schema.json#/$defs/port"
+              },
+              "processId": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "process": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            },
+            "required": [
+              "protocol",
+              "address",
+              "port",
+              "processId",
+              "process"
+            ]
+          }
+        },
+        "established": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "remoteAddress": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "remotePort": {
+                "$ref": "../common.schema.json#/$defs/port"
+              },
+              "processId": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "process": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            },
+            "required": [
+              "remoteAddress",
+              "remotePort",
+              "processId",
+              "process"
+            ]
+          }
+        },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "established": {
+              "$ref": "../common.schema.json#/$defs/count"
+            },
+            "timeWait": {
+              "$ref": "../common.schema.json#/$defs/count"
+            },
+            "listening": {
+              "$ref": "../common.schema.json#/$defs/count"
+            }
+          },
+          "required": [
+            "established",
+            "timeWait",
+            "listening"
+          ]
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "takenAt",
+        "listeners",
+        "established",
+        "counts",
+        "truncated"
+      ]
+    }
+  }
+}

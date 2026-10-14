@@ -230,6 +230,29 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       return { target: params.target, resolvedTarget: target, reached: true, error: null,
         hops: [first, { hop: 2, address: "100.64.0.1", rttMs: rtt(4.2) }, { hop: 3, address: "198.51.100.9", rttMs: rtt(8.7) }, { hop: 4, address: target, rttMs: rtt(12.1 + (ctx.index % 5)) }] };
     }
+    case "system.performance": {
+      const o = example("system.performance", "typical.json");
+      const slow = ctx.scenario === "service_failing", diskFull = ctx.scenario === "disk_space_low";
+      const gb = 1024 ** 3, wobble = (ctx.index % 5) * 1.5;
+      const cpu = slow ? 93.2 : 14 + wobble;
+      const total = o.memory.totalBytes, free = slow ? Math.round(0.4 * gb) : Math.round((3.2 - (ctx.index % 3) * 0.3) * gb);
+      const proc = (name: string, id: number, cpuPercent: number, mb: number) => ({ name, id, cpuPercent, workingSetBytes: mb * 1024 * 1024 });
+      return { ...o, takenAt: noMs(ctx.now),
+        cpu: { ...o.cpu, usedPercent: cpu, queueLength: slow ? 6 : 0 },
+        memory: { ...o.memory, totalBytes: total, availableBytes: free, pagesPerSecond: slow ? 410 : 2.5 },
+        volumes: o.volumes.map((v: any) => ({ ...v, freeBytes: diskFull ? Math.round(0.6 * gb) : v.freeBytes })),
+        physicalDisks: o.physicalDisks.map((d: any) => ({ ...d, busyPercent: slow ? 97 : 6 + wobble, queueLength: slow ? 8.4 : 0.1 })),
+        byCpu: slow ? [proc("MsMpEng", 3120, 71.5, 380), proc("CabinetApp", 4412, 12.4, 640), proc("svchost", 1180, 4.1, 96)] : [proc("CabinetApp", 4412, 9.4 + wobble, 412), proc("sqlservr", 2100, 3.1, 1200)],
+        byMemory: slow ? [proc("sqlservr", 2100, 2, 3400), proc("CabinetApp", 4412, 12.4, 640), proc("MsMpEng", 3120, 71.5, 380)] : [proc("sqlservr", 2100, 3.1, 1200), proc("CabinetApp", 4412, 9.4, 412)] };
+    }
+    case "network.listeners": {
+      const o = example("network.listeners", "typical.json");
+      const appUp = !ctx.syncBlocked;
+      const listeners = appUp ? o.listeners : o.listeners.filter((l: any) => l.port !== 1433);
+      return { ...o, takenAt: noMs(ctx.now), listeners, counts: { ...o.counts, listening: listeners.length },
+        established: ctx.net.linkUp ? o.established.map((e: any) => ({ ...e, remoteAddress: `${ctx.subnet}.20` })) : [],
+        };
+    }
     case "network.setIp": {
       const next = applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, params as never);
       const ip = (n: DemoNet) => ({ dhcp: n.mode === "dhcp", addresses: [{ address: n.address, prefixLength: n.prefixLength }], gateways: n.gateway ? [n.gateway] : [] });
@@ -249,12 +272,12 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     case "eventlog.query": {
       const o = example("eventlog.query", "page.json");
       const log = params.log ?? "System";
-      const own = ctx.events.filter(e => e.log === log).filter(e => !params.levels || params.levels.includes(e.level));
+      const own = ctx.events.filter(e => e.log === log).filter(e => !params.levels || params.levels.includes(e.level)).filter(e => !params.source || e.source === params.source);
       const background = log === "System" ? [
         { recordId: 120001, time: ago(ctx, 60 * 30), level: "information", source: "Microsoft-Windows-Kernel-General", eventId: 12, firstLine: "The operating system started." },
         { recordId: 120002, time: ago(ctx, 60 * 29), level: "information", source: "Service Control Manager", eventId: 7036, firstLine: "The Windows Biometric Service service entered the running state." },
         { recordId: 120003, time: ago(ctx, 60 * 5), level: "warning", source: "Microsoft-Windows-Time-Service", eventId: 129, firstLine: "NtpClient was unable to set a domain peer to use as a time source." },
-      ].filter(e => !params.levels || params.levels.includes(e.level)) : [];
+      ].filter(e => !params.levels || params.levels.includes(e.level)).filter(e => !params.source || e.source === params.source) : [];
       const entries = [...own.map(e => ({ recordId: e.recordId, time: e.occurredAt, level: e.level, source: e.source, eventId: e.eventId, firstLine: e.message.slice(0, 200) })), ...background]
         .sort((a, b) => b.time.localeCompare(a.time)).slice(0, 50);
       return { ...o, log, entries, nextBeforeRecordId: null, truncated: false };

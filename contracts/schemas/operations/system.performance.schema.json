@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.performance.schema.json",
+  "title": "system.performance",
+  "description": "How the cabinet is coping right now: processor use, memory, each drive's free space and busy time, and the heaviest processes. One short sample; read twice a few seconds apart to see a trend.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "cpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "usedPercent": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "logicalProcessors": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1024
+            },
+            "queueLength": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "usedPercent",
+            "logicalProcessors",
+            "queueLength"
+          ]
+        },
+        "memory": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "totalBytes": {
+              "$ref": "../common.schema.json#/$defs/count"
+            },
+            "availableBytes": {
+              "$ref": "../common.schema.json#/$defs/count"
+            },
+            "committedBytes": {
+              "$ref": "../common.schema.json#/$defs/nullableCount"
+            },
+            "commitLimitBytes": {
+              "$ref": "../common.schema.json#/$defs/nullableCount"
+            },
+            "pagesPerSecond": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 10000000
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "totalBytes",
+            "availableBytes",
+            "committedBytes",
+            "commitLimitBytes",
+            "pagesPerSecond"
+          ]
+        },
+        "volumes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "drive": {
+                "type": "string",
+                "maxLength": 8,
+                "pattern": "^[A-Za-z]:$"
+              },
+              "label": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "fileSystem": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "sizeBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "freeBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              }
+            },
+            "required": [
+              "drive",
+              "label",
+              "fileSystem",
+              "sizeBytes",
+              "freeBytes"
+            ]
+          }
+        },
+        "physicalDisks": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "busyPercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "queueLength": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100000
+              },
+              "readsPerSecond": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              "writesPerSecond": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000000
+              }
+            },
+            "required": [
+              "name",
+              "busyPercent",
+              "queueLength",
+              "readsPerSecond",
+              "writesPerSecond"
+            ]
+          }
+        },
+        "byCpu": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "id": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "cpuPercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "workingSetBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              }
+            },
+            "required": [
+              "name",
+              "id",
+              "cpuPercent",
+              "workingSetBytes"
+            ]
+          }
+        },
+        "byMemory": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "id": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "cpuPercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "workingSetBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              }
+            },
+            "required": [
+              "name",
+              "id",
+              "cpuPercent",
+              "workingSetBytes"
+            ]
+          }
+        }
+      },
+      "required": [
+        "takenAt",
+        "cpu",
+        "memory",
+        "volumes",
+        "physicalDisks",
+        "byCpu",
+        "byMemory"
+      ]
+    }
+  }
+}

@@ -140,4 +140,19 @@ public sealed class ReadOperationTests
         Assert.Equal(3, output.GetProperty("profiles").GetArrayLength());
         Assert.True(output.GetProperty("rules").GetArrayLength() > 0);
     }
+
+    [Fact]
+    public async Task System_performance_reports_memory_and_drives()
+    {
+        JsonElement output = await Succeeds(Catalog.SystemPerformance);
+        Assert.True(output.GetProperty("memory").GetProperty("totalBytes").GetInt64() > 0);
+        Assert.True(output.GetProperty("volumes").GetArrayLength() > 0);
+    }
+
+    [Fact]
+    public async Task Network_listeners_finds_something_listening()
+    {
+        JsonElement output = await Succeeds(Catalog.NetworkListeners);
+        Assert.True(output.GetProperty("counts").GetProperty("listening").GetInt64() > 0);
+    }
 }

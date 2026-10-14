@@ -1,0 +1,33 @@
+{
+  "takenAt": "2026-10-14T09:15:02Z",
+  "listeners": [
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 1433,
+      "processId": 2100,
+      "process": "sqlservr"
+    },
+    {
+      "protocol": "tcp",
+      "address": "0.0.0.0",
+      "port": 135,
+      "processId": null,
+      "process": null
+    }
+  ],
+  "established": [
+    {
+      "remoteAddress": "10.21.9.20",
+      "remotePort": 1433,
+      "processId": 4412,
+      "process": "CabinetApp"
+    }
+  ],
+  "counts": {
+    "established": 1,
+    "timeWait": 3,
+    "listening": 2
+  },
+  "truncated": false
+}

@@ -1,0 +1,49 @@
+{
+  "takenAt": "2026-10-14T09:15:02Z",
+  "cpu": {
+    "usedPercent": 240,
+    "logicalProcessors": 4,
+    "queueLength": 1
+  },
+  "memory": {
+    "totalBytes": 8589934592,
+    "availableBytes": 3221225472,
+    "committedBytes": 6442450944,
+    "commitLimitBytes": 12884901888,
+    "pagesPerSecond": 2.5
+  },
+  "volumes": [
+    {
+      "drive": "C:",
+      "label": "Windows",
+      "fileSystem": "NTFS",
+      "sizeBytes": 255550554112,
+      "freeBytes": 97710505984
+    }
+  ],
+  "physicalDisks": [
+    {
+      "name": "0 C:",
+      "busyPercent": 6,
+      "queueLength": 0.1,
+      "readsPerSecond": 12,
+      "writesPerSecond": 30
+    }
+  ],
+  "byCpu": [
+    {
+      "name": "CabinetApp",
+      "id": 4412,
+      "cpuPercent": 9.4,
+      "workingSetBytes": 432013312
+    }
+  ],
+  "byMemory": [
+    {
+      "name": "sqlservr",
+      "id": 2100,
+      "cpuPercent": 2,
+      "workingSetBytes": 1258291200
+    }
+  ]
+}

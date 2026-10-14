@@ -443,6 +443,8 @@ export interface CommandRequest {
     | "network.config"
     | "network.test"
     | "network.trace"
+    | "system.performance"
+    | "network.listeners"
     | "firewall.state"
     | "network.setIp"
     | "network.setDns"
@@ -1148,6 +1150,8 @@ export interface Command {
     | "network.config"
     | "network.test"
     | "network.trace"
+    | "system.performance"
+    | "network.listeners"
     | "firewall.state"
     | "network.setIp"
     | "network.setDns"
@@ -2224,7 +2228,7 @@ export interface NetworkTestParams {
    */
   syncPorts?: [number, ...number[]];
   /**
-   * Ping only: how many echo requests to send, 1 to 10 (default 1). With more than one, the output carries loss and jitter.
+   * Ping only: how many echo requests to send, 1 to 20 (default 1). With more than one, the output carries loss and jitter.
    */
   count?: number;
 }
@@ -2286,6 +2290,120 @@ export interface NetworkTraceOutput {
     rttMs: [number | null, ...(number | null)[]];
   }[];
   error: string | null;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SystemPerformanceParams {}
+
+export interface SystemPerformanceOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  cpu: {
+    usedPercent: number;
+    logicalProcessors: number;
+    queueLength: number | null;
+  };
+  memory: {
+    totalBytes: number;
+    availableBytes: number;
+    committedBytes: number | null;
+    commitLimitBytes: number | null;
+    pagesPerSecond: number | null;
+  };
+  /**
+   * @maxItems 32
+   */
+  volumes: {
+    drive: string;
+    label: string | null;
+    fileSystem: string | null;
+    sizeBytes: number;
+    freeBytes: number;
+  }[];
+  /**
+   * @maxItems 32
+   */
+  physicalDisks: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    busyPercent: number;
+    queueLength: number;
+    readsPerSecond: number;
+    writesPerSecond: number;
+  }[];
+  /**
+   * @maxItems 8
+   */
+  byCpu: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    id: number;
+    cpuPercent: number;
+    workingSetBytes: number;
+  }[];
+  /**
+   * @maxItems 8
+   */
+  byMemory: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    id: number;
+    cpuPercent: number;
+    workingSetBytes: number;
+  }[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface NetworkListenersParams {}
+
+export interface NetworkListenersOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 300
+   */
+  listeners: {
+    protocol: "tcp";
+    /**
+     * A single line of text with no control characters.
+     */
+    address: string;
+    port: number;
+    processId: number | null;
+    process: string | null;
+  }[];
+  /**
+   * @maxItems 100
+   */
+  established: {
+    /**
+     * A single line of text with no control characters.
+     */
+    remoteAddress: string;
+    remotePort: number;
+    processId: number | null;
+    process: string | null;
+  }[];
+  counts: {
+    established: number;
+    timeWait: number;
+    listening: number;
+  };
+  truncated: boolean;
 }
 
 /**
@@ -2715,7 +2833,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2737,6 +2855,8 @@ export interface OperationTypes {
   "network.config": { params: NetworkConfigParams; output: NetworkConfigOutput };
   "network.test": { params: NetworkTestParams; output: NetworkTestOutput };
   "network.trace": { params: NetworkTraceParams; output: NetworkTraceOutput };
+  "system.performance": { params: SystemPerformanceParams; output: SystemPerformanceOutput };
+  "network.listeners": { params: NetworkListenersParams; output: NetworkListenersOutput };
   "firewall.state": { params: FirewallStateParams; output: FirewallStateOutput };
   "services.list": { params: ServicesListParams; output: ServicesListOutput };
   "processes.list": { params: ProcessesListParams; output: ProcessesListOutput };

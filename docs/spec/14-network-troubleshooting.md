@@ -91,3 +91,18 @@ Some problems have no click-to-fix because the baseline can't tell what is wrong
 - **It works on real cabinets.** Nothing here is limited to demo ones. `server/test/real-cabinet-fixes.test.ts` runs the whole thing on cabinets with no demo scenario, answering commands through the queue and result paths the agent API uses. The answers in that test are synthetic. On Windows they come from the machine.
 
 Contracts: `console/known-fix-create`, `known-fix-query` and `known-fix-reject`. Audit actions: `known_fix.save`, `known_fix.approve`, `known_fix.reject`, `known_fix.remove`.
+
+## Live numbers and the Troubleshoot page
+
+Two more reads give exact figures instead of a pass or fail.
+
+- **`system.performance`** is one sample of how the cabinet is coping: processor use and queue, memory in use, committed and paging, free space on each fixed drive, how busy each physical disk is, and the eight heaviest programs by processor and by memory. It reads WMI counters, so it is a snapshot; read it twice a few seconds apart before drawing a conclusion.
+- **`network.listeners`** lists the TCP ports the cabinet is listening on and the connections it has open, each with the owning program, plus counts of open and closing connections. It answers whether the application is listening where it should and who is connected to it. It reads the connection table through WMI (`MSFT_NetTCPConnection`) and never opens a connection itself.
+
+Both are reads that need no parameters, at the same rate as the other reads. A part that cannot be read comes back as zero or empty rather than failing the whole read.
+
+`network.test` now accepts up to 20 echo requests (it was 10), so a packet loss figure from a ping has twenty samples behind it.
+
+The console's **Troubleshoot** page starts from the symptom. Each of the eight symptoms runs a short, fixed list of reads in the order a technician would do them by hand and explains what each answer means. Interpretation is plain comparison of fields (free space under a tenth of the drive or 10 GB, a 169.254 address, loss above zero, a drive busy over 85%). Nothing there uses patterns. The case notes collect the findings with the technician's actions and result for pasting into a ticket. Fixes are not made from that page; it links to the sections that make them, which keep their own confirmations.
+
+Not built: the network connection category (Public, Private, Domain) on each adapter. The firewall profile that is actually in use is already visible in the firewall read, so the category is left until a real cabinet shows a case that needs it.

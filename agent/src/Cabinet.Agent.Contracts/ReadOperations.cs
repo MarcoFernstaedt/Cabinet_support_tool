@@ -407,3 +407,89 @@ public sealed record FirewallStateOutput
     public required bool RulesTruncated { get; init; }
     public required IReadOnlyList<FirewallSnapshotInfo> Snapshots { get; init; }
 }
+
+public sealed record PerformanceCpu
+{
+    public required double UsedPercent { get; init; }
+    public required int LogicalProcessors { get; init; }
+    public required double? QueueLength { get; init; }
+}
+
+public sealed record PerformanceMemory
+{
+    public required long TotalBytes { get; init; }
+    public required long AvailableBytes { get; init; }
+    public required long? CommittedBytes { get; init; }
+    public required long? CommitLimitBytes { get; init; }
+    public required double? PagesPerSecond { get; init; }
+}
+
+public sealed record PerformanceVolume
+{
+    public required string Drive { get; init; }
+    public required string? Label { get; init; }
+    public required string? FileSystem { get; init; }
+    public required long SizeBytes { get; init; }
+    public required long FreeBytes { get; init; }
+}
+
+public sealed record PerformanceDisk
+{
+    public required string Name { get; init; }
+    public required double BusyPercent { get; init; }
+    public required double QueueLength { get; init; }
+    public required double ReadsPerSecond { get; init; }
+    public required double WritesPerSecond { get; init; }
+}
+
+public sealed record PerformanceProcess
+{
+    public required string Name { get; init; }
+    public required long Id { get; init; }
+    public required double CpuPercent { get; init; }
+    public required long WorkingSetBytes { get; init; }
+}
+
+public sealed record SystemPerformanceOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required PerformanceCpu Cpu { get; init; }
+    public required PerformanceMemory Memory { get; init; }
+    public required IReadOnlyList<PerformanceVolume> Volumes { get; init; }
+    public required IReadOnlyList<PerformanceDisk> PhysicalDisks { get; init; }
+    public required IReadOnlyList<PerformanceProcess> ByCpu { get; init; }
+    public required IReadOnlyList<PerformanceProcess> ByMemory { get; init; }
+}
+
+public sealed record ListeningPort
+{
+    public required string Protocol { get; init; }
+    public required string Address { get; init; }
+    public required int Port { get; init; }
+    public required long? ProcessId { get; init; }
+    public required string? Process { get; init; }
+}
+
+public sealed record EstablishedConnection
+{
+    public required string RemoteAddress { get; init; }
+    public required int RemotePort { get; init; }
+    public required long? ProcessId { get; init; }
+    public required string? Process { get; init; }
+}
+
+public sealed record ConnectionCounts
+{
+    public required long Established { get; init; }
+    public required long TimeWait { get; init; }
+    public required long Listening { get; init; }
+}
+
+public sealed record NetworkListenersOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required IReadOnlyList<ListeningPort> Listeners { get; init; }
+    public required IReadOnlyList<EstablishedConnection> Established { get; init; }
+    public required ConnectionCounts Counts { get; init; }
+    public required bool Truncated { get; init; }
+}

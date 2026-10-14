@@ -429,3 +429,9 @@ All of this is built on `main`; the design is in [14-network-troubleshooting.md]
 9. **Known fixes.** Decided: a member submits, an Admin or a granted Tier 2 approves, and an approver's own fix needs no second approver (a confirmation dialog, then it is logged). Fixes never expire. A fix applies to every cabinet in the fleet. A fix saved from an alert is written into the alert's resolution.
 10. **Demo fleet.** Four clients with one to seven sites each, single-cabinet sites, and large sites of 20 (Harbor is four sites of 20). The guided demo is one story and ends by onboarding a real agent.
 11. **Live test.** "Test <cabinet>" runs eleven read-only checks on one cabinet and can copy a plain report ([live-test.md](../platform/live-test.md)). It also shows on simulated cabinets, marked as simulated.
+
+## Troubleshooting reads (handbook round)
+
+- Raised the `network.test` ping count limit from 10 to 20 so packet loss has more samples. Say if you want a different ceiling; the rate limit for network tests is unchanged.
+- Did not add the network connection category (Public/Private/Domain) to `network.config`. Open: do you want it as its own field, or is the firewall profile in the firewall read enough?
+- `system.performance` is a single WMI snapshot, not an average over time. Open: do you want a short sampling window (for example three samples a second apart) on the agent?
