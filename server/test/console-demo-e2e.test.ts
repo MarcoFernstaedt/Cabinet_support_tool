@@ -60,7 +60,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // One scenario in the guide.
     await page.goto(`${origin}/demo`);
-    await page.getByText("Monday morning at Midtown Manhattan", { exact: true }).waitFor();
+    await page.getByText("Midtown Manhattan: site-wide sync failure", { exact: true }).waitFor();
     assert.equal(await page.locator("#main li.finding").count(), 1, "one scenario, not a library");
     await page.locator("#main").getByRole("button", { name: "Start the guided demo" }).click();
 

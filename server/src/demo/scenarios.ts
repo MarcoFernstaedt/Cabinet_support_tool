@@ -18,11 +18,10 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const examRoom = rows.find(r => r.name === "Exam Room 1"), operating = rows.find(r => r.name === "Operating Room");
   const reception = rows.find(r => r.name === "Reception");
   const list: DemoScenario[] = [
-    { id: "midtown", title: "Monday morning at Midtown Manhattan",
-      story: "The exam rooms say they can't sync. Check one cabinet, then the whole site with one click: link, address, gateway and DNS are fine everywhere, and the sync cabinet's firewall is what's blocking the satellites. "
-        + "Apply the client's firewall policy with one click, and the site is checked again right away. Operating Room still shows a warning: it matches the baseline, but its full read shows it loses packets to the gateway and the card is counting errors, so look at the cable. "
-        + "Procedure Room's fingerprint scanner has dropped off three times since its driver was installed, and Reception and Waiting Room keep logging driver errors no rule knows yet: map them to the scanner issue, and approve the fix a teammate saved for it. "
-        + "Last, put the agent on a real computer and read its network.",
+    { id: "midtown", title: "Midtown Manhattan: site-wide sync failure",
+      story: "Exam rooms report sync failures. Single-cabinet and site-wide network diagnosis show link through DNS passing everywhere and the sync cabinet's firewall blocking the satellites; the client's firewall policy is applied in one step and the site is re-checked. "
+        + "Operating Room matches its baseline but loses packets to the gateway and counts adapter errors. Procedure Room's scanner dropped three times after a driver install. Reception and Waiting Room log driver errors no rule recognizes: map them to the scanner issue and approve the fix a teammate saved. "
+        + "The sequence ends by enrolling a live agent and reading its network.",
       steps: [{ label: "The site", path: `/sites/${site.site_id}` },
         ...(examRoom ? [{ label: "One cabinet: Exam Room 1", path: `/cabinets/${examRoom.id}/network` }] : []),
         { label: "The whole site", path: `/sites/${site.site_id}?diagnose=network` },

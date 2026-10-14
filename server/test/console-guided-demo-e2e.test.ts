@@ -88,26 +88,26 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     const showMe = () => panel.getByRole("button", { name: "Show me" }).click();
     const clickOutlined = (selector: string, text?: string) => outlined(selector, text).click();
 
-    await arrive("Monday morning at Midtown Manhattan");
+    await arrive("Site overview");
     assert.equal(await storyReady(db.app), true, "starting the demo set the whole environment up");
     assert.match(page.url(), /\/sites\//);
     await next();
-    await arrive("One cabinet first", '[data-tour="diagnose"]');
+    await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
     await showMe(); await showMe();
-    await arrive("One cabinet first", '[data-tour="diagnose"]');
+    await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
     await clickOutlined('[data-tour="diagnose"]');
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
 
     // Step 3 asks for a click. Pressing Next instead still lands on the results: the tour runs the check and opens it.
     await next();
-    await arrive("Now the whole site", '[data-tour="site-diagnose"]');
+    await arrive("Site-wide network diagnosis", '[data-tour="site-diagnose"]');
     assert.match(page.url(), /\/sites\//);
     await next();
-    await arrive("What the check found", '[data-tour="group-sync-firewall"]');
+    await arrive("Diagnosis results", '[data-tour="group-sync-firewall"]');
     assert.match(page.url(), /\/network\/diagnosis\//, "the tour opened the site's results itself");
     await next();
-    await arrive("Fix it", '[data-tour="fix-apply_policy"]');
+    await arrive("Remediation", '[data-tour="fix-apply_policy"]');
     await clickOutlined('[data-tour="fix-apply_policy"]');
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor({ timeout: 60_000 });
@@ -115,17 +115,17 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.deepEqual(Object.values((await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles), [false, false, false]);
 
     await next();
-    await arrive("Matching the baseline isn't the same as fine", '[data-tour="full-read"]');
+    await arrive("Full network reading", '[data-tour="full-read"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
     await next();
-    await arrive("The scanner", '[data-tour="scanner-drops"]');
+    await arrive("Fingerprint scanner history", '[data-tour="scanner-drops"]');
     await next();
-    await arrive("Errors with no name", '[data-cabinet="Reception"]');
+    await arrive("Unrecognized alerts", '[data-cabinet="Reception"]');
     assert.match(page.url(), /\/alerts/);
     await next();
-    await arrive("Look at the error itself", '[data-tour="event-entry"]', "Biometrics");
+    await arrive("Event log inspection", '[data-tour="event-entry"]', "Biometrics");
     await next();
-    await arrive("Map it to an issue", '[data-tour="map-to-issue"]');
+    await arrive("Event-to-issue mapping", '[data-tour="map-to-issue"]');
     await clickOutlined('[data-tour="map-to-issue"]');
     await page.getByRole("dialog").locator("select[required]").selectOption({ label: "Fingerprint scanner problem (major)" });
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(await code());
@@ -134,24 +134,24 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
 
     await next();
-    await arrive("A teammate's fix, waiting for you", '[data-tour="fix-approve"]');
+    await arrive("Fix approval", '[data-tour="fix-approve"]');
     assert.match(page.url(), /\/fixes/);
     await clickOutlined('[data-tour="fix-approve"]');
     await page.getByText(/Approved “Reader drops after a driver install”/).waitFor();
     await next();
-    await arrive("It shows up where the problem is", ".known-fixes");
+    await arrive("Learned fixes on the alert", ".known-fixes");
     await page.getByText("Possible fix", { exact: true }).first().waitFor();
 
     // Onboarding is the last part: install, approve, check, read the network.
     await next();
-    await arrive("Now your own cabinet: install the agent", '[data-tour="create-token"]');
+    await arrive("Enrollment: install the agent", '[data-tour="create-token"]');
     assert.match(page.url(), /\/admin\/setup/);
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),
       osVersion: "Windows 11 Pro", agentVersion: "0.2.0" } }, "127.0.0.1");
     await next();
-    await arrive("Approve it", '[data-tour="approve-cabinet"]');
+    await arrive("Enrollment: approve the cabinet", '[data-tour="approve-cabinet"]');
     assert.match(page.url(), /\/admin\/pending/);
     await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
     await page.getByLabel("Site", { exact: true }).fill("Support desk");
@@ -159,10 +159,10 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await confirmWithCode();
     await page.getByText(/Approved\. SUPPORT-LAPTOP will come online within a minute/).waitFor();
     await next();
-    await arrive("Check it works", '[data-tour="live-run"]');
+    await arrive("Live verification", '[data-tour="live-run"]');
     assert.match(page.url(), /\/admin\/setup/);
     await next();
-    await arrive("Read its network", '[data-tour="diagnose"]');
+    await arrive("Network reading from a live cabinet", '[data-tour="diagnose"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
     assert.equal(await panel.getByRole("button", { name: "Next" }).count(), 0, "the enrollment is the last step");
     await panel.getByRole("button", { name: "Finish" }).click();
@@ -176,7 +176,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     resetting = true;
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();
     await confirmWithCode();
-    await panel.getByRole("heading", { name: "Monday morning at Midtown Manhattan" }).waitFor({ timeout: 90_000 })
+    await panel.getByRole("heading", { name: "Site overview" }).waitFor({ timeout: 90_000 })
       .catch(async e => { throw new Error(`${e.message}\nalerts on the page: ${JSON.stringify(await page.locator("[role=alert]").allTextContents())}`); });
     assert.equal(await storyReady(db.app), true, "the reset put the story back at its start, with the mapped rule switched off");
     assert.deepEqual(simulatorProblems, []);
