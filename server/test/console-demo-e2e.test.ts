@@ -255,7 +255,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const exam = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Exam Room 2'")).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${exam}`);
     await page.getByRole("button", { name: "Run the checks" }).click();
-    await page.getByText("13 of 13 passed").waitFor({ timeout: 90_000 });
+    await page.getByText("14 of 14 passed").waitFor({ timeout: 90_000 });
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/live-check.png`, fullPage: true });
 
     // The adapter read carries what ipconfig /all, the network profile, the driver and the proxy would show, and can be copied as text.
