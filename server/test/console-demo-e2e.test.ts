@@ -268,17 +268,20 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     const noteText = await notes.inputValue();
     assert.match(noteText, /Case notes by Ada Admin/);
     assert.match(noteText, /Checked: .*Event logs/, "the checks run earlier are listed once each");
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/casenotes.png`, fullPage: true });
 
     // What changed: the timeline with the first problem and what changed before it.
     await page.goto(`${origin}/cabinets/${exam}/changes`);
     await page.getByRole("heading", { name: "What changed" }).waitFor();
     await page.locator("#changes-days").selectOption("30");
     await page.locator("table, p:has-text('Nothing recorded')").first().waitFor({ timeout: 30_000 });
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/changes.png`, fullPage: true });
 
     // Compare with a sibling: both are read and the differences are listed (or none).
     await page.goto(`${origin}/cabinets/${exam}/compare`);
     await page.getByRole("button", { name: "Compare", exact: true }).click();
     await page.getByText(/No differences|Differences between/).or(page.locator("table caption")).first().waitFor({ timeout: 90_000 });
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/compare.png`, fullPage: true });
 
     // Watch a link: samples arrive and a summary is given; stop ends it.
     await page.goto(`${origin}/cabinets/${exam}/network`);
@@ -286,6 +289,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/Every sample answered|Intermittent|Heavy loss|Nothing answered/).first().waitFor({ timeout: 60_000 });
     await page.getByRole("button", { name: "Stop watching" }).click();
     await page.getByRole("button", { name: "Copy summary" }).waitFor({ timeout: 60_000 });
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/watch.png`, fullPage: true });
 
     // An alert opens the workbench at the right symptom, and saved fixes can be searched.
     await page.goto(`${origin}/cabinets/${exam}/troubleshoot?symptom=disk`);
