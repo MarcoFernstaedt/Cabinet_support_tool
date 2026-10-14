@@ -320,6 +320,14 @@ export interface UpgradeSignature {
 }
 
 /**
+ * What the signed-in person did, as case notes: optionally one cabinet, over the last few hours. Always the caller's own activity.
+ */
+export interface ActivityReportQuery {
+  cabinetId?: string;
+  hours?: "1" | "4" | "8" | "24" | "72" | "168";
+}
+
+/**
  * The Alerts list's filters, from the query string.
  */
 export interface AlertFilter {

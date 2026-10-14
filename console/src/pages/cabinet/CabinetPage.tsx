@@ -15,6 +15,7 @@ import { DemoTag } from "../../components/DemoBanner";
 import { CabinetCrashes } from "../Crashes";
 import { EventLogs } from "./EventLogs";
 import { Troubleshoot } from "./Troubleshoot";
+import { CaseNotes } from "../../components/CaseNotes";
 import { LiveCheck } from "../../components/LiveCheck";
 import { Time } from "./Time";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
@@ -132,6 +133,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
       </div>
     </section>
+    <CaseNotes cabinetId={cabinet.id} title="Case notes for this cabinet" />
     <LiveCheck cabinetId={cabinet.id} cabinetName={cabinet.name} simulated={!!cabinet.demo} />
   </>);
 }

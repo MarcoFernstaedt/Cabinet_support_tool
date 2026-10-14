@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/activity-report-query.schema.json",
+  "title": "activity-report-query",
+  "description": "What the signed-in person did, as case notes: optionally one cabinet, over the last few hours. Always the caller's own activity.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "hours": {
+      "type": "string",
+      "enum": [
+        "1",
+        "4",
+        "8",
+        "24",
+        "72",
+        "168"
+      ]
+    }
+  }
+}

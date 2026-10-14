@@ -1,3 +1,4 @@
+import { CaseNotes } from "../components/CaseNotes";
 import { useState } from "react";
 import { roleName, useSession } from "../lib/session";
 import { PasswordChange, TotpSetup } from "./SignIn";
@@ -20,6 +21,7 @@ export function Account({ onTour }: { onTour: () => void }) {
         <h2>{me.name}</h2>
         <p>Username <strong>{me.username}</strong> · {roleName(me.role)}</p>
       </section>
+      <CaseNotes title="Case notes: everything you did" />
       <section className="panel">
         <h2>Two-factor sign-in</h2>
         {me.totpEnabled ? <p>On. You sign in with your authenticator app, and confirm changes that need a code with it. It stays on for every account; an admin can reset it if you lose your phone.</p>
