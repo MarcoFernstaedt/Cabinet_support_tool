@@ -6,10 +6,13 @@ import type { NetworkTestOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../lib/commands";
 import { Badge } from "./ui";
 
+/** failure: the cabinet refused or did not answer the command itself (a rate limit, offline); such a sample says nothing about the link and is left out of the loss figures. */
 export interface Sample { at: Date; sent: number; received: number; avg: number | null; max: number | null; tcpSent: number; tcpReceived: number; failure: string | null }
 const EVERY_MS = 15_000, MAX_SAMPLES = 20;
 
-export function summarize(samples: Sample[]) {
+export function summarize(all: Sample[]) {
+  const samples = all.filter(s => !s.failure);
+  const unread = all.length - samples.length;
   const sent = samples.reduce((n, s) => n + s.sent, 0), got = samples.reduce((n, s) => n + s.received, 0);
   const tSent = samples.reduce((n, s) => n + s.tcpSent, 0), tGot = samples.reduce((n, s) => n + s.tcpReceived, 0);
   const avgs = samples.map(s => s.avg).filter((x): x is number => x !== null), maxes = samples.map(s => s.max).filter((x): x is number => x !== null);
@@ -18,12 +21,13 @@ export function summarize(samples: Sample[]) {
   const tcpLoss = tSent === 0 ? null : Math.round(1000 * (tSent - tGot) / tSent) / 10;
   const worst = Math.max(loss, tcpLoss ?? 0);
   const verdict: { tone: "ok" | "warn" | "crit"; text: string } =
-    samples.length === 0 ? { tone: "ok", text: "No samples yet." }
+    all.length === 0 ? { tone: "ok", text: "No samples yet." }
+    : samples.length === 0 ? { tone: "warn", text: "The cabinet did not answer the checks (offline, busy or limited), so nothing is known about the link yet." }
     : got === 0 ? { tone: "crit", text: "Nothing answered in any sample: the link is down, not weak." }
     : worst >= 20 ? { tone: "crit", text: `Heavy loss (${worst}%). Syncs will stall on this link.` }
     : worst > 0 || lossy > 0 ? { tone: "warn", text: `Intermittent: ${lossy} of ${samples.length} samples dropped something (${worst}% lost overall).` }
-    : { tone: "ok", text: "Every sample answered." };
-  return { sent, got, loss, tcpLoss, lossy, avg: avgs.length ? Math.round(10 * avgs.reduce((a, b) => a + b, 0) / avgs.length) / 10 : null, max: maxes.length ? Math.max(...maxes) : null, verdict };
+    : { tone: "ok", text: unread > 0 ? `Every sample that was read answered (${unread} could not be read).` : "Every sample answered." };
+  return { read: samples.length, sent, got, loss, tcpLoss, lossy, avg: avgs.length ? Math.round(10 * avgs.reduce((a, b) => a + b, 0) / avgs.length) / 10 : null, max: maxes.length ? Math.max(...maxes) : null, verdict };
 }
 
 export function WatchLink({ cabinetId, label, ping, tcp }: { cabinetId: string; label: string; ping: Record<string, unknown>; tcp: Record<string, unknown> | null }) {
@@ -38,10 +42,10 @@ export function WatchLink({ cabinetId, label, ping, tcp }: { cabinetId: string; 
     try {
       const [p, t] = await Promise.all([run<NetworkTestOutput>(cabinetId, "network.test", { ...ping, count: 5 }), tcp ? run<NetworkTestOutput>(cabinetId, "network.test", { ...tcp, count: 3 }) : Promise.resolve(null)]);
       const ps = p.output?.statistics, ts = t?.output?.statistics;
-      if (p.status !== "succeeded" || !p.output) return { at, sent: 5, received: 0, avg: null, max: null, tcpSent: 0, tcpReceived: 0, failure: p.error?.message ?? p.status };
+      if (p.status !== "succeeded" || !p.output) return { at, sent: 0, received: 0, avg: null, max: null, tcpSent: 0, tcpReceived: 0, failure: p.error?.message ?? p.status };
       return { at, sent: ps?.sent ?? 5, received: ps?.received ?? (p.output.success ? 5 : 0), avg: ps?.avgMs ?? p.output.latencyMs, max: ps?.maxMs ?? null,
         tcpSent: ts?.sent ?? 0, tcpReceived: ts?.received ?? 0, failure: null };
-    } catch (e) { return { at, sent: 5, received: 0, avg: null, max: null, tcpSent: 0, tcpReceived: 0, failure: e instanceof Error ? e.message : "no answer" }; }
+    } catch (e) { return { at, sent: 0, received: 0, avg: null, max: null, tcpSent: 0, tcpReceived: 0, failure: e instanceof Error ? e.message : "no answer" }; }
   };
   const start = async () => {
     stop.current = false; setOn(true); setSamples([]); setCopied(false);
@@ -56,7 +60,7 @@ export function WatchLink({ cabinetId, label, ping, tcp }: { cabinetId: string; 
     setOn(false);
   };
   const sum = summarize(samples);
-  const text = () => `Watched ${label} for ${samples.length} samples (${Math.round(samples.length * EVERY_MS / 60000 * 10) / 10} min): ${sum.verdict.text} Pings ${sum.got}/${sum.sent}${sum.tcpLoss !== null ? `, TCP ${sum.tcpLoss}% lost` : ""}, average ${sum.avg ?? "-"} ms, slowest ${sum.max ?? "-"} ms.`;
+  const text = () => `Watched ${label} for ${sum.read} samples (${Math.round(samples.length * EVERY_MS / 60000 * 10) / 10} min): ${sum.verdict.text} Pings ${sum.got}/${sum.sent}${sum.tcpLoss !== null ? `, TCP ${sum.tcpLoss}% lost` : ""}, average ${sum.avg ?? "-"} ms, slowest ${sum.max ?? "-"} ms.`;
   const copy = async () => { try { await navigator.clipboard.writeText(text()); setCopied(true); } catch { setCopied(false); } };
   const top = Math.max(1, ...samples.map(s => s.max ?? s.avg ?? 0));
   return (

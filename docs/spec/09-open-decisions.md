@@ -440,3 +440,9 @@ All of this is built on `main`; the design is in [14-network-troubleshooting.md]
 
 - Added `updates.uninstall` (roll back one installed update by KB number, never restarts). It does not roll back a whole Windows version (the "Go back to the previous version" feature) or use System Restore points: those are larger, harder to undo and need a decision on which cabinets may use them. Open: do you want either, and who may run them?
 - `wusa.exe` is now on the list of programs the broker may start (`pnputil`, `msiexec`, `netsh`, `tzutil`, `w32tm`, `wusa`).
+
+## Reviews of the case-notes, watch, compare and port-check round
+
+Two independent reviews (server and console; agent) found no critical or high defects. Fixed: the port check no longer says "nothing is listening" or "blocked" when the listener or rule list was cut short, and treats rules limited to a program or address as "limited" rather than allowed; a watch sample the cabinet refused or did not answer no longer counts as packet loss; compare pairs adapters by name, keeps duplicate rule names and shows when its list is cut at 200; the activity report reads only the error code of each command; listener counts are not silently capped at 5,000; control characters in SSIDs and profile names are replaced; a 20-ping series uses 2-second timeouts so a dead target reports 100% loss instead of timing out.
+
+Left as is, on purpose: a series of 20 TCP connections uses one network-test slot (the target is still only the configured sync cabinet and its allowed ports). Open: do you want TCP series limited to 10?

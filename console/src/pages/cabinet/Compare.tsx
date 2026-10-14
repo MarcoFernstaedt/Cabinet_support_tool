@@ -2,7 +2,7 @@
 // different about the one that fails.
 import { useState } from "react";
 import { useRunner } from "../../lib/commands";
-import { compareReadings, type Difference, type Reading } from "../../lib/compare";
+import { compareReadings, MAX_DIFFERENCES, type Difference, type Reading } from "../../lib/compare";
 import { Badge, Empty } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 
@@ -46,6 +46,7 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
         </div>
       </div>
       {others.length === 0 && <Empty>This site has no other cabinet to compare with.</Empty>}
+      {diffs && diffs.length >= MAX_DIFFERENCES && <p className="small"><Badge tone="warn">Cut short</Badge> Only the first {MAX_DIFFERENCES} differences are shown.</p>}
       {diffs && <p className="muted small">Compared: system, network adapter, firewall profiles and rules, services, drivers and installed updates.</p>}
       {missing.length > 0 && <p className="small"><Badge tone="warn">Incomplete</Badge> Could not read {missing.join(", ")} from one of the cabinets.</p>}
       {diffs && (diffs.length === 0 ? <p><Badge tone="ok">No differences</Badge> in the readings compared.</p> : (

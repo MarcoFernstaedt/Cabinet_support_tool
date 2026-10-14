@@ -6,7 +6,7 @@ namespace Cabinet.Agent.Windows;
 
 /// <summary>
 /// The only way the agent starts another program (docs/spec/04-agent-spec.md "Running external
-/// programs"): one of three named Windows programs, by full path from System32, with an argument
+/// programs"): one of a short list of named Windows programs, by full path from System32, with an argument
 /// array, never through a shell. Output is captured and size-capped, and every call has a time limit.
 /// </summary>
 [SupportedOSPlatform("windows")]

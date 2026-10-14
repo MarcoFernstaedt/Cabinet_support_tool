@@ -17,6 +17,7 @@ public sealed class LiveReadings
 
     public Task<SystemPerformanceOutput> PerformanceAsync(EmptyParams _, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         double cpuUsed = 0, queue = -1;
         long total = 0, available = 0, committed = -1, limit = -1;
         double pages = -1;
@@ -25,6 +26,7 @@ public sealed class LiveReadings
         var processes = new List<PerformanceProcess>();
 
         Try(() => { if (One("SELECT PercentProcessorTime FROM Win32_PerfFormattedData_PerfOS_Processor WHERE Name = '_Total'") is { } r) cpuUsed = r.Long("PercentProcessorTime") ?? 0; });
+        token.ThrowIfCancellationRequested();
         Try(() => { if (One("SELECT ProcessorQueueLength FROM Win32_PerfFormattedData_PerfOS_System") is { } r && r.Long("ProcessorQueueLength") is { } q) queue = q; });
         Try(() =>
         {
@@ -39,6 +41,7 @@ public sealed class LiveReadings
             limit = r.Long("CommitLimit") ?? -1;
             pages = r.Long("PagesPersec") ?? -1;
         });
+        token.ThrowIfCancellationRequested();
         Try(() =>
         {
             foreach (var r in Wmi.Query(Wmi.CimV2, "SELECT DeviceID, VolumeName, FileSystem, Size, FreeSpace FROM Win32_LogicalDisk WHERE DriveType = 3", 32))
@@ -62,6 +65,7 @@ public sealed class LiveReadings
                 });
             }
         });
+        token.ThrowIfCancellationRequested();
         Try(() =>
         {
             foreach (var r in Wmi.Query(Wmi.CimV2, "SELECT Name, IDProcess, PercentProcessorTime, WorkingSet FROM Win32_PerfFormattedData_PerfProc_Process", 1024))
@@ -98,7 +102,9 @@ public sealed class LiveReadings
 
         Try(() =>
         {
-            foreach (var r in Wmi.Query(StandardCim, "SELECT LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess FROM MSFT_NetTCPConnection", 5000))
+            var rows = Wmi.Query(StandardCim, "SELECT LocalAddress, LocalPort, RemoteAddress, RemotePort, State, OwningProcess FROM MSFT_NetTCPConnection", 20_000);
+            if (rows.Count >= 20_000) truncated = true;
+            foreach (var r in rows)
             {
                 long state = r.Long("State") ?? 0, pid = r.Long("OwningProcess") ?? -1;
                 long? owner = pid > 0 ? pid : null;
@@ -107,13 +113,14 @@ public sealed class LiveReadings
                 {
                     case 2:
                         listening++;
-                        if (listeners.Count < 300 && r.Text("LocalAddress") is { } address) listeners.Add(new ListeningPort { Protocol = "tcp", Address = Clip(address)!, Port = (int)local, ProcessId = owner, Process = NameOf(owner, names) });
+                        if (r.Text("LocalAddress") is not { } address) break;
+                        if (listeners.Count < 300) listeners.Add(new ListeningPort { Protocol = "tcp", Address = Clip(address)!, Port = (int)local, ProcessId = owner, Process = NameOf(owner, names) });
                         else truncated = true;
                         break;
                     case 5:
                         establishedCount++;
-                        if (established.Count < 100 && r.Text("RemoteAddress") is { } remote && r.Long("RemotePort") is { } rp && rp is >= 1 and <= 65535)
-                            established.Add(new EstablishedConnection { RemoteAddress = Clip(remote)!, RemotePort = (int)rp, ProcessId = owner, Process = NameOf(owner, names) });
+                        if (r.Text("RemoteAddress") is not { } remote || r.Long("RemotePort") is not { } rp || rp is < 1 or > 65535) break;
+                        if (established.Count < 100) established.Add(new EstablishedConnection { RemoteAddress = Clip(remote)!, RemotePort = (int)rp, ProcessId = owner, Process = NameOf(owner, names) });
                         else truncated = true;
                         break;
                     case 11: timeWait++; break;
@@ -132,7 +139,8 @@ public sealed class LiveReadings
 
     private static Dictionary<string, object?>? One(string wql) => Wmi.Query(Wmi.CimV2, wql, 1).FirstOrDefault();
 
-    private static string? Clip(string? text) => text is null ? null : text.Length > 200 ? text[..200] : text;
+    /// <summary>At most 200 characters with control characters replaced, so a stray character in a name can never make the whole read fail its contract.</summary>
+    private static string? Clip(string? text) => text is null ? null : new string(text.Select(c => char.IsControl(c) ? ' ' : c).Take(200).ToArray());
 
     private static string? NameOf(long? pid, Dictionary<long, string?> cache)
     {

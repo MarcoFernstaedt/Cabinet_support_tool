@@ -20,7 +20,7 @@ export function PortCheck({ cabinetId, firewall }: { cabinetId: string; firewall
     const [l, c] = await Promise.all([listeners.start(), config.start()]);
     if (!l || l.status !== "succeeded" || !l.output) { setProblem(l?.error?.message ?? "The cabinet did not return its listening ports."); setResult(null); return; }
     const active = (c?.output?.adapters ?? []).filter(a => a.connected).map(a => a.details?.networkProfile?.category).filter((x): x is "public" | "private" | "domain" => !!x);
-    setResult(analysePort(port, firewall.rules as never, firewall.profiles as never, l.output.listeners as never, active));
+    setResult(analysePort(port, firewall.rules as never, firewall.profiles as never, l.output.listeners as never, active, { listeners: l.output.truncated, rules: firewall.rulesTruncated }));
   };
   return (
     <section className="panel" aria-labelledby="portcheck-heading">
@@ -34,7 +34,8 @@ export function PortCheck({ cabinetId, firewall }: { cabinetId: string; firewall
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       {result && (<div aria-live="polite">
-        <p><Badge tone={result.summary.tone}>{result.summary.tone === "ok" ? "Reachable" : result.summary.tone === "warn" ? "Partly blocked" : "Not reachable"}</Badge> {result.summary.text}</p>
+        {result.incomplete.map(t => <p key={t} className="small"><Badge tone="warn">Incomplete</Badge> {t}</p>)}
+        <p><Badge tone={result.summary.tone}>{result.summary.tone === "ok" ? "Reachable" : result.summary.tone === "warn" ? "Check" : "Not reachable"}</Badge> {result.summary.text}</p>
         <table className="table compact">
           <caption className="sr-only">Port {result.port}</caption>
           <thead><tr><th scope="col">Where</th><th scope="col">Result</th><th scope="col">Why</th></tr></thead>
@@ -43,7 +44,7 @@ export function PortCheck({ cabinetId, firewall }: { cabinetId: string; firewall
               : result.listeners.map((l, i) => <tr key={i}><th scope="row">Listening</th><td><Badge tone="ok">Yes</Badge></td><td>{l.address}:{l.port}{l.process ? ` · ${l.process}` : ""}{l.processId ? ` (PID ${l.processId})` : ""}</td></tr>)}
             {result.verdicts.map(v => (
               <tr key={v.profile}><th scope="row">{v.profile[0]!.toUpperCase() + v.profile.slice(1)} profile{v.inUse ? " (in use)" : ""}</th>
-                <td><Badge tone={v.outcome === "allowed" ? "ok" : "crit"}>{v.outcome === "allowed" ? "Allowed" : "Blocked"}</Badge></td>
+                <td><Badge tone={v.outcome === "allowed" ? "ok" : v.outcome === "conditional" ? "warn" : "crit"}>{v.outcome === "allowed" ? "Allowed" : v.outcome === "conditional" ? "Limited" : "Blocked"}</Badge></td>
                 <td>{v.because}{v.rules.length > 0 && <>: {v.rules.map((r, i) => <span key={r}>{i > 0 && ", "}<code>{r}</code></span>)}</>}</td></tr>))}
           </tbody>
         </table>

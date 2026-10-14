@@ -4,7 +4,7 @@ import type pg from "pg";
 import { audit } from "../db/db.js";
 import type { SessionUser } from "../auth/sessions.js";
 
-type Row = { cabinet_id: string; cabinet: string; site: string; client: string; operation: string; params: Record<string, unknown>; status: string; issued_at: Date; result: { error?: { code?: string } } | null };
+type Row = { cabinet_id: string; cabinet: string; site: string; client: string; operation: string; params: Record<string, unknown>; status: string; issued_at: Date; error_code: string | null };
 
 /** Reads that tell the story: grouped under one plain name each, so five event-log queries are one line. */
 const CHECKED: Record<string, string> = {
@@ -50,12 +50,12 @@ export async function activityReport(pool: pg.Pool, user: SessionUser, q: { cabi
   const scope = q.cabinetId ? "AND c.cabinet_id = $4" : "";
   const params: unknown[] = [user.userId, from, now, ...(q.cabinetId ? [q.cabinetId] : [])];
   const commands = (await pool.query<Row>(
-    `SELECT c.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, c.operation, c.params, c.status, c.issued_at, c.result
+    `SELECT c.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, c.operation, c.params, c.status, c.issued_at, c.result->'error'->>'code' AS error_code
        FROM commands c JOIN cabinets k ON k.id = c.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE c.issued_by = $1 AND c.issued_at >= $2 AND c.issued_at <= $3 ${scope} ORDER BY c.issued_at`, params)).rows;
+      WHERE c.issued_by = $1 AND c.issued_at >= $2 AND c.issued_at <= $3 ${scope} ORDER BY c.issued_at LIMIT 5000`, params)).rows;
   const packageIds = [...new Set(commands.filter(c => c.operation === "package.install").map(c => String(c.params.packageId ?? "")))].filter(x => /^[0-9a-f-]{36}$/i.test(x));
   const packages = new Map<string, string>();
-  if (packageIds.length) for (const r of (await pool.query<{ id: string; name: string; version: string }>("SELECT id, name, version FROM packages WHERE id = ANY($1::uuid[])", [packageIds])).rows) packages.set(r.id, `${r.name} ${r.version}`);
+  if (packageIds.length) for (const r of (await pool.query<{ id: string; name: string; version: string }>("SELECT id, name, version FROM packages WHERE id = ANY($1::uuid[])", [packageIds])).rows) packages.set(r.id, clip(`${r.name} ${r.version}`, 200));
   const alerts = (await pool.query<{ cabinet_id: string; cabinet: string; title: string; resolution: string | null; at: Date; kind: string }>(
     `SELECT a.cabinet_id, k.name AS cabinet, a.title, a.resolution, COALESCE(a.resolved_at, a.claimed_at) AS at, CASE WHEN a.resolved_by = $1 THEN 'resolved' ELSE 'claimed' END AS kind
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
@@ -71,16 +71,16 @@ export async function activityReport(pool: pg.Pool, user: SessionUser, q: { cabi
   for (const c of commands) byCabinet.set(c.cabinet_id, { name: c.cabinet, place: `${c.client} / ${c.site}` });
   for (const a of alerts) if (!byCabinet.has(a.cabinet_id)) byCabinet.set(a.cabinet_id, { name: a.cabinet, place: "" });
 
-  const lines: string[] = [`Case notes by ${user.name}, ${from.toISOString().slice(0, 16).replace("T", " ")} to ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`];
+  const lines: string[] = [`Case notes by ${clip(user.name, 80)}, ${from.toISOString().slice(0, 16).replace("T", " ")} to ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`];
   if (byCabinet.size === 0 && fixes.length === 0) lines.push("", "Nothing was done in this period.");
   for (const [id, cab] of byCabinet) {
-    lines.push("", `${cab.name}${cab.place ? ` (${cab.place})` : ""}`);
+    lines.push("", `${clip(cab.name, 128)}${cab.place ? ` (${clip(cab.place, 260)})` : ""}`);
     const checked = [...new Set(reads.filter(c => c.cabinet_id === id).map(c => CHECKED[c.operation]!))];
     if (checked.length) lines.push(`  Checked: ${checked.join(", ")}`);
     const changes = writes.filter(c => c.cabinet_id === id);
     if (changes.length) {
       lines.push("  Changes:");
-      for (const c of changes) lines.push(`  - ${hhmm(c.issued_at)} ${describeChange(c.operation, c.params, packages.get(String(c.params.packageId ?? "")))}: ${OUTCOME[c.status] ?? c.status}${c.status === "failed" && c.result?.error?.code ? ` (${clip(c.result.error.code, 40)})` : ""}`);
+      for (const c of changes) lines.push(`  - ${hhmm(c.issued_at)} ${describeChange(c.operation, c.params, packages.get(String(c.params.packageId ?? "")))}: ${OUTCOME[c.status] ?? c.status}${c.status === "failed" && c.error_code ? ` (${clip(c.error_code, 40)})` : ""}`);
     }
     for (const a of alerts.filter(x => x.cabinet_id === id)) lines.push(`  ${a.kind === "resolved" ? "Resolved" : "Working on"} alert: ${clip(a.title, 120)}${a.resolution ? ` (${clip(a.resolution, 400)})` : ""}`);
     for (const f of fixes.filter(x => x.cabinet_id === id)) lines.push(`  Saved fix: ${clip(f.title, 120)}: ${clip(f.solution, 400)}${f.status === "pending" ? " (waiting for approval)" : ""}`);

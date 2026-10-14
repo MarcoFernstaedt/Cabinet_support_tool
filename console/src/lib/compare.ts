@@ -6,7 +6,8 @@ export interface Reading {
 }
 export interface Difference { area: string; what: string; a: string; b: string }
 
-const MAX = 200;
+export const MAX_DIFFERENCES = 200;
+const MAX = MAX_DIFFERENCES;
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : String(v));
 
 function pair(out: Difference[], area: string, what: string, a: unknown, b: unknown) {
@@ -20,7 +21,9 @@ export function compareReadings(x: Reading, y: Reading): Difference[] {
     pair(out, "System", "Build", x.info.osBuild, y.info.osBuild);
     pair(out, "System", "Agent", x.info.agentVersion, y.info.agentVersion);
   }
-  const ax = x.net?.adapters.find(a => a.connected), ay = y.net?.adapters.find(a => a.connected);
+  // Pair the connected adapters by name, then by type, so a cabinet with two adapters is not compared against the wrong one.
+  const ax = x.net?.adapters.find(a => a.connected);
+  const ay = y.net?.adapters.find(a => a.connected && a.name === ax?.name) ?? y.net?.adapters.find(a => a.connected && a.type === ax?.type) ?? y.net?.adapters.find(a => a.connected);
   if (ax && ay) {
     pair(out, "Network", "Adapter type", ax.type, ay.type);
     pair(out, "Network", "Link speed (Mbps)", ax.linkSpeedBps ? ax.linkSpeedBps / 1e6 : null, ay.linkSpeedBps ? ay.linkSpeedBps / 1e6 : null);
@@ -45,8 +48,9 @@ export function compareReadings(x: Reading, y: Reading): Difference[] {
       const q = y.firewall.profiles.find(r => r.profile === p.profile);
       if (q) { pair(out, "Firewall", `${p.profile} profile`, p.enabled ? "on" : "off", q.enabled ? "on" : "off"); pair(out, "Firewall", `${p.profile} default inbound`, p.defaultInbound, q.defaultInbound); }
     }
-    const key = (r: FirewallStateOutput["rules"][number]) => `${r.direction}|${r.name}`;
-    const rx = new Map(x.firewall.rules.map(r => [key(r), r])), ry = new Map(y.firewall.rules.map(r => [key(r), r]));
+    // Rule names can repeat in Windows: the second one with a name gets a number so neither is lost.
+    const keyed = (rules: FirewallStateOutput["rules"]) => { const seen = new Map<string, number>(); return new Map(rules.map(r => { const base = `${r.direction}|${r.name}`, n = seen.get(base) ?? 0; seen.set(base, n + 1); return [n ? `${base}#${n}` : base, r] as const; })); };
+    const rx = keyed(x.firewall.rules), ry = keyed(y.firewall.rules);
     for (const [k, r] of rx) {
       const o = ry.get(k);
       if (!o) pair(out, "Firewall", `Rule ${r.name}`, `${r.action} ${r.enabled ? "enabled" : "disabled"}`, "missing");
@@ -65,14 +69,16 @@ export function compareReadings(x: Reading, y: Reading): Difference[] {
     for (const s of y.services.services) if (!sx.has(s.name)) pair(out, "Services", s.displayName, "not installed", `${s.state}, ${s.startType}`);
   }
   if (x.drivers && y.drivers) {
+    // One driver can have several published packages (oem1.inf, oem5.inf): the version shown is the newest of them.
     const key = (d: DriversListOutput["drivers"][number]) => `${d.provider ?? ""}|${d.originalName ?? d.publishedName}`;
-    const dy = new Map(y.drivers.drivers.map(d => [key(d), d]));
-    for (const d of x.drivers.drivers) {
+    const newest = (list: DriversListOutput["drivers"]) => { const m = new Map<string, DriversListOutput["drivers"][number]>(); for (const d of list) { const o = m.get(key(d)); if (!o || (d.date ?? "") > (o.date ?? "")) m.set(key(d), d); } return m; };
+    const dy = newest(y.drivers.drivers);
+    const dxm = newest(x.drivers.drivers);
+    for (const d of dxm.values()) {
       const o = dy.get(key(d));
       pair(out, "Drivers", `${d.provider ?? "?"} ${d.originalName ?? d.publishedName}`, d.version, o ? o.version : "not installed");
     }
-    const dx = new Set(x.drivers.drivers.map(key));
-    for (const d of y.drivers.drivers) if (!dx.has(key(d))) pair(out, "Drivers", `${d.provider ?? "?"} ${d.originalName ?? d.publishedName}`, "not installed", d.version);
+    for (const d of dy.values()) if (!dxm.has(key(d))) pair(out, "Drivers", `${d.provider ?? "?"} ${d.originalName ?? d.publishedName}`, "not installed", d.version);
   }
   if (x.updates && y.updates) {
     const kx = new Set(x.updates.installed.filter(u => u.kb).map(u => u.kb!)), ky = new Set(y.updates.installed.filter(u => u.kb).map(u => u.kb!));

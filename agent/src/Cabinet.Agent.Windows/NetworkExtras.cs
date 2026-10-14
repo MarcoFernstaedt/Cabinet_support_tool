@@ -89,10 +89,15 @@ internal static class NetworkExtras
         Try(() =>
         {
             foreach (var row in Wmi.Query(Wmi.RootWmi, "SELECT InstanceName, Ndis80211SsId FROM MSNdis_80211_ServiceSetIdentifier", 16))
-                if (row.Text("InstanceName") is { } name && row.TryGetValue("Ndis80211SsId", out object? raw) && raw is byte[] bytes)
+                if (row.Text("InstanceName") is { } name && row.TryGetValue("Ndis80211SsId", out object? raw))
                 {
-                    int end = Array.IndexOf(bytes, (byte)0);
-                    string text = System.Text.Encoding.UTF8.GetString(bytes, 0, end < 0 ? Math.Min(bytes.Length, 32) : Math.Min(end, 32));
+                    // Windows reports the SSID as bytes on some builds and as text on others.
+                    string text = raw switch
+                    {
+                        byte[] bytes => System.Text.Encoding.UTF8.GetString(bytes, 0, Math.Min((Array.IndexOf(bytes, (byte)0) is var end and >= 0 ? end : bytes.Length), 32)),
+                        string t => t.TrimEnd('\0'),
+                        _ => "",
+                    };
                     if (text.Length > 0) ssid[name] = Clip(text)!;
                 }
         });
@@ -118,7 +123,8 @@ internal static class NetworkExtras
         return new ProxySettings { WinHttp = winHttp, UserProxyEnabled = null, UserProxyServer = null };
     }
 
-    private static string? Clip(string? text) => text is null ? null : text.Length > 200 ? text[..200] : text;
+    /// <summary>At most 200 characters with control characters replaced, so a stray character in an SSID or profile name can never make the whole read fail its contract.</summary>
+    private static string? Clip(string? text) => text is null ? null : new string(text.Select(c => char.IsControl(c) ? ' ' : c).Take(200).ToArray());
 
     private static void Try(Action read)
     {

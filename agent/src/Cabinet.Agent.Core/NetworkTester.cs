@@ -166,7 +166,7 @@ public sealed class NetworkTester
             var watch = Stopwatch.StartNew();
             try
             {
-                PingReply reply = await ping.SendPingAsync(address, Timeout, cancellationToken: token).ConfigureAwait(false);
+                PingReply reply = await ping.SendPingAsync(address, TimeSpan.FromSeconds(2), cancellationToken: token).ConfigureAwait(false);
                 if (reply.Status == IPStatus.Success) times.Add(watch.Elapsed.TotalMilliseconds); else lastFailure = reply.Status;
             }
             catch (PingException) { lastFailure = IPStatus.Unknown; }
