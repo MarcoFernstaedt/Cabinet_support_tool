@@ -260,6 +260,14 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("button", { name: "Copy as ipconfig text" }).waitFor();
     await page.getByRole("button", { name: "Flush DNS cache" }).waitFor();
 
+    // Firewall: "why can't anything reach port 1433" is answered from what is listening, the rules and the active profile.
+    await page.goto(`${origin}/cabinets/${exam}/firewall`);
+    await page.locator("#portcheck-port").waitFor({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Check", exact: true }).click();
+    await page.getByRole("table", { name: "Port 1433" }).waitFor({ timeout: 60_000 });
+    await page.getByText(/Reachable|Partly blocked|Not reachable/).first().waitFor();
+    if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/portcheck.png`, fullPage: true });
+
     // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
     // A different cabinet from the one the live check just used, so the per-cabinet limit on network tests is not in the way.
     const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND demo_scenario = 'healthy' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
