@@ -86,7 +86,6 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
       if (process.env.SHOTS) { await page.waitForTimeout(1500); await page.screenshot({ path: `${process.env.SHOTS}/fresh-${String(++shots).padStart(2, "0")}.png` }); }
     };
     const next = () => panel.getByRole("button", { name: "Next" }).click();
-    const showMe = () => panel.getByRole("button", { name: "Show me" }).click();
     const clickOutlined = (selector: string, text?: string) => outlined(selector, text).click();
 
     await arrive("Site overview");
@@ -95,7 +94,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await next();
     await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
-    await showMe(); await showMe();
+    assert.equal(await panel.getByRole("button", { name: /Show me|Look again/ }).count(), 0, "no extra button while the control is found");
     await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
     await clickOutlined('[data-tour="diagnose"]');
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });

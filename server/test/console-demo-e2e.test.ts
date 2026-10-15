@@ -74,20 +74,17 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("heading", { name: "Midtown Manhattan", level: 1 }).waitFor();
     await next();
     await page.getByRole("heading", { name: "Exam Room 1", level: 1 }).waitFor();
-    // "Show me" outlines the control the step is about, however often it is pressed, and never starts anything by itself.
+    // Each step outlines the control it is about on arrival, and never starts anything by itself; there is no Show me button while the control is found.
     const marked = (selector: string) => page.locator(`${selector}.tour-target`).first().waitFor({ timeout: 30_000 });
     await marked('[data-tour="diagnose"]');
-    await page.getByRole("button", { name: "Show me" }).click();
-    await page.getByRole("button", { name: "Show me" }).click();
     await marked('[data-tour="diagnose"]');
     await page.getByRole("button", { name: "Diagnose network", exact: true }).click();
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
     // Step 3 is the whole site at once: the page waits for the click.
     await next();
     await marked('[data-tour="site-diagnose"]');
-    await page.getByRole("button", { name: "Show me" }).click();
-    await page.getByRole("button", { name: "Show me" }).click();
-    assert.equal(await page.getByText("Firewall blocks the sync cabinet's ports").count(), 0, "Show me does not start a check");
+    assert.equal(await page.getByRole("button", { name: "Show me" }).count(), 0, "no Show me button while the control is outlined");
+    assert.equal(await page.getByText("Firewall blocks the sync cabinet's ports").count(), 0, "arriving at a step does not start a check");
     await page.getByRole("button", { name: /Diagnose network \(9 cabinets\)/ }).click();
     await page.getByText("Firewall blocks the sync cabinet's ports").first().waitFor({ timeout: 60_000 });
     // Step 4 says what was found and points at it; step 5 is the fix, and it works: confirm, and the site is checked again and is clean.
@@ -97,9 +94,6 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await next();
     await page.getByRole("heading", { name: "Remediation" }).waitFor();
     await marked('[data-tour="fix-apply_policy"]');
-    await page.getByRole("button", { name: "Show me" }).click();
-    await page.getByRole("button", { name: "Show me" }).click();
-    await page.getByRole("button", { name: "Show me" }).click();
     await marked('[data-tour="fix-apply_policy"]');
     await page.getByRole("button", { name: /Apply the policy on Midtown Sync/ }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();

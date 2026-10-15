@@ -26,7 +26,7 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
         <button className="btn primary" data-tour="live-run" onClick={() => { setCopied(false); void start(); }} disabled={busy}>{busy ? `Running ${finished + 1} of ${CHECKS.length}…` : finished > 0 ? "Run again" : "Run the checks"}</button>
       </div>
       {finished > 0 && <p role="status" className="small"><Badge tone={passed === CHECKS.length ? "ok" : finished === CHECKS.length ? "warn" : "info"}>{passed} of {CHECKS.length} passed</Badge> {!busy && <button className="btn small ghost" onClick={() => void copy()}>{copied ? "Copied" : "Copy results"}</button>}</p>}
-      <ul className="plain live-check">{CHECKS.map(c => {
+      <ul className="plain live-check">{(busy ? CHECKS : [...CHECKS].sort((a, b) => Number(rows[b.id]?.status === "failed") - Number(rows[a.id]?.status === "failed"))).map(c => {
         const r = rows[c.id];
         return (
           <li key={c.id} className="row gap wrap">

@@ -161,12 +161,12 @@ export function DemoTour() {
       <h2 id="demo-tour-title">{s.title}</h2>
       <p>{s.body}</p>
       {found === "looking" && <p className="muted small" role="status">Finding it on the page…</p>}
-      {found === "missing" && <p className="small error" role="status">{s.missing ?? "It isn't on this page yet."} Click Show me to look again.</p>}
+      {found === "missing" && <p className="small error" role="status">{s.missing ?? "It isn't on this page yet."} Try Look again.</p>}
       <div className="row gap wrap">
         <button className="btn small" disabled={step === 0} onClick={() => go(step - 1)}>Back</button>
         {step < steps.length - 1 ? <button className="btn small primary" onClick={() => go(step + 1)}>Next</button>
           : <button className="btn small primary" onClick={() => go(null)}>Finish</button>}
-        <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Show me</button>
+        {found === "missing" && <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Look again</button>}
         <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen" title="Move panel">{left ? "⇥" : "⇤"}</button>
         <button className="btn small ghost" onClick={() => go(null)} aria-label="Stop the guided demo">Stop</button>
       </div>
