@@ -105,7 +105,11 @@ export function SaveFix({ symptom, cabinetId, suggestedTitle, alertId, onSaved }
   const [saved, setSaved] = useState<"approved" | "pending" | null>(null);
   const [confirming, setConfirming] = useState(false);
   const { me } = useSession();
+  // Only a new fix is worth saving: when this problem already has a saved fix (approved or waiting), there is nothing to add.
+  const query = symptom.kind === "finding" ? `findingKey=${encodeURIComponent(symptom.key)}` : `issueTypeId=${symptom.issueTypeId}`;
+  const { data: existing } = useLoad<{ fixes: KnownFix[] }>(`/api/known-fixes?${query}&cabinetId=${cabinetId}`);
   if (saved) return <p className="ok small" role="status">{saved === "approved" ? "Saved. This is shown the next time the same problem comes up." : "Sent for approval. It is shown to everyone once an Admin approves it."}</p>;
+  if (!existing || existing.fixes.length > 0) return null;
   if (!open) return <button className="btn small ghost" onClick={() => setOpen(true)}>Save what fixed this…</button>;
   const save = async () => {
     setProblem(null);

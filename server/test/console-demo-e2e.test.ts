@@ -113,6 +113,11 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("heading", { name: "Operating Room", level: 1 }).waitFor();
     await marked('[data-tour="full-read"]');
     await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
+    // Nothing can be saved while the problem is still there. After the repair (the cable is swapped) the next check is clean, and only then is it offered.
+    assert.equal(await page.getByRole("button", { name: "Save what fixed this…" }).count(), 0, "no save offer while the problem is present");
+    await db.app.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE name = 'Operating Room'");
+    await page.getByRole("button", { name: "Run again" }).first().click();
+    await page.getByText("Fixed since the last check:").waitFor({ timeout: 60_000 });
     await page.getByRole("button", { name: "Save what fixed this…" }).first().click();
     await page.getByLabel("What fixed it").fill("Replaced the patch cable to the switch; the errors stopped.");
     await page.getByRole("button", { name: "Save…", exact: true }).click();

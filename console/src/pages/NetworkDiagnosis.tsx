@@ -54,7 +54,7 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
   const clean = checked.filter(c => c.problems === 0 && c.warnings === 0).length;
   const [open, setOpen] = useState<string | null>(null);
   const [fixed, setFixedState] = useState<FixedNote | null>(readFixed);
-  const setFixed = (what: string | null) => { const v = what === null ? null : { what, siteId: data?.siteId ?? null, at: Date.now() }; setFixedState(v); writeFixed(v); };
+  const setFixed = (what: string | null, group?: { key: string; title: string; cabinetId: string }) => { const v = what === null ? null : { what, siteId: data?.siteId ?? null, at: Date.now(), ...group }; setFixedState(v); writeFixed(v); };
   // A fix made while the first check is still going (the last cabinets are waiting their turn) checks again once that has finished.
   const latest = useRef(data);
   latest.current = data;
@@ -81,13 +81,15 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
         </p>
 
         {fixed && fixed.siteId === (data.siteId ?? null) && <p className="notice ok" role="status"><strong>Done:</strong> {fixed.what}. The site was checked again; the result is below.</p>}
+        {fixed && fixed.siteId === (data.siteId ?? null) && data.state === "done" && fixed.key && fixed.cabinetId && !data.groups.some(g => g.key.split("|")[0] === fixed.key)
+          && <SaveFix symptom={{ kind: "finding", key: fixed.key }} cabinetId={fixed.cabinetId} suggestedTitle={KEY_LABEL[fixed.key] ?? fixed.title ?? fixed.key} />}
         <section className="panel" aria-labelledby="what-wrong">
           <h2 id="what-wrong">What is wrong</h2>
           {data.state === "running" && data.groups.length === 0 && <p className="muted">Waiting for the first results…</p>}
           {data.state === "done" && data.groups.length === 0 && <Empty>Nothing to fix: every checked cabinet matches its site and reaches what it needs.</Empty>}
           {(() => { const done = new Set(problems.flatMap(g => g.targets.map(t => `${t.cabinetId}:${t.action.kind}`)));
             return [...problems, ...warnings].map(g => <GroupCard key={g.key} g={g} sameFixAbove={g.severity === "warning" && g.targets.length > 0 && g.targets.every(t => done.has(`${t.cabinetId}:${t.action.kind}`))}
-              onFixed={what => { setFixed(what); void rerun(); }} />); })()}
+              onFixed={(what, group) => { setFixed(what, group); void rerun(); }} />); })()}
         </section>
 
         <section className="panel" aria-labelledby="by-cabinet">
@@ -116,11 +118,12 @@ export function NetworkDiagnosisPage({ id }: { id: string }) {
 
 // The fix just made, kept for this tab so the page that re-checks the site (a new page each time) can say what was done.
 const FIXED = "network-fix-done";
-interface FixedNote { what: string; siteId: string | null; at: number }
+interface FixedNote { what: string; siteId: string | null; at: number; key?: string; title?: string; cabinetId?: string }
 const readFixed = (): FixedNote | null => { try { const v = JSON.parse(sessionStorage.getItem(FIXED) ?? "null") as FixedNote | null; return v && Date.now() - v.at < 120_000 ? v : null; } catch { return null; } };
 const writeFixed = (v: FixedNote | null) => { try { if (v === null) sessionStorage.removeItem(FIXED); else sessionStorage.setItem(FIXED, JSON.stringify(v)); } catch { /* storage unavailable */ } };
 
-function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: string) => void; sameFixAbove: boolean }) {
+function GroupCard({ g, onFixed: fixedWhat, sameFixAbove }: { g: Group; onFixed: (what: string, group: { key: string; title: string; cabinetId: string }) => void; sameFixAbove: boolean }) {
+  const onFixed = (what: string) => fixedWhat(what, { key: g.key.split("|")[0]!, title: g.title, cabinetId: g.targets[0]?.cabinetId ?? "" });
   const many = g.targets.length > 1;
   const first = g.targets[0]?.cabinetId;
   return (
@@ -139,7 +142,6 @@ function GroupCard({ g, onFixed, sameFixAbove }: { g: Group; onFixed: (what: str
         </div>
       ) : <p className="muted small">No change can be made from here: someone at the site needs to look.</p>}
       {first && <KnownFixes symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} />}
-      {first && <SaveFix symptom={{ kind: "finding", key: g.key.split("|")[0]! }} cabinetId={first} suggestedTitle={KEY_LABEL[g.key.split("|")[0]!] ?? g.title} />}
       {many && <details><summary>Fix one at a time</summary>
         <ul className="plain">{g.targets.map(t => <li key={t.cabinetId} className="row gap wrap"><strong>{t.cabinetName}</strong> <span className="muted small">{t.label}</span>
           <FixButton action={t.action} onDone={onFixed}>Fix</FixButton></li>)}</ul>

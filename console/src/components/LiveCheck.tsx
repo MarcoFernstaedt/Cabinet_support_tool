@@ -26,9 +26,10 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
         <button className="btn primary" data-tour="live-run" onClick={() => { setCopied(false); void start(); }} disabled={busy}>{busy ? `Running ${finished + 1} of ${CHECKS.length}…` : finished > 0 ? "Run again" : "Run the checks"}</button>
       </div>
       {finished > 0 && <p role="status" className="small"><Badge tone={passed === CHECKS.length ? "ok" : finished === CHECKS.length ? "warn" : "info"}>{passed} of {CHECKS.length} passed</Badge> {!busy && <button className="btn small ghost" onClick={() => void copy()}>{copied ? "Copied" : "Copy results"}</button>}</p>}
-      <ul className="plain live-check">{(busy ? CHECKS : [...CHECKS].sort((a, b) => Number(rows[b.id]?.status === "failed") - Number(rows[a.id]?.status === "failed"))).map(c => {
-        const r = rows[c.id];
-        return (
+      {(() => {
+        const row = (c: typeof CHECKS[number]) => {
+          const r = rows[c.id];
+          return (
           <li key={c.id} className="row gap wrap">
             <span style={{ minWidth: "5.5rem" }}>{!r ? <Badge tone="off">Not run</Badge> : r.status === "passed" ? <Badge tone="ok">Passed</Badge> : r.status === "failed" ? <Badge tone="crit">Failed</Badge> : r.status === "running" ? <Badge tone="info">Running</Badge> : <Badge tone="off">Waiting</Badge>}</span>
             <strong>{c.label}</strong> <code className="small muted">{c.operation}</code>
@@ -36,7 +37,15 @@ export function LiveCheck({ cabinetId, cabinetName, simulated = false }: { cabin
             {r?.text && <div className="small" style={{ flexBasis: "100%" }}>{r.text}</div>}
             {r?.raw && <details style={{ flexBasis: "100%" }}><summary className="small">What the cabinet sent</summary><pre className="small" style={{ maxHeight: "16rem", overflow: "auto" }}>{r.raw}</pre></details>}
           </li>);
-      })}</ul>
+        };
+        const settled = !busy && finished === CHECKS.length;
+        const failed = settled ? CHECKS.filter(c => rows[c.id]?.status === "failed") : [];
+        const fine = settled ? CHECKS.filter(c => rows[c.id]?.status !== "failed") : [];
+        return settled
+          ? <>{failed.length > 0 && <ul className="plain live-check">{failed.map(row)}</ul>}
+              <details open={failed.length === 0}><summary>{failed.length === 0 ? "All checks" : `${fine.length} passed`}</summary><ul className="plain live-check">{fine.map(row)}</ul></details></>
+          : <ul className="plain live-check">{CHECKS.map(row)}</ul>;
+      })()}
     </section>
   );
 }

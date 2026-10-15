@@ -1,6 +1,6 @@
 // Packets and path: the route to one target hop by hop with loss and round trips per hop, and a 20-request ping series to the same
 // target with min, average, max, jitter and loss. Both are fixed reads the agent already offers; this puts them side by side.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../lib/commands";
 import { Badge } from "./ui";
@@ -43,6 +43,8 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
     setReadings(r => ({ ...r, [t.key]: { trace: ok<NetworkTraceOutput>(trace as never), ping: ok<NetworkTestOutput>(ping as never), problem: failed ? String(failed instanceof Error ? failed.message : failed) : null } }));
   };
   const start = async (list: Target[]) => { setBusy(true); try { for (const t of list) await probe(t); } finally { setBusy(false); } };
+  // Opening the Network tab shows the gateway's loss, latency and path straight away; the other targets are one click ("All targets").
+  useEffect(() => { void start([targets[0]!]); }, [cabinetId]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = targets.find(t => t.key === key) ?? targets[0]!;
   const reading = readings[current.key];
   const tcpPort = Number.isInteger(Number(syncPort)) && Number(syncPort) >= 1 && Number(syncPort) <= 65535 ? Number(syncPort) : null;

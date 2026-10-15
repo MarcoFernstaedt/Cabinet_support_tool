@@ -1,7 +1,7 @@
 // Symptom-driven workbench. Each symptom runs a fixed list of read-only checks in the order a technician would work them. A check that
 // comes back worth a look carries the fixes the team saved for it, and can take a new one: that is how the tool learns. Fixes are keyed
 // exactly (check id, or symptom id), never by pattern, and apply to every cabinet in the fleet.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "../../components/ui";
 import { CHECK_BY_ID, useChecks, type Check } from "../../lib/checks";
 import { Link } from "../../lib/router";
@@ -85,6 +85,17 @@ export function Troubleshoot({ cabinetId, cabinetName }: { cabinetId: string; ca
   const [result, setResult] = useState("");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(0);
+  // Checks that failed on an earlier run and pass now were fixed in between: only those offer "Save what fixed this".
+  const failedBefore = useRef<Set<string>>(new Set());
+  const [wasFailing, setWasFailing] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (busy) return;
+    const failed = new Set(checks.filter(c => rows[c.id]?.status === "failed").map(c => c.id));
+    const finished = checks.some(c => rows[c.id]?.status === "passed" || rows[c.id]?.status === "failed");
+    if (!finished) return;
+    setWasFailing(new Set([...failedBefore.current].filter(id => rows[id]?.status === "passed")));
+    failedBefore.current = failed;
+  }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const ran = checks.some(c => rows[c.id] && rows[c.id]!.status !== "waiting");
   const notes = () => [
     `Cabinet: ${cabinetName}`,
@@ -122,8 +133,8 @@ export function Troubleshoot({ cabinetId, cabinetName }: { cabinetId: string; ca
               <th scope="row">{c.label}<div className="muted small"><code>{c.operation}</code>{r?.ms != null && ` · ${(r.ms / 1000).toFixed(1)} s`}</div></th>
               <td className="small">
                 {r?.text}
-                {r?.status === "failed" && <div className="stack"><KnownFixes symptom={key} cabinetId={cabinetId} reloadKey={saved} />
-                  <SaveFix symptom={key} cabinetId={cabinetId} suggestedTitle={c.label} onSaved={() => setSaved(n => n + 1)} /></div>}
+                {r?.status === "failed" && <KnownFixes symptom={key} cabinetId={cabinetId} reloadKey={saved} />}
+                {r?.status === "passed" && wasFailing.has(c.id) && <SaveFix symptom={key} cabinetId={cabinetId} suggestedTitle={c.label} onSaved={() => setSaved(n => n + 1)} />}
                 {r?.raw && <details><summary>Raw</summary><pre style={{ maxHeight: "16rem", overflow: "auto" }}>{r.raw}</pre></details>}
               </td>
             </tr>);

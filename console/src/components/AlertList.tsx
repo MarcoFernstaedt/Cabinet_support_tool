@@ -94,7 +94,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
               </div>
               {a.resolution && <p className="small muted">{a.resolution}</p>}
               {a.issueTypeId && withFix.has(a.issueTypeId) && a.state !== "resolved" && <KnownFixes symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} />}
-              {a.issueTypeId && a.state === "claimed" && (mine || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} alertId={a.id} />}
+              {a.issueTypeId && a.state === "resolved" && (a.resolvedBy?.id === me.id || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} alertId={a.id} />}
               {notes[a.id] && <p className="small error" role="alert">{notes[a.id]}</p>}
               {resolving === a.id && (
                 <form className="row gap wrap" onSubmit={e => { e.preventDefault(); if (asFix && me.canApproveFixes && resolution.trim()) setConfirmFix(a); else void resolve(a, asFix).catch(() => undefined); }}>
