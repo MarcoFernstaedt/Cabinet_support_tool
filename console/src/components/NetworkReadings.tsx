@@ -38,7 +38,7 @@ export function adapterRows(a: AdapterReading): [string, ReactNode][] {
     ["Type", a.type === "wifi" ? "Wi-Fi" : a.type === "ethernet" ? "Ethernet" : "Other"], ["Description", a.description],
     ["Link speed", a.linkSpeedBps ? `${(a.linkSpeedBps / 1e6).toLocaleString()} Mbps` : null], ["MAC address", a.macAddress],
     ["Addressing", a.ipv4.dhcp ? "DHCP" : "Static"], ["IPv4", a.ipv4.addresses.map(x => `${x.address}/${x.prefixLength}`).join(", ") || null],
-    ["Gateway", a.ipv4.gateways.join(", ") || null], ["DNS servers", `${a.dns.servers.join(", ") || "none"} (${a.dns.automatic ? "automatic" : "set by hand"})`], ["DNS suffix", a.dnsSuffix],
+    ["Gateway", a.ipv4.gateways.join(", ") || "None"], ["DNS servers", `${a.dns.servers.join(", ") || "none"} (${a.dns.automatic ? "automatic" : "set by hand"})`], ["DNS suffix", a.dnsSuffix],
     ["IPv6", a.ipv6Addresses?.length ? a.ipv6Addresses.join(", ") : "none"],
     ...(d ? [
       ["Network profile", net ? `${net.name ?? "unnamed"} (${CATEGORY[net.category] ?? net.category})` : null],

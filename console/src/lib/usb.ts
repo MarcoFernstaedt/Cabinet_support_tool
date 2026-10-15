@@ -38,10 +38,10 @@ export function analyseUsb(devices: UsbDevice[], scannerIds: string[] = [], scan
   const scanner = rows.find(r => r.scanner && r.device.present) ?? rows.find(r => r.scanner) ?? null;
   if (!scanner) issues.push({ tone: "crit", text: "No fingerprint scanner is on any USB port, and Windows has no record of one. Check the cable at both ends and try another port; if it never appears, the scanner or its cable is faulty." });
   else if (scanner.state === "not_connected") issues.push({ tone: "crit", text: `The scanner is not on any port now. It was last on ${scanner.where}. Have them reseat the cable, move it to a different port, or swap the cable.` });
-  else if (scanner.state === "problem") issues.push({ tone: "crit", text: `The scanner is on ${scanner.where} but Windows reports ${scanner.note}. Move it to a different port or replace the cable.` });
+  else if (scanner.state === "problem") issues.push({ tone: "crit", text: `The scanner is on ${scanner.where} but Windows reports ${(scanner.note ?? "").endsWith(".") ? (scanner.note ?? "").slice(0, -1) : scanner.note}. Move it to a different port or replace the cable.` });
   for (const r of rows) {
     if (r.scanner) continue;
-    if (r.state === "problem") issues.push({ tone: "crit", text: `${r.device.name} on ${r.where}: ${r.note}. ${r.device.kind === "hub" ? "A hub with a problem takes every device behind it down." : "A device that fails to start on a port usually points to the cable or the port."}` });
+    if (r.state === "problem") issues.push({ tone: "crit", text: `${r.device.name} on ${r.where}: ${(r.note ?? "").endsWith(".") ? (r.note ?? "").slice(0, -1) : r.note}. ${r.device.kind === "hub" ? "A hub with a problem takes every device behind it down." : "A device that fails to start on a port usually points to the cable or the port."}` });
   }
   const forgotten = rows.filter(r => r.state === "not_connected" && !r.scanner && r.device.kind === "device").length;
   if (truncated) issues.push({ tone: "warn", text: "The list was cut short; ports further down are not shown." });

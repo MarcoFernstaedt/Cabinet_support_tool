@@ -15,7 +15,7 @@ export function UsbPorts({ cabinetId, scannerIds = [], scannerName = null }: { c
     <OperationPanel title="USB ports" run={op} onRun={() => void op.start()} buttonLabel="Read ports">
       {() => analysis && (<>
         <p className={`notice ${analysis.tone === "ok" ? "ok" : analysis.tone === "crit" ? "crit" : "warn"}`} role="status">{analysis.summary}</p>
-        {analysis.issues.length > 1 && <ul>{analysis.issues.map((i, k) => <li key={k}>{i.text}</li>)}</ul>}
+        {analysis.issues.length > 1 && <ul>{analysis.issues.slice(1).map((i, k) => <li key={k}>{i.text}</li>)}</ul>}
         <div className="table-wrap"><table className="table compact">
           <caption className="sr-only">USB ports</caption>
           <thead><tr><th scope="col">Hub</th><th scope="col">Port</th><th scope="col">Device</th><th scope="col">State</th><th scope="col">Detail</th></tr></thead>

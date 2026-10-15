@@ -213,7 +213,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       // Some cabinets also have the cash drawer link: an Ethernet adapter on an unidentified network with a fixed address and no gateway.
       // Its counters grow with the clock so two readings seconds apart show traffic.
       if (ctx.index % 3 === 0) {
-        const secs = Math.floor(Date.now() / 1000);
+        const secs = Math.floor(Date.now() / 1000) % 100_000;
         o.adapters.push({ ...JSON.parse(JSON.stringify(a)), interfaceIndex: a.interfaceIndex + 1, name: "Ethernet 2", description: "USB Ethernet Adapter (drawer link)",
           connected: true, linkSpeedBps: 100_000_000, macAddress: `00-E0-4C-68-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-A1`, ipv6Addresses: [],
           ipv4: { dhcp: false, addresses: [{ address: `172.20.1.${10 + ctx.index}`, prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
