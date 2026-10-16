@@ -1,0 +1,19 @@
+{
+  "path": "C:\\",
+  "folders": [
+    {
+      "name": "Users",
+      "sizeBytes": 48318382080,
+      "files": 190211
+    },
+    {
+      "name": "Windows",
+      "sizeBytes": 21474836480,
+      "files": 250412
+    }
+  ],
+  "totalBytes": 69793218560,
+  "partial": false,
+  "elapsedMs": 8120,
+  "shell": "cmd"
+}

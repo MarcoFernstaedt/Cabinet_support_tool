@@ -667,6 +667,168 @@
         },
         "type": "object"
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "system.security"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.security.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "software.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/software.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "startup.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/startup.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "sessions.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/sessions.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "shares.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/shares.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "reliability.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/reliability.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "disk.folders"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/disk.folders.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "dns.cache"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/dns.cache.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "power.status"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/power.status.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
     }
   ]
 }

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/startup.list.schema.json",
+  "title": "startup.list",
+  "description": "What starts with Windows (Run keys and the Startup folders) and the scheduled tasks, with their state and last result.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "startup",
+        "tasks",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "startup": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command",
+              "location"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "command": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "location": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              }
+            }
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path",
+              "name",
+              "state",
+              "lastRun",
+              "lastResult",
+              "nextRun"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "ready",
+                  "running",
+                  "disabled",
+                  "queued",
+                  "unknown"
+                ]
+              },
+              "lastRun": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              },
+              "lastResult": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -2147483648,
+                    "maximum": 2147483647
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "nextRun": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

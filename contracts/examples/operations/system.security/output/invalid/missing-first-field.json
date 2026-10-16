@@ -1,0 +1,43 @@
+{
+  "pendingReboot": {
+    "pending": true,
+    "reasons": [
+      "Windows Update needs a restart"
+    ]
+  },
+  "defender": {
+    "enabled": true,
+    "realTimeProtection": true,
+    "signatureAgeDays": 1,
+    "lastQuickScan": "2026-10-13T03:00:00Z",
+    "lastFullScan": null,
+    "threats": [
+      {
+        "name": "Trojan:Win32/Example",
+        "detectedAt": "2026-10-12T09:30:00Z",
+        "active": false
+      }
+    ]
+  },
+  "bitlocker": [
+    {
+      "volume": "C:",
+      "protection": "on",
+      "percentEncrypted": 100
+    }
+  ],
+  "activation": {
+    "licensed": true,
+    "status": "Licensed",
+    "edition": "Windows 10 IoT Enterprise LTSC"
+  },
+  "certificates": [
+    {
+      "store": "Local machine, Personal",
+      "subject": "CN=cabinet-01.clinic.example",
+      "notAfter": "2026-11-02T00:00:00Z",
+      "daysLeft": 19,
+      "expired": false
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "records": [
+    {
+      "at": "2026-10-13T11:02:00Z",
+      "source": "Application Error",
+      "product": "Clinic Practice Manager",
+      "eventId": 1000,
+      "kind": "app_crash",
+      "message": "Faulting module ntdll.dll, exception 0xc0000005"
+    }
+  ],
+  "truncated": false,
+  "shell": "cmd"
+}

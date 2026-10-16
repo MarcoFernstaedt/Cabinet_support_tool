@@ -1,0 +1,10 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "plan": "Balanced",
+  "fastStartup": true,
+  "hibernate": true,
+  "usbSelectiveSuspend": {
+    "pluggedIn": true,
+    "onBattery": true
+  }
+}

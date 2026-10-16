@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/power.status.schema.json",
+  "title": "power.status",
+  "description": "The active power plan, Fast Startup, hibernation and USB selective suspend: the settings behind \"the device vanishes after the cabinet has been idle\".",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "plan",
+        "fastStartup",
+        "hibernate",
+        "usbSelectiveSuspend"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "plan": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "fastStartup": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hibernate": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usbSelectiveSuspend": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "pluggedIn",
+                "onBattery"
+              ],
+              "properties": {
+                "pluggedIn": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "onBattery": {
+                  "anyOf": [
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

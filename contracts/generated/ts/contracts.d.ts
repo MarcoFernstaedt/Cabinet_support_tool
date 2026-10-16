@@ -472,7 +472,16 @@ export interface CommandRequest {
     | "time.setZone"
     | "time.sync"
     | "network.renewLease"
-    | "network.flushDns";
+    | "network.flushDns"
+    | "system.security"
+    | "software.list"
+    | "startup.list"
+    | "sessions.list"
+    | "shares.list"
+    | "reliability.list"
+    | "disk.folders"
+    | "dns.cache"
+    | "power.status";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -1194,7 +1203,16 @@ export interface Command {
     | "time.setZone"
     | "time.sync"
     | "network.renewLease"
-    | "network.flushDns";
+    | "network.flushDns"
+    | "system.security"
+    | "software.list"
+    | "startup.list"
+    | "sessions.list"
+    | "shares.list"
+    | "reliability.list"
+    | "disk.folders"
+    | "dns.cache"
+    | "power.status";
   params: {};
   issuedBy: string;
   /**
@@ -2945,6 +2963,327 @@ export interface NetworkFlushDnsOutput {
   flushed: boolean;
 }
 
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SystemSecurityParams {}
+
+export interface SystemSecurityOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  pendingReboot: {
+    pending: boolean;
+    /**
+     * @maxItems 8
+     */
+    reasons: string[];
+  };
+  defender: {
+    enabled: boolean;
+    realTimeProtection: boolean;
+    signatureAgeDays: number | null;
+    lastQuickScan: string | null;
+    lastFullScan: string | null;
+    /**
+     * @maxItems 20
+     */
+    threats: {
+      /**
+       * A single line of text with no control characters.
+       */
+      name: string;
+      detectedAt: string | null;
+      active: boolean;
+    }[];
+  } | null;
+  /**
+   * @maxItems 26
+   */
+  bitlocker: {
+    /**
+     * A single line of text with no control characters.
+     */
+    volume: string;
+    protection: "on" | "off" | "unknown";
+    percentEncrypted: number | null;
+  }[];
+  activation: {
+    licensed: boolean;
+    /**
+     * A single line of text with no control characters.
+     */
+    status: string;
+    edition: string | null;
+  } | null;
+  /**
+   * @maxItems 50
+   */
+  certificates: {
+    /**
+     * A single line of text with no control characters.
+     */
+    store: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    subject: string;
+    /**
+     * UTC time, ISO 8601, always ending in Z.
+     */
+    notAfter: string;
+    daysLeft: number;
+    expired: boolean;
+  }[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SoftwareListParams {}
+
+export interface SoftwareListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 1500
+   */
+  programs: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    version: string | null;
+    publisher: string | null;
+    installedOn: string | null;
+  }[];
+  /**
+   * @maxItems 500
+   */
+  hotfixes: {
+    /**
+     * A single line of text with no control characters.
+     */
+    id: string;
+    description: string | null;
+    installedOn: string | null;
+  }[];
+  truncated: boolean;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface StartupListParams {}
+
+export interface StartupListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 300
+   */
+  startup: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    command: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    location: string;
+  }[];
+  /**
+   * @maxItems 500
+   */
+  tasks: {
+    /**
+     * A single line of text with no control characters.
+     */
+    path: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    state: "ready" | "running" | "disabled" | "queued" | "unknown";
+    lastRun: string | null;
+    lastResult: number | null;
+    nextRun: string | null;
+  }[];
+  truncated: boolean;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SessionsListParams {}
+
+export interface SessionsListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 50
+   */
+  sessions: {
+    id: number;
+    /**
+     * A single line of text with no control characters.
+     */
+    user: string;
+    state: "active" | "connected" | "disconnected" | "idle" | "other";
+    type: "console" | "remote";
+    logonTime: string | null;
+  }[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SharesListParams {}
+
+export interface SharesListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 200
+   */
+  shares: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    path: string | null;
+    description: string | null;
+    kind: "disk" | "print" | "ipc" | "admin" | "other";
+  }[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface ReliabilityListParams {}
+
+export interface ReliabilityListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 300
+   */
+  records: {
+    /**
+     * UTC time, ISO 8601, always ending in Z.
+     */
+    at: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    source: string;
+    product: string | null;
+    eventId: number | null;
+    kind: "app_crash" | "app_hang" | "windows_failure" | "update_failure" | "other";
+    /**
+     * A single line of text with no control characters.
+     */
+    message: string;
+  }[];
+  truncated: boolean;
+}
+
+export interface DiskFoldersParams {
+  /**
+   * Absolute path on C:. No relative segments, alternate streams, UNC or device paths.
+   */
+  path: string;
+}
+
+export interface DiskFoldersOutput {
+  /**
+   * A single line of text with no control characters.
+   */
+  path: string;
+  /**
+   * @maxItems 25
+   */
+  folders: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    sizeBytes: number;
+    files: number;
+  }[];
+  totalBytes: number;
+  partial: boolean;
+  elapsedMs: number;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface DnsCacheParams {}
+
+export interface DnsCacheOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 500
+   */
+  entries: {
+    /**
+     * A single line of text with no control characters.
+     */
+    name: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    type: string;
+    /**
+     * A single line of text with no control characters.
+     */
+    data: string;
+    ttlSeconds: number;
+  }[];
+  truncated: boolean;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface PowerStatusParams {}
+
+export interface PowerStatusOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * A single line of text with no control characters.
+   */
+  plan: string;
+  fastStartup: boolean | null;
+  hibernate: boolean | null;
+  usbSelectiveSuspend: {
+    pluggedIn: boolean | null;
+    onBattery: boolean | null;
+  } | null;
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -2955,7 +3294,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2999,4 +3338,13 @@ export interface OperationTypes {
   "time.sync": { params: TimeSyncParams; output: TimeSyncOutput };
   "network.renewLease": { params: NetworkRenewLeaseParams; output: NetworkRenewLeaseOutput };
   "network.flushDns": { params: NetworkFlushDnsParams; output: NetworkFlushDnsOutput };
+  "system.security": { params: SystemSecurityParams; output: SystemSecurityOutput };
+  "software.list": { params: SoftwareListParams; output: SoftwareListOutput };
+  "startup.list": { params: StartupListParams; output: StartupListOutput };
+  "sessions.list": { params: SessionsListParams; output: SessionsListOutput };
+  "shares.list": { params: SharesListParams; output: SharesListOutput };
+  "reliability.list": { params: ReliabilityListParams; output: ReliabilityListOutput };
+  "disk.folders": { params: DiskFoldersParams; output: DiskFoldersOutput };
+  "dns.cache": { params: DnsCacheParams; output: DnsCacheOutput };
+  "power.status": { params: PowerStatusParams; output: PowerStatusOutput };
 }

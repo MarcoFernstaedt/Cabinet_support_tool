@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/dns.cache.schema.json",
+  "title": "dns.cache",
+  "description": "The names the cabinet has resolved recently and the answers it holds, for finding a stale or wrong answer.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "entries",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "entries": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "type",
+              "data",
+              "ttlSeconds"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "type": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "data": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "ttlSeconds": {
+                "$ref": "../common.schema.json#/$defs/count"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

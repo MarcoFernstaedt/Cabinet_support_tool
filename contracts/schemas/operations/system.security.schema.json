@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.security.schema.json",
+  "title": "system.security",
+  "description": "Whether a restart is waiting, the Windows Defender state and recent detections, BitLocker, Windows activation, and machine certificates that have expired or expire within 60 days. For finding the quiet causes of slow, blocked or failing computers.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "pendingReboot",
+        "defender",
+        "bitlocker",
+        "activation",
+        "certificates"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "pendingReboot": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pending",
+            "reasons"
+          ],
+          "properties": {
+            "pending": {
+              "type": "boolean"
+            },
+            "reasons": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              }
+            }
+          }
+        },
+        "defender": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "realTimeProtection",
+                "signatureAgeDays",
+                "lastQuickScan",
+                "lastFullScan",
+                "threats"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "realTimeProtection": {
+                  "type": "boolean"
+                },
+                "signatureAgeDays": {
+                  "$ref": "../common.schema.json#/$defs/nullableCount"
+                },
+                "lastQuickScan": {
+                  "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+                },
+                "lastFullScan": {
+                  "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+                },
+                "threats": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "name",
+                      "detectedAt",
+                      "active"
+                    ],
+                    "properties": {
+                      "name": {
+                        "$ref": "../common.schema.json#/$defs/shortText"
+                      },
+                      "detectedAt": {
+                        "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+                      },
+                      "active": {
+                        "type": "boolean"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "bitlocker": {
+          "type": "array",
+          "maxItems": 26,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "volume",
+              "protection",
+              "percentEncrypted"
+            ],
+            "properties": {
+              "volume": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "protection": {
+                "type": "string",
+                "enum": [
+                  "on",
+                  "off",
+                  "unknown"
+                ]
+              },
+              "percentEncrypted": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "activation": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "licensed",
+                "status",
+                "edition"
+              ],
+              "properties": {
+                "licensed": {
+                  "type": "boolean"
+                },
+                "status": {
+                  "$ref": "../common.schema.json#/$defs/shortText"
+                },
+                "edition": {
+                  "$ref": "../common.schema.json#/$defs/nullableShortText"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "certificates": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "store",
+              "subject",
+              "notAfter",
+              "daysLeft",
+              "expired"
+            ],
+            "properties": {
+              "store": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "subject": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "notAfter": {
+                "$ref": "../common.schema.json#/$defs/timestamp"
+              },
+              "daysLeft": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              },
+              "expired": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -36,6 +36,15 @@
     {"name": "time.setZone", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
     {"name": "time.sync", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
     {"name": "network.renewLease", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
-    {"name": "network.flushDns", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"}
+    {"name": "network.flushDns", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
+    {"name": "system.security", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "software.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "startup.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "sessions.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "shares.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "reliability.list", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "disk.folders", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "dns.cache", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "power.status", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"}
   ]
 }

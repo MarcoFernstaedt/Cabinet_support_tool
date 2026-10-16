@@ -53,7 +53,16 @@
         "time.setZone",
         "time.sync",
         "network.renewLease",
-        "network.flushDns"
+        "network.flushDns",
+        "system.security",
+        "software.list",
+        "startup.list",
+        "sessions.list",
+        "shares.list",
+        "reliability.list",
+        "disk.folders",
+        "dns.cache",
+        "power.status"
       ]
     },
     "params": {
@@ -143,7 +152,16 @@
                 "time.setZone",
                 "time.sync",
                 "network.renewLease",
-                "network.flushDns"
+                "network.flushDns",
+                "system.security",
+                "software.list",
+                "startup.list",
+                "sessions.list",
+                "shares.list",
+                "reliability.list",
+                "disk.folders",
+                "dns.cache",
+                "power.status"
               ]
             }
           },
@@ -757,6 +775,195 @@
         "properties": {
           "params": {
             "$ref": "../operations/service.setStartType.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "system.security"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.security.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "software.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/software.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "startup.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/startup.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "sessions.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/sessions.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "shares.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/shares.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "reliability.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/reliability.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "disk.folders"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/disk.folders.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "dns.cache"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/dns.cache.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "power.status"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/power.status.schema.json#/$defs/params"
           }
         }
       }

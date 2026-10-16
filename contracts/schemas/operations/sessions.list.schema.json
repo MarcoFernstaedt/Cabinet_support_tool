@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/sessions.list.schema.json",
+  "title": "sessions.list",
+  "description": "Who is signed in to the cabinet: console and remote sessions, and which are disconnected.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "sessions"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "sessions": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "user",
+              "state",
+              "type",
+              "logonTime"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "user": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "connected",
+                  "disconnected",
+                  "idle",
+                  "other"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "console",
+                  "remote"
+                ]
+              },
+              "logonTime": {
+                "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

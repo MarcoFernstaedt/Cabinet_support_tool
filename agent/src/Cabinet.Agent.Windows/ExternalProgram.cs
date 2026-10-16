@@ -13,7 +13,7 @@ namespace Cabinet.Agent.Windows;
 public static class ExternalProgram
 {
     /// <summary>The programs the broker may start, and nothing else.</summary>
-    public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "pnputil.exe", "msiexec.exe", "netsh.exe", "tzutil.exe", "w32tm.exe", "wusa.exe", "ipconfig.exe", "sc.exe" };
+    public static readonly IReadOnlySet<string> Allowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "pnputil.exe", "msiexec.exe", "netsh.exe", "tzutil.exe", "w32tm.exe", "wusa.exe", "ipconfig.exe", "sc.exe", "powercfg.exe", "shutdown.exe" };
     private const int MaxOutputChars = 64 * 1024;
 
     public sealed record Outcome(int ExitCode, string Output);

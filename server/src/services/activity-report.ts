@@ -10,7 +10,7 @@ type Row = { cabinet_id: string; cabinet: string; site: string; client: string; 
 const CHECKED: Record<string, string> = {
   "system.info": "System information", "system.performance": "Performance", "processes.list": "Processes", "services.list": "Services",
   "eventlog.channels": "Event logs", "eventlog.query": "Event logs", "eventlog.get": "Event logs",
-  "network.config": "Network adapters", "network.test": "Network tests", "network.trace": "Network path", "network.listeners": "Listening ports", "usb.ports": "USB ports",
+  "network.config": "Network adapters", "network.test": "Network tests", "network.trace": "Network path", "network.listeners": "Listening ports", "system.security": "Security status", "software.list": "Installed software", "startup.list": "Startup and tasks", "sessions.list": "Signed-in sessions", "shares.list": "Network shares", "reliability.list": "Reliability history", "disk.folders": "Folder sizes", "dns.cache": "DNS cache", "power.status": "Power settings", "usb.ports": "USB ports",
   "firewall.state": "Firewall", "disk.smart": "Drive health", "updates.status": "Windows updates", "devices.list": "Devices", "drivers.list": "Drivers",
   "peripheral.status": "Fingerprint scanner", "time.status": "Time", "files.list": "Files",
 };

@@ -1,0 +1,17 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "shares": [
+    {
+      "name": "ClinicData",
+      "path": "D:\\ClinicData",
+      "description": "Practice data",
+      "kind": "disk"
+    },
+    {
+      "name": "C$",
+      "path": "C:\\",
+      "description": "Default share",
+      "kind": "admin"
+    }
+  ]
+}

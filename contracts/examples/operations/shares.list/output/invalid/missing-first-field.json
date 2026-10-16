@@ -1,0 +1,16 @@
+{
+  "shares": [
+    {
+      "name": "ClinicData",
+      "path": "D:\\ClinicData",
+      "description": "Practice data",
+      "kind": "disk"
+    },
+    {
+      "name": "C$",
+      "path": "C:\\",
+      "description": "Default share",
+      "kind": "admin"
+    }
+  ]
+}

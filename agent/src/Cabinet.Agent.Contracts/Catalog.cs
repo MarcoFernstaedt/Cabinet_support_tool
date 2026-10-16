@@ -50,6 +50,15 @@ public static class Catalog
     public const string SystemPerformance = "system.performance";
     public const string NetworkListeners = "network.listeners";
     public const string UsbPorts = "usb.ports";
+    public const string SystemSecurity = "system.security";
+    public const string SoftwareList = "software.list";
+    public const string StartupList = "startup.list";
+    public const string SessionsList = "sessions.list";
+    public const string SharesList = "shares.list";
+    public const string ReliabilityList = "reliability.list";
+    public const string DiskFolders = "disk.folders";
+    public const string DnsCache = "dns.cache";
+    public const string PowerStatus = "power.status";
     public const string NetworkRenewLease = "network.renewLease";
     public const string NetworkFlushDns = "network.flushDns";
 
@@ -78,6 +87,15 @@ public static class Catalog
         Read<EmptyParams, SystemPerformanceOutput>(SystemPerformance),
         Read<EmptyParams, NetworkListenersOutput>(NetworkListeners),
         Read<EmptyParams, UsbPortsOutput>(UsbPorts),
+        Read<EmptyParams, SystemSecurityOutput>(SystemSecurity),
+        Read<EmptyParams, SoftwareListOutput>(SoftwareList),
+        Read<EmptyParams, StartupListOutput>(StartupList),
+        Read<EmptyParams, SessionsListOutput>(SessionsList),
+        Read<EmptyParams, SharesListOutput>(SharesList),
+        Read<EmptyParams, ReliabilityListOutput>(ReliabilityList),
+        Read<DiskFoldersParams, DiskFoldersOutput>(DiskFolders),
+        Read<EmptyParams, DnsCacheOutput>(DnsCache),
+        Read<EmptyParams, PowerStatusOutput>(PowerStatus),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),
         Read<EmptyParams, TimeStatusOutput>(TimeStatus),

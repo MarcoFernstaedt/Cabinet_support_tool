@@ -26,6 +26,7 @@ import { Standards } from "./Standards";
 import { History } from "./History";
 import { CabinetAlerts, MonitorEvents } from "./CabinetAlerts";
 import { Software } from "./Software";
+import { WindowsInfo } from "./WindowsInfo";
 import { WritePauseBanner } from "../../lib/writes";
 
 export interface CabinetDetail extends CabinetRow {
@@ -40,7 +41,7 @@ export const SECTIONS = [
   ["overview", "Overview"], ["standards", "Standards"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
   ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
   ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
-  ["software", "Software"], ["history", "Command history"],
+  ["windows", "Windows"], ["software", "Software"], ["history", "Command history"],
 ] as const;
 export type SectionId = (typeof SECTIONS)[number][0];
 
@@ -108,6 +109,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "services": return <Services cabinet={cabinet} />;
     case "crashes": return <CabinetCrashes cabinetId={cabinet.id} />;
     case "processes": return <Processes cabinetId={cabinet.id} />;
+    case "windows": return <WindowsInfo cabinet={cabinet} />;
     case "software": return <Software cabinet={cabinet} />;
     case "files": return <Files cabinetId={cabinet.id} />;
     case "history": return <History cabinetId={cabinet.id} />;

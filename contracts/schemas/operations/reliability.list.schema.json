@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/reliability.list.schema.json",
+  "title": "reliability.list",
+  "description": "Application crashes and hangs, Windows failures and failed updates from the last 30 days (Windows reliability history).",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "records",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 300,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "at",
+              "source",
+              "product",
+              "eventId",
+              "kind",
+              "message"
+            ],
+            "properties": {
+              "at": {
+                "$ref": "../common.schema.json#/$defs/timestamp"
+              },
+              "source": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "product": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "eventId": {
+                "$ref": "../common.schema.json#/$defs/nullableCount"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "app_crash",
+                  "app_hang",
+                  "windows_failure",
+                  "update_failure",
+                  "other"
+                ]
+              },
+              "message": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

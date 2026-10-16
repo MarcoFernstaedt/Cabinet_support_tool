@@ -1,0 +1,15 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "startup": [],
+  "tasks": [
+    {
+      "path": "\\",
+      "name": "x",
+      "state": "exploded",
+      "lastRun": null,
+      "lastResult": null,
+      "nextRun": null
+    }
+  ],
+  "truncated": false
+}

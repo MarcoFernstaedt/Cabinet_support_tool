@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/disk.folders.schema.json",
+  "title": "disk.folders",
+  "description": "The largest folders directly under a path on C:, with their sizes, found within a time limit. For \"the disk is full\" calls. Nothing is opened or changed.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "description": "Absolute path on C:. No relative segments, alternate streams, UNC or device paths.",
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 260,
+          "pattern": "^[Cc]:\\\\(?!.*(^|\\\\)\\.{1,2}(\\\\|$))[^\\u0000-\\u001f\\u007f<>:\"/|?*]*$"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "folders",
+        "totalBytes",
+        "partial",
+        "elapsedMs"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "folders": {
+          "type": "array",
+          "maxItems": 25,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "sizeBytes",
+              "files"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "sizeBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "files": {
+                "$ref": "../common.schema.json#/$defs/count"
+              }
+            }
+          }
+        },
+        "totalBytes": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "partial": {
+          "type": "boolean"
+        },
+        "elapsedMs": {
+          "$ref": "../common.schema.json#/$defs/count"
+        }
+      }
+    }
+  }
+}

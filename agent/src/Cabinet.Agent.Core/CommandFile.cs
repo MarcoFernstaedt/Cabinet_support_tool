@@ -92,6 +92,7 @@ public static class CommandFile
             [Catalog.FilesList] = new { path = "C:\\ProgramData", pageSize = 50 },
             [Catalog.NetworkTest] = new { target = "gateway", method = "ping" },
             [Catalog.NetworkTrace] = new { target = "gateway" },
+            [Catalog.DiskFolders] = new { path = "C:\\Users" },
         };
         return Catalog.All.Where(e => e.Kind == OperationKind.Read)
             .Select(e => Make(config, e.Name, JsonSerializer.SerializeToElement(parameters.GetValueOrDefault(e.Name, new { })), now))

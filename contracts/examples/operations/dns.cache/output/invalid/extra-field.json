@@ -1,0 +1,13 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "entries": [
+    {
+      "name": "sync.clinic.example",
+      "type": "A",
+      "data": "10.21.4.20",
+      "ttlSeconds": 1800
+    }
+  ],
+  "truncated": false,
+  "shell": "cmd"
+}

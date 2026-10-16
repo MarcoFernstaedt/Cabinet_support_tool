@@ -1,0 +1,9 @@
+{
+  "plan": "Balanced",
+  "fastStartup": true,
+  "hibernate": true,
+  "usbSelectiveSuspend": {
+    "pluggedIn": true,
+    "onBattery": true
+  }
+}

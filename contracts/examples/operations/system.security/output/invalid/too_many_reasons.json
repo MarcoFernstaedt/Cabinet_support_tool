@@ -1,0 +1,21 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "pendingReboot": {
+    "pending": true,
+    "reasons": [
+      "x",
+      "x",
+      "x",
+      "x",
+      "x",
+      "x",
+      "x",
+      "x",
+      "x"
+    ]
+  },
+  "defender": null,
+  "bitlocker": [],
+  "activation": null,
+  "certificates": []
+}

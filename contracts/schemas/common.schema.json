@@ -253,7 +253,16 @@
         "time.setZone",
         "time.sync",
         "network.renewLease",
-        "network.flushDns"
+        "network.flushDns",
+        "system.security",
+        "software.list",
+        "startup.list",
+        "sessions.list",
+        "shares.list",
+        "reliability.list",
+        "disk.folders",
+        "dns.cache",
+        "power.status"
       ]
     },
     "rejectionCode": {

@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/software.list.schema.json",
+  "title": "software.list",
+  "description": "Installed programs and Windows hotfixes, for finding which cabinets have a program version or an update.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "programs",
+        "hotfixes",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "programs": {
+          "type": "array",
+          "maxItems": 1500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "version",
+              "publisher",
+              "installedOn"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "version": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "publisher": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "installedOn": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            }
+          }
+        },
+        "hotfixes": {
+          "type": "array",
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "description",
+              "installedOn"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "description": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "installedOn": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              }
+            }
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

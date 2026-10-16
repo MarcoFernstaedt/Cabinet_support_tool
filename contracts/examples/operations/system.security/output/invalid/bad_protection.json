@@ -1,0 +1,17 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "pendingReboot": {
+    "pending": false,
+    "reasons": []
+  },
+  "defender": null,
+  "bitlocker": [
+    {
+      "volume": "C:",
+      "protection": "maybe",
+      "percentEncrypted": null
+    }
+  ],
+  "activation": null,
+  "certificates": []
+}

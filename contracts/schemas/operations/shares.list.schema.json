@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/shares.list.schema.json",
+  "title": "shares.list",
+  "description": "The file shares the cabinet offers, for \"cannot open the shared folder\" calls.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "shares"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "shares": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "path",
+              "description",
+              "kind"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "../common.schema.json#/$defs/shortText"
+              },
+              "path": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "description": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "disk",
+                  "print",
+                  "ipc",
+                  "admin",
+                  "other"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
