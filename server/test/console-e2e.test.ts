@@ -131,7 +131,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     const fleetScanner = page.getByRole("region", { name: "Fingerprint scanner" });
     await fleetScanner.getByLabel(/Fleet default scanner IDs/).fill("USB\\VID_1234&PID_5678");
     await fleetScanner.getByRole("button", { name: "Save" }).click();
-    await confirmCode();
+    await page.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click(); // no authenticator code for scanner IDs
     await fleetScanner.getByText(/Saved\. Cabinets use it from their next heartbeat/).waitFor();
 
     await page.goto(origin);
