@@ -333,9 +333,13 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
     `SELECT source->>'log' AS log, source->>'source' AS source, (source->>'eventId')::int AS event_id, source->>'level' AS level, occurred_at,
             COALESCE(detail->>'message', '') AS message, (source->>'recordId')::bigint AS record_id
        FROM events WHERE cabinet_id = $1 AND kind IN ('error', 'change') AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
+  // Start types changed from the console are kept with the simulated cabinet, so the next read shows them.
+  const startTypes: Record<string, string> = {};
+  for (const r of (await pool.query<{ key: string; value: string }>("SELECT key, value #>> '{}' AS value FROM settings WHERE key LIKE $1", [`demo.starttype:${cabinetId}:%`])).rows)
+    startTypes[r.key.slice(`demo.starttype:${cabinetId}:`.length)] = r.value;
   const subnet = (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join(".");
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet,
-    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], syncBlocked: k.sync_blocked, now: new Date(),
+    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], startTypes, syncBlocked: k.sync_blocked, now: new Date(),
     timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,
     baseline: k.baseline ?? baselineFor(subnet), net: k.net ?? initialNet(k.scenario, k.baseline ?? baselineFor(subnet), subnet, Number(k.position)),
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
@@ -375,6 +379,10 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     const next = { ...ctx.net, address: after, prefixLength: ctx.baseline.prefixLength, gateway: ctx.baseline.gateway, dns: ctx.net.dnsAutomatic ? [...ctx.baseline.dnsServers] : ctx.net.dns };
     const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
     await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
+  }
+  if (command.operation === "service.setStartType") {
+    await pool.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()`,
+      [`demo.starttype:${cabinetId}:${String(command.params.name).toLowerCase()}`, safeJson(String((output as { after: string }).after))]);
   }
   // A corrected zone or synced clock shows in the next heartbeat, and its alert closes.
   if (command.operation === "time.setZone") {

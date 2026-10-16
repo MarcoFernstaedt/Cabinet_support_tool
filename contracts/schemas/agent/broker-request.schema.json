@@ -48,6 +48,7 @@
         "system.performance",
         "network.listeners",
         "service.control",
+        "service.setStartType",
         "time.status",
         "time.setZone",
         "time.sync",
@@ -137,6 +138,8 @@
                 "driver.uninstall",
                 "updates.uninstall",
                 "service.control",
+                "service.setStartType",
+                "service.setStartType",
                 "time.setZone",
                 "time.sync",
                 "network.renewLease",
@@ -733,6 +736,27 @@
         "properties": {
           "params": {
             "$ref": "../operations/network.flushDns.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "service.setStartType"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/service.setStartType.schema.json#/$defs/params"
           }
         }
       }

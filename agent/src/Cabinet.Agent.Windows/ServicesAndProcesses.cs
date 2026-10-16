@@ -67,6 +67,19 @@ public sealed class WindowsServicePlatform : IServicePlatform
         catch (InvalidOperationException) { return null; } // no such service
     }
 
+    /// <summary>sc.exe config, by full path with an argument array: the service's key name was checked against the live list first, and the start value is one of four fixed words.</summary>
+    public void SetStartType(string name, ServiceStartType startType)
+    {
+        if (KeyName(name) is not { } key) throw new ServiceControlException(1060, "No service has that key name.");
+        string word = startType switch
+        {
+            ServiceStartType.Automatic => "auto", ServiceStartType.AutomaticDelayed => "delayed-auto", ServiceStartType.Manual => "demand", ServiceStartType.Disabled => "disabled",
+            _ => throw new ServiceControlException(87, "Not a start type the agent sets."),
+        };
+        var r = ExternalProgram.Run("sc.exe", ["config", key, "start=", word], TimeSpan.FromSeconds(30));
+        if (r.ExitCode != 0) throw new ServiceControlException(r.ExitCode, "Windows refused.");
+    }
+
     public void Start(string name) => Control(name, sc => { sc.Start(); sc.WaitForStatus(ServiceControllerStatus.Running, Wait); });
 
     public void Stop(string name) => Control(name, sc =>

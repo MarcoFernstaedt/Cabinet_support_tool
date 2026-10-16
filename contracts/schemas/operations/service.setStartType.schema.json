@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/service.setStartType.schema.json",
+  "title": "service.setStartType",
+  "description": "Change one service's start type: automatic, automatic (delayed), manual or disabled. The same refused list as service.control applies; boot and system drivers are never changed.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "startType"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "../common.schema.json#/$defs/serviceName"
+        },
+        "startType": {
+          "type": "string",
+          "enum": [
+            "automatic",
+            "automatic_delayed",
+            "manual",
+            "disabled"
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "../common.schema.json#/$defs/serviceName"
+        },
+        "before": {
+          "$ref": "../common.schema.json#/$defs/serviceStartType"
+        },
+        "after": {
+          "$ref": "../common.schema.json#/$defs/serviceStartType"
+        }
+      }
+    }
+  }
+}

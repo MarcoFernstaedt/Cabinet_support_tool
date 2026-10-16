@@ -31,6 +31,12 @@ public sealed class FakeServices : IServicePlatform
 
     public string? KeyName(string name) => Services.Keys.FirstOrDefault(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase));
 
+    public void SetStartType(string name, ServiceStartType startType)
+    {
+        Calls.Add($"starttype {name} {startType}");
+        Services[name] = Services[name] with { Start = startType };
+    }
+
     public void Start(string name)
     {
         Calls.Add("start " + name);
@@ -269,5 +275,71 @@ public class ServiceDisplayNameTests
         foreach (string name in new[] { "termservice", "TERMSERVICE", "cabinetagentnetwork" })
             Assert.Throws<OperationFailedException>(() => control.Run(new ServiceControlParams { Name = name, Action = ServiceAction.Start }));
         Assert.Empty(platform.Calls);
+    }
+}
+
+public class ServiceStartTypeTests
+{
+    private static (ServiceControl Control, FakeServices Fake) Make() { var f = new FakeServices(); return (new ServiceControl(f, _ => { }), f); }
+    private static ServiceSetStartTypeParams P(string name, ServiceStartType t) => new() { Name = name, StartType = t };
+
+    [Fact]
+    public void A_disabled_service_can_be_set_to_manual_and_the_change_is_read_back()
+    {
+        var (c, f) = Make();
+        var o = c.SetStartType(P("DisabledSvc", ServiceStartType.Manual));
+        Assert.Equal((ServiceStartType.Disabled, ServiceStartType.Manual), (o.Before, o.After));
+        Assert.Contains("starttype DisabledSvc Manual", f.Calls);
+    }
+
+    [Fact]
+    public void An_unchanged_start_type_changes_nothing()
+    {
+        var (c, f) = Make();
+        c.SetStartType(P("BioScanSvc", ServiceStartType.Automatic));
+        Assert.Empty(f.Calls);
+    }
+
+    [Theory]
+    [InlineData("TermService")]
+    [InlineData("CabinetAgentNetwork")]
+    [InlineData("Remote Desktop Services")]
+    public void Refused_services_and_display_names_are_never_touched(string name)
+    {
+        var (c, f) = Make();
+        Assert.Throws<OperationFailedException>(() => c.SetStartType(P(name, ServiceStartType.Disabled)));
+        Assert.Empty(f.Calls);
+    }
+
+    [Theory]
+    [InlineData(ServiceStartType.Boot)]
+    [InlineData(ServiceStartType.System)]
+    [InlineData(ServiceStartType.Unknown)]
+    public void Only_four_start_types_can_be_set(ServiceStartType t)
+    {
+        var (c, f) = Make();
+        Assert.Throws<OperationFailedException>(() => c.SetStartType(P("BioScanSvc", t)));
+        Assert.Empty(f.Calls);
+    }
+
+    [Fact]
+    public void A_driver_start_type_is_never_changed()
+    {
+        var (c, f) = Make();
+        f.Services["disk"] = (ServiceState.Running, ServiceStartType.Boot);
+        Assert.Throws<OperationFailedException>(() => c.SetStartType(P("disk", ServiceStartType.Disabled)));
+        Assert.Empty(f.Calls);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("..\\evil")]
+    [InlineData("a;b")]
+    [InlineData("name with \"quote")]
+    public void Hostile_names_are_refused_before_any_lookup(string name)
+    {
+        var (c, f) = Make();
+        Assert.Throws<OperationFailedException>(() => c.SetStartType(P(name, ServiceStartType.Manual)));
+        Assert.Empty(f.Calls);
     }
 }

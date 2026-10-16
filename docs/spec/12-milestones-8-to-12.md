@@ -65,7 +65,7 @@ Most satellite-to-sync connection problems are solved by turning the Windows fir
   - services whose start type is Disabled, because starting one would quietly change a cabinet's configuration;
   - remote-access services, which stay off unless an administrator is at the cabinet. The list is compiled into the agent: TermService, UmRdpService, SessionEnv, RemoteRegistry, WinRM, RemoteAccess, sshd, TlntSvr, vncserver and the common VNC services.
 
-  The agent never changes a start type.
+  service.control never changes a start type; service.setStartType (Tier 1 and up, one click) does, for automatic, automatic (delayed), manual and disabled only. It applies the same refused list and exact key names, never touches driver (boot and system) services, goes through sc.exe config by full path with an argument array, and reads the result back. The watcher still never changes a start type.
 
 ### Watched services
 

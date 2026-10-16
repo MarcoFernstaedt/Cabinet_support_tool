@@ -83,6 +83,20 @@ public sealed record ServiceControlParams
     public required ServiceAction Action { get; init; }
 }
 
+public sealed record ServiceSetStartTypeParams
+{
+    public required string Name { get; init; }
+    /// <summary>Automatic, AutomaticDelayed, Manual or Disabled; boot and system are refused by the contract.</summary>
+    public required ServiceStartType StartType { get; init; }
+}
+
+public sealed record ServiceSetStartTypeOutput
+{
+    public required string Name { get; init; }
+    public required ServiceStartType Before { get; init; }
+    public required ServiceStartType After { get; init; }
+}
+
 public sealed record ServiceControlOutput
 {
     public required string Name { get; init; }

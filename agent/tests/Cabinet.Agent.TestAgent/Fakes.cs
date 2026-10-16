@@ -123,6 +123,15 @@ sealed class SimulatedServices(string simulateDir, Action<string> log) : Cabinet
         lock (_gate) { ApplyStops(); return _services.TryGetValue(name, out var s) ? (s.State, s.Start) : null; }
     }
 
+    public void SetStartType(string name, ServiceStartType startType)
+    {
+        lock (_gate)
+        {
+            if (!_services.TryGetValue(name, out var s)) throw new Cabinet.Agent.Core.Services.ServiceControlException(1060, "No such service.");
+            _services[name] = s with { Start = startType };
+        }
+    }
+
     public void Start(string name)
     {
         lock (_gate)

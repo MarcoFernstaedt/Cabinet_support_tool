@@ -16,6 +16,8 @@ export interface DemoContext {
   /** The cabinet's own stored error events, newest first, so the event log matches its alerts. */
   events: { log: string; source: string; eventId: number; level: string; occurredAt: string; message: string; recordId: number }[];
   watchedServices: string[];
+  /** Start types set from the console on this simulated cabinet, by lower-case service name. */
+  startTypes: Record<string, string>;
   /** Whether the site's sync cabinet (another cabinet) has a firewall profile on, so its ports do not answer. */
   syncBlocked: boolean;
   now: Date;
@@ -143,13 +145,17 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     case "services.list": {
       const o = example("services.list", "typical.json");
       const failing = ctx.scenario === "service_failing";
-      const bio = { ...o.services[0], state: failing ? "stopped" : "running", processId: failing ? null : 4100 + ctx.index };
+      const start = (name: string, fallback: string) => ctx.startTypes[name.toLowerCase()] ?? fallback;
+      const bio = { ...o.services[0], startType: start(o.services[0].name, o.services[0].startType), state: failing ? "stopped" : "running", processId: failing ? null : 4100 + ctx.index };
       const extra = [
         ["Spooler", "Print Spooler", "C:\\Windows\\System32\\spoolsv.exe"], ["W32Time", "Windows Time", "C:\\Windows\\system32\\svchost.exe"],
         ["Dnscache", "DNS Client", "C:\\Windows\\system32\\svchost.exe"], ["WbioSrvc", "Windows Biometric Service", "C:\\Windows\\system32\\svchost.exe"],
-        ["wuauserv", "Windows Update", "C:\\Windows\\system32\\svchost.exe"],
-      ].map(([name, displayName, path], i) => ({ name, displayName, state: name === "wuauserv" ? "stopped" : "running", startType: name === "wuauserv" ? "manual" : "automatic",
-        account: "LocalSystem", processId: name === "wuauserv" ? null : 900 + i * 37, executablePath: path, description: null, recovery: null }));
+        ["wuauserv", "Windows Update", "C:\\Windows\\system32\\svchost.exe"], ["BioUpdateSvc", "Biometric Update Service", "C:\\Program Files\\Biometrics\\update.exe"],
+      ].map(([name, displayName, path], i) => { name = name!;
+        const type = start(name!, name === "wuauserv" ? "manual" : name === "BioUpdateSvc" ? "disabled" : "automatic");
+        const running = name !== "wuauserv" && !(name === "BioUpdateSvc" && type === "disabled");
+        return { name, displayName, state: running ? "running" : "stopped", startType: type, account: "LocalSystem", processId: running ? 900 + i * 37 : null, executablePath: path, description: null, recovery: null };
+      });
       const watched = ctx.watchedServices.map(name => name.toLowerCase() === "bioscansvc"
         ? { name, state: failing ? "failing" : "running", serviceState: failing ? "stopped" : "running", restartsToday: failing ? 3 : 0,
             consecutiveFailures: failing ? 3 : 0, lastRestartAt: failing ? ago(ctx, 12) : null, lastError: failing ? 1053 : null, checkedAt: ago(ctx, 0) }
@@ -162,6 +168,11 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       const last = new Date(ctx.now.getTime() - 3 * 3_600_000).toISOString().replace(/\.\d{3}Z$/, "Z");
       return { result: "synced", message: "Windows Time synchronized the clock with time.windows.com,0x9.", lastSuccessfulSyncBefore: last,
         lastSuccessfulSyncAfter: ctx.now.toISOString().replace(/\.\d{3}Z$/, "Z") };
+    }
+    case "service.setStartType": {
+      const known: Record<string, string> = { wuauserv: "manual", bioupdatesvc: "disabled" };
+      const name = String(params.name).toLowerCase();
+      return { name: params.name, before: ctx.startTypes[name] ?? known[name] ?? "automatic", after: params.startType };
     }
     case "service.control": {
       const o = example("service.control");

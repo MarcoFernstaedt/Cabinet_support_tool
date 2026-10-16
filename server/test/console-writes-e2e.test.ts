@@ -248,6 +248,15 @@ test("writes in the console: library upload and two-person approval, install, fi
     await section(sam, "services");
     await sam.getByRole("row", { name: /Biometric Scanner Service/ }).waitFor({ timeout: 60_000 });
     assert.equal(await sam.getByRole("button", { name: /^(Start|Stop|Restart|Watch)$/ }).count(), 0, "Tier 1 only looks at services");
+    // A Tier 1 can change a start type: the disabled service is set to manual, and it is read back.
+    const disabledRow = sam.getByRole("row", { name: /A disabled service/ });
+    await disabledRow.getByRole("cell", { name: /^Disabled/ }).waitFor();
+    await disabledRow.getByRole("button", { name: "Change…" }).click();
+    await sam.getByLabel("Start type", { exact: true }).selectOption("manual");
+    await sam.getByRole("button", { name: "Review" }).click();
+    await sam.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await sam.getByText(/Service DisabledSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
+    await disabledRow.getByRole("cell", { name: /^Manual/ }).waitFor({ timeout: 60_000 });
 
     // ---- Services: Tess restarts the print spooler (one click) and watches the scanner service ----
     await section(tess, "services");
@@ -276,10 +285,11 @@ test("writes in the console: library upload and two-person approval, install, fi
     // Every write is in the audit log, by the person who confirmed it, and the chain is intact.
     const writes = (await db.app.query<{ op: string; actor: string }>(
       "SELECT details->>'operation' AS op, actor_id AS actor FROM audit_log WHERE action = 'command.write' ORDER BY seq")).rows;
-    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy", "service.control"]);
+    assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy", "service.setStartType", "service.control"]);
     assert.ok(writes.slice(0, 4).every(w => w.actor === people.tess.id));
     assert.equal(writes[4]!.actor, people.sam.id);
-    assert.equal(writes[5]!.actor, people.tess.id);
+    assert.equal(writes[5]!.actor, people.sam.id);
+    assert.equal(writes[6]!.actor, people.tess.id);
     assert.equal((await verifyAuditChain(db.app)).ok, true);
     assert.deepEqual(problems, []);
   } finally {

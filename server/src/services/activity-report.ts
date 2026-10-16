@@ -29,6 +29,7 @@ export function describeChange(operation: string, p: Record<string, unknown>, pa
     case "network.setDns": return p.mode === "automatic" ? "Set DNS to automatic" : `Set DNS servers to ${Array.isArray(p.servers) ? p.servers.map(s => clip(s, 15)).join(", ") : "?"}`;
     case "network.renewLease": return "Renewed the DHCP lease";
     case "network.flushDns": return "Flushed the DNS cache";
+    case "service.setStartType": return `Set service ${clip(p.name, 64)} to ${clip(p.startType, 20).replace("_", " ")}`;
     case "service.control": return `${clip(p.action, 10)[0]?.toUpperCase() ?? ""}${clip(p.action, 10).slice(1)} service ${clip(p.name, 64)}`;
     case "time.setZone": return `Set the time zone to ${clip(p.timeZoneId, 48)}`;
     case "time.sync": return "Synced the clock";

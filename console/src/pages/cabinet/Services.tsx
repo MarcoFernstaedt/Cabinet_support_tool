@@ -73,6 +73,9 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
   const { me } = useSession();
   const canControl = useCanWrite(cabinet, "service.control");
   const control = useConfirmedWrite<ServiceControlOutput>(cabinet, "service.control", r => { if (r.status === "succeeded") void op.start(); });
+  const canStartType = useCanWrite(cabinet, "service.setStartType");
+  const startType = useConfirmedWrite<{ name: string; before: string; after: string }>(cabinet, "service.setStartType", r => { if (r.status === "succeeded") void op.start(); });
+  const [editing, setEditing] = useState<{ name: string; type: string } | null>(null);
   const [filter, setFilter] = useState({ text: "", state: "any" });
   const [watchChange, setWatchChange] = useState<{ name: string; watch: boolean } | null>(null);
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -103,7 +106,22 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
               <tr key={s.name}>
                 <th scope="row">{s.displayName}<div className="muted small"><code>{s.name}</code>{s.processId ? ` · PID ${s.processId}` : ""}{isWatched(s.name) && <> · <Badge tone="info">Watched</Badge></>}</div></th>
                 <td><Badge tone={STATE[s.state]!.tone}>{STATE[s.state]!.label}</Badge></td>
-                <td>{START[s.startType]}</td>
+                <td>{editing?.name === s.name
+                  ? <form className="row gap wrap" aria-label={`Change the start type of ${s.displayName}`} onSubmit={e => {
+                      e.preventDefault();
+                      const type = editing.type;
+                      startType.ask({ name: s.name, startType: type }, <>
+                        <p>Set the start type of <strong>{s.displayName}</strong> (<code>{s.name}</code>) from <strong>{START[s.startType]}</strong> to <strong>{START_CHOICES.find(c => c[0] === type)?.[1]}</strong>.</p>
+                        {type === "disabled" && <p className="notice warn">A disabled service cannot be started, by Windows or by anyone, until it is set to another start type.</p>}
+                        <p className="muted small">The service is not started or stopped by this change.</p></>);
+                      setEditing(null);
+                    }}>
+                      <select aria-label="Start type" value={editing.type} onChange={e => setEditing({ name: s.name, type: e.target.value })}>
+                        {START_CHOICES.filter(c => c[0] !== s.startType).map(c => <option key={c[0]} value={c[0]}>{c[1]}</option>)}</select>
+                      <button className="btn small primary">Review</button><button type="button" className="btn small ghost" onClick={() => setEditing(null)}>Cancel</button>
+                    </form>
+                  : <>{START[s.startType]}{canStartType && ["automatic", "automatic_delayed", "manual", "disabled"].includes(s.startType)
+                    && <> <button className="btn small ghost" onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
                   {s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>
@@ -121,6 +139,8 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
     </OperationPanel>
     <WriteOutcome run={control.run} done={o => <>Service {o.name}: {o.action} done; it is now {STATE[o.after]?.label.toLowerCase() ?? o.after}.</>} />
     {control.dialog}
+    <WriteOutcome run={startType.run} done={o => <>Service {o.name}: start type changed from {START[o.before as keyof typeof START] ?? o.before} to {START[o.after as keyof typeof START] ?? o.after}.</>} />
+    {startType.dialog}
     <ConfirmDialog open={watchChange !== null} onClose={() => setWatchChange(null)}
       description={watchChange && <p>{watchChange.watch ? "Watch" : "Stop watching"} <strong>{watchChange.name}</strong> on {cabinet.name}.
         {" "}This gives the cabinet its own watch list{levels.data?.source !== "cabinet" ? `, starting from ${SOURCE[levels.data?.source ?? "none"]}` : ""}.
@@ -134,6 +154,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
   </>);
 }
 
+const START_CHOICES: [string, string][] = [["automatic", "Automatic"], ["automatic_delayed", "Automatic (delayed)"], ["manual", "Manual"], ["disabled", "Disabled"]];
 const megabytes = (b: number) => `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 
 export function Processes({ cabinetId }: { cabinetId: string }) {

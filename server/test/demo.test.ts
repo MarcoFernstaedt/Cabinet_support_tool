@@ -104,7 +104,7 @@ test("every simulated answer, for every operation and every scenario, passes the
       for (const file of readdirSync(paramsDir)) {
         const params = JSON.parse(readFileSync(join(paramsDir, file), "utf8"));
         const ctx: DemoContext = { hostname: "CAB-01S01", role: "sync", scenario, subnet: "10.21.4", index: 1, now: new Date(),
-          firewallProfiles: { domain: scenario === "firewall_drift", private: false, public: scenario === "firewall_drift" }, watchedServices: ["BioScanSvc", "Spooler"], syncBlocked: scenario === "healthy",
+          firewallProfiles: { domain: scenario === "firewall_drift", private: false, public: scenario === "firewall_drift" }, startTypes: {}, watchedServices: ["BioScanSvc", "Spooler"], syncBlocked: scenario === "healthy",
           timeZoneId: scenario === "time_zone_wrong" ? "Mountain Standard Time" : "US Mountain Standard Time", clockSkewSeconds: scenario === "clock_drift" ? 437 : 0.3,
           baseline: baselineFor("10.21.4"), net: initialNet(scenario, baselineFor("10.21.4"), "10.21.4", 1),
           events: scenarioEvents(scenario).filter(e => e.source).map(e => ({ log: e.source!.log, source: e.source!.source, eventId: e.source!.eventId, level: e.source!.level,

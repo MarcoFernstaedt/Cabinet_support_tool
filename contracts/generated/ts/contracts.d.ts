@@ -467,6 +467,7 @@ export interface CommandRequest {
     | "services.list"
     | "processes.list"
     | "service.control"
+    | "service.setStartType"
     | "time.status"
     | "time.setZone"
     | "time.sync"
@@ -1178,6 +1179,7 @@ export interface Command {
     | "services.list"
     | "processes.list"
     | "service.control"
+    | "service.setStartType"
     | "time.status"
     | "time.setZone"
     | "time.sync"
@@ -2801,6 +2803,23 @@ export interface ServiceControlOutput {
     | "unknown";
 }
 
+export interface ServiceSetStartTypeParams {
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  name: string;
+  startType: "automatic" | "automatic_delayed" | "manual" | "disabled";
+}
+
+export interface ServiceSetStartTypeOutput {
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  name: string;
+  before: "automatic" | "automatic_delayed" | "manual" | "disabled" | "boot" | "system" | "unknown";
+  after: "automatic" | "automatic_delayed" | "manual" | "disabled" | "boot" | "system" | "unknown";
+}
+
 /**
  * Operations that take no parameters accept only an empty object.
  */
@@ -2926,7 +2945,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -2964,6 +2983,7 @@ export interface OperationTypes {
   "updates.uninstall": { params: UpdatesUninstallParams; output: UpdatesUninstallOutput };
   "driver.uninstall": { params: DriverUninstallParams; output: DriverUninstallOutput };
   "service.control": { params: ServiceControlParams; output: ServiceControlOutput };
+  "service.setStartType": { params: ServiceSetStartTypeParams; output: ServiceSetStartTypeOutput };
   "time.status": { params: TimeStatusParams; output: TimeStatusOutput };
   "time.setZone": { params: TimeSetZoneParams; output: TimeSetZoneOutput };
   "time.sync": { params: TimeSyncParams; output: TimeSyncOutput };

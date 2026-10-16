@@ -31,6 +31,7 @@
     {"name": "updates.uninstall", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "driver.uninstall", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "service.control", "kind": "write", "minimumRole": "tier2", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
+    {"name": "service.setStartType", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
     {"name": "time.status", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "time.setZone", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},
     {"name": "time.sync", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"},

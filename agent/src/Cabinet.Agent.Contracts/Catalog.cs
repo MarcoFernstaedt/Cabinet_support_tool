@@ -43,6 +43,7 @@ public static class Catalog
     public const string ServicesList = "services.list";
     public const string ProcessesList = "processes.list";
     public const string ServiceControl = "service.control";
+    public const string ServiceSetStartType = "service.setStartType";
     public const string TimeStatus = "time.status";
     public const string TimeSetZone = "time.setZone";
     public const string TimeSync = "time.sync";
@@ -90,6 +91,7 @@ public static class Catalog
         Write<DriverUninstallParams, DriverUninstallOutput>(DriverUninstall, safetyNet: false, Confirm.Code),
         Write<UpdatesUninstallParams, UpdatesUninstallOutput>(UpdatesUninstall, safetyNet: false, Confirm.Code),
         Write<ServiceControlParams, ServiceControlOutput>(ServiceControl, safetyNet: false, Confirm.Click),
+        Write<ServiceSetStartTypeParams, ServiceSetStartTypeOutput>(ServiceSetStartType, safetyNet: false, Confirm.Click, "tier1"),
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
         Write<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(NetworkRenewLease, safetyNet: false, Confirm.Click, "tier1"),

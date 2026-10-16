@@ -1,0 +1,6 @@
+{
+  "name": "BioScanSvc",
+  "before": "disabled",
+  "after": "manual",
+  "cmd": "x"
+}

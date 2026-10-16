@@ -140,7 +140,7 @@ test("catalog rules follow the security model", () => {
       assert.ok(["click", "code"].includes(op.confirm), `${op.name}: every write is confirmed`);
       // Tier 1 may change the firewall profiles (docs/spec/12-milestones-8-to-12.md) and correct the time zone and clock
       // (module 21, docs/spec/13-roadmap.md); every other write is Tier 2 and up.
-      const tier1 = ["firewall.setProfile", "firewall.applyPolicy", "time.setZone", "time.sync", "network.renewLease", "network.flushDns"];
+      const tier1 = ["firewall.setProfile", "firewall.applyPolicy", "time.setZone", "time.sync", "network.renewLease", "network.flushDns", "service.setStartType"];
       assert.equal(op.minimumRole, tier1.includes(op.name) ? "tier1" : "tier2", op.name);
       assert.equal(op.rateClass, "write", op.name);
     }

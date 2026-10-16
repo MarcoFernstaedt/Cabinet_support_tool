@@ -18,6 +18,8 @@ public interface IServicePlatform
     /// <summary>Starts the service and waits (bounded) for it to run. Throws <see cref="ServiceControlException"/> with the Windows error code.</summary>
     void Start(string name);
     void Stop(string name);
+    /// <summary>Sets the start type (automatic, delayed automatic, manual or disabled). Throws <see cref="ServiceControlException"/> with the Windows error code.</summary>
+    void SetStartType(string name, ServiceStartType startType);
 }
 
 /// <summary>A start or stop Windows refused, with its Windows error code.</summary>
@@ -53,6 +55,7 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
 {
     public OperationRegistry Register(OperationRegistry registry) => registry
         .Register<ServiceControlParams, ServiceControlOutput>(Catalog.ServiceControl, (p, _) => Task.FromResult(Run(p)))
+        .Register<ServiceSetStartTypeParams, ServiceSetStartTypeOutput>(Catalog.ServiceSetStartType, (p, _) => Task.FromResult(SetStartType(p)))
         .Register<EmptyParams, ServicesListOutput>(Catalog.ServicesList, (_, _) => Task.FromResult(List()));
 
     /// <summary>The watcher whose status services.list reports; set by the broker when it starts.</summary>
@@ -63,6 +66,29 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
         Services = platform.List().OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase).Take(1000).ToList(),
         Watched = Watcher?.Status() ?? [],
     };
+
+    /// <summary>service.setStartType: the same refused list and exact key names as service.control; drivers (boot and system) are never changed.</summary>
+    public ServiceSetStartTypeOutput SetStartType(ServiceSetStartTypeParams p)
+    {
+        if (!ServiceRules.IsValidName(p.Name)) throw new OperationFailedException("invalid_params", "Not a service name.");
+        if (p.StartType is not (ServiceStartType.Automatic or ServiceStartType.AutomaticDelayed or ServiceStartType.Manual or ServiceStartType.Disabled))
+            throw new OperationFailedException("invalid_params", "A start type is automatic, automatic (delayed), manual or disabled.");
+        if (ServiceRules.IsRefused(p.Name)) throw new OperationFailedException("execution_failed", $"The agent never changes {p.Name}.");
+        string key = platform.KeyName(p.Name) ?? throw new OperationFailedException("not_found", "No service has that key name (display names are not accepted).");
+        if (ServiceRules.IsRefused(key)) throw new OperationFailedException("execution_failed", $"The agent never changes {key}.");
+        var facts = platform.Query(key) ?? throw new OperationFailedException("not_found", "No service has that name.");
+        if (facts.StartType is ServiceStartType.Boot or ServiceStartType.System or ServiceStartType.Unknown)
+            throw new OperationFailedException("execution_failed", "The start type of a driver or an unreadable service is never changed.");
+        try { if (facts.StartType != p.StartType) platform.SetStartType(key, p.StartType); }
+        catch (ServiceControlException e)
+        {
+            log($"Service {p.Name}: start type change failed (Windows error {e.Code}).");
+            throw new OperationFailedException("execution_failed", $"Windows could not change the start type (error {e.Code}).");
+        }
+        var after = platform.Query(key)?.StartType ?? ServiceStartType.Unknown;
+        log($"Service {p.Name}: start type {facts.StartType} -> {after}.");
+        return new ServiceSetStartTypeOutput { Name = p.Name, Before = facts.StartType, After = after };
+    }
 
     public ServiceControlOutput Run(ServiceControlParams p)
     {

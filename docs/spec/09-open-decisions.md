@@ -450,3 +450,7 @@ TCP series are limited to 10 attempts (ping stays at 20): answered by the team, 
 ### Cash drawer check
 
 Built as a panel on the Network tab from existing reads (`network.config` twice, `firewall.state`) and the existing `firewall.setProfile`. The drawer network is `172.20.1.0/24` (the team first wrote 176.20.1.0 and confirmed 172). The check matches the whole /24. Open: should the range be an Admin platform setting instead of a constant in `console/src/lib/drawer.ts` and `server/src/diagnose/network-findings.ts`? Left as a constant.
+
+### Service start types (answered)
+
+Owner: Tier 1 and Tier 2 can change a service's start type. Built as `service.setStartType` (Tier 1 and up, one click, the same refused list as service.control, drivers never). Registry and scheduled-task changes: not answered, not built. Driver and whole-Windows rollback: not for now. DigitalPersona hardware IDs: to follow.
