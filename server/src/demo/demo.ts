@@ -17,7 +17,7 @@ import type { Event } from "../contracts.js";
 import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageErrors, hostnameFor, wrongZoneFor, type Scenario } from "./fleet.js";
 import { evaluateTime } from "../services/time.js";
 import { checkSiteOutages } from "../services/site-outage.js";
-import { demoOutput, type DemoContext } from "./outputs.js";
+import { demoOutput, examplesAvailable, type DemoContext } from "./outputs.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
 import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
@@ -352,7 +352,7 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
   const startedAt = iso(Date.now());
   let output: unknown;
   try { output = demoOutput(command.operation, command.params, ctx); }
-  catch { output = undefined; }
+  catch (e) { console.error(`demo answer for ${command.operation} failed: ${(e as Error).message}`); output = undefined; }
   const result = output === undefined
     ? { commandId: command.commandId, status: "failed" as const, startedAt, finishedAt: iso(Date.now()), error: { code: "unavailable" as never, message: "The simulated cabinet has no answer for this operation." } }
     : { commandId: command.commandId, status: "succeeded" as const, startedAt, finishedAt: iso(Date.now()), output };
@@ -410,7 +410,10 @@ export class DemoSimulator {
   private busy = false;
   constructor(private readonly pool: pg.Pool, private readonly log: (message: string) => void, private readonly tickMs = 1000, private readonly answerDelayMs: readonly [number, number] = [300, 1200]) {}
 
-  start(): void { this.timer = setInterval(() => void this.tick(), this.tickMs); }
+  start(): void {
+    if (!examplesAvailable()) this.log("demo cabinets cannot answer: the contract examples are missing from this installation (deploy/Dockerfile must copy contracts/examples)");
+    this.timer = setInterval(() => void this.tick(), this.tickMs);
+  }
   stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
 
   async tick(): Promise<void> {

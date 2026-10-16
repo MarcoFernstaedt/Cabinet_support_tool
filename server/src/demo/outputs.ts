@@ -3,7 +3,7 @@
 // it does a real agent's (storeResult), so a demo answer can never show something a real cabinet could not.
 import { applySetDns, applySetIp, dnsAnswers, reachesGateway, type DemoNet } from "./network.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
 import type { Scenario } from "./fleet.js";
@@ -28,6 +28,9 @@ export interface DemoContext {
   net: DemoNet;
   baseline: NetworkBaseline;
 }
+
+/** Whether the contract examples the simulated cabinets answer from are on disk (a deployment must ship them). */
+export const examplesAvailable = (): boolean => existsSync(EXAMPLES);
 
 const cache = new Map<string, unknown>();
 /** A deep copy of one valid output example of the operation (the named file, else the first). */
