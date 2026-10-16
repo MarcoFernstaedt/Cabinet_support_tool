@@ -64,7 +64,9 @@ if (-not $SkipSourceFolderCheck) { foreach ($folder in @($sourceFull) + @(Get-Ch
     }
 } }
 #  - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
-$unsigned = Get-ChildItem -LiteralPath $sourceFull -Recurse -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
+# -File is required: on Windows PowerShell 5.1, -Include also returns matching *directories*,
+# and Get-AuthenticodeSignature cannot take a directory.
+$unsigned = Get-ChildItem -LiteralPath $sourceFull -Recurse -File -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
 if ($unsigned) {
     if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
     Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
