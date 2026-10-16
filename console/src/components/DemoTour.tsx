@@ -154,7 +154,7 @@ export function DemoTour() {
       let ok = false;
       try { ok = action.done(); } catch { ok = false; }
       if (ok) { try { sessionStorage.setItem(key, "1"); } catch { /* storage unavailable */ } setComplete(true); clearInterval(t); }
-    }, 400);
+    }, 150);
     return () => clearInterval(t);
   }, [place?.tour, place?.step]); // eslint-disable-line react-hooks/exhaustive-deps
   const body = setup ? (setup.reset ? { enabled: true as const, reset: true as const } : { enabled: true as const }) : {};

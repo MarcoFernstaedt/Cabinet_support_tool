@@ -67,7 +67,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // With SHOTS set, every step is photographed after it settles, for reviewing the screens.
     let shots = 0;
     const next = async () => {
-      await page.getByRole("button", { name: "Next" }).click();
+      await page.getByRole("button", { name: "Next" }).click({ timeout: 20_000 }).catch(async e => { throw new Error(`${e.message}\nTour panel: ${await page.locator(".demo-tour").innerText()}`); });
       if (process.env.SHOTS) { await page.waitForTimeout(2500); await page.screenshot({ path: `${process.env.SHOTS}/tour-${String(++shots).padStart(2, "0")}.png` }); }
     };
     // Step 1 takes you to the site; step 2 is one cabinet, Exam Room 1, checked on its own.
@@ -113,6 +113,8 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("heading", { name: "Operating Room", level: 1 }).waitFor();
     await marked('[data-tour="full-read"]');
     await page.getByText(/Packet loss to the gateway/).first().waitFor({ timeout: 60_000 });
+    await page.locator("summary", { hasText: "Everything that was read" }).click();
+    await page.locator(".demo-tour").getByText("Done.", { exact: true }).waitFor();
     // Nothing can be saved while the problem is still there. After the repair (the cable is swapped) the next check is clean, and only then is it offered.
     assert.equal(await page.getByRole("button", { name: "Save what fixed this…" }).count(), 0, "no save offer while the problem is present");
     await db.app.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE name = 'Operating Room'");
@@ -157,6 +159,8 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await next();
     await page.getByRole("heading", { name: "Event log inspection" }).waitFor();
     await page.getByText(/Microsoft-Windows-Biometrics/).first().waitFor({ timeout: 30_000 });
+    await page.locator('[data-tour="event-entry"]', { hasText: "Biometrics" }).first().click();
+    await page.locator("#entry-heading").waitFor({ timeout: 60_000 });
     await next();
     await page.getByRole("heading", { name: "Event-to-issue mapping" }).waitFor();
     await marked('[data-tour="map-to-issue"]');
@@ -199,6 +203,11 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await next();
     await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
     await marked('[data-tour="create-token"]');
+    await page.getByRole("button", { name: "Create install token" }).click();
+    clock += 30_000;
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByRole("link", { name: "Download token.txt" }).waitFor();
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),
