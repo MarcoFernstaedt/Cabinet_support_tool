@@ -335,6 +335,11 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .demo-tour { position: fixed; right: var(--s-4); bottom: var(--s-4); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));
   background: var(--surface); border: 1px solid var(--accent); border-radius: var(--r-lg); padding: var(--s-4); box-shadow: var(--shadow); }
 .demo-tour.left { right: auto; left: var(--s-4); }
+.demo-tour.anchored { right: auto; bottom: auto; }
+/* Everything but the control the step is about: a hole in a dark layer. The page underneath stays clickable. */
+.tour-spot { position: fixed; z-index: 30; pointer-events: none; border-radius: var(--r-md); box-shadow: 0 0 0 100vmax rgba(4, 9, 16, .62), 0 0 0 2px var(--accent); transition: all .25s ease; animation: tour-fade .5s ease; }
+@keyframes tour-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tour-spot, .demo-tour.anchored { transition: none; animation: none; } }
 .demo-tour h2 { font-size: var(--fs-lg); }
 
 /* Wide tables scroll inside their panel rather than the page, at phone width too. */

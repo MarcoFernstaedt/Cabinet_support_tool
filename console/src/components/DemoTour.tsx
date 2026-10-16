@@ -1,7 +1,7 @@
 // The guided demo tour (docs/platform/demo.md): a small panel at the side of the page, not a popup, that walks a presenter
 // through the platform while they use the real console. Each step says what to show and opens the right page; the
 // presenter can skip, go back, stop or start again at any time. Its position is kept for this browser tab only.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, ApiError, describeError } from "../lib/api";
 import { useSession } from "../lib/session";
 import { StepUpDialog } from "./ui";
@@ -124,6 +124,7 @@ export function DemoTour() {
   // (a check takes a few seconds), so it keeps looking for up to a minute and a half.
   const [looks, setLooks] = useState(0);
   const [found, setFound] = useState<"looking" | "found" | "missing" | null>(null);
+  const [targetEl, setTargetEl] = useState<HTMLElement | null>(null);
   const target = place ? steps[place.step]?.target : undefined;
   const targetKey = target ? `${target.selector}|${target.text ?? ""}` : "";
   useEffect(() => {
@@ -134,14 +135,39 @@ export function DemoTour() {
     const look = () => {
       if (stopped) return;
       const el = [...document.querySelectorAll<HTMLElement>(target.selector)].find(e => !target.text || (e.textContent ?? "").includes(target.text));
-      if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("tour-target"); marked = el; setFound("found"); return; }
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("tour-target"); marked = el; setTargetEl(el); setFound("found"); return; }
       if (Date.now() - started > 90_000) { setFound("missing"); return; }
       timer = setTimeout(look, 400);
     };
     look();
-    return () => { stopped = true; if (timer) clearTimeout(timer); marked?.classList.remove("tour-target"); };
+    return () => { stopped = true; if (timer) clearTimeout(timer); marked?.classList.remove("tour-target"); setTargetEl(null); };
   }, [place?.tour, place?.step, path, looks, targetKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const step = place?.step ?? null;
+  // Focus: the page is shown whole for a moment, then everything but the control the step is about is dimmed, and the guide sits beside that control
+  // instead of over it. "Focus" in the guide turns the dimming off.
+  const [focus, setFocus] = useState(true);
+  const [dim, setDim] = useState(false);
+  const [spot, setSpot] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    setDim(false);
+    if (!targetEl) { setSpot(null); setPos(null); return; }
+    const timer = setTimeout(() => setDim(true), 700);
+    let last = "";
+    const measure = () => {
+      if (!targetEl.isConnected) return;
+      const r = targetEl.getBoundingClientRect();
+      const key = [r.top, r.left, r.width, r.height, window.innerWidth, window.innerHeight, panel.current?.offsetHeight ?? 0].map(Math.round).join(",");
+      if (key === last) return;
+      last = key;
+      setSpot({ top: r.top - 6, left: r.left - 6, width: r.width + 12, height: r.height + 12 });
+      setPos(panelPosition(r, 380, panel.current?.offsetHeight ?? 260));
+    };
+    measure();
+    const t = setInterval(measure, 120);
+    return () => { clearTimeout(timer); clearInterval(t); };
+  }, [targetEl]);
   // A step that asks for something is complete once the page shows it was done; that is remembered, so going back and forward never asks twice.
   const action = place && step !== null ? steps[step]?.action : undefined;
   const [complete, setComplete] = useState(false);
@@ -176,7 +202,8 @@ export function DemoTour() {
   const gated = !!action && (found === "found" || !s.target);
   return (<>
     {dialog}
-    <aside className={`demo-tour${left ? " left" : ""}`} aria-labelledby="demo-tour-title" aria-live="polite">
+    {focus && dim && spot && <div className="tour-spot" aria-hidden="true" style={spot} />}
+    <aside ref={panel} className={`demo-tour${left ? " left" : ""}${pos ? " anchored" : ""}`} aria-labelledby="demo-tour-title" aria-live="polite" style={pos ? { top: pos.top, left: pos.left } : undefined}>
       <p className="muted small">Guided demo · {TOURS[place.tour]!.name} · step {step + 1} of {steps.length}</p>
       <h2 id="demo-tour-title">{s.title}</h2>
       <p>{s.body}</p>
@@ -188,9 +215,21 @@ export function DemoTour() {
         {step < steps.length - 1 ? <button className="btn small primary" disabled={gated && !complete} onClick={() => go(step + 1)}>Next</button>
           : <button className="btn small primary" onClick={() => go(null)}>Finish</button>}
         {found === "missing" && <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Look again</button>}
+        {targetEl && <button className="btn small ghost" aria-pressed={focus} onClick={() => setFocus(f => !f)} title="Dim everything except what this step is about">Focus {focus ? "on" : "off"}</button>}
         <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen" title="Move panel">{left ? "⇥" : "⇤"}</button>
         <button className="btn small ghost" onClick={() => go(null)} aria-label="Stop the guided demo">Stop</button>
       </div>
     </aside>
   </>);
+}
+
+/** Where the guide goes so it does not cover the control: beside it if there is room, else below or above; null puts it back in the corner. */
+function panelPosition(r: DOMRect, width: number, height: number): { top: number; left: number } | null {
+  const vw = window.innerWidth, vh = window.innerHeight, gap = 18, edge = 12;
+  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+  if (r.right + gap + width + edge <= vw) return { left: r.right + gap, top: clamp(r.top, edge, vh - height - edge) };
+  if (r.left - gap - width >= edge) return { left: r.left - gap - width, top: clamp(r.top, edge, vh - height - edge) };
+  if (r.bottom + gap + height + edge <= vh) return { top: r.bottom + gap, left: clamp(r.left, edge, vw - width - edge) };
+  if (r.top - gap - height >= edge) return { top: r.top - gap - height, left: clamp(r.left, edge, vw - width - edge) };
+  return null;
 }
