@@ -470,3 +470,12 @@ A code on an edit helps only against one threat: someone using a signed-in brows
 | Site time zone, watched services | No (already one click) | Time zone changes no cabinet; the watch list only restarts services, never changes a start type, and refuses remote-access services. |
 
 Every edit is role-limited and audited with who, what and the before and after. A one-time token sent to the scanner or baseline endpoints is still accepted and used up, so older clients keep working.
+
+### Decisions, October 2026 (owner)
+
+- **Tier 2 may change or delete any Windows firewall rule by exact name** (C8): yes. It stays audited and bounded by the safety net.
+- **No second approvals** for policy changes unless clearly better; the authenticator code on firewall policy and sync-cabinet changes stands as decided above.
+- **No printer features** (queue, spooler clearing, printer reads).
+- **No email, chat or Salesforce integration.** Case notes stay copy and paste.
+- **New device sign-ins are shown.** The server remembers each browser by a random device cookie (only its hash is stored). A sign-in from a device or network the account had not used before is marked in the person's own sign-in list, announced to them right after sign-in, listed for Admins, and raises a security alert. An account's first device is not "new".
+- **Cookies** carry the `__Host-` prefix (C6): Secure, HttpOnly, SameSite=Strict, Path=/, no Domain. Everyone is signed out once when this is deployed.

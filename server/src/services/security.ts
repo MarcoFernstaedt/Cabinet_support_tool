@@ -7,7 +7,7 @@ import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 
-export type SecurityKind = "write_volume" | "failed_logins" | "failed_step_ups" | "new_location" | "audit_chain"
+export type SecurityKind = "write_volume" | "failed_logins" | "failed_step_ups" | "new_location" | "new_device" | "audit_chain"
   | "agent_self_check" | "package_refused" | "signature_failure" | "certificate";
 
 export interface SecurityAlertInput {
@@ -86,18 +86,4 @@ export function networkOf(address: string): string {
     return groups.slice(0, 4).map(g => (parseInt(g, 16) || 0).toString(16)).join(":") + "::/64";
   }
   return a.slice(0, 64);
-}
-
-/**
- * Records a successful sign-in's network. A network the account has not used before raises a security alert,
- * except on the account's first sign-in ever, which has nothing to compare with.
- */
-export async function noteSignInNetwork(db: Queryable, userId: string, username: string, address: string): Promise<void> {
-  const network = networkOf(address);
-  const known = (await db.query<{ network: string }>("SELECT network FROM user_networks WHERE user_id = $1", [userId])).rows;
-  await db.query(`INSERT INTO user_networks (user_id, network) VALUES ($1, $2)
-                  ON CONFLICT (user_id, network) DO UPDATE SET last_seen = now()`, [userId, network]);
-  if (known.length > 0 && !known.some(k => k.network === network))
-    await raiseSecurityAlert(db, { kind: "new_location", signature: `new_location|${userId}|${network}`, userId,
-      title: `${username} signed in from a network not used before`, detail: { network, address, knownNetworks: known.map(k => k.network).slice(0, 10) } });
 }

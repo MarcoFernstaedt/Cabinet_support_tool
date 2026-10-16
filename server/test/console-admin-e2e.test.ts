@@ -230,11 +230,11 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
 
     await goto("/admin/security");
     const list = ada.getByRole("list", { name: /Security alerts/ });
-    for (const kind of ["Repeated failed sign-ins", "Repeated failed confirmations", "Sign-in from a new network", "Unusual write volume", "Audit chain break",
+    for (const kind of ["Repeated failed sign-ins", "Repeated failed confirmations", "Sign-in from a new network", "Sign-in from a new device", "Unusual write volume", "Audit chain break",
       "Agent self-check failed", "Package refused", "Signature failure", "Revoked or unknown certificate"])
       await list.getByRole("listitem").filter({ hasText: kind }).first().waitFor({ timeout: 10_000 });
-    assert.equal(await list.getByRole("listitem").count(), 9);
-    await ada.getByRole("link", { name: /Admin/ }).filter({ hasText: "9" }).first().waitFor();
+    assert.equal(await list.getByRole("listitem").count(), 10);
+    await ada.getByRole("link", { name: /Admin/ }).filter({ hasText: "10" }).first().waitFor();
     await a11y(ada, "security alerts");
     await shot(ada, "m6-5-security-alerts");
     // Close one, with what was found and a code.

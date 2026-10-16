@@ -4,7 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
 
 export type Stage = "totp" | "totp_setup" | "password_change" | "complete";
-export const COOKIE = "cabinet_session";
+export { SESSION_COOKIE as COOKIE } from "./cookies.js";
 
 export interface SessionPolicy { idleMinutes: number; absoluteHours: number; }
 export const DEFAULT_POLICY: SessionPolicy = { idleMinutes: 30, absoluteHours: 12 };
@@ -16,12 +16,17 @@ export interface SessionUser {
 
 export const hashId = (id: string): Buffer => createHash("sha256").update(id, "utf8").digest();
 
-export async function createSession(db: Queryable, userId: string, stage: Stage, address: string, policy = DEFAULT_POLICY): Promise<string> {
+export async function createSession(db: Queryable, userId: string, stage: Stage, address: string, policy = DEFAULT_POLICY, signInId: number | null = null): Promise<string> {
   const id = randomBytes(32).toString("base64url");
-  await db.query(`INSERT INTO sessions (id_hash, user_id, stage, expires_at, address) VALUES ($1, $2, $3, now() + make_interval(hours => $4), $5)`,
-    [hashId(id), userId, stage, policy.absoluteHours, address]);
+  await db.query(`INSERT INTO sessions (id_hash, user_id, stage, expires_at, address, sign_in_id) VALUES ($1, $2, $3, now() + make_interval(hours => $4), $5, $6)`,
+    [hashId(id), userId, stage, policy.absoluteHours, address, signInId]);
+  if (stage === "complete") await markSignInCompleted(db, hashId(id));
   return id;
 }
+
+/** A sign-in is complete once its session has passed every stage (password, authenticator, any setup). */
+const markSignInCompleted = (db: Queryable, sessionHash: Buffer) =>
+  db.query("UPDATE sign_ins SET completed = true WHERE id = (SELECT sign_in_id FROM sessions WHERE id_hash = $1)", [sessionHash]);
 
 /**
  * The session and its user, if the session is live. A person's own request touches it, extending the idle
@@ -43,8 +48,10 @@ export async function loadSession(db: Queryable, id: string | undefined, policy 
     totpEnabled: row.totp_enabled, mustChangePassword: row.must_change_password, tourCompleted: row.tour_completed, canApproveFixes: row.role === "admin" || (row.role === "tier2" && row.can_approve_fixes) };
 }
 
-export const setStage = (db: Queryable, sessionHash: Buffer, stage: Stage) =>
-  db.query("UPDATE sessions SET stage = $2 WHERE id_hash = $1", [sessionHash, stage]);
+export async function setStage(db: Queryable, sessionHash: Buffer, stage: Stage): Promise<void> {
+  await db.query("UPDATE sessions SET stage = $2 WHERE id_hash = $1", [sessionHash, stage]);
+  if (stage === "complete") await markSignInCompleted(db, sessionHash);
+}
 
 export const endSession = (db: Queryable, sessionHash: Buffer) => db.query("DELETE FROM sessions WHERE id_hash = $1", [sessionHash]);
 

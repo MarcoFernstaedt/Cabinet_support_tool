@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/sign-in-filter.schema.json",
+  "title": "sign-in-filter",
+  "description": "The sign-in list's filter, from the query string: all recent sign-ins, or only those from a network or device the account had not used before.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scope": {
+      "type": "string",
+      "enum": [
+        "all",
+        "new"
+      ]
+    }
+  },
+  "required": []
+}

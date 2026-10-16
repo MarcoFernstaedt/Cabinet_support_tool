@@ -19,7 +19,7 @@ import { checkUserMatch, decide, ISSUE, matches, matchSql, type LiveRule } from 
 import { verifyAuditChain } from "../src/db/db.js";
 import type { Event, SymptomMatch } from "../src/contracts.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 let db: TestDatabase;
@@ -46,7 +46,7 @@ async function call(method: "GET" | "POST", url: string, body?: unknown, cookie?
   const r = await app.inject({ method, url, headers, ...(body === undefined ? {} : { payload: JSON.stringify(body) }) });
   const set = r.headers["set-cookie"];
   let parsed: unknown = r.body; try { parsed = JSON.parse(r.body); } catch { /* not JSON */ }
-  return { status: r.statusCode, body: parsed, ...(typeof set === "string" ? { cookie: set.split(";")[0]! } : {}) };
+  return { status: r.statusCode, body: parsed, ...(firstCookie(set) ? { cookie: firstCookie(set)! } : {}) };
 }
 async function signIn(a: Account): Promise<string> {
   const r = await call("POST", "/api/auth/login", { username: a.username, password: a.password });

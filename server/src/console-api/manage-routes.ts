@@ -2,6 +2,7 @@
 // activity, the audit log, clients and sites, issue types and suppressions, fleet safety,
 // settings and security alerts. Admin only; every change needs a step-up token for that exact
 // action and target, and every body and query is checked against its contract first.
+import { allSignIns } from "../services/sign-ins.js";
 import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
@@ -183,6 +184,12 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   app.get("/api/admin/security-alerts", async request => {
     await asAdmin(request);
     return listSecurityAlerts(o.pool, consoleBodies.securityAlertFilter.parse(request.query).state ?? "open");
+  });
+
+  /** Every account's recent sign-ins; "new" shows only those from a network or device the account had not used before. */
+  app.get("/api/admin/sign-ins", async request => {
+    await asAdmin(request);
+    return { signIns: await allSignIns(o.pool, consoleBodies.signInFilter.parse(request.query).scope ?? "all") };
   });
 
   app.get("/api/admin/security-alerts/summary", async request => { await asAdmin(request); return { open: await openSecurityAlertCount(o.pool) }; });

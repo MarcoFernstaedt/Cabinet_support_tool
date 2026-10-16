@@ -5,6 +5,7 @@ import { atLeast, roleName, useSession } from "../lib/session";
 import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 import { WritePauseBanner } from "../lib/writes";
 import { DemoBanner } from "./DemoBanner";
+import { SignInNotice } from "./SignIns";
 import { AdminLink, SecurityToasts } from "./SecurityCenter";
 import { FixesLink } from "./KnownFixes";
 
@@ -77,6 +78,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </header>
       <WritePauseBanner />
       <DemoBanner />
+      <SignInNotice />
       <main id="main" ref={main} tabIndex={-1}>{children}</main>
       <MajorAlertToasts />
       {atLeast(me, "admin") && <SecurityToasts />}

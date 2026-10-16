@@ -35,7 +35,7 @@ jobs:
         run: dotnet build agent/Cabinet.Agent.sln -c Release
       - name: Console builds (strict TypeScript)
         working-directory: console
-        run: npm ci && npm run build && npm audit --audit-level=low
+        run: npm ci && npm run build && npm test && npm audit --audit-level=low
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
         timeout-minutes: 15
@@ -66,6 +66,18 @@ jobs:
           rm -f "$RUNNER_TEMP/load-state.json"
           kill %1 || true
           exit $status
+      - name: Agent packages have no known vulnerabilities (direct and indirect)
+        run: |
+          dotnet list agent/Cabinet.Agent.sln package --vulnerable --include-transitive 2>&1 | tee "$RUNNER_TEMP/nuget-audit.txt"
+          ! grep -q "has the following vulnerable packages" "$RUNNER_TEMP/nuget-audit.txt"
+      - name: Software bill of materials (CycloneDX, one per Node project)
+        run: |
+          mkdir -p "$RUNNER_TEMP/sbom"
+          for d in contracts console server; do (cd $d && npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/sbom/$d.cdx.json"); done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom
       - name: Agent contracts and core (validation, replay, rate limits, broker protocol)
         run: |
           dotnet test agent/tests/Cabinet.Agent.Contracts.Tests -c Release --no-build

@@ -15,7 +15,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
 let db: TestDatabase;
@@ -51,7 +51,7 @@ async function call(method: "GET" | "POST" | "PUT", url: string, body?: unknown,
   if (origin) headers.origin = origin;
   const r = body === undefined ? await app.inject({ method, url, headers }) : await app.inject({ method, url, headers, payload: JSON.stringify(body) });
   const set = r.headers["set-cookie"];
-  const c = typeof set === "string" ? set.split(";")[0] : undefined;
+  const c = firstCookie(set);
   let parsed: unknown = r.body; try { parsed = JSON.parse(r.body); } catch { /* not JSON */ }
   return { status: r.statusCode, body: parsed, ...(c ? { cookie: c } : {}), headers: r.headers };
 }

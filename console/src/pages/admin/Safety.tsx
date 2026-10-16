@@ -10,6 +10,7 @@ import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
+import { AllSignIns } from "../../components/SignIns";
 import { useLoad } from "../../lib/useLoad";
 
 interface Safety {
@@ -84,7 +85,7 @@ interface SecurityRow {
 }
 
 const KIND: Record<string, string> = {
-  write_volume: "Unusual write volume", failed_logins: "Repeated failed sign-ins", failed_step_ups: "Repeated failed confirmations", new_location: "Sign-in from a new network",
+  write_volume: "Unusual write volume", failed_logins: "Repeated failed sign-ins", failed_step_ups: "Repeated failed confirmations", new_location: "Sign-in from a new network", new_device: "Sign-in from a new device",
   audit_chain: "Audit chain break", agent_self_check: "Agent self-check failed", package_refused: "Package refused", signature_failure: "Signature failure",
   certificate: "Revoked or unknown certificate",
 };
@@ -127,6 +128,10 @@ export function SecurityAlerts() {
             ) : <p className="small">Closed by {a.resolvedBy} {fullTime(a.resolvedAt)}: {a.resolution}</p>}
           </li>))}
         </ul>))}
+      <section className="panel" aria-labelledby="signins-heading">
+        <h2 id="signins-heading">Sign-ins</h2>
+        <AllSignIns />
+      </section>
       {step.dialog}
     </div>
   );

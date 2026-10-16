@@ -5,7 +5,10 @@ import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passwords.js";
 import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
-import { noteSignInNetwork, raiseSecurityAlertNow } from "../services/security.js";
+import { raiseSecurityAlertNow } from "../services/security.js";
+import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
+import { DEVICE_MAX_AGE_SECONDS, recordSignIn } from "../auth/devices.js";
+import { DEVICE_COOKIE, readCookie, setCookie } from "../auth/cookies.js";
 import { issueStepUpToken } from "../auth/stepup.js";
 import * as totp from "../auth/totp.js";
 import { Refused } from "../services/errors.js";
@@ -71,16 +74,28 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       // The failure count is cleared only when sign-in needs no authenticator code. Otherwise it is cleared by a correct
       // code: a correct password must not reset the count, or someone holding it could guess codes without ever locking.
       if (stage !== "totp") await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
-      await noteSignInNetwork(c, user.id, body.username, request.ip);
+      const signIn = await recordSignIn(c, { userId: user.id, username: body.username, address: request.ip, userAgent: request.headers["user-agent"],
+        deviceCookie: readCookie(request, DEVICE_COOKIE) });
       if (stage === "complete") await c.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
-      await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded", details: { stage, source: request.ip } });
-      return createSession(c, user.id, stage, request.ip, policy);
+      await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded",
+        details: { stage, source: request.ip, newNetwork: signIn.newNetwork, newDevice: signIn.newDevice } });
+      return { session: await createSession(c, user.id, stage, request.ip, policy, signIn.signInId), device: signIn.deviceValue };
     });
-    setSessionCookie(reply, id, policy.absoluteHours * 3600);
+    setSessionCookie(reply, id.session, policy.absoluteHours * 3600);
+    setCookie(reply, DEVICE_COOKIE, id.device, DEVICE_MAX_AGE_SECONDS);
     return { stage };
   });
 
-  app.get("/api/auth/me", async request => describe(await o.guards.session(request)));
+  app.get("/api/auth/me", async request => {
+    const u = await o.guards.session(request);
+    return { ...describe(u), signIn: u.stage === "complete" ? await sessionSignIn(o.pool, u.sessionHash) : null };
+  });
+
+  /** The signed-in person's own recent sign-ins, with any from a network or device they had not used before marked. */
+  app.get("/api/auth/sign-ins", async request => {
+    const u = await o.guards.session(request);
+    return { signIns: await ownSignIns(o.pool, u.userId) };
+  });
 
   app.post("/api/auth/totp", async (request, reply) => {
     if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });

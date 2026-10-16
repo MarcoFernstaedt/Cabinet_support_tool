@@ -8,6 +8,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import type pg from "pg";
 import { ContractError } from "../contracts.js";
 import { loadSession, policyFrom, COOKIE, type SessionPolicy, type SessionUser } from "../auth/sessions.js";
+import { clearCookie, readCookie, setCookie } from "../auth/cookies.js";
 import { SettingsCache } from "../services/settings.js";
 import type { SecretBox } from "../auth/secrets.js";
 import type { IssuingKey } from "../pki/x509.js";
@@ -118,13 +119,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
     return reply.code(500).send({ error: "server_error" });
   });
 
-  const cookie = (request: FastifyRequest): string | undefined => {
-    for (const part of (request.headers.cookie ?? "").split(";")) {
-      const [k, ...v] = part.trim().split("=");
-      if (k === COOKIE) return v.join("=");
-    }
-    return undefined;
-  };
+  const cookie = (request: FastifyRequest): string | undefined => readCookie(request, COOKIE);
 
   const settings = o.settings ?? new SettingsCache(o.pool);
   const policy = async (): Promise<SessionPolicy> => o.policy ?? policyFrom(await settings.get());
@@ -189,10 +184,6 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   return app;
 }
 
-export const setSessionCookie = (reply: FastifyReply, id: string, maxAgeSeconds: number): void => {
-  reply.header("Set-Cookie", `${COOKIE}=${id}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`);
-};
+export const setSessionCookie = (reply: FastifyReply, id: string, maxAgeSeconds: number): void => setCookie(reply, COOKIE, id, maxAgeSeconds);
 
-export const clearSessionCookie = (reply: FastifyReply): void => {
-  reply.header("Set-Cookie", `${COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`);
-};
+export const clearSessionCookie = (reply: FastifyReply): void => clearCookie(reply, COOKIE);

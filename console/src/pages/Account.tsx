@@ -2,6 +2,7 @@ import { CaseNotes } from "../components/CaseNotes";
 import { useState } from "react";
 import { roleName, useSession } from "../lib/session";
 import { PasswordChange, TotpSetup } from "./SignIn";
+import { OwnSignIns } from "../components/SignIns";
 
 export function Account({ onTour }: { onTour: () => void }) {
   const { me, refresh } = useSession();
@@ -26,6 +27,10 @@ export function Account({ onTour }: { onTour: () => void }) {
         <h2>Two-factor sign-in</h2>
         {me.totpEnabled ? <p>On. You sign in with your authenticator app, and confirm changes that need a code with it. It stays on for every account; an admin can reset it if you lose your phone.</p>
           : <><p>Off. Turn it on to protect your account with an authenticator app.</p><button className="btn" onClick={() => setMode("totp")}>Turn on two-factor</button></>}
+      </section>
+      <section className="panel">
+        <h2>Recent sign-ins</h2>
+        <OwnSignIns />
       </section>
       <section className="panel">
         <h2>Password</h2>

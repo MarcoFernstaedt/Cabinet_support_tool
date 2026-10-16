@@ -909,6 +909,13 @@ export interface SecurityAlertResolve {
 }
 
 /**
+ * The sign-in list's filter, from the query string: all recent sign-ins, or only those from a network or device the account had not used before.
+ */
+export interface SignInFilter {
+  scope?: "all" | "new";
+}
+
+/**
  * Creates a site in a client.
  */
 export interface SiteCreate {

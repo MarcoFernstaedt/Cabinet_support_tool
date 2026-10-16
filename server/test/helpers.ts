@@ -48,3 +48,6 @@ export async function setUpAuthenticatorInBrowser(page: { locator(s: string): { 
   await page.getByRole("button", { name: "Turn on two-factor" }).click();
   return secret;
 }
+
+/** The session cookie ("name=value") from a reply's Set-Cookie header, which is one string or, once a device cookie is set too, a list. */
+export const firstCookie = (set: unknown): string | undefined => { const s = Array.isArray(set) ? set[0] : set; return typeof s === "string" ? s.split(";")[0] : undefined; };
