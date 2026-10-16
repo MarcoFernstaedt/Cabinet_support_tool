@@ -62,3 +62,9 @@ test("hostile readings do not break the analysis", () => {
   assert.ok(a.lines.length > 0);
   assert.doesNotThrow(() => drawerText("x", a));
 });
+
+test("the drawer address is built from the drawer network and a usable last number, never from other text", async () => {
+  const { drawerAddressParams } = await import("../src/lib/drawer.ts");
+  assert.deepEqual(drawerAddressParams(7, "10"), { interfaceIndex: 7, mode: "static", address: "172.20.1.10", prefixLength: 24 });
+  for (const bad of ["", "0", "255", "256", "1.5", "10 ", "1e1", "-1", "0010x", "1000", "١٠"]) assert.equal(drawerAddressParams(7, bad), null, bad);
+});

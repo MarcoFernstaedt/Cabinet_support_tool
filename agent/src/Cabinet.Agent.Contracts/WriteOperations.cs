@@ -27,6 +27,7 @@ public sealed record NetworkSetIpOutput
 public sealed record NetworkRenewLeaseParams
 {
     public required int InterfaceIndex { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Release { get; init; }
 }
 
 public sealed record NetworkFlushDnsOutput

@@ -33,6 +33,8 @@
         "package.install",
         "driver.uninstall",
         "updates.uninstall",
+        "system.restart",
+        "process.end",
         "package.upload",
         "package.approve",
         "package.retire",

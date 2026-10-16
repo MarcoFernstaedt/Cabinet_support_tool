@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/process.end.schema.json",
+  "title": "process.end",
+  "description": "End one running process, named by its ID and its name together, so a process that has since ended and whose ID was reused is never touched. Windows' own processes, the security software and the platform's agent are refused. Ends it the way Task Manager's End task does (no shell, no command line).",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processId",
+        "name"
+      ],
+      "properties": {
+        "processId": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "name": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processId",
+        "name",
+        "ended"
+      ],
+      "properties": {
+        "processId": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "name": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "ended": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

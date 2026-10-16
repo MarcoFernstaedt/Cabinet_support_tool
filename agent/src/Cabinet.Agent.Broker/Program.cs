@@ -51,7 +51,7 @@ public sealed class BrokerService : ServiceBase
         var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher };
         // Time zone and clock (module 21): time.status, time.setZone, time.sync.
         var time = new TimeOperations(new WindowsTimePlatform(), _log.Write);
-        var registry = InventoryOperations.Register(time.Register(WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry()))))));
+        var registry = ActionOperations.Register(InventoryOperations.Register(time.Register(WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry())))))));
         // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
         var authenticode = new WindowsAuthenticode();
         var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),

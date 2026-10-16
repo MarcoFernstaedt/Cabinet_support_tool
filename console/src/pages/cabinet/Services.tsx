@@ -3,7 +3,7 @@
 // restart (Tier 2 and up, a confirmation click); and the processes, as Task Manager shows them. The agent refuses its own
 // and remote-access services and never changes a start type; the server checks every role again.
 import { useEffect, useState, type ReactNode } from "react";
-import type { ProcessesListOutput, ServiceControlOutput, ServicesListOutput, SystemPerformanceOutput } from "@mashura/cabinet-contracts/types";
+import type { ProcessEndOutput, ProcessesListOutput, ServiceControlOutput, ServicesListOutput, SystemPerformanceOutput } from "@mashura/cabinet-contracts/types";
 import { api, describeError } from "../../lib/api";
 import { useOperation } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
@@ -157,7 +157,10 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
 const START_CHOICES: [string, string][] = [["automatic", "Automatic"], ["automatic_delayed", "Automatic (delayed)"], ["manual", "Manual"], ["disabled", "Disabled"]];
 const megabytes = (b: number) => `${(b / 1024 / 1024).toFixed(b < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 
-export function Processes({ cabinetId }: { cabinetId: string }) {
+export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
+  const cabinetId = cabinet.id;
+  const end = useConfirmedWrite<ProcessEndOutput>(cabinet, "process.end", r => { if (r.status === "succeeded") refresh(); });
+  const canEnd = useCanWrite(cabinet, "process.end");
   const op = useOperation<ProcessesListOutput>(cabinetId, "processes.list");
   const perf = useOperation<SystemPerformanceOutput>(cabinetId, "system.performance");
   const [text, setText] = useState("");
@@ -190,20 +193,28 @@ export function Processes({ cabinetId }: { cabinetId: string }) {
           </div>
           <table className="table compact">
             <caption className="sr-only">Running processes</caption>
-            <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Threads</th><th scope="col">Handles</th><th scope="col">Account</th><th scope="col">Started</th></tr></thead>
+            <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Threads</th><th scope="col">Handles</th><th scope="col">Account</th><th scope="col">Started</th>{canEnd && <th scope="col"><span className="sr-only">End</span></th>}</tr></thead>
             <tbody>{shown.slice(0, 500).map(p => (
               <tr key={p.processId}>
                 <th scope="row">{p.name}{p.executablePath && <div className="muted small wrap">{p.executablePath}</div>}</th>
                 <td>{p.processId}</td><td>{p.cpuPercent.toFixed(1)}%</td><td>{megabytes(p.workingSetBytes)}</td><td>{p.threads}</td><td>{p.handles}</td>
                 <td className="small">{p.account ?? <span className="muted">—</span>}</td><td className="small">{p.startTime ? ago(p.startTime) : <span className="muted">—</span>}</td>
+                {canEnd && <td>{mayEnd(p) && <button className="btn small ghost" aria-label={`End ${p.name} (${p.processId})`} onClick={() => end.ask({ processId: p.processId, name: p.name },
+                  <><p>End <strong>{p.name}</strong> (process {p.processId}).</p><p className="muted small">Anything it has not saved is lost. The cabinet ends it only if the ID and the name still match.</p></>)}>End</button>}</td>}
               </tr>))}
             </tbody>
           </table>
         </>);
       }}
     </OperationPanel>
+    <WriteOutcome run={end.run} done={o => o.ended ? <>Ended {o.name}.</> : <>{o.name} did not end within 5 seconds.</>} />
+    {end.dialog}
   </>);
 }
+
+/** A hint for hiding the button on Windows' own processes; the agent refuses them whatever the console shows. */
+const mayEnd = (p: { processId: number; name: string }) => p.processId > 4 && !["system", "registry", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe", "lsass.exe", "svchost.exe"].includes(p.name.toLowerCase())
+  && !p.name.toLowerCase().startsWith("cabinet.agent");
 
 type P = ProcessesListOutput["processes"][number];
 

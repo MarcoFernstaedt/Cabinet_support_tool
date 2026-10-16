@@ -23,6 +23,9 @@ export async function issueFromConsole(pool: pg.Pool, user: { userId: string; ro
   const entry = catalog.get(operation)!;
   if (ROLE_RANK[user.role] < ROLE_RANK[entry.minimumRole as Role]) throw new Refused("forbidden", 403, "your role cannot run this operation");
 
+  if (operation === "system.restart" && params.mode === "shutdown" && ROLE_RANK[user.role] < ROLE_RANK.admin)
+    throw new Refused("forbidden", 403, "only an Admin can shut a cabinet down: it stays off until someone switches it on");
+
   if (operation === "firewall.setRule") {
     // Checked against its schema first, so the rule checks below read only a valid rule.
     if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");

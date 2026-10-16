@@ -59,6 +59,10 @@ public static class Catalog
     public const string DiskFolders = "disk.folders";
     public const string DnsCache = "dns.cache";
     public const string PowerStatus = "power.status";
+    public const string SystemRestart = "system.restart";
+    public const string ProcessEnd = "process.end";
+    public const string SystemCheckHealth = "system.checkHealth";
+    public const string PowerSet = "power.set";
     public const string NetworkRenewLease = "network.renewLease";
     public const string NetworkFlushDns = "network.flushDns";
 
@@ -96,6 +100,7 @@ public static class Catalog
         Read<DiskFoldersParams, DiskFoldersOutput>(DiskFolders),
         Read<EmptyParams, DnsCacheOutput>(DnsCache),
         Read<EmptyParams, PowerStatusOutput>(PowerStatus),
+        Read<EmptyParams, SystemCheckHealthOutput>(SystemCheckHealth),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),
         Read<EmptyParams, TimeStatusOutput>(TimeStatus),
@@ -113,6 +118,9 @@ public static class Catalog
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
         Write<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(NetworkRenewLease, safetyNet: false, Confirm.Click, "tier1"),
+        Write<SystemRestartParams, SystemRestartOutput>(SystemRestart, safetyNet: false, Confirm.Code, "tier2"),
+        Write<ProcessEndParams, ProcessEndOutput>(ProcessEnd, safetyNet: false, Confirm.Code, "tier2"),
+        Write<PowerSetParams, PowerSetOutput>(PowerSet, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, NetworkFlushDnsOutput>(NetworkFlushDns, safetyNet: false, Confirm.Click, "tier1"),
     };
 

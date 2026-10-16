@@ -1,0 +1,6 @@
+{
+  "setting": "usb_selective_suspend",
+  "before": true,
+  "after": false,
+  "shell": "cmd"
+}

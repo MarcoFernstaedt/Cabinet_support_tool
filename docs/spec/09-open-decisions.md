@@ -479,3 +479,23 @@ Every edit is role-limited and audited with who, what and the before and after. 
 - **No email, chat or Salesforce integration.** Case notes stay copy and paste.
 - **New device sign-ins are shown.** The server remembers each browser by a random device cookie (only its hash is stored). A sign-in from a device or network the account had not used before is marked in the person's own sign-in list, announced to them right after sign-in, listed for Admins, and raises a security alert. An account's first device is not "new".
 - **Cookies** carry the `__Host-` prefix (C6): Secure, HttpOnly, SameSite=Strict, Path=/, no Domain. Everyone is signed out once when this is deployed.
+
+### Support actions and Windows reads, October 2026 (built, not yet run on a real cabinet)
+
+Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `sessions.list`, `shares.list`, `reliability.list`, `disk.folders`, `dns.cache`, `power.status`) and four actions, all in the fixed catalog, served by the broker:
+
+| Operation | Who | Confirmation | What it runs |
+|---|---|---|---|
+| `system.restart` | Tier 2 (shutdown: Admin only) | authenticator code, bound to the parameters | `shutdown.exe` by full path, argument array, message as one element; delay 0 to 3600 s; `cancel` runs `shutdown /a`. |
+| `process.end` | Tier 2 | authenticator code | Ends one process named by ID **and** name together. Windows' own processes, the security software, remote-access tools and the agent are refused (compiled-in list). |
+| `system.checkHealth` | Tier 1 (read) | none | `dism.exe /Online /Cleanup-Image /CheckHealth`: looks only. The answer is read by exact English phrases; anything else is "not clear". |
+| `power.set` | Tier 1 | one click | USB selective suspend through `powercfg.exe` (both power sources, then re-applies the plan); Fast Startup by writing the single registry value `HiberbootEnabled`. |
+
+- **Registry write (decision to confirm):** Fast Startup has no `powercfg` switch other than turning hibernation off, so the broker writes the one fixed value `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power\HiberbootEnabled`. No other registry value can be written; there is no generic registry operation.
+- **Shutdown is Admin-only** because a shut-down cabinet stays off until someone switches it on. The server checks this; the agent has no notion of roles.
+- `network.setIp` accepts a static address **without a gateway** (a link with no router, such as the cash drawer's). With no gateway the agent clears any gateway left from before; Windows may refuse the empty list on some builds, in which case the address is still set.
+- `network.renewLease` accepts `release: true`: give the lease back, then ask for a new one.
+- The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: a fixed `172.20.1.n/24` with no gateway, the last number typed by the person.
+- Scheduled-task last and next run times and logon times are empty in this version (Windows needs per-task calls for them).
+
+**Open question for the owner:** whether Fast Startup should be changeable at Tier 1 as built, or Tier 2 like the other settings that survive a restart.

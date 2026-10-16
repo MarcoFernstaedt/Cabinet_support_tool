@@ -31,10 +31,13 @@ public interface INetworkControl
     /// <exception cref="OperationFailedException">not_found when no adapter has this index.</exception>
     (Ipv4Settings Ip, DnsSettings Dns) Read(int interfaceIndex);
     void SetDhcp(int interfaceIndex);
-    void SetStatic(int interfaceIndex, string address, int prefixLength, string gateway);
+    /// <summary>A static address; <paramref name="gateway"/> is null for a link that has no router, and then no gateway is left set.</summary>
+    void SetStatic(int interfaceIndex, string address, int prefixLength, string? gateway);
     void SetDns(int interfaceIndex, DnsSettings dns);
     /// <summary>Asks the DHCP server for a new lease (the adapter's RenewDHCPLease); returns Windows' result code, 0 for success.</summary>
     int RenewLease(int interfaceIndex);
+    /// <summary>Gives the current lease back (the adapter's ReleaseDHCPLease); returns Windows' result code, 0 for success.</summary>
+    int ReleaseLease(int interfaceIndex);
     /// <summary>Empties the DNS resolver cache; true when Windows reported success.</summary>
     bool FlushDns();
     /// <summary>Puts back settings read earlier (the safety net's rollback).</summary>

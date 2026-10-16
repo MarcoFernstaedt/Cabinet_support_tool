@@ -1,0 +1,5 @@
+{
+  "mode": "restart",
+  "delaySeconds": 300,
+  "message": "Restarting to finish updates. Save your work."
+}

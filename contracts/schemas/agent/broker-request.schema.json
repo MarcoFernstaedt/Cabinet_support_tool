@@ -62,7 +62,11 @@
         "reliability.list",
         "disk.folders",
         "dns.cache",
-        "power.status"
+        "power.status",
+        "system.restart",
+        "process.end",
+        "system.checkHealth",
+        "power.set"
       ]
     },
     "params": {
@@ -161,7 +165,11 @@
                 "reliability.list",
                 "disk.folders",
                 "dns.cache",
-                "power.status"
+                "power.status",
+                "system.restart",
+                "process.end",
+                "system.checkHealth",
+                "power.set"
               ]
             }
           },
@@ -964,6 +972,90 @@
         "properties": {
           "params": {
             "$ref": "../operations/power.status.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "system.restart"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.restart.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "process.end"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/process.end.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "system.checkHealth"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.checkHealth.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "power.set"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/power.set.schema.json#/$defs/params"
           }
         }
       }

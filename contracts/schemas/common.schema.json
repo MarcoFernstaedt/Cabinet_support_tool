@@ -262,7 +262,11 @@
         "reliability.list",
         "disk.folders",
         "dns.cache",
-        "power.status"
+        "power.status",
+        "system.restart",
+        "process.end",
+        "system.checkHealth",
+        "power.set"
       ]
     },
     "rejectionCode": {

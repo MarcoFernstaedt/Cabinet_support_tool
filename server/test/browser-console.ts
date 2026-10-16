@@ -1,0 +1,72 @@
+// A whole console for browser tests: a database, the console API serving the built console, and one Admin who signs in with a code.
+import { randomBytes, randomUUID } from "node:crypto";
+import { createServer } from "node:net";
+import type { Page } from "playwright";
+import { buildConsoleApi } from "../src/console-api/server.js";
+import { ResultStream } from "../src/console-api/stream.js";
+import { SecretBox } from "../src/auth/secrets.js";
+import { hashPassword } from "../src/auth/passwords.js";
+import * as totp from "../src/auth/totp.js";
+import { developmentIssuingKey } from "../src/pki/issuing.js";
+import { createTestDatabase, type TestDatabase } from "./database.js";
+import { tempDir } from "./helpers.js";
+
+const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
+
+export interface Console {
+  db: TestDatabase; origin: string; adminId: string; password: string;
+  /** A current authenticator code (moves the test clock on, so each code is new). */
+  code(): Promise<string>;
+  signIn(page: Page): Promise<void>;
+  /** From the signed-in Fleet page: sets the guided demo up (the simulated fleet) and closes its panel. */
+  startDemo(page: Page): Promise<void>;
+  /** Confirms the open dialog with a fresh authenticator code. */
+  confirmWithCode(page: Page): Promise<void>;
+  close(): Promise<void>;
+}
+
+/** A fresh install with one Admin (username ada.admin) who has not yet seen the getting-started tour. */
+export async function startConsole(staticDir: string): Promise<Console> {
+  const db = await createTestDatabase();
+  let clock = Date.now();
+  const port = await freePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const secrets = new SecretBox(randomBytes(32).toString("base64"));
+  const stream = new ResultStream(db.appUrl, db.app);
+  await stream.start();
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir, ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
+  await app.listen({ host: "127.0.0.1", port });
+  const password = "correct horse battery staple";
+  const secret = totp.newSecret();
+  const adminId = randomUUID();
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, false)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
+  const code = async () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
+  const confirmWithCode = async (page: Page) => {
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(await code());
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+  };
+  return {
+    db, origin, adminId, password, code,
+    async signIn(page) {
+      await page.goto(origin);
+      await page.getByLabel("Username").fill("ada.admin");
+      await page.getByLabel("Password").fill(password);
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await page.getByLabel(/6-digit code/).fill(await code());
+      await page.getByRole("button", { name: "Continue" }).click();
+      await page.getByRole("button", { name: "Skip tour" }).click();
+      await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
+    },
+    confirmWithCode,
+    async startDemo(page) {
+      await page.getByRole("link", { name: "Admin", exact: true }).click();
+      await page.getByRole("link", { name: /Set up and demo/ }).click();
+      await page.getByRole("button", { name: "Start the guided demo" }).click();
+      await confirmWithCode(page);
+      await page.locator("aside.demo-tour").getByRole("heading", { name: "Site overview" }).waitFor({ timeout: 60_000 });
+      await page.locator("aside.demo-tour").getByRole("button", { name: "Stop" }).click();
+    },
+    async close() { await app.close(); await stream.stop(); await db.drop(); },
+  };
+}

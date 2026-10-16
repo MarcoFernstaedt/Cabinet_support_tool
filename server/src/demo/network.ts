@@ -56,7 +56,7 @@ export function applySetIp(n: DemoNet, b: NetworkBaseline, subnet: string, index
     const next: DemoNet = { ...n, mode: "dhcp", address: `${subnet}.${100 + index}`, prefixLength: b.prefixLength, gateway: b.gateway };
     return n.dnsAutomatic ? { ...next, dns: [...b.dnsServers] } : next;
   }
-  return { ...n, mode: "static", address: p.address!, prefixLength: p.prefixLength!, gateway: p.gateway! };
+  return { ...n, mode: "static", address: p.address!, prefixLength: p.prefixLength!, gateway: p.gateway ?? null };
 }
 /** The change network.setDns makes. */
 export function applySetDns(n: DemoNet, b: NetworkBaseline, p: { mode: string; servers?: string[] }): DemoNet {

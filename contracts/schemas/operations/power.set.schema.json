@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/power.set.schema.json",
+  "title": "power.set",
+  "description": "Turn one power setting on or off: USB selective suspend (Windows switching USB ports off to save power, a common reason a scanner or drawer drops out) on the active power plan, or Fast Startup. Changes the one fixed setting only.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setting",
+        "enabled"
+      ],
+      "properties": {
+        "setting": {
+          "type": "string",
+          "enum": [
+            "usb_selective_suspend",
+            "fast_startup"
+          ]
+        },
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "setting",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "setting": {
+          "type": "string",
+          "enum": [
+            "usb_selective_suspend",
+            "fast_startup"
+          ]
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "after": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

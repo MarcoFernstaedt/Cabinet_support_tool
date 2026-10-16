@@ -37,11 +37,15 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             var entry = new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Network, InterfaceIndex = p.InterfaceIndex, IpBefore = ip, DnsBefore = dns };
             if (p.Mode == IpMode.Static)
             {
-                uint address = Ipv4(p.Address!), gateway = Ipv4(p.Gateway!);
-                uint mask = p.PrefixLength == 32 ? uint.MaxValue : ~(uint.MaxValue >> p.PrefixLength!.Value);
-                if ((address & mask) != (gateway & mask) || address == gateway)
-                    throw new OperationFailedException("execution_failed", "The gateway must be another address on the same subnet.");
-                ArmIfPartlyApplied(entry, () => network.SetStatic(p.InterfaceIndex, p.Address!, p.PrefixLength!.Value, p.Gateway!));
+                if (p.Address is null || p.PrefixLength is null) throw new OperationFailedException("invalid_params", "A static address needs an address and a prefix length.");
+                if (p.Gateway is not null)
+                {
+                    uint address = Ipv4(p.Address), gateway = Ipv4(p.Gateway);
+                    uint mask = p.PrefixLength == 32 ? uint.MaxValue : ~(uint.MaxValue >> p.PrefixLength.Value);
+                    if ((address & mask) != (gateway & mask) || address == gateway)
+                        throw new OperationFailedException("execution_failed", "The gateway must be another address on the same subnet.");
+                }
+                ArmIfPartlyApplied(entry, () => network.SetStatic(p.InterfaceIndex, p.Address, p.PrefixLength.Value, p.Gateway));
             }
             else ArmIfPartlyApplied(entry, () => network.SetDhcp(p.InterfaceIndex));
             DateTimeOffset deadline = safetyNet.Arm(entry);
@@ -50,7 +54,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
     }
 
     /// <summary>
-    /// Asks the DHCP server for a new lease. It changes no setting, so there is nothing for the safety net to undo; an adapter
+    /// Asks the DHCP server for a new lease, after giving the old one back when asked to. It changes no setting, so there is nothing for the safety net to undo; an adapter
     /// with a fixed address is left alone. "Renewed" needs a real address afterwards (not the 169.254 one Windows gives itself).
     /// </summary>
     public NetworkRenewLeaseOutput RenewLease(NetworkRenewLeaseParams p)
@@ -61,6 +65,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             string? before = FirstAddress(network.Read(p.InterfaceIndex).Ip);
             if (!network.Read(p.InterfaceIndex).Ip.Dhcp)
                 return new() { InterfaceIndex = p.InterfaceIndex, Result = RenewLeaseResult.NotDhcp, Message = "This adapter has a fixed address, so there is no lease to renew.", AddressBefore = before, AddressAfter = before };
+            if (p.Release == true) network.ReleaseLease(p.InterfaceIndex);
             int code = network.RenewLease(p.InterfaceIndex);
             string? after = FirstAddress(network.Read(p.InterfaceIndex).Ip);
             bool leased = code == 0 && after is not null && !after.StartsWith("169.254.", StringComparison.Ordinal);

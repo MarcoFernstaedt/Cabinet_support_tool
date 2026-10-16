@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.restart.schema.json",
+  "title": "system.restart",
+  "description": "Restart or shut down the cabinet after a delay, with a message shown to anyone at the screen, or cancel a restart or shutdown that is waiting. Runs shutdown.exe by full path with an argument array. A cabinet that is shut down stays off until someone switches it on, so the console asks for an Admin for that.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "restart",
+            "shutdown",
+            "cancel"
+          ]
+        },
+        "delaySeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "message": {
+          "description": "Shown on the cabinet's screen: a single line of text with no control characters.",
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+        }
+      },
+      "if": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "const": "cancel"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "delaySeconds"
+              ]
+            },
+            {
+              "required": [
+                "message"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "delaySeconds",
+        "scheduledFor"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "restart",
+            "shutdown",
+            "cancel"
+          ]
+        },
+        "delaySeconds": {
+          "$ref": "../common.schema.json#/$defs/nullableCount"
+        },
+        "scheduledFor": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        }
+      }
+    }
+  }
+}

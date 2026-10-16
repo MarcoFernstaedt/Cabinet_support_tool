@@ -47,12 +47,12 @@ public sealed class FakeNetwork : INetworkControl
     public void SetDhcp(int i) { Read(i); Ip = Ip with { Dhcp = true }; }
     /// <summary>Like Windows when the address is set but the gateway call then fails: half the change is applied.</summary>
     public bool GatewayFails;
-    public void SetStatic(int i, string a, int p, string g)
+    public void SetStatic(int i, string a, int p, string? g)
     {
         Read(i);
         Ip = new() { Dhcp = false, Addresses = [new() { Address = a, PrefixLength = p }], Gateways = [] };
         if (GatewayFails) throw new IOException("SetGateways failed");
-        Ip = Ip with { Gateways = [g] };
+        Ip = Ip with { Gateways = g is null ? [] : [g] };
     }
     public void SetDns(int i, DnsSettings d) { Read(i); Dns = d; }
     /// <summary>What a DHCP server would give: null means none answers and the adapter keeps no real address.</summary>
@@ -64,6 +64,8 @@ public sealed class FakeNetwork : INetworkControl
         Ip = Ip with { Addresses = [new() { Address = LeaseAddress ?? "169.254.9.9", PrefixLength = LeaseAddress is null ? 16 : 24 }] };
         return RenewCode;
     }
+    public int Releases;
+    public int ReleaseLease(int i) { Read(i); Releases++; return 0; }
     public int Flushes;
     public bool FlushDns() { Flushes++; return true; }
     public void Restore(int i, Ipv4Settings ip) { Read(i); Ip = ip; }
@@ -179,6 +181,33 @@ public class BrokerWriteTests
         Assert.Equal("10.20.0.77", output.AddressAfter);
         Assert.True(_net.Ip.Dhcp); // still on DHCP; nothing was armed for the safety net
         Assert.Empty(_safety.Pending);
+    }
+
+    [Fact]
+    public void Release_gives_the_lease_back_before_asking_for_a_new_one()
+    {
+        var output = As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12, Release = true }));
+        Assert.Equal(RenewLeaseResult.Renewed, output.Result);
+        Assert.Equal(1, _net.Releases);
+        As(Guid.NewGuid(), () => _writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 }));
+        Assert.Equal(1, _net.Releases); // not released unless asked
+    }
+
+    [Fact]
+    public void A_static_address_with_no_gateway_leaves_no_gateway_and_still_arms_the_safety_net()
+    {
+        var output = As(Guid.NewGuid(), () => _writes.SetIp(new NetworkSetIpParams { InterfaceIndex = 12, Mode = IpMode.Static, Address = "172.20.1.10", PrefixLength = 24 }));
+        Assert.Empty(_net.Ip.Gateways);
+        Assert.False(_net.Ip.Dhcp);
+        Assert.Single(_safety.Pending);
+        Assert.Equal("172.20.1.10", output.After.Addresses[0].Address);
+    }
+
+    [Fact]
+    public void A_static_address_without_its_prefix_is_refused_before_anything_changes()
+    {
+        Assert.Throws<OperationFailedException>(() => As(Guid.NewGuid(), () => _writes.SetIp(new NetworkSetIpParams { InterfaceIndex = 12, Mode = IpMode.Static, Address = "172.20.1.10" })));
+        Assert.True(_net.Ip.Dhcp);
     }
 
     [Fact]

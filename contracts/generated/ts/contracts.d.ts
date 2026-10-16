@@ -481,7 +481,11 @@ export interface CommandRequest {
     | "reliability.list"
     | "disk.folders"
     | "dns.cache"
-    | "power.status";
+    | "power.status"
+    | "system.restart"
+    | "process.end"
+    | "system.checkHealth"
+    | "power.set";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -1002,6 +1006,8 @@ export interface StepUpRequest {
     | "package.install"
     | "driver.uninstall"
     | "updates.uninstall"
+    | "system.restart"
+    | "process.end"
     | "package.upload"
     | "package.approve"
     | "package.retire"
@@ -1212,7 +1218,11 @@ export interface Command {
     | "reliability.list"
     | "disk.folders"
     | "dns.cache"
-    | "power.status";
+    | "power.status"
+    | "system.restart"
+    | "process.end"
+    | "system.checkHealth"
+    | "power.set";
   params: {};
   issuedBy: string;
   /**
@@ -2935,6 +2945,10 @@ export interface NetworkRenewLeaseParams {
    * Windows network interface index.
    */
   interfaceIndex: number;
+  /**
+   * Give the current lease back first, then ask for a new one (like ipconfig /release then /renew). Without it the cabinet asks to renew the lease it has.
+   */
+  release?: boolean;
 }
 
 export interface NetworkRenewLeaseOutput {
@@ -3284,6 +3298,64 @@ export interface PowerStatusOutput {
   } | null;
 }
 
+export interface SystemRestartParams {
+  mode: "restart" | "shutdown" | "cancel";
+  delaySeconds?: number;
+  /**
+   * Shown on the cabinet's screen: a single line of text with no control characters.
+   */
+  message?: string;
+}
+
+export interface SystemRestartOutput {
+  mode: "restart" | "shutdown" | "cancel";
+  delaySeconds: number | null;
+  scheduledFor: string | null;
+}
+
+export interface ProcessEndParams {
+  processId: number;
+  /**
+   * A single line of text with no control characters.
+   */
+  name: string;
+}
+
+export interface ProcessEndOutput {
+  processId: number;
+  /**
+   * A single line of text with no control characters.
+   */
+  name: string;
+  ended: boolean;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SystemCheckHealthParams {}
+
+export interface SystemCheckHealthOutput {
+  state: "healthy" | "repairable" | "corrupt" | "unknown";
+  /**
+   * A single line of text with no control characters.
+   */
+  summary: string;
+  exitCode: number;
+  elapsedMs: number;
+}
+
+export interface PowerSetParams {
+  setting: "usb_selective_suspend" | "fast_startup";
+  enabled: boolean;
+}
+
+export interface PowerSetOutput {
+  setting: "usb_selective_suspend" | "fast_startup";
+  before: boolean | null;
+  after: boolean | null;
+}
+
 export type OperationKind = "read" | "write";
 export interface CatalogEntry {
   name: OperationName;
@@ -3294,7 +3366,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -3347,4 +3419,8 @@ export interface OperationTypes {
   "disk.folders": { params: DiskFoldersParams; output: DiskFoldersOutput };
   "dns.cache": { params: DnsCacheParams; output: DnsCacheOutput };
   "power.status": { params: PowerStatusParams; output: PowerStatusOutput };
+  "system.restart": { params: SystemRestartParams; output: SystemRestartOutput };
+  "process.end": { params: ProcessEndParams; output: ProcessEndOutput };
+  "system.checkHealth": { params: SystemCheckHealthParams; output: SystemCheckHealthOutput };
+  "power.set": { params: PowerSetParams; output: PowerSetOutput };
 }

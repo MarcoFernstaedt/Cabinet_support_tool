@@ -81,13 +81,13 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
   const reviewIp = () => {
     setEditing(null);
     const params: Record<string, unknown> = ipForm.mode === "dhcp" ? { interfaceIndex: adapter.interfaceIndex, mode: "dhcp" }
-      : { interfaceIndex: adapter.interfaceIndex, mode: "static", address: ipForm.address.trim(), prefixLength: Number(ipForm.prefix), gateway: ipForm.gateway.trim() };
+      : { interfaceIndex: adapter.interfaceIndex, mode: "static", address: ipForm.address.trim(), prefixLength: Number(ipForm.prefix), ...(ipForm.gateway.trim() ? { gateway: ipForm.gateway.trim() } : {}) };
     ip.ask(params, <>
       <p>Change the IP settings of adapter <strong>{adapter.name}</strong>:</p>
       <SideBySide rows={[
         ["Addressing", adapter.ipv4.dhcp ? "DHCP" : "Static", ipForm.mode === "dhcp" ? "DHCP" : "Static"],
         ["IPv4", adapter.ipv4.addresses.map(a => `${a.address}/${a.prefixLength}`).join(", ") || "none", ipForm.mode === "dhcp" ? "from DHCP" : `${ipForm.address.trim()}/${ipForm.prefix}`],
-        ["Gateway", adapter.ipv4.gateways.join(", ") || "none", ipForm.mode === "dhcp" ? "from DHCP" : ipForm.gateway.trim()],
+        ["Gateway", adapter.ipv4.gateways.join(", ") || "none", ipForm.mode === "dhcp" ? "from DHCP" : ipForm.gateway.trim() || "none"],
       ]} />
       {warn}
     </>);
@@ -109,6 +109,9 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
         {canRenew && adapter.ipv4.dhcp && <button className="btn" disabled={renew.run.state === "running"}
           onClick={() => renew.ask({ interfaceIndex: adapter.interfaceIndex }, <><p>Ask the DHCP server for a new lease on adapter <strong>{adapter.name}</strong>.</p>
             <p className="muted small">No setting changes. If no server answers, the cabinet keeps what it has and the answer says so.</p></>)}>Renew DHCP lease</button>}
+        {canRenew && adapter.ipv4.dhcp && <button className="btn" disabled={renew.run.state === "running"}
+          onClick={() => renew.ask({ interfaceIndex: adapter.interfaceIndex, release: true }, <><p>Give back the current lease on adapter <strong>{adapter.name}</strong>, then ask the DHCP server for a new one.</p>
+            <p className="muted small">The cabinet has no address for a moment. If no server answers, it stays without a lease and the answer says so.</p></>)}>Release and renew</button>}
         {allowed && <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "ip" ? null : "ip")} aria-expanded={editing === "ip"}>Edit IP settings</button>}
         {allowed && <button className="btn" disabled={ip.run.state === "running" || dns.run.state === "running"} onClick={() => setEditing(editing === "dns" ? null : "dns")} aria-expanded={editing === "dns"}>Edit DNS</button>}
       </div>
@@ -121,7 +124,7 @@ export function AdapterEdit({ cabinet, adapter, writes }: { cabinet: CabinetDeta
           {ipForm.mode === "static" && <div className="row gap wrap">
             <label className="field inline"><span>IPv4 address</span><input required value={ipForm.address} onChange={e => setIpForm(f => ({ ...f, address: e.target.value }))} /></label>
             <label className="field inline"><span>Prefix length</span><input required inputMode="numeric" size={3} value={ipForm.prefix} onChange={e => setIpForm(f => ({ ...f, prefix: e.target.value.replace(/\D/g, "") }))} /></label>
-            <label className="field inline"><span>Gateway</span><input required value={ipForm.gateway} onChange={e => setIpForm(f => ({ ...f, gateway: e.target.value }))} /></label>
+            <label className="field inline"><span>Gateway (leave empty when there is no router)</span><input value={ipForm.gateway} onChange={e => setIpForm(f => ({ ...f, gateway: e.target.value }))} /></label>
           </div>}
           <button className="btn primary" type="submit">Review the change</button>
         </form>)}

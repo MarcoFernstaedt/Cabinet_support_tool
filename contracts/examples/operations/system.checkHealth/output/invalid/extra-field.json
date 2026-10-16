@@ -1,0 +1,7 @@
+{
+  "state": "healthy",
+  "summary": "No component store corruption detected.",
+  "exitCode": 0,
+  "elapsedMs": 4210,
+  "shell": "cmd"
+}

@@ -108,7 +108,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "firewall": return <Firewall cabinet={cabinet} />;
     case "services": return <Services cabinet={cabinet} />;
     case "crashes": return <CabinetCrashes cabinetId={cabinet.id} />;
-    case "processes": return <Processes cabinetId={cabinet.id} />;
+    case "processes": return <Processes cabinet={cabinet} />;
     case "windows": return <WindowsInfo cabinet={cabinet} />;
     case "software": return <Software cabinet={cabinet} />;
     case "files": return <Files cabinetId={cabinet.id} />;

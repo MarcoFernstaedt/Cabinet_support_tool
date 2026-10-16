@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.setIp.schema.json",
   "title": "network.setIp",
-  "description": "Set one adapter to DHCP, or to a static IPv4 address with prefix length and gateway.",
+  "description": "Set one adapter to DHCP, or to a static IPv4 address with prefix length and, when the network has a router, a gateway. A static address with no gateway is for a link that has no router, such as the cash drawer's.",
   "$defs": {
     "params": {
       "type": "object",
@@ -45,8 +45,7 @@
       "then": {
         "required": [
           "address",
-          "prefixLength",
-          "gateway"
+          "prefixLength"
         ]
       },
       "else": {

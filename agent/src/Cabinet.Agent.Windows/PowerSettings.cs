@@ -33,4 +33,34 @@ internal static class PowerSettings
         if (values.Count < 2) return null;
         return new UsbSuspendSettings { PluggedIn = values[^2] is { } ac ? ac != 0 : null, OnBattery = values[^1] is { } dc ? dc != 0 : null };
     }
+
+    /// <summary>Sets USB selective suspend on the active plan for both power sources, then re-applies the plan so it takes effect.</summary>
+    public static void SetUsbSuspend(bool enabled)
+    {
+        string value = enabled ? "1" : "0";
+        foreach (string verb in new[] { "/setacvalueindex", "/setdcvalueindex" })
+            Require(ExternalProgram.Run("powercfg.exe", [verb, "SCHEME_CURRENT", UsbSubgroup, UsbSuspendSetting, value], Timeout), "setting USB selective suspend");
+        Require(ExternalProgram.Run("powercfg.exe", ["/setactive", "SCHEME_CURRENT"], Timeout), "applying the power plan");
+    }
+
+    private const string PowerKey = @"SYSTEM\CurrentControlSet\Control\Session Manager\Power";
+
+    public static bool? FastStartup()
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PowerKey);
+        return key?.GetValue("HiberbootEnabled") is int v ? v != 0 : null;
+    }
+
+    /// <summary>The one registry value Windows keeps Fast Startup in. No other value is written.</summary>
+    public static void SetFastStartup(bool enabled)
+    {
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(PowerKey, writable: true)
+            ?? throw new Core.OperationFailedException("execution_failed", "Windows has no power settings key to change.");
+        key.SetValue("HiberbootEnabled", enabled ? 1 : 0, Microsoft.Win32.RegistryValueKind.DWord);
+    }
+
+    private static void Require(ExternalProgram.Outcome r, string what)
+    {
+        if (r.ExitCode != 0) throw new Core.OperationFailedException("execution_failed", $"Windows refused {what} (powercfg exit code {r.ExitCode}).");
+    }
 }

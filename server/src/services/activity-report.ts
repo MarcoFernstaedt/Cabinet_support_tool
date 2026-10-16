@@ -10,7 +10,7 @@ type Row = { cabinet_id: string; cabinet: string; site: string; client: string; 
 const CHECKED: Record<string, string> = {
   "system.info": "System information", "system.performance": "Performance", "processes.list": "Processes", "services.list": "Services",
   "eventlog.channels": "Event logs", "eventlog.query": "Event logs", "eventlog.get": "Event logs",
-  "network.config": "Network adapters", "network.test": "Network tests", "network.trace": "Network path", "network.listeners": "Listening ports", "system.security": "Security status", "software.list": "Installed software", "startup.list": "Startup and tasks", "sessions.list": "Signed-in sessions", "shares.list": "Network shares", "reliability.list": "Reliability history", "disk.folders": "Folder sizes", "dns.cache": "DNS cache", "power.status": "Power settings", "usb.ports": "USB ports",
+  "network.config": "Network adapters", "network.test": "Network tests", "network.trace": "Network path", "network.listeners": "Listening ports", "system.security": "Security status", "software.list": "Installed software", "startup.list": "Startup and tasks", "sessions.list": "Signed-in sessions", "shares.list": "Network shares", "reliability.list": "Reliability history", "disk.folders": "Folder sizes", "dns.cache": "DNS cache", "system.checkHealth": "Windows health check", "power.status": "Power settings", "usb.ports": "USB ports",
   "firewall.state": "Firewall", "disk.smart": "Drive health", "updates.status": "Windows updates", "devices.list": "Devices", "drivers.list": "Drivers",
   "peripheral.status": "Fingerprint scanner", "time.status": "Time", "files.list": "Files",
 };
@@ -25,9 +25,12 @@ export function describeChange(operation: string, p: Record<string, unknown>, pa
     case "firewall.applyPolicy": return "Applied the client's firewall policy";
     case "firewall.setRule": return `${clip(p.mode, 10) === "create" ? "Added" : clip(p.mode, 10) === "delete" ? "Deleted" : "Changed"} firewall rule ${clip((p.rule as { name?: unknown } | undefined)?.name ?? p.name)}`;
     case "firewall.restore": return "Restored a saved firewall snapshot";
-    case "network.setIp": return p.mode === "dhcp" ? "Set the adapter to DHCP" : `Set a fixed address ${clip(p.address, 15)}/${Number(p.prefixLength)} with gateway ${clip(p.gateway, 15)}`;
+    case "network.setIp": return p.mode === "dhcp" ? "Set the adapter to DHCP" : `Set a fixed address ${clip(p.address, 15)}/${Number(p.prefixLength)}${p.gateway === undefined ? " with no gateway" : ` with gateway ${clip(p.gateway, 15)}`}`;
     case "network.setDns": return p.mode === "automatic" ? "Set DNS to automatic" : `Set DNS servers to ${Array.isArray(p.servers) ? p.servers.map(s => clip(s, 15)).join(", ") : "?"}`;
-    case "network.renewLease": return "Renewed the DHCP lease";
+    case "network.renewLease": return p.release === true ? "Released and renewed the DHCP lease" : "Renewed the DHCP lease";
+    case "system.restart": return p.mode === "cancel" ? "Cancelled a waiting restart or shutdown" : `${p.mode === "shutdown" ? "Shut the cabinet down" : "Restarted the cabinet"}${p.delaySeconds ? ` in ${Number(p.delaySeconds)} seconds` : " now"}`;
+    case "process.end": return `Ended process ${clip(p.name, 64)} (ID ${Number(p.processId)})`;
+    case "power.set": return `Turned ${p.setting === "fast_startup" ? "Fast Startup" : "USB selective suspend"} ${on(p.enabled)}`;
     case "network.flushDns": return "Flushed the DNS cache";
     case "service.setStartType": return `Set service ${clip(p.name, 64)} to ${clip(p.startType, 20).replace("_", " ")}`;
     case "service.control": return `${clip(p.action, 10)[0]?.toUpperCase() ?? ""}${clip(p.action, 10).slice(1)} service ${clip(p.name, 64)}`;

@@ -1,0 +1,6 @@
+{
+  "state": "unknown",
+  "summary": "DISM gave no answer Windows could be read from.",
+  "exitCode": 87,
+  "elapsedMs": 300
+}

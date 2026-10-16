@@ -2,11 +2,11 @@
 // apart) and the firewall, and offers to turn the firewall off. The writes are the ordinary firewall profile writes; the server and the
 // agent decide whether they are allowed.
 import { useState } from "react";
-import type { FirewallProfileState, FirewallStateOutput, NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
+import type { FirewallProfileState, FirewallStateOutput, NetworkConfigOutput, NetworkSetIpOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../../lib/commands";
-import { analyseDrawer, drawerText, DRAWER_NETWORK, type DrawerAnalysis } from "../../lib/drawer";
+import { analyseDrawer, drawerAddressParams, drawerText, needsDrawerAddress, DRAWER_NETWORK, type DrawerAnalysis } from "../../lib/drawer";
 import type { AdapterReading } from "../../components/NetworkReadings";
-import { Badge } from "../../components/ui";
+import { Badge, SAFETY_NET_NOTE } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 import { ProfileControl, useConfirmedWrite, useCanWrite, useProfileWrite } from "./Writes";
 
@@ -44,6 +44,9 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
   const write = useProfileWrite(cabinet, changed);
   const policy = useConfirmedWrite<unknown>(cabinet, "firewall.applyPolicy", r => { if (r.status === "succeeded") changed(); });
   const canPolicy = useCanWrite(cabinet, "firewall.applyPolicy");
+  const address = useConfirmedWrite<NetworkSetIpOutput>(cabinet, "network.setIp", r => { if (r.status === "succeeded") changed(); });
+  const canAddress = useCanWrite(cabinet, "network.setIp");
+  const [octet, setOctet] = useState("");
   const a = result?.analysis ?? null;
   const copy = async () => { if (!a) return; try { await navigator.clipboard.writeText(drawerText(cabinet.name, a)); setCopied(true); } catch { setCopied(false); } };
 
@@ -72,7 +75,20 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
           <p className="row gap wrap"><button className="btn primary" data-tour="drawer-policy" onClick={() => policy.ask({}, <>
             <p>Apply <strong>{cabinet.client.name}</strong>'s firewall policy to <strong>{cabinet.name}</strong>: every profile the policy says is off is turned off.</p>
             <p className="muted small">A drawer's link is an unidentified network, which Windows treats as Public, so its firewall profile must be off for the drawer to work.</p></>)}>Apply the client's firewall policy</button></p>)}
-        {write.outcome}{write.dialog}{policy.dialog}
+        {canAddress && needsDrawerAddress(a) && a.adapter && (
+          <form className="row gap wrap" aria-label="Set the drawer address" data-tour="drawer-address" onSubmit={e => {
+            e.preventDefault();
+            const params = drawerAddressParams(a.adapter!.interfaceIndex, octet.trim());
+            if (params) address.ask(params, <>
+              <p>Give <strong>{a.adapter!.name}</strong> the fixed address <strong>{params.address}/{params.prefixLength}</strong> with no gateway, as the drawer network needs.</p>
+              <p className="muted small">{SAFETY_NET_NOTE}</p></>);
+          }}>
+            <label className="field inline"><span>Drawer link address</span>
+              <span className="row gap"><code>{DRAWER_NETWORK.address.split(".").slice(0, 3).join(".")}.</code><input required inputMode="numeric" size={3} aria-label="Last number of the address" value={octet} onChange={e => setOctet(e.target.value.replace(/\D/g, ""))} /></span></label>
+            <button className="btn" type="submit" disabled={drawerAddressParams(a.adapter.interfaceIndex, octet.trim()) === null || address.run.state === "running"}>Set the drawer address</button>
+          </form>)}
+        {address.run.state === "done" && address.run.result?.status !== "succeeded" && <p className="notice crit" role="alert">The cabinet could not set the address{address.run.result?.error ? `: ${address.run.result.error.message}` : ""}.</p>}
+        {write.outcome}{write.dialog}{policy.dialog}{address.dialog}
         <div className="row gap"><button className="btn small" onClick={() => void copy()}>{copied ? "Copied" : "Copy as text"}</button></div>
       </>)}
     </section>

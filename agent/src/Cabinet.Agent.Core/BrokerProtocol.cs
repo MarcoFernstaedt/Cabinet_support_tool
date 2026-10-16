@@ -63,7 +63,7 @@ public sealed class BrokerRequestHandler
         Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall, Catalog.UpdatesUninstall,
         Catalog.ServicesList, Catalog.ProcessesList, Catalog.SystemPerformance, Catalog.NetworkListeners, Catalog.ServiceControl, Catalog.ServiceSetStartType,
-        Catalog.SystemSecurity, Catalog.SoftwareList, Catalog.StartupList, Catalog.SessionsList, Catalog.SharesList, Catalog.ReliabilityList, Catalog.DiskFolders, Catalog.DnsCache, Catalog.PowerStatus,
+        Catalog.SystemSecurity, Catalog.SoftwareList, Catalog.StartupList, Catalog.SessionsList, Catalog.SharesList, Catalog.ReliabilityList, Catalog.DiskFolders, Catalog.DnsCache, Catalog.PowerStatus, Catalog.SystemCheckHealth, Catalog.SystemRestart, Catalog.ProcessEnd, Catalog.PowerSet,
         Catalog.TimeStatus, Catalog.TimeSetZone, Catalog.TimeSync, Catalog.NetworkRenewLease, Catalog.NetworkFlushDns,
     };
 

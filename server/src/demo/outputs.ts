@@ -18,6 +18,10 @@ export interface DemoContext {
   watchedServices: string[];
   /** Start types set from the console on this simulated cabinet, by lower-case service name. */
   startTypes: Record<string, string>;
+  /** Power settings changed from the console on this simulated cabinet ("usb_selective_suspend", "fast_startup"), so the next read shows them. */
+  power: Record<string, boolean>;
+  /** The drawer link's address as the console left it: an address in the drawer network, "unset" for a link Windows gave itself an address on, or null for the usual one. */
+  drawer: string | null;
   /** Whether the site's sync cabinet (another cabinet) has a firewall profile on, so its ports do not answer. */
   syncBlocked: boolean;
   now: Date;
@@ -36,7 +40,9 @@ const cache = new Map<string, unknown>();
 /** A deep copy of one valid output example of the operation (the named file, else the first). */
 export function example(operation: string, file?: string): any {
   const dir = join(EXAMPLES, operation, "output", "valid");
-  const name = file ?? readdirSync(dir).filter(f => f.endsWith(".json")).sort()[0];
+  // The first example that is not an empty or edge case: "typical.json" when the operation has one.
+  const files = readdirSync(dir).filter(f => f.endsWith(".json")).sort();
+  const name = file ?? (files.includes("typical.json") ? "typical.json" : files[0]);
   if (!name) throw new Error(`no output example for ${operation}`);
   const key = `${operation}/${name}`;
   if (!cache.has(key)) cache.set(key, JSON.parse(readFileSync(join(dir, name), "utf8")));
@@ -172,6 +178,20 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       return { result: "synced", message: "Windows Time synchronized the clock with time.windows.com,0x9.", lastSuccessfulSyncBefore: last,
         lastSuccessfulSyncAfter: ctx.now.toISOString().replace(/\.\d{3}Z$/, "Z") };
     }
+    case "power.status": {
+      const o = example("power.status", "typical.json");
+      const usb = ctx.power.usb_selective_suspend ?? o.usbSelectiveSuspend?.pluggedIn ?? true;
+      return { ...o, takenAt: iso(ctx.now), fastStartup: ctx.power.fast_startup ?? o.fastStartup, usbSelectiveSuspend: { pluggedIn: usb, onBattery: usb } };
+    }
+    case "power.set": {
+      const before = ctx.power[params.setting] ?? true;
+      return { setting: params.setting, before, after: params.enabled };
+    }
+    case "system.restart": {
+      const cancel = params.mode === "cancel";
+      return { mode: params.mode, delaySeconds: cancel ? null : params.delaySeconds ?? 0, scheduledFor: cancel ? null : iso(new Date(ctx.now.getTime() + (params.delaySeconds ?? 0) * 1000)) };
+    }
+    case "process.end": return { processId: params.processId, name: params.name, ended: true };
     case "service.setStartType": {
       const known: Record<string, string> = { wuauserv: "manual", bioupdatesvc: "disabled" };
       const name = String(params.name).toLowerCase();
@@ -230,7 +250,8 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         const secs = Math.floor(Date.now() / 1000) % 100_000;
         o.adapters.push({ ...JSON.parse(JSON.stringify(a)), interfaceIndex: a.interfaceIndex + 1, name: "Ethernet 2", description: "USB Ethernet Adapter (drawer link)",
           connected: true, linkSpeedBps: 100_000_000, macAddress: `00-E0-4C-68-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-A1`, ipv6Addresses: [],
-          ipv4: { dhcp: false, addresses: [{ address: `172.20.1.${10 + ctx.index}`, prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
+          ipv4: ctx.drawer === "unset" ? { dhcp: true, addresses: [{ address: `169.254.${20 + ctx.index}.7`, prefixLength: 16 }], gateways: [] }
+            : { dhcp: false, addresses: [{ address: ctx.drawer ?? `172.20.1.${10 + ctx.index}`, prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
           details: { dhcpServer: null, leaseObtained: null, leaseExpires: null, mtu: 1500, interfaceMetric: 50, adminStatus: "up", netbios: "default",
             driver: { provider: "Realtek", version: "10.50.0.1", date: "2021-06-09T00:00:00Z" }, networkProfile: { name: "Unidentified network", category: "public" },
             statistics: { bytesReceived: 40_000_000 + secs * 900, bytesSent: 12_000_000 + secs * 400, receiveErrors: 0, sendErrors: 0, receiveDiscards: 0, sendDiscards: 0 } } });

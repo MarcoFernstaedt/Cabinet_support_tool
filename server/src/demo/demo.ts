@@ -337,9 +337,13 @@ async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | 
   const startTypes: Record<string, string> = {};
   for (const r of (await pool.query<{ key: string; value: string }>("SELECT key, value #>> '{}' AS value FROM settings WHERE key LIKE $1", [`demo.starttype:${cabinetId}:%`])).rows)
     startTypes[r.key.slice(`demo.starttype:${cabinetId}:`.length)] = r.value;
+  const power: Record<string, boolean> = {};
+  for (const r of (await pool.query<{ key: string; value: string }>("SELECT key, value #>> '{}' AS value FROM settings WHERE key LIKE $1", [`demo.power:${cabinetId}:%`])).rows)
+    power[r.key.slice(`demo.power:${cabinetId}:`.length)] = r.value === "true";
+  const drawer = (await pool.query<{ value: string }>("SELECT value #>> '{}' AS value FROM settings WHERE key = $1", [`demo.drawer:${cabinetId}`])).rows[0]?.value ?? null;
   const subnet = (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join(".");
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet,
-    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], startTypes, syncBlocked: k.sync_blocked, now: new Date(),
+    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], startTypes, power, drawer, syncBlocked: k.sync_blocked, now: new Date(),
     timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,
     baseline: k.baseline ?? baselineFor(subnet), net: k.net ?? initialNet(k.scenario, k.baseline ?? baselineFor(subnet), subnet, Number(k.position)),
     events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
@@ -368,7 +372,11 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     await heartbeat(pool, cabinetId, profiles);
   }
   // A network change is kept on the simulated cabinet, so the next check (and the read-back that verifies a fix) sees it.
-  if (command.operation === "network.setIp" || command.operation === "network.setDns") {
+  // A fixed address in the drawer network is the drawer link's: kept on its own, and the cabinet's main adapter is left as it was.
+  const drawerAddress = command.operation === "network.setIp" && command.params.mode === "static" && String(command.params.address).startsWith("172.20.1.") ? String(command.params.address) : null;
+  if (drawerAddress) {
+    await pool.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()`, [`demo.drawer:${cabinetId}`, safeJson(drawerAddress)]);
+  } else if (command.operation === "network.setIp" || command.operation === "network.setDns") {
     const p = command.params as never;
     const next = command.operation === "network.setIp" ? applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, p) : applySetDns(ctx.net, ctx.baseline, p);
     const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
@@ -395,6 +403,10 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     await pool.query("UPDATE cabinets SET clock_skew_seconds = 0.4, demo_scenario = CASE WHEN demo_scenario = 'clock_drift' THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId]);
     await heartbeat(pool, cabinetId);
     await evaluateTime(pool, { cabinetId });
+  }
+  if (command.operation === "power.set") {
+    await pool.query("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()",
+      [`demo.power:${cabinetId}:${String(command.params.setting)}`, safeJson(Boolean(command.params.enabled))]);
   }
   if (command.operation === "service.control" && ctx.scenario === "service_failing" && String(command.params.name).toLowerCase() === "bioscansvc" && command.params.action !== "stop") {
     await pool.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE id = $1", [cabinetId]);

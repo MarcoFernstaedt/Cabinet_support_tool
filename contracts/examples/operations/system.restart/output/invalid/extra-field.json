@@ -1,0 +1,6 @@
+{
+  "mode": "restart",
+  "delaySeconds": 300,
+  "scheduledFor": "2026-10-16T14:05:00Z",
+  "shell": "cmd"
+}

@@ -104,6 +104,22 @@ export function analyseDrawer(first: AdapterReading[], second: AdapterReading[] 
   return { adapter: a, lines, tone, profilesOn: on, summary: worst ? `${worst.label}: ${worst.text}` : "The drawer link is connected, set correctly and passing traffic." };
 }
 
+/** Whether the drawer link's address, addressing or gateway is not as the drawer network needs it, so setting it by hand would help. */
+export const needsDrawerAddress = (a: DrawerAnalysis): boolean =>
+  a.adapter !== null && a.lines.some(l => (l.id === "ip" || l.id === "mode" || l.id === "gateway") && l.tone !== "ok");
+
+/**
+ * The network.setIp parameters that give the drawer link a fixed address in the drawer network with no gateway, or null when the last
+ * number is not a usable host address (1 to 254).
+ */
+export function drawerAddressParams(interfaceIndex: number, lastNumber: string, net = DRAWER_NETWORK): { interfaceIndex: number; mode: "static"; address: string; prefixLength: number } | null {
+  if (lastNumber === "" || lastNumber.length > 3 || ![...lastNumber].every(c => c >= "0" && c <= "9")) return null;
+  const n = Number(lastNumber);
+  if (n < 1 || n > 254) return null;
+  const base = net.address.split(".").slice(0, 3).join(".");
+  return { interfaceIndex, mode: "static", address: `${base}.${n}`, prefixLength: net.prefixLength };
+}
+
 /** The result as plain text for a ticket. */
 export function drawerText(cabinet: string, a: DrawerAnalysis): string {
   return [`${cabinet}: cash drawer check`, ...a.lines.map(l => `${l.label.padEnd(15, ".")} [${l.tone === "ok" ? "OK" : l.tone === "crit" ? "PROBLEM" : l.tone === "warn" ? "CHECK" : "INFO"}] ${l.text}`)].join("\n");

@@ -52,7 +52,7 @@ function startAgents() {
     for (const c of real) {
       for (const cmd of await takeQueuedCommands(db.app, c.id)) {
         const subnet = "10.77.1", baseline = baselineFor(subnet);
-        const ctx: DemoContext = { hostname: c.name.toUpperCase(), role: "standalone", scenario: c.scenario, subnet, index: 1, startTypes: {}, firewallProfiles: { domain: false, private: false, public: false },
+        const ctx: DemoContext = { hostname: c.name.toUpperCase(), role: "standalone", scenario: c.scenario, subnet, index: 1, startTypes: {}, power: {}, drawer: null, firewallProfiles: { domain: false, private: false, public: false },
           events: [], watchedServices: [], syncBlocked: false, now: new Date(), timeZoneId: "Eastern Standard Time", clockSkewSeconds: 0.2, net: initialNet(c.scenario, baseline, subnet, 1), baseline };
         const startedAt = new Date().toISOString();
         await storeResult(db.app, c.id, { commandId: cmd.commandId, status: "succeeded", startedAt, finishedAt: new Date().toISOString(), output: demoOutput(cmd.operation, cmd.params as Record<string, unknown>, ctx) } as never);

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/network.renewLease.schema.json",
   "title": "network.renewLease",
-  "description": "Ask the DHCP server for a new lease on one adapter now (the adapter's own RenewDHCPLease method, run by the broker; no external program). Changes no setting, so it needs no safety net: an adapter with a fixed address answers not_dhcp and nothing happens. Tier 1 and up, a confirmation click.",
+  "description": "Ask the DHCP server for a new lease on one adapter now, after giving the old one back when release is set (the adapter's own RenewDHCPLease method, run by the broker; no external program). Changes no setting, so it needs no safety net: an adapter with a fixed address answers not_dhcp and nothing happens. Tier 1 and up, a confirmation click.",
   "$defs": {
     "params": {
       "type": "object",
@@ -13,6 +13,10 @@
       "properties": {
         "interfaceIndex": {
           "$ref": "../common.schema.json#/$defs/interfaceIndex"
+        },
+        "release": {
+          "description": "Give the current lease back first, then ask for a new one (like ipconfig /release then /renew). Without it the cabinet asks to renew the lease it has.",
+          "type": "boolean"
         }
       }
     },

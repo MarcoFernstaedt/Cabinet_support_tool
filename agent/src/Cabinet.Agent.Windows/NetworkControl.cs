@@ -66,11 +66,14 @@ public sealed class NetworkControl : INetworkControl
         Invoke(a, "EnableDHCP");
     }
 
-    public void SetStatic(int interfaceIndex, string address, int prefixLength, string gateway)
+    public void SetStatic(int interfaceIndex, string address, int prefixLength, string? gateway)
     {
         using ManagementObject a = Adapter(interfaceIndex);
         Invoke(a, "EnableStatic", p => { p["IPAddress"] = new[] { address }; p["SubnetMask"] = new[] { Mask(prefixLength) }; });
-        Invoke(a, "SetGateways", p => { p["DefaultIPGateway"] = new[] { gateway }; p["GatewayCostMetric"] = new ushort[] { 1 }; });
+        if (gateway is not null) { Invoke(a, "SetGateways", p => { p["DefaultIPGateway"] = new[] { gateway }; p["GatewayCostMetric"] = new ushort[] { 1 }; }); return; }
+        // No router on this link: clear any gateway left from before. Windows may refuse an empty list on some builds; the address is already set then.
+        try { Invoke(a, "SetGateways", p => { p["DefaultIPGateway"] = Array.Empty<string>(); p["GatewayCostMetric"] = Array.Empty<ushort>(); }); }
+        catch (Core.OperationFailedException) { }
     }
 
     public void SetDns(int interfaceIndex, DnsSettings dns)
@@ -83,6 +86,13 @@ public sealed class NetworkControl : INetworkControl
     {
         using ManagementObject a = Adapter(interfaceIndex);
         using ManagementBaseObject? result = a.InvokeMethod("RenewDHCPLease", null, null);
+        return result?["ReturnValue"] is uint code ? (int)code : -1;
+    }
+
+    public int ReleaseLease(int interfaceIndex)
+    {
+        using ManagementObject a = Adapter(interfaceIndex);
+        using ManagementBaseObject? result = a.InvokeMethod("ReleaseDHCPLease", null, null);
         return result?["ReturnValue"] is uint code ? (int)code : -1;
     }
 

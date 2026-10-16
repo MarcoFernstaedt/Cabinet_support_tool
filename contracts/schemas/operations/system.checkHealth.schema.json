@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.checkHealth.schema.json",
+  "title": "system.checkHealth",
+  "description": "Ask Windows whether its own component store is damaged (DISM /CheckHealth). Only looks: nothing is repaired, and no scan of the whole disk is started.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "summary",
+        "exitCode",
+        "elapsedMs"
+      ],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "healthy",
+            "repairable",
+            "corrupt",
+            "unknown"
+          ]
+        },
+        "summary": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "exitCode": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "elapsedMs": {
+          "$ref": "../common.schema.json#/$defs/count"
+        }
+      }
+    }
+  }
+}
