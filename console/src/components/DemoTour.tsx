@@ -15,7 +15,10 @@ interface Step {
   missing?: string;
   /** Gets the page ready when the step is reached by Next or Show me without the person having done the earlier click. */
   ensure?: (ctx: { navigate: (to: string) => void; scenarios: Scenarios }) => Promise<void>;
+  /** What the person must do before Next works, and how the page shows it was done. Only asked for while the control is on the page. */
+  action?: { label: string; done: () => boolean };
 }
+const text = (selector: string, needle: string) => [...document.querySelectorAll(selector)].some(e => (e.textContent ?? "").includes(needle));
 type Scenarios = Record<string, { label: string; path: string }[]>;
 
 /** The whole-site check results: if the person skipped the click, run the check for them and open its page. */
@@ -33,20 +36,20 @@ const siteCheck: Step["ensure"] = async ({ navigate, scenarios }) => {
 const page = (id: string, label: string) => (s: Scenarios) => s[id]?.find(x => x.label.startsWith(label))?.path ?? null;
 export const TOURS: Record<string, { name: string; steps: Step[] }> = {
   network: { name: "Midtown Manhattan", steps: [
-    { title: "Site overview", body: "Site page: every cabinet at the site with role, status and open alerts, and the site's baseline and standards. Used to scope a problem before opening a machine. Midtown has nine cabinets and one sync cabinet, and the exam rooms report sync failures.", path: page("midtown", "The site") },
-    { title: "Single-cabinet network diagnosis", body: "Diagnose network checks link, address, gateway, DNS, the sync cabinet and the firewall in order and reports the first broken layer with the readings behind it. On Exam Room 1 everything through DNS passes and the sync cabinet does not answer.", path: page("midtown", "One cabinet"), target: { selector: '[data-tour="diagnose"]' } },
-    { title: "Site-wide network diagnosis", body: "The same diagnosis for every cabinet at the site in one run, with results grouped by cause. This replaces opening each cabinet in turn.", path: page("midtown", "The site"), target: { selector: '[data-tour="site-diagnose"]' } },
-    { title: "Diagnosis results", body: "Link through DNS pass everywhere, so the cable and the network are not the cause. Every satellite fails at the sync cabinet step, and Midtown Sync has its firewall on where the client's policy says off. Results are grouped by cause, each with the evidence. If the list is empty, go back and run the diagnosis.", path: "", target: { selector: '[data-tour="group-sync-firewall"]' }, ensure: siteCheck },
-    { title: "Remediation", body: "Apply the client's firewall policy to the sync cabinet. The change is confirmed first, is recorded in the audit log, and the cabinet restores the previous setting itself if it loses contact with the platform. The site is checked again when it completes.", path: "", target: { selector: '[data-tour="fix-apply_policy"]' }, ensure: siteCheck },
-    { title: "Full network reading", body: "A cabinet that matches its baseline can still be unhealthy. Operating Room loses packets to the gateway and its adapter counts errors. The full reading lists loss, jitter, adapter errors, lease, routes, ARP and the path. After a physical repair, run the diagnosis again: once the problem is gone, Save what fixed this stores the fix with the cabinet's configuration. It is offered only for fixes that are new.", path: page("midtown", "Operating Room"), target: { selector: '[data-tour="full-read"]' } },
-    { title: "Fingerprint scanner history", body: "Scanner page: each disconnect with its time and port, the installed driver and its install time, USB hub and controller state, and the biometric service. Procedure Room dropped three times, starting about two hours after a driver install.", path: page("midtown", "Procedure Room"), target: { selector: '[data-tour="scanner-drops"]' } },
-    { title: "Unrecognized alerts", body: "Events that match no rule are listed as unrecognized alerts instead of being discarded. Reception and Waiting Room both log errors from the fingerprint reader's driver.", path: page("midtown", "Unrecognized"), target: { selector: '[data-cabinet="Reception"]' } },
-    { title: "Event log inspection", body: "Event logs: filter by level, time, source and event ID, and open an entry in full. Each entry shows how many other cabinets logged the same event in the last 30 days, which separates a local fault from a fleet-wide one.", path: page("midtown", "Reception: event"), target: { selector: '[data-tour="event-entry"]', text: "Biometrics" } },
-    { title: "Event-to-issue mapping", body: "Map to issue ties an event (log, source and event ID, no patterns) to an issue type. The preview lists the stored events the rule would match before anything changes, and a Tier 2 confirms with the authenticator. Afterwards the same event on any cabinet is grouped under the issue.", path: page("midtown", "Reception: alerts"), target: { selector: '[data-tour="map-to-issue"]' } },
-    { title: "Fix approval", body: "Fixes: what the team learned, applied fleet-wide. A fix saved by a Tier 1 stays private until an Admin, or a Tier 2 with the permission, approves it. Review the solution and the configuration it was recorded on, then approve.", path: page("midtown", "Known fixes"), target: { selector: '[data-tour="fix-approve"]' }, missing: "Nothing is waiting. If you've already approved it, the demo can be reset from Admin, Set up and demo." },
-    { title: "Learned fixes on the alert", body: "Approved fixes are shown on the alert beside the problem, with the differences from the cabinet they were recorded on. Alerts with a known fix carry a marker in every list, so the next occurrence starts from the answer.", path: page("midtown", "Reception: alerts"), target: { selector: ".known-fixes" }, missing: "The fix shows here once the error is mapped to the Fingerprint scanner issue (two steps back) and the teammate's fix is approved." },
-    { title: "Enrollment: install the agent", body: "Admin, Set up: create a one-time token and run the install commands in an elevated PowerShell on the cabinet. The agent connects out to the server over mutual TLS; nothing connects in.", path: "/admin/setup", target: { selector: '[data-tour="create-token"]' } },
-    { title: "Enrollment: approve the cabinet", body: "Pending cabinets: check the host name and serial number, then assign a client, site, name and role. Nothing is accepted until an Admin approves it.", path: "/admin/pending", target: { selector: '[data-tour="approve-cabinet"]' }, missing: "Nothing is waiting yet. The computer shows up here within a minute of running the install commands, and this list refreshes by itself." },
+    { title: "Site overview", body: "The site page lists every cabinet with its role, status and open alerts, plus the site's network baseline and standards. Use it to scope a problem across the site before opening any machine. Here, the exam rooms report sync failures.", path: page("midtown", "The site") },
+    { title: "Single-cabinet network diagnosis", body: "Diagnose network checks link, address, gateway, DNS, the sync cabinet and the firewall in order, and stops at the first broken layer with the readings behind it. This replaces remoting in to run ipconfig, ping and tracert by hand.", path: page("midtown", "One cabinet"), target: { selector: '[data-tour="diagnose"]' }, action: { label: "Click Diagnose network and wait for the results.", done: () => !!document.querySelector(".finding") } },
+    { title: "Site-wide network diagnosis", body: "The same diagnosis for every cabinet at the site in one run, grouped by cause. This replaces opening each cabinet in turn.", path: page("midtown", "The site"), target: { selector: '[data-tour="site-diagnose"]' }, action: { label: "Click Diagnose network for the whole site.", done: () => window.location.pathname.startsWith("/network/diagnosis/") } },
+    { title: "Diagnosis results", body: "Results are grouped by cause, each with its evidence and the cabinets it affects. Here the network is fine through DNS everywhere and the satellites fail at the sync cabinet, which has its firewall on where the client's policy says off. If the list is empty, go back and run the diagnosis.", path: "", target: { selector: '[data-tour="group-sync-firewall"]' }, ensure: siteCheck },
+    { title: "Remediation", body: "A group's fix applies from here: confirm once, and the change is recorded in the audit log. The cabinet restores its previous setting itself if it loses contact with the platform, and the site is checked again when the change completes.", path: "", target: { selector: '[data-tour="fix-apply_policy"]' }, ensure: siteCheck, action: { label: "Click Apply the policy on Midtown Sync and confirm.", done: () => text(".notice.ok", "Done:") } },
+    { title: "Full network reading", body: "Matching the baseline does not mean healthy. The full reading lists packet loss, jitter, adapter errors, DHCP lease, routes, ARP and the path, so a failing cable shows up here. After a physical repair, run the diagnosis again: once the problem is gone, Save what fixed this stores the fix with the cabinet's configuration, and is offered only for fixes that are new.", path: page("midtown", "Operating Room"), target: { selector: '[data-tour="full-read"]' }, action: { label: "Open Everything that was read.", done: () => !!document.querySelector('details[data-tour="full-read"][open]') } },
+    { title: "Fingerprint scanner history", body: "The scanner page lists each disconnect with its time and USB port, the driver and when it was installed, hub and controller state, and the biometric service. A drop that follows a driver install points at the driver; a drop with no change points at the cable or port. Read the timeline and the USB ports table below it.", path: page("midtown", "Procedure Room"), target: { selector: '[data-tour="scanner-drops"]' } },
+    { title: "Unrecognized alerts", body: "Events that match no rule are listed as unrecognized alerts instead of being discarded. Group them by source to see which error repeats across cabinets. Here two cabinets log errors from the same fingerprint reader driver.", path: page("midtown", "Unrecognized"), target: { selector: '[data-cabinet="Reception"]' } },
+    { title: "Event log inspection", body: "Event logs can be filtered by level, time, source and event ID, and each entry shows how many other cabinets logged the same event in the last 30 days: a local fault or a fleet-wide one. This replaces opening Event Viewer on the machine.", path: page("midtown", "Reception: event"), target: { selector: '[data-tour="event-entry"]', text: "Biometrics" }, action: { label: "Open an entry in the log.", done: () => !!document.querySelector("#entry-heading") } },
+    { title: "Event-to-issue mapping", body: "Map to issue ties an event (log, source and event ID, never a pattern) to an issue type. The preview lists the stored events the rule would match before anything changes; a Tier 2 confirms with the authenticator. After that, the same event on any cabinet is grouped under the issue.", path: page("midtown", "Reception: alerts"), target: { selector: '[data-tour="map-to-issue"]' }, action: { label: "Click Map to issue, choose the issue and save the rule.", done: () => text("body", "The rule is live") } },
+    { title: "Fix approval", body: "A fix saved by a Tier 1 stays private until an Admin, or a Tier 2 with the permission, approves it. Review the solution and the configuration it was recorded on, then approve, so only reviewed fixes are offered to the whole team.", path: page("midtown", "Known fixes"), target: { selector: '[data-tour="fix-approve"]' }, missing: "Nothing is waiting. If you've already approved it, the demo can be reset from Admin, Set up and demo.", action: { label: "Review the fix and click Approve.", done: () => text("body", "Approved “") } },
+    { title: "Learned fixes on the alert", body: "Approved fixes appear on the alert beside the problem, with the differences between this cabinet and the one the fix was recorded on. Alerts with a known fix carry a marker in every list, so the next occurrence starts from the answer.", path: page("midtown", "Reception: alerts"), target: { selector: ".known-fixes" }, missing: "The fix shows here once the error is mapped to the Fingerprint scanner issue (two steps back) and the teammate's fix is approved." },
+    { title: "Enrollment: install the agent", body: "Admin, Set up: create a one-time token and run the install commands in an elevated PowerShell on the cabinet. The agent connects out to the server over mutual TLS; nothing connects in.", path: "/admin/setup", target: { selector: '[data-tour="create-token"]' }, action: { label: "Click Create install token.", done: () => !!document.querySelector('a[download="token.txt"]') } },
+    { title: "Enrollment: approve the cabinet", body: "Pending cabinets: check the host name and serial number, then assign a client, site, name and role. Nothing is accepted until an Admin approves it.", path: "/admin/pending", target: { selector: '[data-tour="approve-cabinet"]' }, missing: "Nothing is waiting yet. The computer shows up here within a minute of running the install commands, and this list refreshes by itself.", action: { label: "Fill in the client and site and approve the cabinet.", done: () => text("body", "will come online within a minute") } },
     { title: "Live verification", body: "Runs the read-only checks against the real machine: system information, event logs, services, firewall, time, network, packet loss, path, performance and listening ports. Each reports what it read or why it could not.", path: "/admin/setup#live-check", target: { selector: '[data-tour="live-run"]' } },
     { title: "Network reading from a live cabinet", body: "On the enrolled cabinet, Network shows Packets and path (loss, jitter and a hop-by-hop table per target) and Diagnose network (link, address, DHCP or fixed, gateway, DNS, lease, routes and path), read from the machine. If the site has no baseline yet, the site page can set one from this cabinet's configuration.", path: page("real", ""), target: { selector: '[data-tour="diagnose"]' } },
   ] },
@@ -76,6 +79,7 @@ export function DemoTour() {
   const [setup, setSetup] = useState<{ tour: string; reset: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const start = useCallback((tour: string) => {
+    try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("demo-step-done:")) sessionStorage.removeItem(k); } catch { /* storage unavailable */ }
     write({ tour, step: 0 }); setPlace({ tour, step: 0 }); setOpening(window.location.pathname + window.location.search);
   }, []);
   useEffect(() => {
@@ -138,6 +142,21 @@ export function DemoTour() {
     return () => { stopped = true; if (timer) clearTimeout(timer); marked?.classList.remove("tour-target"); };
   }, [place?.tour, place?.step, path, looks, targetKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const step = place?.step ?? null;
+  // A step that asks for something is complete once the page shows it was done; that is remembered, so going back and forward never asks twice.
+  const action = place && step !== null ? steps[step]?.action : undefined;
+  const [complete, setComplete] = useState(false);
+  useEffect(() => {
+    if (!action || !place) { setComplete(false); return; }
+    const key = `demo-step-done:${place.tour}:${place.step}`;
+    try { if (sessionStorage.getItem(key)) { setComplete(true); return; } } catch { /* storage unavailable */ }
+    setComplete(false);
+    const t = setInterval(() => {
+      let ok = false;
+      try { ok = action.done(); } catch { ok = false; }
+      if (ok) { try { sessionStorage.setItem(key, "1"); } catch { /* storage unavailable */ } setComplete(true); clearInterval(t); }
+    }, 400);
+    return () => clearInterval(t);
+  }, [place?.tour, place?.step]); // eslint-disable-line react-hooks/exhaustive-deps
   const body = setup ? (setup.reset ? { enabled: true as const, reset: true as const } : { enabled: true as const }) : {};
   const dialog = (
     <StepUpDialog open={setup !== null} action="demo.change" target="fleet" params={body} onClose={() => setSetup(null)}
@@ -154,6 +173,7 @@ export function DemoTour() {
     {notice && <aside className="demo-tour" role="alert"><p>{notice}</p><button className="btn small" onClick={() => setNotice(null)}>Close</button></aside>}
   </>);
   const s = steps[step];
+  const gated = !!action && (found === "found" || !s.target);
   return (<>
     {dialog}
     <aside className={`demo-tour${left ? " left" : ""}`} aria-labelledby="demo-tour-title" aria-live="polite">
@@ -162,9 +182,10 @@ export function DemoTour() {
       <p>{s.body}</p>
       {found === "looking" && <p className="muted small" role="status">Finding it on the page…</p>}
       {found === "missing" && <p className="small error" role="status">{s.missing ?? "It isn't on this page yet."} Try Look again.</p>}
+      {gated && <p className={`small ${complete ? "ok" : "muted"}`} role="status">{complete ? "Done." : `To continue: ${action!.label}`}</p>}
       <div className="row gap wrap">
         <button className="btn small" disabled={step === 0} onClick={() => go(step - 1)}>Back</button>
-        {step < steps.length - 1 ? <button className="btn small primary" onClick={() => go(step + 1)}>Next</button>
+        {step < steps.length - 1 ? <button className="btn small primary" disabled={gated && !complete} onClick={() => go(step + 1)}>Next</button>
           : <button className="btn small primary" onClick={() => go(null)}>Finish</button>}
         {found === "missing" && <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Look again</button>}
         <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen" title="Move panel">{left ? "⇥" : "⇤"}</button>

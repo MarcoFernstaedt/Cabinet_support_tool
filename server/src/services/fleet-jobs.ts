@@ -152,7 +152,7 @@ export async function startJob(pool: pg.Pool, user: { userId: string; role: Role
     if (!u) throw new Refused("forbidden", 403, "unknown or disabled user");
     if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
     const used = Number((await c.query<{ n: string }>(
-      "SELECT count(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1 AND issued_at > now() - interval '1 hour' AND operation = ANY($2)",
+      "SELECT count(DISTINCT COALESCE(bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > now() - interval '1 hour' AND m.operation = ANY($2) AND t.demo_scenario IS NULL",
       [user.userId, WRITE_OPERATIONS])).rows[0]!.n);
     if (used >= u.write_limit) throw new WriteLimitReached();
     const targets = await plan(c, r.operation, r.cabinetIds);

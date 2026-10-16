@@ -20,10 +20,12 @@ export async function fleetPause(db: Queryable): Promise<FleetPause> {
 export async function checkWriteAllowed(c: pg.PoolClient, userId: string, cabinetId: string): Promise<void> {
   // One writer at a time per user, so the hourly count cannot be raced.
   await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`writes:${userId}`]);
-  if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
-  const k = (await c.query<{ write_paused: boolean; read_only: boolean | null }>(
-    `SELECT cl.write_paused, k.read_only FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
+  const k = (await c.query<{ write_paused: boolean; read_only: boolean | null; demo: boolean }>(
+    `SELECT cl.write_paused, k.read_only, k.demo_scenario IS NOT NULL AS demo FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) throw new Refused("not_found", 404, "no such cabinet");
+  // A simulated cabinet changes nothing real: pauses and the hourly limit protect real cabinets, so the demo can be run as often as wanted.
+  if (k.demo) return;
+  if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
   if (k.write_paused) throw new Refused("writes_paused", 409, "writes are paused for this client");
   if (k.read_only) throw new Refused("read_only_cabinet", 409, "this cabinet was installed read-only");
   const u = (await c.query<{ writes_paused: boolean; write_limit: number }>("SELECT writes_paused, write_limit FROM users WHERE id = $1", [userId])).rows[0];
@@ -31,7 +33,7 @@ export async function checkWriteAllowed(c: pg.PoolClient, userId: string, cabine
   if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
   const used = Number((await c.query<{ n: string }>(
     // A bulk change's commands share a bulk_id and count once.
-    "SELECT count(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1 AND issued_at > now() - interval '1 hour' AND operation = ANY($2)", [userId, WRITE_OPERATIONS])).rows[0]!.n);
+    "SELECT count(DISTINCT COALESCE(bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > now() - interval '1 hour' AND m.operation = ANY($2) AND t.demo_scenario IS NULL", [userId, WRITE_OPERATIONS])).rows[0]!.n);
   // Going over the limit pauses this user's writes until an Admin resumes them (recorded by the caller, after this rollback).
   if (used >= u.write_limit) throw new WriteLimitReached();
 }

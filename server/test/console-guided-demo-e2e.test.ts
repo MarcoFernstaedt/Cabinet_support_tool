@@ -96,27 +96,44 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.match(page.url(), /\/cabinets\/.*\/network/);
     assert.equal(await panel.getByRole("button", { name: /Show me|Look again/ }).count(), 0, "no extra button while the control is found");
     await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the click the step asks for");
+    await page.getByText(/To continue: Click Diagnose network/).waitFor();
     await clickOutlined('[data-tour="diagnose"]');
     await page.getByText(/The firewall on Midtown Sync is blocking port/).first().waitFor({ timeout: 60_000 });
+    await panel.getByRole("button", { name: "Next" }).waitFor({ state: "visible" });
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
 
-    // Step 3 asks for a click. Pressing Next instead still lands on the results: the tour runs the check and opens it.
+    // Step 3 asks for a click, and Next does nothing until it is done.
     await next();
     await arrive("Site-wide network diagnosis", '[data-tour="site-diagnose"]');
     assert.match(page.url(), /\/sites\//);
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the site check");
+    await clickOutlined('[data-tour="site-diagnose"]');
+    await page.waitForURL(/\/network\/diagnosis\//, { timeout: 60_000 });
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     await next();
     await arrive("Diagnosis results", '[data-tour="group-sync-firewall"]');
     assert.match(page.url(), /\/network\/diagnosis\//, "the tour opened the site's results itself");
     await next();
     await arrive("Remediation", '[data-tour="fix-apply_policy"]');
+    // The demo can be run as often as wanted: writes to simulated cabinets never count toward the hourly limit or pause anyone.
+    await db.app.query("UPDATE users SET write_limit = 1 WHERE id = $1", [adminId]);
+    await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
+                        SELECT gen_random_uuid(), k.id, 'firewall.setProfile', '{}'::jsonb, $1, now(), now() + interval '5 minutes', 'succeeded' FROM cabinets k, generate_series(1, 3) WHERE k.name = 'Midtown Sync'`, [adminId]);
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the fix to be applied");
     await clickOutlined('[data-tour="fix-apply_policy"]');
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByText(/Done: Apply the policy on Midtown Sync/).waitFor({ timeout: 60_000 });
     await page.getByText("8 of 9 cabinets are clean.").waitFor({ timeout: 90_000 });
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     assert.deepEqual(Object.values((await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles), [false, false, false]);
 
     await next();
     await arrive("Full network reading", '[data-tour="full-read"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the full reading to be opened");
+    await page.locator("summary", { hasText: "Everything that was read" }).click();
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     await next();
     await arrive("Fingerprint scanner history", '[data-tour="scanner-drops"]');
     await next();
@@ -124,6 +141,8 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.match(page.url(), /\/alerts/);
     await next();
     await arrive("Event log inspection", '[data-tour="event-entry"]', "Biometrics");
+    await clickOutlined('[data-tour="event-entry"]', "Biometrics");
+    await page.locator("#entry-heading").waitFor({ timeout: 60_000 });
     await next();
     await arrive("Event-to-issue mapping", '[data-tour="map-to-issue"]');
     await clickOutlined('[data-tour="map-to-issue"]');
@@ -146,6 +165,10 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await next();
     await arrive("Enrollment: install the agent", '[data-tour="create-token"]');
     assert.match(page.url(), /\/admin\/setup/);
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the token");
+    await clickOutlined('[data-tour="create-token"]');
+    await confirmWithCode();
+    await page.getByRole("link", { name: "Download token.txt" }).waitFor();
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),
