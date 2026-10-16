@@ -134,8 +134,31 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the full reading to be opened");
     await page.locator("summary", { hasText: "Everything that was read" }).click();
     await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
+    // The cash drawer: the check finds the firewall on, the policy turns it off, and the next check reads off.
+    await next();
+    await arrive("Cash drawer check", '[data-tour="drawer-check"]');
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the drawer to be fixed");
+    await page.getByRole("button", { name: "Check drawer" }).click();
+    await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
+    await page.getByRole("row", { name: /^IPv4/ }).getByText(/inside 172\.20\.1\.0\/24/).waitFor();
+    await page.getByRole("button", { name: "Apply the client's firewall policy" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await page.getByRole("row", { name: /^Firewall/ }).getByText("Off on every profile").waitFor({ timeout: 90_000 }).catch(async e => {
+      throw new Error(`${e.message}\nDrawer panel: ${await page.locator('[data-tour="drawer-check"]').innerText()}\nAlerts: ${JSON.stringify(await page.locator("[role=alert]").allTextContents())}`);
+    });
+    assert.deepEqual(Object.values((await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Pharmacy Sync'")).rows[0]!.firewall_profiles), [false, false, false], "the drawer cabinet's firewall really is off");
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     await next();
     await arrive("Fingerprint scanner history", '[data-tour="scanner-drops"]');
+    await next();
+    await arrive("Service start type", '[data-tour="start-type"]');
+    assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the start type change");
+    await clickOutlined('[data-tour="start-type"]');
+    await page.getByLabel("Start type", { exact: true }).selectOption("manual");
+    await page.getByRole("button", { name: "Review" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await page.getByText(/Service BioUpdateSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
+    await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     await next();
     await arrive("Unrecognized alerts", '[data-cabinet="Reception"]');
     assert.match(page.url(), /\/alerts/);

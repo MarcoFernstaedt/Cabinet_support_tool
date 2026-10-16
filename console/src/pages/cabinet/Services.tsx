@@ -121,7 +121,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                       <button className="btn small primary">Review</button><button type="button" className="btn small ghost" onClick={() => setEditing(null)}>Cancel</button>
                     </form>
                   : <>{START[s.startType]}{canStartType && ["automatic", "automatic_delayed", "manual", "disabled"].includes(s.startType)
-                    && <> <button className="btn small ghost" onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
+                    && <> <button className="btn small ghost" data-tour={s.startType === "disabled" ? "start-type" : undefined} onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
                   {s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>

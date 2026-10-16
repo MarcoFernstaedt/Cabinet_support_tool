@@ -83,3 +83,7 @@ A member's fix waits for approval and only they can see it. An Admin, or a Tier 
 - **Is this live data?** Your laptop's is. The cabinets tagged Demo are simulated, but they answer through the same code and contracts as a real agent.
 - **Can it run commands on a cabinet?** Only the fixed operations in its catalog, each with a role check on the server and again on the cabinet. There is no shell, no script runner and no general file transfer.
 - **What does a cabinet need?** Outbound HTTPS to the server on port 8443 and nothing inbound.
+
+## The guided demo's action steps
+
+Each step that asks for something keeps Next disabled until it is done, and says what to do ("To continue: …"): run the single-cabinet and site diagnoses, apply the firewall policy, open the full reading, check the cash drawer and apply the client's firewall policy until it reads off (on Pharmacy Sync, whose firewall is on), open an event log entry, map the error, set a disabled service's start type to Manual (Procedure Room's Biometric Update Service), approve the teammate's fix, create the install token. The page is shown whole for a moment, then dimmed around the control the step is about, with the guide beside it. "Focus" in the guide turns the dimming off. Writes to simulated cabinets never count toward the hourly write limit.

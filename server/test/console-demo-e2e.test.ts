@@ -67,7 +67,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // With SHOTS set, every step is photographed after it settles, for reviewing the screens.
     let shots = 0;
     const next = async () => {
-      await page.getByRole("button", { name: "Next" }).click({ timeout: 20_000 }).catch(async e => { throw new Error(`${e.message}\nTour panel: ${await page.locator(".demo-tour").innerText()}`); });
+      await page.getByRole("button", { name: "Next" }).click({ timeout: 20_000 }).catch(async e => { await page.screenshot({ path: "/tmp/fail.png" }); throw new Error(`${e.message}\nTour panel: ${await page.locator(".demo-tour").innerText()}`); });
       if (process.env.SHOTS) { await page.waitForTimeout(2500); await page.screenshot({ path: `${process.env.SHOTS}/tour-${String(++shots).padStart(2, "0")}.png` }); }
     };
     // Step 1 takes you to the site; step 2 is one cabinet, Exam Room 1, checked on its own.
@@ -136,6 +136,16 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("Replaced the patch cable to the switch; the errors stopped.").first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/known-fix.png`, fullPage: true });
 
+    // The cash drawer, on a cabinet whose firewall is on: the check finds it, the client's policy turns it off.
+    await next();
+    await page.getByRole("heading", { name: "Cash drawer check" }).waitFor();
+    await marked('[data-tour="drawer-check"]');
+    await page.getByRole("button", { name: "Check drawer" }).click();
+    await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
+    await page.getByRole("button", { name: "Apply the client's firewall policy" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await page.getByRole("row", { name: /^Firewall/ }).getByText("Off on every profile").waitFor({ timeout: 90_000 });
+
     // Step 7: the scanner, three drops and the driver installed before the first.
     await next();
     await page.getByRole("heading", { name: /Drops/ }).waitFor({ timeout: 30_000 });
@@ -149,6 +159,16 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/last on hub 3, port 2/).first().waitFor();
     await page.getByRole("row", { name: /Unknown USB Device.*Problem/ }).waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/usb-ports.png`, fullPage: true });
+
+    // Services: the disabled service is set to manual, and the page reads it back.
+    await next();
+    await page.getByRole("heading", { name: "Service start type" }).waitFor();
+    await marked('[data-tour="start-type"]');
+    await page.locator('[data-tour="start-type"]').first().click();
+    await page.getByLabel("Start type", { exact: true }).selectOption("manual");
+    await page.getByRole("button", { name: "Review" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await page.getByText(/Service BioUpdateSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
 
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.
     await next();

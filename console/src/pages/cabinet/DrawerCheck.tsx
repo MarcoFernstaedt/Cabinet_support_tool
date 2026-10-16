@@ -8,7 +8,7 @@ import { analyseDrawer, drawerText, DRAWER_NETWORK, type DrawerAnalysis } from "
 import type { AdapterReading } from "../../components/NetworkReadings";
 import { Badge } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
-import { ProfileControl, useProfileWrite } from "./Writes";
+import { ProfileControl, useConfirmedWrite, useCanWrite, useProfileWrite } from "./Writes";
 
 const WAIT_SECONDS = 5;
 const TONE = { ok: "ok", warn: "warn", crit: "crit", info: "info" } as const;
@@ -42,17 +42,20 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
 
   const changed = () => void go();
   const write = useProfileWrite(cabinet, changed);
+  const policy = useConfirmedWrite<unknown>(cabinet, "firewall.applyPolicy", r => { if (r.status === "succeeded") changed(); });
+  const canPolicy = useCanWrite(cabinet, "firewall.applyPolicy");
   const a = result?.analysis ?? null;
   const copy = async () => { if (!a) return; try { await navigator.clipboard.writeText(drawerText(cabinet.name, a)); setCopied(true); } catch { setCopied(false); } };
 
   return (
-    <section className="panel" aria-labelledby="drawer-heading">
+    <section className="panel" aria-labelledby="drawer-heading" data-tour="drawer-check">
       <div className="row gap wrap spread">
         <h2 id="drawer-heading">Cash drawer</h2>
         <span className="muted small">Expected network {DRAWER_NETWORK.address}/{DRAWER_NETWORK.prefixLength}</span>
         <button className="btn" disabled={state === "running"} onClick={() => void go()}>{state === "running" ? step : "Check drawer"}</button>
       </div>
       {problem && <p className="notice crit" role="alert">{problem}</p>}
+      {policy.run.state === "done" && policy.run.result?.status !== "succeeded" && <p className="notice crit" role="alert">The cabinet could not apply the policy{policy.run.result?.error ? `: ${policy.run.result.error.message}` : ""}.</p>}
       {a && (<>
         <p className={`notice ${a.tone === "ok" ? "ok" : a.tone === "crit" ? "crit" : "warn"}`} role="status">{a.summary}</p>
         <table className="table compact">
@@ -65,7 +68,11 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
               <h3>{p.profile[0]!.toUpperCase() + p.profile.slice(1)} firewall profile <Badge tone="warn">On</Badge></h3>
               <ProfileControl cabinet={cabinet} profile={p} write={write} />
             </article>))}</div>)}
-        {write.outcome}{write.dialog}
+        {a.profilesOn.length > 0 && canPolicy && (
+          <p className="row gap wrap"><button className="btn primary" data-tour="drawer-policy" onClick={() => policy.ask({}, <>
+            <p>Apply <strong>{cabinet.client.name}</strong>'s firewall policy to <strong>{cabinet.name}</strong>: every profile the policy says is off is turned off.</p>
+            <p className="muted small">A drawer's link is an unidentified network, which Windows treats as Public, so its firewall profile must be off for the drawer to work.</p></>)}>Apply the client's firewall policy</button></p>)}
+        {write.outcome}{write.dialog}{policy.dialog}
         <div className="row gap"><button className="btn small" onClick={() => void copy()}>{copied ? "Copied" : "Copy as text"}</button></div>
       </>)}
     </section>
