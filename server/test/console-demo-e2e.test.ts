@@ -266,14 +266,13 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("No DHCP lease (address 169.254.x.x)").waitFor({ timeout: 60_000 });
     assert.equal(await page.getByText("No default gateway").count(), 0, "what follows from having no address is not listed as separate problems");
 
-    // Onboarding: the same site can adopt a cabinet's network as its baseline, with the authenticator code, and then it is compared.
+    // Onboarding: the same site can adopt a cabinet's network as its baseline (one click: it changes no cabinet), and then it is compared.
     await page.goto(`${origin}/sites/${phoenix}`);
     await page.getByRole("heading", { name: "Standards for Phoenix Clinic" }).waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/standards.png`, fullPage: true });
     await page.getByRole("button", { name: /^Use .*'s network$/ }).click();
-    clock += 30_000;
-    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
-    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+    assert.equal(await page.getByRole("dialog").getByLabel("Authenticator code").count(), 0, "a baseline needs no authenticator code");
+    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByRole("heading", { name: "Standards for Phoenix Clinic" }).waitFor();
     await page.getByRole("button", { name: /^Use .*'s network$/ }).waitFor({ state: "detached", timeout: 15_000 });
     const saved = (await db.app.query<{ network_baseline: { gateway: string } | null }>("SELECT network_baseline FROM sites WHERE id = $1", [phoenix])).rows[0]!.network_baseline;

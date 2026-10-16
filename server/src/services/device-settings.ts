@@ -71,9 +71,9 @@ type Level = "client" | "site";
 const TABLE: Record<Level, string> = { client: "clients", site: "sites" };
 
 /** A client's or a site's scanner hardware IDs (Tier 2 and Admin; null removes that level's setting). */
-export async function setScanner(pool: pg.Pool, userId: string, level: Level, id: string, ids: string[] | null, stepUpToken: string): Promise<void> {
+export async function setScanner(pool: pg.Pool, userId: string, level: Level, id: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
-    await consumeStepUpToken(c, stepUpToken, userId, `${level}.scanner`, id);
+    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, `${level}.scanner`, id);
     const r = await c.query(`UPDATE ${TABLE[level]} SET scanner_hardware_ids = $2 WHERE id = $1 AND removed_at IS NULL`, [id, ids === null ? null : safeJson(ids)]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
     await audit(c, { actorKind: "user", actorId: userId, action: `${level}.scanner`, targetKind: level, targetId: id, outcome: "succeeded", details: { hardwareIds: ids } });

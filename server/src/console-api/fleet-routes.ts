@@ -81,14 +81,14 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.put("/api/settings/scanner", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.scanner.parse(request.body);
-    await setFleetScanner(o.pool, u.userId, body.hardwareIds, boundTo(body.stepUpToken, body));
+    await setFleetScanner(o.pool, u.userId, body.hardwareIds, body.stepUpToken ? boundTo(body.stepUpToken, body) : undefined);
     return { hardwareIds: body.hardwareIds };
   });
 
   app.put("/api/cabinets/:id/scanner", async request => {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.scanner.parse(request.body);
-    await setCabinetScanner(o.pool, u.userId, id(request), body.hardwareIds, boundTo(body.stepUpToken, body));
+    await setCabinetScanner(o.pool, u.userId, id(request), body.hardwareIds, body.stepUpToken ? boundTo(body.stepUpToken, body) : undefined);
     return { hardwareIds: body.hardwareIds };
   });
 
@@ -97,7 +97,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     app.put(`/api/${level}s/:id/scanner`, async request => {
       const u = await o.guards.role(request, "tier2");
       const body = consoleBodies.scanner.parse(request.body);
-      await setScanner(o.pool, u.userId, level, id(request), body.hardwareIds, boundTo(body.stepUpToken, body));
+      await setScanner(o.pool, u.userId, level, id(request), body.hardwareIds, body.stepUpToken ? boundTo(body.stepUpToken, body) : undefined);
       return { hardwareIds: body.hardwareIds };
     });
 
@@ -138,7 +138,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.put("/api/sites/:id/network-baseline", async request => {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.siteNetworkBaseline.parse(request.body);
-    await setNetworkBaseline(o.pool, u.userId, id(request), body.baseline, boundTo(body.stepUpToken, body));
+    await setNetworkBaseline(o.pool, u.userId, id(request), body.baseline, body.stepUpToken ? boundTo(body.stepUpToken, body) : undefined);
     return { baseline: body.baseline };
   });
 

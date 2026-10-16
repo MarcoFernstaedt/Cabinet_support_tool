@@ -7,9 +7,9 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
 
-export async function setNetworkBaseline(pool: pg.Pool, userId: string, siteId: string, baseline: NetworkBaseline | null, stepUpToken: string): Promise<void> {
+export async function setNetworkBaseline(pool: pg.Pool, userId: string, siteId: string, baseline: NetworkBaseline | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
-    await consumeStepUpToken(c, stepUpToken, userId, "site.network_baseline", siteId, { baseline });
+    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, "site.network_baseline", siteId, { baseline });
     const r = await c.query<{ before: NetworkBaseline | null }>(
       "UPDATE sites n SET network_baseline = $2 FROM sites o WHERE n.id = $1 AND o.id = n.id AND n.removed_at IS NULL RETURNING o.network_baseline AS before",
       [siteId, baseline === null ? null : safeJson(baseline)]);

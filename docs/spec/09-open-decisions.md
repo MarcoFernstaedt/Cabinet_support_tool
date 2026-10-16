@@ -454,3 +454,19 @@ Built as a panel on the Network tab from existing reads (`network.config` twice,
 ### Service start types (answered)
 
 Owner: Tier 1 and Tier 2 can change a service's start type. Built as `service.setStartType` (Tier 1 and up, one click, the same refused list as service.control, drivers never). Registry and scheduled-task changes: not answered, not built. Driver and whole-Windows rollback: not for now. DigitalPersona hardware IDs: to follow.
+
+### Which standards need an authenticator code (decided)
+
+The cabinet's **Standards** tab lists every setting a cabinet is held to (firewall policy, network baseline, time zone, sync cabinet, scanner IDs, watched services) with the standard, the level it comes from, and what the cabinet reports; a line opens a window with every level and the editors.
+
+A code on an edit helps only against one threat: someone using a signed-in browser session that is not theirs (a stolen cookie, an unlocked workstation). It does not help against a compromised server, which can write the database and issue commands without any console code; what limits that is on the agent: the fixed operation catalog, schema checks on every input, private-address-only sync targets, signed packages and upgrades, and the safety net that undoes a change that cuts a cabinet off. So a code is kept only where a hijacked session could do harm that reaches cabinets or traffic, and dropped where the setting changes no cabinet and any later change to a cabinet has its own confirmation:
+
+| Setting | Code? | Why |
+|---|---|---|
+| Client and fleet firewall policy | Yes (Admin) | It decides how every cabinet of the client is told to set its firewall; a hijacked session could weaken them all. |
+| Sync cabinet address and ports (site, client, fleet) | Yes (Admin) | It decides where every cabinet's connection test and the checks after it are pointed. |
+| Network baseline | No (Tier 2 and up, one click) | It changes no cabinet. The diagnosis only proposes fixes, and each fix that changes an address or DNS asks for its own code with the exact values. |
+| Scanner hardware IDs (fleet, client, site, cabinet) | No (Tier 2 and up, one click) | It changes only which device the scanner checks look at. Installing a driver is a separate step with its own code. |
+| Site time zone, watched services | No (already one click) | Time zone changes no cabinet; the watch list only restarts services, never changes a start type, and refuses remote-access services. |
+
+Every edit is role-limited and audited with who, what and the before and after. A one-time token sent to the scanner or baseline endpoints is still accepted and used up, so older clients keep working.

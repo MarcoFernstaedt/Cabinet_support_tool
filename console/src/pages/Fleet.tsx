@@ -9,7 +9,7 @@ import { Link } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
 import { ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
-import { Badge, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
+import { Badge, ConfirmDialog, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
 import { DemoTag } from "../components/DemoBanner";
 import { BulkPolicyApply, describePolicy, PolicyEditor, type Policy } from "../components/FirewallPolicy";
@@ -104,7 +104,7 @@ export function ClientPage({ id }: { id: string }) {
 }
 
 export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
-interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
+export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
   sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   cabinets: CabinetRow[]; }
@@ -194,9 +194,9 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
         <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; the fleet default applies (${describePolicy(cur.fleetFirewall)})` : ""}</span>} {r.action}</li>))}</ul>
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
       {(problem ?? timeZone.problem) && <p className="error" role="alert">{problem ?? timeZone.problem}</p>}
-      {sug.networkBaseline && !cur.networkBaseline && <StepUpDialog open={ask === "baseline"} action="site.network_baseline" target={siteId} params={{ baseline: sug.networkBaseline.baseline }} onClose={() => setAsk(null)}
+      {sug.networkBaseline && !cur.networkBaseline && <ConfirmDialog open={ask === "baseline"} onClose={() => setAsk(null)}
         description={<p>Set the network baseline for <strong>{name}</strong> from <strong>{sug.networkBaseline.fromCabinet.name}</strong>: {sug.networkBaseline.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {sug.networkBaseline.baseline.gateway}/{sug.networkBaseline.baseline.prefixLength}, DNS {sug.networkBaseline.baseline.dnsServers.join(", ")}. Check that this cabinet's network is the right one first. Nothing changes on a cabinet.</p>}
-        onToken={async token => { try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: sug.networkBaseline!.baseline, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
+        onConfirm={async () => { try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: sug.networkBaseline!.baseline }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
       {sug.firewall && !cur.clientFirewall && <StepUpDialog open={ask === "firewall"} action="client.firewall_policy" target={data.clientId} params={{ policy: sug.firewall.policy }} onClose={() => setAsk(null)}
         description={<p>Set the client's firewall policy to <strong>{describePolicy(sug.firewall.policy)}</strong>, as {sug.firewall.fromCabinet.name} has it now. It applies to every site of this client. Nothing changes on a cabinet until someone applies it.</p>}
         onToken={async token => { try { await api("PUT", `/api/clients/${data.clientId}/firewall-policy`, { policy: sug.firewall!.policy, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
@@ -204,13 +204,13 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
   );
 }
 
-interface Baseline { addressing: "dhcp" | "static"; prefixLength: number; gateway: string; dnsServers: string[] }
+export interface Baseline { addressing: "dhcp" | "static"; prefixLength: number; gateway: string; dnsServers: string[] }
 
 /**
  * The site's network: its baseline (what the network should look like), and the diagnosis of every cabinet here at once. A
  * baseline changes nothing on a cabinet; it is what the diagnosis compares each cabinet with. Tier 2 and up set it.
  */
-function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { siteId: string; name: string; baseline: Baseline | null; cabinets: number; editable: boolean; onSaved: () => void }) {
+export function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { siteId: string; name: string; baseline: Baseline | null; cabinets: number; editable: boolean; onSaved: () => void }) {
   const diagnose = useStartDiagnosis();
   const [form, setForm] = useState({ addressing: baseline?.addressing ?? "dhcp", prefixLength: String(baseline?.prefixLength ?? 24), gateway: baseline?.gateway ?? "", dns: baseline?.dnsServers.join(", ") ?? "" });
   const [pending, setPending] = useState<{ baseline: Baseline | null } | undefined>();
@@ -244,10 +244,10 @@ function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { 
           {saved && <span className="ok" role="status">Saved.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>)}
-      <StepUpDialog open={pending !== undefined} action="site.network_baseline" target={siteId} params={{ baseline: pending?.baseline ?? null }} onClose={() => setPending(undefined)}
+      <ConfirmDialog open={pending !== undefined} onClose={() => setPending(undefined)}
         description={<p>{pending?.baseline ? <>Set the network baseline for <strong>{name}</strong>: {pending.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {pending.baseline.gateway}/{pending.baseline.prefixLength}, DNS {pending.baseline.dnsServers.join(", ")}.</> : <>Remove the network baseline for <strong>{name}</strong>.</>} Nothing changes on a cabinet.</p>}
-        onToken={async token => {
-          try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: pending?.baseline ?? null, stepUpToken: token }); setSaved(true); onSaved(); }
+        onConfirm={async () => {
+          try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: pending?.baseline ?? null }); setSaved(true); onSaved(); }
           catch (e) { setProblem(describeError(e)); throw e; }
         }} />
     </section>
@@ -258,7 +258,7 @@ function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSaved }: { 
  * The time zone a site's cabinets should use (module 21). Setting it changes nothing on a cabinet: cabinets in another
  * zone get a minor "Wrong time zone" alert, and are corrected from their Time section or Fleet operations. Tier 2 and up.
  */
-function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: string; name: string; current: string | null; editable: boolean; onSaved: () => void }) {
+export function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: string; name: string; current: string | null; editable: boolean; onSaved: () => void }) {
   const [zone, setZone] = useState(current ?? "");
   const { run, problem, saved } = useAction();
   const save = async () => { if (await run(() => api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: zone || null }))) onSaved(); };
@@ -281,7 +281,7 @@ function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: st
 }
 
 /** The services this client's (or site's) cabinets keep running (milestone 10); Tier 2 and up change the list. */
-function WatchedServices({ level, id, name, editable }: { level: "clients" | "sites"; id: string; name: string; editable: boolean }) {
+export function WatchedServices({ level, id, name, editable }: { level: "clients" | "sites"; id: string; name: string; editable: boolean }) {
   const { data, reload } = useLoad<{ own: string[] | null; client: string[] | null; fleet: string[] | null }>(`/api/${level}/${id}/watched-services`);
   const above = data?.client ? <>the client's list applies (<code>{data.client.join(", ") || "none"}</code>).</>
     : data?.fleet ? <>the fleet default applies (<code>{data.fleet.join(", ") || "none"}</code>).</> : null;
@@ -295,7 +295,7 @@ function WatchedServices({ level, id, name, editable }: { level: "clients" | "si
 }
 
 /** The site's sync cabinet (Admin, with step-up). Each cabinet also refuses an address not on its own network. Empty ports use the client's (else the fleet's). */
-function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; sync: SiteDetail["sync"]; editable: boolean; onSaved: () => void }) {
+export function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; sync: SiteDetail["sync"]; editable: boolean; onSaved: () => void }) {
   const [address, setAddress] = useState(sync.address ?? "");
   const [ports, setPorts] = useState((sync.ports ?? []).join(", "));
   const [confirming, setConfirming] = useState(false);
@@ -332,7 +332,7 @@ function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; syn
 }
 
 /** A client's own firewall policy (Admin, with a code), or the fleet default when it has none. */
-function ClientFirewallPolicy({ clientId, name, editable }: { clientId: string; name: string; editable: boolean }) {
+export function ClientFirewallPolicy({ clientId, name, editable }: { clientId: string; name: string; editable: boolean }) {
   const { data, reload } = useLoad<{ own: Policy | null; fleet: Policy }>(`/api/clients/${clientId}/firewall-policy`);
   return (
     <section className="panel" aria-labelledby="client-firewall">

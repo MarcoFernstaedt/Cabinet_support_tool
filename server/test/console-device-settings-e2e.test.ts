@@ -68,7 +68,10 @@ test("device settings in the console: a client's scanner and sync ports set once
     await scanner.getByText(/cabinets find the scanner automatically/).waitFor();
     await scanner.getByLabel(/This client's scanner IDs/).fill("USB\\VID_1234");
     await scanner.getByRole("button", { name: "Save" }).click();
-    await confirm(/every cabinet of Acme Health/);
+    // Scanner IDs only change which device the checks look at: one click to confirm, no authenticator code.
+    assert.equal(await page.getByRole("dialog", { name: "Confirm with your authenticator" }).count(), 0);
+    await page.getByRole("dialog", { name: "Confirm the change" }).getByText(/every cabinet of Acme Health/).waitFor();
+    await page.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
     await scanner.getByText("Set here:").waitFor();
     const ports = page.getByRole("region", { name: "Sync cabinet ports for Acme Health" });
     await ports.getByLabel(/TCP ports/).fill("1433, 5000");
@@ -93,6 +96,25 @@ test("device settings in the console: a client's scanner and sync ports set once
     const ids = page.getByRole("region", { name: "Scanner hardware IDs" });
     await ids.getByText(/from the client's setting/).waitFor();
     assert.match(await ids.innerText(), /USB\\VID_1234/);
+
+    // ---- The cabinet's Standards: every setting it is held to, one line each; a line opens every level and the editors ----
+    await page.goto(`${origin}/cabinets/${cabinet}/standards`);
+    const table = page.getByRole("table", { name: /Each setting this cabinet is held to/ });
+    for (const line of ["Firewall policy", "Network baseline", "Time zone", "Sync cabinet", "Fingerprint scanner IDs", "Watched services"])
+      await table.getByRole("button", { name: line }).waitFor();
+    await table.getByRole("row", { name: /Fingerprint scanner IDs/ }).getByText("The client").waitFor();
+    await table.getByRole("button", { name: "Fingerprint scanner IDs" }).click();
+    const dialog = page.getByRole("dialog", { name: "Fingerprint scanner IDs" });
+    await dialog.getByLabel("This cabinet's own scanner IDs", { exact: false }).fill("USB\\VID_5555&PID_0002");
+    await dialog.getByRole("button", { name: "Save" }).first().click();
+    await page.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await dialog.getByText("Set here:").first().waitFor().catch(async e => { await page.screenshot({ path: "/tmp/std.png" }); throw new Error(`${e.message}\nPage: ${(await page.locator("body").innerText()).slice(0, 900)}`); });
+    await dialog.getByRole("button", { name: "Close" }).click();
+    assert.deepEqual((await db.app.query("SELECT scanner_hardware_ids AS ids FROM cabinets WHERE id = $1", [cabinet])).rows[0].ids, ["USB\\VID_5555&PID_0002"]);
+    // The firewall policy line opens the policy at the cabinet's client; changing it asks for the code.
+    await table.getByRole("button", { name: "Firewall policy" }).click();
+    await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("heading", { name: "Firewall policy for Acme Health" }).waitFor();
+    await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("button", { name: "Close" }).click();
 
     // ---- The client firewall policy: the cabinet reports all profiles on, unlike the default (all off) ----
     await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = false, last_heartbeat_at = now() WHERE id = $1`, [cabinet]);

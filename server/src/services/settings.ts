@@ -5,9 +5,9 @@ import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 
-export async function setFleetScanner(pool: pg.Pool, userId: string, ids: string[] | null, stepUpToken: string): Promise<void> {
+export async function setFleetScanner(pool: pg.Pool, userId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
-    await consumeStepUpToken(c, stepUpToken, userId, "settings.scanner", "fleet");
+    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, "settings.scanner", "fleet");
     if (ids === null) await c.query("DELETE FROM settings WHERE key = 'scanner.hardwareIds'");
     else await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('scanner.hardwareIds', $1, $2)
                         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [safeJson(ids), userId]);
@@ -15,9 +15,9 @@ export async function setFleetScanner(pool: pg.Pool, userId: string, ids: string
   });
 }
 
-export async function setCabinetScanner(pool: pg.Pool, userId: string, cabinetId: string, ids: string[] | null, stepUpToken: string): Promise<void> {
+export async function setCabinetScanner(pool: pg.Pool, userId: string, cabinetId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
-    await consumeStepUpToken(c, stepUpToken, userId, "cabinet.scanner", cabinetId);
+    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, "cabinet.scanner", cabinetId);
     const r = await c.query("UPDATE cabinets SET scanner_hardware_ids = $2 WHERE id = $1 AND status <> 'removed'", [cabinetId, ids === null ? null : safeJson(ids)]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such cabinet");
     await audit(c, { actorKind: "user", actorId: userId, action: "cabinet.scanner", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded", details: { hardwareIds: ids } });

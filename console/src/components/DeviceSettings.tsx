@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
 import { parseSyncPorts, SYNC_PORTS_RULE } from "../lib/ports";
-import { StepUpDialog } from "./ui";
+import { ConfirmDialog, StepUpDialog } from "./ui";
 
 export const SCANNER_SOURCE: Record<string, string> = {
   cabinet: "this cabinet's own setting", site: "the site's setting", client: "the client's setting", fleet: "the fleet default",
@@ -35,12 +35,13 @@ export function ScannerIdsEditor({ label, current, inherited, endpoint, action, 
             {saved && <span className="ok" role="status">Saved. Cabinets use it from their next heartbeat.</span>}</div>
           {problem && <p className="error" role="alert">{problem}</p>}
         </form>)}
-      <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)} params={{ hardwareIds: pending ?? null }}
+      {/* No authenticator code: this only changes which device the scanner checks look at, on no cabinet; it is role-limited and audited. */}
+      <ConfirmDialog open={pending !== undefined} onClose={() => setPending(undefined)}
         description={<p>{pending ? <>Use <code>{pending.join(", ")}</code> as the fingerprint scanner for {what}.</> : <>Remove the scanner IDs set for {what}.</>}
           {" "}This changes which device the scanner checks look at; nothing changes on the cabinets themselves.</p>}
-        onToken={async token => {
-          try { await api("PUT", endpoint, { hardwareIds: pending ?? null, stepUpToken: token }); setSaved(true); onSaved(); }
-          catch (e) { setProblem(describeError(e)); }
+        onConfirm={async () => {
+          try { await api("PUT", endpoint, { hardwareIds: pending ?? null }); setSaved(true); onSaved(); }
+          catch (e) { setProblem(describeError(e)); throw e; }
         }} />
     </div>
   );

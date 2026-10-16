@@ -22,6 +22,7 @@ import { LiveCheck } from "../../components/LiveCheck";
 import { Time } from "./Time";
 import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
+import { Standards } from "./Standards";
 import { History } from "./History";
 import { CabinetAlerts, MonitorEvents } from "./CabinetAlerts";
 import { Software } from "./Software";
@@ -36,7 +37,7 @@ export interface CabinetDetail extends CabinetRow {
 }
 
 export const SECTIONS = [
-  ["overview", "Overview"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
+  ["overview", "Overview"], ["standards", "Standards"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
   ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
   ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
   ["software", "Software"], ["history", "Command history"],
@@ -96,6 +97,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "compare": return <Compare cabinet={cabinet} />;
     case "troubleshoot": return <Troubleshoot cabinetId={cabinet.id} cabinetName={cabinet.name} />;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
+    case "standards": return <Standards cabinet={cabinet} onChanged={reload} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;
     case "devices": return <DevicesDrivers cabinet={cabinet} />;
     case "updates": return <Updates cabinet={cabinet} />;

@@ -885,9 +885,9 @@ export interface RuleRollback {
 export interface ScannerSettings {
   hardwareIds: [string, ...string[]] | null;
   /**
-   * A one-time step-up token bound to this exact action.
+   * Optional: a one-time step-up token bound to this exact action. These settings change no cabinet by themselves, so no code is required; a token, if sent, is consumed.
    */
-  stepUpToken: string;
+  stepUpToken?: string;
 }
 
 /**
@@ -925,7 +925,10 @@ export interface SiteCreate {
  */
 export interface SiteNetworkBaseline {
   baseline: NetworkBaseline | null;
-  stepUpToken: string;
+  /**
+   * Optional: a one-time step-up token bound to this exact action. These settings change no cabinet by themselves, so no code is required; a token, if sent, is consumed.
+   */
+  stepUpToken?: string;
 }
 
 /**

@@ -6,8 +6,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "baseline",
-    "stepUpToken"
+    "baseline"
   ],
   "properties": {
     "baseline": {
@@ -22,7 +21,8 @@
     },
     "stepUpToken": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-]{43}$"
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "Optional: a one-time step-up token bound to this exact action. These settings change no cabinet by themselves, so no code is required; a token, if sent, is consumed."
     }
   }
 }
