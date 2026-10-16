@@ -28,6 +28,33 @@
     "timeZoneId": {
       "description": "The cabinet's Windows time zone, compared with its site's time zone. Absent from agents before the time operations.",
       "$ref": "../common.schema.json#/$defs/reportedTimeZoneId"
+    },
+    "health": {
+      "description": "A small sample of how loaded the cabinet is, for trends: processor use since the last heartbeat, memory in use, and free space on the system drive. Absent until the agent has two readings to compare, and from older agents.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpuPercent",
+        "memoryUsedPercent",
+        "diskFreePercent"
+      ],
+      "properties": {
+        "cpuPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "memoryUsedPercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "diskFreePercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
     }
   },
   "required": [

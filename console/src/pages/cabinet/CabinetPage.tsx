@@ -27,6 +27,7 @@ import { History } from "./History";
 import { CabinetAlerts, MonitorEvents } from "./CabinetAlerts";
 import { Software } from "./Software";
 import { WindowsInfo } from "./WindowsInfo";
+import { TrendCharts } from "../../components/TrendChart";
 import { WritePauseBanner } from "../../lib/writes";
 
 export interface CabinetDetail extends CabinetRow {
@@ -141,6 +142,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
       </div>
     </section>
+    <TrendCharts cabinetId={cabinet.id} />
     <CaseNotes cabinetId={cabinet.id} title="Case notes for this cabinet" />
     <LiveCheck cabinetId={cabinet.id} cabinetName={cabinet.name} simulated={!!cabinet.demo} />
   </>);

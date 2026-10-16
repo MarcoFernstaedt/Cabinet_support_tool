@@ -53,6 +53,8 @@ public sealed class AgentConnectionOptions
     public Func<FirewallProfileSwitches?>? FirewallProfiles { get; init; }
     /// <summary>The cabinet's Windows time zone ID, compared by the server with its site's zone. Null when it cannot be read or is not a reportable ID.</summary>
     public Func<string?>? TimeZoneId { get; init; }
+    /// <summary>A small load sample sent with each heartbeat, or null when none can be taken yet.</summary>
+    public Func<HealthSample?>? Health { get; init; }
     /// <summary>Tells the broker the server was reached after a safety-net change; null when this agent makes no changes.</summary>
     public Func<Guid, CancellationToken, Task<SafetyNetStatus>>? ConfirmSafetyNet { get; init; }
     /// <summary>Called after every successful write (the firewall change detector looks at once, to attribute it).</summary>
@@ -251,7 +253,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                 HeartbeatResponse answer = await api.HeartbeatAsync(new Heartbeat
                 {
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
-                    FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(),
+                    FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(), Health = o.Health?.Invoke(),
                 }, token).ConfigureAwait(false);
                 o.Settings?.Apply(answer);
                 if (o.Upgrades is not null) await o.Upgrades.AfterHeartbeatAsync(api, answer, token).ConfigureAwait(false);

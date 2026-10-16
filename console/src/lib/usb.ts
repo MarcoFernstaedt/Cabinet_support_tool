@@ -52,3 +52,31 @@ export function analyseUsb(devices: UsbDevice[], scannerIds: string[] = [], scan
     ?? `${scanner ? `Scanner connected on ${scanner.where}. ` : ""}${rows.filter(r => r.device.present && r.device.kind === "device").length} devices connected, no port problems${forgotten ? `; ${forgotten} remembered but not connected` : ""}.`;
   return { rows, issues, tone, summary, scanner, portsInUse };
 }
+
+/** The kinds of device a cabinet has, in the order they are shown. Printers are not listed: the platform does not manage them. */
+export const DEVICE_CLASSES = ["Fingerprint scanner", "Network adapter", "Keyboard and mouse", "Touch screen", "Card reader", "Barcode scanner", "Storage", "Audio", "Camera", "Hub", "Other"] as const;
+export type DeviceClass = (typeof DEVICE_CLASSES)[number];
+
+/** Words in a device's name that place it in a class; the first class with a word that appears wins. Plain text comparison, no patterns. */
+const CLASS_WORDS: [DeviceClass, string[]][] = [
+  ["Fingerprint scanner", ["fingerprint", "biometric", "digitalpersona", "u.are.u"]],
+  ["Network adapter", ["ethernet", "network adapter", "lan adapter", "wi-fi", "wireless adapter"]],
+  ["Touch screen", ["touch screen", "touchscreen", "touch controller", "digitizer"]],
+  ["Keyboard and mouse", ["keyboard", "mouse", "pointing", "usb input device"]],
+  ["Card reader", ["card reader", "smart card", "smartcard"]],
+  ["Barcode scanner", ["barcode", "bar code", "scanner"]],
+  ["Storage", ["mass storage", "flash", "disk", "storage"]],
+  ["Audio", ["audio", "headset", "speaker", "microphone"]],
+  ["Camera", ["camera", "webcam"]],
+];
+
+export function deviceClass(d: { name: string; kind: "hub" | "device" }): DeviceClass {
+  if (d.kind === "hub") return "Hub";
+  const name = d.name.toLowerCase();
+  return CLASS_WORDS.find(([, words]) => words.some(w => name.includes(w)))?.[0] ?? "Other";
+}
+
+/** The rows grouped by class, in DEVICE_CLASSES order; classes with nothing in them are left out. */
+export function groupByClass(rows: UsbRow[]): { cls: DeviceClass; rows: UsbRow[] }[] {
+  return DEVICE_CLASSES.map(cls => ({ cls, rows: rows.filter(r => deviceClass(r.device) === cls) })).filter(g => g.rows.length > 0);
+}

@@ -252,6 +252,7 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
       await pool.query("UPDATE cabinets SET last_heartbeat_at = $2, uptime_seconds = 160 WHERE id = $1", [k.id, new Date(first + 23 * 60_000)]);
     }
   }
+  await seedHistory(pool, userId);
   await seedSubmittedFix(pool);
   // What the platform's regular check of each cabinet against its site's baseline would have found.
   for (const a of netAlerts) await raiseBaselineAlert(pool, a.id, a.problems);
@@ -304,16 +305,54 @@ export async function disableDemo(pool: pg.Pool, userId: string): Promise<number
   });
 }
 
+/** A day of load samples for every simulated cabinet that is heard from, and the last stored reads of the ones that are not (what "last known" shows). */
+async function seedHistory(pool: pg.Pool, userId: string): Promise<void> {
+  const rows = (await pool.query<{ id: string; scenario: string; offline: boolean }>(
+    "SELECT id, demo_scenario AS scenario, demo_scenario = ANY($1::text[]) AS offline FROM cabinets WHERE demo_scenario IS NOT NULL", [["offline", "site_outage", "incident_loop"]])).rows;
+  for (const k of rows.filter(r => !r.offline)) {
+    const values: string[] = [], params: unknown[] = [k.id];
+    for (let t = Date.now() - 24 * 3_600_000; t < Date.now(); t += 10 * 60_000) {
+      const h = demoHealth(k.id, k.scenario, t);
+      params.push(new Date(t), h.cpuPercent, h.memoryUsedPercent, h.diskFreePercent);
+      const n = params.length;
+      values.push(`($1, $${n - 3}, $${n - 2}, $${n - 1}, $${n})`);
+    }
+    await pool.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent) VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`, params);
+  }
+  for (const k of rows.filter(r => r.offline)) {
+    const ctx = await context(pool, k.id);
+    if (!ctx) continue;
+    for (const operation of ["system.security", "software.list", "startup.list", "power.status", "shares.list"]) {
+      const output = demoOutput(operation, {}, ctx);
+      const at = new Date(Date.now() - (k.scenario === "offline" ? 6 * 86_400_000 : 3_600_000));
+      const commandId = randomUUID();
+      await pool.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at, result, result_at)
+                        VALUES ($1, $2, $3, '{}'::jsonb, $4, $5, $6, 'succeeded', $5, $7, $5)`,
+        [commandId, k.id, operation, userId, at, new Date(at.getTime() + 300_000), safeJson({ commandId, status: "succeeded", startedAt: iso(at.getTime()), finishedAt: iso(at.getTime()), output })]);
+    }
+  }
+}
+
 async function profilesOf(pool: pg.Pool, cabinetId: string): Promise<Profiles> {
   return (await pool.query<{ p: Profiles | null }>("SELECT firewall_profiles AS p FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.p ?? ALL_OFF;
 }
 
+/** A believable load for a simulated cabinet: a slow daily swing around a level of its own, a little noise, and a leak for the cabinet whose scanner service keeps failing. */
+function demoHealth(cabinetId: string, scenario: string, at = Date.now()): { cpuPercent: number; memoryUsedPercent: number; diskFreePercent: number } {
+  const seed = parseInt(cabinetId.slice(0, 8), 16);
+  const hours = at / 3_600_000;
+  const swing = Math.sin(hours / 24 * 2 * Math.PI + (seed % 7));
+  const cpu = 18 + (seed % 17) + 12 * swing + ((Math.floor(at / 300_000) * 7 + seed) % 9);
+  const leak = scenario === "scanner_flapping" ? Math.min(40, ((at / 3_600_000) % 24) * 1.7) : 0;
+  return { cpuPercent: Math.round(Math.min(100, Math.max(2, cpu))), memoryUsedPercent: Math.round(Math.min(97, 42 + (seed % 15) + 4 * swing + leak)), diskFreePercent: 22 + (seed % 41) };
+}
+
 async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles): Promise<void> {
   // The simulated cabinet's zone and clock offset live in its own row, as a real agent's would on the cabinet.
-  const r = (await pool.query<{ uptime: string; zone: string | null; skew: number | null }>(
-    "SELECT uptime_seconds AS uptime, time_zone_id AS zone, clock_skew_seconds AS skew FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
+  const r = (await pool.query<{ uptime: string; zone: string | null; skew: number | null; scenario: string | null }>(
+    "SELECT uptime_seconds AS uptime, time_zone_id AS zone, clock_skew_seconds AS skew, demo_scenario AS scenario FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
   const { firewallChanged, timeCheck } = await recordHeartbeat(pool, cabinetId, { agentVersion: AGENT_VERSION, uptimeSeconds: Number(r?.uptime ?? 0) + 60,
-    readOnlyMode: false, firewallProfiles: profiles ?? await profilesOf(pool, cabinetId),
+    readOnlyMode: false, firewallProfiles: profiles ?? await profilesOf(pool, cabinetId), health: demoHealth(cabinetId, r?.scenario ?? "healthy"),
     ...(r?.zone ? { timeZoneId: r.zone } : {}), ...(r?.skew !== null && r?.skew !== undefined ? { clockSkewSeconds: r.skew } : {}) });
   if (firewallChanged) await evaluateDrift(pool, { cabinetId });
   if (timeCheck) await evaluateTime(pool, { cabinetId });

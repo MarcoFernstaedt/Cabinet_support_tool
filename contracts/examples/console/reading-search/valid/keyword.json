@@ -1,0 +1,5 @@
+{
+  "operation": "power.status",
+  "q": "usb_suspend",
+  "clientId": "4f0c6a2e-8f4b-4c6e-9a53-2b1e7f3d5a10"
+}

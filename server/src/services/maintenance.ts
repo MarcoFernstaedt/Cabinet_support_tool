@@ -40,6 +40,8 @@ export async function runRetention(pool: pg.Pool): Promise<RetentionRun> {
     const sessions = (await c.query("DELETE FROM sessions WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
     const stepUpTokens = (await c.query("DELETE FROM step_up_tokens WHERE expires_at < now() - interval '1 day'")).rowCount ?? 0;
     const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < now() - make_interval(days => $1)", days(r.diagnosesDays))).rowCount ?? 0;
+    // Load samples are for trend charts only, so two weeks is all they are kept.
+    await c.query("DELETE FROM health_samples WHERE at < now() - interval '14 days'");
     const boots = (await c.query("DELETE FROM cabinet_boots WHERE booted_at < now() - make_interval(days => $1)", days(r.bootsDays))).rowCount ?? 0;
     // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
     await c.query(`DELETE FROM fleet_job_targets WHERE job_id IN

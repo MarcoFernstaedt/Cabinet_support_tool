@@ -68,6 +68,11 @@ Each would be a fixed, read-only or confirmed operation, never a shell.
 22. **Other peripherals like the scanner.** Receipt and label printers, card readers, touch screens and serial devices, found by class and shown with the hub and port they use.
 23. **Offline cabinets.** Show the last known state and the reason it went quiet (power, network, or the agent), from the `baseline-recovery` branch's offline cache.
 
+## Status, October 2026
+
+Built (the Windows-only code has not yet run on a real cabinet): reads 2 to 11 (pending restart, crashes and hangs, Defender, disk by folder, software and hotfixes, startup and tasks, sessions, shares, certificates, activation, BitLocker, DNS cache); actions 13, 15, 16 and 17; fleet search over stored readings (18); load trends from heartbeats (19); last-known readings on every cabinet, shown also while it is offline (23); peripherals grouped by type of device (22, without printers).
+Not built, by decision: printers and the print queue (1, 14), email or chat notifications, Salesforce (20, 21). Still open: the clinic application's own health (12), per-process bandwidth, VPN adapters and DHCP lease history (part of 11).
+
 ## Suggested order
 
 1. Real-cabinet pilot and the security tests on it (items 1, 4, 5).

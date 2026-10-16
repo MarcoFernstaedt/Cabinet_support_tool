@@ -155,7 +155,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal(await page.getByText(/caused by/i).count(), 0);
     // USB ports: the scanner is not connected now, the port it was last on is named, and the port with a failed device is flagged.
     await page.getByRole("heading", { name: "USB ports" }).waitFor();
-    await page.getByRole("table", { name: "USB ports" }).waitFor({ timeout: 30_000 });
+    // Devices are grouped by type; the scanner's group is there, and ungrouping gives the one table of ports.
+    await page.getByRole("heading", { name: /^Fingerprint scanner \(\d+\)$/ }).waitFor({ timeout: 30_000 });
+    await page.getByLabel("Group by type of device").uncheck();
+    await page.getByRole("table", { name: "USB ports" }).waitFor();
     await page.getByText(/last on hub 3, port 2/).first().waitFor();
     await page.getByRole("row", { name: /Unknown USB Device.*Problem/ }).waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/usb-ports.png`, fullPage: true });

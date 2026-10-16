@@ -499,3 +499,10 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 - Scheduled-task last and next run times and logon times are empty in this version (Windows needs per-task calls for them).
 
 **Open question for the owner:** whether Fast Startup should be changeable at Tier 1 as built, or Tier 2 like the other settings that survive a restart.
+
+### Fleet search, trends and last-known state, October 2026 (built)
+
+- **Fleet search reads stored answers only.** It never sends a command. It matches the latest successful answer of one read per cabinet (installed programs and updates, startup items and tasks, shares, signed-in users, the DNS cache, and fixed keywords for security and power state), as a plain-text part of a name: no patterns, and `%` or `_` mean themselves. The answer says how many cabinets in scope have ever been read, so "none found" is never mistaken for "none have it". Searches are audited. Stored answers are kept as long as command results are (platform retention setting).
+- **Load samples ride on the heartbeat** as an optional `health` object (processor use since the last heartbeat, memory in use, free space on the system drive, whole percents). The server stores at most one per cabinet every 5 minutes and keeps 14 days, enough for a week's trend. They come from plain Windows calls that need no rights. Older agents send none and the chart says so.
+- **Last known state:** every reading on a cabinet's Windows tab shows the latest stored answer with when it was read, whether or not the cabinet is online; Run reads it again.
+- **Peripherals by type of device** are placed in a class by plain words in the device's name (fingerprint scanner, network adapter, keyboard and mouse, touch screen, card reader, barcode scanner, storage, audio, camera, hub, other). Printers are not a class.

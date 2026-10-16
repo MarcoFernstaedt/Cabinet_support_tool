@@ -55,3 +55,21 @@ test("odd or hostile device records do not break the analysis", () => {
   assert.equal(whereText(evil), "no port reported");
   assert.doesNotThrow(() => analyseUsb([]));
 });
+
+test("devices are placed in a class by the words in their names, hubs by kind, and printers are not a class", async () => {
+  const { deviceClass, groupByClass, DEVICE_CLASSES } = await import("../src/lib/usb.ts");
+  const d = (name: string, kind: "hub" | "device" = "device") => ({ name, kind });
+  assert.equal(deviceClass(d("Goodix Fingerprint Device")), "Fingerprint scanner");
+  assert.equal(deviceClass(d("USB Ethernet Adapter (drawer link)")), "Network adapter");
+  assert.equal(deviceClass(d("HID-compliant mouse")), "Keyboard and mouse");
+  assert.equal(deviceClass(d("USB Input Device")), "Keyboard and mouse");
+  assert.equal(deviceClass(d("Honeywell Barcode Scanner")), "Barcode scanner");
+  assert.equal(deviceClass(d("Generic Flash Disk")), "Storage");
+  assert.equal(deviceClass(d("USB Root Hub", "hub")), "Hub");
+  assert.equal(deviceClass(d("HP LaserJet 1020")), "Other");
+  assert.equal(deviceClass(d("")), "Other");
+  assert.ok(!DEVICE_CLASSES.some(c => c.toLowerCase().includes("printer")));
+  const rows = analyseUsb([hub(), dev(), key]).rows;
+  assert.deepEqual(groupByClass(rows).map(g => g.cls), ["Fingerprint scanner", "Keyboard and mouse", "Hub"]);
+  assert.equal(groupByClass(rows).reduce((n, g) => n + g.rows.length, 0), rows.length, "every device is in exactly one group");
+});

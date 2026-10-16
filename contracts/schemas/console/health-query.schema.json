@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/health-query.schema.json",
+  "title": "health-query",
+  "description": "How far back a cabinet's load samples are wanted, from the query string.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hours": {
+      "type": "string",
+      "enum": [
+        "6",
+        "24",
+        "72",
+        "168",
+        "336"
+      ]
+    }
+  }
+}

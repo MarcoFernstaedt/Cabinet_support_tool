@@ -55,7 +55,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
   const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") ? "alerts"
-    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/fleet-operations") ? "operations" : "fleet";
+    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : "fleet";
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
@@ -64,6 +64,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <nav aria-label="Main">
           <Link to="/" aria-current={section === "fleet" ? "page" : undefined}>Fleet</Link>
           <AlertBadge current={section === "alerts"} />
+          <Link to="/search" aria-current={section === "search" ? "page" : undefined}>Search</Link>
           <Link to="/incidents" aria-current={section === "incidents" ? "page" : undefined}>Incidents</Link>
           <Link to="/fleet-operations" aria-current={section === "operations" ? "page" : undefined}>Fleet operations</Link>
           <Link to="/issues" aria-current={section === "issues" ? "page" : undefined}>Issues</Link>

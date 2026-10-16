@@ -17,8 +17,10 @@ export const OUTCOME_TONE = { pass: "ok", warn: "warn", fail: "crit", unknown: "
 export const OUTCOME_LABEL = { pass: "Pass", warn: "Check", fail: "Problem", unknown: "Unknown" } as const;
 
 /** The common frame of a diagnostic: title, run button, progress, and the answer or why there is none. */
-export function OperationPanel<T>({ title, description, run, onRun, buttonLabel = "Run", children }: {
+export function OperationPanel<T>({ title, description, run, onRun, buttonLabel = "Run", stored, children }: {
   title: string; description?: string; run: Run<T>; onRun: () => void; buttonLabel?: string; children?: (output: T) => ReactNode;
+  /** The latest answer the platform already holds, shown until the cabinet is asked again. */
+  stored?: { output: T; at: string } | null;
 }) {
   const busy = run.state === "running";
   return (
@@ -28,12 +30,18 @@ export function OperationPanel<T>({ title, description, run, onRun, buttonLabel 
           <h3>{title}</h3>
           {description && <p className="muted small">{description}</p>}
         </div>
-        <button className="btn primary" onClick={onRun} disabled={busy}>{busy ? "Running…" : run.state === "done" ? "Run again" : buttonLabel}</button>
+        <button className="btn primary" onClick={onRun} disabled={busy}>{busy ? "Running…" : run.state === "done" || stored ? "Run again" : buttonLabel}</button>
       </div>
       <div aria-live="polite">
         {busy && <p className="muted">Waiting for the cabinet to answer…</p>}
         {!busy && run.problem && <p className="error" role="alert">{run.problem}</p>}
         {!busy && run.result && run.result.status !== "succeeded" && <ResultProblem result={run.result} />}
+        {!busy && !run.result && !run.problem && stored && (
+          <>
+            {children?.(stored.output)}
+            <p className="muted small">Last read {fullTime(stored.at)}. Run it to read the cabinet again.</p>
+          </>
+        )}
         {!busy && run.result?.status === "succeeded" && run.result.output !== undefined && (
           <>
             {children?.(run.result.output)}

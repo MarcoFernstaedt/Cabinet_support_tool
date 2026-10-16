@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import type { DiskFoldersOutput, DnsCacheOutput, PowerSetOutput, PowerStatusOutput, SystemCheckHealthOutput, SystemRestartOutput, ReliabilityListOutput, SessionsListOutput, SharesListOutput, SoftwareListOutput, StartupListOutput, SystemSecurityOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
+import { useLoad } from "../../lib/useLoad";
 import { ago, bytes, fullTime } from "../../lib/time";
 import { Badge, KeyValues, OperationPanel, WriteOutcome } from "../../components/ui";
 import { DataTable, orDash } from "../../components/DataTable";
@@ -170,7 +171,9 @@ const READINGS: Reading<never>[] = [
 
 function ReadingPanel({ cabinet, reading }: { cabinet: CabinetDetail; reading: Reading<never> }) {
   const run = useOperation<never>(cabinet.id, reading.op);
-  return <OperationPanel title={reading.title} description={reading.description} run={run} onRun={() => void run.start()}>{o => reading.view(o, { cabinet })}</OperationPanel>;
+  // What the platform already holds from an earlier read shows at once, also while the cabinet is offline; Run reads it again.
+  const stored = useLoad<{ reading: { at: string; output: never } | null }>(`/api/cabinets/${cabinet.id}/readings/${reading.op}`).data?.reading ?? null;
+  return <OperationPanel title={reading.title} description={reading.description} run={run} onRun={() => void run.start()} stored={stored}>{o => reading.view(o, { cabinet })}</OperationPanel>;
 }
 
 export function WindowsInfo({ cabinet }: { cabinet: CabinetDetail }) {

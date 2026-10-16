@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/reading-search.schema.json",
+  "title": "reading-search",
+  "description": "A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status and system.security one of their fixed keywords. The server limits what comes back.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "operation",
+    "q"
+  ],
+  "properties": {
+    "operation": {
+      "type": "string",
+      "enum": [
+        "software.list",
+        "startup.list",
+        "shares.list",
+        "sessions.list",
+        "dns.cache",
+        "power.status",
+        "system.security"
+      ]
+    },
+    "q": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "siteId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    }
+  }
+}

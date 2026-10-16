@@ -96,6 +96,15 @@ public sealed record Heartbeat
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? TimeZoneId { get; init; }
     /// <summary>Each firewall profile on or off as last seen; compared by the server with the client's firewall policy.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FirewallProfileSwitches? FirewallProfiles { get; init; }
+    /// <summary>How loaded the cabinet is, for the trend charts; absent until two readings can be compared.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HealthSample? Health { get; init; }
+}
+
+public sealed record HealthSample
+{
+    public required int CpuPercent { get; init; }
+    public required int MemoryUsedPercent { get; init; }
+    public required int DiskFreePercent { get; init; }
 }
 
 public sealed record ServerAck

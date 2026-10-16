@@ -653,6 +653,13 @@ export interface FleetSearch {
 }
 
 /**
+ * How far back a cabinet's load samples are wanted, from the query string.
+ */
+export interface HealthQuery {
+  hours?: "6" | "24" | "72" | "168" | "336";
+}
+
+/**
  * Creates or edits an issue type.
  */
 export interface IssueType {
@@ -799,6 +806,23 @@ export interface PlatformSettings {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
+}
+
+/**
+ * A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status and system.security one of their fixed keywords. The server limits what comes back.
+ */
+export interface ReadingSearch {
+  operation:
+    | "software.list"
+    | "startup.list"
+    | "shares.list"
+    | "sessions.list"
+    | "dns.cache"
+    | "power.status"
+    | "system.security";
+  q: string;
+  clientId?: string;
+  siteId?: string;
 }
 
 /**
@@ -1467,6 +1491,14 @@ export interface Heartbeat {
    * The cabinet's Windows time zone, compared with its site's time zone. Absent from agents before the time operations.
    */
   timeZoneId?: string;
+  /**
+   * A small sample of how loaded the cabinet is, for trends: processor use since the last heartbeat, memory in use, and free space on the system drive. Absent until the agent has two readings to compare, and from older agents.
+   */
+  health?: {
+    cpuPercent: number;
+    memoryUsedPercent: number;
+    diskFreePercent: number;
+  };
 }
 
 /**
