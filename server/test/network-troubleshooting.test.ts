@@ -15,7 +15,7 @@ import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
 import { ConsoleHarness, ORIGIN, type Account, type Role } from "./console-harness.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 const TIMING = { pollMs: 50, verifyMs: 5_000 };
@@ -59,7 +59,7 @@ const problemGroups = (b: { groups: { severity: string }[] }) => b.groups.filter
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => h.clock, fleetJobTiming: TIMING });
   h.db = db; h.app = app;

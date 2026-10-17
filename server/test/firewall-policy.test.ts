@@ -15,7 +15,7 @@ import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../sr
 import { recordHeartbeat } from "../src/services/cabinets.js";
 import { evaluateDrift } from "../src/services/firewall-policy.js";
 import { ISSUE } from "../src/services/rules.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -81,7 +81,7 @@ const driftAlert = async (cabinetId: string) => (await db.app.query<{ state: str
 test.before(async () => {
   db = await createTestDatabase();
   key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock });
   boss = await account("admin");

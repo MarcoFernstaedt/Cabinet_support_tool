@@ -21,7 +21,7 @@ import { networkOf } from "../src/services/security.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import * as users from "../src/services/users.js";
 import { verifyAuditChain } from "../src/db/db.js";
-import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
+import { asOwner, createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -79,7 +79,7 @@ const securityAlerts = async (kind: string) =>
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock });
   boss = await account("admin");

@@ -27,7 +27,7 @@ let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
 let feed: NotificationFeed;
-let clock = Date.SYSUTCDATETIME();
+let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const cab: Record<"a" | "b" | "far", string> = { a: "", b: "", far: "" };
 
@@ -61,7 +61,7 @@ async function stepUp(a: Account, cookie: string, action: string, target: string
   return r.body.token;
 }
 
-const at = (minutesAgo = 0) => new Date(Date.SYSUTCDATETIME() - minutesAgo * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const at = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
 type Log = NonNullable<Event["source"]>["log"];
 const errorEvent = (o: { log?: Log; source?: string; eventId?: number; message?: string; record?: number; level?: "error" | "critical" } = {}): Event => ({
   eventId: randomUUID(), kind: "error", occurredAt: at(), severityHint: "minor",
@@ -111,9 +111,9 @@ test("matching uses structured fields and a plain, case-insensitive phrase", () 
 
 test("a hostile phrase is fast: matching has no regular expressions to blow up", () => {
   const e = errorEvent({ message: "a".repeat(32_000) });
-  const started = Date.SYSUTCDATETIME();
+  const started = Date.now();
   for (let i = 0; i < 2_000; i++) matches({ phrase: "a".repeat(127) + "b" }, e);
-  assert.ok(Date.SYSUTCDATETIME() - started < 2_000);
+  assert.ok(Date.now() - started < 2_000);
 });
 
 test("people's rules must name something specific and fit the contract", () => {
@@ -211,7 +211,7 @@ test("an agent clock in the future cannot push an alert's last-seen time ahead",
   const e = { ...errorEvent({ source: "Future", eventId: 9 }), occurredAt: "2099-01-01T00:00:00Z" };
   const r = await send(cab.far, e);
   const a = (await db.app.query("SELECT last_seen FROM alerts WHERE id = $1", [(r.outcomes[0] as { alertId: string }).alertId])).rows[0];
-  assert.ok(a.last_seen.getTime() <= Date.SYSUTCDATETIME() + 1000);
+  assert.ok(a.last_seen.getTime() <= Date.now() + 1000);
 });
 
 // ---- Map to issue -----------------------------------------------------------------------

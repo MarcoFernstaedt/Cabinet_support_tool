@@ -125,7 +125,7 @@ test("a diagnosis that finds a problem somebody has solved counts the fix as sho
   await call("POST", "/api/known-fixes", { title: "Sync firewall", solution: "Applied the client policy.", symptom: { kind: "finding", key: "sync-firewall" }, cabinetId: sync.id }, boss);
   const started = await call("POST", `/api/cabinets/${(await cab("Exam Room 1")).id}/diagnose/network`, {}, t1);
   assert.equal(started.status, 202);
-  for (const end = Date.SYSUTCDATETIME() + 30_000; Date.SYSUTCDATETIME() < end; await new Promise(r => setTimeout(r, 100))) {
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
     if ((await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body.state !== "running") break;
   }
   assert.equal(typeof (await call("GET", "/api/known-fixes?findingKey=sync-firewall", undefined, t1)).body.fixes[0].seenCount, "number");

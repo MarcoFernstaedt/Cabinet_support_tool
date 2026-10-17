@@ -22,7 +22,7 @@ import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { storeEvents } from "../src/services/events.js";
 import { issueCommand, storeResult } from "../src/services/commands.js";
-import { asOwner, createTestDatabase } from "./database.js";
+import { asOwner, createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -39,12 +39,12 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   // Behind the reverse proxy in production; here the browser's X-Forwarded-For plays a sign-in from another network.
   const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, trustProxy: 1, now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
-  const notifier = new CommandNotifier(db.appUrl);
+  const notifier = new CommandNotifier(await startFeed(db));
   await notifier.start();
   const agentApi = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 1000, logger: false });
   await agentApi.listen({ host: "127.0.0.1", port: 0 });

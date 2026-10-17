@@ -11,7 +11,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import { deviceLabel } from "../src/auth/devices.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -26,7 +26,7 @@ const FIREFOX = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefo
 
 before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => clock, trustProxy: 1 });
 });

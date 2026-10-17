@@ -79,7 +79,7 @@ test.after(async () => { clearInterval(answering); await app.close(); await stre
 async function diagnose(a: Account, cabinetId: string) {
   const started = await call("POST", `/api/cabinets/${cabinetId}/diagnose/network`, {}, a);
   assert.equal(started.status, 202, JSON.stringify(started.body));
-  for (const end = Date.SYSUTCDATETIME() + 30_000; Date.SYSUTCDATETIME() < end; await new Promise(r => setTimeout(r, 100))) {
+  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
     const d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, a)).body;
     if (d.state !== "running") return d;
   }

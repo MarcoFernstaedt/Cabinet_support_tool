@@ -17,7 +17,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, storyReady } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
-import { createTestDatabase } from "./database.js";
+import { createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -32,7 +32,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
   await app.listen({ host: "127.0.0.1", port });

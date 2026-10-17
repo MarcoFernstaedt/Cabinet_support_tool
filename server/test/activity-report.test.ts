@@ -11,7 +11,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
 import { describeChange } from "../src/services/activity-report.js";
 import { ConsoleHarness, ORIGIN } from "./console-harness.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 let db: TestDatabase;
@@ -23,7 +23,7 @@ const cab = async (name: string) => (await db.app.query<{ id: string }>("SELECT 
 
 test.before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;

@@ -20,7 +20,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { DemoSimulator } from "../src/demo/demo.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -34,7 +34,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
-  const notifier = new CommandNotifier(db.appUrl);
+  const notifier = new CommandNotifier(await startFeed(db));
   await notifier.start();
   const agentApi: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await agentApi.listen({ host: "127.0.0.1", port: 0 });
@@ -43,7 +43,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
   const consolePort = await freePort();
   const origin = `http://127.0.0.1:${consolePort}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const downloads = tempDir();
   writeFileSync(join(downloads, "CabinetAgent-win-x64.zip"), Buffer.from("PK\u0003\u0004 test package"));

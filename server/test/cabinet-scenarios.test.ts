@@ -22,7 +22,7 @@ let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
 let feed: NotificationFeed;
-let clock = Date.SYSUTCDATETIME();
+let clock = Date.now();
 let cookie = "";
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 

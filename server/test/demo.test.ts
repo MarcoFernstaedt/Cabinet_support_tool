@@ -27,7 +27,7 @@ import { evaluateDrift } from "../src/services/firewall-policy.js";
 import { evaluateTime } from "../src/services/time.js";
 import { checkSiteOutages } from "../src/services/site-outage.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -83,7 +83,7 @@ const demoCabinet = async (scenario: string) => (await db.app.query<{ id: string
 test.before(async () => {
   db = await createTestDatabase();
   key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   writeFileSync(join(downloadDir, "CabinetAgent-win-x64.zip"), agentZip);
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock,

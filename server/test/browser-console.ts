@@ -8,7 +8,7 @@ import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
@@ -36,7 +36,7 @@ export async function startConsole(staticDir: string): Promise<Console> {
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir, ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
   await app.listen({ host: "127.0.0.1", port });

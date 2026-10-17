@@ -27,7 +27,7 @@ let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
 let feed: NotificationFeed;
-let clock = Date.SYSUTCDATETIME();
+let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 let adminId: string, cabinetId: string, cookie: string;
 
@@ -88,7 +88,7 @@ test("boots: from the heartbeat's uptime and from Windows' own start record, cou
   await heartbeat(50_060);                                  // same boot
   assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);
   // Windows' own start record for that same boot is not a second boot.
-  const booted = new Date(Date.SYSUTCDATETIME() - 50_060_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const booted = new Date(Date.now() - 50_060_000).toISOString().replace(/\.\d{3}Z$/, "Z");
   await storeEvents(db.app, cabinetId, { events: [{ eventId: randomUUID(), kind: "change", occurredAt: booted, severityHint: "minor",
     source: { log: "System", source: "Microsoft-Windows-Kernel-General", eventId: 12, level: "information", recordId: 1 }, detail: { message: "The operating system started." } }] });
   assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);

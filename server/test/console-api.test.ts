@@ -14,7 +14,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { verifyAuditChain } from "../src/db/db.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -73,7 +73,7 @@ async function stepUp(a: Account, cookie: string, action: string, target: string
 test.before(async () => {
   db = await createTestDatabase();
   key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const staticDir = tempDir();
   mkdirSync(join(staticDir, "assets"));

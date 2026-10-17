@@ -20,7 +20,7 @@ import { storeEvents } from "../src/services/events.js";
 import { ISSUE } from "../src/services/rules.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import type { Event } from "../src/contracts.js";
-import { createTestDatabase } from "./database.js";
+import { createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -36,7 +36,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, now: () => clock });
   await app.listen({ host: "127.0.0.1", port });

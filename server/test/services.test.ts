@@ -15,7 +15,7 @@ import { storeEvents } from "../src/services/events.js";
 import { watchLevels } from "../src/services/watched-services.js";
 import { ISSUE } from "../src/services/rules.js";
 import type { Event } from "../src/contracts.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -58,7 +58,7 @@ const alertFor = async (signature: string) => (await db.app.query<{ state: strin
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock });
   const admin = await account("admin");

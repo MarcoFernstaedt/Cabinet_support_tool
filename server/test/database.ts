@@ -4,12 +4,21 @@ import { randomBytes } from "node:crypto";
 import sql from "mssql";
 import { migrate, connectOwner } from "../src/db/migrate.js";
 import { createPool, Pool } from "../src/db/db.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 
 export const ADMIN_URL = process.env.TEST_DATABASE_ADMIN_URL ?? "sqlserver://sa:Dev-Only-Pass-1%21@localhost:1433/master?trustServerCertificate=true";
 const APP_USER = "cabinet_app_test";
 const APP_PASSWORD = "test-only-not-a-secret";
 
 export interface TestDatabase { name: string; ownerUrl: string; appUrl: string; app: Pool; drop(): Promise<void>; }
+
+const feeds = new Map<string, NotificationFeed>();
+/** One started notification feed per test database (stopped when the database is dropped). */
+export async function startFeed(db: TestDatabase): Promise<NotificationFeed> {
+  let feed = feeds.get(db.name);
+  if (!feed) { feed = new NotificationFeed(db.app, 50); await feed.start(); feeds.set(db.name, feed); }
+  return feed;
+}
 
 function urlFor(base: string, database: string, user?: string, password?: string): string {
   const u = new URL(base);
@@ -34,6 +43,7 @@ export async function createTestDatabase(): Promise<TestDatabase> {
   return {
     name, ownerUrl, appUrl, app,
     async drop() {
+      feeds.get(name)?.stop(); feeds.delete(name);
       await app.end();
       const c = await connectOwner(ADMIN_URL);
       await c.request().query(`IF DB_ID('${name}') IS NOT NULL BEGIN ALTER DATABASE ${name} SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE ${name}; END`);

@@ -19,7 +19,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { verifyAuditChain } from "../src/db/db.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -34,7 +34,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
-  const notifier = new CommandNotifier(db.appUrl);
+  const notifier = new CommandNotifier(await startFeed(db));
   await notifier.start();
   const agentApi: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await agentApi.listen({ host: "127.0.0.1", port: 0 });
@@ -45,7 +45,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
   const consolePort = await freePort();
   const origin = `http://127.0.0.1:${consolePort}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   const consoleApi = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, now: () => clock });
   await consoleApi.listen({ host: "127.0.0.1", port: consolePort });

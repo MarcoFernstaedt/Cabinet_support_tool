@@ -5,7 +5,7 @@ import sql from "mssql";
 import { JSON_COLUMNS } from "./json-columns.js";
 
 export interface QueryResult<R> { rows: R[]; rowCount: number; }
-export interface Queryable { query<R = Record<string, unknown>>(text: string, params?: readonly unknown[]): Promise<QueryResult<R>>; }
+export interface Queryable { query<R = any>(text: string, params?: readonly unknown[]): Promise<QueryResult<R>>; }
 
 const GUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 
@@ -61,14 +61,14 @@ async function run<R>(make: () => sql.Request, text: string, params: readonly un
 /** A transaction in progress: the same `query`, on one connection. */
 export class Tx implements Queryable {
   constructor(private readonly tx: sql.Transaction) {}
-  query<R = Record<string, unknown>>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
+  query<R = any>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
     return run<R>(() => new sql.Request(this.tx), text, params);
   }
 }
 
 export class Pool implements Queryable {
   constructor(private readonly pool: sql.ConnectionPool) {}
-  query<R = Record<string, unknown>>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
+  query<R = any>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
     return run<R>(() => this.pool.request(), text, params);
   }
   /**

@@ -16,7 +16,7 @@ import { scannerIdsFor } from "../src/services/fleet.js";
 import { scannerLevels, syncForSite } from "../src/services/device-settings.js";
 import { issueFromConsole } from "../src/services/console-commands.js";
 import { verifyAuditChain } from "../src/db/db.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -59,7 +59,7 @@ let tier1: Account, tier2: Account, admin: Account;
 
 test.before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => clock });
   await db.app.query<any>("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health'), ($2, 'Other Client')", [ids.client, ids.otherClient]);
