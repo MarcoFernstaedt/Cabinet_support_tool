@@ -20,7 +20,7 @@ import { runRetention } from "../src/services/maintenance.js";
 import { networkOf } from "../src/services/security.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import * as users from "../src/services/users.js";
-import { verifyAuditChain } from "../src/db/db.js";
+import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import { asOwner, createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
@@ -43,7 +43,7 @@ async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean
   const secret = opts.totp ? totp.newSecret() : undefined;
   await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
                       VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`,
-    [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), !!secret, secret ? secrets.seal(secret) : null]);
+    [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), !!secret, secret ? secrets.seal(secret) : NULL_BINARY]);
   if (secret) a.secret = secret;
   return a;
 }

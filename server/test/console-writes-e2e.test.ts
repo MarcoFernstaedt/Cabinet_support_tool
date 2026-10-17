@@ -26,7 +26,7 @@ import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/
 import { approveEnrollment, createBootstrapToken, pendingRequests } from "../src/services/enrollment.js";
 import { setFleetPause } from "../src/services/writes.js";
 import { TrustList } from "../src/packages/trust.js";
-import { verifyAuditChain } from "../src/db/db.js";
+import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import { pe, TestPki, zip } from "./package-pki.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -73,7 +73,7 @@ test("writes in the console: library upload and two-person approval, install, fi
   } as const;
   for (const p of Object.values(people))
     await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`, [p.id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : null]);
+                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`, [p.id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : NULL_BINARY]);
   const code = (secret: Buffer): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
   // The package files: one signed by the trusted vendor, and a tampered copy of it.

@@ -41,7 +41,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
   const adminId = randomUUID();
   // A fresh install: one Admin who has not seen the getting-started tour, no demo, nothing else.
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, false)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 0)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
   assert.equal(await storyReady(db.app), false, "the demo is off");
   const simulatorProblems: string[] = [];
   const simulator = new DemoSimulator(db.app, m => simulatorProblems.push(m));

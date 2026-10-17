@@ -40,7 +40,7 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
   const secret = totp.newSecret();
   const adminId = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, true)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 1)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
   await enableDemo(db.app, adminId);
   const simulatorProblems: string[] = [];
   const simulator = new DemoSimulator(db.app, m => simulatorProblems.push(m));

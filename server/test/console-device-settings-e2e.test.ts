@@ -36,7 +36,7 @@ test("device settings in the console: a client's scanner and sync ports set once
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, true)`, [randomUUID(), await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 1)`, [randomUUID(), await hashPassword(password), secrets.seal(secret)]);
   const code = (): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
   const client = randomUUID(), site = randomUUID(), cabinet = randomUUID();
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
@@ -117,7 +117,7 @@ test("device settings in the console: a client's scanner and sync ports set once
     await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("button", { name: "Close" }).click();
 
     // ---- The client firewall policy: the cabinet reports all profiles on, unlike the default (all off) ----
-    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = false, last_heartbeat_at = now() WHERE id = $1`, [cabinet]);
+    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = 0, last_heartbeat_at = now() WHERE id = $1`, [cabinet]);
     await page.goto(`${origin}/sites/${site}`);
     const bulk = page.getByRole("region", { name: "Firewall policy across North" });
     await bulk.getByText(/1 online cabinet differs from the firewall policy: ICU cabinet/).waitFor();

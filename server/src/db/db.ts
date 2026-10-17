@@ -7,6 +7,9 @@ import { JSON_COLUMNS } from "./json-columns.js";
 export interface QueryResult<R> { rows: R[]; rowCount: number; }
 export interface Queryable { query<R = any>(text: string, params?: readonly unknown[]): Promise<QueryResult<R>>; }
 
+/** A NULL for a varbinary column (a plain null binds as text, which SQL Server will not convert to binary). */
+export const NULL_BINARY: unique symbol = Symbol("NULL_BINARY");
+
 const GUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 
 /** `$1` becomes `@p1`; text inside single quotes is left alone. */
@@ -25,7 +28,8 @@ export function placeholders(text: string): string {
 /** The value as a driver parameter: JavaScript types map to fixed SQL types, so a plan never depends on the value's content. */
 function bind(request: sql.Request, index: number, value: unknown): void {
   const name = `p${index + 1}`;
-  if (value === null || value === undefined) request.input(name, sql.NVarChar(sql.MAX), null);
+  if (value === NULL_BINARY) request.input(name, sql.VarBinary(sql.MAX), null);
+  else if (value === null || value === undefined) request.input(name, sql.NVarChar(sql.MAX), null);
   else if (typeof value === "boolean") request.input(name, sql.Bit, value);
   else if (typeof value === "number") {
     if (Number.isInteger(value)) request.input(name, Math.abs(value) < 2_147_483_648 ? sql.Int : sql.BigInt, value);

@@ -57,7 +57,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
   const secret = totp.newSecret();
   const adminId = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'marco', 'Marco F', 'admin', $2, false, true, $3, true)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'marco', 'Marco F', 'admin', $2, 0, 1, $3, 1)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
   const code = (): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});

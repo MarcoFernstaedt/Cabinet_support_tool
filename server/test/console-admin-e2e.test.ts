@@ -54,7 +54,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
   const adaSecret = totp.newSecret();
   const adaId = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, true)`, [adaId, await hashPassword(password), secrets.seal(adaSecret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 1)`, [adaId, await hashPassword(password), secrets.seal(adaSecret)]);
   const code = (): string => { clock += 30_000; return totp.code(adaSecret, totp.stepAt(clock)); };
   const { token } = await createBootstrapToken(db.app, adaId);
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
@@ -174,7 +174,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     const tessSecret = totp.newSecret();
     const tessId = randomUUID();
     await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                        VALUES ($1, 'tess.tier2', 'Tess Tier2', 'tier2', $2, false, true, $3, true)`, [tessId, await hashPassword(password), secrets.seal(tessSecret)]);
+                        VALUES ($1, 'tess.tier2', 'Tess Tier2', 'tier2', $2, 0, 1, $3, 1)`, [tessId, await hashPassword(password), secrets.seal(tessSecret)]);
     const tess = await open("tess");
     await signIn(tess, "tess.tier2", password);
     await tess.getByLabel(/6-digit code/).fill(totp.code(tessSecret, totp.stepAt(clock += 30_000)));

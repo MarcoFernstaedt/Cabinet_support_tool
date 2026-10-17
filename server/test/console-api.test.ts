@@ -13,7 +13,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
-import { verifyAuditChain } from "../src/db/db.js";
+import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, firstCookie } from "./helpers.js";
 
@@ -34,7 +34,7 @@ async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean
   const secret = (opts.totp ?? true) ? totp.newSecret() : undefined;
   await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-    [a.id, a.username, "Test " + role, role, await hashPassword(a.password), opts.mustChange ?? false, !!secret, secret ? secrets.seal(secret) : null]);
+    [a.id, a.username, "Test " + role, role, await hashPassword(a.password), opts.mustChange ?? false, !!secret, secret ? secrets.seal(secret) : NULL_BINARY]);
   if (secret) a.secret = secret;
   return a;
 }

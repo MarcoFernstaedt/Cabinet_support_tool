@@ -18,7 +18,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { storeEvents } from "../src/services/events.js";
 import { ISSUE } from "../src/services/rules.js";
-import { verifyAuditChain } from "../src/db/db.js";
+import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import type { Event } from "../src/contracts.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
@@ -52,7 +52,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
     const id = randomUUID();
     ids.push(id);
     await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                        VALUES ($1, $2, $3, $4, $5, false, $6, $7, true)`, [id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : null]);
+                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`, [id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : NULL_BINARY]);
   }
   const code = (secret: Buffer): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
