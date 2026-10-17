@@ -6,6 +6,8 @@ import { JSON_COLUMNS } from "./json-columns.js";
 
 export interface QueryResult<R> { rows: R[]; rowCount: number; }
 export interface QueryOptions {
+  /** Rows exactly as the driver returns them: no GUID lower-casing, no JSON parsing (the audit chain check hashes stored text). */
+  raw?: boolean;
   /** Cancels the statement on the server after this many milliseconds (PostgreSQL's statement_timeout); the query then rejects with a QueryTimeout. */
   timeoutMs?: number;
 }
@@ -18,7 +20,6 @@ export interface Queryable { query<R = any>(text: string, params?: readonly unkn
 /** A NULL for a varbinary column (a plain null binds as text, which SQL Server will not convert to binary). */
 export const NULL_BINARY: unique symbol = Symbol("NULL_BINARY");
 
-const GUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 
 /** True when the text holds one statement: no semicolon outside quotes except a trailing one. */
 export function singleStatement(text: string): boolean {
@@ -56,18 +57,27 @@ function bind(request: sql.Request, index: number, value: unknown): void {
   } else if (typeof value === "bigint") request.input(name, sql.BigInt, value);
   else if (value instanceof Date) request.input(name, sql.DateTime2(3), value);
   else if (Buffer.isBuffer(value)) request.input(name, sql.VarBinary(sql.MAX), value);
-  else if (typeof value === "string") request.input(name, sql.NVarChar(value.length > 4000 ? sql.MAX : Math.max(1, value.length)), value);
+  else if (typeof value === "string") request.input(name, sql.NVarChar(value.length > 4000 ? sql.MAX : 4000), value); // two sizes only, so one cached plan per statement
   else request.input(name, sql.NVarChar(sql.MAX), safeJson(value));
 }
 
-/** What the rest of the code expects: GUIDs in lower case, and JSON columns as values rather than text. */
-function shape<R>(rows: Record<string, unknown>[]): R[] {
+/**
+ * What the rest of the code expects: uniqueidentifier columns in lower case, and JSON columns as values rather than text. Decided by the
+ * column's SQL type, never by what the text looks like: a name or an audit field that happens to look like a GUID stays as it was stored.
+ */
+function shape<R>(rows: Record<string, unknown>[], columns: sql.IColumnMetadata | undefined): R[] {
+  const meta = columns as unknown as Record<string, { type?: unknown }> | undefined;
+  const guid = new Set<string>(), json = new Set<string>();
+  for (const [name, c] of Object.entries(meta ?? {})) {
+    if (c.type === sql.UniqueIdentifier) guid.add(name);
+    else if (JSON_COLUMNS.has(name) && (c.type === sql.NVarChar || c.type === sql.NChar)) json.add(name);
+  }
+  if (guid.size === 0 && json.size === 0) return rows as R[];
   for (const row of rows) {
-    for (const key of Object.keys(row)) {
+    for (const key of guid) { const v = row[key]; if (typeof v === "string") row[key] = v.toLowerCase(); }
+    for (const key of json) {
       const v = row[key];
-      if (typeof v !== "string") continue;
-      if (GUID.test(v)) row[key] = v.toLowerCase();
-      else if (JSON_COLUMNS.has(key) && (key === "value" || v.startsWith("{") || v.startsWith("["))) { try { row[key] = JSON.parse(v); } catch { /* not JSON: left as text */ } }
+      if (typeof v === "string" && (key === "value" || v.startsWith("{") || v.startsWith("["))) { try { row[key] = JSON.parse(v); } catch { /* not JSON: left as text */ } }
     }
   }
   return rows as R[];
@@ -82,7 +92,8 @@ async function run<R>(make: () => sql.Request, text: string, params: readonly un
   try { result = await request.query(placeholders(text)); }
   catch (e) { throw timedOut ? new QueryTimeout(options!.timeoutMs!) : e; }
   finally { clearTimeout(timer); }
-  const rows = shape<R>((result.recordset ?? []) as Record<string, unknown>[]);
+  const recordset = (result.recordset ?? []) as Record<string, unknown>[];
+  const rows = options?.raw ? recordset as R[] : shape<R>(recordset, result.recordset?.columns);
   return { rows, rowCount: result.recordset ? rows.length : result.rowsAffected.reduce((a, b) => a + b, 0) };
 }
 
@@ -190,7 +201,8 @@ export function safeJson(value: unknown): string {
   return JSON.stringify(value, (_key, v: unknown) => (typeof v === "string" ? v.replaceAll("\u0000", "") : v));
 }
 
-export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; }
+/** firstBadSeq is the earliest broken entry; badSeqs lists up to 100 of them, so damage after the first break is still found. */
+export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; badSeqs?: number[]; }
 
 /** The text each entry's hash covers: the previous hash and the entry's own stored fields, joined by the unit separator. */
 export function auditHashInput(prev: string, r: { seq: string | number; at_text: string; actor_kind: string; actor_id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; details_raw: string }): string {
@@ -203,19 +215,21 @@ export async function verifyAuditChain(db: Queryable, batch = 10_000): Promise<C
   let previous = "0".repeat(64);
   let expectedSeq = 1;
   let entries = 0;
+  const bad: number[] = [];
   for (;;) {
     const rows = (await db.query<{ seq: string; at_text: string; actor_kind: string; actor_id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; details_raw: string; prev_hash: string; hash: string }>(
       `SELECT TOP (${Math.trunc(batch)}) seq, CONVERT(varchar(27), at, 126) AS at_text, actor_kind, actor_id, action, target_kind, target_id, outcome, details AS details_raw, prev_hash, hash
-         FROM audit_log WHERE seq >= $1 ORDER BY seq`, [expectedSeq])).rows;
+         FROM audit_log WHERE seq >= $1 ORDER BY seq`, [expectedSeq], { raw: true })).rows;
     for (const row of rows) {
       const seq = Number(row.seq);
       entries++;
       // SQL Server hashes the UTF-16 bytes of the text, so the same is done here.
       const hash = createHash("sha256").update(auditHashInput(previous, row), "utf16le").digest("hex");
-      if (seq !== expectedSeq || row.prev_hash !== previous || row.hash !== hash) return { ok: false, entries, firstBadSeq: seq };
+      // A break is recorded and the check goes on from the stored hash, so a later, separate change is reported too.
+      if (seq !== expectedSeq || row.prev_hash !== previous || row.hash !== hash) { if (bad.length < 100) bad.push(seq); }
       previous = row.hash;
-      expectedSeq++;
+      expectedSeq = seq + 1;
     }
-    if (rows.length < batch) return { ok: true, entries };
+    if (rows.length < batch) return bad.length ? { ok: false, entries, firstBadSeq: bad[0]!, badSeqs: bad } : { ok: true, entries };
   }
 }

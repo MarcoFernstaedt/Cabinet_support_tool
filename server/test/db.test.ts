@@ -90,10 +90,22 @@ test("tampering with an entry is detected at the entry that changed", async () =
   const check = await verifyAuditChain(db.app);
   assert.equal(check.ok, false);
   assert.equal(check.firstBadSeq, target);
+  assert.deepEqual(check.badSeqs, [target], "only the changed entry is reported, and the check went on past it");
 });
 
 test("a single statement is retried after a deadlock; a batch is not", async () => {
   const { singleStatement } = await import("../src/db/db.js");
   assert.equal(singleStatement("UPDATE x SET a = 1 WHERE b = 'x;y';"), true);
   assert.equal(singleStatement("DECLARE @o TABLE (id int); INSERT INTO t OUTPUT inserted.id INTO @o VALUES (1); SELECT id FROM @o"), false);
+});
+
+test("text that looks like a GUID is kept as stored, and an audit entry with one still verifies; real GUID columns come back in lower case", async () => {
+  const look = "ABCDEF12-ABCD-ABCD-ABCD-ABCDEF123456";
+  await transaction(db.app, c => audit(c, { actorKind: "agent", actorId: look, action: "test.guid-looking", targetId: look, outcome: "refused" }));
+  // (An earlier test in this file breaks the chain on purpose; the new entry must not be reported as broken.)
+  const seq = Number((await db.app.query<{ seq: string }>("SELECT seq FROM audit_log WHERE action = 'test.guid-looking'")).rows[0]!.seq);
+  assert.ok(!(await verifyAuditChain(db.app)).badSeqs?.includes(seq), "the entry verifies");
+  const row = (await db.app.query<{ actor_id: string; id: string }>("SELECT TOP (1) actor_id, CAST($1 AS uniqueidentifier) AS id FROM audit_log WHERE action = 'test.guid-looking'", [look])).rows[0]!;
+  assert.equal(row.actor_id, look, "a text column is returned as stored");
+  assert.equal(row.id, look.toLowerCase(), "a uniqueidentifier column is lower case");
 });
