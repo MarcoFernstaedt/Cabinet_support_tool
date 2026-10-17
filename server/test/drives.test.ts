@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
@@ -18,12 +19,15 @@ import { tempDir } from "./helpers.js";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const h = new ConsoleHarness(secrets);
 
 test.before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
@@ -31,7 +35,7 @@ test.before(async () => {
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 const cab = async (name: string) => (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = $1 AND demo_scenario IS NOT NULL", [name])).rows[0]!.id;
 const drive = (o: Record<string, unknown> = {}) => ({ model: "WD Blue 1TB", serialNumber: "WD-TEST-001", health: "healthy", predictFailure: false, temperatureCelsius: 36, powerOnHours: 12000,
@@ -73,14 +77,14 @@ test("a heartbeat's drive report is stored once per 12 hours and a drive that pr
   await heartbeat(id, [drive()]);
   assert.equal((await db.app.query("SELECT 1 FROM drive_samples WHERE cabinet_id = $1", [id])).rowCount, 1, "a repeat within 12 hours adds nothing");
   // Thirteen hours later it predicts failure.
-  await db.app.query("UPDATE drive_samples SET at = at - interval '13 hours' WHERE cabinet_id = $1", [id]);
+  await db.app.query("UPDATE drive_samples SET [at] = DATEADD(hour, -13, [at]) WHERE cabinet_id = $1", [id]);
   await heartbeat(id, [drive({ predictFailure: true, health: "failing" })]);
   let alerts = await alertsFor(id);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0]!.severity, "major");
   assert.match(alerts[0]!.title, /WD Blue/);
   // Another day, same state: the level did not rise, so the alert is not raised again.
-  await db.app.query("UPDATE drive_samples SET at = at - interval '13 hours' WHERE cabinet_id = $1", [id]);
+  await db.app.query("UPDATE drive_samples SET [at] = DATEADD(hour, -13, [at]) WHERE cabinet_id = $1", [id]);
   await heartbeat(id, [drive({ predictFailure: true, health: "failing" })]);
   alerts = await alertsFor(id);
   assert.equal(alerts.length, 1); assert.equal(alerts[0]!.occurrences, 1);
@@ -90,7 +94,7 @@ test("a drive whose bad sectors start to grow climbs from watch to act on its ow
   const id = await cab("Exam Room 2");
   await clean(id);
   const day = async (n: number, d: Record<string, unknown>) => {
-    await db.app.query("UPDATE drive_samples SET at = at - interval '1 day' WHERE cabinet_id = $1", [id]);
+    await db.app.query("UPDATE drive_samples SET [at] = DATEADD(day, -1, [at]) WHERE cabinet_id = $1", [id]);
     await heartbeat(id, [drive(d)]);
     return (await db.app.query<{ level: string }>("SELECT level FROM drive_status WHERE cabinet_id = $1", [id])).rows[0]!.level;
   };
@@ -115,13 +119,13 @@ test("a system drive that is filling at a steady rate raises a forecast alert we
   const id = await cab("Reception");
   await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [id]);
   // 14 days, every 5 minutes would be 4,032 rows: one every 6 hours is enough to show the slope; free space 40% falling 2.5 points a day.
-  await db.app.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent)
-                      SELECT $1, now() - make_interval(hours => h), 10, 40, (40 + h / 24.0 * 2.5)::int FROM generate_series(0, 335, 6) h`, [id]);
-  await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1 AND at < now() - interval '14 days'", [id]);
-  const more = await db.app.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent)
-                      SELECT $1, now() - make_interval(mins => m), 10, 40, 40 FROM generate_series(1, 60, 1) m ON CONFLICT DO NOTHING`, [id]);
+  await db.app.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+                      SELECT $1, DATEADD(hour, -h, SYSUTCDATETIME()), 10, 40, CAST(ROUND(40 + h / 24.0 * 2.5, 0) AS int) FROM (SELECT TOP (56) (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1) * 6 AS h FROM sys.all_objects a CROSS JOIN sys.all_objects b) x`, [id]);
+  await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1 AND [at] < DATEADD(day, -14, SYSUTCDATETIME())", [id]);
+  const more = await db.app.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+                      SELECT $1, DATEADD(minute, -m, SYSUTCDATETIME()), 10, 40, 40 FROM (SELECT TOP (60) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS m FROM sys.all_objects a CROSS JOIN sys.all_objects b) x`, [id]);
   assert.ok((more.rowCount ?? 0) > 0);
-  await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1 AND at > now() - interval '2 hours'", [id]);
+  await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1 AND [at] > DATEADD(hour, -2, SYSUTCDATETIME())", [id]);
   await heartbeat(id, [drive({ serialNumber: "WD-TEST-REC" })]);
   const forecast = (await db.app.query<{ title: string }>("SELECT title FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast'", [id])).rows;
   assert.equal(forecast.length, 1);
@@ -141,8 +145,8 @@ test("the disk-filling forecast resolves itself once the system drive stops fill
   const id = await cab("Reception");
   assert.equal((await db.app.query("SELECT 1 FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'", [id])).rowCount, 1, "from the previous test");
   await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [id]);
-  await db.app.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent)
-                      SELECT $1, now() - make_interval(hours => h), 10, 40, 55 FROM generate_series(3, 335, 6) h`, [id]);
+  await db.app.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+                      SELECT $1, DATEADD(hour, -h, SYSUTCDATETIME()), 10, 40, 55 FROM (SELECT TOP (56) 3 + (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1) * 6 AS h FROM sys.all_objects a CROSS JOIN sys.all_objects b) x`, [id]);
   await heartbeat(id, [drive({ serialNumber: "WD-TEST-REC" })]);
   assert.equal((await db.app.query("SELECT 1 FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'", [id])).rowCount, 0);
 });

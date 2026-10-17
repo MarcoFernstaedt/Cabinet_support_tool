@@ -5,8 +5,8 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import type pg from "pg";
 import { ContractError } from "../contracts.js";
+import type { Pool } from "../db/db.js";
 import { loadSession, policyFrom, COOKIE, type SessionPolicy, type SessionUser } from "../auth/sessions.js";
 import { clearCookie, readCookie, setCookie } from "../auth/cookies.js";
 import { SettingsCache } from "../services/settings.js";
@@ -36,7 +36,7 @@ import { ResultStream } from "./stream.js";
 import { manageRoutes } from "./manage-routes.js";
 
 export interface ConsoleApiOptions {
-  pool: pg.Pool;
+  pool: Pool;
   secrets: SecretBox;
   issuingKey: IssuingKey;
   /** The console's exact origin, e.g. https://cabinets.mashura.internal. State-changing requests must carry it. */

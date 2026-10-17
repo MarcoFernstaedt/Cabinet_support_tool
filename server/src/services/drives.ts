@@ -26,9 +26,9 @@ export async function recordDriveReport(db: Queryable, cabinetId: string, drives
   for (const [i, d] of drives.entries()) {
     const key = driveKey(d, i);
     const stored = await db.query(
-      `INSERT INTO drive_samples (cabinet_id, drive_key, at, model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
-       SELECT $1, $2, now(), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
-        WHERE NOT EXISTS (SELECT 1 FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 AND at > now() - make_interval(hours => $13))`,
+      `INSERT INTO drive_samples (cabinet_id, drive_key, [at], model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
+       SELECT $1, $2, SYSUTCDATETIME(), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+        WHERE NOT EXISTS (SELECT 1 FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 AND [at] > DATEADD(hour, -$13, SYSUTCDATETIME()))`,
       [cabinetId, key, d.model, d.serialNumber, d.health, d.predictFailure, d.temperatureCelsius, d.powerOnHours, d.reallocatedSectors, d.pendingSectors, d.uncorrectableErrors, d.wearPercent, MIN_GAP_HOURS]);
     if ((stored.rowCount ?? 0) > 0) await refreshDrive(db, cabinetId, key);
   }
@@ -37,10 +37,10 @@ export async function recordDriveReport(db: Queryable, cabinetId: string, drives
 
 /** Judges one drive's stored history now, keeps the result, and raises or escalates the alert when the level rose. */
 export async function refreshDrive(db: Queryable, cabinetId: string, key: string): Promise<Assessment> {
-  const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY at", [cabinetId, key])).rows;
+  const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY [at]", [cabinetId, key])).rows;
   const assessment = assessDrive(rows.map(toSample));
   const newest = rows[rows.length - 1];
-  const previous = (await db.query<{ level: Level }>("SELECT level FROM drive_status WHERE cabinet_id = $1 AND drive_key = $2", [cabinetId, key])).rows[0]?.level ?? "ok";
+  const previous = (await db.query<{ level: Level }>("SELECT [level] FROM drive_status WHERE cabinet_id = $1 AND drive_key = $2", [cabinetId, key])).rows[0]?.level ?? "ok";
   // The alert comes before the stored level, so if raising it fails the next report still sees the level as not yet raised and tries again.
   if ((assessment.level === "act" || assessment.level === "urgent") && higher(assessment.level, previous)) {
     await upsertAlert(db, { cabinetId, issueTypeId: ISSUE.drive, severity: assessment.level === "urgent" ? "major" : "minor", signature: `drive-trend:${key}`,
@@ -49,8 +49,10 @@ export async function refreshDrive(db: Queryable, cabinetId: string, key: string
       details: { drive: key, level: assessment.level, reasons: assessment.reasons.map(r => r.code) } });
   }
   await db.query(
-    `INSERT INTO drive_status (cabinet_id, drive_key, model, level, reasons, projection, assessed_at) VALUES ($1, $2, $3, $4, $5, $6, now())
-     ON CONFLICT (cabinet_id, drive_key) DO UPDATE SET model = EXCLUDED.model, level = EXCLUDED.level, reasons = EXCLUDED.reasons, projection = EXCLUDED.projection, assessed_at = now()`,
+    `MERGE drive_status WITH (HOLDLOCK) AS t USING (SELECT CAST($1 AS uniqueidentifier) AS cabinet_id, CAST($2 AS nvarchar(256)) AS drive_key) AS s
+        ON t.cabinet_id = s.cabinet_id AND t.drive_key = s.drive_key
+      WHEN MATCHED THEN UPDATE SET model = $3, [level] = $4, reasons = $5, projection = $6, assessed_at = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (cabinet_id, drive_key, model, [level], reasons, projection, assessed_at) VALUES ($1, $2, $3, $4, $5, $6, SYSUTCDATETIME());`,
     [cabinetId, key, newest?.model ?? null, assessment.level, JSON.stringify(assessment.reasons), JSON.stringify(assessment.projection)]);
   return assessment;
 }
@@ -58,11 +60,11 @@ export async function refreshDrive(db: Queryable, cabinetId: string, key: string
 /** Free space on the system drive projected from the last two weeks: an alert when it would be full within 30 days. */
 async function diskForecast(db: Queryable, cabinetId: string): Promise<void> {
   const rows = (await db.query<{ at: Date; free: number }>(
-    "SELECT at, disk_free_percent AS free FROM health_samples WHERE cabinet_id = $1 AND at > now() - interval '14 days' ORDER BY at", [cabinetId])).rows;
+    "SELECT [at], disk_free_percent AS [free] FROM health_samples WHERE cabinet_id = $1 AND [at] > DATEADD(day, -14, SYSUTCDATETIME()) ORDER BY [at]", [cabinetId])).rows;
   if (rows.length < 48) return;
   const days = daysUntilEmpty(rows[rows.length - 1]!.free, slopePerDay(rows.map(r => ({ t: r.at.getTime(), v: r.free })), 48, 5));
   if (days === null || days > 30) {
-    await db.query(`UPDATE alerts SET state = 'resolved', resolved_at = now(), resolution = 'The system drive is no longer filling up.'
+    await db.query(`UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The system drive is no longer filling up.'
                      WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'`, [cabinetId]);
     return;
   }
@@ -80,10 +82,10 @@ export interface DriveReport {
 /** Every drive of one cabinet with its level, reasons, projections and up to a year of history. */
 export async function cabinetDrives(db: Queryable, cabinetId: string): Promise<DriveReport[]> {
   const status = (await db.query<{ drive_key: string; model: string | null; level: Level; reasons: DriveReport["reasons"]; projection: DriveReport["projection"]; assessed_at: Date }>(
-    "SELECT * FROM drive_status WHERE cabinet_id = $1 ORDER BY drive_key", [cabinetId])).rows;
+    "SELECT * FROM drive_status WHERE cabinet_id = $1 ORDER BY CAST(drive_key AS nvarchar(256))", [cabinetId])).rows;
   const out: DriveReport[] = [];
   for (const s of status) {
-    const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY at", [cabinetId, s.drive_key])).rows;
+    const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY [at]", [cabinetId, s.drive_key])).rows;
     const n = rows[rows.length - 1];
     out.push({
       key: s.drive_key, model: s.model, serialNumber: n?.serial_number ?? null, level: s.level, reasons: s.reasons, projection: s.projection, assessedAt: s.assessed_at.toISOString(),
@@ -100,9 +102,9 @@ export interface AtRisk { cabinetId: string; cabinet: string; site: string; clie
 /** Drives across the fleet that are a concern (anything but "ok"), the worst first, at most 500. */
 export async function drivesAtRisk(db: Queryable): Promise<AtRisk[]> {
   const rows = (await db.query<{ id: string; name: string; site: string; client: string; demo: boolean; model: string | null; level: Level; reasons: { text: string }[]; assessed_at: Date }>(
-    `SELECT k.id, k.name, s.name AS site, c.name AS client, c.demo, d.model, d.level, d.reasons, d.assessed_at
+    `SELECT TOP (500) k.id, k.name, s.name AS site, c.name AS client, c.demo, d.model, d.[level], d.reasons, d.assessed_at
        FROM drive_status d JOIN cabinets k ON k.id = d.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE d.level <> 'ok' AND k.status = 'active'
-      ORDER BY CASE d.level WHEN 'urgent' THEN 0 WHEN 'act' THEN 1 ELSE 2 END, c.name, s.name, k.name LIMIT 500`)).rows;
+      WHERE d.[level] <> 'ok' AND k.status = 'active'
+      ORDER BY CASE d.[level] WHEN 'urgent' THEN 0 WHEN 'act' THEN 1 ELSE 2 END, c.name, s.name, k.name`)).rows;
   return rows.map(r => ({ cabinetId: r.id, cabinet: r.name, site: r.site, client: r.client, demo: r.demo, model: r.model, level: r.level, reasons: r.reasons.map(x => x.text), assessedAt: r.assessed_at.toISOString() }));
 }

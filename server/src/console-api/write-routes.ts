@@ -77,9 +77,9 @@ export async function writeRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     await o.guards.role(request, "tier1");
     const rows = (await o.pool.query<{ id: string; command_id: string | null; explained: boolean; operation: string | null; before: unknown; after: unknown; detail: unknown;
       occurred_at: Date; issued_by_name: string | null }>(
-      `SELECT f.id, f.command_id, f.explained, coalesce(f.operation, c.operation) AS operation, f.before, f.after, f.detail, f.occurred_at, u.name AS issued_by_name
+      `SELECT TOP (200) f.id, f.command_id, f.explained, COALESCE(f.operation, c.operation) AS operation, f.[before], f.[after], f.detail, f.occurred_at, u.name AS issued_by_name
          FROM firewall_changes f LEFT JOIN commands c ON c.id = f.command_id LEFT JOIN users u ON u.id = c.issued_by
-        WHERE f.cabinet_id = $1 ORDER BY f.occurred_at DESC LIMIT 200`, [id(request)])).rows;
+        WHERE f.cabinet_id = $1 ORDER BY f.occurred_at DESC`, [id(request)])).rows;
     return rows.map(r => ({ id: r.id, commandId: r.command_id, explained: r.explained, operation: r.operation, before: r.before, after: r.after, detail: r.detail,
       occurredAt: r.occurred_at.toISOString(), by: r.issued_by_name }));
   });

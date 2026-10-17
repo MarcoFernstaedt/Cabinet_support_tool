@@ -3,15 +3,29 @@
 // against their contracts first, and the search is audited like any other look at fleet data.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
-import { audit, transaction } from "../db/db.js";
+import { audit } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { cabinetDrives, drivesAtRisk } from "../services/drives.js";
 import { healthHistory, latestReading, latestReadings, searchReadings } from "../services/readings.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
-/** A search scans every cabinet's stored reading, so one person runs one at a time and each is stopped after 15 seconds. */
+/** A search scans every cabinet's stored reading, so one person runs one at a time and each is given up on after 15 seconds. */
 const searching = new Set<string>();
+const SEARCH_LIMIT_MS = 15_000;
+
+/**
+ * SQL Server has no per-transaction statement timeout (PostgreSQL's SET LOCAL statement_timeout), so the wait is limited here: after the
+ * limit the person gets an answer and the search is abandoned. The statement itself is stopped by the connection pool's request timeout.
+ */
+function withinLimit<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Refused("search_too_slow", 503, "the search took longer than 15 seconds; narrow it to one client or site")), ms);
+  });
+  work.catch(() => undefined); // a result that arrives after the limit is dropped, not reported twice
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
+}
 
 export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const cabinet = async (cabinetId: string) => {
@@ -48,10 +62,7 @@ export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     searching.add(u.userId);
     let result;
     try {
-      result = await transaction(o.pool, async c => {
-        await c.query("SET LOCAL statement_timeout = '15s'");
-        return searchReadings(c, q.operation, q.q, { ...(q.clientId ? { clientId: q.clientId } : {}), ...(q.siteId ? { siteId: q.siteId } : {}) });
-      });
+      result = await withinLimit(searchReadings(o.pool, q.operation, q.q, { ...(q.clientId ? { clientId: q.clientId } : {}), ...(q.siteId ? { siteId: q.siteId } : {}) }), SEARCH_LIMIT_MS);
     } finally { searching.delete(u.userId); }
     await audit(o.pool, { actorKind: "user", actorId: u.userId, action: "readings.search", outcome: "succeeded", details: { operation: q.operation, q: q.q, matches: result.matches.length } });
     return result;

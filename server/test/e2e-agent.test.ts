@@ -17,6 +17,7 @@ import { asOwner } from "./database.js";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { CommandNotifier } from "../src/agent-api/notifier.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { buildAgentApi } from "../src/agent-api/server.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
@@ -34,7 +35,9 @@ test("a real agent enrolls, is approved, stays online, runs a command, and is re
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
-  const notifier = new CommandNotifier(db.appUrl);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
   await notifier.start();
   const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -87,6 +90,7 @@ test("a real agent enrolls, is approved, stays online, runs a command, and is re
     agent.kill("SIGINT");
     await api.close();
     await notifier.stop();
+    feed.stop();
     await db.drop();
   }
 });
@@ -96,7 +100,9 @@ test("the agent's monitors: a forced scanner disconnect raises Fingerprint scann
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
-  const notifier = new CommandNotifier(db.appUrl);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
   await notifier.start();
   const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -174,6 +180,7 @@ test("the agent's monitors: a forced scanner disconnect raises Fingerprint scann
     agent.kill("SIGINT");
     await api.close();
     await notifier.stop();
+    feed.stop();
     await db.drop();
   }
 
@@ -234,7 +241,9 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
   const vendor = pki.signer("Scanner Vendor Inc", "Scanner Vendor");
   const trustDir = pki.trustFolder([{ cn: "Scanner Vendor Inc", o: "Scanner Vendor", types: ["driver"] }]);
   const store = { dir: tempDir(), maxBytes: 1024 * 1024, trust: TrustList.fromFolder(trustDir) };
-  const notifier = new CommandNotifier(db.appUrl);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
   await notifier.start();
   const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, packages: store, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -259,7 +268,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     await a.until("the change to be kept", () => a.lines.some(l => l.includes(`Command ${create.commandId}: the server was reached; the change is kept.`)));
     await a.until("the firewall change event, attributed", async () =>
       (await db.app.query("SELECT 1 FROM firewall_changes WHERE command_id = $1 AND event_id IS NOT NULL", [create.commandId])).rows.length > 0, 30_000);
-    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM alerts WHERE issue_type_id = $1", [ISSUE.firewall])).rows[0].n, 0, "a platform change raises no alert");
+    assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM alerts WHERE issue_type_id = $1", [ISSUE.firewall])).rows[0]!.n, 0, "a platform change raises no alert");
 
     // 2. Cut the cabinet off while the next change is being made: the safety net rolls it back, and the result says so once it is back.
     const disable = await issueCommand(db.app, tier2, a.cabinetId, "firewall.setRule", { change: "disable", ruleName: "MashuraDiag Sync 1433" }, "command.issue", { viaCli: true });
@@ -278,7 +287,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     assert.equal(fw.rules.find(r => r.name === "MashuraDiag Sync 1433")!.enabled, true, "the disable was undone");
     assert.ok(fw.snapshots.length >= 2);
     await a.until("the safety-net security event", async () =>
-      (await db.app.query("SELECT 1 FROM events WHERE cabinet_id = $1 AND kind = 'security' AND detail->'fields'->>'commandId' = $2", [a.cabinetId, disable.commandId])).rows.length > 0, 30_000);
+      (await db.app.query("SELECT 1 FROM events WHERE cabinet_id = $1 AND kind = 'security' AND JSON_VALUE(detail, '$.fields.commandId') = $2", [a.cabinetId, disable.commandId])).rows.length > 0, 30_000);
 
     // 3. A package: checked by the server, approved by a second Admin, downloaded and checked again by the agent, installed.
     const INF = Buffer.from("[Version]\r\nSignature=\"$WINDOWS NT$\"\r\nClass=Biometric\r\nCatalogFile=scanner.cat\r\n");
@@ -300,7 +309,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     writeFileSync(join(store.dir, `${sha}.pkg`), tampered);
     const forced = randomUUID();
     await asOwner(db, c => c.query(`INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at)
-      VALUES ($1, 'Forced', '1', 'x', 'driver', 'approved', $2, $3, 'forced', $4, $5, now())`, [forced, sha, tampered.length, admin, admin2]));
+      VALUES ($1, 'Forced', '1', 'x', 'driver', 'approved', $2, $3, 'forced', $4, $5, SYSUTCDATETIME())`, [forced, sha, tampered.length, admin, admin2]));
     const bad = await issueCommand(db.app, tier2, a.cabinetId, "package.install", { packageId: forced, packageType: "driver", sha256: sha }, "command.issue", { viaCli: true });
     await a.until("the refusal", done(bad.commandId), 60_000);
     const refused = (await result(bad.commandId))!;
@@ -323,12 +332,12 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     for (const [op, params] of writes) {
       const c = { commandId: randomUUID() };
       await asOwner(db, k => k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
-        VALUES ($1, $2, $3, $4, $5, now(), now() + interval '60 seconds', 'queued')`, [c.commandId, ro.cabinetId, op, JSON.stringify(params), tier2]));
+        VALUES ($1, $2, $3, $4, $5, SYSUTCDATETIME(), DATEADD(second, 60, SYSUTCDATETIME()), 'queued')`, [c.commandId, ro.cabinetId, op, JSON.stringify(params), tier2]));
       await ro.until(`${op} refused`, done(c.commandId));
       const r = (await result(c.commandId))!;
       assert.deepEqual([op, r.status, r.result!.error!.code], [op, "rejected", "read_only_mode"]);
     }
-    const audit = (await db.app.query<{ action: string; n: number }>("SELECT action, count(*)::int AS n FROM audit_log WHERE action IN ('command.write', 'command.result', 'package.download') GROUP BY action")).rows;
+    const audit = (await db.app.query<{ action: string; n: number }>("SELECT action, COUNT(*) AS n FROM audit_log WHERE action IN ('command.write', 'command.result', 'package.download') GROUP BY action")).rows;
     // The four writes this test issued through the server (the read-only ones were queued around it on purpose).
     assert.equal(audit.find(r => r.action === "command.write")!.n, 4, "every write is in the audit log");
     assert.ok(audit.find(r => r.action === "package.download")!.n >= 2);
@@ -338,6 +347,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     await link.close();
     await api.close();
     await notifier.stop();
+    feed.stop();
     await db.drop();
   }
 });
@@ -348,7 +358,9 @@ test("watched services on the real agent code: a stopped service is started agai
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
   writeFileSync(join(dir, "platform-ca.pem"), key.certificatePem);
-  const notifier = new CommandNotifier(db.appUrl);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
   await notifier.start();
   const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -357,7 +369,7 @@ test("watched services on the real agent code: a stopped service is started agai
   await db.app.query(`INSERT INTO users (id, username, name, role) VALUES ($1, 'svc.admin', 'Svc Admin', 'admin'), ($2, 'svc.tier2', 'Svc Tier 2', 'tier2')`, [admin, tier2]);
   const agents: ChildProcess[] = [];
   const alert = async (cabinetId: string, signature: string) => (await db.app.query<{ state: string; severity: string; occurrences: number }>(
-    "SELECT state, severity, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = $2 ORDER BY first_seen DESC LIMIT 1", [cabinetId, signature])).rows[0];
+    "SELECT TOP (1) state, severity, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = $2 ORDER BY first_seen DESC", [cabinetId, signature])).rows[0];
   try {
     const a = await startAgent({ db, api, port, key, dir, admin, name: "svc" });
     agents.push(a.agent);
@@ -390,6 +402,7 @@ test("watched services on the real agent code: a stopped service is started agai
     for (const ag of agents) ag.kill("SIGINT");
     await api.close();
     await notifier.stop();
+    feed.stop();
     await db.drop();
   }
 });

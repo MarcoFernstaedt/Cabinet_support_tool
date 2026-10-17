@@ -5,10 +5,9 @@
 // starts, and failures above the limit pause the rollout on their own. Offers are data: the agent installs only a
 // release that passes its own checks against keys the server never holds.
 import { randomInt, randomUUID } from "node:crypto";
-import type pg from "pg";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import type { UpgradeStatus } from "../contracts.js";
-import { audit, transaction, type Queryable } from "../db/db.js";
+import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { compareVersions, isVersion } from "./releases.js";
@@ -30,7 +29,7 @@ function shuffle<T>(items: T[]): T[] {
   return items;
 }
 
-export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutRequest, stepUpToken: Authority): Promise<string> {
+export async function startRollout(pool: Pool, adminId: string, req: RolloutRequest, stepUpToken: Authority): Promise<string> {
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "rollout.start", "fleet");
     const release = (await c.query<{ state: string; minimum_version: string }>("SELECT state, minimum_version FROM agent_releases WHERE version = $1", [req.version])).rows[0];
@@ -63,8 +62,9 @@ export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutR
                    VALUES ($1, $2, 'running', 1, $3, $4, $5)`, [id, req.version, req.successRatePercent, req.failureLimitPercent, adminId]);
     const targets = batches.flatMap(([batch, members]) => members.map(k => ({ batch, id: k.id, from: k.agent_version })));
     await c.query(`INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state, from_version)
-                   SELECT $1, t.cabinet_id, t.batch, 'pending', t.from_version FROM unnest($2::uuid[], $3::int[], $4::text[]) AS t(cabinet_id, batch, from_version)`,
-      [id, targets.map(t => t.id), targets.map(t => t.batch), targets.map(t => t.from)]);
+                   SELECT $1, t.cabinet_id, t.batch, 'pending', t.from_version
+                     FROM OPENJSON($2) WITH (cabinet_id uniqueidentifier '$.id', batch int '$.batch', from_version nvarchar(max) '$.from') AS t`,
+      [id, targets.map(t => ({ id: t.id, batch: t.batch, from: t.from }))]);
     // Audited on its own (docs/spec/07-upgrade-channel.md step 4).
     await audit(c, { actorKind: "user", actorId: adminId, action: "rollout.start", targetKind: "rollout", targetId: id, outcome: "succeeded",
       details: { rolloutId: id, version: req.version, pilotCabinetId: pilot.id, successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent,
@@ -74,20 +74,20 @@ export async function startRollout(pool: pg.Pool, adminId: string, req: RolloutR
 }
 
 /** pause (running → paused), resume (paused → running) and stop (running or paused → stopped). Each with step-up. */
-export async function changeRollout(pool: pg.Pool, adminId: string, rolloutId: string, action: "pause" | "resume" | "stop", stepUpToken: Authority): Promise<void> {
+export async function changeRollout(pool: Pool, adminId: string, rolloutId: string, action: "pause" | "resume" | "stop", stepUpToken: Authority): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, `rollout.${action}`, rolloutId);
     const from = action === "resume" ? ["paused"] : action === "pause" ? ["running"] : ["running", "paused"];
     const to = action === "resume" ? "running" : action === "pause" ? "paused" : "stopped";
     const r = await c.query(`UPDATE rollouts SET state = $3, changed_by = $2, paused_reason = CASE WHEN $3 = 'paused' THEN 'Paused by an Admin.' ELSE NULL END,
-                               finished_at = CASE WHEN $3 = 'stopped' THEN now() ELSE finished_at END,
-                               batch_started_at = CASE WHEN $3 = 'running' THEN now() ELSE batch_started_at END
-                              WHERE id = $1 AND state = ANY($4)`, [rolloutId, adminId, to, from]);
+                               finished_at = CASE WHEN $3 = 'stopped' THEN SYSUTCDATETIME() ELSE finished_at END,
+                               batch_started_at = CASE WHEN $3 = 'running' THEN SYSUTCDATETIME() ELSE batch_started_at END
+                              WHERE id = $1 AND state IN (SELECT value FROM OPENJSON($4))`, [rolloutId, adminId, to, from]);
     if (r.rowCount !== 1) throw new Refused("not_allowed", 409, `the rollout cannot be ${action === "stop" ? "stopped" : action + "d"} in its current state`);
     // Resuming accepts the failures so far in the current batch; only new ones count toward the limit again.
     if (action === "resume")
-      await c.query(`UPDATE rollouts r SET accepted_failures = (SELECT count(*) FROM rollout_targets t WHERE t.rollout_id = r.id AND t.batch = r.current_batch AND t.state = 'failed')
-                      WHERE r.id = $1`, [rolloutId]);
+      await c.query(`UPDATE r SET accepted_failures = (SELECT COUNT(*) FROM rollout_targets t WHERE t.rollout_id = r.id AND t.batch = r.current_batch AND t.state = 'failed')
+                      FROM rollouts r WHERE r.id = $1`, [rolloutId]);
     await audit(c, { actorKind: "user", actorId: adminId, action: `rollout.${action}`, targetKind: "rollout", targetId: rolloutId, outcome: "succeeded", details: { rolloutId, ...viaCli(stepUpToken) } });
     if (action === "resume") await evaluate(c, rolloutId);
   });
@@ -95,9 +95,9 @@ export async function changeRollout(pool: pg.Pool, adminId: string, rolloutId: s
 
 let running: { at: number; value: Promise<boolean> } | null = null;
 /** Whether any rollout is running, looked up at most every 5 seconds per server process. */
-export function anyRolloutRunning(pool: pg.Pool): Promise<boolean> {
+export function anyRolloutRunning(pool: Pool): Promise<boolean> {
   if (!running || Date.now() - running.at > 5_000) {
-    const value = pool.query("SELECT 1 FROM rollouts WHERE state = 'running' LIMIT 1").then(r => r.rows.length > 0, () => true);
+    const value = pool.query("SELECT TOP (1) 1 FROM rollouts WHERE state = 'running'").then(r => r.rows.length > 0, () => true);
     running = { at: Date.now(), value };
   }
   return running.value;
@@ -116,7 +116,7 @@ export async function offerFor(db: Queryable, cabinetId: string, reportedVersion
     await finish(db, t.rollout_id, cabinetId, { outcome: "succeeded", message: `Running ${reportedVersion}.` });
     return null;
   }
-  await db.query(`UPDATE rollout_targets SET state = 'offered', offered_at = coalesce(offered_at, now()) WHERE rollout_id = $1 AND cabinet_id = $2 AND state IN ('pending', 'skipped')`,
+  await db.query(`UPDATE rollout_targets SET state = 'offered', offered_at = COALESCE(offered_at, SYSUTCDATETIME()) WHERE rollout_id = $1 AND cabinet_id = $2 AND state IN ('pending', 'skipped')`,
     [t.rollout_id, cabinetId]);
   return t.version;
 }
@@ -126,8 +126,8 @@ interface Finish { outcome: "succeeded" | "refused" | "rolled_back" | "failed" |
 /** Records how a cabinet's upgrade ended (once), then re-evaluates its rollout. */
 async function finish(db: Queryable, rolloutId: string, cabinetId: string, f: Finish): Promise<boolean> {
   // The rollout row first, then the target, in every path, so concurrent heartbeats and reports never deadlock.
-  await db.query("SELECT 1 FROM rollouts WHERE id = $1 FOR UPDATE", [rolloutId]);
-  const r = await db.query(`UPDATE rollout_targets SET state = $3, outcome = $4, check_name = $5, message = $6, finished_at = now()
+  await db.query("SELECT 1 FROM rollouts WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [rolloutId]);
+  const r = await db.query(`UPDATE rollout_targets SET state = $3, outcome = $4, check_name = $5, message = $6, finished_at = SYSUTCDATETIME()
                              WHERE rollout_id = $1 AND cabinet_id = $2 AND state IN ('pending', 'offered', 'skipped')`,
     [rolloutId, cabinetId, f.outcome === "succeeded" ? "succeeded" : "failed", f.outcome, f.check ?? null, f.message.slice(0, 1024)]);
   if (r.rowCount !== 1) return false;
@@ -138,11 +138,11 @@ async function finish(db: Queryable, rolloutId: string, cabinetId: string, f: Fi
 }
 
 /** POST /agent/v1/upgrade-status: the agent's report. Returns false when no rollout offered this cabinet that version. */
-export async function recordUpgradeStatus(pool: pg.Pool, cabinetId: string, s: UpgradeStatus): Promise<boolean> {
+export async function recordUpgradeStatus(pool: Pool, cabinetId: string, s: UpgradeStatus): Promise<boolean> {
   return transaction(pool, async c => {
     const t = (await c.query<{ rollout_id: string; state: string }>(
-      `SELECT t.rollout_id, t.state FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
-        WHERE t.cabinet_id = $1 AND r.version = $2 ORDER BY r.started_at DESC LIMIT 1`, [cabinetId, s.version])).rows[0];
+      `SELECT TOP (1) t.rollout_id, t.state FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
+        WHERE t.cabinet_id = $1 AND r.version = $2 ORDER BY r.started_at DESC`, [cabinetId, s.version])).rows[0];
     if (!t) return false;
     await finish(c, t.rollout_id, cabinetId, { outcome: s.outcome, check: s.check ?? null, message: s.message });
     return true;
@@ -157,17 +157,17 @@ export async function recordUpgradeStatus(pool: pg.Pool, cabinetId: string, s: U
  */
 export async function evaluate(db: Queryable, rolloutId: string): Promise<void> {
   const r = (await db.query<{ state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number; batch_started_at: Date; accepted_failures: number }>(
-    "SELECT state, current_batch, success_rate_percent, failure_limit_percent, batch_started_at, accepted_failures FROM rollouts WHERE id = $1 FOR UPDATE", [rolloutId])).rows[0];
+    "SELECT state, current_batch, success_rate_percent, failure_limit_percent, batch_started_at, accepted_failures FROM rollouts WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [rolloutId])).rows[0];
   if (!r || r.state !== "running") return;
   const batch = r.current_batch;
   if (Date.now() - r.batch_started_at.getTime() > OFFLINE_SKIP_HOURS * 3_600_000)
-    await db.query(`UPDATE rollout_targets t SET state = 'skipped', outcome = 'offline', message = 'Offline for the whole batch.'
-                     FROM cabinets k WHERE k.id = t.cabinet_id AND t.rollout_id = $1 AND t.batch = $2 AND t.state = 'pending'
-                      AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $3))`, [rolloutId, batch, OFFLINE_AFTER_MS / 1000]);
+    await db.query(`UPDATE t SET state = 'skipped', outcome = 'offline', message = 'Offline for the whole batch.'
+                     FROM rollout_targets t JOIN cabinets k ON k.id = t.cabinet_id WHERE t.rollout_id = $1 AND t.batch = $2 AND t.state = 'pending'
+                      AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < DATEADD(second, -$3, SYSUTCDATETIME()))`, [rolloutId, batch, OFFLINE_AFTER_MS / 1000]);
   const n = (await db.query<{ total: string; succeeded: string; failed: string; offered: string; waiting_offline: string; skipped: string }>(
-    `SELECT count(*) AS total, count(*) FILTER (WHERE t.state = 'succeeded') AS succeeded, count(*) FILTER (WHERE t.state = 'failed') AS failed,
-            count(*) FILTER (WHERE t.state = 'offered') AS offered, count(*) FILTER (WHERE t.state = 'skipped') AS skipped,
-            count(*) FILTER (WHERE t.state = 'pending' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - make_interval(secs => $3))) AS waiting_offline
+    `SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN t.state = 'succeeded' THEN 1 ELSE 0 END), 0) AS succeeded, COALESCE(SUM(CASE WHEN t.state = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+            COALESCE(SUM(CASE WHEN t.state = 'offered' THEN 1 ELSE 0 END), 0) AS offered, COALESCE(SUM(CASE WHEN t.state = 'skipped' THEN 1 ELSE 0 END), 0) AS skipped,
+            COALESCE(SUM(CASE WHEN t.state = 'pending' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < DATEADD(second, -$3, SYSUTCDATETIME())) THEN 1 ELSE 0 END), 0) AS waiting_offline
        FROM rollout_targets t JOIN cabinets k ON k.id = t.cabinet_id WHERE t.rollout_id = $1 AND t.batch = $2`, [rolloutId, batch, OFFLINE_AFTER_MS / 1000])).rows[0]!;
   const total = Number(n.total), succeeded = Number(n.succeeded), failed = Number(n.failed), offered = Number(n.offered);
   const counted = total - Number(n.waiting_offline) - Number(n.skipped);
@@ -182,25 +182,25 @@ export async function evaluate(db: Queryable, rolloutId: string): Promise<void> 
   }
   if (counted <= 0 || succeeded * 100 < r.success_rate_percent * counted) return;
 
-  const next = (await db.query<{ batch: number }>("SELECT min(batch) AS batch FROM rollout_targets WHERE rollout_id = $1 AND batch > $2", [rolloutId, batch])).rows[0]?.batch;
+  const next = (await db.query<{ batch: number }>("SELECT MIN(batch) AS batch FROM rollout_targets WHERE rollout_id = $1 AND batch > $2", [rolloutId, batch])).rows[0]?.batch;
   if (next) {
-    await db.query("UPDATE rollouts SET current_batch = $2, batch_started_at = now(), accepted_failures = 0 WHERE id = $1", [rolloutId, next]);
+    await db.query("UPDATE rollouts SET current_batch = $2, batch_started_at = SYSUTCDATETIME(), accepted_failures = 0 WHERE id = $1", [rolloutId, next]);
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.batch", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
       details: { rolloutId, finishedBatch: batch, succeeded, counted, nextBatch: next } });
     await evaluate(db, rolloutId); // an empty or already-upgraded batch moves on at once
   } else if (offered === 0) {
-    await db.query("UPDATE rollouts SET state = 'completed', finished_at = now() WHERE id = $1", [rolloutId]);
+    await db.query("UPDATE rollouts SET state = 'completed', finished_at = SYSUTCDATETIME() WHERE id = $1", [rolloutId]);
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.complete", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
       details: { rolloutId, lastBatch: batch, succeeded, counted } });
   }
 }
 
 /** Every minute: offers with no outcome after OUTCOME_TIMEOUT_MINUTES count as failed, and running rollouts are re-evaluated. */
-export async function checkRollouts(pool: pg.Pool): Promise<void> {
+export async function checkRollouts(pool: Pool): Promise<void> {
   await transaction(pool, async c => {
     const stale = (await c.query<{ rollout_id: string; cabinet_id: string }>(
       `SELECT t.rollout_id, t.cabinet_id FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
-        WHERE r.state IN ('running', 'paused') AND t.state = 'offered' AND t.offered_at < now() - make_interval(mins => $1)`, [OUTCOME_TIMEOUT_MINUTES])).rows;
+        WHERE r.state IN ('running', 'paused') AND t.state = 'offered' AND t.offered_at < DATEADD(minute, -$1, SYSUTCDATETIME())`, [OUTCOME_TIMEOUT_MINUTES])).rows;
     for (const s of stale)
       await finish(c, s.rollout_id, s.cabinet_id, { outcome: "timed_out", check: null,
         message: `No outcome reported within ${OUTCOME_TIMEOUT_MINUTES} minutes of the offer.` });
@@ -210,19 +210,18 @@ export async function checkRollouts(pool: pg.Pool): Promise<void> {
 
 export async function listRollouts(db: Queryable) {
   const rows = (await db.query<{ id: string; version: string; state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number;
-    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: Record<string, number>[] }>(
-    `SELECT r.id, r.version, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
+    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string }>(
+    `SELECT TOP (100) r.id, r.version, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
             r.paused_reason, r.finished_at,
-            (SELECT coalesce(json_agg(x ORDER BY x.batch), '[]') FROM (
-               SELECT batch, count(*)::int AS total, count(*) FILTER (WHERE state = 'succeeded')::int AS succeeded, count(*) FILTER (WHERE state = 'failed')::int AS failed,
-                      count(*) FILTER (WHERE state = 'offered')::int AS offered, count(*) FILTER (WHERE state = 'pending')::int AS pending,
-                      count(*) FILTER (WHERE state = 'skipped')::int AS skipped
-                 FROM rollout_targets WHERE rollout_id = r.id GROUP BY batch) x) AS counts
-       FROM rollouts r JOIN users u ON u.id = r.started_by ORDER BY r.started_at DESC LIMIT 100`)).rows;
+            COALESCE((SELECT x.batch, COUNT(*) AS total, SUM(CASE WHEN x.state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, SUM(CASE WHEN x.state = 'failed' THEN 1 ELSE 0 END) AS failed,
+                             SUM(CASE WHEN x.state = 'offered' THEN 1 ELSE 0 END) AS offered, SUM(CASE WHEN x.state = 'pending' THEN 1 ELSE 0 END) AS pending,
+                             SUM(CASE WHEN x.state = 'skipped' THEN 1 ELSE 0 END) AS skipped
+                        FROM rollout_targets x WHERE x.rollout_id = r.id GROUP BY x.batch ORDER BY x.batch FOR JSON PATH), '[]') AS counts
+       FROM rollouts r JOIN users u ON u.id = r.started_by ORDER BY r.started_at DESC`)).rows;
   return rows.map(r => ({
     id: r.id, version: r.version, state: r.state, currentBatch: r.current_batch, successRatePercent: r.success_rate_percent, failureLimitPercent: r.failure_limit_percent,
     startedBy: { id: r.started_by, name: r.started_by_name }, startedAt: r.started_at.toISOString(), pausedReason: r.paused_reason, finishedAt: r.finished_at?.toISOString() ?? null,
-    batches: r.counts,
+    batches: JSON.parse(r.counts) as Record<string, number>[],
   }));
 }
 
@@ -230,17 +229,17 @@ export async function listRollouts(db: Queryable) {
 export async function rolloutTargets(db: Queryable, rolloutId: string) {
   return (await db.query<{ cabinet_id: string; cabinet: string; site: string; client: string; batch: number; state: string; from_version: string | null;
     agent_version: string | null; offered_at: Date | null; finished_at: Date | null; outcome: string | null; check_name: string | null; message: string | null; in_office: boolean }>(
-    `SELECT t.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, t.batch, t.state, t.from_version, k.agent_version, t.offered_at, t.finished_at,
+    `SELECT TOP (20000) t.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, t.batch, t.state, t.from_version, k.agent_version, t.offered_at, t.finished_at,
             t.outcome, t.check_name, t.message, k.in_office
        FROM rollout_targets t JOIN cabinets k ON k.id = t.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE t.rollout_id = $1 ORDER BY t.batch, cl.name, s.name, k.name LIMIT 20000`, [rolloutId])).rows.map(r => ({
+      WHERE t.rollout_id = $1 ORDER BY t.batch, cl.name, s.name, k.name`, [rolloutId])).rows.map(r => ({
     cabinetId: r.cabinet_id, cabinet: r.cabinet, site: r.site, client: r.client, batch: r.batch, state: r.state, fromVersion: r.from_version, agentVersion: r.agent_version,
     offeredAt: r.offered_at?.toISOString() ?? null, finishedAt: r.finished_at?.toISOString() ?? null, outcome: r.outcome, check: r.check_name, message: r.message, inOffice: r.in_office,
   }));
 }
 
 /** Marks a cabinet as in the office (batch 2 of every rollout), with step-up. */
-export async function setInOffice(pool: pg.Pool, adminId: string, cabinetId: string, inOffice: boolean, stepUpToken: Authority): Promise<void> {
+export async function setInOffice(pool: Pool, adminId: string, cabinetId: string, inOffice: boolean, stepUpToken: Authority): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "cabinet.in_office", cabinetId);
     const r = await c.query("UPDATE cabinets SET in_office = $2 WHERE id = $1 AND status = 'active'", [cabinetId, inOffice]);
@@ -253,9 +252,9 @@ export async function setInOffice(pool: pg.Pool, adminId: string, cabinetId: str
 /** Active cabinets with their agent version and in-office flag, for choosing batch 1. */
 export async function upgradeCandidates(db: Queryable) {
   return (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; in_office: boolean; last_heartbeat_at: Date | null }>(
-    `SELECT k.id, k.name, s.name AS site, cl.name AS client, k.agent_version, k.in_office, k.last_heartbeat_at
+    `SELECT TOP (20000) k.id, k.name, s.name AS site, cl.name AS client, k.agent_version, k.in_office, k.last_heartbeat_at
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE k.status = 'active' ORDER BY k.in_office DESC, cl.name, s.name, k.name LIMIT 20000`)).rows.map(r => ({
+      WHERE k.status = 'active' ORDER BY k.in_office DESC, cl.name, s.name, k.name`)).rows.map(r => ({
     id: r.id, name: r.name, site: r.site, client: r.client, agentVersion: r.agent_version, inOffice: r.in_office,
     online: r.last_heartbeat_at !== null && Date.now() - r.last_heartbeat_at.getTime() < OFFLINE_AFTER_MS,
   }));

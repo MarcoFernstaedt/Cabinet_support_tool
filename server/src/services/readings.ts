@@ -14,32 +14,39 @@ const readOperations = new Set<string>([...catalog.values()].filter(e => e.kind 
 /** The latest stored successful answer of every read for one cabinet. */
 export async function latestReadings(db: Queryable, cabinetId: string): Promise<LatestReading[]> {
   const rows = (await db.query<{ operation: string; at: Date }>(
-    `SELECT DISTINCT ON (operation) operation, result_at AS at FROM commands
-      WHERE cabinet_id = $1 AND status = 'succeeded' AND result IS NOT NULL ORDER BY operation, result_at DESC`, [cabinetId])).rows;
+    `SELECT operation, result_at AS [at] FROM (
+       SELECT operation, result_at, ROW_NUMBER() OVER (PARTITION BY operation ORDER BY result_at DESC) AS rn FROM commands
+        WHERE cabinet_id = $1 AND status = 'succeeded' AND result IS NOT NULL) x
+      WHERE rn = 1 ORDER BY operation`, [cabinetId])).rows;
   return rows.filter(r => readOperations.has(r.operation)).map(r => ({ operation: r.operation, at: r.at.toISOString() }));
 }
 
 /** One stored answer, exactly as the cabinet gave it (it was checked against its output schema when it arrived). */
 export async function latestReading(db: Queryable, cabinetId: string, operation: string): Promise<{ at: string; output: unknown } | null> {
   if (!readOperations.has(operation)) throw new Refused("not_found", 404, "no such read operation");
-  const row = (await db.query<{ at: Date; output: unknown }>(
-    `SELECT result_at AS at, result->'output' AS output FROM commands
-      WHERE cabinet_id = $1 AND operation = $2 AND status = 'succeeded' AND result IS NOT NULL ORDER BY result_at DESC LIMIT 1`, [cabinetId, operation])).rows[0];
-  return row && row.output !== null && row.output !== undefined ? { at: row.at.toISOString(), output: row.output } : null;
+  // `output` is not one of the columns the data layer parses, so it comes back as JSON text.
+  const row = (await db.query<{ at: Date; output: string | null }>(
+    `SELECT TOP (1) result_at AS [at], JSON_QUERY(result, '$.output') AS output FROM commands
+      WHERE cabinet_id = $1 AND operation = $2 AND status = 'succeeded' AND result IS NOT NULL ORDER BY result_at DESC`, [cabinetId, operation])).rows[0];
+  return row && row.output !== null && row.output !== undefined ? { at: row.at.toISOString(), output: JSON.parse(row.output) as unknown } : null;
 }
 
 // ---- Fleet search -------------------------------------------------------------------------------------------------------------------
 
 type Out = Record<string, any>;
 interface Searchable {
-  /** A SQL condition over the stored result `cm.result->'output'`; $3 is the lower-case text. Constants only. */
+  /** A T-SQL condition over the stored result `cm.result` (its `$.output`); $3 is the lower-case text. Constants only. */
   where: string;
   /** What matched, for the row: at most a few short lines. */
   found(output: Out, q: string): string[];
 }
 const has = (text: unknown, q: string) => typeof text === "string" && text.toLowerCase().includes(q);
 const first = (items: string[]) => items.slice(0, 5);
-const OUT = "cm.result->'output'";
+/** One scalar of the stored answer, as text (JSON booleans come back as 'true' and 'false'). */
+const OUT = (path: string): string => `JSON_VALUE(cm.result, '$.output.${path}')`;
+/** The items of one array of the stored answer, one row each, with the named fields as text. */
+const ITEMS = (path: string, fields: Record<string, string>, alias: string): string =>
+  `OPENJSON(cm.result, '$.output.${path}') WITH (${Object.entries(fields).map(([column, field]) => `${column} nvarchar(max) '$.${field}'`).join(", ")}) ${alias}`;
 
 /** The keywords of the two readings that are searched by a state rather than a name. */
 export const KEYWORDS: Record<string, readonly string[]> = {
@@ -48,13 +55,13 @@ export const KEYWORDS: Record<string, readonly string[]> = {
 };
 
 const KEYWORD_WHERE: Record<string, string> = {
-  fast_startup: `${OUT}->>'fastStartup' = 'true'`,
-  usb_suspend: `${OUT}->'usbSelectiveSuspend'->>'pluggedIn' = 'true'`,
-  pending_restart: `${OUT}->'pendingReboot'->>'pending' = 'true'`,
-  defender_off: `(${OUT}->'defender'->>'enabled' = 'false' OR ${OUT}->'defender'->>'realTimeProtection' = 'false')`,
-  bitlocker_off: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'bitlocker') v WHERE v->>'protection' = 'off')`,
-  cert_expiring: `jsonb_array_length(${OUT}->'certificates') > 0`,
-  not_activated: `${OUT}->'activation'->>'licensed' = 'false'`,
+  fast_startup: `${OUT("fastStartup")} = 'true'`,
+  usb_suspend: `${OUT("usbSelectiveSuspend.pluggedIn")} = 'true'`,
+  pending_restart: `${OUT("pendingReboot.pending")} = 'true'`,
+  defender_off: `(${OUT("defender.enabled")} = 'false' OR ${OUT("defender.realTimeProtection")} = 'false')`,
+  bitlocker_off: `EXISTS (SELECT 1 FROM ${ITEMS("bitlocker", { protection: "protection" }, "v")} WHERE v.protection = 'off')`,
+  cert_expiring: `EXISTS (SELECT 1 FROM OPENJSON(cm.result, '$.output.certificates'))`,
+  not_activated: `${OUT("activation.licensed")} = 'false'`,
 };
 const KEYWORD_FOUND: Record<string, (o: Out) => string[]> = {
   fast_startup: () => ["Fast Startup is on"],
@@ -68,27 +75,27 @@ const KEYWORD_FOUND: Record<string, (o: Out) => string[]> = {
 
 const NAMES: Record<string, Searchable> = {
   "software.list": {
-    where: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'programs') p WHERE strpos(lower(p->>'name'), $3) > 0 OR strpos(lower(coalesce(p->>'publisher', '')), $3) > 0)
-            OR EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'hotfixes') h WHERE strpos(lower(h->>'id'), $3) > 0)`,
+    where: `EXISTS (SELECT 1 FROM ${ITEMS("programs", { name: "name", publisher: "publisher" }, "p")} WHERE CHARINDEX($3, LOWER(p.name)) > 0 OR CHARINDEX($3, LOWER(COALESCE(p.publisher, ''))) > 0)
+            OR EXISTS (SELECT 1 FROM ${ITEMS("hotfixes", { id: "id" }, "h")} WHERE CHARINDEX($3, LOWER(h.id)) > 0)`,
     found: (o, q) => first([...(o.programs ?? []).filter((p: Out) => has(p.name, q) || has(p.publisher, q)).map((p: Out) => `${p.name}${p.version ? ` ${p.version}` : ""}`),
       ...(o.hotfixes ?? []).filter((h: Out) => has(h.id, q)).map((h: Out) => `Update ${h.id}`)]),
   },
   "startup.list": {
-    where: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'startup') s WHERE strpos(lower(s->>'name'), $3) > 0 OR strpos(lower(s->>'command'), $3) > 0)
-            OR EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'tasks') t WHERE strpos(lower(t->>'name'), $3) > 0 OR strpos(lower(t->>'path'), $3) > 0)`,
+    where: `EXISTS (SELECT 1 FROM ${ITEMS("startup", { name: "name", command: "command" }, "s")} WHERE CHARINDEX($3, LOWER(s.name)) > 0 OR CHARINDEX($3, LOWER(s.command)) > 0)
+            OR EXISTS (SELECT 1 FROM ${ITEMS("tasks", { name: "name", path: "path" }, "t")} WHERE CHARINDEX($3, LOWER(t.name)) > 0 OR CHARINDEX($3, LOWER(t.path)) > 0)`,
     found: (o, q) => first([...(o.startup ?? []).filter((s: Out) => has(s.name, q) || has(s.command, q)).map((s: Out) => `Starts with Windows: ${s.name}`),
       ...(o.tasks ?? []).filter((t: Out) => has(t.name, q) || has(t.path, q)).map((t: Out) => `Task: ${t.path}${t.name}`)]),
   },
   "shares.list": {
-    where: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'shares') s WHERE strpos(lower(s->>'name'), $3) > 0 OR strpos(lower(coalesce(s->>'path', '')), $3) > 0)`,
+    where: `EXISTS (SELECT 1 FROM ${ITEMS("shares", { name: "name", path: "path" }, "s")} WHERE CHARINDEX($3, LOWER(s.name)) > 0 OR CHARINDEX($3, LOWER(COALESCE(s.path, ''))) > 0)`,
     found: (o, q) => first((o.shares ?? []).filter((s: Out) => has(s.name, q) || has(s.path, q)).map((s: Out) => `Share ${s.name}${s.path ? ` → ${s.path}` : ""}`)),
   },
   "sessions.list": {
-    where: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'sessions') s WHERE strpos(lower(s->>'user'), $3) > 0)`,
+    where: `EXISTS (SELECT 1 FROM ${ITEMS("sessions", { account: "user" }, "s")} WHERE CHARINDEX($3, LOWER(s.account)) > 0)`,
     found: (o, q) => first((o.sessions ?? []).filter((s: Out) => has(s.user, q)).map((s: Out) => `${s.user} (${s.state}, ${s.type === "remote" ? "remote desktop" : "at the cabinet"})`)),
   },
   "dns.cache": {
-    where: `EXISTS (SELECT 1 FROM jsonb_array_elements(${OUT}->'entries') e WHERE strpos(lower(e->>'name'), $3) > 0 OR strpos(lower(e->>'data'), $3) > 0)`,
+    where: `EXISTS (SELECT 1 FROM ${ITEMS("entries", { entry_name: "name", entry_data: "data" }, "e")} WHERE CHARINDEX($3, LOWER(e.entry_name)) > 0 OR CHARINDEX($3, LOWER(e.entry_data)) > 0)`,
     found: (o, q) => first((o.entries ?? []).filter((e: Out) => has(e.name, q) || has(e.data, q)).map((e: Out) => `${e.name} → ${e.data}`)),
   },
 };
@@ -109,26 +116,28 @@ export async function searchReadings(db: Queryable, operation: string, q: string
     if (!keywords.includes(text)) throw new Refused("unknown_keyword", 400, `search ${operation} by one of: ${keywords.join(", ")}`);
   } else if (!NAMES[operation]) throw new Refused("not_searchable", 400, "that reading cannot be searched");
   const condition = keywords ? KEYWORD_WHERE[text]! : NAMES[operation]!.where;
-  const inScope = `k.status = 'active' AND ($1::uuid IS NULL OR s.client_id = $1) AND ($2::uuid IS NULL OR s.id = $2)`;
+  const inScope = `k.status = 'active' AND (CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))`;
   const params = [scope.clientId ?? null, scope.siteId ?? null, keywords ? "" : text, operation];
-  const rows = (await db.query<{ id: string; name: string; role: string; site: string; client: string; demo: boolean; read_at: Date; output: Out }>(
+  // `output` is not one of the columns the data layer parses, so it comes back as JSON text.
+  const rows = (await db.query<{ id: string; name: string; role: string; site: string; client: string; demo: boolean; read_at: Date; output: string | null }>(
     `WITH latest AS (
-       SELECT DISTINCT ON (cm.cabinet_id) cm.cabinet_id, cm.result_at, cm.result
-         FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
-        WHERE cm.operation = $4 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}
-        ORDER BY cm.cabinet_id, cm.result_at DESC)
-     SELECT k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, cm.result->'output' AS output
+       SELECT x.cabinet_id, x.result_at, x.result FROM (
+         SELECT cm.cabinet_id, cm.result_at, cm.result, ROW_NUMBER() OVER (PARTITION BY cm.cabinet_id ORDER BY cm.result_at DESC) AS rn
+           FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
+          WHERE cm.operation = $4 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}) x
+        WHERE x.rn = 1)
+     SELECT TOP (${MAX_MATCHES + 1}) k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, JSON_QUERY(cm.result, '$.output') AS output
        FROM latest cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE $3::text IS NOT NULL AND (${condition}) ORDER BY c.name, s.name, k.name LIMIT ${MAX_MATCHES + 1}`, params)).rows;
-  const counts = (await db.query<{ read: string; total: string }>(
-    `SELECT count(DISTINCT cm.cabinet_id) AS read, (SELECT count(*) FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope}) AS total
+      WHERE (${condition}) ORDER BY c.name, s.name, k.name`, params)).rows;
+  const counts = (await db.query<{ cabinets_read: string; total: string }>(
+    `SELECT COUNT(DISTINCT cm.cabinet_id) AS cabinets_read, (SELECT COUNT(*) FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope}) AS total
        FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
       WHERE cm.operation = $3 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}`, [params[0], params[1], operation])).rows[0]!;
   const found = (o: Out) => keywords ? KEYWORD_FOUND[text]!(o) : NAMES[operation]!.found(o, text);
   return {
     operation, q: text,
-    matches: rows.slice(0, MAX_MATCHES).map(r => ({ cabinetId: r.id, name: r.name, role: r.role, site: r.site, client: r.client, demo: r.demo, readAt: r.read_at.toISOString(), found: found(r.output) })),
-    cabinetsRead: Number(counts.read), cabinetsInScope: Number(counts.total), truncated: rows.length > MAX_MATCHES,
+    matches: rows.slice(0, MAX_MATCHES).map(r => ({ cabinetId: r.id, name: r.name, role: r.role, site: r.site, client: r.client, demo: r.demo, readAt: r.read_at.toISOString(), found: found(JSON.parse(r.output ?? "{}") as Out) })),
+    cabinetsRead: Number(counts.cabinets_read), cabinetsInScope: Number(counts.total), truncated: rows.length > MAX_MATCHES,
   };
 }
 
@@ -139,15 +148,15 @@ export interface HealthPoint { at: string; cpu: number; memory: number; diskFree
 /** The samples of the last <hours> hours, oldest first. At most one every 15 minutes is stored, so 14 days is under 1,400 points. */
 export async function healthHistory(db: Queryable, cabinetId: string, hours: number): Promise<HealthPoint[]> {
   const rows = (await db.query<{ at: Date; cpu: number; memory: number; disk: number }>(
-    `SELECT at, cpu_percent AS cpu, memory_used_percent AS memory, disk_free_percent AS disk FROM health_samples
-      WHERE cabinet_id = $1 AND at >= now() - make_interval(hours => $2) ORDER BY at`, [cabinetId, hours])).rows;
+    `SELECT [at], cpu_percent AS cpu, memory_used_percent AS memory, disk_free_percent AS disk FROM health_samples
+      WHERE cabinet_id = $1 AND [at] >= DATEADD(hour, -$2, SYSUTCDATETIME()) ORDER BY [at]`, [cabinetId, hours])).rows;
   return rows.map(r => ({ at: r.at.toISOString(), cpu: r.cpu, memory: r.memory, diskFree: r.disk }));
 }
 
 /** Stores one sample from a heartbeat unless one was stored in the last 15 minutes. */
 export async function recordHealth(db: Queryable, cabinetId: string, h: { cpuPercent: number; memoryUsedPercent: number; diskFreePercent: number }): Promise<void> {
   await db.query(
-    `INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent)
-     SELECT $1, now(), $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM health_samples WHERE cabinet_id = $1 AND at > now() - interval '15 minutes')`,
+    `INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+     SELECT $1, SYSUTCDATETIME(), $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM health_samples WHERE cabinet_id = $1 AND [at] > DATEADD(minute, -15, SYSUTCDATETIME()))`,
     [cabinetId, h.cpuPercent, h.memoryUsedPercent, h.diskFreePercent]);
 }

@@ -17,6 +17,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { CommandNotifier } from "../src/agent-api/notifier.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { buildAgentApi } from "../src/agent-api/server.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests } from "../src/services/enrollment.js";
 import { listCabinets } from "../src/services/cabinets.js";
@@ -51,7 +52,7 @@ async function fleet(spec: { name: string; version: string | null; inOffice?: bo
   for (const c of spec) {
     ids[c.name] = randomUUID();
     await db.app.query(`INSERT INTO cabinets (id, site_id, name, role, status, agent_version, in_office, last_heartbeat_at)
-                        VALUES ($1, $2, $3, 'standalone', 'active', $4, $5, CASE WHEN $6 THEN now() ELSE now() - interval '2 hours' END)`,
+                        VALUES ($1, $2, $3, 'standalone', 'active', $4, $5, CASE WHEN $6 = 1 THEN SYSUTCDATETIME() ELSE DATEADD(hour, -2, SYSUTCDATETIME()) END)`,
       [ids[c.name], site, c.name, c.version, c.inOffice ?? false, c.online ?? true]);
   }
   return ids;
@@ -83,14 +84,14 @@ test("the update store takes only releases signed by a release key, with the exa
   // The repository's own file holds no key until the production KMS key exists: such a server accepts no release.
   assert.equal(ReleaseKeys.fromFolder().count, 0);
 
-  const before = (await db.app.query("SELECT count(*)::int AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0].n;
+  const before = (await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0]!.n;
   // Signed by a key the agents do not hold.
   await assert.rejects(upload(makeRelease(otherKey, "0.2.0")), refusedWith("signature_invalid"));
   // A manifest changed after signing.
   const good = makeRelease(key, "0.2.0");
   const changed = Buffer.from(good.manifestBytes.toString().replace("0.0.1", "0.0.0"));
   await assert.rejects(addRelease(db.app, store.keys, admin, changed.toString("base64"), good.signature, null), refusedWith("signature_invalid"));
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0].n, before + 2, "one open alert per key, each attempt folded into it");
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0]!.n, before + 2, "one open alert per key, each attempt folded into it");
   // Signed, but not a manifest the agent would read.
   await assert.rejects(upload(makeRelease(key, "0.2.0", agentPackage(), { product: "other" })), refusedWith("invalid_manifest"));
   await assert.rejects(upload(makeRelease(key, "0.2.0", agentPackage(), { postInstall: "cmd /c calc" })), refusedWith("invalid_manifest"));
@@ -168,7 +169,7 @@ test("a staged rollout: one cabinet, then the office, then about 5 percent, then
   // Batch 4: 37 succeed and one stays offline for the whole batch. 37 of 37 counted is 100%: complete, the offline one skipped later.
   const last = (await rolloutTargets(db.app, id)).filter(t => t.batch === 4);
   const offline = last.find(t => t.cabinet !== "unknown")!;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '2 hours' WHERE id = $1", [offline.cabinetId]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -2, SYSUTCDATETIME()) WHERE id = $1", [offline.cabinetId]);
   for (const t of last.filter(t => t.cabinetId !== offline.cabinetId)) { await offerFor(db.app, t.cabinetId, "0.1.0"); await report(t.cabinetId, "0.3.0", "succeeded"); }
   const done = await rolloutOf(id);
   assert.equal(done.state, "completed");
@@ -225,7 +226,7 @@ test("an offered cabinet that never reports counts as failed after 30 minutes, a
   await offerFor(db.app, ids.silent!, "0.4.0");
   await checkRollouts(db.app);
   assert.equal((await targetOf(id, ids.silent!)).state, "offered");
-  await db.app.query("UPDATE rollout_targets SET offered_at = now() - interval '31 minutes' WHERE cabinet_id = $1", [ids.silent]);
+  await db.app.query("UPDATE rollout_targets SET offered_at = DATEADD(minute, -31, SYSUTCDATETIME()) WHERE cabinet_id = $1", [ids.silent]);
   await checkRollouts(db.app);
   const t = await targetOf(id, ids.silent!);
   assert.deepEqual([t.state, t.outcome], ["failed", "timed_out"]);
@@ -237,12 +238,14 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   let clock = Date.now();
   const key2 = await developmentIssuingKey(tempDir());
-  const stream = new ResultStream(db.appUrl, db.app);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const stream = new ResultStream(feed, db.app);
   await stream.start();
   const app: FastifyInstance = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key2, origin: ORIGIN, stream, releases: store, logger: false, now: () => clock });
   const account = async (role: "tier2" | "admin") => {
     const a = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-    await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+    await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
       [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
     return a;
   };
@@ -307,7 +310,7 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
     assert.equal((await call("GET", `/api/admin/rollouts/${rid}`, undefined, bc)).body.state, "stopped");
   } finally {
     await app.close();
-    await stream.stop();
+    await stream.stop(); feed.stop();
   }
 });
 
@@ -320,7 +323,9 @@ async function withAgent(env: Record<string, string>, body: (ctx: { cabinetId: s
   const db2 = await createTestDatabase();
   const dir = tempDir();
   const issuing = await developmentIssuingKey(dir);
-  const notifier = new CommandNotifier(db2.appUrl);
+  const feed2 = new NotificationFeed(db2.app, 50);
+  await feed2.start();
+  const notifier = new CommandNotifier(feed2);
   await notifier.start();
   const store2: ReleaseStore = { dir: join(dir, "releases"), maxBytes: 1024 * 1024, keys: ReleaseKeys.fromFolder(env.TEST_UPGRADE_TRUST_DIR) };
   mkdirSync(store2.dir);
@@ -352,7 +357,7 @@ async function withAgent(env: Record<string, string>, body: (ctx: { cabinetId: s
   } finally {
     agent.kill("SIGINT");
     await api.close();
-    await notifier.stop();
+    await notifier.stop(); feed2.stop();
     await db2.drop();
   }
 }
@@ -365,7 +370,7 @@ test("cabinets older than a release's minimum version are left out of its rollou
     refusedWith("pilot_not_eligible"));
   const id = await startRollout(db.app, admin, { version: "0.7.0", pilotCabinetId: ids.ok!, successRatePercent: 95, failureLimitPercent: 5 }, null);
   assert.deepEqual((await rolloutTargets(db.app, id)).map(t => t.cabinet).sort(), ["office", "ok"]);
-  const audited = (await db.app.query("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [id])).rows[0];
+  const audited = (await db.app.query<{ details: { belowMinimumVersion: number } }>("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [id])).rows[0]!;
   assert.equal(audited.details.belowMinimumVersion, 1);
   await changeRollout(db.app, admin, id, "stop", null);
 });
@@ -383,7 +388,7 @@ test("done-when on the real agent code: a signed upgrade rolls out to a test bat
     await until("the upgrade to succeed", async () => (await rolloutTargets(d.app, id))[0]!.state === "succeeded");
     assert.ok(lines.some(l => l.includes("passed every check")), lines.join("\n"));
     assert.equal((await listRollouts(d.app)).find(r => r.id === id)!.state, "completed", "the test batch was the only batch");
-    const downloads = (await d.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'release.download'")).rows[0].n;
+    const downloads = (await d.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'release.download'")).rows[0]!.n;
     assert.equal(downloads, 1);
 
     // The next release, then someone with access to the server's store swaps its package for one of the same size.

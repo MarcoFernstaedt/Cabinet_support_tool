@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
@@ -18,13 +19,16 @@ import { tempDir } from "./helpers.js";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 let owner: string;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const h = new ConsoleHarness(secrets);
 
 test.before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
@@ -32,14 +36,14 @@ test.before(async () => {
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 const cab = async (name: string) => (await db.app.query<{ id: string; site_id: string }>("SELECT id, site_id FROM cabinets WHERE name = $1 AND demo_scenario IS NOT NULL", [name])).rows[0]!;
 /** A stored answer, as the result of a command the cabinet ran `ageMinutes` ago. */
 async function store(cabinetId: string, operation: string, output: unknown, ageMinutes = 5) {
   const id = randomUUID(), at = new Date(Date.now() - ageMinutes * 60_000);
   await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at, result, result_at)
-                      VALUES ($1, $2, $3, '{}'::jsonb, $4, $5, $6, 'succeeded', $5, $7, $5)`,
+                      VALUES ($1, $2, $3, '{}', $4, $5, $6, 'succeeded', $5, $7, $5)`,
     [id, cabinetId, operation, owner, at, new Date(at.getTime() + 300_000), JSON.stringify({ commandId: id, status: "succeeded", startedAt: at.toISOString(), finishedAt: at.toISOString(), output })]);
 }
 const software = (...names: string[]) => ({ takenAt: "2026-10-16T10:00:00Z", programs: names.map(name => ({ name, version: "1.0", publisher: "Example", installedOn: null })), hotfixes: [{ id: "KB5034441", description: "Security Update", installedOn: null }], truncated: false });
@@ -48,7 +52,7 @@ const search = async (who: Awaited<ReturnType<typeof h.account>>, operation: str
 
 test("the simulated fleet comes with stored readings for the cabinet that is offline, so its last known state can be shown", async () => {
   const t1 = await h.account("tier1");
-  const offline = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'offline' LIMIT 1")).rows[0]!;
+  const offline = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = 'offline'")).rows[0]!;
   const list = await h.call("GET", `/api/cabinets/${offline.id}/readings`, undefined, t1);
   assert.equal(list.status, 200);
   assert.ok(list.body.readings.some((r: { operation: string }) => r.operation === "power.status"));
@@ -60,7 +64,7 @@ test("the simulated fleet comes with stored readings for the cabinet that is off
   assert.ok(!list.body.readings.some((r: { operation: string }) => r.operation.startsWith("eventlog.")));
   assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/firewall.setProfile`, undefined, t1)).status, 404, "a write is not a reading");
   // From here the tests store their own readings on a clean slate.
-  await db.app.query("DELETE FROM commands WHERE operation = ANY($1::text[])", [["software.list", "startup.list", "power.status", "system.security", "shares.list"]]);
+  await db.app.query("DELETE FROM commands WHERE operation IN (SELECT value FROM OPENJSON($1))", [["software.list", "startup.list", "power.status", "system.security", "shares.list"]]);
 });
 
 test("the search finds the latest stored reading's matches, says how many cabinets were read, and a newer reading replaces an older one", async () => {

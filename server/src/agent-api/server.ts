@@ -3,9 +3,8 @@
 // Every body is validated against its contract before anything reads it.
 import type { TLSSocket } from "node:tls";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import type pg from "pg";
 import { ContractError, envelopes } from "../contracts.js";
-import { audit, transaction } from "../db/db.js";
+import { audit, transaction, type Pool } from "../db/db.js";
 import { CsrError, type IssuingKey } from "../pki/x509.js";
 import { authenticate, recordHeartbeat, renewCertificate, type AuthenticatedCabinet } from "../services/cabinets.js";
 import { storeResult, takeQueuedCommands } from "../services/commands.js";
@@ -25,7 +24,7 @@ import { releaseForAgent, releasePackageForAgent, type ReleaseStore } from "../s
 import { anyRolloutRunning, offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 
 export interface AgentApiOptions {
-  pool: pg.Pool;
+  pool: Pool;
   issuingKey: IssuingKey;
   notifier: CommandNotifier;
   tls: { certPem: string; keyPem: string };
@@ -103,11 +102,12 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   /** Why a presented certificate was not accepted: not ours, revoked, expired, for a removed cabinet, naming another cabinet, or not on record. */
   const refusalReason = async (authorized: boolean, serial: string, subject: string): Promise<{ reason: string; cabinetId: string | null }> => {
     if (!authorized) return { reason: "unknown", cabinetId: null };
-    const row = (await o.pool.query<{ cabinet_id: string; revoked: boolean; expired: boolean; active: boolean }>(
-      `SELECT c.cabinet_id, c.revoked_at IS NOT NULL AS revoked, c.not_after <= now() AS expired, k.status = 'active' AS active
+    const row = (await o.pool.query<{ cabinet_id: string; revoked: number; expired: number; active: number }>(
+      `SELECT c.cabinet_id, CASE WHEN c.revoked_at IS NOT NULL THEN 1 ELSE 0 END AS revoked, CASE WHEN c.not_after <= SYSUTCDATETIME() THEN 1 ELSE 0 END AS expired,
+              CASE WHEN k.status = 'active' THEN 1 ELSE 0 END AS active
          FROM cabinet_certificates c JOIN cabinets k ON k.id = c.cabinet_id WHERE c.serial = $1`, [serial])).rows[0];
     if (!row) return { reason: "unknown", cabinetId: null };
-    const reason = row.revoked ? "revoked" : row.expired ? "expired" : !row.active ? "removed" : row.cabinet_id !== subject ? "mismatched" : "unknown";
+    const reason = row.revoked === 1 ? "revoked" : row.expired === 1 ? "expired" : row.active !== 1 ? "removed" : row.cabinet_id !== subject ? "mismatched" : "unknown";
     return { reason, cabinetId: row.cabinet_id };
   };
 
