@@ -9,6 +9,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
@@ -19,6 +20,7 @@ import { tempDir } from "./helpers.js";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 
 const h = new ConsoleHarness(secrets);
@@ -31,7 +33,9 @@ const cab = async (name: string) => (await db.app.query<{ id: string; site_id: s
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
@@ -39,7 +43,7 @@ test.before(async () => {
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 test("a member's fix waits for approval, then is shown to everyone; an Admin or a granted Tier 2 decides", async () => {
   const t1 = await account("tier1"), other = await account("tier1"), t2 = await account("tier2"), boss = await account("admin");
@@ -121,7 +125,7 @@ test("a diagnosis that finds a problem somebody has solved counts the fix as sho
   await call("POST", "/api/known-fixes", { title: "Sync firewall", solution: "Applied the client policy.", symptom: { kind: "finding", key: "sync-firewall" }, cabinetId: sync.id }, boss);
   const started = await call("POST", `/api/cabinets/${(await cab("Exam Room 1")).id}/diagnose/network`, {}, t1);
   assert.equal(started.status, 202);
-  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
+  for (const end = Date.SYSUTCDATETIME() + 30_000; Date.SYSUTCDATETIME() < end; await new Promise(r => setTimeout(r, 100))) {
     if ((await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body.state !== "running") break;
   }
   assert.equal(typeof (await call("GET", "/api/known-fixes?findingKey=sync-firewall", undefined, t1)).body.fixes[0].seenCount, "number");

@@ -3,8 +3,7 @@
 // cabinets that crashed with the ones that did not. Everything here reads what the agents already sent (their change,
 // error and service events, and heartbeats), so it still works when the cabinets that crashed can no longer boot.
 // Findings are correlations and are labelled so; nothing here claims a root cause. No regular expressions.
-import type pg from "pg";
-import type { Queryable } from "../db/db.js";
+import type { Pool, Queryable } from "../db/db.js";
 import { upsertAlert } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { ISSUE } from "./rules.js";
@@ -25,20 +24,19 @@ export const LOOP_RECOVERED_SECONDS = 2 * 3600;
 export async function recordBoot(db: Queryable, cabinetId: string, at: Date, source: "heartbeat" | "event"): Promise<boolean> {
   const r = await db.query(
     `INSERT INTO cabinet_boots (cabinet_id, booted_at, source)
-     SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM cabinet_boots WHERE cabinet_id = $1
-       AND booted_at BETWEEN $2::timestamptz - make_interval(mins => $4) AND $2::timestamptz + make_interval(mins => $4))
-     ON CONFLICT DO NOTHING`, [cabinetId, at, source, SAME_BOOT_MINUTES]);
+     SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM cabinet_boots WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1
+       AND booted_at BETWEEN DATEADD(minute, -$4, $2) AND DATEADD(minute, $4, $2))`, [cabinetId, at, source, SAME_BOOT_MINUTES]);
   if ((r.rowCount ?? 0) > 0) await checkRebootLoop(db, cabinetId);
   return (r.rowCount ?? 0) > 0;
 }
 
 /** 3 or more boots within an hour, recently: a major alert, raised once and counted up while it lasts. */
 export async function checkRebootLoop(db: Queryable, cabinetId: string): Promise<boolean> {
-  const r = (await db.query<{ n: string; last: Date | null }>(
-    `SELECT count(*) AS n, max(booted_at) AS last FROM cabinet_boots
-      WHERE cabinet_id = $1 AND booted_at > now() - make_interval(mins => $2)`, [cabinetId, LOOP_WINDOW_MINUTES])).rows[0]!;
+  const r = (await db.query<{ n: number; last_boot: Date | null }>(
+    `SELECT COUNT(*) AS n, MAX(booted_at) AS last_boot FROM cabinet_boots
+      WHERE cabinet_id = $1 AND booted_at > DATEADD(minute, -$2, SYSUTCDATETIME())`, [cabinetId, LOOP_WINDOW_MINUTES])).rows[0]!;
   if (Number(r.n) < LOOP_BOOTS) return false;
-  await raiseLoop(db, cabinetId, `${r.n} starts within an hour`, r.last ?? new Date());
+  await raiseLoop(db, cabinetId, `${r.n} starts within an hour`, r.last_boot ?? new Date());
   return true;
 }
 
@@ -58,7 +56,7 @@ export async function bootFromHeartbeat(db: Queryable, cabinetId: string, uptime
   const previousBoot = previous.at && previous.uptimeSeconds !== null ? previous.at.getTime() - previous.uptimeSeconds * 1000 : null;
   if (previousBoot === null || Math.abs(bootAt - previousBoot) > SAME_BOOT_MINUTES * 60_000) await recordBoot(db, cabinetId, new Date(bootAt), "heartbeat");
   if (uptimeSeconds >= LOOP_RECOVERED_SECONDS)
-    await db.query(`UPDATE alerts SET state = 'resolved', resolved_at = now(), resolution = 'Running for 2 hours without restarting.'
+    await db.query(`UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'Running for 2 hours without restarting.'
                      WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`, [cabinetId]);
 }
 
@@ -66,15 +64,15 @@ export async function bootFromHeartbeat(db: Queryable, cabinetId: string, uptime
  * The quiet side, from the minute job: a cabinet that started twice or more in the two hours before it went quiet, and was
  * heard last within 15 minutes of starting, is probably stuck restarting. A cabinet that simply went offline is not.
  */
-export async function checkQuietLoops(pool: pg.Pool): Promise<number> {
-  const rows = (await pool.query<{ id: string; boots: string; last: Date }>(
-    `SELECT k.id, (SELECT count(*) FROM cabinet_boots b WHERE b.cabinet_id = k.id AND b.booted_at > k.last_heartbeat_at - interval '2 hours') AS boots, k.last_heartbeat_at AS last
+export async function checkQuietLoops(pool: Pool): Promise<number> {
+  const rows = (await pool.query<{ id: string; boots: number; last_at: Date }>(
+    `SELECT k.id, (SELECT COUNT(*) FROM cabinet_boots b WHERE b.cabinet_id = k.id AND b.booted_at > DATEADD(hour, -2, k.last_heartbeat_at)) AS boots, k.last_heartbeat_at AS last_at
        FROM cabinets k
-      WHERE k.status = 'active' AND k.last_heartbeat_at < now() - make_interval(secs => $1) AND k.last_heartbeat_at > now() - interval '1 day'
+      WHERE k.status = 'active' AND k.last_heartbeat_at < DATEADD(second, -$1, SYSUTCDATETIME()) AND k.last_heartbeat_at > DATEADD(day, -1, SYSUTCDATETIME())
         AND k.uptime_seconds IS NOT NULL AND k.uptime_seconds < 900
         AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.cabinet_id = k.id AND a.signature = 'reboot_loop' AND a.state <> 'resolved')`, [OFFLINE_AFTER_MS / 1000])).rows;
   let raised = 0;
-  for (const r of rows) if (Number(r.boots) >= 2) { await raiseLoop(pool, r.id, `started ${r.boots} times, then went quiet`, r.last); raised++; }
+  for (const r of rows) if (Number(r.boots) >= 2) { await raiseLoop(pool, r.id, `started ${r.boots} times, then went quiet`, r.last_at); raised++; }
   return raised;
 }
 
@@ -202,8 +200,17 @@ export function changeKey(category: Category, message: string): string {
 
 export interface TimelineItem { at: string; category: Category; title: string; detail: string; stopCode?: ReturnType<typeof describeStopCode> }
 
-const EVENT_COLUMNS = `occurred_at, kind, source, COALESCE(detail->>'message', '') AS message, detail->'fields' AS fields`;
+// JSON_VALUE stops at 4000 characters and gives NULL beyond it, so the message is read with OPENJSON.
+const messageOf = (alias: string) => `ISNULL((SELECT j.message FROM OPENJSON(${alias}.detail) WITH (message nvarchar(max) '$.message') j), '')`;
+const EVENT_COLUMNS = `occurred_at, kind, source, ${messageOf("events")} AS message, JSON_QUERY(detail, '$.fields') AS fields_json`;
 type EventRow = { occurred_at: Date; kind: string; source: Row["source"]; message: string; fields: Record<string, string> | null };
+type EventRowRaw = Omit<EventRow, "fields"> & { fields_json: string | null };
+function withFields<T extends EventRowRaw>(r: T): Omit<T, "fields_json"> & { fields: Record<string, string> | null } {
+  const { fields_json, ...rest } = r;
+  let fields: Record<string, string> | null = null;
+  try { fields = fields_json ? JSON.parse(fields_json) as Record<string, string> : null; } catch { /* unreadable: no fields */ }
+  return { ...rest, fields };
+}
 
 function toItem(r: EventRow): TimelineItem | null {
   const c = categorize(r);
@@ -215,8 +222,8 @@ function toItem(r: EventRow): TimelineItem | null {
 }
 
 export async function timeline(db: Queryable, cabinetId: string, from: Date, to: Date): Promise<TimelineItem[]> {
-  const events = (await db.query<EventRow>(
-    `SELECT ${EVENT_COLUMNS} FROM events WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at DESC LIMIT 2000`, [cabinetId, from, to])).rows.reverse();
+  const events = (await db.query<EventRowRaw>(
+    `SELECT ${EVENT_COLUMNS} FROM events WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at DESC OFFSET 0 ROWS FETCH NEXT 2000 ROWS ONLY`, [cabinetId, from, to])).rows.map(withFields).reverse();
   const boots = (await db.query<{ booted_at: Date; source: string }>(
     "SELECT booted_at, source FROM cabinet_boots WHERE cabinet_id = $1 AND booted_at BETWEEN $2 AND $3", [cabinetId, from, to])).rows;
   const writes = (await db.query<{ issued_at: Date; operation: string; status: string; name: string }>(
@@ -254,7 +261,7 @@ export async function cabinetCrashes(db: Queryable, cabinetId: string, days = 30
   const firstAt = first ? new Date(first.at) : null;
   const before = firstAt ? all.filter(i => new Date(i.at) < firstAt && firstAt.getTime() - new Date(i.at).getTime() <= BEFORE_HOURS * 3_600_000) : [];
   const loop = (await db.query<{ state: string; title: string; first_seen: Date; occurrences: number }>(
-    "SELECT state, title, first_seen, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = 'reboot_loop' ORDER BY first_seen DESC LIMIT 1", [cabinetId])).rows[0];
+    "SELECT TOP (1) state, title, first_seen, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = 'reboot_loop' ORDER BY first_seen DESC", [cabinetId])).rows[0];
   const stopCodes = new Map<string, { stopCode: ReturnType<typeof describeStopCode>; count: number }>();
   for (const c of crashes) { const k = c.stopCode!.text; stopCodes.set(k, { stopCode: c.stopCode!, count: (stopCodes.get(k)?.count ?? 0) + 1 }); }
   return {
@@ -273,7 +280,7 @@ export async function cabinetCrashes(db: Queryable, cabinetId: string, days = 30
 
 const CRASH_KEYS: [string, number][] = [["bugcheck", 1001], ["microsoft-windows-wer-systemerrorreporting", 1001], ["microsoft-windows-kernel-power", 41], ["eventlog", 6008]];
 const crashPredicate = (alias: string, first: number) =>
-  "(" + CRASH_KEYS.map((_, i) => `(lower(${alias}.source->>'source') = $${first + i * 2} AND (${alias}.source->>'eventId')::int = $${first + i * 2 + 1})`).join(" OR ") + ")";
+  "(" + CRASH_KEYS.map((_, i) => `(JSON_VALUE(${alias}.source, '$.source') = $${first + i * 2} AND TRY_CAST(JSON_VALUE(${alias}.source, '$.eventId') AS int) = $${first + i * 2 + 1})`).join(" OR ") + ")";
 const crashArgs = CRASH_KEYS.flat();
 
 export interface IncidentFilter { from: Date; to: Date; clientId?: string | undefined }
@@ -283,20 +290,21 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
   const base = [f.from, f.to, ...(f.clientId ? [f.clientId] : [])];
   const n = base.length;
   // Every active cabinet in scope, and which of them crashed, shut down unexpectedly, or looped in the window.
-  const population = (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; last: Date | null; uptime: string | null; demo: boolean }>(
-    `SELECT k.id, k.name, s.name AS site, c.name AS client, k.agent_version, k.last_heartbeat_at AS last, k.uptime_seconds AS uptime, k.demo_scenario IS NOT NULL AS demo
+  const population = (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; last_at: Date | null; demo: number }>(
+    `SELECT k.id, k.name, s.name AS site, c.name AS client, k.agent_version, k.last_heartbeat_at AS last_at, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE k.status = 'active' AND $1::timestamptz IS NOT NULL AND $2::timestamptz IS NOT NULL ${clientFilter}`, base)).rows;
+      WHERE k.status = 'active' ${clientFilter}`, base)).rows;
   const ids = population.map(p => p.id);
-  const crashRows = (await db.query<EventRow & { cabinet_id: string }>(
-    `SELECT e.cabinet_id, e.occurred_at, e.kind, e.source, COALESCE(e.detail->>'message', '') AS message, e.detail->'fields' AS fields
-       FROM events e WHERE e.cabinet_id = ANY($${n + 1}::uuid[]) AND e.occurred_at BETWEEN $1 AND $2 AND ${crashPredicate("e", n + 2)}`,
-    [...base, ids, ...crashArgs])).rows;
+  // The population is passed as a JSON array of ids; the dates are $1 and $2.
+  const crashRows = (await db.query<EventRowRaw & { cabinet_id: string }>(
+    `SELECT e.cabinet_id, e.occurred_at, e.kind, e.source, ${messageOf("e")} AS message, JSON_QUERY(e.detail, '$.fields') AS fields_json
+       FROM events e WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($${n + 1})) AND e.occurred_at BETWEEN $1 AND $2 AND ${crashPredicate("e", n + 2)}`,
+    [...base, ids, ...crashArgs])).rows.map(withFields);
   const loops = (await db.query<{ cabinet_id: string; first_seen: Date }>(
-    `SELECT cabinet_id, min(first_seen) AS first_seen FROM alerts WHERE signature = 'reboot_loop' AND cabinet_id = ANY($3::uuid[]) AND first_seen BETWEEN $1 AND $2 GROUP BY cabinet_id`,
+    `SELECT cabinet_id, MIN(first_seen) AS first_seen FROM alerts WHERE signature = 'reboot_loop' AND cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND first_seen BETWEEN $1 AND $2 GROUP BY cabinet_id`,
     [f.from, f.to, ids])).rows;
   const bootCounts = new Map((await db.query<{ cabinet_id: string; n: string }>(
-    "SELECT cabinet_id, count(*) AS n FROM cabinet_boots WHERE cabinet_id = ANY($3::uuid[]) AND booted_at BETWEEN $1 AND $2 GROUP BY cabinet_id", [f.from, f.to, ids])).rows.map(r => [r.cabinet_id, Number(r.n)]));
+    "SELECT cabinet_id, COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND booted_at BETWEEN $1 AND $2 GROUP BY cabinet_id", [f.from, f.to, ids])).rows.map(r => [r.cabinet_id, Number(r.n)]));
 
   interface Affected { id: string; firstAt: Date; crashes: number; unexpected: number; stopCodes: Map<string, ReturnType<typeof describeStopCode>>; loop: boolean }
   const affected = new Map<string, Affected>();
@@ -318,15 +326,17 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
   // Aggregated in SQL: only the event types the comparison uses, only inside each cabinet's span, one row per distinct change.
   // An error message is dropped (its key is fixed), so a flood of disk errors is one row per cabinet, not thousands.
   const spans = [...affected.values()];
-  const changes = (await db.query<{ cabinet_id: string; kind: string; source: Row["source"]; message: string }>(
-    `SELECT DISTINCT e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN NULL ELSE jsonb_build_object('log', '', 'source', e.source->>'source', 'eventId', (e.source->>'eventId')::int) END AS source,
-            CASE WHEN e.kind = 'change' AND (lower(e.source->>'source') || '|' || (e.source->>'eventId')) = ANY($6::text[]) THEN COALESCE(e.detail->>'message', '') ELSE '' END AS message
-       FROM events e LEFT JOIN unnest($4::uuid[], $5::timestamptz[]) AS f(id, first_at) ON f.id = e.cabinet_id
-      WHERE e.cabinet_id = ANY($3::uuid[]) AND e.occurred_at BETWEEN $1 AND $2
-        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= f.first_at - interval '${BEFORE_HOURS} hours'))
-        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND (lower(e.source->>'source') || '|' || (e.source->>'eventId')) = ANY($7::text[])))
-      LIMIT 100000`,
-    [lookFrom, f.to, ids, spans.map(a => a.id), spans.map(a => a.firstAt), MESSAGE_KEYS, COMPARED_KEYS])).rows;
+  const changeRows = (await db.query<{ cabinet_id: string; kind: string; has_source: number; src: string | null; event_id: number | null; message: string }>(
+    `SELECT DISTINCT TOP (100000) e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN 0 ELSE 1 END AS has_source,
+            JSON_VALUE(e.source, '$.source') AS src, TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) AS event_id,
+            CASE WHEN e.kind = 'change' AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($5)) THEN ${messageOf("e")} ELSE '' END AS message
+       FROM events e LEFT JOIN OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt') f ON f.id = e.cabinet_id
+      WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND e.occurred_at BETWEEN $1 AND $2
+        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
+        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))))`,
+    [lookFrom, f.to, ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_KEYS])).rows;
+  const changes = changeRows.map(r => ({ cabinet_id: r.cabinet_id, kind: r.kind, message: r.message,
+    source: r.has_source === 1 ? { log: "", source: r.src ?? "", eventId: r.event_id ?? 0 } : null as Row["source"] }));
   const keyed = new Map<string, { category: Category; key: string; affected: Set<string>; unaffected: Set<string> }>();
   for (const ch of changes) {
     const c = categorize({ kind: ch.kind, source: ch.source, message: ch.message, fields: null });
@@ -353,9 +363,9 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
   const byId = new Map(population.map(p => [p.id, p]));
   const rows = [...affected.values()].sort((a, b) => a.firstAt.getTime() - b.firstAt.getTime()).map(a => {
     const p = byId.get(a.id)!;
-    return { id: a.id, name: p.name, site: p.site, client: p.client, demo: p.demo, firstAt: a.firstAt.toISOString(), crashes: a.crashes, unexpectedShutdowns: a.unexpected,
+    return { id: a.id, name: p.name, site: p.site, client: p.client, demo: p.demo === 1, firstAt: a.firstAt.toISOString(), crashes: a.crashes, unexpectedShutdowns: a.unexpected,
       boots: bootCounts.get(a.id) ?? 0, stopCodes: [...a.stopCodes.values()], rebootLoop: a.loop,
-      online: !!p.last && Date.now() - p.last.getTime() < OFFLINE_AFTER_MS, lastHeardAt: p.last?.toISOString() ?? null, agentVersion: p.agent_version };
+      online: !!p.last_at && Date.now() - p.last_at.getTime() < OFFLINE_AFTER_MS, lastHeardAt: p.last_at?.toISOString() ?? null, agentVersion: p.agent_version };
   });
   const stopCodes = new Map<string, { stopCode: ReturnType<typeof describeStopCode>; cabinets: number }>();
   for (const r of rows) for (const sc of r.stopCodes) stopCodes.set(sc.text, { stopCode: sc, cabinets: (stopCodes.get(sc.text)?.cabinets ?? 0) + 1 });

@@ -1,27 +1,22 @@
-// Wakes long polls when a command for their cabinet is inserted, from any
-// server process: the commands table's trigger NOTIFYs, one connection LISTENs.
-import pg from "pg";
+// Wakes long polls when a command for their cabinet is inserted, from any server process: the commands table's trigger writes
+// a row to the notifications table, and the NotificationFeed (one per server process) hands it to this class.
+import type { NotificationFeed } from "../db/notifications.js";
 
 export class CommandNotifier {
   private readonly waiters = new Map<string, Set<() => void>>();
   /** How many wakes each cabinet has had, so a long poll notices one that came between its database check and its wait. */
   private readonly woken = new Map<string, number>();
-  private client: pg.Client | null = null;
-  private stopped = false;
+  private unsubscribe: (() => void) | null = null;
   private sweep: NodeJS.Timeout | null = null;
 
-  /** While the listener is down (reconnecting), long polls fall back to re-checking the database every few seconds. */
-  get listening(): boolean { return this.client !== null; }
+  /** While the feed is not running (starting, or stopped), long polls fall back to re-checking the database every few seconds. */
+  get listening(): boolean { return this.unsubscribe !== null && this.feed.running; }
 
-  constructor(private readonly connectionString: string) {}
+  constructor(private readonly feed: NotificationFeed) {}
 
   async start(): Promise<void> {
-    const client = new pg.Client({ connectionString: this.connectionString });
-    client.on("notification", msg => { if (msg.channel === "cabinet_commands" && msg.payload) this.wake(msg.payload); });
-    client.on("error", () => { if (!this.stopped && this.client === client) void this.restart(); });
-    await client.connect();
-    await client.query("LISTEN cabinet_commands");
-    this.client = client;
+    if (this.unsubscribe) return;
+    this.unsubscribe = this.feed.on("cabinet_commands", payload => this.wake(payload));
     // Wake counters only need to outlive one long poll; forget the idle ones.
     this.sweep ??= setInterval(() => { for (const k of this.woken.keys()) if (!this.waiters.has(k)) this.woken.delete(k); }, 60_000);
     this.sweep.unref();
@@ -29,16 +24,6 @@ export class CommandNotifier {
 
   /** The cabinet's wake counter now; pass it to wait() so a wake in between is not lost. */
   mark(cabinetId: string): number { return this.woken.get(cabinetId) ?? 0; }
-
-  private async restart(): Promise<void> {
-    const old = this.client;
-    this.client = null;
-    old?.end().catch(() => undefined);
-    // Wake everyone so they re-check the database while the listener reconnects.
-    for (const cabinet of [...this.waiters.keys()]) this.wake(cabinet);
-    await new Promise(r => setTimeout(r, 1000));
-    if (!this.stopped) await this.start().catch(() => this.restart());
-  }
 
   /** Resolves when a command for this cabinet may be waiting (now, if it was woken since mark), or after the timeout, or on abort. */
   wait(cabinetId: string, timeoutMs: number, signal: AbortSignal, since?: number): Promise<void> {
@@ -67,9 +52,10 @@ export class CommandNotifier {
   get waiting(): number { let n = 0; for (const s of this.waiters.values()) n += s.size; return n; }
 
   async stop(): Promise<void> {
-    this.stopped = true;
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     if (this.sweep) clearInterval(this.sweep);
+    this.sweep = null;
     for (const cabinet of [...this.waiters.keys()]) this.wake(cabinet);
-    await this.client?.end().catch(() => undefined);
   }
 }

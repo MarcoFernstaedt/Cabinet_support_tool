@@ -8,6 +8,7 @@ import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
@@ -25,7 +26,8 @@ const ORIGIN = "https://console.test";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
-let clock = Date.now();
+let feed: NotificationFeed;
+let clock = Date.SYSUTCDATETIME();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const cab: Record<"a" | "b" | "far", string> = { a: "", b: "", far: "" };
 
@@ -33,7 +35,7 @@ interface Account { id: string; username: string; password: string; secret: Buff
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
-                      VALUES ($1, $2, $3, $4, $5, false, true, $6)`, [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
+                      VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`, [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
 const nextCode = (a: Account) => { clock += 30_000; return totp.code(a.secret, totp.stepAt(clock)); };
@@ -59,7 +61,7 @@ async function stepUp(a: Account, cookie: string, action: string, target: string
   return r.body.token;
 }
 
-const at = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const at = (minutesAgo = 0) => new Date(Date.SYSUTCDATETIME() - minutesAgo * 60_000).toISOString().replace(/\.\d{3}Z$/, "Z");
 type Log = NonNullable<Event["source"]>["log"];
 const errorEvent = (o: { log?: Log; source?: string; eventId?: number; message?: string; record?: number; level?: "error" | "critical" } = {}): Event => ({
   eventId: randomUUID(), kind: "error", occurredAt: at(), severityHint: "minor",
@@ -75,7 +77,9 @@ const send = (cabinetId: string, ...events: [Event, ...Event[]]) => storeEvents(
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock });
   const admin = await account("admin");
@@ -86,9 +90,9 @@ test.before(async () => {
       osVersion: "Windows 10", agentVersion: "0.2.0" } }, "127.0.0.1");
     cab[name] = (await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: site, cabinetName: `Cabinet ${name}`, role: "standalone" }, admin.id)).cabinetId;
   }
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now()");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME()");
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 // ---- Matching ----------------------------------------------------------------------------
 
@@ -107,9 +111,9 @@ test("matching uses structured fields and a plain, case-insensitive phrase", () 
 
 test("a hostile phrase is fast: matching has no regular expressions to blow up", () => {
   const e = errorEvent({ message: "a".repeat(32_000) });
-  const started = Date.now();
+  const started = Date.SYSUTCDATETIME();
   for (let i = 0; i < 2_000; i++) matches({ phrase: "a".repeat(127) + "b" }, e);
-  assert.ok(Date.now() - started < 2_000);
+  assert.ok(Date.SYSUTCDATETIME() - started < 2_000);
 });
 
 test("people's rules must name something specific and fit the contract", () => {
@@ -175,7 +179,7 @@ test("SMART warnings raise Drive failing; outside firewall changes raise Unexpec
   assert.equal((madeUp.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.firewall);
   const commandId = randomUUID();
   await asOwner(db, c => c.query(`INSERT INTO commands (id, cabinet_id, operation, params, status, issued_by, issued_at, expires_at)
-    SELECT $1, $2, 'firewall.setRule', '{"change":"delete","ruleName":"MashuraDiag x"}', 'succeeded', id, now(), now() + interval '5 minutes' FROM users LIMIT 1`, [commandId, cab.b]));
+    SELECT TOP (1) $1, $2, 'firewall.setRule', '{"change":"delete","ruleName":"MashuraDiag x"}', 'succeeded', id, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()) FROM users`, [commandId, cab.b]));
   const ours = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "minor", commandId, detail: {} });
   assert.deepEqual(ours.outcomes, [{ kind: "platform_change" }]);
 });
@@ -207,7 +211,7 @@ test("an agent clock in the future cannot push an alert's last-seen time ahead",
   const e = { ...errorEvent({ source: "Future", eventId: 9 }), occurredAt: "2099-01-01T00:00:00Z" };
   const r = await send(cab.far, e);
   const a = (await db.app.query("SELECT last_seen FROM alerts WHERE id = $1", [(r.outcomes[0] as { alertId: string }).alertId])).rows[0];
-  assert.ok(a.last_seen.getTime() <= Date.now() + 1000);
+  assert.ok(a.last_seen.getTime() <= Date.SYSUTCDATETIME() + 1000);
 });
 
 // ---- Map to issue -----------------------------------------------------------------------
@@ -225,7 +229,7 @@ test("an unrecognized error is mapped by Tier 2, approved by an Admin, regrouped
   const detail = await call("GET", `/api/events/${(first.outcomes[0] as { alertId: string }) && (await db.app.query("SELECT last_event_id FROM alerts WHERE id = $1", [unrecognizedId])).rows[0].last_event_id}`, undefined, t1);
   assert.equal(detail.body.source.eventId, 4242);
   assert.equal(detail.body.elsewhere.events, 1);
-  const opened = (await db.app.query("SELECT target_id FROM audit_log WHERE action = 'event.open' AND details->>'eventId' = $1", [detail.body.eventId])).rows;
+  const opened = (await db.app.query("SELECT target_id FROM audit_log WHERE action = 'event.open' AND JSON_VALUE(details, '$.eventId') = $1", [detail.body.eventId])).rows;
   assert.deepEqual(opened, [{ target_id: cab.a }], "opening a stored event is audited against its cabinet");
 
   const match: SymptomMatch = { kind: "error", log: "Application", source: "Biometric Lock Driver", eventId: 4242 };
@@ -359,9 +363,9 @@ test("a major alert reaches every signed-in console and only one person can clai
 });
 
 test("minor alerts are not broadcast as new alerts", async () => {
-  const before = (await db.app.query("SELECT count(*)::int AS n FROM alerts")).rows[0].n;
+  const before = (await db.app.query("SELECT COUNT(*) AS n FROM alerts")).rows[0].n;
   await send(cab.far, errorEvent({ source: "Quiet", eventId: 3 }));
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM alerts")).rows[0].n, before + 1);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM alerts")).rows[0].n, before + 1);
   // deliverAlert ignores created minors; checked by the filter in stream.ts and the e2e console test.
 });
 
@@ -369,8 +373,8 @@ test("minor alerts are not broadcast as new alerts", async () => {
 
 test("offline is a status; past the threshold it becomes an alert that resolves itself when the cabinet returns", async () => {
   const tier1 = await account("tier1"); const t1 = await signIn(tier1);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '10 minutes' WHERE id = $1", [cab.b]);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '6 days' WHERE id = $1", [cab.far]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(minute, -10, SYSUTCDATETIME()) WHERE id = $1", [cab.b]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(day, -6, SYSUTCDATETIME()) WHERE id = $1", [cab.far]);
   const clients = await call("GET", "/api/alerts/offline", undefined, t1);
   assert.equal(clients.body.level, "clients");
   const acme = clients.body.items.find((c: { name: string }) => c.name === "Acme Health");
@@ -386,20 +390,20 @@ test("offline is a status; past the threshold it becomes an alert that resolves 
   const offline = (await db.app.query("SELECT cabinet_id, severity, state FROM alerts WHERE issue_type_id = $1", [ISSUE.offline])).rows;
   assert.deepEqual(offline, [{ cabinet_id: cab.far, severity: "minor", state: "open" }]);
 
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() WHERE id = $1", [cab.far]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [cab.far]);
   assert.deepEqual(await checkOffline(db.app), { raised: 0, resolved: 1 });
   // A shorter threshold set by an Admin applies.
-  await asOwner(db, c => c.query("INSERT INTO settings (key, value) VALUES ('alerts.offlineDays', '1')"));
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '2 days' WHERE id = $1", [cab.b]);
+  await asOwner(db, c => c.query("INSERT INTO settings ([key], [value]) VALUES ('alerts.offlineDays', '1')"));
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(day, -2, SYSUTCDATETIME()) WHERE id = $1", [cab.b]);
   assert.equal((await checkOffline(db.app)).raised, 1);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now()");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME()");
 });
 
 // ---- Early signs of failure: the catalog, warnings, severity per rule ------------------------
 
 test("a drive's early warning raises a minor Drive failing alert; a bad block on the same drive makes it major", async () => {
   const k = cab.b;
-  await asOwner(db, c => c.query("UPDATE alerts SET state = 'resolved', resolved_at = now() WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.drive]));
+  await asOwner(db, c => c.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.drive]));
   const retried = await send(k, { ...errorEvent({ source: "disk", eventId: 153, message: "The IO operation at logical block address 0x1f was retried." }),
     source: { log: "System", source: "disk", eventId: 153, level: "warning", recordId: 1530 } });
   const o = retried.outcomes[0] as { kind: string; alertId: string; issueTypeId: string };
@@ -453,7 +457,7 @@ test("a mapping can set its own severity; an Admin can create a new issue type w
   const fired = await send(cab.a, errorEvent({ source: "Contoso-Printer", eventId: 12 }));
   const alert = (await db.app.query("SELECT severity, title FROM alerts WHERE id = $1", [(fired.outcomes[0] as { alertId: string }).alertId])).rows[0];
   assert.deepEqual(alert, { severity: "major", title: "Receipt printer fault" });
-  assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'issue_type.create' AND details->>'from' = 'map_to_issue'")).rowCount === 1);
+  assert.ok((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'issue_type.create' AND JSON_VALUE(details, '$.from') = 'map_to_issue'")).rowCount === 1);
 
   const refused = await call("POST", "/api/rules", { newIssueType: { name: "Tier 2 type", severity: "major", description: "x" },
     match: { log: "System", source: "Other", eventId: 1 }, regroup: false, stepUpToken: await stepUp(tier2, t2, "rule.propose", "fleet", { newIssueType: { name: "Tier 2 type", severity: "major", description: "x" },

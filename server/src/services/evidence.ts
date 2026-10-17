@@ -4,8 +4,7 @@
 // canonical JSON, so anyone can check nothing was changed afterwards; the export is in the audit log with that hash.
 // Nothing is collected from the cabinet for it: it is what the cabinet already reported and what the platform did.
 import { createHash } from "node:crypto";
-import { audit, transaction, type Queryable } from "../db/db.js";
-import type pg from "pg";
+import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { canonicalJson } from "../auth/canonical.js";
 import { cabinetCrashes, timeline } from "./crashes.js";
 
@@ -18,14 +17,14 @@ interface Section { title: string; provenance: string; truncated?: boolean; item
 /** Builds the package. The caller records the export (exportEvidence). */
 export async function buildEvidence(db: Queryable, cabinetId: string, from: Date, to: Date, exportedBy: { userId: string; name: string }) {
   const k = (await db.query<{ id: string; name: string; hostname: string | null; serial_number: string | null; role: string; agent_version: string | null; status: string;
-    time_zone_id: string | null; demo: boolean; site: string; client: string; enrolled_at: Date | null }>(
-    `SELECT k.id, k.name, k.hostname, k.serial_number, k.role, k.agent_version, k.status, k.time_zone_id, k.demo_scenario IS NOT NULL AS demo,
+    time_zone_id: string | null; demo: number; site: string; client: string; enrolled_at: Date | null }>(
+    `SELECT k.id, k.name, k.hostname, k.serial_number, k.role, k.agent_version, k.status, k.time_zone_id, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo,
             s.name AS site, c.name AS client, k.created_at AS enrolled_at
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) return null;
   const events = (await db.query<{ event_id: string; kind: string; occurred_at: Date; received_at: Date; severity_hint: string; source: unknown; device: unknown; detail: unknown }>(
     `SELECT event_id, kind, occurred_at, received_at, severity_hint, source, device, detail FROM events
-      WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at DESC LIMIT $4`, [cabinetId, from, to, MAX_EVENTS + 1])).rows;
+      WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 ORDER BY occurred_at DESC OFFSET 0 ROWS FETCH NEXT $4 ROWS ONLY`, [cabinetId, from, to, MAX_EVENTS + 1])).rows;
   const boots = (await db.query<{ booted_at: Date; source: string }>(
     "SELECT booted_at, source FROM cabinet_boots WHERE cabinet_id = $1 AND booted_at BETWEEN $2 AND $3 ORDER BY booted_at", [cabinetId, from, to])).rows;
   const alerts = (await db.query<{ id: string; title: string; severity: string; state: string; first_seen: Date; last_seen: Date; occurrences: number; resolution: string | null }>(
@@ -33,14 +32,14 @@ export async function buildEvidence(db: Queryable, cabinetId: string, from: Date
       WHERE cabinet_id = $1 AND last_seen >= $2 AND first_seen <= $3 ORDER BY first_seen`, [cabinetId, from, to])).rows;
   const commands = (await db.query<{ id: string; operation: string; params: unknown; status: string; issued_at: Date; result_at: Date | null; result: unknown; username: string; bulk_id: string | null }>(
     `SELECT c.id, c.operation, c.params, c.status, c.issued_at, c.result_at, c.result, u.username, c.bulk_id
-       FROM commands c JOIN users u ON u.id = c.issued_by WHERE c.cabinet_id = $1 AND c.issued_at BETWEEN $2 AND $3 ORDER BY c.issued_at DESC LIMIT $4`,
+       FROM commands c JOIN users u ON u.id = c.issued_by WHERE c.cabinet_id = $1 AND c.issued_at BETWEEN $2 AND $3 ORDER BY c.issued_at DESC OFFSET 0 ROWS FETCH NEXT $4 ROWS ONLY`,
     [cabinetId, from, to, MAX_COMMANDS + 1])).rows;
   const days = Math.max(1, Math.round((to.getTime() - from.getTime()) / 86_400_000));
 
   const sections: Record<string, Section> = {
     cabinet: { title: "The cabinet", provenance: "The platform's records: enrollment, the cabinet's heartbeats (agent version, time zone).", items: {
       id: k.id, name: k.name, hostname: k.hostname, serialNumber: k.serial_number, role: k.role, client: k.client, site: k.site, agentVersion: k.agent_version,
-      status: k.status, timeZoneId: k.time_zone_id, enrolledAt: iso(k.enrolled_at), simulated: k.demo } },
+      status: k.status, timeZoneId: k.time_zone_id, enrolledAt: iso(k.enrolled_at), simulated: k.demo === 1 } },
     events: { title: "Events the cabinet reported", truncated: events.length > MAX_EVENTS,
       provenance: "Sent by the cabinet's agent as they happened, from the Windows event logs and its own monitors. log, source, eventId and recordId identify the original Windows entry; receivedAt is when the server stored it.",
       items: events.slice(0, MAX_EVENTS).reverse().map(e => ({ eventId: e.event_id, kind: e.kind, occurredAt: iso(e.occurred_at), receivedAt: iso(e.received_at),
@@ -69,7 +68,7 @@ export async function buildEvidence(db: Queryable, cabinetId: string, from: Date
 }
 
 /** Builds the package and records its export, with its hash, in the audit log. */
-export async function exportEvidence(pool: pg.Pool, cabinetId: string, from: Date, to: Date, user: { userId: string; name: string }) {
+export async function exportEvidence(pool: Pool, cabinetId: string, from: Date, to: Date, user: { userId: string; name: string }) {
   const pkg = await buildEvidence(pool, cabinetId, from, to, user);
   if (!pkg) return null;
   await transaction(pool, c => audit(c, { actorKind: "user", actorId: user.userId, action: "evidence.export", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",

@@ -7,6 +7,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
@@ -25,7 +26,8 @@ const ORIGIN = "https://console.test";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
-let clock = Date.now();
+let feed: NotificationFeed;
+let clock = Date.SYSUTCDATETIME();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 let adminId: string, cabinetId: string, cookie: string;
 
@@ -34,18 +36,20 @@ async function call(url: string, c: string | null = cookie) {
   return { status: r.statusCode, body: JSON.parse(r.body) };
 }
 const loopAlert = async (id: string) => (await db.app.query<{ state: string; title: string }>(
-  "SELECT state, title FROM alerts WHERE cabinet_id = $1 AND signature = 'reboot_loop' ORDER BY (state <> 'resolved') DESC, first_seen DESC LIMIT 1", [id])).rows[0];
+  "SELECT state, title FROM alerts WHERE cabinet_id = $1 AND signature = 'reboot_loop' ORDER BY CASE WHEN state <> 'resolved' THEN 0 ELSE 1 END, first_seen DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY", [id])).rows[0];
 const heartbeat = (uptimeSeconds: number) => recordHeartbeat(db.app, cabinetId, { agentVersion: "1.4.2", uptimeSeconds, readOnlyMode: false });
 
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock });
   adminId = randomUUID();
   const secret = totp.newSecret();
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, 'sam', 'Sam', 'tier1', $2, false, true, $3)`,
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, 'sam', 'Sam', 'tier1', $2, 0, 1, $3)`,
     [adminId, await hashPassword("correct horse battery staple"), secrets.seal(secret)]);
   const { token } = await createBootstrapToken(db.app, adminId);
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
@@ -56,7 +60,7 @@ test.before(async () => {
   clock += 30_000;
   await app.inject({ method: "POST", url: "/api/auth/totp", headers: { origin: ORIGIN, cookie, "content-type": "application/json" }, payload: JSON.stringify({ code: totp.code(secret, totp.stepAt(clock)) }) });
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 test("stop codes come from the BugCheck message without patterns; anything odd is unknown, never guessed", () => {
   const m = (code: string) => `The computer has rebooted from a bugcheck.  The bugcheck was: ${code} (0x0000000000000028, 0x2). A dump was saved in: C:\\Windows\\MEMORY.DMP.`;
@@ -82,17 +86,17 @@ test("changes are named the same way on every cabinet, so the fleet can count th
 test("boots: from the heartbeat's uptime and from Windows' own start record, counted once; 3 in an hour is a reboot loop, 2 hours up ends it", async () => {
   await heartbeat(50_000);
   await heartbeat(50_060);                                  // same boot
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);
   // Windows' own start record for that same boot is not a second boot.
-  const booted = new Date(Date.now() - 50_060_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+  const booted = new Date(Date.SYSUTCDATETIME() - 50_060_000).toISOString().replace(/\.\d{3}Z$/, "Z");
   await storeEvents(db.app, cabinetId, { events: [{ eventId: randomUUID(), kind: "change", occurredAt: booted, severityHint: "minor",
     source: { log: "System", source: "Microsoft-Windows-Kernel-General", eventId: 12, level: "information", recordId: 1 }, detail: { message: "The operating system started." } }] });
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM alerts WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 0, "a change never raises an alert");
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 1);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM alerts WHERE cabinet_id = $1", [cabinetId])).rows[0].n, 0, "a change never raises an alert");
   await heartbeat(240);                                      // restarted
   assert.equal(await loopAlert(cabinetId), undefined, "two starts are not a loop");
   // Another start 40 minutes ago (seen by Windows' own record), then a third now: 3 within the hour.
-  await db.app.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, now() - interval '40 minutes', 'event')", [cabinetId]);
+  await db.app.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, DATEADD(minute, -40, SYSUTCDATETIME()), 'event')", [cabinetId]);
   await heartbeat(30);
   const alert = (await loopAlert(cabinetId))!;
   assert.equal(alert.state, "open");
@@ -104,9 +108,9 @@ test("boots: from the heartbeat's uptime and from Windows' own start record, cou
 
 test("a cabinet that restarted and went quiet is a reboot loop; one that simply went offline is not", async () => {
   await db.app.query("DELETE FROM cabinet_boots WHERE cabinet_id = $1", [cabinetId]);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '2 hours', uptime_seconds = 50000 WHERE id = $1", [cabinetId]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -2, SYSUTCDATETIME()), uptime_seconds = 50000 WHERE id = $1", [cabinetId]);
   assert.equal(await checkQuietLoops(db.app), 0, "quiet after a long uptime: plain offline");
-  await db.app.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, now() - interval '150 minutes', 'heartbeat'), ($1, now() - interval '125 minutes', 'heartbeat')", [cabinetId]);
+  await db.app.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, DATEADD(minute, -150, SYSUTCDATETIME()), 'heartbeat'), ($1, DATEADD(minute, -125, SYSUTCDATETIME()), 'heartbeat')", [cabinetId]);
   await db.app.query("UPDATE cabinets SET uptime_seconds = 300 WHERE id = $1", [cabinetId]);
   assert.equal(await checkQuietLoops(db.app), 1);
   assert.match((await loopAlert(cabinetId))!.title, /started 2 times, then went quiet/);
@@ -156,7 +160,7 @@ test("the overnight incident: who crashed, when it began, the stop code, who is 
 });
 
 test("an evidence package holds the cabinet's events, boots, alerts, commands and analysis, with provenance and hashes; any change is detected; the export is audited", async () => {
-  const one = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_crash' ORDER BY name LIMIT 1")).rows[0]!.id;
+  const one = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_crash' ORDER BY name OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY")).rows[0]!.id;
   const r = await app.inject({ method: "GET", url: `/api/cabinets/${one}/evidence?days=7`, headers: { origin: ORIGIN, cookie } });
   assert.equal(r.statusCode, 200);
   assert.match(String(r.headers["content-disposition"]), /^attachment; filename="evidence-[0-9a-f-]{36}-\d{4}-\d{2}-\d{2}\.json"$/);
