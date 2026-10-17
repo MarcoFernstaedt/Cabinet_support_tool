@@ -9,16 +9,16 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const rows = (await db.query<{ id: string; name: string; scenario: string; site: string; site_id: string }>(
     `SELECT k.id, k.name, k.demo_scenario AS scenario, s.name AS site, s.id AS site_id
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE k.demo_scenario IS NOT NULL AND c.demo AND s.name = 'Midtown Manhattan' ORDER BY k.name`)).rows;
+      WHERE k.demo_scenario IS NOT NULL AND c.demo = 1 AND s.name = 'Midtown Manhattan' ORDER BY k.name`)).rows;
   if (rows.length === 0) return [];
   const site = rows[0]!;
   const scanner = rows.find(r => r.scenario === "scanner_flapping");
   const real = (await db.query<{ id: string; name: string }>(
-    "SELECT id, name FROM cabinets WHERE demo_scenario IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 1")).rows[0];
+    "SELECT TOP (1) id, name FROM cabinets WHERE demo_scenario IS NULL AND status = 'active' ORDER BY created_at DESC")).rows[0];
   // The cash drawer check is shown on a cabinet whose firewall is on, in another demo site: the same page, with a fault to find and fix.
   const drawer = (await db.query<{ id: string }>(
-    `SELECT k.id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE k.name = 'Pharmacy Sync' AND k.demo_scenario IS NOT NULL AND c.demo ORDER BY k.name LIMIT 1`)).rows[0];
+    `SELECT TOP (1) k.id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
+      WHERE k.name = 'Pharmacy Sync' AND k.demo_scenario IS NOT NULL AND c.demo = 1 ORDER BY k.name`)).rows[0];
   const examRoom = rows.find(r => r.name === "Exam Room 1"), operating = rows.find(r => r.name === "Operating Room");
   const reception = rows.find(r => r.name === "Reception");
   const list: DemoScenario[] = [

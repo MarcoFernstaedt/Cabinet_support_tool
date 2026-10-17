@@ -45,7 +45,7 @@ export async function startConsole(staticDir: string): Promise<Console> {
   const adminId = randomUUID();
   const passwordHash = await hashPassword(password);
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, false)`, [adminId, passwordHash, secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 0)`, [adminId, passwordHash, secrets.seal(secret)]);
   const code = async () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
   const signInAs = async (page: Page, username: string) => {
     await page.goto(origin);
@@ -70,7 +70,7 @@ export async function startConsole(staticDir: string): Promise<Console> {
     async addUser(username, role, canApproveFixes = false) {
       const id = randomUUID();
       await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed, can_approve_fixes)
-                          VALUES ($1, $2, $3, $4, $5, false, true, $6, false, $7)`, [id, username, `Test ${username}`, role, passwordHash, secrets.seal(secret), canApproveFixes]);
+                          VALUES ($1, $2, $3, $4, $5, 0, 1, $6, 0, $7)`, [id, username, `Test ${username}`, role, passwordHash, secrets.seal(secret), canApproveFixes]);
       return id;
     },
     confirmWithCode,

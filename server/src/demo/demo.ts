@@ -5,8 +5,7 @@
 // deletes every simulated record (security alerts stay, unlinked). Real cabinets are never touched: a simulated cabinet is one with a demo_scenario.
 import { Refused } from "../services/errors.js";
 import { randomUUID } from "node:crypto";
-import type pg from "pg";
-import { audit, safeJson, transaction } from "../db/db.js";
+import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { recordHeartbeat } from "../services/cabinets.js";
 import { storeEvents } from "../services/events.js";
 import { storeResult, takeQueuedCommands } from "../services/commands.js";
@@ -32,8 +31,30 @@ const AGENT_VERSION = "1.4.2";
 type Profiles = { domain: boolean; private: boolean; public: boolean };
 const ALL_OFF: Profiles = { domain: false, private: false, public: false };
 
-export async function demoEnabled(db: pg.Pool | pg.PoolClient): Promise<boolean> {
-  return (await db.query<{ value: boolean }>("SELECT value FROM settings WHERE key = $1", [SETTING])).rows[0]?.value === true;
+export async function demoEnabled(db: Queryable): Promise<boolean> {
+  return (await db.query<{ value: boolean }>("SELECT [value] FROM settings WHERE [key] = $1", [SETTING])).rows[0]?.value === true;
+}
+
+/** Sets one settings row (insert or update). `json` is the JSON text of the value. */
+async function upsertSetting(db: Queryable, key: string, json: string, changedBy: string | null = null): Promise<void> {
+  await db.query(`MERGE settings WITH (HOLDLOCK) AS t USING (SELECT $1 AS [key], $2 AS [value], $3 AS changed_by) AS s ON t.[key] = s.[key]
+                  WHEN MATCHED THEN UPDATE SET [value] = s.[value], changed_by = s.changed_by, changed_at = SYSUTCDATETIME()
+                  WHEN NOT MATCHED THEN INSERT ([key], [value], changed_by) VALUES (s.[key], s.[value], s.changed_by);`, [key, json, changedBy]);
+}
+
+/**
+ * Inserts rows in as few statements as SQL Server allows (2100 parameters and 1000 rows per statement). The table, the columns and the
+ * literal columns (name, SQL text) are fixed lists in this file; every value travels as a parameter.
+ */
+async function insertMany(db: Queryable, table: string, columns: readonly string[], rows: readonly (readonly unknown[])[], literals: readonly (readonly [string, string])[] = []): Promise<void> {
+  if (rows.length === 0) return;
+  const names = [...columns, ...literals.map(l => l[0])].map(c => `[${c}]`).join(", ");
+  const perStatement = Math.max(1, Math.min(1000, Math.floor(2000 / columns.length)));
+  for (let i = 0; i < rows.length; i += perStatement) {
+    const params: unknown[] = [];
+    const tuples = rows.slice(i, i + perStatement).map(row => `(${[...row.map(v => { params.push(v); return `$${params.length}`; }), ...literals.map(l => l[1])].join(", ")})`);
+    await db.query(`INSERT INTO ${table} (${names}) VALUES ${tuples.join(", ")}`, params);
+  }
 }
 
 /** Error sources only the demo's cabinets log. A rule someone maps for them during the guided demo goes when the demo is turned off or reset. */
@@ -44,20 +65,21 @@ const DEMO_ERROR_SOURCES = ["Microsoft-Windows-Biometrics", "WUDFHost", "Billing
  * scanner driver's errors, the teammate's fix is still waiting, and Reception still has an unrecognized alert. Once any of that has been
  * used up, starting the guided demo resets the demo first.
  */
-export async function storyReady(pool: pg.Pool): Promise<boolean> {
+export async function storyReady(pool: Pool): Promise<boolean> {
   if (!(await demoEnabled(pool))) return false;
   const r = (await pool.query<{ ok: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM cabinets WHERE name = 'Midtown Sync' AND demo_scenario = 'firewall_drift')
-        AND NOT EXISTS (SELECT 1 FROM symptom_rules WHERE NOT built_in AND state IN ('live', 'proposed') AND match->>'source' = ANY($1::text[]))
+    `SELECT CAST(CASE WHEN EXISTS (SELECT 1 FROM cabinets WHERE name = 'Midtown Sync' AND demo_scenario = 'firewall_drift')
+        AND NOT EXISTS (SELECT 1 FROM symptom_rules WHERE built_in = 0 AND state IN ('live', 'proposed') AND JSON_VALUE([match], '$.source') IN (SELECT value FROM OPENJSON($1)))
         AND EXISTS (SELECT 1 FROM known_fixes f JOIN users u ON u.id = f.created_by WHERE u.username = $2 AND f.status = 'pending' AND f.removed_at IS NULL)
-        AND EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE k.name = 'Reception' AND k.demo_scenario IS NOT NULL AND a.issue_type_id IS NULL AND a.state <> 'resolved') AS ok`,
+        AND EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE k.name = 'Reception' AND k.demo_scenario IS NOT NULL AND a.issue_type_id IS NULL AND a.state <> 'resolved')
+        THEN 1 ELSE 0 END AS bit) AS ok`,
     [DEMO_ERROR_SOURCES, DEMO_MEMBER])).rows[0]!;
   return r.ok;
 }
 
-export async function demoStatus(pool: pg.Pool) {
-  const n = (await pool.query<{ clients: string; cabinets: string }>(
-    `SELECT (SELECT count(*) FROM clients WHERE demo) AS clients, (SELECT count(*) FROM cabinets WHERE demo_scenario IS NOT NULL) AS cabinets`)).rows[0]!;
+export async function demoStatus(pool: Pool) {
+  const n = (await pool.query<{ clients: number; cabinets: number }>(
+    `SELECT (SELECT count(*) FROM clients WHERE demo = 1) AS clients, (SELECT count(*) FROM cabinets WHERE demo_scenario IS NOT NULL) AS cabinets`)).rows[0]!;
   return { enabled: await demoEnabled(pool), clients: Number(n.clients), cabinets: Number(n.cabinets), storyReady: await storyReady(pool) };
 }
 
@@ -189,38 +211,41 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
 }
 
 /** Adds the simulated fleet. Idempotent: does nothing if it is already there. */
-export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
+export async function enableDemo(pool: Pool, userId: string): Promise<void> {
   const cabinets: { id: string; scenario: Scenario }[] = [];
   const netAlerts: { id: string; problems: string[] }[] = [];
   await transaction(pool, async c => {
-    await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, 'true', $2)
-                   ON CONFLICT (key) DO UPDATE SET value = 'true', changed_by = EXCLUDED.changed_by, changed_at = now()`, [SETTING, userId]);
-    if ((await c.query("SELECT 1 FROM clients WHERE demo LIMIT 1")).rows[0]) return;
+    // A deadlock victim runs this function again: start from nothing.
+    cabinets.length = 0; netAlerts.length = 0;
+    await upsertSetting(c, SETTING, "true", userId);
+    if ((await c.query("SELECT TOP (1) 1 AS x FROM clients WHERE demo = 1")).rows[0]) return;
+    const clientRows: unknown[][] = [], siteRows: unknown[][] = [], cabinetRows: unknown[][] = [];
     let siteIndex = 0;
     for (const client of DEMO_FLEET) {
       const clientId = randomUUID();
-      await c.query("INSERT INTO clients (id, name, demo, watched_services, sync_ports) VALUES ($1, $2, true, $3, $4)", [clientId, client.name, ["BioScanSvc"], [1433]]);
+      clientRows.push([clientId, client.name, ["BioScanSvc"], [1433]]);
       for (const site of client.sites) {
         const siteId = randomUUID();
         const baseline = baselineFor(site.subnet, site.addressing);
-        await c.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone, network_baseline) VALUES ($1, $2, $3, $4, $5, $6)",
-          [siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone, safeJson(baseline)]);
+        siteRows.push([siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone, safeJson(baseline)]);
         for (const [i, k] of site.cabinets.entries()) {
           const id = randomUUID();
           cabinets.push({ id, scenario: k.scenario });
           const net = initialNet(k.scenario, baseline, site.subnet, i);
           const problems = netProblems(net, baseline);
           if (problems.length > 0) netAlerts.push({ id, problems });
-          await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles,
-                                              time_zone_id, clock_skew_seconds, demo_net, ipv4, ipv4_at)
-                         VALUES ($1, $2, $3, $4, 'active', $5, $6, false, $7, $8, $9, $10, $11, $12, $13, $14, now())`,
-            [id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
-             safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
-             k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net), net.address]);
+          cabinetRows.push([id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
+            safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
+            k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net), net.address]);
         }
         siteIndex++;
       }
     }
+    // The whole fleet in a few statements (all 121 cabinets in one).
+    await insertMany(c, "clients", ["id", "name", "watched_services", "sync_ports"], clientRows, [["demo", "1"]]);
+    await insertMany(c, "sites", ["id", "client_id", "name", "sync_address", "time_zone", "network_baseline"], siteRows);
+    await insertMany(c, "cabinets", ["id", "site_id", "name", "role", "hostname", "serial_number", "agent_version", "uptime_seconds", "demo_scenario", "firewall_profiles",
+      "time_zone_id", "clock_skew_seconds", "demo_net", "ipv4"], cabinetRows, [["status", "'active'"], ["read_only", "0"], ["ipv4_at", "SYSUTCDATETIME()"]]);
     await audit(c, { actorKind: "user", actorId: userId, action: "demo.enable", outcome: "succeeded", details: { cabinets: cabinets.length } });
   });
   // Through the real paths, outside the transaction (as an agent's requests would be): heartbeats, then the events.
@@ -229,13 +254,13 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
   for (const k of cabinets) {
     const index = k.scenario.startsWith("incident_") ? n++ : 0;
     if (k.scenario === "offline") {
-      await pool.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '6 days' WHERE id = $1", [k.id]);
+      await pool.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(day, -6, SYSUTCDATETIME()) WHERE id = $1", [k.id]);
       continue;
     }
     if (k.scenario === "site_outage") {
       // Heard from normally until the site's network went down; all of them within the same minute.
       await heartbeat(pool, k.id);
-      await pool.query("UPDATE cabinets SET last_heartbeat_at = now() - make_interval(mins => $2) + make_interval(secs => $3) WHERE id = $1",
+      await pool.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(second, $3, DATEADD(minute, -$2, SYSUTCDATETIME())) WHERE id = $1",
         [k.id, OUTAGE_MINUTES_AGO, (outageIndex++) * 20]);
       continue;
     }
@@ -263,11 +288,11 @@ export async function enableDemo(pool: pg.Pool, userId: string): Promise<void> {
 }
 
 /** One fix a Tier 1 teammate has already submitted for the fingerprint scanner issue, waiting for an Admin. */
-async function seedSubmittedFix(pool: pg.Pool): Promise<void> {
-  const from = (await pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'scanner_flapping' LIMIT 1")).rows[0];
+async function seedSubmittedFix(pool: Pool): Promise<void> {
+  const from = (await pool.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = 'scanner_flapping'")).rows[0];
   if (!from) return;
   const id = randomUUID();
-  await pool.query("INSERT INTO users (id, username, name, role, password_hash, status) VALUES ($1, $2, 'Priya Nair (demo)', 'tier1', 'x', 'active') ON CONFLICT (username) DO NOTHING", [id, DEMO_MEMBER]);
+  await pool.query("IF NOT EXISTS (SELECT 1 FROM users WHERE username = $2) INSERT INTO users (id, username, name, role, password_hash, status) VALUES ($1, $2, 'Priya Nair (demo)', 'tier1', 'x', 'active')", [id, DEMO_MEMBER]);
   const member = (await pool.query<{ id: string }>("SELECT id FROM users WHERE username = $1", [DEMO_MEMBER])).rows[0]!;
   await saveKnownFix(pool, { userId: member.id, canApproveFixes: false }, { title: "Reader drops after a driver install", cabinetId: from.id,
     symptom: { kind: "issue", issueTypeId: ISSUE.scanner },
@@ -275,64 +300,69 @@ async function seedSubmittedFix(pool: pg.Pool): Promise<void> {
 }
 
 /** Deletes every simulated record. Real cabinets, users and the audit log are untouched (the audit log keeps who did it). */
-export async function disableDemo(pool: pg.Pool, userId: string): Promise<number> {
+export async function disableDemo(pool: Pool, userId: string): Promise<number> {
   return transaction(pool, async c => {
     // A real cabinet filed under a simulated client (refused since, but possible in older data) is never deleted with it.
     const real = (await c.query<{ name: string }>(
-      "SELECT k.name FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients n ON n.id = s.client_id WHERE n.demo AND k.demo_scenario IS NULL LIMIT 1")).rows[0];
+      "SELECT TOP (1) k.name FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients n ON n.id = s.client_id WHERE n.demo = 1 AND k.demo_scenario IS NULL")).rows[0];
     if (real) throw new Refused("real_cabinet_in_demo_client", 409, `the real cabinet ${real.name} is filed under a simulated client; move it before turning demo mode off`);
     const ids = (await c.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL")).rows.map(r => r.id);
     // Fleet jobs on simulated cabinets go first (they point at their commands); a job left with no cabinet goes too.
-    await c.query("DELETE FROM fleet_job_targets WHERE cabinet_id = ANY($1::uuid[])", [ids]);
-    await c.query("DELETE FROM fleet_jobs j WHERE NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = j.id)");
+    await c.query("DELETE FROM fleet_job_targets WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [ids]);
+    await c.query("DELETE FROM fleet_jobs WHERE NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)");
     for (const table of ["known_fixes", "firewall_changes", "events", "alerts", "diagnoses", "commands", "cabinet_boots"])
-      await c.query(`DELETE FROM ${table} WHERE cabinet_id = ANY($1::uuid[])`, [ids]);
+      await c.query(`DELETE FROM ${table} WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`, [ids]);
     // Security alerts are never deleted (the app cannot); one about a simulated cabinet keeps its record without the link.
     // Upgrade rollouts never include simulated cabinets (rollouts.ts), so there are no rollout targets to remove.
-    await c.query("UPDATE security_alerts SET cabinet_id = NULL WHERE cabinet_id = ANY($1::uuid[])", [ids]);
+    await c.query("UPDATE security_alerts SET cabinet_id = NULL WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [ids]);
     // A rule mapped during the guided demo is switched off (rules and their history are never deleted), so the next run starts unmapped.
-    await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = now() WHERE NOT built_in AND state IN ('live', 'proposed') AND match->>'source' = ANY($1::text[])", [DEMO_ERROR_SOURCES]);
+    await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = SYSUTCDATETIME() WHERE built_in = 0 AND state IN ('live', 'proposed') AND JSON_VALUE([match], '$.source') IN (SELECT value FROM OPENJSON($1))", [DEMO_ERROR_SOURCES]);
     await c.query("DELETE FROM known_fixes WHERE created_by IN (SELECT id FROM users WHERE username = $1)", [DEMO_MEMBER]);
     await c.query("DELETE FROM users WHERE username = $1", [DEMO_MEMBER]);
     // Site and cabinet checks people ran (the guided demo runs one on Midtown) point at the demo sites.
-    await c.query("DELETE FROM diagnosis_batches WHERE site_id IN (SELECT s.id FROM sites s JOIN clients n ON n.id = s.client_id WHERE n.demo) OR cabinet_ids && $1::uuid[]", [ids]);
-    await c.query("DELETE FROM cabinets WHERE id = ANY($1::uuid[])", [ids]);
-    await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo)");
-    await c.query("DELETE FROM clients WHERE demo");
-    await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, 'false', $2)
-                   ON CONFLICT (key) DO UPDATE SET value = 'false', changed_by = EXCLUDED.changed_by, changed_at = now()`, [SETTING, userId]);
+    await c.query(`DELETE FROM diagnosis_batches WHERE site_id IN (SELECT s.id FROM sites s JOIN clients n ON n.id = s.client_id WHERE n.demo = 1)
+                  OR EXISTS (SELECT 1 FROM OPENJSON(diagnosis_batches.cabinet_ids) b JOIN OPENJSON($1) x ON x.value = b.value)`, [ids]);
+    await c.query("DELETE FROM cabinets WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [ids]);
+    await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo = 1)");
+    await c.query("DELETE FROM clients WHERE demo = 1");
+    await upsertSetting(c, SETTING, "false", userId);
     await audit(c, { actorKind: "user", actorId: userId, action: "demo.disable", outcome: "succeeded", details: { cabinets: ids.length } });
     return ids.length;
   });
 }
 
 /** A day of load samples for every simulated cabinet that is heard from, and the last stored reads of the ones that are not (what "last known" shows). */
-async function seedHistory(pool: pg.Pool, userId: string): Promise<void> {
+async function seedHistory(pool: Pool, userId: string): Promise<void> {
   const rows = (await pool.query<{ id: string; scenario: string; offline: boolean }>(
-    "SELECT id, demo_scenario AS scenario, demo_scenario = ANY($1::text[]) AS offline FROM cabinets WHERE demo_scenario IS NOT NULL", [["offline", "site_outage", "incident_loop"]])).rows;
+    "SELECT id, demo_scenario AS scenario, CAST(CASE WHEN demo_scenario IN (SELECT value FROM OPENJSON($1)) THEN 1 ELSE 0 END AS bit) AS offline FROM cabinets WHERE demo_scenario IS NOT NULL", [["offline", "site_outage", "incident_loop"]])).rows;
+  // Every 10 minutes of the last day, for each cabinet that is heard from: a few thousand rows in a few statements.
+  const samples: { k: string; t: string; c: number; m: number; d: number }[] = [];
   for (const k of rows.filter(r => !r.offline)) {
-    const values: string[] = [], params: unknown[] = [k.id];
     for (let t = Date.now() - 24 * 3_600_000; t < Date.now(); t += 10 * 60_000) {
       const h = demoHealth(k.id, k.scenario, t);
-      params.push(new Date(t), h.cpuPercent, h.memoryUsedPercent, h.diskFreePercent);
-      const n = params.length;
-      values.push(`($1, $${n - 3}, $${n - 2}, $${n - 1}, $${n})`);
+      samples.push({ k: k.id, t: new Date(t).toISOString(), c: h.cpuPercent, m: h.memoryUsedPercent, d: h.diskFreePercent });
     }
-    await pool.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent) VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`, params);
   }
+  // One JSON document, read by the server as rows (a few thousand rows do not fit in a parameter list).
+  if (samples.length > 0)
+    await pool.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+                      SELECT j.k, j.t, j.c, j.m, j.d FROM OPENJSON($1) WITH (k uniqueidentifier, t datetime2(3), c smallint, m smallint, d smallint) j`, [samples]);
   // A month of daily drive reports. Most drives are fine; three show the trends the platform exists to catch early.
+  // (The number list is written by this code, not taken from input.)
+  const days = Array.from({ length: 30 }, (_, d) => `(${d})`).join(", ");
   await pool.query(
-    `INSERT INTO drive_samples (cabinet_id, drive_key, at, model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
-     SELECT k.id, 'DEMO' || upper(substr(replace(k.id::text, '-', ''), 1, 8)), now() - make_interval(days => d), 'Samsung SSD 870 EVO 500GB', 'DEMO' || upper(substr(replace(k.id::text, '-', ''), 1, 8)),
-            'healthy', false,
-            CASE k.name WHEN 'ICU' THEN 40 + ((29 - d) * 0.41)::int ELSE 34 + (abs(hashtext(k.id::text)) % 8) END,
-            9000 + (29 - d) * 24,
-            CASE k.name WHEN 'Surgery' THEN CASE WHEN d > 20 THEN 0 ELSE (21 - d) * 2 END ELSE 0 END, 0, 0,
-            CASE k.name WHEN 'Lab' THEN 70 + ((29 - d) * 0.25)::int ELSE 6 + abs(hashtext(k.id::text)) % 5 END
-       FROM cabinets k CROSS JOIN generate_series(0, 29) d
-      WHERE k.demo_scenario IS NOT NULL AND NOT (k.demo_scenario = ANY($1::text[]))
-     ON CONFLICT DO NOTHING`, [["offline", "site_outage", "incident_loop"]]);
+    `DECLARE @now datetime2(3) = SYSUTCDATETIME();
+     INSERT INTO drive_samples (cabinet_id, drive_key, [at], model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
+     SELECT k.id, CONCAT('DEMO', UPPER(LEFT(REPLACE(CONVERT(nvarchar(36), k.id), '-', ''), 8))), DATEADD(day, -g.d, @now), 'Samsung SSD 870 EVO 500GB', CONCAT('DEMO', UPPER(LEFT(REPLACE(CONVERT(nvarchar(36), k.id), '-', ''), 8))),
+            'healthy', 0,
+            CASE k.name WHEN 'ICU' THEN 40 + CAST(ROUND((29 - g.d) * 0.41, 0) AS int) ELSE 34 + ((CHECKSUM(k.id) & 0x7FFFFFFF) % 8) END,
+            9000 + (29 - g.d) * 24,
+            CASE k.name WHEN 'Surgery' THEN CASE WHEN g.d > 20 THEN 0 ELSE (21 - g.d) * 2 END ELSE 0 END, 0, 0,
+            CASE k.name WHEN 'Lab' THEN 70 + CAST(ROUND((29 - g.d) * 0.25, 0) AS int) ELSE 6 + (CHECKSUM(k.id) & 0x7FFFFFFF) % 5 END
+       FROM cabinets k CROSS JOIN (VALUES ${days}) g(d)
+      WHERE k.demo_scenario IS NOT NULL AND k.demo_scenario NOT IN (SELECT value FROM OPENJSON($1))`, [["offline", "site_outage", "incident_loop"]]);
   for (const r of (await pool.query<{ cabinet_id: string; drive_key: string }>("SELECT DISTINCT cabinet_id, drive_key FROM drive_samples")).rows) await refreshDrive(pool, r.cabinet_id, r.drive_key);
+  const stored: unknown[][] = [];
   for (const k of rows.filter(r => r.offline)) {
     const ctx = await context(pool, k.id);
     if (!ctx) continue;
@@ -340,15 +370,15 @@ async function seedHistory(pool: pg.Pool, userId: string): Promise<void> {
       const output = demoOutput(operation, {}, ctx);
       const at = new Date(Date.now() - (k.scenario === "offline" ? 6 * 86_400_000 : 3_600_000));
       const commandId = randomUUID();
-      await pool.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at, result, result_at)
-                        VALUES ($1, $2, $3, '{}'::jsonb, $4, $5, $6, 'succeeded', $5, $7, $5)`,
-        [commandId, k.id, operation, userId, at, new Date(at.getTime() + 300_000), safeJson({ commandId, status: "succeeded", startedAt: iso(at.getTime()), finishedAt: iso(at.getTime()), output })]);
+      stored.push([commandId, k.id, operation, "{}", userId, at, new Date(at.getTime() + 300_000), "succeeded", at,
+        safeJson({ commandId, status: "succeeded", startedAt: iso(at.getTime()), finishedAt: iso(at.getTime()), output }), at]);
     }
   }
+  await insertMany(pool, "commands", ["id", "cabinet_id", "operation", "params", "issued_by", "issued_at", "expires_at", "status", "delivered_at", "result", "result_at"], stored);
 }
 
-async function profilesOf(pool: pg.Pool, cabinetId: string): Promise<Profiles> {
-  return (await pool.query<{ p: Profiles | null }>("SELECT firewall_profiles AS p FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.p ?? ALL_OFF;
+async function profilesOf(pool: Pool, cabinetId: string): Promise<Profiles> {
+  return (await pool.query<{ firewall_profiles: Profiles | null }>("SELECT firewall_profiles FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.firewall_profiles ?? ALL_OFF;
 }
 
 /** A believable load for a simulated cabinet: a slow daily swing around a level of its own, a little noise, and a leak for the cabinet whose scanner service keeps failing. */
@@ -361,9 +391,9 @@ function demoHealth(cabinetId: string, scenario: string, at = Date.now()): { cpu
   return { cpuPercent: Math.round(Math.min(100, Math.max(2, cpu))), memoryUsedPercent: Math.round(Math.min(97, 42 + (seed % 15) + 4 * swing + leak)), diskFreePercent: 22 + (seed % 41) };
 }
 
-async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles): Promise<void> {
+async function heartbeat(pool: Pool, cabinetId: string, profiles?: Profiles): Promise<void> {
   // The simulated cabinet's zone and clock offset live in its own row, as a real agent's would on the cabinet.
-  const r = (await pool.query<{ uptime: string; zone: string | null; skew: number | null; scenario: string | null }>(
+  const r = (await pool.query<{ uptime: string | number; zone: string | null; skew: number | null; scenario: string | null }>(
     "SELECT uptime_seconds AS uptime, time_zone_id AS zone, clock_skew_seconds AS skew, demo_scenario AS scenario FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
   const { firewallChanged, timeCheck } = await recordHeartbeat(pool, cabinetId, { agentVersion: AGENT_VERSION, uptimeSeconds: Number(r?.uptime ?? 0) + 60,
     readOnlyMode: false, firewallProfiles: profiles ?? await profilesOf(pool, cabinetId), health: demoHealth(cabinetId, r?.scenario ?? "healthy"),
@@ -372,38 +402,41 @@ async function heartbeat(pool: pg.Pool, cabinetId: string, profiles?: Profiles):
   if (timeCheck) await evaluateTime(pool, { cabinetId });
 }
 
-async function context(pool: pg.Pool, cabinetId: string): Promise<DemoContext | null> {
-  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; profiles: Profiles | null; watched: string[] | null; sync_blocked: boolean; position: string;
-                               zone: string | null; skew: number | null; net: DemoNet | null; baseline: NetworkBaseline | null }>(
-    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles AS profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew, k.demo_net AS net, s.network_baseline AS baseline,
-            COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched,
-            k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
-              AND ((y.firewall_profiles->>'domain')::boolean OR (y.firewall_profiles->>'private')::boolean OR (y.firewall_profiles->>'public')::boolean)) AS sync_blocked,
-            (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) AS position
+async function context(pool: Pool, cabinetId: string): Promise<DemoContext | null> {
+  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; firewall_profiles: Profiles | null; watched_services: string[] | null; sync_blocked: boolean; pos: number;
+                               zone: string | null; skew: number | null; demo_net: DemoNet | null; network_baseline: NetworkBaseline | null }>(
+    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew, k.demo_net, s.network_baseline,
+            COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched_services,
+            CAST(CASE WHEN k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
+              AND (JSON_VALUE(y.firewall_profiles, '$.domain') = 'true' OR JSON_VALUE(y.firewall_profiles, '$.private') = 'true' OR JSON_VALUE(y.firewall_profiles, '$.public') = 'true')) THEN 1 ELSE 0 END AS bit) AS sync_blocked,
+            (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) AS pos
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1 AND k.demo_scenario IS NOT NULL`, [cabinetId])).rows[0];
   if (!k) return null;
-  const events = (await pool.query<{ log: string; source: string; event_id: number; level: string; occurred_at: Date; message: string; record_id: number }>(
-    `SELECT source->>'log' AS log, source->>'source' AS source, (source->>'eventId')::int AS event_id, source->>'level' AS level, occurred_at,
-            COALESCE(detail->>'message', '') AS message, (source->>'recordId')::bigint AS record_id
-       FROM events WHERE cabinet_id = $1 AND kind IN ('error', 'change') AND source IS NOT NULL ORDER BY occurred_at DESC LIMIT 200`, [cabinetId])).rows;
+  // The message is read with OPENJSON: JSON_VALUE would drop a text longer than 4000 characters.
+  const events = (await pool.query<{ log: string; src: string; event_id: number; level: string; occurred_at: Date; message: string; record_id: string | number }>(
+    `SELECT TOP (200) JSON_VALUE(e.[source], '$.log') AS [log], JSON_VALUE(e.[source], '$.source') AS src, CAST(JSON_VALUE(e.[source], '$.eventId') AS int) AS event_id,
+            JSON_VALUE(e.[source], '$.level') AS [level], e.occurred_at, COALESCE(d.[message], '') AS [message], CAST(JSON_VALUE(e.[source], '$.recordId') AS bigint) AS record_id
+       FROM events e OUTER APPLY OPENJSON(e.detail) WITH ([message] nvarchar(max) '$.message') d
+      WHERE e.cabinet_id = $1 AND e.kind IN ('error', 'change') AND e.[source] IS NOT NULL ORDER BY e.occurred_at DESC`, [cabinetId])).rows;
   // Start types changed from the console are kept with the simulated cabinet, so the next read shows them.
   const startTypes: Record<string, string> = {};
-  for (const r of (await pool.query<{ key: string; value: string }>("SELECT key, value #>> '{}' AS value FROM settings WHERE key LIKE $1", [`demo.starttype:${cabinetId}:%`])).rows)
-    startTypes[r.key.slice(`demo.starttype:${cabinetId}:`.length)] = r.value;
+  for (const r of (await pool.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE $1", [`demo.starttype:${cabinetId}:%`])).rows)
+    startTypes[r.key.slice(`demo.starttype:${cabinetId}:`.length)] = String(r.value);
   const power: Record<string, boolean> = {};
-  for (const r of (await pool.query<{ key: string; value: string }>("SELECT key, value #>> '{}' AS value FROM settings WHERE key LIKE $1", [`demo.power:${cabinetId}:%`])).rows)
-    power[r.key.slice(`demo.power:${cabinetId}:`.length)] = r.value === "true";
-  const drawer = (await pool.query<{ value: string }>("SELECT value #>> '{}' AS value FROM settings WHERE key = $1", [`demo.drawer:${cabinetId}`])).rows[0]?.value ?? null;
+  for (const r of (await pool.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE $1", [`demo.power:${cabinetId}:%`])).rows)
+    power[r.key.slice(`demo.power:${cabinetId}:`.length)] = r.value === true;
+  const drawerValue = (await pool.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [`demo.drawer:${cabinetId}`])).rows[0]?.value;
+  const drawer = drawerValue === undefined || drawerValue === null ? null : String(drawerValue);
   const subnet = (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join(".");
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet,
-    index: Number(k.position), firewallProfiles: k.profiles ?? ALL_OFF, watchedServices: k.watched ?? [], startTypes, power, drawer, syncBlocked: k.sync_blocked, now: new Date(),
+    index: Number(k.pos), firewallProfiles: k.firewall_profiles ?? ALL_OFF, watchedServices: k.watched_services ?? [], startTypes, power, drawer, syncBlocked: k.sync_blocked, now: new Date(),
     timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,
-    baseline: k.baseline ?? baselineFor(subnet), net: k.net ?? initialNet(k.scenario, k.baseline ?? baselineFor(subnet), subnet, Number(k.position)),
-    events: events.map(e => ({ log: e.log, source: e.source, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
+    baseline: k.network_baseline ?? baselineFor(subnet), net: k.demo_net ?? initialNet(k.scenario, k.network_baseline ?? baselineFor(subnet), subnet, Number(k.pos)),
+    events: events.map(e => ({ log: e.log, source: e.src, eventId: e.event_id, level: e.level, occurredAt: iso(e.occurred_at.getTime()), message: e.message, recordId: Number(e.record_id) })) };
 }
 
 /** Answers one command the way a real cabinet would, then lets the fix take effect (a firewall change, a service started). */
-export async function answer(pool: pg.Pool, cabinetId: string, command: { commandId: string; operation: string; params: Record<string, unknown> }): Promise<void> {
+export async function answer(pool: Pool, cabinetId: string, command: { commandId: string; operation: string; params: Record<string, unknown> }): Promise<void> {
   const ctx = await context(pool, cabinetId);
   if (!ctx) return;
   const startedAt = iso(Date.now());
@@ -420,7 +453,7 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     const after = (output as { after: { profile: keyof Profiles; enabled: boolean } | { profile: keyof Profiles; enabled: boolean }[] }).after;
     const profiles = { ...ctx.firewallProfiles };
     for (const p of Array.isArray(after) ? after : [after]) profiles[p.profile] = p.enabled;
-    await pool.query("UPDATE cabinets SET demo_scenario = CASE WHEN demo_scenario = 'firewall_drift' AND NOT ($2::jsonb->>'public')::boolean THEN 'healthy' ELSE demo_scenario END WHERE id = $1",
+    await pool.query("UPDATE cabinets SET demo_scenario = CASE WHEN demo_scenario = 'firewall_drift' AND JSON_VALUE($2, '$.public') = 'false' THEN 'healthy' ELSE demo_scenario END WHERE id = $1",
       [cabinetId, safeJson(profiles)]);
     await heartbeat(pool, cabinetId, profiles);
   }
@@ -428,22 +461,21 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
   // A fixed address in the drawer network is the drawer link's: kept on its own, and the cabinet's main adapter is left as it was.
   const drawerAddress = command.operation === "network.setIp" && command.params.mode === "static" && String(command.params.address).startsWith("172.20.1.") ? String(command.params.address) : null;
   if (drawerAddress) {
-    await pool.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()`, [`demo.drawer:${cabinetId}`, safeJson(drawerAddress)]);
+    await upsertSetting(pool, `demo.drawer:${cabinetId}`, safeJson(drawerAddress));
   } else if (command.operation === "network.setIp" || command.operation === "network.setDns") {
     const p = command.params as never;
     const next = command.operation === "network.setIp" ? applySetIp(ctx.net, ctx.baseline, ctx.subnet, ctx.index, p) : applySetDns(ctx.net, ctx.baseline, p);
     const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
-    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
+    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 = 1 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
   }
   if (command.operation === "network.renewLease" && (output as { result: string }).result === "renewed") {
     const after = (output as { addressAfter: string }).addressAfter;
     const next = { ...ctx.net, address: after, prefixLength: ctx.baseline.prefixLength, gateway: ctx.baseline.gateway, dns: ctx.net.dnsAutomatic ? [...ctx.baseline.dnsServers] : ctx.net.dns };
     const fixed = NET_SCENARIOS.includes(ctx.scenario) && ctx.scenario !== "net_link_slow" && netProblems(next, ctx.baseline).length === 0;
-    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
+    await pool.query("UPDATE cabinets SET demo_net = $2, demo_scenario = CASE WHEN $3 = 1 THEN 'healthy' ELSE demo_scenario END WHERE id = $1", [cabinetId, safeJson(next), fixed]);
   }
   if (command.operation === "service.setStartType") {
-    await pool.query(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()`,
-      [`demo.starttype:${cabinetId}:${String(command.params.name).toLowerCase()}`, safeJson(String((output as { after: string }).after))]);
+    await upsertSetting(pool, `demo.starttype:${cabinetId}:${String(command.params.name).toLowerCase()}`, safeJson(String((output as { after: string }).after)));
   }
   // A corrected zone or synced clock shows in the next heartbeat, and its alert closes.
   if (command.operation === "time.setZone") {
@@ -458,8 +490,7 @@ export async function answer(pool: pg.Pool, cabinetId: string, command: { comman
     await evaluateTime(pool, { cabinetId });
   }
   if (command.operation === "power.set") {
-    await pool.query("INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_at = now()",
-      [`demo.power:${cabinetId}:${String(command.params.setting)}`, safeJson(Boolean(command.params.enabled))]);
+    await upsertSetting(pool, `demo.power:${cabinetId}:${String(command.params.setting)}`, safeJson(Boolean(command.params.enabled)));
   }
   if (command.operation === "service.control" && ctx.scenario === "service_failing" && String(command.params.name).toLowerCase() === "bioscansvc" && command.params.action !== "stop") {
     await pool.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE id = $1", [cabinetId]);
@@ -473,7 +504,7 @@ export class DemoSimulator {
   private timer: NodeJS.Timeout | null = null;
   private lastHeartbeat = 0;
   private busy = false;
-  constructor(private readonly pool: pg.Pool, private readonly log: (message: string) => void, private readonly tickMs = 1000, private readonly answerDelayMs: readonly [number, number] = [300, 1200]) {}
+  constructor(private readonly pool: Pool, private readonly log: (message: string) => void, private readonly tickMs = 1000, private readonly answerDelayMs: readonly [number, number] = [300, 1200]) {}
 
   start(): void {
     if (!examplesAvailable()) this.log("demo cabinets cannot answer: the contract examples are missing from this installation (deploy/Dockerfile must copy contracts/examples)");
@@ -488,7 +519,7 @@ export class DemoSimulator {
       if (!(await demoEnabled(this.pool))) return;
       const waiting = (await this.pool.query<{ id: string }>(
         `SELECT DISTINCT c.cabinet_id AS id FROM commands c JOIN cabinets k ON k.id = c.cabinet_id
-          WHERE c.status = 'queued' AND k.demo_scenario IS NOT NULL AND NOT (k.demo_scenario = ANY($1::text[]))`, [LOOPING])).rows;
+          WHERE c.status = 'queued' AND k.demo_scenario IS NOT NULL AND k.demo_scenario NOT IN (SELECT value FROM OPENJSON($1))`, [LOOPING])).rows;
       for (const { id } of waiting)
         for (const command of await takeQueuedCommands(this.pool, id)) {
           const [min, max] = this.answerDelayMs;
@@ -496,7 +527,7 @@ export class DemoSimulator {
         }
       if (Date.now() - this.lastHeartbeat >= 60_000) {
         this.lastHeartbeat = Date.now();
-        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND NOT (demo_scenario = ANY($1::text[]))", [LOOPING])).rows)
+        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario NOT IN (SELECT value FROM OPENJSON($1))", [LOOPING])).rows)
           await heartbeat(this.pool, id);
       }
     } catch (e) {

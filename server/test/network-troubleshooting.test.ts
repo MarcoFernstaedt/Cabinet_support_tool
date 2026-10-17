@@ -52,8 +52,8 @@ async function runJob(a: Account, operation: string, cabinetIds: string[]) {
   assert.fail("the job did not finish");
 }
 const cab = async (name: string) => (await db.app.query<{ id: string; site_id: string }>("SELECT id, site_id FROM cabinets WHERE name = $1 AND demo_scenario IS NOT NULL", [name])).rows[0]!;
-const siteOf = async (name: string) => (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo AND s.name LIKE $1", [name + "%"])).rows[0]!.id;
-const openAlert = async (cabinetId: string) => (await db.app.query("SELECT 1 FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'", [cabinetId, ISSUE.networkBaseline])).rows.length > 0;
+const siteOf = async (name: string) => (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo = 1 AND s.name LIKE $1", [name + "%"])).rows[0]!.id;
+const openAlert = async (cabinetId: string) => (await db.app.query("SELECT 1 AS x FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'", [cabinetId, ISSUE.networkBaseline])).rows.length > 0;
 const problemGroups = (b: { groups: { severity: string }[] }) => b.groups.filter(g => g.severity === "problem");
 
 test.before(async () => {
@@ -124,8 +124,8 @@ test("a cabinet with no DHCP lease: the diagnosis offers a lease renewal; one cl
   const issued = await call("POST", `/api/cabinets/${fd.id}/commands`, { operation: "network.renewLease", params }, t1);
   assert.equal(issued.status, 202, JSON.stringify(issued.body));
   for (const end = Date.now() + 10_000; Date.now() < end; await new Promise(r => setTimeout(r, 50)))
-    if ((await db.app.query("SELECT status FROM commands WHERE id = $1", [issued.body.commandId])).rows[0].status === "succeeded") break;
-  const out = (await db.app.query("SELECT result FROM commands WHERE id = $1", [issued.body.commandId])).rows[0].result.output;
+    if ((await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [issued.body.commandId])).rows[0]?.status === "succeeded") break;
+  const out = (await db.app.query<{ result: { output: any } }>("SELECT result FROM commands WHERE id = $1", [issued.body.commandId])).rows[0]!.result.output;
   assert.equal(out.result, "renewed");
   assert.match(out.addressBefore, /^169\.254\./);
   assert.ok(!out.addressAfter.startsWith("169.254."));
@@ -133,14 +133,14 @@ test("a cabinet with no DHCP lease: the diagnosis offers a lease renewal; one cl
   assert.equal(problemGroups(again).length, 0, JSON.stringify(again.groups));
   assert.ok(!(await openAlert(fd.id)));
   // The cabinet list shows the address it now has (read by that diagnosis).
-  assert.equal((await db.app.query("SELECT ipv4 FROM cabinets WHERE id = $1", [fd.id])).rows[0].ipv4, out.addressAfter);
+  assert.equal((await db.app.query<{ ipv4: string }>("SELECT ipv4 FROM cabinets WHERE id = $1", [fd.id])).rows[0]!.ipv4, out.addressAfter);
 });
 
 test("renewing leases for several cabinets is a fleet job with the password, read back from each; a fixed-address cabinet answers not_dhcp and is not touched", async () => {
   const t1 = await account("tier1");
   const fd = await cab("Front Desk");
   // Break it again the way the demo does: no lease, a 169.254 address.
-  const baseline = (await db.app.query("SELECT s.network_baseline AS b FROM sites s WHERE s.id = $1", [fd.site_id])).rows[0].b;
+  const baseline = (await db.app.query<{ network_baseline: any }>("SELECT s.network_baseline FROM sites s WHERE s.id = $1", [fd.site_id])).rows[0]!.network_baseline;
   await db.app.query("UPDATE cabinets SET demo_scenario = 'net_dhcp_failed', demo_net = $2 WHERE id = $1", [fd.id, JSON.stringify(initialNet("net_dhcp_failed", baseline, "10.33.8", 0))]);
   const b = await runBatch(t1, { cabinetIds: [fd.id] });
   const g = b.groups.find((x: { kind: string | null }) => x.kind === "renew_lease");
@@ -209,7 +209,7 @@ test("a network fix needs a current diagnosis: without one, or when nothing need
   const none = (await call("POST", "/api/fleet-operations/preview", { operation: "network.setDns", cabinetIds: [ok1!.id] }, t2)).body;
   assert.equal(none.change, 0);
   assert.match(none.cabinets[0].skip, /nothing this change would fix|diagnosis/);
-  await db.app.query("UPDATE diagnoses SET finished_at = now() - interval '2 hours' WHERE cabinet_id = $1", [ok1!.id]);
+  await db.app.query("UPDATE diagnoses SET finished_at = DATEADD(hour, -2, SYSUTCDATETIME()) WHERE cabinet_id = $1", [ok1!.id]);
   assert.match((await call("POST", "/api/fleet-operations/preview", { operation: "network.setDns", cabinetIds: [ok1!.id] }, t2)).body.cabinets[0].skip, /last 30 minutes/);
 });
 
@@ -225,13 +225,13 @@ test("the site baseline: Tier 2 sets it with a code bound to the exact baseline;
   assert.equal((await put(t2, { baseline, stepUpToken: other })).status, 403, "a code confirmed for another baseline");
   assert.equal((await put(t2, { baseline, stepUpToken: await codeToken(t2, "site.network_baseline", site, { baseline }) })).status, 200);
   assert.deepEqual((await call("GET", `/api/fleet/sites/${site}`, undefined, t1)).body.networkBaseline, baseline);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'site.network_baseline' AND target_id = $1", [site])).rows[0].n, 1);
+  assert.equal((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM audit_log WHERE action = 'site.network_baseline' AND target_id = $1", [site])).rows[0]!.n, 1);
   assert.equal((await put(t2, { baseline: null, stepUpToken: await codeToken(t2, "site.network_baseline", site, { baseline: null }) })).status, 200);
 });
 
 test("hostile and excessive diagnosis requests are refused; one batch at a time per person; offline cabinets do not hold it up", async () => {
   const t1 = await account("tier1");
-  const ids = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL ORDER BY name LIMIT 61")).rows.map(r => r.id);
+  const ids = (await db.app.query<{ id: string }>("SELECT TOP (61) id FROM cabinets WHERE demo_scenario IS NOT NULL ORDER BY name")).rows.map(r => r.id);
   assert.equal((await call("POST", "/api/diagnose/network", { cabinetIds: ids }, t1)).status, 400, "more than 60 cabinets");
   for (const body of [{}, { cabinetIds: [] }, { siteId: "../x" }, { cabinetIds: [ids[0], ids[0]] }, { siteId: randomUUID(), cabinetIds: [ids[0]] }, { cabinetIds: ids.slice(0, 2), x: 1 }])
     assert.equal((await call("POST", "/api/diagnose/network", body, t1)).status, 400, JSON.stringify(body).slice(0, 60));
@@ -239,13 +239,13 @@ test("hostile and excessive diagnosis requests are refused; one batch at a time 
   assert.equal((await call("POST", "/api/diagnose/network", { cabinetIds: [randomUUID()] }, t1)).status, 404);
   assert.equal((await call("POST", "/api/diagnose/network", { siteId: await siteOf("Austin") })).status, 401);
   // Two at once from the same person: the second waits for the first.
-  const quiet = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_loop' LIMIT 1")).rows[0]!.id;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() WHERE id = $1", [quiet]);   // looks online, never answers
+  const quiet = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = 'incident_loop'")).rows[0]!.id;
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [quiet]);   // looks online, never answers
   const first = await call("POST", "/api/diagnose/network", { cabinetIds: [quiet] }, t1);
   assert.equal(first.status, 202);
   assert.equal((await call("POST", "/api/diagnose/network", { siteId: await siteOf("Austin") }, t1)).status, 429);
-  await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = now() WHERE state = 'running'");
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '20 hours' WHERE id = $1", [quiet]);
+  await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME() WHERE state = 'running'");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [quiet]);
 });
 
 test("asking again for the same cabinets while a check is running joins it; a different set waits", async () => {
