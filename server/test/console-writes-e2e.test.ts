@@ -287,7 +287,7 @@ test("writes in the console: library upload and two-person approval, install, fi
 
     // Every write is in the audit log, by the person who confirmed it, and the chain is intact.
     const writes = (await db.app.query<{ op: string; actor: string }>(
-      "SELECT details->>'operation' AS op, actor_id AS actor FROM audit_log WHERE action = 'command.write' ORDER BY seq")).rows;
+      "SELECT JSON_VALUE(details, '$.operation') AS op, actor_id AS actor FROM audit_log WHERE action = 'command.write' ORDER BY seq")).rows;
     assert.deepEqual(writes.map(w => w.op), ["package.install", "firewall.setProfile", "firewall.setRule", "network.setDns", "firewall.applyPolicy", "service.setStartType", "service.control"]);
     assert.ok(writes.slice(0, 4).every(w => w.actor === people.tess.id));
     assert.equal(writes[4]!.actor, people.sam.id);

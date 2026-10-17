@@ -5,7 +5,15 @@ import sql from "mssql";
 import { JSON_COLUMNS } from "./json-columns.js";
 
 export interface QueryResult<R> { rows: R[]; rowCount: number; }
-export interface Queryable { query<R = any>(text: string, params?: readonly unknown[]): Promise<QueryResult<R>>; }
+export interface QueryOptions {
+  /** Cancels the statement on the server after this many milliseconds (PostgreSQL's statement_timeout); the query then rejects with a QueryTimeout. */
+  timeoutMs?: number;
+}
+/** A statement stopped because it ran past QueryOptions.timeoutMs. */
+export class QueryTimeout extends Error {
+  constructor(readonly timeoutMs: number) { super(`the statement was stopped after ${timeoutMs} ms`); this.name = "QueryTimeout"; }
+}
+export interface Queryable { query<R = any>(text: string, params?: readonly unknown[], options?: QueryOptions): Promise<QueryResult<R>>; }
 
 /** A NULL for a varbinary column (a plain null binds as text, which SQL Server will not convert to binary). */
 export const NULL_BINARY: unique symbol = Symbol("NULL_BINARY");
@@ -54,10 +62,15 @@ function shape<R>(rows: Record<string, unknown>[]): R[] {
   return rows as R[];
 }
 
-async function run<R>(make: () => sql.Request, text: string, params: readonly unknown[]): Promise<QueryResult<R>> {
+async function run<R>(make: () => sql.Request, text: string, params: readonly unknown[], options?: QueryOptions): Promise<QueryResult<R>> {
   const request = make();
   params.forEach((v, i) => bind(request, i, v));
-  const result = await request.query(placeholders(text));
+  let timedOut = false;
+  const timer = options?.timeoutMs ? setTimeout(() => { timedOut = true; request.cancel(); }, options.timeoutMs) : undefined;
+  let result: sql.IResult<any>;
+  try { result = await request.query(placeholders(text)); }
+  catch (e) { throw timedOut ? new QueryTimeout(options!.timeoutMs!) : e; }
+  finally { clearTimeout(timer); }
   const rows = shape<R>((result.recordset ?? []) as Record<string, unknown>[]);
   return { rows, rowCount: result.recordset ? rows.length : result.rowsAffected.reduce((a, b) => a + b, 0) };
 }
@@ -65,15 +78,15 @@ async function run<R>(make: () => sql.Request, text: string, params: readonly un
 /** A transaction in progress: the same `query`, on one connection. */
 export class Tx implements Queryable {
   constructor(private readonly tx: sql.Transaction) {}
-  query<R = any>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
-    return run<R>(() => new sql.Request(this.tx), text, params);
+  query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
+    return run<R>(() => new sql.Request(this.tx), text, params, options);
   }
 }
 
 export class Pool implements Queryable {
   constructor(private readonly pool: sql.ConnectionPool) {}
-  query<R = any>(text: string, params: readonly unknown[] = []): Promise<QueryResult<R>> {
-    return run<R>(() => this.pool.request(), text, params);
+  query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
+    return run<R>(() => this.pool.request(), text, params, options);
   }
   /**
    * Runs fn in one transaction: the action and its audit entry commit or fail together. If SQL Server picks the transaction as a

@@ -89,7 +89,7 @@ test("restart, end a process, power settings, DHCP release, a static address wit
     // The drawer address, on the cabinet that has the drawer: the check finds what is off, the form sets it.
     const pharmacy = await id("Pharmacy Sync");
     // This drawer starts out right; make it the kind Windows gave itself an address on, as after a new drawer or a replaced adapter.
-    await c.db.app.query("INSERT INTO settings (key, value) VALUES ($1, '\"unset\"')", [`demo.drawer:${pharmacy}`]);
+    await c.db.app.query("INSERT INTO settings ([key], [value]) VALUES ($1, '\"unset\"')", [`demo.drawer:${pharmacy}`]);
     await page.goto(`${c.origin}/cabinets/${pharmacy}/network`);
     await page.getByRole("button", { name: "Check drawer" }).click();
     const form = page.getByRole("form", { name: "Set the drawer address" });
