@@ -4,7 +4,8 @@ import { mkdtempSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { audit, transaction, verifyAuditChain } from "../src/db/db.js";
-import { migrate, MIGRATIONS_DIR, readMigrations } from "../src/db/migrate.js";
+import { connectOwner, migrate, MIGRATIONS_DIR, readMigrations } from "../src/db/migrate.js";
+import { JSON_COLUMNS } from "../src/db/json-columns.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
@@ -12,13 +13,14 @@ test.before(async () => { db = await createTestDatabase(); });
 test.after(async () => { await db.drop(); });
 
 test("migrations run once and refuse to run an edited migration", async () => {
-  await asOwner(db, async c => {
-    assert.deepEqual(await migrate(c), [], "already applied");
+  const owner = await connectOwner(db.ownerUrl);
+  try {
+    assert.deepEqual(await migrate(owner), [], "already applied");
     const dir = mkdtempSync(join(tmpdir(), "migrations-"));
     for (const f of readdirSync(MIGRATIONS_DIR)) copyFileSync(join(MIGRATIONS_DIR, f), join(dir, f));
-    writeFileSync(join(dir, "0001_initial.sql"), "-- edited\n", { flag: "a" });
-    await assert.rejects(migrate(c, readMigrations(dir)), /changed after it was applied/);
-  });
+    writeFileSync(join(dir, "0001_baseline.sql"), "-- edited\n", { flag: "a" });
+    await assert.rejects(migrate(owner, readMigrations(dir)), /changed after it was applied/);
+  } finally { await owner.close(); }
 });
 
 test("audit entries chain, and the chain verifies", async () => {
@@ -42,20 +44,26 @@ test("an audit entry rolls back with its action", async () => {
 
 test("the server's account cannot write, change or delete audit entries directly", async () => {
   for (const sql of [
-    "INSERT INTO audit_log VALUES (999, now(), 'system', 'x', 'x', null, null, 'x', '{}', 'x', 'x')",
+    "INSERT INTO audit_log VALUES (999, SYSUTCDATETIME(), 'system', 'x', 'x', null, null, 'x', '{}', 'x', 'x')",
     "UPDATE audit_log SET outcome = 'succeeded'",
     "DELETE FROM audit_log",
-    "TRUNCATE audit_log",
+    "TRUNCATE TABLE audit_log",
     "UPDATE audit_chain_head SET seq = 0",
-  ]) await assert.rejects(db.app.query(sql), /permission denied/, sql);
+    "SELECT * FROM audit_chain_head",
+  ]) await assert.rejects(db.app.query(sql), /permission was denied|permission denied/i, sql);
 });
 
 test("even the audit table's owner cannot change or delete an entry", async () => {
   await asOwner(db, async c => {
-    await c.query("SET ROLE cabinet_audit_writer");
-    await assert.rejects(c.query("UPDATE audit_log SET outcome = 'x'"), /append-only|permission denied/);
-    await assert.rejects(c.query("DELETE FROM audit_log"), /append-only|permission denied/);
+    await assert.rejects(c.query("UPDATE audit_log SET outcome = 'x'"), /append-only/);
+    await assert.rejects(c.query("DELETE FROM audit_log"), /append-only/);
   });
+});
+
+test("the list of JSON columns is exactly the columns the schema checks as JSON", async () => {
+  const rows = await asOwner(db, c => c.query<{ name: string }>(
+    "SELECT DISTINCT col.name AS name FROM sys.check_constraints cc JOIN sys.columns col ON col.object_id = cc.parent_object_id AND col.column_id = cc.parent_column_id WHERE cc.definition LIKE '%isjson%'"));
+  assert.deepEqual([...JSON_COLUMNS].sort(), rows.rows.map(r => r.name).sort());
 });
 
 test("tampering with an entry is detected at the entry that changed", async () => {
@@ -64,10 +72,10 @@ test("tampering with an entry is detected at the entry that changed", async () =
   });
   const target = Number((await db.app.query<{ seq: string }>("SELECT seq FROM audit_log WHERE action = 'test.tamper.1'")).rows[0]!.seq);
   await asOwner(db, async c => {
-    // Only a database superuser bypassing the triggers can do this; the chain still catches it.
-    await c.query("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
+    // Only the database owner switching the trigger off can do this; the chain still catches it.
+    await c.query("DISABLE TRIGGER audit_log_immutable ON audit_log");
     await c.query("UPDATE audit_log SET outcome = 'failed' WHERE seq = $1", [target]);
-    await c.query("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable");
+    await c.query("ENABLE TRIGGER audit_log_immutable ON audit_log");
   });
   const check = await verifyAuditChain(db.app);
   assert.equal(check.ok, false);
