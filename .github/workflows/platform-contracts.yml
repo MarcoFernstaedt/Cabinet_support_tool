@@ -78,7 +78,7 @@ jobs:
           for d in contracts console server; do (cd $d && npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/sbom/$d.cdx.json"); done
           # The agent's resolved NuGet packages with their content hashes: the lock files are its inventory.
           find agent -name packages.lock.json -not -path '*/obj/*' -not -path '*/bin/*' | while read f; do cp "$f" "$RUNNER_TEMP/sbom/$(echo "$f" | tr '/' '_')"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: ${{ runner.temp }}/sbom
