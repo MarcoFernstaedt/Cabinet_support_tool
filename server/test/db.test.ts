@@ -91,3 +91,9 @@ test("tampering with an entry is detected at the entry that changed", async () =
   assert.equal(check.ok, false);
   assert.equal(check.firstBadSeq, target);
 });
+
+test("a single statement is retried after a deadlock; a batch is not", async () => {
+  const { singleStatement } = await import("../src/db/db.js");
+  assert.equal(singleStatement("UPDATE x SET a = 1 WHERE b = 'x;y';"), true);
+  assert.equal(singleStatement("DECLARE @o TABLE (id int); INSERT INTO t OUTPUT inserted.id INTO @o VALUES (1); SELECT id FROM @o"), false);
+});

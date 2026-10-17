@@ -20,6 +20,17 @@ export const NULL_BINARY: unique symbol = Symbol("NULL_BINARY");
 
 const GUID = /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/;
 
+/** True when the text holds one statement: no semicolon outside quotes except a trailing one. */
+export function singleStatement(text: string): boolean {
+  let inString = false;
+  const t = text.trimEnd().replace(/;$/, "");
+  for (const ch of t) {
+    if (ch === "'") inString = !inString;
+    else if (ch === ";" && !inString) return false;
+  }
+  return true;
+}
+
 /** `$1` becomes `@p1`; text inside single quotes is left alone. */
 export function placeholders(text: string): string {
   let out = "";
@@ -85,8 +96,16 @@ export class Tx implements Queryable {
 
 export class Pool implements Queryable {
   constructor(private readonly pool: sql.ConnectionPool) {}
-  query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
-    return run<R>(() => this.pool.request(), text, params, options);
+  /**
+   * One statement outside a transaction. SQL Server may pick it as a deadlock victim; it was rolled back whole, so it is run again (up to
+   * three times). A batch of several statements is not retried: the ones before the victim have already committed.
+   */
+  async query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
+    const retryable = singleStatement(text);
+    for (let attempt = 1; ; attempt++) {
+      try { return await run<R>(() => this.pool.request(), text, params, options); }
+      catch (e) { if (!retryable || !isDeadlock(e) || attempt >= 3) throw e; }
+    }
   }
   /**
    * Runs fn in one transaction: the action and its audit entry commit or fail together. If SQL Server picks the transaction as a
