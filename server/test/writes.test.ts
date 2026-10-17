@@ -21,6 +21,7 @@ import { downloadablePath } from "../src/services/packages.js";
 import { TrustList } from "../src/packages/trust.js";
 import { ISSUE } from "../src/services/rules.js";
 import { verifyAuditChain } from "../src/db/db.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 import { pe, TestPki, zip } from "./package-pki.js";
@@ -29,6 +30,7 @@ const ORIGIN = "https://console.test";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const pki = new TestPki();
@@ -40,7 +42,7 @@ let cabinetId: string, clientId: string;
 interface Account { id: string; username: string; password: string; secret: Buffer; }
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
@@ -75,7 +77,9 @@ const DNS = { interfaceIndex: 12, mode: "automatic" };
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, packages: store, logger: false, now: () => clock });
   const admin = await account("admin");
@@ -84,9 +88,9 @@ test.before(async () => {
     hostname: "CAB-1", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 10", agentVersion: "0.5.0" } }, "127.0.0.1");
   cabinetId = (await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU", role: "standalone" }, admin.id)).cabinetId;
   clientId = (await db.app.query<{ client_id: string }>("SELECT s.client_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0]!.client_id;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now(), read_only = false");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0");
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 test("a code-level write needs Tier 2 and a code bound to that operation, that cabinet and those exact parameters, and is audited as a write", async () => {
   const t1 = await account("tier1"); const c1 = await signIn(t1);
@@ -110,7 +114,7 @@ test("a code-level write needs Tier 2 and a code bound to that operation, that c
   const token = await stepUp(t2, c2, "network.setDns", cabinetId, DNS);
   assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).status, 202);
   assert.equal((await send({ operation: "network.setDns", params: DNS, stepUpToken: token }, c2)).body.error, "step_up_required", "a token works once");
-  const audit = (await db.app.query("SELECT action, details FROM audit_log WHERE details->>'commandId' = $1", [ok.body.commandId])).rows[0];
+  const audit = (await db.app.query<{ action: string }>("SELECT action, details FROM audit_log WHERE JSON_VALUE(details, '$.commandId') = $1", [ok.body.commandId])).rows[0]!;
   assert.equal(audit.action, "command.write");
   for (const params of [{ interfaceIndex: 12, mode: "static" }, { interfaceIndex: 0, mode: "automatic" }, { interfaceIndex: 12, mode: "automatic", servers: ["1.1.1.1"] }])
     assert.equal((await write(t2, c2, "network.setDns", params)).status, 400, JSON.stringify(params));
@@ -159,9 +163,9 @@ test("a fleet or client write pause stops writes but not reads; a read-only cabi
   await call("POST", `/api/admin/clients/${clientId}/writes`, { paused: false, stepUpToken: await stepUp(admin, ca, "writes.resume", clientId, { paused: false }) }, ca);
   assert.equal((await call("POST", "/api/admin/writes", { paused: true, stepUpToken: await stepUp(t2, c2, "writes.pause", "fleet", { paused: true }) }, c2)).status, 403, "Admin only");
 
-  await db.app.query("UPDATE cabinets SET read_only = true WHERE id = $1", [cabinetId]);
+  await db.app.query("UPDATE cabinets SET read_only = 1 WHERE id = $1", [cabinetId]);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "read_only_cabinet");
-  await db.app.query("UPDATE cabinets SET read_only = false WHERE id = $1", [cabinetId]);
+  await db.app.query("UPDATE cabinets SET read_only = 0 WHERE id = $1", [cabinetId]);
   await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });
 
@@ -171,10 +175,10 @@ test("going over the hourly write limit pauses that user's writes until an Admin
   assert.equal((await write(t2, c2, "network.setDns", DNS)).status, 202);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).status, 202);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "write_limit_reached");
-  assert.equal((await db.app.query("SELECT writes_paused FROM users WHERE id = $1", [t2.id])).rows[0].writes_paused, true);
+  assert.equal((await db.app.query<{ writes_paused: boolean }>("SELECT writes_paused FROM users WHERE id = $1", [t2.id])).rows[0]!.writes_paused, true);
   assert.equal((await write(t2, c2, "network.setDns", DNS)).body.error, "writes_paused_for_you");
   assert.equal((await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "system.info", params: {} }, c2)).status, 202);
-  const audited = (await db.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'writes.user_paused' AND target_id = $1", [t2.id])).rows[0].n;
+  const audited = (await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'writes.user_paused' AND target_id = $1", [t2.id])).rows[0]!.n;
   assert.equal(audited, 1);
   await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });
@@ -214,7 +218,7 @@ test("a package is checked on upload, approved by a different Admin, stored read
   // The server fills in the type and the approved hash, whatever the browser sent.
   const install = await write(t2, ct, "package.install", { packageId: id, packageType: "msi", sha256: "f".repeat(64) });
   assert.equal(install.status, 202);
-  const params = (await db.app.query("SELECT params FROM commands WHERE id = $1", [install.body.commandId])).rows[0].params;
+  const params = (await db.app.query<{ params: unknown }>("SELECT params FROM commands WHERE id = $1", [install.body.commandId])).rows[0]!.params;
   assert.deepEqual(params, { packageId: id, packageType: "driver", sha256: content.body.sha256 });
 
   // The agent may download it only while that command is open for that cabinet.
@@ -229,7 +233,7 @@ test("a package is checked on upload, approved by a different Admin, stored read
   assert.equal((await call("POST", `/api/admin/packages/${id}/retire`, { stepUpToken: await stepUp(a2, c2, "package.retire", id) }, c2)).body.state, "retired");
   assert.equal((await write(t2, ct, "package.install", { packageId: id, packageType: "driver", sha256: content.body.sha256 })).body.error, "package_not_approved");
   assert.equal((await call("GET", "/api/packages", undefined, ct)).body.some((p: { id: string }) => p.id === id), false);
-  const actions = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE details->>'packageId' = $1 ORDER BY seq", [id])).rows.map(r => r.action);
+  const actions = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE JSON_VALUE(details, '$.packageId') = $1 ORDER BY seq", [id])).rows.map(r => r.action);
   assert.deepEqual(actions.filter(a => a.startsWith("package.")), ["package.upload.start", "package.upload", "package.approve", "package.retire"]);
 });
 
@@ -242,7 +246,7 @@ test("unsigned, tampered, unlisted and oversized uploads are refused and kept as
     const { id, content } = await upload(a, c, file);
     assert.equal(content.status, 422, JSON.stringify(content.body));
     assert.equal(content.body.error, code);
-    const row = (await db.app.query("SELECT state, refusal FROM packages WHERE id = $1", [id])).rows[0];
+    const row = (await db.app.query<{ state: string; refusal: string }>("SELECT state, refusal FROM packages WHERE id = $1", [id])).rows[0]!;
     assert.equal(row.state, "refused");
     assert.match(row.refusal, new RegExp(`^${code}`));
   }

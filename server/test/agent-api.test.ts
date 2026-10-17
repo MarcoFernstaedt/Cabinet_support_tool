@@ -11,6 +11,7 @@ import { issueCommand, commandRecord, expireUnanswered } from "../src/services/c
 import { approveEnrollment, createBootstrapToken } from "../src/services/enrollment.js";
 import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { verifyAuditChain } from "../src/db/db.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir, type TestKey } from "./helpers.js";
 
@@ -18,6 +19,7 @@ let db: TestDatabase;
 let key: IssuingKey;
 let api: FastifyInstance;
 let notifier: CommandNotifier;
+let feed: NotificationFeed;
 let port: number;
 let admin: string;
 let foreignKey: IssuingKey;
@@ -64,7 +66,9 @@ test.before(async () => {
   const dir = tempDir();
   key = await developmentIssuingKey(dir);
   foreignKey = await developmentIssuingKey(tempDir());
-  notifier = new CommandNotifier(db.appUrl);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  notifier = new CommandNotifier(feed);
   await notifier.start();
   api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 1500, enrollPerHour: 1000, logger: false });
   await api.listen({ host: "127.0.0.1", port: 0 });
@@ -72,7 +76,7 @@ test.before(async () => {
   admin = randomUUID();
   await db.app.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'admin.test', 'Admin Test', 'admin')", [admin]);
 });
-test.after(async () => { await api.close(); await notifier.stop(); await db.drop(); });
+test.after(async () => { await api.close(); await notifier.stop(); feed.stop(); await db.drop(); });
 
 test("health answers without a certificate", async () => {
   assert.deepEqual((await call("GET", "/health")).body, { status: "ok" });
@@ -204,7 +208,7 @@ test("the long poll returns empty after its time limit, and expired commands are
   assert.deepEqual(r.body.commands, []);
   assert.ok(Date.now() - started >= 1400);
   const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
-  await asOwner(db, c => c.query("UPDATE commands SET issued_at = now() - interval '10 minutes', expires_at = now() - interval '5 minutes' WHERE id = $1", [command.commandId]));
+  await asOwner(db, c => c.query("UPDATE commands SET issued_at = DATEADD(minute, -10, SYSUTCDATETIME()), expires_at = DATEADD(minute, -5, SYSUTCDATETIME()) WHERE id = $1", [command.commandId]));
   assert.deepEqual((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands, []);
   assert.equal((await commandRecord(db.app, command.commandId))!.status, "expired");
 });
@@ -244,7 +248,7 @@ test("a certificate this platform never issued is refused and raises one securit
   assert.equal(alerts[0]!.occurrences, 1, "the same certificate again within the hour is not another occurrence");
   // A caller with no certificate at all (a scanner, a browser) is refused and only logged.
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat)).status, 401);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM security_alerts WHERE kind = 'certificate'")).rows[0].n, 2);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'certificate'")).rows[0]!.n, 2);
 });
 
 test("events are stored once even when the agent retries", async () => {
@@ -267,7 +271,7 @@ test("each cabinet has an hourly event quota: over it, a batch is refused with 4
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev()] }, noisy)).status, 200);
     const over = [ev(), ev()];
     assert.equal((await call("POST", "/agent/v1/events", { events: over }, noisy)).status, 429);
-    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM events WHERE event_id = ANY($1::uuid[])", [over.map(e => e.eventId)])).rows[0].n, 0);
+    assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM events WHERE event_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [over.map(e => e.eventId)])).rows[0]!.n, 0);
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev()] }, noisy)).status, 200, "what is left of the quota is still usable");
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev(), ev()] }, quiet)).status, 200);
   } finally { port = saved; await limited.close(); }
@@ -277,7 +281,7 @@ test("renewal is refused until the certificate is near expiry, then the new cert
   const cab = await enrolledCabinet();
   const newKey = ecKey();
   assert.deepEqual((await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab)).body, { error: "renew_too_early" });
-  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = now() + interval '10 days' WHERE cabinet_id = $1", [cab.cabinetId]));
+  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = DATEADD(day, 10, SYSUTCDATETIME()) WHERE cabinet_id = $1", [cab.cabinetId]));
   const renewed = await call("POST", "/agent/v1/renew", { csr: csrFor(newKey) }, cab);
   assert.equal(renewed.status, 200);
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
@@ -285,7 +289,7 @@ test("renewal is refused until the certificate is near expiry, then the new cert
 
 test("renewal works once: a lost answer can be asked again, but once the new certificate is used the old one is revoked", async () => {
   const cab = await enrolledCabinet();
-  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = now() + interval '10 days' WHERE cabinet_id = $1", [cab.cabinetId]));
+  await asOwner(db, c => c.query("UPDATE cabinet_certificates SET not_after = DATEADD(day, 10, SYSUTCDATETIME()) WHERE cabinet_id = $1", [cab.cabinetId]));
   const lostKey = ecKey();
   const lost = await call("POST", "/agent/v1/renew", { csr: csrFor(lostKey) }, cab);
   assert.equal(lost.status, 200);
@@ -307,7 +311,7 @@ test("a delivered command that is never answered expires, and a late result is s
   const polled = await call("GET", "/agent/v1/commands", undefined, cab);
   assert.equal(polled.body.commands[0].commandId, command.commandId);
   assert.equal(await expireUnanswered(db.app), 0, "not yet");
-  await asOwner(db, c => c.query("UPDATE commands SET delivered_at = now() - interval '36 minutes' WHERE id = $1", [command.commandId]));
+  await asOwner(db, c => c.query("UPDATE commands SET delivered_at = DATEADD(minute, -36, SYSUTCDATETIME()) WHERE id = $1", [command.commandId]));
   assert.equal(await expireUnanswered(db.app), 1);
   assert.equal((await commandRecord(db.app, command.commandId))?.status, "expired");
   const now = new Date().toISOString();

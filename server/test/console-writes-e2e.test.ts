@@ -17,6 +17,7 @@ import { CommandNotifier } from "../src/agent-api/notifier.js";
 import { buildAgentApi } from "../src/agent-api/server.js";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
@@ -46,7 +47,9 @@ test("writes in the console: library upload and two-person approval, install, fi
   const vendor = pki.signer("Scanner Vendor Inc", "Scanner Vendor");
   const trustDir = pki.trustFolder([{ cn: "Scanner Vendor Inc", o: "Scanner Vendor", types: ["driver"] }]);
   const store = { dir: tempDir(), maxBytes: 1024 * 1024, trust: TrustList.fromFolder(trustDir) };
-  const notifier = new CommandNotifier(db.appUrl);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
   await notifier.start();
   const agentApi: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, packages: store, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
   await agentApi.listen({ host: "127.0.0.1", port: 0 });
@@ -56,7 +59,7 @@ test("writes in the console: library upload and two-person approval, install, fi
   const consolePort = await freePort();
   const origin = `http://127.0.0.1:${consolePort}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const stream = new ResultStream(feed, db.app);
   await stream.start();
   const consoleApi = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, packages: store, logger: false, now: () => clock });
   await consoleApi.listen({ host: "127.0.0.1", port: consolePort });
@@ -70,7 +73,7 @@ test("writes in the console: library upload and two-person approval, install, fi
   } as const;
   for (const p of Object.values(people))
     await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                        VALUES ($1, $2, $3, $4, $5, false, $6, $7, true)`, [p.id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : null]);
+                        VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`, [p.id, p.username, p.name, p.role, await hashPassword(password), !!p.secret, p.secret ? secrets.seal(p.secret) : null]);
   const code = (secret: Buffer): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
   // The package files: one signed by the trusted vendor, and a tampered copy of it.
@@ -239,7 +242,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     await click(sam, /Set the firewall profiles as the policy says: Domain off, Private off, Public off/);
     await sam.getByText(/Changed: Domain, Private\.|Changed: Domain, Private, Public\./).waitFor({ timeout: 60_000 });
     await until("the cabinet to report it matches", async () => (await db.app.query(
-      "SELECT state FROM alerts WHERE cabinet_id = $1 AND issue_type_id = '00000000-0000-4000-8000-000000000113' ORDER BY first_seen DESC LIMIT 1", [cabinetId])).rows[0]?.state === "resolved");
+      "SELECT TOP (1) state FROM alerts WHERE cabinet_id = $1 AND issue_type_id = '00000000-0000-4000-8000-000000000113' ORDER BY first_seen DESC", [cabinetId])).rows[0]?.state === "resolved");
     await shot(sam, "m9-1-policy-applied");
     await section(sam, "software");
     await sam.locator(".packages > li").filter({ hasText: "Scanner driver" }).waitFor({ timeout: 30_000 });
@@ -268,7 +271,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     await scannerRow.getByRole("button", { name: "Watch" }).click();
     await tess.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
     await tess.getByRole("region", { name: "Watched services" }).getByRole("rowheader", { name: "BioScanSvc" }).waitFor();
-    assert.deepEqual((await db.app.query("SELECT watched_services FROM cabinets WHERE id = $1", [cabinetId])).rows[0].watched_services, ["BioScanSvc"]);
+    assert.deepEqual((await db.app.query<{ watched_services: string[] }>("SELECT watched_services FROM cabinets WHERE id = $1", [cabinetId])).rows[0]!.watched_services, ["BioScanSvc"]);
     await section(tess, "processes");
     await tess.getByRole("table", { name: "Running processes" }).getByRole("row").nth(1).waitFor({ timeout: 60_000 });
     await a11y(tess, "processes");
@@ -304,6 +307,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     await step("console API", () => consoleApi.close());
     await step("agent API", () => agentApi.close());
     await step("notifier", () => notifier.stop());
+    feed.stop();
     await step("database", () => db.drop());
   }
 });

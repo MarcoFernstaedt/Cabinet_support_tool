@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
@@ -34,7 +35,9 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
-  const stream = new ResultStream(db.appUrl, db.app);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const stream = new ResultStream(feed, db.app);
   await stream.start();
   const releases = { dir: tempDir(), maxBytes: 1024 * 1024, keys: ReleaseKeys.fromFolder(keysFolder([key])) };
   const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(dir), origin, stream, releases, staticDir: dist, logger: false, now: () => clock });
@@ -44,7 +47,7 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
   const secret = totp.newSecret();
   const adaId = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, true)`, [adaId, await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 1)`, [adaId, await hashPassword(password), secrets.seal(secret)]);
   const code = (): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
   const client = randomUUID(), site = randomUUID();
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
@@ -52,7 +55,7 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
   const cab: Record<string, string> = {};
   for (const name of ["Pilot cabinet", "Front desk", "Lab cabinet"]) {
     cab[name] = randomUUID();
-    await db.app.query(`INSERT INTO cabinets (id, site_id, name, role, status, agent_version, last_heartbeat_at) VALUES ($1, $2, $3, 'standalone', 'active', '0.1.0', now())`, [cab[name], site, name]);
+    await db.app.query(`INSERT INTO cabinets (id, site_id, name, role, status, agent_version, last_heartbeat_at) VALUES ($1, $2, $3, 'standalone', 'active', '0.1.0', SYSUTCDATETIME())`, [cab[name], site, name]);
   }
   // The pipeline's three files.
   const release = makeRelease(key, "0.2.0");
@@ -126,13 +129,14 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
     await page.getByRole("button", { name: "Stop" }).click();
     await confirm(/Stop the rollout of agent 0\.2\.0/);
     await page.getByText("Rollout of 0.2.0 stopped.").waitFor();
-    assert.equal((await db.app.query("SELECT state FROM rollouts")).rows[0].state, "stopped");
+    assert.equal((await db.app.query<{ state: string }>("SELECT state FROM rollouts")).rows[0]!.state, "stopped");
     const actions = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE action LIKE 'release.%' OR action LIKE 'rollout.%' OR action = 'cabinet.in_office' ORDER BY seq")).rows.map(r => r.action);
     assert.deepEqual(actions, ["release.add", "release.package", "cabinet.in_office", "rollout.start", "rollout.batch", "rollout.auto_pause", "rollout.stop"]);
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();
     await stream.stop();
+    feed.stop();
     await app.close();
     await db.drop();
   }

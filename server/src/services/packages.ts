@@ -8,8 +8,7 @@ import { chmod, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Transform, type Readable } from "node:stream";
-import type pg from "pg";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { PackageRefused, verifyPackage } from "../packages/verify.js";
 import type { TrustList } from "../packages/trust.js";
@@ -33,7 +32,7 @@ const view = (r: Row) => ({
 });
 
 export async function listPackages(db: Queryable, onlyApproved: boolean) {
-  const rows = (await db.query<Row>(`SELECT ${COLUMNS} ${FROM} ${onlyApproved ? "WHERE p.state = 'approved'" : ""} ORDER BY p.uploaded_at DESC LIMIT 500`)).rows;
+  const rows = (await db.query<Row>(`SELECT TOP (500) ${COLUMNS} ${FROM} ${onlyApproved ? "WHERE p.state = 'approved'" : ""} ORDER BY p.uploaded_at DESC`)).rows;
   return rows.map(view);
 }
 
@@ -47,7 +46,7 @@ type Authority = string | null;
 const viaCli = (a: Authority) => (a === null ? { via: "cli" } : {});
 
 /** Step 1: what the package is. The file follows. Needs step-up. */
-export async function startUpload(pool: pg.Pool, adminId: string, meta: PackageMeta, stepUpToken: Authority): Promise<string> {
+export async function startUpload(pool: Pool, adminId: string, meta: PackageMeta, stepUpToken: Authority): Promise<string> {
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "package.upload", "fleet");
     const exists = (await c.query("SELECT 1 FROM packages WHERE name = $1 AND version = $2", [meta.name, meta.version])).rows[0];
@@ -67,7 +66,7 @@ let verifying: Promise<unknown> = Promise.resolve();
  * Step 2: the file, streamed to disk with a size cap, then checked. A package that fails is refused and
  * deleted; one that passes is stored read-only under its hash and waits for a second Admin.
  */
-export async function receiveUpload(pool: pg.Pool, store: PackageStore, adminId: string, packageId: string, body: Readable): Promise<ReturnType<typeof view>> {
+export async function receiveUpload(pool: Pool, store: PackageStore, adminId: string, packageId: string, body: Readable): Promise<ReturnType<typeof view>> {
   const row = (await pool.query<{ type: "driver" | "msi"; state: string; uploaded_by: string }>("SELECT type, state, uploaded_by FROM packages WHERE id = $1", [packageId])).rows[0];
   if (!row) throw new Refused("not_found", 404, "no such package");
   if (row.state !== "uploading" || row.uploaded_by !== adminId) throw new Refused("not_uploading", 409, "this package is not waiting for your upload");
@@ -110,22 +109,22 @@ export async function receiveUpload(pool: pg.Pool, store: PackageStore, adminId:
 }
 
 /** The two-person rule: a different Admin approves, with step-up. */
-export async function approvePackage(pool: pg.Pool, adminId: string, packageId: string, stepUpToken: Authority): Promise<void> {
+export async function approvePackage(pool: Pool, adminId: string, packageId: string, stepUpToken: Authority): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "package.approve", packageId);
-    const p = (await c.query<{ state: string; uploaded_by: string }>("SELECT state, uploaded_by FROM packages WHERE id = $1 FOR UPDATE", [packageId])).rows[0];
+    const p = (await c.query<{ state: string; uploaded_by: string }>("SELECT state, uploaded_by FROM packages WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [packageId])).rows[0];
     if (!p) throw new Refused("not_found", 404, "no such package");
     if (p.uploaded_by === adminId) throw new Refused("same_person", 403, "the Admin who uploaded a package cannot approve it");
     if (p.state !== "uploaded") throw new Refused("not_pending", 409, "this package is not waiting for approval");
-    await c.query("UPDATE packages SET state = 'approved', approved_by = $2, approved_at = now() WHERE id = $1", [packageId, adminId]);
+    await c.query("UPDATE packages SET state = 'approved', approved_by = $2, approved_at = SYSUTCDATETIME() WHERE id = $1", [packageId, adminId]);
     await audit(c, { actorKind: "user", actorId: adminId, action: "package.approve", outcome: "succeeded", details: { packageId, ...viaCli(stepUpToken) } });
   });
 }
 
-export async function retirePackage(pool: pg.Pool, adminId: string, packageId: string, stepUpToken: Authority): Promise<void> {
+export async function retirePackage(pool: Pool, adminId: string, packageId: string, stepUpToken: Authority): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "package.retire", packageId);
-    const r = await c.query("UPDATE packages SET state = 'retired', retired_by = $2, retired_at = now() WHERE id = $1 AND state IN ('uploaded', 'approved')", [packageId, adminId]);
+    const r = await c.query("UPDATE packages SET state = 'retired', retired_by = $2, retired_at = SYSUTCDATETIME() WHERE id = $1 AND state IN ('uploaded', 'approved')", [packageId, adminId]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active package");
     await audit(c, { actorKind: "user", actorId: adminId, action: "package.retire", outcome: "succeeded", details: { packageId, ...viaCli(stepUpToken) } });
   });
@@ -137,9 +136,9 @@ export async function retirePackage(pool: pg.Pool, adminId: string, packageId: s
  */
 export async function downloadablePath(db: Queryable, store: PackageStore, cabinetId: string, packageId: string): Promise<{ path: string; size: number } | null> {
   const r = (await db.query<{ sha256: string }>(
-    `SELECT p.sha256 FROM packages p WHERE p.id = $2 AND p.state = 'approved' AND EXISTS (
-       SELECT 1 FROM commands c WHERE c.cabinet_id = $1 AND c.operation = 'package.install' AND c.params->>'packageId' = $2::text
-          AND c.status = 'delivered' AND c.delivered_at > now() - interval '30 minutes')`, [cabinetId, packageId])).rows[0];
+    `SELECT p.sha256 FROM packages p WHERE p.id = TRY_CAST($2 AS uniqueidentifier) AND p.state = 'approved' AND EXISTS (
+       SELECT 1 FROM commands c WHERE c.cabinet_id = $1 AND c.operation = 'package.install' AND JSON_VALUE(c.params, '$.packageId') = $2
+          AND c.status = 'delivered' AND c.delivered_at > DATEADD(minute, -30, SYSUTCDATETIME()))`, [cabinetId, packageId])).rows[0];
   if (!r) return null;
   const path = join(store.dir, `${r.sha256}.pkg`);
   try { return { path, size: (await stat(path)).size }; } catch { return null; }

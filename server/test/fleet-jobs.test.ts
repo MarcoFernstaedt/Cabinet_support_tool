@@ -7,6 +7,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import { paramsHash } from "../src/auth/canonical.js";
@@ -24,6 +25,7 @@ const TIMING = { pollMs: 50, verifyMs: 5_000 };
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 let sim: DemoSimulator;
 let clock = Date.now();
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
@@ -31,7 +33,7 @@ const secrets = new SecretBox(randomBytes(32).toString("base64"));
 interface Account { id: string; username: string; password: string; secret: Buffer; cookie?: string }
 async function account(role: "tier1" | "tier2" | "admin", writeLimit = 20): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, write_limit) VALUES ($1, $2, $3, $4, $5, false, true, $6, $7)`,
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, write_limit) VALUES ($1, $2, $3, $4, $5, 0, 1, $6, $7)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret), writeLimit]);
   const login = await app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify({ username: a.username, password: a.password }) });
   a.cookie = String(login.headers["set-cookie"]).split(";")[0]!;
@@ -71,21 +73,22 @@ const scenarioIds = async (scenario: string) =>
   (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = $1 ORDER BY name", [scenario])).rows.map(r => r.id);
 /** Cabinets of one site, online ones that answer (not a restart loop). */
 const siteCabinets = async (siteId: string, n: number) =>
-  (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE site_id = $1 AND demo_scenario <> ALL('{offline,incident_loop}') ORDER BY name LIMIT $2", [siteId, n])).rows.map(r => r.id);
+  (await db.app.query<{ id: string }>("SELECT TOP ($2) id FROM cabinets WHERE site_id = $1 AND demo_scenario NOT IN ('offline', 'incident_loop') ORDER BY name", [siteId, n])).rows.map(r => r.id);
 /** A Harbor site with at least five cabinets that answer. */
-const harborSite = async () => (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE demo_scenario = 'incident_ok' GROUP BY site_id ORDER BY site_id LIMIT 1")).rows[0]!.site_id;
-const nySite = async () => (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo AND s.name LIKE 'New York%'")).rows[0]!.id;
+const harborSite = async () => (await db.app.query<{ site_id: string }>("SELECT TOP (1) site_id FROM cabinets WHERE demo_scenario = 'incident_ok' GROUP BY site_id ORDER BY site_id")).rows[0]!.site_id;
+const nySite = async () => (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo = 1 AND s.name LIKE 'New York%'")).rows[0]!.id;
 const inSite = async (siteId: string, scenario: string) =>
   (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE site_id = $1 AND demo_scenario = $2 ORDER BY name", [siteId, scenario])).rows.map(r => r.id);
 /** A site of n healthy simulated cabinets, for the scale tests (a job covers one site). */
 async function bigSite(n: number): Promise<string> {
-  const client = (await db.app.query<{ id: string }>("SELECT id FROM clients WHERE demo LIMIT 1")).rows[0]!.id;
+  const client = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM clients WHERE demo = 1")).rows[0]!.id;
   const site = randomUUID();
   await db.app.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone) VALUES ($1, $2, $3, '10.99.0.20', 'Eastern Standard Time')", [site, client, `Scale ${n} ${site.slice(0, 4)}`]);
   await db.app.query(
     `INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles, time_zone_id, clock_skew_seconds, last_heartbeat_at)
-     SELECT gen_random_uuid(), $1::uuid, 'Scale ' || g, 'satellite', 'active', 'SCALE-' || substr($3::text, 1, 4) || '-' || g, 'SC' || g || substr($3::text, 1, 4), false, '1.4.2', 86400, 'healthy',
-            '{"domain": false, "private": false, "public": false}', 'Eastern Standard Time', 0.3, now() FROM generate_series(1, $2::int) g`, [site, n, site]);
+     SELECT NEWID(), $1, CONCAT('Scale ', g), 'satellite', 'active', CONCAT('SCALE-', SUBSTRING($3, 1, 4), '-', g), CONCAT('SC', g, SUBSTRING($3, 1, 4)), 0, '1.4.2', 86400, 'healthy',
+            '{"domain": false, "private": false, "public": false}', 'Eastern Standard Time', 0.3, SYSUTCDATETIME()
+       FROM (SELECT TOP ($2) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS g FROM sys.all_objects a CROSS JOIN sys.all_objects b) AS numbers`, [site, n, site]);
   return site;
 }
 const openAlert = async (cabinetId: string, issue: string) => (await db.app.query(
@@ -94,7 +97,9 @@ const openAlert = async (cabinetId: string, issue: string) => (await db.app.quer
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock, fleetJobTiming: TIMING });
   const owner = randomUUID();
@@ -103,7 +108,7 @@ test.before(async () => {
   sim = new DemoSimulator(db.app, m => assert.fail(m), 25, [0, 20]);
   sim.start();
 });
-test.after(async () => { sim.stop(); await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { sim.stop(); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 test("the page lists cabinets by client, site and problem; hostile queries are refused", async () => {
   const t1 = await account("tier1");
@@ -130,7 +135,7 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
   const wrong = await inSite(ny, "time_zone_wrong");
   const [healthy] = await inSite(ny, "healthy");
   const offline = (await inSite(ny, "net_static_wrong"))[0]!;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '20 hours' WHERE id = $1", [offline]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [offline]);
   // Cabinets from two sites are refused: a bulk change covers one site.
   const [elsewhere] = await scenarioIds("disk_failing");
   const two = await call("POST", "/api/fleet-operations/preview", { operation: "time.setZone", cabinetIds: [...wrong, elsewhere!] }, t1);
@@ -143,15 +148,15 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
     ["Already in its site's time zone.", "Offline: not heard from in the last 5 minutes."]);
   // Each cabinet gets its own site's zone, filled in by the server.
   for (const c of p.cabinets.filter((x: { skip: string | null }) => !x.skip)) {
-    const site = (await db.app.query("SELECT s.time_zone FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [c.id])).rows[0].time_zone;
+    const site = (await db.app.query<{ time_zone: string | null }>("SELECT s.time_zone FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [c.id])).rows[0]!.time_zone;
     assert.deepEqual(c.params, { timeZoneId: site });
   }
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM commands WHERE operation = 'time.setZone'")).rows[0].n, 0);
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE operation = 'time.setZone'")).rows[0]!.n, 0);
   for (const body of [{ operation: "driver.uninstall", cabinetIds: wrong }, { operation: "time.sync", cabinetIds: [] }, { operation: "time.sync", cabinetIds: ["../x"] },
     { operation: "time.sync", cabinetIds: Array.from({ length: 201 }, () => randomUUID()) }])
     assert.equal((await call("POST", "/api/fleet-operations/preview", body, t1)).status, 400, JSON.stringify(body).slice(0, 80));
   assert.equal((await call("POST", "/api/fleet-operations/preview", { operation: "time.sync", cabinetIds: [randomUUID()] }, t1)).status, 404);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() WHERE id = $1", [offline]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [offline]);
 });
 
 test("scenario C: Tier 1 corrects every wrong time zone with the password; each cabinet is changed, verified, and its alert closes", async () => {
@@ -165,17 +170,17 @@ test("scenario C: Tier 1 corrects every wrong time zone with the password; each 
   const other = await confirm(t1, jobId, { operation: "time.setZone", cabinetIds: wrong, batchSize: 20 });
   assert.equal((await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "time.setZone", cabinetIds: ids, batchSize: 20, stepUpToken: other }, t1)).status, 403);
   // The real flow.
-  const before = Number((await db.app.query("SELECT count(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1", [t1.id])).rows[0].n);
+  const before = Number((await db.app.query<{ n: number }>("SELECT COUNT(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1", [t1.id])).rows[0]!.n);
   const j = await runToEnd(t1, "time.setZone", ids, 2);
   assert.equal(j.state, "done");
   assert.deepEqual(j.counts, { verified: 3, skipped: 1 });
   for (const id of wrong) assert.ok(!(await openAlert(id, ISSUE.timeZone)), "the zone alert closed");
   // One job counts once against the person's limit; its commands share the job's ID and are each audited.
-  const after = Number((await db.app.query("SELECT count(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1", [t1.id])).rows[0].n);
+  const after = Number((await db.app.query<{ n: number }>("SELECT COUNT(DISTINCT COALESCE(bulk_id, id)) AS n FROM commands WHERE issued_by = $1", [t1.id])).rows[0]!.n);
   assert.equal(after - before, 1);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM commands WHERE bulk_id = $1", [j.id])).rows[0].n, 3);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'command.write' AND details->>'bulkId' = $1", [j.id])).rows[0].n, 3);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'fleet.job.start' AND target_id = $1", [j.id])).rows[0].n, 1);
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [j.id])).rows[0]!.n, 3);
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'command.write' AND JSON_VALUE(details, '$.bulkId') = $1", [j.id])).rows[0]!.n, 3);
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'fleet.job.start' AND target_id = $1", [j.id])).rows[0]!.n, 1);
   // The token was used once.
   assert.ok((await call("GET", "/api/fleet-operations/jobs", undefined, t1)).body.jobs.some((x: { id: string; verified: number }) => x.id === j.id && x.verified === 3));
 });
@@ -195,7 +200,7 @@ test("a cabinet that never answers fails on its own; the rest of the job goes on
   const quietSite = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [quiet])).rows[0]!.site_id;
   const [healthy] = await inSite(quietSite, "incident_ok");
   // The looping cabinet still counts as online (it was heard recently) but the simulator never answers it.
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() WHERE id = $1", [quiet]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [quiet]);
   const jobId = randomUUID();
   const ids = [quiet!, healthy!];
   const token = await confirm(t1, jobId, { operation: "time.sync", cabinetIds: ids, batchSize: 2 });
@@ -207,7 +212,7 @@ test("a cabinet that never answers fails on its own; the rest of the job goes on
   assert.equal(j.cabinets.find((c: { id: string }) => c.id === quiet).state, "failed");
   assert.equal(j.cabinets.find((c: { id: string }) => c.id === healthy).state, "verified");
   assert.match(j.cabinets.find((c: { id: string }) => c.id === quiet).detail, /did not answer/);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '20 hours' WHERE id = $1", [quiet]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [quiet]);
 });
 
 test("a fleet-wide pause during a job skips the cabinets not yet reached; nothing is sent after it", async () => {
@@ -216,15 +221,15 @@ test("a fleet-wide pause during a job skips the cabinets not yet reached; nothin
   const jobId = randomUUID();
   const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ operation: "time.sync", cabinetIds: ids, batchSize: 1 }));
   await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds: ids, batchSize: 1, stepUpToken: token });
-  await db.app.query(`INSERT INTO settings (key, value) VALUES ('writes.paused', '{"paused": true, "reason": "test", "by": null, "at": null}')
-                      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`);
+  await db.app.query(`DELETE FROM settings WHERE [key] = 'writes.paused';
+                      INSERT INTO settings ([key], [value]) VALUES ('writes.paused', '{"paused": true, "reason": "test", "by": null, "at": null}')`);
   try {
     await runJob(db.app, jobId, TIMING);
     const states = (await db.app.query<{ state: string; detail: string }>("SELECT state, detail FROM fleet_job_targets WHERE job_id = $1", [jobId])).rows;
     assert.ok(states.every(s => s.state === "skipped" && /paused fleet-wide/.test(s.detail)), JSON.stringify(states));
-    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0].n, 0);
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n, 0);
   } finally {
-    await db.app.query("DELETE FROM settings WHERE key = 'writes.paused'");
+    await db.app.query("DELETE FROM settings WHERE [key] = 'writes.paused'");
   }
 });
 
@@ -266,7 +271,7 @@ test("hostile and over-limit job requests are refused before anything is sent", 
   const cross = await call("POST", "/api/fleet-operations/jobs", { jobId: crossJob, operation: "time.sync", cabinetIds: crossIds, batchSize: 1, stepUpToken: crossToken }, t1);
   assert.equal(cross.status, 409, JSON.stringify(cross.body));
   assert.equal(cross.body.error, "one_site_only");
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM fleet_jobs WHERE id = $1", [crossJob])).rows[0].n, 0);
+  assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM fleet_jobs WHERE id = $1", [crossJob])).rows[0]!.n, 0);
   for (const body of [
     { jobId, operation: "shell.run", cabinetIds: ids, batchSize: 1, stepUpToken: T },
     { jobId, operation: "time.setZone", cabinetIds: ids, batchSize: 1, stepUpToken: T, timeZoneId: "UTC" },
@@ -295,7 +300,7 @@ for (const size of [10, 60, 100])
     const started = Date.now();
     const j = await runToEnd(t1, "time.sync", ids, 20, 120_000);
     const reachable = (await db.app.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM cabinets WHERE id = ANY($1::uuid[]) AND last_heartbeat_at > now() - interval '5 minutes' AND demo_scenario NOT IN ('offline', 'incident_loop')", [ids])).rows[0]!.n;
+      "SELECT COUNT(*) AS n FROM cabinets WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND last_heartbeat_at > DATEADD(minute, -5, SYSUTCDATETIME()) AND demo_scenario NOT IN ('offline', 'incident_loop')", [ids])).rows[0]!.n;
     assert.equal(j.counts.verified ?? 0, reachable, JSON.stringify(j.counts));
     assert.equal((j.counts.verified ?? 0) + (j.counts.skipped ?? 0) + (j.counts.failed ?? 0), ids.length, JSON.stringify(j.counts));
     console.log(`# scale ${size}: ${ids.length} cabinets, ${JSON.stringify(j.counts)}, ${Date.now() - started} ms`);

@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import pg from "pg";
+import { createPool } from "../../src/db/db.js";
 import { developmentIssuingKey, issueAgentCertificate } from "../../src/pki/issuing.js";
 import { issueCommand } from "../../src/services/commands.js";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
@@ -42,7 +42,7 @@ async function setup(count: number, statePath: string): Promise<void> {
   const url = process.env.DATABASE_URL, pki = process.env.DEV_PKI_DIR;
   if (!url || !pki) throw new Error("setup needs DATABASE_URL and DEV_PKI_DIR (the server's own).");
   const key = await developmentIssuingKey(pki);
-  const pool = new pg.Pool({ connectionString: url, max: 4 });
+  const pool = await createPool(url, 4);
   const client = randomUUID(), site = randomUUID(), userId = randomUUID();
   const tag = new Date().toISOString().replace(/[:.]/g, "-");
   await pool.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Load test ${tag}`]);
@@ -153,7 +153,7 @@ async function run(o: { server: string; state: string; minutes: number; rampSeco
   const running = agents.map((a, i) => runAgent(a, state.caPem, base, (i / agents.length) * o.rampSeconds * 1000, o.eventsPerHour, output));
 
   // Commands, through the server's own issuing path, to random cabinets once everyone is connected.
-  const pool = process.env.DATABASE_URL && o.commandsPerSecond > 0 ? new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 2 }) : null;
+  const pool = process.env.DATABASE_URL && o.commandsPerSecond > 0 ? await createPool(process.env.DATABASE_URL, 2) : null;
   const commander = (async () => {
     if (!pool) return;
     await sleep(o.rampSeconds * 1000 + 30_000);

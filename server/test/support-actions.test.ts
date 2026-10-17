@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
@@ -16,12 +17,15 @@ import { tempDir } from "./helpers.js";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 const h = new ConsoleHarness(secrets);
 
 test.before(async () => {
   db = await createTestDatabase();
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
@@ -29,7 +33,7 @@ test.before(async () => {
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
 });
-test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 const cabinet = async () => (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Exam Room 1' AND demo_scenario IS NOT NULL")).rows[0]!.id;
 const send = async (id: string, operation: string, params: unknown, who: Awaited<ReturnType<typeof h.account>>, token?: string) =>

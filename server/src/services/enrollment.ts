@@ -1,9 +1,8 @@
 // Bootstrap tokens, enrollment requests, the pending queue and approval
 // (docs/spec/05-server-spec.md "Enrollment and certificates").
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import type pg from "pg";
 import type { EnrollRequest, EnrollStatus } from "../contracts.js";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey } from "../pki/x509.js";
 import { CsrError, verifyCsr } from "../pki/x509.js";
@@ -13,7 +12,7 @@ export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
 
 /** Creates a single-use bootstrap token. The token is returned once and only its hash is stored. */
-export async function createBootstrapToken(pool: pg.Pool, userId: string, days = TOKEN_DAYS): Promise<{ token: string; expiresAt: Date }> {
+export async function createBootstrapToken(pool: Pool, userId: string, days = TOKEN_DAYS): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const id = randomUUID();
   const expiresAt = new Date(Date.now() + days * 86_400_000);
@@ -29,19 +28,19 @@ export async function createBootstrapToken(pool: pg.Pool, userId: string, days =
  * token gets the same answer, so the endpoint does not reveal whether a
  * token exists, was used or expired.
  */
-export async function submitEnrollment(pool: pg.Pool, request: EnrollRequest, sourceAddress: string): Promise<string> {
+export async function submitEnrollment(pool: Pool, request: EnrollRequest, sourceAddress: string): Promise<string> {
   return transaction(pool, async c => {
     // The token is checked before the certificate request, so nobody without a token makes the server verify signatures.
     // A bad request does not use the token up: the row is locked, and only a valid request marks it used.
     const token = (await c.query<{ id: string }>(
-      "SELECT id FROM bootstrap_tokens WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now() FOR UPDATE",
+      "SELECT id FROM bootstrap_tokens WITH (UPDLOCK, ROWLOCK) WHERE token_hash = $1 AND used_at IS NULL AND expires_at > SYSUTCDATETIME()",
       [hashToken(request.bootstrapToken)])).rows[0];
     if (!token) {
       throw new Refused("enrollment_refused", 403, "unknown, used or expired bootstrap token");
     }
     try { verifyCsr(request.csr); }
     catch (e) { if (e instanceof CsrError) throw new Refused("invalid_request", 400, e.message); throw e; }
-    await c.query("UPDATE bootstrap_tokens SET used_at = now() WHERE id = $1", [token.id]);
+    await c.query("UPDATE bootstrap_tokens SET used_at = SYSUTCDATETIME() WHERE id = $1", [token.id]);
     const id = randomUUID();
     await c.query("INSERT INTO enrollment_requests (id, token_id, csr, fingerprints, source_address, status) VALUES ($1, $2, $3, $4, $5, 'pending')",
       [id, token.id, request.csr, safeJson(request.fingerprints), sourceAddress]);
@@ -70,29 +69,38 @@ export async function pendingRequests(db: Queryable): Promise<PendingRequest[]> 
 export interface Approval { clientName: string; siteName: string; cabinetName: string; role: "sync" | "satellite" | "standalone"; }
 
 /** Approves a pending request: places the cabinet, signs its certificate and records both. */
-export async function approveEnrollment(pool: pg.Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string): Promise<{ cabinetId: string; serial: string }> {
+export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string): Promise<{ cabinetId: string; serial: string }> {
   return transaction(pool, async c => {
     const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
-      "SELECT csr, fingerprints FROM enrollment_requests WHERE id = $1 AND status = 'pending' FOR UPDATE", [requestId])).rows[0];
+      "SELECT csr, fingerprints FROM enrollment_requests WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND status = 'pending'", [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
-    await c.query("INSERT INTO clients (id, name) VALUES ($1, $2) ON CONFLICT (name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), approval.clientName]);
+    // Insert unless a live client of that name exists (a concurrent insert that wins the race is the same outcome).
+    try {
+      await c.query("IF NOT EXISTS (SELECT 1 FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $2 AND removed_at IS NULL) INSERT INTO clients (id, name) VALUES ($1, $2)", [randomUUID(), approval.clientName]);
+    } catch (e) { if (!isUniqueViolation(e)) throw e; }
     const client = (await c.query<{ id: string; demo: boolean }>("SELECT id, demo FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
     // A real cabinet never joins a simulated client: turning demo mode off deletes those, and its data would be mixed with the simulation.
     if (client.demo) throw new Refused("demo_client", 409, "that is a simulated demo client; file the cabinet under a real client");
-    await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3) ON CONFLICT (client_id, name) WHERE removed_at IS NULL DO NOTHING", [randomUUID(), client.id, approval.siteName]);
+    try {
+      await c.query("IF NOT EXISTS (SELECT 1 FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $2 AND name = $3 AND removed_at IS NULL) INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)",
+        [randomUUID(), client.id, approval.siteName]);
+    } catch (e) { if (!isUniqueViolation(e)) throw e; }
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
     const cabinetId = randomUUID();
+    const taken = new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
+    // A cabinet name is unique within its site (removed cabinets keep theirs); checked here under a lock, and again by the database's unique rule.
+    if ((await c.query("SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $1 AND name = $2", [site.id, approval.cabinetName])).rows[0]) throw taken;
     try {
       await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version)
                      VALUES ($1, $2, $3, $4, 'active', $5, $6, $7)`,
         [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion]);
     } catch (e) {
-      if ((e as { code?: string }).code === "23505") throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
+      if (isUniqueViolation(e)) throw taken;
       throw e;
     }
     const certificate = await issueAgentCertificate(key, request.csr, cabinetId);
     await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [certificate.serialHex, cabinetId, certificate.notAfter]);
-    await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = now()
+    await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = SYSUTCDATETIME()
                    WHERE id = $1`, [requestId, cabinetId, certificate.serialHex, certificate.pem, userId]);
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
       details: { requestId, ...approval, certificateSerial: certificate.serialHex } });
@@ -100,9 +108,9 @@ export async function approveEnrollment(pool: pg.Pool, key: IssuingKey, requestI
   });
 }
 
-export async function rejectEnrollment(pool: pg.Pool, requestId: string, userId: string): Promise<void> {
+export async function rejectEnrollment(pool: Pool, requestId: string, userId: string): Promise<void> {
   await transaction(pool, async c => {
-    const r = await c.query("UPDATE enrollment_requests SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1 AND status = 'pending'", [requestId, userId]);
+    const r = await c.query("UPDATE enrollment_requests SET status = 'rejected', decided_by = $2, decided_at = SYSUTCDATETIME() WHERE id = $1 AND status = 'pending'", [requestId, userId]);
     if (r.rowCount !== 1) throw new Refused("not_pending", 409, "that enrollment request is not pending");
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.reject", targetKind: "enrollment", targetId: requestId, outcome: "succeeded" });
   });

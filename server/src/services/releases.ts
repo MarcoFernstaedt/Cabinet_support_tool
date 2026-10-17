@@ -9,11 +9,10 @@ import { chmod, mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Transform, type Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type pg from "pg";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { ContractError, releaseFiles, type UpgradeManifest, type UpgradeSignature } from "../contracts.js";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { raiseSecurityAlert } from "./security.js";
 
@@ -113,7 +112,7 @@ export function checkManifest(keys: ReleaseKeys, manifestBase64: string, signatu
  * audited and raised as a security alert (someone tried to put code in front of the fleet). Versions only ever
  * go up: a rollback is a new release with a higher version.
  */
-export async function addRelease(pool: pg.Pool, keys: ReleaseKeys, adminId: string, manifestBase64: string, signature: UpgradeSignature, stepUpToken: Authority): Promise<string> {
+export async function addRelease(pool: Pool, keys: ReleaseKeys, adminId: string, manifestBase64: string, signature: UpgradeSignature, stepUpToken: Authority): Promise<string> {
   let checked: ReturnType<typeof checkManifest>;
   try { checked = checkManifest(keys, manifestBase64, signature); }
   catch (e) {
@@ -130,20 +129,24 @@ export async function addRelease(pool: pg.Pool, keys: ReleaseKeys, adminId: stri
   const { bytes, manifest } = checked;
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "release.add", "fleet");
-    await c.query("LOCK TABLE agent_releases IN SHARE ROW EXCLUSIVE MODE");
+    await lock(c, "agent_releases");
     const versions = (await c.query<{ version: string }>("SELECT version FROM agent_releases WHERE state <> 'refused'")).rows.map(r => r.version);
     if (versions.includes(manifest.version)) throw new Refused("version_exists", 409, "that version is already in the update store");
     const newest = versions.sort(compareVersions).at(-1);
     if (newest && compareVersions(manifest.version, newest) <= 0)
       throw new Refused("version_not_newer", 409, `releases only go up: ${manifest.version} is not newer than ${newest} (a rollback is a new release with a higher version)`);
     // A version whose package was refused may be added again (with the right package).
-    await c.query(`INSERT INTO agent_releases (version, manifest, signature, key_id, minimum_version, sha256, size_bytes, released_at, notes, state, added_by)
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'awaiting_package', $10)
-                   ON CONFLICT (version) DO UPDATE SET manifest = EXCLUDED.manifest, signature = EXCLUDED.signature, key_id = EXCLUDED.key_id,
-                     minimum_version = EXCLUDED.minimum_version, sha256 = EXCLUDED.sha256, size_bytes = EXCLUDED.size_bytes, released_at = EXCLUDED.released_at,
-                     notes = EXCLUDED.notes, state = 'awaiting_package', refusal = NULL, added_by = EXCLUDED.added_by, added_at = now()
-                   WHERE agent_releases.state = 'refused'`,
-      [manifest.version, bytes, safeJson(signature), signature.keyId, manifest.minimumVersion, manifest.sha256, manifest.sizeBytes, manifest.releasedAt, manifest.notes ?? null, adminId]);
+    const releasedAt = new Date(manifest.releasedAt);
+    if (Number.isNaN(releasedAt.getTime())) throw new Refused("invalid_manifest", 422, "the signed manifest does not match its contract");
+    // The table lock above makes this check-then-write safe. An existing row is replaced only when it was refused.
+    await c.query(`IF EXISTS (SELECT 1 FROM agent_releases WHERE [version] = $1)
+                     UPDATE agent_releases SET manifest = $2, signature = $3, key_id = $4, minimum_version = $5, sha256 = $6, size_bytes = $7, released_at = $8,
+                       notes = $9, state = 'awaiting_package', refusal = NULL, added_by = $10, added_at = SYSUTCDATETIME()
+                     WHERE [version] = $1 AND state = 'refused'
+                   ELSE
+                     INSERT INTO agent_releases ([version], manifest, signature, key_id, minimum_version, sha256, size_bytes, released_at, notes, state, added_by)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'awaiting_package', $10)`,
+      [manifest.version, bytes, safeJson(signature), signature.keyId, manifest.minimumVersion, manifest.sha256, manifest.sizeBytes, releasedAt, manifest.notes ?? null, adminId]);
     await audit(c, { actorKind: "user", actorId: adminId, action: "release.add", targetKind: "release", targetId: manifest.version, outcome: "succeeded",
       details: { version: manifest.version, minimumVersion: manifest.minimumVersion, sha256: manifest.sha256, sizeBytes: manifest.sizeBytes, keyId: signature.keyId, ...viaCli(stepUpToken) } });
     return manifest.version;
@@ -151,7 +154,7 @@ export async function addRelease(pool: pg.Pool, keys: ReleaseKeys, adminId: stri
 }
 
 /** Step 2: the package zip, streamed with a size cap and hashed on the way; it must be exactly what the manifest names. */
-export async function receiveReleasePackage(pool: pg.Pool, store: ReleaseStore, adminId: string, version: string, body: Readable) {
+export async function receiveReleasePackage(pool: Pool, store: ReleaseStore, adminId: string, version: string, body: Readable) {
   if (!isVersion(version)) throw new Refused("not_found", 404, "no such release");
   const row = (await pool.query<{ state: string; sha256: string; size_bytes: string }>("SELECT state, sha256, size_bytes FROM agent_releases WHERE version = $1", [version])).rows[0];
   if (!row) throw new Refused("not_found", 404, "no such release");
@@ -176,7 +179,7 @@ export async function receiveReleasePackage(pool: pg.Pool, store: ReleaseStore, 
     await rename(temp, final);
     await chmod(final, 0o444); // stored read-only, never changed
     await transaction(pool, async c => {
-      await c.query("UPDATE agent_releases SET state = 'ready', package_at = now() WHERE version = $1 AND state = 'awaiting_package'", [version]);
+      await c.query("UPDATE agent_releases SET state = 'ready', package_at = SYSUTCDATETIME() WHERE version = $1 AND state = 'awaiting_package'", [version]);
       await audit(c, { actorKind: "user", actorId: adminId, action: "release.package", targetKind: "release", targetId: version, outcome: "succeeded", details: { version, sha256: digest, size } });
     });
   } catch (e) {
