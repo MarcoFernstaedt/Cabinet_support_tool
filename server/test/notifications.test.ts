@@ -11,7 +11,7 @@ import { ResultStream } from "../src/console-api/stream.js";
 import { claimAlert, resolveAlert, upsertAlert } from "../src/services/alerts.js";
 import { notify } from "../src/db/db.js";
 import { NotificationFeed } from "../src/db/notifications.js";
-import { createTestDatabase, type TestDatabase } from "./database.js";
+import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
 let feed: NotificationFeed;
@@ -31,6 +31,8 @@ test.before(async () => {
   for (const [id, name] of [[ids.cabinet, "One"], [ids.other, "Two"]] as const)
     await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, $3, 'standalone', 'active')", [id, ids.site, name]);
   await db.app.query("INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'admin', 'Admin', 'admin', 'x'), ($2, 'tier1', 'Tier One', 'tier1', 'x')", [ids.admin, ids.tier1]);
+  // The test brings its own issue type, so it does not depend on seed data.
+  await asOwner(db, c => c.query("IF NOT EXISTS (SELECT 1 FROM issue_types WHERE id = $1) INSERT INTO issue_types (id, name, severity, description, built_in) VALUES ($1, 'Drive', 'major', 'x', 1)", [MAJOR_ISSUE]));
   feed = new NotificationFeed(db.app, 25);
   for (const channel of ["cabinet_commands", "command_results", "alerts", "custom"]) {
     received[channel] = [];
@@ -43,7 +45,7 @@ test.after(async () => { feed.stop(); await db.drop(); });
 const insertCommand = async (cabinetId: string, issuedBy: string): Promise<string> => {
   const id = randomUUID();
   await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
-                      VALUES ($1, $2, 'system.info', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'pending')`, [id, cabinetId, issuedBy]);
+                      VALUES ($1, $2, 'system.info', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'queued')`, [id, cabinetId, issuedBy]);
   return id;
 };
 
