@@ -216,21 +216,19 @@ jobs:
         # One step: the Windows runner ends processes a step started when that step finishes, server included.
         shell: pwsh
         run: |
-          $pg = Get-Service -Name postgresql*
-          # The runner ships PostgreSQL disabled; it must be enabled before it can start.
-          Set-Service -InputObject $pg -StartupType Automatic -Status Running
-          for ($i = 0; $i -lt 30; $i++) { & (Join-Path $env:PGBIN 'pg_isready.exe') -h localhost; if ($LASTEXITCODE -eq 0) { break }; Start-Sleep 1 }
-          $psql = Join-Path $env:PGBIN 'psql.exe'
-          $env:PGPASSWORD = 'root'
-          & $psql -U postgres -c 'CREATE DATABASE cabinet'
+          # SQL Server Express (see deploy/ci/windows-sqlserver.ps1; not yet proven on a real runner).
+          $ownerUrl = (& deploy/ci/windows-sqlserver.ps1 -SaPassword 'Ci-only-not-a-secret-1' | Select-Object -Last 1)
+          "DATABASE_OWNER_URL=$ownerUrl" | Out-File -Append $env:GITHUB_ENV
           Push-Location contracts; npm ci --ignore-scripts; Pop-Location
           Push-Location server; npm ci --ignore-scripts; npm run build; Pop-Location
-          $env:DATABASE_OWNER_URL = 'postgres://postgres:root@localhost:5432/cabinet'
+          $env:DATABASE_OWNER_URL = $ownerUrl
+          node deploy/database-setup.mjs create
           node server/dist/src/cli.js migrate
-          & $psql -U postgres -d cabinet -c "CREATE ROLE cabinet_app_ci LOGIN PASSWORD 'ci-only-not-a-secret'; GRANT cabinet_app TO cabinet_app_ci;"
-          "DATABASE_URL=postgres://cabinet_app_ci:ci-only-not-a-secret@localhost:5432/cabinet" | Out-File -Append $env:GITHUB_ENV
+          $env:APP_DB_PASSWORD = 'CiOnlyNotASecret0123456789Aa1'
+          node deploy/database-setup.mjs login
+          "DATABASE_URL=sqlserver://cabinet_app_login:CiOnlyNotASecret0123456789Aa1@localhost:1433/cabinet?trustServerCertificate=true" | Out-File -Append $env:GITHUB_ENV
           "DEV_PKI_DIR=$env:RUNNER_TEMP\dev-pki" | Out-File -Append $env:GITHUB_ENV
-          $env:DATABASE_URL = 'postgres://cabinet_app_ci:ci-only-not-a-secret@localhost:5432/cabinet'
+          $env:DATABASE_URL = 'sqlserver://cabinet_app_login:CiOnlyNotASecret0123456789Aa1@localhost:1433/cabinet?trustServerCertificate=true'
           $env:DEV_PKI_DIR = "$env:RUNNER_TEMP\dev-pki"
           $env:AGENT_API_PORT = '8443'
           $env:AGENT_API_HOSTNAMES = 'localhost'
@@ -292,7 +290,7 @@ jobs:
           $cli = 'server/dist/src/cli.js'
           node $cli user add --username ci.tier2 --name "CI Tier 2" --role tier2 | Out-Null
           node $cli user add --username ci.admin2 --name "CI Second Admin" --role admin | Out-Null
-          $sql = { param($q) (& $psql -U postgres -d cabinet -tAc $q).Trim() }
+          $sql = { param($q) (node deploy/sql-query.mjs $q | Out-String).Trim() }
 
           Write-Host 'The server checks real files: a driver signed through Microsoft and a Microsoft MSI pass; tampered, impostor and unsigned ones are refused.'
           foreach ($f in @(@('oem-driver.zip', 'driver', 'accepted'), @('microsoft.msi', 'msi', 'accepted'), @('tampered-driver.zip', 'driver', 'refused  signature_invalid'),
@@ -302,14 +300,14 @@ jobs:
             if (-not "$out".StartsWith($f[2])) { throw "The server's check of $($f[0]) should give '$($f[2])'." }
           }
 
-          $firewallAlerts = (& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.key = 'firewall'")
+          $firewallAlerts = (& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.[key] = 'firewall'")
           Write-Host 'A firewall rule through the platform: created, kept because the result was delivered, attributed to its command, then deleted.'
           $id = (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"create","rule":{"name":"MashuraDiag CI 9","direction":"out","action":"block","protocol":"tcp","remotePorts":[{"from":9,"to":9}],"remoteAddresses":["203.0.113.9"],"profiles":["domain","private","public"],"enabled":true}}' --as ci.tier2 --write | Select-Object -Last 1).Trim()
           Expect (Wait-Command $id) 'succeeded'
           if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The rule is not in Windows Firewall.' }
           for ($i = 0; $i -lt 45 -and (& $sql "SELECT count(*) FROM firewall_changes WHERE command_id = '$id' AND event_id IS NOT NULL") -ne '1'; $i++) { Start-Sleep 2 }
           if ((& $sql "SELECT count(*) FROM firewall_changes WHERE command_id = '$id' AND event_id IS NOT NULL") -ne '1') { throw 'The change was not attributed to its command.' }
-          if ((& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.key = 'firewall'") -ne $firewallAlerts) { throw 'A platform change raised an unexpected-change alert.' }
+          if ((& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.[key] = 'firewall'") -ne $firewallAlerts) { throw 'A platform change raised an unexpected-change alert.' }
           Start-Sleep 125
           if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The confirmed rule was rolled back.' }
           Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"delete","ruleName":"MashuraDiag CI 9"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
@@ -364,7 +362,7 @@ jobs:
             $hash = (Get-FileHash "$env:PACKAGE_FIXTURES\$($bad[0])" -Algorithm SHA256).Hash.ToLower()
             Copy-Item "$env:PACKAGE_FIXTURES\$($bad[0])" "$data\$hash.pkg" -Force
             $forced = [guid]::NewGuid().ToString()
-            & $psql -U postgres -d cabinet -c "INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at) SELECT '$forced', 'Forced $($bad[0])', '1', 'x', 'driver', 'approved', '$hash', 1, 'forced', a.id, b.id, now() FROM users a, users b WHERE a.username = 'ci.admin' AND b.username = 'ci.admin2'" | Out-Null
+            node deploy/sql-query.mjs "INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at) SELECT '$forced', 'Forced $($bad[0])', '1', 'x', 'driver', 'approved', '$hash', 1, 'forced', a.id, b.id, SYSUTCDATETIME() FROM users a, users b WHERE a.username = 'ci.admin' AND b.username = 'ci.admin2'" | Out-Null
             Write-Host "  $($bad[0])"
             Expect (Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$forced`",`"packageType`":`"driver`",`"sha256`":`"$hash`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'rejected' $bad[1]
           }
@@ -373,7 +371,7 @@ jobs:
           Expect (Wait-Command (node $cli issue $env:CABINET_ID driver.uninstall '{"publishedName":"oem9999.inf"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'failed' 'not_found'
           # Every write command the server sent has its command.write entry, by the person who issued it (the harness's local writes never touch the server).
           $writes = & $sql "SELECT count(*) FROM commands WHERE operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall')"
-          $missing = & $sql "SELECT count(*) FROM commands c WHERE c.operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall') AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'command.write' AND a.details->>'commandId' = c.id::text AND a.actor_id = c.issued_by::text)"
+          $missing = & $sql "SELECT count(*) FROM commands c WHERE c.operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall') AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'command.write' AND JSON_VALUE(a.details, '$.commandId') = CONVERT(nvarchar(36), c.id) AND a.actor_id = CONVERT(nvarchar(36), c.issued_by))"
           Write-Host "Write commands: $writes; without their audit entry: $missing"
           if ([int]$writes -lt 10 -or [int]$missing -ne 0) { throw 'Not every write is in the audit log.' }
 
@@ -522,7 +520,7 @@ jobs:
           $bytes = [IO.File]::ReadAllBytes($harness); $mid = [int]($bytes.Length / 2); $bytes[$mid] = $bytes[$mid] -bxor 0xFF; [IO.File]::WriteAllBytes($harness, $bytes)
           Restart-Service CabinetAgentNetwork
           $alert = $null
-          for ($i = 0; $i -lt 60 -and -not $alert; $i++) { Start-Sleep 2; $alert = & (Join-Path $env:PGBIN 'psql.exe') -U postgres -d cabinet -tAc "SELECT title FROM security_alerts WHERE kind = 'agent_self_check' AND cabinet_id = '$cabinetId'" }
+          for ($i = 0; $i -lt 60 -and -not $alert; $i++) { Start-Sleep 2; $alert = node deploy/sql-query.mjs "SELECT title FROM security_alerts WHERE kind = 'agent_self_check' AND cabinet_id = '$cabinetId'" }
           Select-String "$log\network.log" -Pattern 'Self-check FAILED' -SimpleMatch | ForEach-Object { Write-Host "  $($_.Line)" }
           if (-not $alert) { Logs; throw 'The self-check failure did not reach the server.' }
           Write-Host "  Security alert: $alert"
