@@ -21,7 +21,7 @@ jobs:
     env:
       TEST_DATABASE_ADMIN_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/postgres
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -90,7 +90,7 @@ jobs:
   agent-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: actions/setup-dotnet@v4
