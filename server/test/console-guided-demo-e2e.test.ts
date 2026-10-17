@@ -119,7 +119,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     // The demo can be run as often as wanted: writes to simulated cabinets never count toward the hourly limit or pause anyone.
     await db.app.query("UPDATE users SET write_limit = 1 WHERE id = $1", [adminId]);
     await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
-                        SELECT gen_random_uuid(), k.id, 'firewall.setProfile', '{}'::jsonb, $1, now(), now() + interval '5 minutes', 'succeeded' FROM cabinets k, generate_series(1, 3) WHERE k.name = 'Midtown Sync'`, [adminId]);
+                        SELECT NEWID(), k.id, 'firewall.setProfile', '{}', $1, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'succeeded' FROM cabinets k CROSS JOIN (VALUES (1), (2), (3)) g(n) WHERE k.name = 'Midtown Sync'`, [adminId]);
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the fix to be applied");
     await clickOutlined('[data-tour="fix-apply_policy"]');
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();

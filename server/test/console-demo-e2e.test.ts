@@ -344,7 +344,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // Packets and path: every target is traced and pinged 20 times; the table gives loss, round trips and the hop where the path degrades.
     // A different cabinet from the one the live check just used, so the per-cabinet limit on network tests is not in the way.
-    const other = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE id <> $1 AND demo_scenario = 'healthy' ORDER BY name LIMIT 1", [exam])).rows[0]!.id;
+    const other = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE id <> $1 AND demo_scenario = 'healthy' ORDER BY name", [exam])).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${other}/network`);
     await page.getByRole("button", { name: "Trace and ping" }).click();
     await page.getByRole("table", { name: /^gateway/ }).waitFor({ timeout: 60_000 }).catch(async e => {
@@ -356,7 +356,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     // Cash drawer: the drawer link is found among the adapters (unidentified network, fixed address), its settings and packet counters are
     // checked over two readings, and the firewall state is reported.
     const withDrawer = (await db.app.query<{ id: string }>(
-      `SELECT k.id FROM cabinets k WHERE k.demo_scenario = 'healthy' AND (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) % 3 = 0 ORDER BY k.name LIMIT 1`)).rows[0]!.id;
+      `SELECT TOP (1) k.id FROM cabinets k WHERE k.demo_scenario = 'healthy' AND (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) % 3 = 0 ORDER BY k.name`)).rows[0]!.id;
     await page.goto(`${origin}/cabinets/${withDrawer}/network`);
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("table", { name: "Drawer check" }).waitFor({ timeout: 60_000 });

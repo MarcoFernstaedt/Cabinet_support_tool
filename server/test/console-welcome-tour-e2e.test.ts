@@ -97,7 +97,7 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     assert.deepEqual(full.slice(full.indexOf("A cabinet") + 1).filter(t => TABS.includes(t)), TABS, "in the order the tabs are shown");
 
     // 3. The short version, left early with Escape, counts as seen.
-    await c.db.app.query("UPDATE users SET tour_completed = false WHERE username = 'ada.admin'");
+    await c.db.app.query("UPDATE users SET tour_completed = 0 WHERE username = 'ada.admin'");
     await page.goto(`${c.origin}/`);
     const card = page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" });
     await card.getByRole("button", { name: "Short version" }).click();
