@@ -4,6 +4,7 @@
 // starts once this one has answered), records each cabinet's result, then verifies it from the cabinet's next report:
 // a change that cannot be seen is "not verified", never counted as done. Confirmed with the password, bound to the exact
 // operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
+import { parseJson } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { catalog, operations } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
@@ -327,14 +328,15 @@ async function networkVerified(pool: Pool, creator: { userId: string; role: Role
 
 async function verified(db: Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
   if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") return networkVerified(db, creator, operation, a);
-  const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: Record<string, boolean> | null }>(
+  const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: string | null }>(
     "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS [last], firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
   // Only a report made after the change counts.
   if (!k?.last || k.last.getTime() < a.at.getTime()) return false;
   if (operation === "time.setZone") return k.zone === a.params.timeZoneId;
   if (operation === "time.sync") return k.skew !== null && Math.abs(k.skew) <= CLOCK_TOLERANCE_SECONDS;
   const want = a.params.profiles as Record<string, boolean>;
-  return !!k.profiles && ["domain", "private", "public"].every(p => k.profiles![p] === want[p]);
+  const have = parseJson<Record<string, boolean>>(k.profiles);
+  return !!have && ["domain", "private", "public"].every(p => have[p] === want[p]);
 }
 
 const setTarget = (db: Queryable, jobId: string, cabinetId: string, state: string, detail: string) =>

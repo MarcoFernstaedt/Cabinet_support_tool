@@ -60,7 +60,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
     hostname: "CAB-ICU", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 10", agentVersion: "0.4.0" } }, "127.0.0.1");
   const { cabinetId } = await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU cabinet", role: "standalone" }, adaId);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now(), read_only = false");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0");
 
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
@@ -157,7 +157,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await ada.getByText(/Changes to cabinets are paused fleet-wide\..*Investigating a security alert/).waitFor();
     await a11y(ada, "fleet safety");
     await shot(ada, "m6-4-paused");
-    assert.equal((await db.app.query("SELECT value->>'paused' AS p FROM settings WHERE key = 'writes.paused'")).rows[0].p, "true");
+    assert.equal((await db.app.query("SELECT JSON_VALUE([value], '$.paused') AS p FROM settings WHERE [key] = 'writes.paused'")).rows[0].p, "true");
 
     // ---- A security alert for every trigger -------------------------------------------------------
     await goto("/admin/security");
@@ -193,12 +193,12 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await away.getByLabel(/6-digit code/).waitFor();
     // 4. Unusual write volume (Tess goes over a limit of 1; resumed afterwards so the pause above is the only one).
     await db.app.query("UPDATE users SET write_limit = 1 WHERE id = $1", [tessId]);
-    await db.app.query("DELETE FROM settings WHERE key = 'writes.paused'");
+    await db.app.query("DELETE FROM settings WHERE [key] = 'writes.paused'");
     for (let i = 0; i < 2; i++)
       await issueCommand(db.app, tessId, cabinetId, "network.setDns", { interfaceIndex: 12, mode: "automatic" }, "command.issue",
         { stepUpToken: await issueStepUpToken(db.app, tessId, "network.setDns", cabinetId, paramsHash({ interfaceIndex: 12, mode: "automatic" })) }).catch(() => undefined);
     // 5. An audit chain break, found by Ada's check in the console.
-    const seq = (await db.app.query<{ seq: string }>("SELECT seq FROM audit_log ORDER BY seq LIMIT 1 OFFSET 2")).rows[0]!.seq;
+    const seq = (await db.app.query<{ seq: string }>("SELECT seq FROM audit_log ORDER BY seq OFFSET 2 ROWS FETCH NEXT 1 ROWS ONLY")).rows[0]!.seq;
     await asOwner(db, async k => {
       await k.query("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
       await k.query("UPDATE audit_log SET outcome = 'refused' WHERE seq = $1", [seq]);
@@ -214,7 +214,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     for (const errorCode of ["publisher_not_trusted", "signature_invalid"]) {
       const cmd = randomUUID();
       await asOwner(db, k => k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at)
-        VALUES ($1, $2, 'package.install', '{}', $3, now(), now() + interval '10 minutes', 'delivered', now())`, [cmd, cabinetId, adaId]));
+        VALUES ($1, $2, 'package.install', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 10, SYSUTCDATETIME()), 'delivered', SYSUTCDATETIME())`, [cmd, cabinetId, adaId]));
       await storeResult(db.app, cabinetId, { commandId: cmd, status: "rejected", startedAt: at(), finishedAt: at(), error: { code: errorCode as "signature_invalid", message: "refused by the cabinet" } });
     }
     // 9. A connection with a certificate this platform never issued.

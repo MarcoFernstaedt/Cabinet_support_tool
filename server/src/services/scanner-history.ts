@@ -20,7 +20,7 @@ const DROPS = new Set(["disconnected", "device_error", "driver_missing"]);
 export async function scannerHistory(db: Queryable, cabinetId: string, now = new Date()): Promise<ScannerHistory> {
   const from = new Date(now.getTime() - (7 * 24 + BEFORE_HOURS) * HOUR);
   const rows = (await db.query<Row>(
-    `SELECT occurred_at, kind, source, COALESCE(detail->>'message', '') AS message, device FROM events
+    `SELECT occurred_at, kind, source, COALESCE(JSON_VALUE(detail, '$.message'), '') AS message, device FROM events
       WHERE cabinet_id = $1 AND occurred_at BETWEEN $2 AND $3 AND (kind = 'scanner' OR kind = 'change') ORDER BY occurred_at`, [cabinetId, from, now])).rows;
 
   const scannerEvents = rows.filter(r => r.kind === "scanner" && r.device?.state);
