@@ -1276,7 +1276,7 @@ export interface Command {
 }
 
 /**
- * Long-poll response: waiting commands for this cabinet, or an empty list after up to 25 seconds.
+ * Long-poll response: waiting commands for this cabinet, or an empty list after up to pollSeconds (default 25). A command stays leased to the agent until the agent acknowledges it (the next poll's ack list) or posts its result; one not acknowledged within 30 seconds is offered again, and the agent answers a repeat from its own result store.
  */
 export interface CommandsResponse {
   /**
@@ -1287,6 +1287,14 @@ export interface CommandsResponse {
    * @maxItems 50
    */
   commands: Command[];
+  /**
+   * How long the server holds the next poll, chosen by the server (load, NAT behaviour). The agent uses its default (25) when absent.
+   */
+  pollSeconds?: number;
+  /**
+   * The server is shutting down or shedding load: wait this long (already randomised by the server) before the next request.
+   */
+  reconnectAfterMs?: number;
 }
 
 /**
@@ -1485,6 +1493,23 @@ export interface HeartbeatResponse {
    */
   watchedServices?: {
     names: WatchedServiceNames;
+  };
+  /**
+   * Server-directed pacing. The server raises these under load or for cabinets on poor links; the agent clamps them to the given ranges and uses its defaults when absent.
+   */
+  intervals?: {
+    /**
+     * Seconds between heartbeats (presence also comes from the long poll).
+     */
+    heartbeatSeconds?: number;
+    /**
+     * How long a long poll is held.
+     */
+    pollSeconds?: number;
+    /**
+     * Pause between event batches while draining a backlog.
+     */
+    eventsPaceMs?: number;
   };
 }
 

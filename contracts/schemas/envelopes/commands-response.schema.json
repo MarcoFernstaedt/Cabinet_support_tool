@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/commands-response.schema.json",
   "title": "commands-response",
-  "description": "Long-poll response: waiting commands for this cabinet, or an empty list after up to 25 seconds.",
+  "description": "Long-poll response: waiting commands for this cabinet, or an empty list after up to pollSeconds (default 25). A command stays leased to the agent until the agent acknowledges it (the next poll's ack list) or posts its result; one not acknowledged within 30 seconds is offered again, and the agent answers a repeat from its own result store.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -15,6 +15,18 @@
       "items": {
         "$ref": "command.schema.json"
       }
+    },
+    "pollSeconds": {
+      "description": "How long the server holds the next poll, chosen by the server (load, NAT behaviour). The agent uses its default (25) when absent.",
+      "type": "integer",
+      "minimum": 15,
+      "maximum": 110
+    },
+    "reconnectAfterMs": {
+      "description": "The server is shutting down or shedding load: wait this long (already randomised by the server) before the next request.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 600000
     }
   },
   "required": [

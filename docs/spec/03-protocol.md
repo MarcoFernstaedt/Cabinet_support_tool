@@ -68,3 +68,16 @@ Security events cover a failed self-check of the agent's own files, a refused pa
 
 - Network failures: the agent retries with exponential backoff, capped at 5 minutes between attempts, with random jitter so 8,000 agents do not reconnect at the same instant.
 - Commands arriving after expiry are rejected, not run late.
+
+## Protocol 1.1: delivery, pacing and bad networks (October 2026)
+
+Added after the scale and resilience review (docs/platform/reviews.md). Backward compatible: every new field is optional, and an agent or server that ignores them behaves as 1.0.
+
+- **One connection per agent.** The agent keeps one long-lived TLS connection (HTTP/2 where the server offers it, otherwise HTTP/1.1 keep-alive with TCP keepalives every 20 s), so polls, heartbeats, events and results share it and a full TLS handshake happens about once a day instead of on most requests.
+- **Leased command delivery.** `GET /agent/v1/commands?ack=<id>,<id>` acknowledges commands the agent received on the previous poll. A command handed to a poll is leased for 30 seconds; if neither the acknowledgement nor its result arrives, the next poll offers it again (the agent's replay store and result outbox make a repeat harmless: it answers with the stored result). A command is never lost to a poll whose answer went into a dead connection.
+- **Durable results.** The agent writes each result to an on-disk outbox before posting it, posts it from its own loop until the server accepts it (409 means already stored), and keeps polling while a long command runs.
+- **Presence.** A poll or a heartbeat counts as contact; the server records contact in memory and writes it in one batched statement a minute. A cabinet with no contact for 5 minutes is offline (unchanged).
+- **Server-directed pacing.** The heartbeat answer may carry `intervals` (`heartbeatSeconds` 60–900, default 300 in 1.1; `pollSeconds` 15–110; `eventsPaceMs` 0–60000) and the poll answer `pollSeconds`. Health samples stay at one per 15 minutes.
+- **Admission control.** Under load the server answers `503` (or `429` for quotas) with a randomised `Retry-After`; the agent waits at least that long. On shutdown the server ends every held poll with `reconnectAfterMs` spread over 0–60 s, so a restart does not bring every cabinet back in the same second. The agent's backoff is decorrelated jitter capped at 5 minutes, and all loops share one connectivity state.
+- **Events.** Batches are capped at 256 KB as well as 100 events, may be gzip-compressed (`Content-Encoding: gzip`, 1 MB after decompression), are halved on 413, and a batch that keeps failing sets its first event aside so one bad event cannot stall the queue. After an outage the backlog is drained at the pace the server sets. Security and agent-status events have their own queue that is never evicted, and the agent reports how many events it had to drop.
+- **Outage awareness.** After the server itself was down or unreachable, offline and site-outage judgements wait until every cabinet has had time to come back, so a server restart does not raise an alert for every site.

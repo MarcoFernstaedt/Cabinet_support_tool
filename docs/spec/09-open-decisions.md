@@ -535,3 +535,11 @@ The agent already checked each drive's own health report once a day (`disk.smart
 Decided by the owner: the platform database is Microsoft SQL Server 2022, because the owner's teams already run SQL Server and its management tools. The first milestones had used PostgreSQL; nothing was ever deployed on it, so there is no data to migrate and the schema is one consolidated baseline (`server/migrations/0001_baseline.sql`). How the code talks to it, and what differs on purpose, is in `docs/platform/sqlserver-port.md`.
 
 Open: the edition (Express is free to 10 GB and fits a small deployment; Standard or Enterprise for more or for high availability), and backups for a managed deployment (the compose kit documents a BACKUP DATABASE routine; a production install should use the owner's existing backup tooling).
+
+## Agent communication cadence (October 2026)
+
+The owner asked for the cheapest communication that still delivers commands within seconds and detects offline cabinets within about 5 minutes. Protocol 1.1 (03-protocol.md) keeps the 25-second long poll as presence and NAT keepalive, moves the heartbeat to every 5 minutes by default (server-directed), and adds leased delivery, durable results, admission control and paced catch-up. Still open:
+
+- **Outbound proxies.** Some clinics may require one. Proposal: an explicit proxy setting in the agent's configuration (HTTP CONNECT only, no automatic discovery), with mutual TLS end to end through the tunnel. Not built until a clinic needs it.
+- **A cabinet clock that is far off** (a dead CMOS battery) fails certificate validation, so the agent can never report it. Proposal: tolerate a not-yet-valid or expired server certificate only to send a time report, never commands. A security decision; not built.
+- **Certificates of cabinets switched off for over 60 days** expire and need a new bootstrap token. The server now raises an alert a week before an unrenewed certificate expires.

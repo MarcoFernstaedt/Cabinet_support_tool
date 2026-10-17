@@ -64,6 +64,31 @@
           "$ref": "../common.schema.json#/$defs/watchedServiceNames"
         }
       }
+    },
+    "intervals": {
+      "description": "Server-directed pacing. The server raises these under load or for cabinets on poor links; the agent clamps them to the given ranges and uses its defaults when absent.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "heartbeatSeconds": {
+          "description": "Seconds between heartbeats (presence also comes from the long poll).",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 900
+        },
+        "pollSeconds": {
+          "description": "How long a long poll is held.",
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 110
+        },
+        "eventsPaceMs": {
+          "description": "Pause between event batches while draining a backlog.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        }
+      }
     }
   }
 }
