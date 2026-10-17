@@ -28,14 +28,14 @@ test.before(async () => {
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
   const owner = randomUUID();
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
 async function issue(user: string, cabinet: string, operation: string, params: object, status = "succeeded", minutesAgo = 5, result: object | null = null) {
-  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result)
-                      VALUES ($1, $2, $3, $4, $5, now() - make_interval(mins => $6), now() + interval '1 hour', $7, $8)`,
+  await db.app.query<any>(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result)
+                      VALUES ($1, $2, $3, $4, $5, DATEADD(minute, -$6, SYSUTCDATETIME()), DATEADD(hour, 1, SYSUTCDATETIME()), $7, $8)`,
     [randomUUID(), cabinet, operation, JSON.stringify(params), user, minutesAgo, status, result ? JSON.stringify(result) : null]);
 }
 
@@ -50,8 +50,8 @@ test("the report lists changes, what was checked, alerts and saved fixes, and no
   await issue(me.id, exam, "service.control", { name: "BioScanSvc", action: "restart" }, "failed", 2, { error: { code: "execution_failed" } });
   await issue(them.id, exam, "network.setDns", { interfaceIndex: 12, mode: "static", servers: ["8.8.8.8"] });
   await issue(them.id, other, "time.sync", {});
-  const alert = (await db.app.query<{ id: string }>("SELECT id FROM alerts WHERE cabinet_id = $1 AND state <> 'resolved' LIMIT 1", [exam])).rows[0];
-  if (alert) await db.app.query("UPDATE alerts SET state = 'resolved', resolved_by = $2, resolved_at = now(), resolution = 'Swapped the patch cable' WHERE id = $1", [alert.id, me.id]);
+  const alert = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM alerts WHERE cabinet_id = $1 AND state <> 'resolved'", [exam])).rows[0];
+  if (alert) await db.app.query<any>("UPDATE alerts SET state = 'resolved', resolved_by = $2, resolved_at = SYSUTCDATETIME(), resolution = 'Swapped the patch cable' WHERE id = $1", [alert.id, me.id]);
 
   const r = await h.call("GET", `/api/reports/activity?cabinetId=${exam}&hours=8`, undefined, me);
   assert.equal(r.status, 200, JSON.stringify(r.body));

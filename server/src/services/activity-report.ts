@@ -1,7 +1,6 @@
 // What a person did on cabinets, written as case notes to paste into a ticket: the changes they made, what they checked, the alerts they
 // resolved and the fixes they saved. Nothing else: no page views, no log contents, no raw parameters. Always the caller's own activity.
-import type pg from "pg";
-import { audit } from "../db/db.js";
+import { audit, type Pool } from "../db/db.js";
 import type { SessionUser } from "../auth/sessions.js";
 
 type Row = { cabinet_id: string; cabinet: string; site: string; client: string; operation: string; params: Record<string, unknown>; status: string; issued_at: Date; error_code: string | null };
@@ -49,24 +48,26 @@ const hhmm = (d: Date) => d.toISOString().slice(11, 16);
 
 export interface ActivityReport { text: string; changes: number; checks: number; alerts: number; fixes: number; from: string; to: string }
 
-export async function activityReport(pool: pg.Pool, user: SessionUser, q: { cabinetId?: string; hours: number }, now = new Date()): Promise<ActivityReport> {
+export async function activityReport(pool: Pool, user: SessionUser, q: { cabinetId?: string; hours: number }, now = new Date()): Promise<ActivityReport> {
   const from = new Date(now.getTime() - q.hours * 3_600_000);
   const scope = q.cabinetId ? "AND c.cabinet_id = $4" : "";
   const params: unknown[] = [user.userId, from, now, ...(q.cabinetId ? [q.cabinetId] : [])];
   const commands = (await pool.query<Row>(
-    `SELECT c.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, c.operation, c.params, c.status, c.issued_at, c.result->'error'->>'code' AS error_code
+    `SELECT TOP (5000) c.cabinet_id, k.name AS cabinet, s.name AS site, cl.name AS client, c.operation, c.params, c.status, c.issued_at, JSON_VALUE(c.result, '$.error.code') AS error_code
        FROM commands c JOIN cabinets k ON k.id = c.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE c.issued_by = $1 AND c.issued_at >= $2 AND c.issued_at <= $3 ${scope} ORDER BY c.issued_at LIMIT 5000`, params)).rows;
-  const packageIds = [...new Set(commands.filter(c => c.operation === "package.install").map(c => String(c.params.packageId ?? "")))].filter(x => /^[0-9a-f-]{36}$/i.test(x));
+      WHERE c.issued_by = $1 AND c.issued_at >= $2 AND c.issued_at <= $3 ${scope} ORDER BY c.issued_at`, params)).rows;
+  // Only well-formed GUIDs go to the database (a command's parameters are checked when it is issued, but this is the last line of defence).
+  const packageIds = [...new Set(commands.filter(c => c.operation === "package.install").map(c => String(c.params.packageId ?? "").toLowerCase()))]
+    .filter(x => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(x));
   const packages = new Map<string, string>();
-  if (packageIds.length) for (const r of (await pool.query<{ id: string; name: string; version: string }>("SELECT id, name, version FROM packages WHERE id = ANY($1::uuid[])", [packageIds])).rows) packages.set(r.id, clip(`${r.name} ${r.version}`, 200));
+  if (packageIds.length) for (const r of (await pool.query<{ id: string; name: string; version: string }>("SELECT id, name, version FROM packages WHERE id IN (SELECT CAST([value] AS uniqueidentifier) FROM OPENJSON($1))", [packageIds])).rows) packages.set(r.id, clip(`${r.name} ${r.version}`, 200));
   const alerts = (await pool.query<{ cabinet_id: string; cabinet: string; title: string; resolution: string | null; at: Date; kind: string }>(
-    `SELECT a.cabinet_id, k.name AS cabinet, a.title, a.resolution, COALESCE(a.resolved_at, a.claimed_at) AS at, CASE WHEN a.resolved_by = $1 THEN 'resolved' ELSE 'claimed' END AS kind
+    `SELECT a.cabinet_id, k.name AS cabinet, a.title, a.resolution, COALESCE(a.resolved_at, a.claimed_at) AS [at], CASE WHEN a.resolved_by = $1 THEN 'resolved' ELSE 'claimed' END AS kind
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
       WHERE ((a.resolved_by = $1 AND a.resolved_at BETWEEN $2 AND $3) OR (a.claimed_by = $1 AND a.state = 'claimed' AND a.claimed_at BETWEEN $2 AND $3)) ${q.cabinetId ? "AND a.cabinet_id = $4" : ""}
-      ORDER BY at`, params)).rows;
+      ORDER BY [at]`, params)).rows;
   const fixes = (await pool.query<{ title: string; solution: string; status: string; at: Date; cabinet_id: string | null; cabinet: string | null }>(
-    `SELECT f.title, f.solution, f.status, f.created_at AS at, f.cabinet_id, k.name AS cabinet FROM known_fixes f LEFT JOIN cabinets k ON k.id = f.cabinet_id
+    `SELECT f.title, f.solution, f.status, f.created_at AS [at], f.cabinet_id, k.name AS cabinet FROM known_fixes f LEFT JOIN cabinets k ON k.id = f.cabinet_id
       WHERE f.created_by = $1 AND f.created_at BETWEEN $2 AND $3 AND f.removed_at IS NULL ${q.cabinetId ? "AND f.cabinet_id = $4" : ""} ORDER BY f.created_at`, params)).rows;
 
   const writes = commands.filter(c => !(c.operation in CHECKED));
@@ -84,7 +85,7 @@ export async function activityReport(pool: pg.Pool, user: SessionUser, q: { cabi
     const changes = writes.filter(c => c.cabinet_id === id);
     if (changes.length) {
       lines.push("  Changes:");
-      for (const c of changes) lines.push(`  - ${hhmm(c.issued_at)} ${describeChange(c.operation, c.params, packages.get(String(c.params.packageId ?? "")))}: ${OUTCOME[c.status] ?? c.status}${c.status === "failed" && c.error_code ? ` (${clip(c.error_code, 40)})` : ""}`);
+      for (const c of changes) lines.push(`  - ${hhmm(c.issued_at)} ${describeChange(c.operation, c.params, packages.get(String(c.params.packageId ?? "").toLowerCase()))}: ${OUTCOME[c.status] ?? c.status}${c.status === "failed" && c.error_code ? ` (${clip(c.error_code, 40)})` : ""}`);
     }
     for (const a of alerts.filter(x => x.cabinet_id === id)) lines.push(`  ${a.kind === "resolved" ? "Resolved" : "Working on"} alert: ${clip(a.title, 120)}${a.resolution ? ` (${clip(a.resolution, 400)})` : ""}`);
     for (const f of fixes.filter(x => x.cabinet_id === id)) lines.push(`  Saved fix: ${clip(f.title, 120)}: ${clip(f.solution, 400)}${f.status === "pending" ? " (waiting for approval)" : ""}`);

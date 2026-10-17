@@ -1,7 +1,7 @@
 // Which browser a sign-in came from. The first time an account signs in from a browser, the server gives it a random device value in a
 // cookie and keeps only its hash; a later sign-in with a value the account has not used is a "new device", shown to the person and to Admins.
 import { createHash, randomBytes } from "node:crypto";
-import type { Queryable } from "../db/db.js";
+import { isUniqueViolation, type Queryable } from "../db/db.js";
 import { networkOf, raiseSecurityAlert } from "../services/security.js";
 
 export const DEVICE_MAX_AGE_SECONDS = 400 * 24 * 3600;
@@ -29,10 +29,15 @@ export async function recordSignIn(db: Queryable, a: { userId: string; username:
   const label = deviceLabel(a.userAgent);
   const value = a.deviceCookie && DEVICE_VALUE.test(a.deviceCookie) ? a.deviceCookie : randomBytes(32).toString("base64url");
   const knownNetworks = (await db.query<{ network: string }>("SELECT network FROM user_networks WHERE user_id = $1", [a.userId])).rows;
-  const knownDevices = Number((await db.query<{ n: string }>("SELECT count(*) AS n FROM user_devices WHERE user_id = $1", [a.userId])).rows[0]!.n);
-  const seen = (await db.query("UPDATE user_devices SET last_seen = now() WHERE user_id = $1 AND device_hash = $2", [a.userId, hashDevice(value)])).rowCount === 1;
-  if (!seen) await db.query("INSERT INTO user_devices (user_id, device_hash, label) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [a.userId, hashDevice(value), label]);
-  await db.query(`INSERT INTO user_networks (user_id, network) VALUES ($1, $2) ON CONFLICT (user_id, network) DO UPDATE SET last_seen = now()`, [a.userId, network]);
+  const knownDevices = Number((await db.query<{ n: string }>("SELECT COUNT(*) AS n FROM user_devices WHERE user_id = $1", [a.userId])).rows[0]!.n);
+  const seen = (await db.query("UPDATE user_devices SET last_seen = SYSUTCDATETIME() WHERE user_id = $1 AND device_hash = $2", [a.userId, hashDevice(value)])).rowCount >= 1;
+  // Two sign-ins racing with a new device both insert it at most once (the MERGE holds the key range); a unique rule, if the schema has one, is the second guard.
+  if (!seen)
+    await db.query(`MERGE user_devices WITH (HOLDLOCK) AS t USING (SELECT CAST($1 AS uniqueidentifier) AS user_id, $2 AS device_hash) AS s ON t.user_id = s.user_id AND t.device_hash = s.device_hash
+                    WHEN NOT MATCHED THEN INSERT (user_id, device_hash, label) VALUES (s.user_id, s.device_hash, $3);`, [a.userId, hashDevice(value), label]).catch(e => { if (!isUniqueViolation(e)) throw e; });
+  await db.query(`MERGE user_networks WITH (HOLDLOCK) AS t USING (SELECT CAST($1 AS uniqueidentifier) AS user_id, $2 AS network) AS s ON t.user_id = s.user_id AND t.network = s.network
+                  WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
+                  WHEN NOT MATCHED THEN INSERT (user_id, network) VALUES (s.user_id, s.network);`, [a.userId, network]).catch(e => { if (!isUniqueViolation(e)) throw e; });
   const newNetwork = knownNetworks.length > 0 && !knownNetworks.some(k => k.network === network);
   const newDevice = knownDevices > 0 && !seen;
   if (newNetwork)
@@ -42,7 +47,7 @@ export async function recordSignIn(db: Queryable, a: { userId: string; username:
     await raiseSecurityAlert(db, { kind: "new_device", signature: `new_device|${a.userId}|${hashDevice(value).toString("hex").slice(0, 16)}`, userId: a.userId,
       title: `${a.username} signed in from a device not used before (${label})`, detail: { device: label, network, address: a.address } });
   const id = (await db.query<{ id: string }>(
-    "INSERT INTO sign_ins (user_id, address, network, device_label, new_network, new_device) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+    "INSERT INTO sign_ins (user_id, address, network, device_label, new_network, new_device) OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6)",
     [a.userId, a.address.slice(0, 64), network, label, newNetwork, newDevice])).rows[0]!.id;
   return { signInId: Number(id), deviceValue: value, newNetwork, newDevice };
 }

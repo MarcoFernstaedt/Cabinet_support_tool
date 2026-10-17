@@ -3,13 +3,13 @@
 // Cabinets report their profiles with every heartbeat; one that differs gets a minor alert that closes once it
 // matches again. A person applies the policy, to one cabinet with a click or to a site or client with the password.
 import { randomUUID } from "node:crypto";
-import type pg from "pg";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { catalog } from "../contracts.js";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
+import { parseJson, upsertSetting } from "./settings.js";
 import { fleetPause, WRITE_OPERATIONS, WriteLimitReached } from "./writes.js";
 
 export type Switch = "on" | "off";
@@ -27,27 +27,31 @@ const isPolicy = (v: unknown): v is FirewallPolicy =>
   typeof v === "object" && v !== null && PROFILES.every(k => (v as Record<string, unknown>)[k] === "on" || (v as Record<string, unknown>)[k] === "off");
 
 export async function fleetPolicy(db: Queryable): Promise<FirewallPolicy> {
-  const v = (await db.query<{ value: unknown }>("SELECT value FROM settings WHERE key = 'firewall.policy'")).rows[0]?.value;
+  const v = (await db.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = 'firewall.policy'")).rows[0]?.value;
   return isPolicy(v) ? v : DEFAULT_POLICY;
 }
 
 /** The policy that applies to one cabinet, where it comes from, and the profiles the cabinet last reported. */
 export async function cabinetPolicy(db: Queryable, cabinetId: string) {
-  const r = (await db.query<{ client_id: string; client_policy: unknown; firewall_profiles: ProfileSwitches | null; read_only: boolean | null }>(
+  const r = (await db.query<{ client_id: string; client_policy: string | null; firewall_profiles: ProfileSwitches | null; read_only: boolean | null }>(
     `SELECT s.client_id, cl.firewall_policy AS client_policy, k.firewall_profiles, k.read_only
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!r) throw new Refused("not_found", 404, "no such cabinet");
-  const own = isPolicy(r.client_policy) ? r.client_policy : null;
+  const clientPolicy = parseJson<unknown>(r.client_policy);
+  const own = isPolicy(clientPolicy) ? clientPolicy : null;
   const policy = own ?? await fleetPolicy(db);
   return { clientId: r.client_id, policy, source: own ? "client" as const : "fleet" as const, reported: r.firewall_profiles,
     differs: r.firewall_profiles ? differs(policy, r.firewall_profiles) : null, readOnly: r.read_only };
 }
 
-/** The SQL that says whether cabinet k (joined to its client cl) differs from its policy; $1 is the fleet policy. */
-const DIFFERS_SQL = `k.firewall_profiles IS NOT NULL AND (
-     ((COALESCE(cl.firewall_policy, $1::jsonb)->>'domain') = 'on')  IS DISTINCT FROM (k.firewall_profiles->>'domain')::boolean
-  OR ((COALESCE(cl.firewall_policy, $1::jsonb)->>'private') = 'on') IS DISTINCT FROM (k.firewall_profiles->>'private')::boolean
-  OR ((COALESCE(cl.firewall_policy, $1::jsonb)->>'public') = 'on')  IS DISTINCT FROM (k.firewall_profiles->>'public')::boolean)`;
+/**
+ * The SQL that says whether cabinet k (joined to its client cl) differs from its policy; $1 is the fleet policy (JSON text).
+ * A profile the cabinet did not report as true or false counts as different, as PostgreSQL's IS DISTINCT FROM did. Only the three fixed profile names go into the text.
+ */
+const differsOn = (profile: (typeof PROFILES)[number]) =>
+  `(CASE WHEN JSON_VALUE(COALESCE(cl.firewall_policy, $1), '$.${profile}') = 'on' THEN 1 ELSE 0 END)
+     <> ISNULL(CASE JSON_VALUE(k.firewall_profiles, '$.${profile}') WHEN 'true' THEN 1 WHEN 'false' THEN 0 END, 2)`;
+const DIFFERS_SQL = `k.firewall_profiles IS NOT NULL AND (${PROFILES.map(differsOn).join("\n  OR ")})`;
 
 /**
  * Opens a minor "Firewall differs from client policy" alert for each cabinet in scope that differs, and resolves it
@@ -55,30 +59,36 @@ const DIFFERS_SQL = `k.firewall_profiles IS NOT NULL AND (
  */
 export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } | { clientId: string } | "all"): Promise<{ opened: number; resolved: number }> {
   const fleet = safeJson(await fleetPolicy(db));
-  const [where, arg] = scope === "all" ? ["true", null] : "cabinetId" in scope ? ["k.id = $2", scope.cabinetId] : ["cl.id = $2", scope.clientId];
+  const [where, arg] = scope === "all" ? ["1 = 1", null] : "cabinetId" in scope ? ["k.id = $2", scope.cabinetId] : ["cl.id = $2", scope.clientId];
   const params = arg === null ? [fleet] : [fleet, arg];
   const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [ISSUE.firewallPolicy])).rows[0];
   if (!issue) return { opened: 0, resolved: 0 };
   const n = params.length;
-  const opened = await db.query(
-    `INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
-     SELECT k.id, $${n + 1}, $${n + 2}, $${n + 3}, $${n + 4}, now(), now()
-       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE k.status = 'active' AND ${where} AND ${DIFFERS_SQL}
-     ON CONFLICT (cabinet_id, signature) WHERE state <> 'resolved' DO UPDATE SET last_seen = now()
-     RETURNING (xmax = 0) AS created`,
+  // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
+  const opened = await db.query<{ act: string }>(
+    `DECLARE @o TABLE (act nvarchar(10));
+     MERGE alerts WITH (HOLDLOCK) AS t
+     USING (SELECT k.id AS cabinet_id
+              FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+             WHERE k.status = 'active' AND ${where} AND ${DIFFERS_SQL}) AS src
+        ON t.cabinet_id = src.cabinet_id AND t.signature = $${n + 3} AND t.state <> 'resolved'
+      WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
+           VALUES (src.cabinet_id, CAST($${n + 1} AS uniqueidentifier), $${n + 2}, $${n + 3}, $${n + 4}, SYSUTCDATETIME(), SYSUTCDATETIME())
+      OUTPUT $action INTO @o (act);
+     SELECT act FROM @o;`,
     [...params, ISSUE.firewallPolicy, issue.severity, `issue:${ISSUE.firewallPolicy}`, issue.name]);
   const resolved = await db.query(
-    `UPDATE alerts a SET state = 'resolved', resolved_at = now(), resolution = 'The firewall matches the client policy again.'
-       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE a.cabinet_id = k.id AND a.issue_type_id = $${n + 1} AND a.state <> 'resolved' AND ${where}
+    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The firewall matches the client policy again.'
+       FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+      WHERE a.issue_type_id = CAST($${n + 1} AS uniqueidentifier) AND a.state <> 'resolved' AND ${where}
         AND (k.status <> 'active' OR NOT (${DIFFERS_SQL}))`,
     [...params, ISSUE.firewallPolicy]);
-  return { opened: opened.rows.filter(r => r.created).length, resolved: resolved.rowCount ?? 0 };
+  return { opened: opened.rows.filter(r => r.act === "INSERT").length, resolved: resolved.rowCount ?? 0 };
 }
 
 /** An Admin sets a client's own policy, or removes it (null) so the fleet default applies. Needs a code. */
-export async function setClientPolicy(pool: pg.Pool, adminId: string, clientId: string, policy: FirewallPolicy | null, stepUpToken: string): Promise<void> {
+export async function setClientPolicy(pool: Pool, adminId: string, clientId: string, policy: FirewallPolicy | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "client.firewall_policy", clientId);
     const r = await c.query("UPDATE clients SET firewall_policy = $2 WHERE id = $1 AND removed_at IS NULL", [clientId, policy === null ? null : safeJson(policy)]);
@@ -89,12 +99,11 @@ export async function setClientPolicy(pool: pg.Pool, adminId: string, clientId: 
 }
 
 /** An Admin sets the fleet default policy (null restores all off). Needs a code. */
-export async function setFleetPolicy(pool: pg.Pool, adminId: string, policy: FirewallPolicy | null, stepUpToken: string): Promise<void> {
+export async function setFleetPolicy(pool: Pool, adminId: string, policy: FirewallPolicy | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "fleet.firewall_policy", "fleet");
-    if (policy === null) await c.query("DELETE FROM settings WHERE key = 'firewall.policy'");
-    else await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('firewall.policy', $1, $2)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [safeJson(policy), adminId]);
+    if (policy === null) await c.query("DELETE FROM settings WHERE [key] = 'firewall.policy'");
+    else await upsertSetting(c, "firewall.policy", policy, adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "fleet.firewall_policy", outcome: "succeeded", details: { policy } });
     await evaluateDrift(c, "all");
   });
@@ -103,12 +112,13 @@ export async function setFleetPolicy(pool: pg.Pool, adminId: string, policy: Fir
 /** The cabinets of a site or client that a bulk apply would change: online, writable, reporting, and differing. */
 export async function bulkCandidates(db: Queryable, scope: "site" | "client", id: string) {
   const fleet = safeJson(await fleetPolicy(db));
-  return (await db.query<{ id: string; name: string; policy: FirewallPolicy }>(
-    `SELECT k.id, k.name, COALESCE(cl.firewall_policy, $1::jsonb) AS policy
+  // The policy column is read under the name the data layer parses (firewall_policy), then renamed.
+  return (await db.query<{ id: string; name: string; firewall_policy: FirewallPolicy }>(
+    `SELECT k.id, k.name, COALESCE(cl.firewall_policy, $1) AS firewall_policy
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE k.status = 'active' AND ${scope === "site" ? "s.id" : "cl.id"} = $2 AND k.read_only = false AND NOT cl.write_paused
-        AND k.last_heartbeat_at > now() - make_interval(secs => $3) AND ${DIFFERS_SQL}
-      ORDER BY k.name`, [fleet, id, OFFLINE_AFTER_MS / 1000])).rows;
+      WHERE k.status = 'active' AND ${scope === "site" ? "s.id" : "cl.id"} = $2 AND k.read_only = 0 AND cl.write_paused = 0
+        AND k.last_heartbeat_at > DATEADD(second, -$3, SYSUTCDATETIME()) AND ${DIFFERS_SQL}
+      ORDER BY k.name`, [fleet, id, Math.round(OFFLINE_AFTER_MS / 1000)])).rows.map(r => ({ id: r.id, name: r.name, policy: r.firewall_policy }));
 }
 
 /**
@@ -116,16 +126,16 @@ export async function bulkCandidates(db: Queryable, scope: "site" | "client", id
  * the password: the token is bound to bulk.firewall_policy on that site or client and to {scope, id}. At most 200
  * cabinets; the write pause, the person's own pause and limit apply, and the whole bulk counts as one write.
  */
-export async function bulkApply(pool: pg.Pool, userId: string, scope: "site" | "client", id: string, stepUpToken: string) {
+export async function bulkApply(pool: Pool, userId: string, scope: "site" | "client", id: string, stepUpToken: string) {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "bulk.firewall_policy", id, { scope, id });
-    await c.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`writes:${userId}`]);
+    await lock(c, `writes:${userId}`);
     if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
     const u = (await c.query<{ writes_paused: boolean; write_limit: number }>("SELECT writes_paused, write_limit FROM users WHERE id = $1 AND status = 'active'", [userId])).rows[0];
     if (!u) throw new Refused("forbidden", 403, "unknown or disabled user");
     if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
     const used = Number((await c.query<{ n: string }>(
-      "SELECT count(DISTINCT COALESCE(bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > now() - interval '1 hour' AND m.operation = ANY($2) AND t.demo_scenario IS NULL",
+      "SELECT COUNT(DISTINCT COALESCE(m.bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > DATEADD(hour, -1, SYSUTCDATETIME()) AND m.operation IN (SELECT [value] FROM OPENJSON($2)) AND t.demo_scenario IS NULL",
       [userId, WRITE_OPERATIONS])).rows[0]!.n);
     if (used >= u.write_limit) throw new WriteLimitReached();
     const targets = await bulkCandidates(c, scope, id);

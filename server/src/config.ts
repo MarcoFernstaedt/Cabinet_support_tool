@@ -3,6 +3,7 @@
 import { fileURLToPath } from "node:url";
 
 export interface Config {
+  /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
   databaseUrl: string;
   agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds: number };
   tls: { certFile?: string; keyFile?: string };
@@ -22,13 +23,20 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return v;
 }
 
+/** The database URL must be a SQL Server one. The error never repeats the URL: it holds the password. */
+export function databaseUrl(env: NodeJS.ProcessEnv, name: string): string {
+  const value = required(env, name);
+  if (!value.startsWith("sqlserver://")) throw new Error(`${name} must be a sqlserver:// URL (Microsoft SQL Server).`);
+  return value;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number(env.AGENT_API_PORT ?? "8443");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("AGENT_API_PORT must be a port number.");
   const longPollSeconds = Number(env.AGENT_LONG_POLL_SECONDS ?? "25");
   if (!(longPollSeconds >= 1 && longPollSeconds <= 25)) throw new Error("AGENT_LONG_POLL_SECONDS must be 1 to 25.");
   const config: Config = {
-    databaseUrl: required(env, "DATABASE_URL"),
+    databaseUrl: databaseUrl(env, "DATABASE_URL"),
     agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean), longPollSeconds },
     tls: {},
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },

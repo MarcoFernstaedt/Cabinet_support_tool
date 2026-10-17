@@ -3,6 +3,7 @@ import { scheduleDailyJobs } from "./services/maintenance.js";
 import { expireRules } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/db.js";
+import { NotificationFeed } from "./db/notifications.js";
 import { CommandNotifier } from "./agent-api/notifier.js";
 import { buildAgentApi } from "./agent-api/server.js";
 import { agentApiTls, issuingKey } from "./runtime.js";
@@ -21,21 +22,23 @@ import { checkQuietLoops } from "./services/crashes.js";
 import { resumeJobs } from "./services/fleet-jobs.js";
 
 const config = loadConfig();
-const pool = createPool(config.databaseUrl, 20);
+const pool = await createPool(config.databaseUrl, 20);
+// One poller of the notifications table per process; the command long poll and the consoles' live stream listen to it.
+const feed = new NotificationFeed(pool);
+await feed.start();
 const key = await issuingKey(config);
 mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
 const packages = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
 mkdirSync(config.releases.dir, { recursive: true, mode: 0o700 });
 const releases = { dir: config.releases.dir, maxBytes: config.releases.maxBytes, keys: ReleaseKeys.fromFolder(config.releases.keysDir) };
-const notifier = new CommandNotifier(config.databaseUrl);
-await notifier.start();
+const notifier = new CommandNotifier(feed);
 const app = await buildAgentApi({ pool, issuingKey: key, notifier, packages, releases, tls: await agentApiTls(config, key), longPollMs: config.agentApi.longPollSeconds * 1000 });
 await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
 
 let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
 let stream: ResultStream | null = null;
 if (config.console) {
-  stream = new ResultStream(config.databaseUrl, pool);
+  stream = new ResultStream(feed, pool);
   await stream.start();
   consoleApp = await buildConsoleApi({ pool, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
     stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
@@ -63,4 +66,4 @@ resumeJobs(pool, undefined, message => app.log.error(message)).catch(e => app.lo
 const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => { void (async () => { clearInterval(offlineJob); demo.stop(); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); await pool.end(); process.exit(0); })(); });
+  process.once(signal, () => { void (async () => { clearInterval(offlineJob); demo.stop(); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); feed.stop(); await pool.end(); process.exit(0); })(); });

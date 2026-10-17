@@ -32,7 +32,7 @@ interface Account { id: string; username: string; password: string; secret?: Buf
 async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean; mustChange?: boolean } = {}): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple" };
   const secret = (opts.totp ?? true) ? totp.newSecret() : undefined;
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [a.id, a.username, "Test " + role, role, await hashPassword(a.password), opts.mustChange ?? false, !!secret, secret ? secrets.seal(secret) : null]);
   if (secret) a.secret = secret;
@@ -110,14 +110,14 @@ test("a correct password never clears wrong authenticator codes, so guessing cod
     for (let i = 0; i < 2; i++) await call("POST", "/api/auth/totp", { code: "000001" }, login.cookie);
   }
   assert.deepEqual((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).body, { error: "account_locked" });
-  const alerts = (await db.app.query("SELECT 1 FROM security_alerts WHERE kind = 'failed_logins' AND user_id = $1", [a.id])).rows;
+  const alerts = (await db.app.query<any>("SELECT 1 FROM security_alerts WHERE kind = 'failed_logins' AND user_id = $1", [a.id])).rows;
   assert.equal(alerts.length, 1, "the lock raised a security alert");
 });
 
 test("after a lock runs out the count starts again: one more mistake does not re-lock, five do", async () => {
   const a = await account("tier1");
   for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
-  await db.app.query("UPDATE users SET locked_until = now() - interval '1 second' WHERE id = $1", [a.id]);
+  await db.app.query<any>("UPDATE users SET locked_until = DATEADD(second, -1, SYSUTCDATETIME()) WHERE id = $1", [a.id]);
   await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
   assert.equal((await call("POST", "/api/auth/login", { username: a.username, password: a.password })).status, 200);
   for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", { username: a.username, password: "nope" });
@@ -230,7 +230,7 @@ test("a step-up token works once, only for its own action and target", async () 
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
   const token = await stepUp(admin, cookie, "site.sync", siteId, { address: "10.20.0.15", ports: [1433] });
-  const granted = (await db.app.query("SELECT details FROM audit_log WHERE actor_id = $1 AND action = 'auth.step_up' AND outcome = 'succeeded'", [admin.id])).rows;
+  const granted = (await db.app.query<any>("SELECT details FROM audit_log WHERE actor_id = $1 AND action = 'auth.step_up' AND outcome = 'succeeded'", [admin.id])).rows;
   assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId, paramsHash: paramsHash({ address: "10.20.0.15", ports: [1433] }) }], "a granted step-up is audited");
   assert.deepEqual((await call("POST", `/api/admin/cabinets/${cabinetId}/revoke`, { stepUpToken: token }, cookie)).body, { error: "step_up_required" }, "wrong action");
   const otherSite = randomUUID();
@@ -239,7 +239,7 @@ test("a step-up token works once, only for its own action and target", async () 
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: token }, cookie)).status, 200);
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.16", ports: [1433], stepUpToken: token }, cookie)).status, 403, "used once");
   const expired = await stepUp(admin, cookie, "site.sync", siteId, { address: null, ports: [] });
-  await db.app.query("UPDATE step_up_tokens SET expires_at = now() - interval '1 second'");
+  await db.app.query<any>("UPDATE step_up_tokens SET expires_at = DATEADD(second, -1, SYSUTCDATETIME())");
   assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: null, ports: [], stepUpToken: expired }, cookie)).status, 403, "expired");
 });
 
@@ -254,14 +254,14 @@ test("the server refuses a public sync address, and fills the sync target and sc
   const sync = await call("POST", `/api/cabinets/${cabinetId}/commands`,
     { operation: "network.test", params: { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.99.99.99" } }, cookie);
   assert.equal(sync.status, 202);
-  const syncParams = (await db.app.query("SELECT params FROM commands WHERE id = $1", [sync.body.commandId])).rows[0].params;
+  const syncParams = (await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [sync.body.commandId])).rows[0].params;
   assert.deepEqual(syncParams, { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "the browser's address is replaced by the site's");
 
   const scan = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
-  assert.deepEqual((await db.app.query("SELECT params FROM commands WHERE id = $1", [scan.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_AAAA&PID_0001"] });
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [scan.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_AAAA&PID_0001"] });
   await call("PUT", `/api/cabinets/${cabinetId}/scanner`, { hardwareIds: ["USB\\VID_BBBB&PID_0002"], stepUpToken: await stepUp(admin, cookie, "cabinet.scanner", cabinetId, { hardwareIds: ["USB\\VID_BBBB&PID_0002"] }) }, cookie);
   const scan2 = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
-  assert.deepEqual((await db.app.query("SELECT params FROM commands WHERE id = $1", [scan2.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_BBBB&PID_0002"] }, "the cabinet's override wins");
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [scan2.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_BBBB&PID_0002"] }, "the cabinet's override wins");
   const detail = await call("GET", `/api/fleet/cabinets/${cabinetId}`, undefined, cookie);
   assert.deepEqual(detail.body.scanner.effective, ["USB\\VID_BBBB&PID_0002"]);
 });

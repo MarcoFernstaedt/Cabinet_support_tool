@@ -30,7 +30,7 @@ let boss: Account; let bossCookie: string;
 interface Account { id: string; username: string; password: string; secret: Buffer; }
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
@@ -66,7 +66,7 @@ async function client(name: string, cabinetsPerSite = 2) {
     const { cabinetId } = await approveEnrollment(db.app, key, requestId, { clientName: name, siteName: site, cabinetName: `${site} ${i}`, role: "standalone" }, boss.id);
     ids.cabinets.push(cabinetId);
   }
-  const r = (await db.app.query<{ client_id: string; site_id: string }>("SELECT s.client_id, s.id AS site_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = ANY($1) ORDER BY s.name", [ids.cabinets])).rows;
+  const r = (await db.app.query<{ client_id: string; site_id: string }>("SELECT s.client_id, s.id AS site_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id IN (SELECT CAST([value] AS uniqueidentifier) FROM OPENJSON($1)) ORDER BY s.name", [ids.cabinets])).rows;
   ids.client = r[0]!.client_id;
   ids.sites = [...new Set(r.map(x => x.site_id))];
   return ids;
@@ -76,7 +76,7 @@ const heartbeat = (cabinetId: string, fw: { domain: boolean; private: boolean; p
 const ALL_ON = { domain: true, private: true, public: true };
 const ALL_OFF = { domain: false, private: false, public: false };
 const driftAlert = async (cabinetId: string) => (await db.app.query<{ state: string; severity: string }>(
-  "SELECT state, severity FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 ORDER BY first_seen DESC LIMIT 1", [cabinetId, ISSUE.firewallPolicy])).rows[0];
+  "SELECT TOP (1) state, severity FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 ORDER BY first_seen DESC", [cabinetId, ISSUE.firewallPolicy])).rows[0];
 
 test.before(async () => {
   db = await createTestDatabase();
@@ -142,20 +142,20 @@ test("applying the policy to one cabinet is a click for Tier 1; the server fills
   assert.deepEqual([sent.status, sent.body.error], [400, "invalid_params"], "the browser cannot choose the profiles");
   const ok = await call("POST", `/api/cabinets/${a}/commands`, { operation: "firewall.applyPolicy", params: {} }, c1);
   assert.equal(ok.status, 202, JSON.stringify(ok.body));
-  const cmd = (await db.app.query("SELECT params FROM commands WHERE id = $1", [ok.body.commandId])).rows[0];
+  const cmd = (await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [ok.body.commandId])).rows[0];
   assert.deepEqual(cmd.params, { profiles: ALL_OFF });
-  await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
+  await db.app.query<any>("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });
 
 test("bulk apply: a preview, then the password bound to that site and those parameters; only online, writable cabinets that differ; counts as one write", async () => {
   const c = await client("Policy Four", 3);
   const [north0, north1, north2, south0] = c.cabinets as [string, string, string, string];
-  for (const k of c.cabinets) await db.app.query("UPDATE cabinets SET last_heartbeat_at = now(), read_only = false WHERE id = $1", [k]);
+  for (const k of c.cabinets) await db.app.query<any>("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0 WHERE id = $1", [k]);
   await heartbeat(north0, ALL_ON); await heartbeat(north1, ALL_OFF); await heartbeat(north2, ALL_ON); await heartbeat(south0, ALL_ON);
-  await db.app.query("UPDATE cabinets SET read_only = true WHERE id = $1", [north2]);
+  await db.app.query<any>("UPDATE cabinets SET read_only = 1 WHERE id = $1", [north2]);
   const north = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [north0])).rows[0]!.site_id;
   const t1 = await account("tier1"); const c1 = await signIn(t1);
-  await db.app.query("UPDATE users SET write_limit = 1 WHERE id = $1", [t1.id]);
+  await db.app.query<any>("UPDATE users SET write_limit = 1 WHERE id = $1", [t1.id]);
 
   const preview = await call("GET", `/api/bulk/firewall-policy?scope=site&id=${north}`, undefined, c1);
   assert.deepEqual(preview.body.cabinets.map((x: { id: string }) => x.id), [north0], "only the online, writable cabinet that differs");
@@ -164,7 +164,7 @@ test("bulk apply: a preview, then the password bound to that site and those para
   const confirm = (password: string, params: unknown, target = north) => call("POST", "/api/auth/confirm-password",
     { password, action: "bulk.firewall_policy", target, paramsHash: paramsHash(params) }, c1);
   assert.equal((await confirm("wrong password", { scope: "site", id: north })).status, 401);
-  assert.equal((await db.app.query("SELECT failed_logins FROM users WHERE id = $1", [t1.id])).rows[0].failed_logins, 1, "a wrong password counts toward the lock");
+  assert.equal((await db.app.query<any>("SELECT failed_logins FROM users WHERE id = $1", [t1.id])).rows[0].failed_logins, 1, "a wrong password counts toward the lock");
   const forClient = (await confirm(t1.password, { scope: "client", id: c.client }, c.client)).body.token;
   assert.equal((await call("POST", "/api/bulk/firewall-policy", { scope: "site", id: north, stepUpToken: forClient }, c1)).status, 403, "a token for the client is not one for the site");
   const token = (await confirm(t1.password, { scope: "site", id: north })).body.token;
@@ -172,7 +172,7 @@ test("bulk apply: a preview, then the password bound to that site and those para
   assert.equal(r.status, 202, JSON.stringify(r.body));
   assert.deepEqual(r.body.commands.map((x: { cabinetId: string }) => x.cabinetId), [north0]);
   assert.equal((await call("POST", "/api/bulk/firewall-policy", { scope: "site", id: north, stepUpToken: token }, c1)).status, 403, "a token works once");
-  const audit = (await db.app.query("SELECT details FROM audit_log WHERE action = 'bulk.firewall_policy' AND target_id = $1", [north])).rows[0];
+  const audit = (await db.app.query<any>("SELECT details FROM audit_log WHERE action = 'bulk.firewall_policy' AND target_id = $1", [north])).rows[0];
   assert.equal(audit.details.cabinets, 1);
   // The bulk counted as one write: with a limit of 1, the next write goes over it.
   const next = await call("POST", `/api/cabinets/${south0}/commands`, { operation: "firewall.applyPolicy", params: {} }, c1);

@@ -4,10 +4,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "./auth/passwords.js";
 import { parseArgs } from "node:util";
-import pg from "pg";
-import { loadConfig } from "./config.js";
-import { audit, createPool, transaction, verifyAuditChain } from "./db/db.js";
-import { migrate } from "./db/migrate.js";
+import { databaseUrl, loadConfig } from "./config.js";
+import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
+import { connectOwner, migrate } from "./db/migrate.js";
+import { upsertSetting } from "./services/settings.js";
 import { listCabinets, revokeCabinet } from "./services/cabinets.js";
 import { commandRecord } from "./services/commands.js";
 import { issueFromConsole, ROLE_RANK as RANKS, type Role } from "./services/console-commands.js";
@@ -55,9 +55,9 @@ const USAGE = `platform-admin <command> [options]
 
 const ROLE_RANK: Record<string, number> = RANKS;
 
-async function userId(pool: pg.Pool, username: string | undefined, minimumRole: "tier1" | "tier2" | "admin"): Promise<string> {
+async function userId(pool: Pool, username: string | undefined, minimumRole: "tier1" | "tier2" | "admin"): Promise<string> {
   if (!username) throw new Refused("usage", 2, "--as <username> is required");
-  const row = (await pool.query<{ id: string; role: string }>("SELECT id, role FROM users WHERE username = $1 AND status = 'active'", [username])).rows[0];
+  const row = (await pool.query<{ id: string; role: string }>("SELECT TOP (1) id, role FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'", [username])).rows[0];
   if (!row) throw new Refused("usage", 2, `no active user ${username}`);
   if ((ROLE_RANK[row.role] ?? 0) < ROLE_RANK[minimumRole]!) throw new Refused("forbidden", 2, `${username} is ${row.role}; this needs ${minimumRole}`);
   return row.id;
@@ -75,12 +75,10 @@ async function main(argv: string[]): Promise<void> {
   if (!command) { console.log(USAGE); return; }
 
   if (command === "migrate") {
-    const url = process.env.DATABASE_OWNER_URL;
-    if (!url) throw new Error("DATABASE_OWNER_URL must be set for migrations.");
-    const client = new pg.Client({ connectionString: url });
-    await client.connect();
-    try { const ran = await migrate(client); console.log(ran.length ? `Applied ${ran.join(", ")}` : "Up to date."); }
-    finally { await client.end(); }
+    // The owner's account (it may create tables and roles), not the application's.
+    const owner = await connectOwner(databaseUrl(process.env, "DATABASE_OWNER_URL"));
+    try { const ran = await migrate(owner); console.log(ran.length ? `Applied ${ran.join(", ")}` : "Up to date."); }
+    finally { await owner.close(); }
     return;
   }
 
@@ -123,7 +121,7 @@ async function main(argv: string[]): Promise<void> {
   }
 
   const config = loadConfig();
-  const pool = createPool(config.databaseUrl, 2);
+  const pool = await createPool(config.databaseUrl, 2);
   try {
     switch (["user", "token", "package", "writes", "release", "rollout", "cabinet"].includes(command) ? `${command} ${rest.shift()}` : command) {
       case "release add": {
@@ -200,9 +198,7 @@ async function main(argv: string[]): Promise<void> {
             const r = await c.query("UPDATE clients SET write_paused = $2, write_pause_reason = $3 WHERE id = $1", [values.client, paused, paused ? values.reason ?? null : null]);
             if (r.rowCount !== 1) throw new Refused("not_found", 1, "no such client");
           } else {
-            await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('writes.paused', $1, $2)
-                           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`,
-              [JSON.stringify({ paused, reason: values.reason ?? null, by: adminId, at: new Date().toISOString() }), adminId]);
+            await upsertSetting(c, "writes.paused", { paused, reason: values.reason ?? null, by: adminId, at: new Date().toISOString() }, adminId);
           }
           await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded",
             details: { scope: values.client ? "client" : "fleet", clientId: values.client ?? null, reason: values.reason ?? null, via: "cli" } });
@@ -214,7 +210,7 @@ async function main(argv: string[]): Promise<void> {
         if (!values.username) throw new Refused("usage", 2, USAGE);
         const adminId = await userId(pool, values.as, "admin");
         await transaction(pool, async c => {
-          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = false, writes_paused_reason = NULL WHERE username = $1 RETURNING id", [values.username]);
+          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [values.username]);
           if (!r.rows[0]) throw new Refused("not_found", 1, "no such user");
           await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: r.rows[0].id, outcome: "succeeded", details: { via: "cli" } });
         });
@@ -227,7 +223,7 @@ async function main(argv: string[]): Promise<void> {
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
-          await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, true)",
+          await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, 1)",
             [id, values.username, values.name, values.role, hash]);
           await audit(c, { actorKind: "system", actorId: "platform-admin", action: "user.create", targetKind: "user", targetId: id, outcome: "succeeded",
             details: { username: values.username, role: values.role } });
@@ -242,7 +238,7 @@ async function main(argv: string[]): Promise<void> {
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
-          const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = true, failed_logins = 0, locked_until = NULL WHERE username = $1 RETURNING id",
+          const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = 1, failed_logins = 0, locked_until = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1",
             [values.username, hash]);
           const target = r.rows[0];
           if (!target) throw new Refused("not_found", 1, "no such user");

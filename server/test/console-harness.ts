@@ -25,7 +25,7 @@ export class ConsoleHarness {
   async account(role: Role, writeLimit = 100): Promise<Account> {
     const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
     await this.db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, write_limit)
-                             VALUES ($1, $2, $3, $4, $5, false, true, $6, $7)`, [a.id, a.username, `Test ${a.username}`, role, await hashPassword(a.password), this.secrets.seal(a.secret), writeLimit]);
+                             VALUES ($1, $2, $3, $4, $5, 0, 1, $6, $7)`, [a.id, a.username, `Test ${a.username}`, role, await hashPassword(a.password), this.secrets.seal(a.secret), writeLimit]);
     const login = await this.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify({ username: a.username, password: a.password }) });
     a.cookie = String(login.headers["set-cookie"]).split(";")[0]!;
     assert.equal((await this.call("POST", "/api/auth/totp", { code: this.code(a) }, a)).body.stage, "complete");
