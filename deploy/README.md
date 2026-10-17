@@ -1,6 +1,6 @@
 # Demo deployment
 
-This folder runs the platform on one Linux VPS for a demo: PostgreSQL 16, the server (agent API and console API), the console, and Caddy for HTTPS. It also builds the Windows agent, so you can install it on a laptop that connects over the internet.
+This folder runs the platform on one Linux VPS for a demo: Microsoft SQL Server 2022, the server (agent API and console API), the console, and Caddy for HTTPS. It also builds the Windows agent, so you can install it on a laptop that connects over the internet.
 
 This is a demo setup. It uses the development certificate authority. Do not connect real cabinets to it.
 
@@ -10,8 +10,8 @@ This is a demo setup. It uses the development certificate authority. Do not conn
 | --- | --- | --- |
 | `caddy` | HTTPS for the console. Gets a certificate for your domain automatically. | 80, 443 |
 | `server` | The agent API (mutual TLS) and the console. | 8443 (agent API) |
-| `postgres` | The database. Not reachable from outside. | none |
-| `migrate` | Runs once at each start. Updates the database and the app's database login. | none |
+| `mssql` | The database (SQL Server 2022 for Linux). Not reachable from outside. | none |
+| `migrate` | Runs once at each start. Creates the database, updates its schema and the app's database login. | none |
 
 The agent API on port 8443 is published directly, not through Caddy. Agents sign in with client certificates, and those must reach the server itself.
 
@@ -97,7 +97,9 @@ The database:
 
 ```sh
 cd deploy
-docker compose exec -T postgres pg_dump -U cabinet_owner -Fc cabinet > cabinet-$(date +%F).dump
+docker compose exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" \
+  -Q "BACKUP DATABASE cabinet TO DISK = N'"'"'/var/opt/mssql/data/cabinet.bak'"'"' WITH COMPRESSION, CHECKSUM, INIT"'
+docker compose cp mssql:/var/opt/mssql/data/cabinet.bak cabinet-$(date +%F).bak
 ```
 
 The development CA and the stores (the CA's private key is in `pki`; keep the backup private):
@@ -111,7 +113,9 @@ To restore the database into a fresh install, stop the server, then:
 
 ```sh
 docker compose stop server
-docker compose exec -T postgres pg_restore -U cabinet_owner -d cabinet --clean --if-exists < cabinet-<date>.dump
+docker compose cp cabinet-<date>.bak mssql:/var/opt/mssql/data/cabinet.bak
+docker compose exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" \
+  -Q "ALTER DATABASE cabinet SET SINGLE_USER WITH ROLLBACK IMMEDIATE; RESTORE DATABASE cabinet FROM DISK = N'"'"'/var/opt/mssql/data/cabinet.bak'"'"' WITH REPLACE, CHECKSUM; ALTER DATABASE cabinet SET MULTI_USER"'
 docker compose up -d
 ```
 

@@ -107,7 +107,7 @@ COPY server/migrations ./server/migrations
 COPY --from=server-build /build/server/dist/src ./server/dist/src
 COPY --from=console-build /build/console/dist ./console/dist
 COPY --from=agent-build /agent-download ./agent-download
-COPY deploy/app-role.mjs ./deploy/app-role.mjs
+COPY deploy/database-setup.mjs ./deploy/database-setup.mjs
 USER cabinet
 # 8443: the agent API (mutual TLS, terminated by Node; publish it directly). 8080: the console (plain HTTP, behind Caddy only).
 EXPOSE 8443 8080

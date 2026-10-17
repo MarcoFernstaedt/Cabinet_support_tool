@@ -14,10 +14,10 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 | Folder | What | Stack |
 |---|---|---|
 | [`contracts/`](contracts/README.md) | JSON Schemas for every message and operation, valid and hostile examples, generated TypeScript types. The agent, server and console are all built against them. | JSON Schema 2020-12, Ajv |
-| [`server/`](server/README.md) | Two APIs:<br>• the agent API (mutual TLS, long poll, heartbeats, events, results, packages, upgrades);<br>• the console API (sign-in, roles, step-up, alerts, writes, administration).<br>Plus the alerts engine, audit log and CLI. | Node.js 22, TypeScript, Fastify 5, PostgreSQL 16 |
+| [`server/`](server/README.md) | Two APIs:<br>• the agent API (mutual TLS, long poll, heartbeats, events, results, packages, upgrades);<br>• the console API (sign-in, roles, step-up, alerts, writes, administration).<br>Plus the alerts engine, audit log and CLI. | Node.js 22, TypeScript, Fastify 5, SQL Server 2022 |
 | [`console/`](console/README.md) | The support console, served by the server from the same origin. | React 19, TypeScript, Vite |
 | [`agent/`](agent/README.md) | The Windows agent:<br>• a low-privilege network service;<br>• a LocalSystem broker with no network code;<br>• a signed updater;<br>• install and release scripts. | C# .NET 10 (LTS), self-contained |
-| [`deploy/`](deploy/README.md) | Runs the whole platform on one Linux VPS with Docker Compose (PostgreSQL, server, console behind Caddy HTTPS), and builds the Windows agent package the console offers for download. For demos and pilots. | Docker, Caddy |
+| [`deploy/`](deploy/README.md) | Runs the whole platform on one Linux VPS with Docker Compose (SQL Server, server, console behind Caddy HTTPS), and builds the Windows agent package the console offers for download. For demos and pilots. | Docker, Caddy |
 | [`docs/platform/`](docs/platform/) | Documentation beyond the spec: the [demo guide](docs/platform/demo.md), [testing a live agent](docs/platform/live-test.md), [performance](docs/platform/performance.md), the [threat model](docs/platform/threat-model.md), the [security review](docs/platform/security-review.md) and [data classification](docs/platform/data-classification.md). | |
 
 ## How it fits together
@@ -31,7 +31,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
  └───────────────┘    │   alerts engine, audit log, rollouts     │        │ named pipe, typed requests only
                       └──────────────┬───────────────────────────┘        ▼
                                      │                                broker (LocalSystem, no network)
-                               PostgreSQL 16
+                               SQL Server 2022
 ```
 
 - A cabinet only ever connects out. Commands reach it over a long poll. The server announces new commands, so delivery takes milliseconds ([performance](docs/platform/performance.md)).
@@ -48,7 +48,7 @@ Run each line from the repository root:
 (cd contracts && npm ci && npm test)                    # schemas, examples, generated types
 (cd agent && dotnet build Cabinet.Agent.sln -c Release && dotnet test tests/Cabinet.Agent.Core.Tests -c Release && dotnet test tests/Cabinet.Agent.Contracts.Tests -c Release)
 (cd console && npm ci && npm run build)
-(cd server && npm ci && npm test)                        # needs PostgreSQL; see server/README.md
+(cd server && npm ci && npm test)                        # needs SQL Server; see server/README.md
 ```
 
 To run the platform on a VPS and demo it with your own laptop and a simulated fleet, see [deploy/README.md](deploy/README.md) and the [demo guide](docs/platform/demo.md). To run the whole platform locally and connect a Windows test cabinet, see [server/README.md "Run it locally"](server/README.md#run-it-locally) and [agent/README.md](agent/README.md).

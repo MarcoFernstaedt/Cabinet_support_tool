@@ -51,14 +51,24 @@ else
   else
     console_site="$PUBLIC_IP"; console_tls="internal"; agent_names="$PUBLIC_IP,localhost"
   fi
+  echo
+  echo "Microsoft SQL Server runs in a container. Express edition is free (databases up to 10 GB); Standard, Enterprise and Developer need a licence you hold."
+  ask mssql_pid "SQL Server edition (Express, Developer, Standard, Enterprise)" "Express"
+  case "$mssql_pid" in Express|Developer|Standard|Enterprise) ;; *) fail "Edition must be Express, Developer, Standard or Enterprise." ;; esac
+  ask accept_eula "Do you accept the SQL Server licence terms (https://go.microsoft.com/fwlink/?linkid=857698)? Type Y to accept" ""
+  [[ "$accept_eula" == "Y" ]] || fail "SQL Server cannot start without accepting its licence terms. Type Y to accept."
+  # Letters and digits only (no escaping anywhere), long, and with upper case, lower case and a digit as SQL Server's password rules need.
+  alnum() { printf '%sAa1' "$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 32)"; }
   umask 077
   cat > "$ENV_FILE" <<EOF
 # Made by setup.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ). Holds secrets: never commit or share this file.
 CONSOLE_SITE=$console_site
 CONSOLE_TLS=$console_tls
 AGENT_API_HOSTNAMES=$agent_names
-POSTGRES_PASSWORD=$(openssl rand -hex 24)
-APP_DB_PASSWORD=$(openssl rand -hex 24)
+ACCEPT_EULA=$accept_eula
+MSSQL_PID=$mssql_pid
+SQL_SA_PASSWORD=$(alnum)
+APP_DB_PASSWORD=$(alnum)
 CONSOLE_SECRET_KEY=$(openssl rand -base64 32)
 FRONTEND_SUBNET=172.30.57.0/24
 CADDY_IP=172.30.57.10
@@ -79,7 +89,7 @@ if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: 
     echo "    ufw allow $rule"
     ufw allow "$rule" >/dev/null
   done
-  echo "PostgreSQL (5432) is not opened and not published."
+  echo "SQL Server (1433) is not opened and not published."
 else
   say "ufw is not active: no firewall rules changed. Make sure your provider's firewall allows 80, 443 and 8443 (TCP)."
 fi
@@ -88,10 +98,10 @@ fi
 say "Building the image (the first build takes several minutes: console, server and the Windows agent)"
 "${COMPOSE[@]}" build
 
-say "Starting PostgreSQL"
-"${COMPOSE[@]}" up -d postgres
+say "Starting SQL Server"
+"${COMPOSE[@]}" up -d mssql
 
-say "Running the migrations and creating the application's database login"
+say "Creating the database, running the migrations and creating the application's database login"
 "${COMPOSE[@]}" run --rm migrate
 
 say "Starting the server and Caddy"
@@ -107,7 +117,7 @@ echo
 [[ "${status:-}" == "healthy" ]] || fail "The server did not become healthy. See: docker compose -f $DEPLOY_DIR/compose.yaml logs server"
 
 # 5. First Admin -------------------------------------------------------------------------------------------------
-admins="$("${COMPOSE[@]}" exec -T postgres psql -U cabinet_owner -d cabinet -tAc "SELECT count(*) FROM users WHERE role = 'admin'")"
+admins="$("${COMPOSE[@]}" exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d cabinet -h -1 -W -Q "SET NOCOUNT ON; SELECT COUNT(*) FROM users WHERE role = N'"'"'admin'"'"'"')"
 if [[ "${admins//[[:space:]]/}" == "0" ]]; then
   say "Creating the first Admin"
   ask ADMIN_USERNAME "Admin username (a-z, 0-9, . _ -)" "admin"

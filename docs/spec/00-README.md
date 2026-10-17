@@ -27,7 +27,7 @@ Read them in number order, 00 through 11. Files 01 and 02 give the shape and the
 - Server: Node.js 22 LTS with TypeScript and the Fastify framework
 - Console: React with TypeScript, built with Vite, served as static files
 - Contracts: JSON Schema files shared by all three, the single source of truth for every operation
-- Platform database: PostgreSQL, holding the support team accounts, fleet records, alerts and activity logs. Not the cabinet application's database, which the platform never touches.
+- Platform database: Microsoft SQL Server 2022, holding the support team accounts, fleet records, alerts and activity logs. Not the cabinet application's database, which the platform never touches.
 
 ## Why Node instead of ASP.NET Core
 

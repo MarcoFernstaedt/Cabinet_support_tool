@@ -11,7 +11,7 @@
 !console/**
 !server/**
 !agent/**
-!deploy/app-role.mjs
+!deploy/database-setup.mjs
 !deploy/agent-README.txt
 
 **/node_modules

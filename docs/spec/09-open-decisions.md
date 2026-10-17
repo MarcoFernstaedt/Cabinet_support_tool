@@ -22,7 +22,7 @@ On Mashura's own servers or in a cloud. Default: whichever your infrastructure t
 
 ## Database hosting (needed by milestone 2)
 
-The platform database (05-server-spec.md) runs PostgreSQL. Still to decide: a managed database service or one your team runs. Default: managed, with daily encrypted backups and a restore test before the client beta.
+The platform database (05-server-spec.md) runs Microsoft SQL Server 2022 (decided by the owner in October 2026, replacing PostgreSQL; nothing had been deployed on it, so the schema is one consolidated T-SQL baseline). Still to decide: the edition (Express is free and fits a small deployment; Standard or Enterprise for more) and a managed database service or one your team runs. Default: managed, with daily encrypted backups and a restore test before the client beta.
 
 ## Fingerprint scanner hardware IDs (needed by milestone 1)
 
@@ -529,3 +529,9 @@ The agent already checked each drive's own health report once a day (`disk.smart
 - **Alerts:** a drive reaching *act* raises a minor "Drive failing" alert, *urgent* a major one, once and only when its level rises. *Watch* raises nothing; it shows on the cabinet's drive page and in the Fleet page's "Drives to look at" list, which appears only when a drive is a concern.
 - **Free space is forecast too:** the system drive's free percentage over the last 14 days (at least 48 samples over 5 days) is projected forward; a drive that would be full within 30 days raises a "Low disk space" alert (major within 7 days).
 - **The thresholds are first estimates.** SMART attributes differ by maker and by interface (NVMe reports wear and spare capacity; SATA reports reallocated sectors), and Windows exposes only some of them. They should be reviewed against real cabinets' drives after a few weeks of data; every rule is a constant in one file.
+
+## Database engine changed to SQL Server (October 2026)
+
+Decided by the owner: the platform database is Microsoft SQL Server 2022, because the owner's teams already run SQL Server and its management tools. The first milestones had used PostgreSQL; nothing was ever deployed on it, so there is no data to migrate and the schema is one consolidated baseline (`server/migrations/0001_baseline.sql`). How the code talks to it, and what differs on purpose, is in `docs/platform/sqlserver-port.md`.
+
+Open: the edition (Express is free to 10 GB and fits a small deployment; Standard or Enterprise for more or for high availability), and backups for a managed deployment (the compose kit documents a BACKUP DATABASE routine; a production install should use the owner's existing backup tooling).
