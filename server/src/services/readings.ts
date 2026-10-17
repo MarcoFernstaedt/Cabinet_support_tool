@@ -109,7 +109,9 @@ const MAX_MATCHES = 200;
  * The cabinets whose latest stored reading of one kind matches. Only cabinets that have been read are searched, and the answer says how many
  * of those in scope that is, so "no match" is never mistaken for "no cabinet has it".
  */
-export async function searchReadings(db: Queryable, operation: string, q: string, scope: { clientId?: string; siteId?: string }): Promise<SearchResult> {
+export async function searchReadings(db: Queryable, operation: string, q: string, scope: { clientId?: string; siteId?: string }, limitMs?: number): Promise<SearchResult> {
+  const started = Date.now();
+  const left = () => (limitMs === undefined ? undefined : { timeoutMs: Math.max(1, limitMs - (Date.now() - started)) });
   const keywords = KEYWORDS[operation];
   const text = q.trim().toLowerCase();
   if (keywords) {
@@ -128,11 +130,11 @@ export async function searchReadings(db: Queryable, operation: string, q: string
         WHERE x.rn = 1)
      SELECT TOP (${MAX_MATCHES + 1}) k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, JSON_QUERY(cm.result, '$.output') AS output
        FROM latest cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE (${condition}) ORDER BY c.name, s.name, k.name`, params)).rows;
+      WHERE (${condition}) ORDER BY c.name, s.name, k.name`, params, left())).rows;
   const counts = (await db.query<{ cabinets_read: string; total: string }>(
     `SELECT COUNT(DISTINCT cm.cabinet_id) AS cabinets_read, (SELECT COUNT(*) FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope}) AS total
        FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
-      WHERE cm.operation = $3 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}`, [params[0], params[1], operation])).rows[0]!;
+      WHERE cm.operation = $3 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}`, [params[0], params[1], operation], left())).rows[0]!;
   const found = (o: Out) => keywords ? KEYWORD_FOUND[text]!(o) : NAMES[operation]!.found(o, text);
   return {
     operation, q: text,
