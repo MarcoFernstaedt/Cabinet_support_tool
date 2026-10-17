@@ -53,7 +53,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
   const adminSecret = totp.newSecret();
   const password = "correct horse battery staple";
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES
-    ($1, 'ada.admin', 'Ada Admin', 'admin', $3, false, true, $4), ($2, 'sam.support', 'Sam Support', 'tier1', $3, false, false, NULL)`,
+    ($1, 'ada.admin', 'Ada Admin', 'admin', $3, 0, 1, $4), ($2, 'sam.support', 'Sam Support', 'tier1', $3, 0, 0, NULL)`,
     [randomUUID(), randomUUID(), await hashPassword(password), secrets.seal(adminSecret)]);
   const code = (): string => { clock += 30_000; return totp.code(adminSecret, totp.stepAt(clock)); };
 
@@ -197,7 +197,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("link", { name: "Network" }).click();
     await page.getByRole("button", { name: "Trace and ping" }).click();
     await page.getByRole("table", { name: /→/ }).waitFor({ timeout: 60_000 }).catch(async e => {
-      const rows = (await db.app.query("SELECT operation, status, params FROM commands ORDER BY issued_at DESC LIMIT 6")).rows;
+      const rows = (await db.app.query("SELECT TOP (6) operation, status, params FROM commands ORDER BY issued_at DESC")).rows;
       throw new Error(`${e.message}\n${(await page.locator("#packets-heading").locator("xpath=ancestor::section").innerText())}\n${JSON.stringify(rows)}`);
     });
 
@@ -225,10 +225,10 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
 
     // ---- And every view is in the audit log -----------------------------------------
     const actions = (await db.app.query<{ action: string }>(
-      "SELECT a.action FROM audit_log a JOIN users u ON u.id::text = a.actor_id WHERE u.username = 'sam.support'")).rows.map(r => r.action);
+      "SELECT a.action FROM audit_log a JOIN users u ON CAST(u.id AS nvarchar(36)) = a.actor_id WHERE u.username = 'sam.support'")).rows.map(r => r.action);
     for (const required of ["auth.login", "cabinet.view", "eventlog.browse", "eventlog.entry.open", "command.issue"])
       assert.ok(actions.includes(required), `audit has ${required}`);
-    const params = (await db.app.query<{ params: unknown }>("SELECT params FROM commands WHERE operation = 'peripheral.status' ORDER BY issued_at DESC LIMIT 1")).rows[0]!.params;
+    const params = (await db.app.query<{ params: unknown }>("SELECT TOP (1) params FROM commands WHERE operation = 'peripheral.status' ORDER BY issued_at DESC")).rows[0]!.params;
     assert.deepEqual(params, { hardwareIds: ["USB\\VID_1234&PID_5678"] }, "the console's scanner setting reached the cabinet");
     assert.equal((await verifyAuditChain(db.app)).ok, true);
     assert.deepEqual(problems, [], "no errors in the browser");

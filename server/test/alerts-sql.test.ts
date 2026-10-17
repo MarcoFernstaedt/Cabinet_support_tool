@@ -129,7 +129,8 @@ test("the SQL form of a match agrees with the code form, including a message lon
   }
   const p = await preview(db.app, { eventId: 77 });
   assert.ok(p.events >= 2 && p.cabinets >= 1);
-  assert.deepEqual(await liveRules(db.app), []);
+  const rules = await liveRules(db.app);
+  assert.ok(rules.length > 0 && rules.every(r => r.builtIn), "only the built-in rules are live");
 });
 
 test("offline alerts are raised past the threshold and resolve when the cabinet is back", async () => {

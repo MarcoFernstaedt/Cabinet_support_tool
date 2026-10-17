@@ -63,9 +63,9 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
 
 
     const ids = {
-      cabinet: (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'healthy' ORDER BY name LIMIT 1")).rows[0]!.id,
-      client: (await db.app.query<{ id: string }>("SELECT id FROM clients ORDER BY name LIMIT 1")).rows[0]!.id,
-      site: (await db.app.query<{ id: string }>("SELECT id FROM sites ORDER BY name LIMIT 1")).rows[0]!.id,
+      cabinet: (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = 'healthy' ORDER BY name")).rows[0]!.id,
+      client: (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM clients ORDER BY name")).rows[0]!.id,
+      site: (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM sites ORDER BY name")).rows[0]!.id,
     };
     const tabs = ["overview", "troubleshoot", "alerts", "events", "services", "processes", "files", "devices", "drives", "updates", "time", "network", "firewall", "scanner", "crashes", "software", "history"];
     const pages = ["/", `/clients/${ids.client}`, `/sites/${ids.site}`, "/alerts", "/issues", "/incidents", "/fleet-operations", "/fixes", "/account", "/demo",
