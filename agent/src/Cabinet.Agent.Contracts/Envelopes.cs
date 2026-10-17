@@ -128,12 +128,29 @@ public sealed record HeartbeatResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public UpgradeOffer? Upgrade { get; init; }
     /// <summary>The services this cabinet keeps running (milestone 10); absent from servers before it.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HeartbeatWatchedServices? WatchedServices { get; init; }
+    /// <summary>Server-directed pacing (protocol 1.1); the agent clamps each value to its range and uses its defaults when absent.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ServerIntervals? Intervals { get; init; }
+}
+
+/// <summary>Pacing the server asks for (protocol 1.1, docs/spec/03-protocol.md). Every field is optional.</summary>
+public sealed record ServerIntervals
+{
+    /// <summary>Seconds between heartbeats, 60 to 900.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? HeartbeatSeconds { get; init; }
+    /// <summary>How long a long poll is held, 15 to 110 seconds.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? PollSeconds { get; init; }
+    /// <summary>Pause between event batches while draining a backlog, 0 to 60000 ms.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? EventsPaceMs { get; init; }
 }
 
 public sealed record CommandsResponse
 {
     public required DateTimeOffset ServerTime { get; init; }
     public required IReadOnlyList<Command> Commands { get; init; }
+    /// <summary>How long the server holds the next poll (15 to 110 s); 25 when absent.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? PollSeconds { get; init; }
+    /// <summary>The server is shutting down or shedding load: wait this long (0 to 600000 ms) before the next request.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ReconnectAfterMs { get; init; }
 }
 
 public sealed record EnrollFingerprints

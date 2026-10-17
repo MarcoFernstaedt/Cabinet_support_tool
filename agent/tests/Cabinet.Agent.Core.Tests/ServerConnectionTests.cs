@@ -12,11 +12,14 @@ public sealed class BackoffTests
     {
         var backoff = new Backoff(random: new Random(7));
         var delays = Enumerable.Range(0, 30).Select(_ => backoff.Next()).ToList();
-        Assert.All(delays, d => Assert.InRange(d, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(5)));
+        Assert.All(delays, d => Assert.InRange(d, TimeSpan.FromSeconds(2), TimeSpan.FromMinutes(5)));
         Assert.True(delays.Skip(10).Average(d => d.TotalSeconds) > 60, "later attempts wait much longer");
         Assert.True(delays.Skip(10).Distinct().Count() > 10, "jittered, so a fleet does not retry in step");
+        // Decorrelated: each wait is between the base and three times the previous one.
+        for (int i = 1; i < delays.Count; i++)
+            Assert.True(delays[i] <= TimeSpan.FromTicks(Math.Max(delays[i - 1].Ticks * 3, TimeSpan.FromSeconds(2).Ticks)) + TimeSpan.FromMilliseconds(1));
         backoff.Reset();
-        Assert.InRange(backoff.Next(), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2));
+        Assert.InRange(backoff.Next(), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(6));
     }
 }
 
@@ -123,6 +126,7 @@ public sealed class ConnectionFailureTests
             ProcessorFor = _ => throw new NotSupportedException(), Fingerprints = () => throw new NotSupportedException(),
             AgentVersion = "0.2.0", UptimeSeconds = () => 1, Log = m => { lock (log) log.Add(m); },
             Backoff = new Backoff(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20)),
+            LoopRestartBackoff = () => new Backoff(TimeSpan.FromMilliseconds(10), TimeSpan.FromMilliseconds(20)),
         });
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(3));
         await connection.RunAsync(stop.Token);
