@@ -1,12 +1,12 @@
 // Issue types and symptom rules (docs/spec/05-server-spec.md "Issue types and symptom rules").
 // A rule matches on structured fields only, plus a plain phrase compared as a case-insensitive
 // substring. There are no regular expressions anywhere in matching, so no rule can freeze the server.
-import type pg from "pg";
 import type { Event, SymptomMatch } from "../contracts.js";
 import { commonDefs } from "../contracts.js";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
+import { foldAlert } from "./alerts.js";
 
 export const ISSUE = {
   scanner: "00000000-0000-4000-8000-000000000101",
@@ -58,22 +58,27 @@ export function matches(m: SymptomMatch, e: MatchableEvent): boolean {
 /** How narrow a match is; the most specific matching rule wins. */
 export const specificity = (m: SymptomMatch): number => Object.keys(m).length;
 
-/** The same match as SQL over the events table (alias e), with its parameters, for the fleet preview and regrouping. */
+/**
+ * The same match as SQL over the events table (alias e), with its parameters, for the fleet preview and regrouping.
+ * The log and the level are compared exactly (binary collation), as the matcher above does; the rest ignore case.
+ */
 export function matchSql(m: SymptomMatch, firstParam: number): { where: string; params: unknown[] } {
   const parts: string[] = [];
   const params: unknown[] = [];
   const p = (v: unknown) => { params.push(v); return `$${firstParam + params.length - 1}`; };
   if (m.kind !== undefined) parts.push(`e.kind = ${p(m.kind)}`);
-  if (m.log !== undefined) parts.push(`e.source->>'log' = ${p(m.log)}`);
-  if (m.source !== undefined) parts.push(`lower(e.source->>'source') = lower(${p(m.source)})`);
-  if (m.eventId !== undefined) parts.push(`e.source->>'eventId' = ${p(String(m.eventId))}`);
-  if (m.level !== undefined) parts.push(`e.source->>'level' = ${p(m.level)}`);
+  if (m.log !== undefined) parts.push(`JSON_VALUE(e.source, '$.log') COLLATE Latin1_General_100_BIN2 = ${p(m.log)}`);
+  if (m.source !== undefined) parts.push(`JSON_VALUE(e.source, '$.source') = ${p(m.source)}`);
+  if (m.eventId !== undefined) parts.push(`JSON_VALUE(e.source, '$.eventId') = ${p(String(m.eventId))}`);
+  if (m.level !== undefined) parts.push(`JSON_VALUE(e.source, '$.level') COLLATE Latin1_General_100_BIN2 = ${p(m.level)}`);
   if (m.hardwareId !== undefined) {
     const h = p(m.hardwareId);
-    parts.push(`(lower(e.source->>'hardwareId') = lower(${h}) OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(COALESCE(e.device->'hardwareIds', '[]'::jsonb)) AS id WHERE lower(id) = lower(${h})))`);
+    parts.push(`(JSON_VALUE(e.source, '$.hardwareId') = ${h} OR EXISTS (SELECT 1 FROM OPENJSON(COALESCE(JSON_QUERY(e.device, '$.hardwareIds'), '[]')) WHERE [value] = ${h}))`);
   }
-  if (m.phrase !== undefined) parts.push(`strpos(lower(COALESCE(e.detail->>'message', '')), lower(${p(m.phrase.trim())})) > 0`);
-  return { where: parts.length ? parts.join(" AND ") : "true", params };
+  // JSON_VALUE gives up beyond 4000 characters, so the message is read with OPENJSON. An empty phrase matches everything, as includes("") does.
+  if (m.phrase !== undefined && m.phrase.trim() !== "")
+    parts.push(`EXISTS (SELECT 1 FROM OPENJSON(e.detail) WITH (message nvarchar(max) '$.message') j WHERE CHARINDEX(${p(m.phrase.trim())}, j.message) > 0)`);
+  return { where: parts.length ? parts.join(" AND ") : "1 = 1", params };
 }
 
 /**
@@ -91,8 +96,8 @@ export function checkUserMatch(m: SymptomMatch): void {
 export async function liveRules(db: Queryable): Promise<LiveRule[]> {
   const rows = (await db.query<{ id: string; kind: "map" | "suppress"; issue_type_id: string | null; match: SymptomMatch; built_in: boolean; created_at: Date;
     severity: "major" | "minor" | null }>(
-    `SELECT id, kind, issue_type_id, match, built_in, created_at, severity FROM symptom_rules
-      WHERE state = 'live' AND (expires_at IS NULL OR expires_at > now())`)).rows;
+    `SELECT id, kind, issue_type_id, [match], built_in, created_at, severity FROM symptom_rules
+      WHERE state = 'live' AND (expires_at IS NULL OR expires_at > SYSUTCDATETIME())`)).rows;
   // A stored match is checked again before use: the table is never trusted to hold only valid rules.
   return rows.filter(r => commonDefs.symptomMatch.is(r.match))
     .map(r => ({ id: r.id, kind: r.kind, issueTypeId: r.issue_type_id, match: r.match, builtIn: r.built_in, createdAt: r.created_at, severity: r.severity }));
@@ -112,8 +117,8 @@ export function decide(rules: readonly LiveRule[], e: MatchableEvent): LiveRule 
 export async function issueTypes(db: Queryable) {
   const rows = (await db.query<{ id: string; name: string; severity: string; description: string; built_in: boolean; open_alerts: string; live_rules: string }>(
     `SELECT t.id, t.name, t.severity, t.description, t.built_in,
-            (SELECT count(*) FROM alerts a WHERE a.issue_type_id = t.id AND a.state <> 'resolved') AS open_alerts,
-            (SELECT count(*) FROM symptom_rules r WHERE r.issue_type_id = t.id AND r.state = 'live') AS live_rules
+            (SELECT COUNT(*) FROM alerts a WHERE a.issue_type_id = t.id AND a.state <> 'resolved') AS open_alerts,
+            (SELECT COUNT(*) FROM symptom_rules r WHERE r.issue_type_id = t.id AND r.state = 'live') AS live_rules
        FROM issue_types t ORDER BY t.name`)).rows;
   return rows.map(r => ({ id: r.id, name: r.name, severity: r.severity, description: r.description, builtIn: r.built_in,
     openAlerts: Number(r.open_alerts), liveRules: Number(r.live_rules) }));
@@ -140,14 +145,14 @@ const ruleView = (r: RuleRow) => ({
 
 export async function listRules(db: Queryable, filter: { state?: string; issueTypeId?: string }) {
   const rows = (await db.query<RuleRow>(`${RULE_SELECT}
-     WHERE ($1::text IS NULL OR r.state = $1) AND ($2::uuid IS NULL OR r.issue_type_id = $2)
-     ORDER BY r.updated_at DESC LIMIT 500`, [filter.state ?? null, filter.issueTypeId ?? null])).rows;
+     WHERE ($1 IS NULL OR r.state = $1) AND ($2 IS NULL OR r.issue_type_id = CAST($2 AS uniqueidentifier))
+     ORDER BY r.updated_at DESC OFFSET 0 ROWS FETCH NEXT 500 ROWS ONLY`, [filter.state ?? null, filter.issueTypeId ?? null])).rows;
   return rows.map(ruleView);
 }
 
 export async function ruleHistory(db: Queryable, ruleId: string) {
   const rows = (await db.query<{ version: number; change: string; state: string; issue_type_id: string | null; match: SymptomMatch; changed_by: string | null; name: string | null; changed_at: Date }>(
-    `SELECT h.version, h.change, h.state, h.issue_type_id, h.match, h.changed_by, u.name, h.changed_at
+    `SELECT h.[version], h.[change], h.state, h.issue_type_id, h.[match], h.changed_by, u.name, h.changed_at
        FROM symptom_rule_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.rule_id = $1 ORDER BY h.id`, [ruleId])).rows;
   return rows.map(h => ({ version: h.version, change: h.change, state: h.state, issueTypeId: h.issue_type_id, match: h.match,
     changedBy: h.changed_by ? { id: h.changed_by, name: h.name } : null, changedAt: h.changed_at.toISOString() }));
@@ -157,19 +162,19 @@ export async function ruleHistory(db: Queryable, ruleId: string) {
 export async function preview(db: Queryable, m: SymptomMatch) {
   const { where, params } = matchSql(m, 1);
   const r = (await db.query<{ events: string; cabinets: string; unrecognized: string }>(
-    `SELECT count(*) AS events, count(DISTINCT e.cabinet_id) AS cabinets,
-            count(DISTINCT e.alert_id) FILTER (WHERE a.issue_type_id IS NULL AND a.state <> 'resolved') AS unrecognized
+    `SELECT COUNT(*) AS events, COUNT(DISTINCT e.cabinet_id) AS cabinets,
+            COUNT(DISTINCT CASE WHEN a.issue_type_id IS NULL AND a.state <> 'resolved' THEN e.alert_id END) AS unrecognized
        FROM events e LEFT JOIN alerts a ON a.id = e.alert_id
-      WHERE e.occurred_at > now() - interval '30 days' AND ${where}`, params)).rows[0]!;
+      WHERE e.occurred_at > DATEADD(day, -30, SYSUTCDATETIME()) AND ${where}`, params)).rows[0]!;
   return { events: Number(r.events), cabinets: Number(r.cabinets), openUnrecognizedAlerts: Number(r.unrecognized), days: 30 };
 }
 
 type Role = "tier1" | "tier2" | "admin";
 interface Actor { userId: string; role: Role; }
 
-async function history(c: pg.PoolClient, ruleId: string, change: string, by: string | null): Promise<void> {
-  await c.query(`INSERT INTO symptom_rule_history (rule_id, version, change, state, issue_type_id, match, severity, changed_by)
-                 SELECT id, version, $2, state, issue_type_id, match, severity, $3 FROM symptom_rules WHERE id = $1`, [ruleId, change, by]);
+async function history(c: Queryable, ruleId: string, change: string, by: string | null): Promise<void> {
+  await c.query(`INSERT INTO symptom_rule_history (rule_id, [version], [change], state, issue_type_id, [match], severity, changed_by)
+                 SELECT id, [version], $2, state, issue_type_id, [match], severity, $3 FROM symptom_rules WHERE id = $1`, [ruleId, change, by]);
 }
 
 /**
@@ -182,7 +187,7 @@ export interface NewIssueType { name: string; severity: "major" | "minor"; descr
  * Map to issue, for an existing issue type or (Admins only) a new one created in the same step, with one step-up
  * token (target "fleet" for a new type). The rule may set its own severity, overriding the issue type's.
  */
-export async function proposeRule(pool: pg.Pool, u: Actor, issue: string | NewIssueType, m: SymptomMatch, regroup: boolean, stepUpToken: string,
+export async function proposeRule(pool: Pool, u: Actor, issue: string | NewIssueType, m: SymptomMatch, regroup: boolean, stepUpToken: string,
   severity: "major" | "minor" | null = null) {
   if (u.role !== "tier2" && u.role !== "admin") throw new Refused("forbidden", 403, "Tier 2 or Admin only");
   if (typeof issue !== "string" && u.role !== "admin") throw new Refused("forbidden", 403, "only Admins create issue types");
@@ -195,17 +200,17 @@ export async function proposeRule(pool: pg.Pool, u: Actor, issue: string | NewIs
       if (!type) throw new Refused("not_found", 404, "no such issue type");
       issueTypeId = issue;
     } else {
-      const created = await c.query<{ id: string }>("INSERT INTO issue_types (name, severity, description, created_by) VALUES ($1, $2, $3, $4) RETURNING id",
+      const created = await c.query<{ id: string }>("INSERT INTO issue_types (name, severity, description, created_by) OUTPUT inserted.id VALUES ($1, $2, $3, $4)",
         [issue.name, issue.severity, issue.description, u.userId])
-        .catch((e: { code?: string }) => { throw e.code === "23505" ? new Refused("name_taken", 409, "an issue type with that name exists") : e; });
+        .catch((e: unknown) => { throw isUniqueViolation(e) ? new Refused("name_taken", 409, "an issue type with that name exists") : e; });
       issueTypeId = created.rows[0]!.id;
       await audit(c, { actorKind: "user", actorId: u.userId, action: "issue_type.create", targetKind: "issue_type", targetId: issueTypeId, outcome: "succeeded",
         details: { ...issue, from: "map_to_issue" } });
     }
     const live = u.role === "admin";
     const r = (await c.query<{ id: string }>(
-      `INSERT INTO symptom_rules (issue_type_id, kind, state, match, regroup, proposed_by, approved_by, severity)
-       VALUES ($1, 'map', $2, $3, $4, $5, $6, $7) RETURNING id`,
+      `INSERT INTO symptom_rules (issue_type_id, kind, state, [match], regroup, proposed_by, approved_by, severity)
+       OUTPUT inserted.id VALUES ($1, 'map', $2, $3, $4, $5, $6, $7)`,
       [issueTypeId, live ? "live" : "proposed", safeJson(m), regroup, u.userId, live ? u.userId : null, severity])).rows[0]!;
     await history(c, r.id, live ? "approved" : "proposed", u.userId);
     const regrouped = live && regroup ? await regroupOpen(c, r.id, issueTypeId, m) : 0;
@@ -215,12 +220,13 @@ export async function proposeRule(pool: pg.Pool, u: Actor, issue: string | NewIs
   });
 }
 
-export async function decideRule(pool: pg.Pool, adminId: string, ruleId: string, approve: boolean, stepUpToken: string) {
+export async function decideRule(pool: Pool, adminId: string, ruleId: string, approve: boolean, stepUpToken: string) {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, approve ? "rule.approve" : "rule.reject", ruleId);
     const r = (await c.query<{ issue_type_id: string; match: SymptomMatch; regroup: boolean; proposed_by: string }>(
-      `UPDATE symptom_rules SET state = $2, approved_by = $3, updated_at = now() WHERE id = $1 AND state = 'proposed'
-       RETURNING issue_type_id, match, regroup, proposed_by`, [ruleId, approve ? "live" : "rejected", adminId])).rows[0];
+      `UPDATE symptom_rules SET state = $2, approved_by = $3, updated_at = SYSUTCDATETIME()
+       OUTPUT inserted.issue_type_id, inserted.[match] AS [match], inserted.regroup, inserted.proposed_by
+       WHERE id = $1 AND state = 'proposed'`, [ruleId, approve ? "live" : "rejected", adminId])).rows[0];
     if (!r) throw new Refused("not_pending", 409, "the rule is not waiting for approval");
     await history(c, ruleId, approve ? "approved" : "rejected", adminId);
     const regrouped = approve && r.regroup ? await regroupOpen(c, ruleId, r.issue_type_id, r.match) : 0;
@@ -230,10 +236,10 @@ export async function decideRule(pool: pg.Pool, adminId: string, ruleId: string,
   });
 }
 
-export async function disableRule(pool: pg.Pool, adminId: string, ruleId: string, stepUpToken: string) {
+export async function disableRule(pool: Pool, adminId: string, ruleId: string, stepUpToken: string) {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "rule.disable", ruleId);
-    const r = await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = now() WHERE id = $1 AND state = 'live'", [ruleId]);
+    const r = await c.query("UPDATE symptom_rules SET state = 'disabled', updated_at = SYSUTCDATETIME() WHERE id = $1 AND state = 'live'", [ruleId]);
     if (r.rowCount !== 1) throw new Refused("not_live", 409, "the rule is not live");
     await history(c, ruleId, "disabled", adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "rule.disable", targetKind: "rule", targetId: ruleId, outcome: "succeeded" });
@@ -241,15 +247,15 @@ export async function disableRule(pool: pg.Pool, adminId: string, ruleId: string
 }
 
 /** Puts back an earlier version's issue type and match, live, as a new version (history is never rewritten). */
-export async function rollbackRule(pool: pg.Pool, adminId: string, ruleId: string, version: number, stepUpToken: string) {
+export async function rollbackRule(pool: Pool, adminId: string, ruleId: string, version: number, stepUpToken: string) {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "rule.rollback", ruleId);
     const old = (await c.query<{ issue_type_id: string | null; match: SymptomMatch }>(
-      `SELECT issue_type_id, match FROM symptom_rule_history WHERE rule_id = $1 AND version = $2 ORDER BY id DESC LIMIT 1`, [ruleId, version])).rows[0];
+      `SELECT TOP (1) issue_type_id, [match] FROM symptom_rule_history WHERE rule_id = $1 AND [version] = $2 ORDER BY id DESC`, [ruleId, version])).rows[0];
     if (!old) throw new Refused("not_found", 404, "no such version");
     if (!commonDefs.symptomMatch.is(old.match)) throw new Refused("invalid_request", 400, "that version's match no longer fits its contract");
     // Only a rule an Admin already approved can be rolled back: never a proposal or a rejected one.
-    const r = await c.query(`UPDATE symptom_rules SET version = version + 1, issue_type_id = $2, match = $3, state = 'live', updated_at = now()
+    const r = await c.query(`UPDATE symptom_rules SET [version] = [version] + 1, issue_type_id = $2, [match] = $3, state = 'live', updated_at = SYSUTCDATETIME()
                               WHERE id = $1 AND kind = 'map' AND state IN ('live', 'disabled') AND approved_by IS NOT NULL`, [ruleId, old.issue_type_id, safeJson(old.match)]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "only live or disabled rules can be rolled back");
     await history(c, ruleId, "rolled_back", adminId);
@@ -261,25 +267,19 @@ export async function rollbackRule(pool: pg.Pool, adminId: string, ruleId: strin
  * Regrouping: open unrecognized alerts whose latest event matches the new rule are folded into
  * the issue's alert on that cabinet, and closed as regrouped. Their events move with them.
  */
-async function regroupOpen(c: pg.PoolClient, ruleId: string, issueTypeId: string, m: SymptomMatch): Promise<number> {
+async function regroupOpen(c: Tx, ruleId: string, issueTypeId: string, m: SymptomMatch): Promise<number> {
   const { where, params } = matchSql(m, 2);
   const found = (await c.query<{ id: string; cabinet_id: string; occurrences: number; first_seen: Date; last_seen: Date; last_event_id: string | null }>(
-    `SELECT a.id, a.cabinet_id, a.occurrences, a.first_seen, a.last_seen, a.last_event_id FROM alerts a
+    `SELECT TOP (1000) a.id, a.cabinet_id, a.occurrences, a.first_seen, a.last_seen, a.last_event_id FROM alerts a
        JOIN events e ON e.event_id = a.last_event_id
-      WHERE a.issue_type_id IS NULL AND a.state <> 'resolved' AND a.last_seen > now() - make_interval(days => $1) AND ${where}
-      ORDER BY a.last_seen LIMIT 1000`, [365, ...params])).rows;
+      WHERE a.issue_type_id IS NULL AND a.state <> 'resolved' AND a.last_seen > DATEADD(day, -$1, SYSUTCDATETIME()) AND ${where}
+      ORDER BY a.last_seen`, [365, ...params])).rows;
   const issue = (await c.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [issueTypeId])).rows[0]!;
   for (const a of found) {
-    const target = (await c.query<{ id: string }>(
-      `INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, occurrences, first_seen, last_seen, rule_id, last_event_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (cabinet_id, signature) WHERE state <> 'resolved' DO UPDATE
-         SET occurrences = alerts.occurrences + EXCLUDED.occurrences, first_seen = LEAST(alerts.first_seen, EXCLUDED.first_seen),
-             last_seen = GREATEST(alerts.last_seen, EXCLUDED.last_seen)
-       RETURNING id`,
-      [a.cabinet_id, issueTypeId, issue.severity, `issue:${issueTypeId}`, issue.name, a.occurrences, a.first_seen, a.last_seen, ruleId, a.last_event_id])).rows[0]!;
+    const target = await foldAlert(c, { cabinetId: a.cabinet_id, issueTypeId, severity: issue.severity, signature: `issue:${issueTypeId}`, title: issue.name,
+      occurrences: a.occurrences, firstSeen: a.first_seen, lastSeen: a.last_seen, ruleId, eventId: a.last_event_id }, "regroup");
     await c.query("UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1", [a.id, target.id, ruleId]);
-    await c.query(`UPDATE alerts SET state = 'resolved', resolved_at = now(), resolution = $2 WHERE id = $1`, [a.id, `Regrouped under ${issue.name}.`]);
+    await c.query(`UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 WHERE id = $1`, [a.id, `Regrouped under ${issue.name}.`]);
   }
   return found.length;
 }
@@ -289,14 +289,15 @@ async function regroupOpen(c: pg.PoolClient, ruleId: string, issueTypeId: string
 export const SUPPRESSION_DAYS = 90;
 
 /** Admin only, with a written reason; live at once and expiring after 90 days unless renewed. */
-export async function createSuppression(pool: pg.Pool, u: Actor, m: SymptomMatch, reason: string, stepUpToken: string) {
+export async function createSuppression(pool: Pool, u: Actor, m: SymptomMatch, reason: string, stepUpToken: string) {
   if (u.role !== "admin") throw new Refused("forbidden", 403, "suppressions are Admin only");
   checkUserMatch(m);
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, u.userId, "rule.suppress", "fleet");
     const r = (await c.query<{ id: string; expires_at: Date }>(
-      `INSERT INTO symptom_rules (kind, state, match, proposed_by, approved_by, reason, expires_at)
-       VALUES ('suppress', 'live', $1, $2, $2, $3, now() + make_interval(days => $4)) RETURNING id, expires_at`,
+      `INSERT INTO symptom_rules (kind, state, [match], proposed_by, approved_by, reason, expires_at)
+       OUTPUT inserted.id, inserted.expires_at
+       VALUES ('suppress', 'live', $1, $2, $2, $3, DATEADD(day, $4, SYSUTCDATETIME()))`,
       [safeJson(m), u.userId, reason, SUPPRESSION_DAYS])).rows[0]!;
     await history(c, r.id, "created", u.userId);
     await audit(c, { actorKind: "user", actorId: u.userId, action: "rule.suppress", targetKind: "rule", targetId: r.id, outcome: "succeeded",
@@ -305,12 +306,13 @@ export async function createSuppression(pool: pg.Pool, u: Actor, m: SymptomMatch
   });
 }
 
-export async function renewSuppression(pool: pg.Pool, adminId: string, ruleId: string, stepUpToken: string) {
+export async function renewSuppression(pool: Pool, adminId: string, ruleId: string, stepUpToken: string) {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "rule.renew", ruleId);
     const r = (await c.query<{ expires_at: Date }>(
-      `UPDATE symptom_rules SET expires_at = now() + make_interval(days => $2), updated_at = now()
-        WHERE id = $1 AND kind = 'suppress' AND state = 'live' RETURNING expires_at`, [ruleId, SUPPRESSION_DAYS])).rows[0];
+      `UPDATE symptom_rules SET expires_at = DATEADD(day, $2, SYSUTCDATETIME()), updated_at = SYSUTCDATETIME()
+        OUTPUT inserted.expires_at
+        WHERE id = $1 AND kind = 'suppress' AND state = 'live'`, [ruleId, SUPPRESSION_DAYS])).rows[0];
     if (!r) throw new Refused("not_live", 409, "that suppression is not live");
     await history(c, ruleId, "renewed", adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "rule.renew", targetKind: "rule", targetId: ruleId, outcome: "succeeded",
@@ -320,10 +322,10 @@ export async function renewSuppression(pool: pg.Pool, adminId: string, ruleId: s
 }
 
 /** Marks live rules past their expiry as expired, with history and audit. The engine already ignores them from that moment. */
-export async function expireRules(pool: pg.Pool): Promise<number> {
+export async function expireRules(pool: Pool): Promise<number> {
   return transaction(pool, async c => {
     const ids = (await c.query<{ id: string }>(
-      "UPDATE symptom_rules SET state = 'expired', updated_at = now() WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= now() RETURNING id")).rows;
+      "UPDATE symptom_rules SET state = 'expired', updated_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE state = 'live' AND expires_at IS NOT NULL AND expires_at <= SYSUTCDATETIME()")).rows;
     for (const { id } of ids) {
       await history(c, id, "expired", null);
       await audit(c, { actorKind: "system", actorId: "rule-expiry", action: "rule.expire", targetKind: "rule", targetId: id, outcome: "succeeded" });
@@ -334,6 +336,6 @@ export async function expireRules(pool: pg.Pool): Promise<number> {
 
 /** Every live suppression, soonest to expire first, for the Admin screen. */
 export async function listSuppressions(db: Queryable) {
-  const rows = (await db.query<RuleRow>(`${RULE_SELECT} WHERE r.kind = 'suppress' AND r.state = 'live' ORDER BY r.expires_at NULLS LAST LIMIT 500`)).rows;
+  const rows = (await db.query<RuleRow>(`${RULE_SELECT} WHERE r.kind = 'suppress' AND r.state = 'live' ORDER BY CASE WHEN r.expires_at IS NULL THEN 1 ELSE 0 END, r.expires_at OFFSET 0 ROWS FETCH NEXT 500 ROWS ONLY`)).rows;
   return rows.map(ruleView);
 }

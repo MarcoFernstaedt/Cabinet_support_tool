@@ -2,45 +2,28 @@
 // commands that user issued, every new major alert (to everyone signed in), and each
 // alert's claim and resolution, so every console shows who has what. Security alerts go to Admins only.
 import type { FastifyReply, FastifyRequest } from "fastify";
-import pg from "pg";
 import type { SessionUser } from "../auth/sessions.js";
+import type { Queryable } from "../db/db.js";
+import type { NotificationFeed } from "../db/notifications.js";
 import { alertById } from "../services/alerts.js";
 
 interface Subscriber { userId: string; role: SessionUser["role"]; reply: FastifyReply; close: () => void; }
 
 export class ResultStream {
   private readonly subscribers = new Set<Subscriber>();
-  private client: pg.Client | null = null;
-  private stopped = false;
+  private unsubscribe: Array<() => void> = [];
 
-  constructor(private readonly connectionString: string, private readonly pool: pg.Pool) {}
+  /** The feed wakes this stream when a command result, an alert change or a security alert is written to the notifications table (by any server process). */
+  constructor(private readonly feed: NotificationFeed, private readonly pool: Queryable) {}
 
+  /** Starts listening to the feed. The feed itself is started by whoever created it. */
   async start(): Promise<void> {
-    const client = new pg.Client({ connectionString: this.connectionString });
-    client.on("notification", msg => {
-      if (msg.channel === "command_results" && msg.payload) void this.deliver(msg.payload);
-      if (msg.channel === "alerts" && msg.payload) void this.deliverAlert(msg.payload);
-      if (msg.channel === "security_alerts" && msg.payload) this.deliverSecurity(msg.payload);
-    });
-    client.on("error", () => { if (!this.stopped && this.client === client) void this.restart(); });
-    await client.connect();
-    await client.query("LISTEN command_results");
-    await client.query("LISTEN alerts");
-    await client.query("LISTEN security_alerts");
-    this.client = client;
-  }
-
-  /**
-   * Reconnects after the listener's connection fails, retrying with a growing pause (1 s up to 30 s) until it is back,
-   * so a database restart only pauses live updates; the failed connection is closed.
-   */
-  private async restart(delayMs = 1000): Promise<void> {
-    const old = this.client;
-    this.client = null;
-    old?.end().catch(() => undefined);
-    await new Promise(r => setTimeout(r, delayMs));
-    if (this.stopped) return;
-    await this.start().catch(() => this.restart(Math.min(delayMs * 2, 30_000)));
+    if (this.unsubscribe.length > 0) return;
+    this.unsubscribe = [
+      this.feed.on("command_results", payload => { void this.deliver(payload).catch(() => undefined); }),
+      this.feed.on("alerts", payload => { void this.deliverAlert(payload).catch(() => undefined); }),
+      this.feed.on("security_alerts", payload => this.deliverSecurity(payload)),
+    ];
   }
 
   private async deliver(payload: string): Promise<void> {
@@ -98,8 +81,8 @@ export class ResultStream {
   get count(): number { return this.subscribers.size; }
 
   async stop(): Promise<void> {
-    this.stopped = true;
+    for (const off of this.unsubscribe) off();
+    this.unsubscribe = [];
     for (const s of [...this.subscribers]) { s.close(); s.reply.raw.end(); }
-    await this.client?.end().catch(() => undefined);
   }
 }

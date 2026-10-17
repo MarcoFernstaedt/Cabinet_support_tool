@@ -2,7 +2,6 @@
 // crash incident. Read only; every query string is checked against the crash-query contract first.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
-import { transaction } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { scannerHistory } from "../services/scanner-history.js";
@@ -14,6 +13,8 @@ const DAY = 86_400_000;
 const MAX_DAYS = 90;
 /** The fleet incident reads every cabinet's events, so its window is shorter and one user runs one at a time. */
 const INCIDENT_MAX_DAYS = 14;
+/** SQL Server has no per-statement timeout to set from here (the pool's own limit is 30 s), so the request gives up after this long. */
+const INCIDENT_TIMEOUT_MS = 15_000;
 const incidentRunning = new Set<string>();
 
 function window(q: { days?: string; from?: string; to?: string }, defaultDays: number, maxDays = MAX_DAYS): { from: Date; to: Date } {
@@ -59,11 +60,12 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const w = window(q, 3, INCIDENT_MAX_DAYS);
     if (incidentRunning.has(user.userId)) throw new Refused("rate_limited", 429, "your previous incident query is still running");
     incidentRunning.add(user.userId);
+    // The user stays "running" until the query itself ends, even if the request gave up on it.
+    const run = fleetCrashIncident(o.pool, { ...w, clientId: q.clientId });
+    run.then(() => incidentRunning.delete(user.userId), () => incidentRunning.delete(user.userId));
+    let timer: NodeJS.Timeout | undefined;
     try {
-      return await transaction(o.pool, async c => {
-        await c.query("SET LOCAL statement_timeout = '15s'");
-        return fleetCrashIncident(c, { ...w, clientId: q.clientId });
-      });
-    } finally { incidentRunning.delete(user.userId); }
+      return await Promise.race([run, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Refused("query_timeout", 503, "the incident query took too long; narrow the window or the client")), INCIDENT_TIMEOUT_MS); })]);
+    } finally { clearTimeout(timer); }
   });
 }

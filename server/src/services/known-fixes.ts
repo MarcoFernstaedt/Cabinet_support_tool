@@ -5,8 +5,7 @@
 // A fix a member submits waits for approval: an Admin approves it, or a Tier 2 who has been granted that. Until then only its
 // submitter sees it (marked as waiting); an approver's own submission is approved at once.
 import { randomUUID } from "node:crypto";
-import type pg from "pg";
-import { audit, safeJson, type Queryable } from "../db/db.js";
+import { audit, safeJson, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import type { KnownFixCreate } from "../contracts.js";
 
@@ -31,8 +30,10 @@ export async function environmentOf(db: Queryable, cabinetId: string): Promise<E
     `SELECT k.role, k.agent_version, k.time_zone_id, k.firewall_profiles, s.name AS site, c.name AS client
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) throw new Refused("not_found", 404, "no such cabinet");
-  const adapters = (await db.query<{ a: unknown }>(
-    "SELECT readings->'adapters' AS a FROM diagnoses WHERE cabinet_id = $1 AND state = 'done' AND readings IS NOT NULL ORDER BY finished_at DESC LIMIT 1", [cabinetId])).rows[0]?.a;
+  const adaptersText = (await db.query<{ a: string | null }>(
+    "SELECT TOP (1) JSON_QUERY(readings, '$.adapters') AS a FROM diagnoses WHERE cabinet_id = $1 AND state = 'done' AND readings IS NOT NULL ORDER BY finished_at DESC", [cabinetId])).rows[0]?.a;
+  let adapters: unknown = null;
+  try { adapters = adaptersText ? JSON.parse(adaptersText) : null; } catch { /* unreadable readings: no network section */ }
   const a = Array.isArray(adapters) ? (adapters as AdapterReading[]).find(x => x?.connected) : undefined;
   return { client: k.client, site: k.site, role: k.role, agentVersion: k.agent_version, timeZone: k.time_zone_id, firewall: k.firewall_profiles,
     network: a ? { addressing: a.ipv4?.dhcp ? "dhcp" : "static", gateway: a.ipv4?.gateways?.[0] ?? null, dnsServers: a.dns?.servers ?? [],
@@ -50,7 +51,7 @@ const view = (r: Row) => ({ id: r.id, title: r.title, solution: r.solution, symp
   status: r.status, submittedBy: r.created_by, reviewedBy: r.reviewer_name, reviewedAt: r.reviewed_at?.toISOString() ?? null, reviewNote: r.review_note });
 export type KnownFixView = ReturnType<typeof view>;
 
-export async function saveKnownFix(pool: pg.Pool, user: { userId: string; canApproveFixes: boolean }, b: KnownFixCreate): Promise<KnownFixView> {
+export async function saveKnownFix(pool: Pool, user: { userId: string; canApproveFixes: boolean }, b: KnownFixCreate): Promise<KnownFixView> {
   const env = await environmentOf(pool, b.cabinetId);
   const key = b.symptom.kind === "finding" ? b.symptom.key : null, issue = b.symptom.kind === "issue" ? b.symptom.issueTypeId : null;
   if (issue && (await pool.query("SELECT 1 FROM issue_types WHERE id = $1", [issue])).rowCount !== 1) throw new Refused("not_found", 404, "no such issue type");
@@ -65,8 +66,8 @@ export async function saveKnownFix(pool: pg.Pool, user: { userId: string; canApp
 }
 
 /** An approver's decision on a submitted fix. Only a fix still waiting can be decided, and only once. */
-export async function reviewKnownFix(pool: pg.Pool, userId: string, id: string, decision: "approved" | "rejected", note?: string): Promise<KnownFixView> {
-  const r = await pool.query("UPDATE known_fixes SET status = $2, reviewed_by = $3, reviewed_at = now(), review_note = $4 WHERE id = $1 AND status = 'pending' AND removed_at IS NULL",
+export async function reviewKnownFix(pool: Pool, userId: string, id: string, decision: "approved" | "rejected", note?: string): Promise<KnownFixView> {
+  const r = await pool.query("UPDATE known_fixes SET status = $2, reviewed_by = $3, reviewed_at = SYSUTCDATETIME(), review_note = $4 WHERE id = $1 AND status = 'pending' AND removed_at IS NULL",
     [id, decision, userId, note ?? null]);
   if (r.rowCount !== 1) throw new Refused("not_pending", 409, "this fix is not waiting for approval (it may already have been decided)");
   await audit(pool, { actorKind: "user", actorId: userId, action: decision === "approved" ? "known_fix.approve" : "known_fix.reject", targetKind: "known_fix", targetId: id, outcome: "succeeded",
@@ -77,16 +78,16 @@ export async function reviewKnownFix(pool: pg.Pool, userId: string, id: string, 
 /** What an approver reviews: everything waiting, oldest first, and the last 30 decisions. */
 export async function reviewQueue(db: Queryable) {
   const pending = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status = 'pending' ORDER BY f.created_at`)).rows.map(view);
-  const decided = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status <> 'pending' ORDER BY coalesce(f.reviewed_at, f.created_at) DESC LIMIT 30`)).rows.map(view);
+  const decided = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status <> 'pending' ORDER BY COALESCE(f.reviewed_at, f.created_at) DESC OFFSET 0 ROWS FETCH NEXT 30 ROWS ONLY`)).rows.map(view);
   return { pending, decided };
 }
 
 export async function pendingCount(db: Queryable): Promise<number> {
-  return Number((await db.query<{ n: string }>("SELECT count(*) AS n FROM known_fixes WHERE status = 'pending' AND removed_at IS NULL")).rows[0]!.n);
+  return Number((await db.query<{ n: string }>("SELECT COUNT(*) AS n FROM known_fixes WHERE status = 'pending' AND removed_at IS NULL")).rows[0]!.n);
 }
 
-export async function removeKnownFix(pool: pg.Pool, userId: string, id: string): Promise<void> {
-  const r = await pool.query("UPDATE known_fixes SET removed_at = now() WHERE id = $1 AND removed_at IS NULL", [id]);
+export async function removeKnownFix(pool: Pool, userId: string, id: string): Promise<void> {
+  const r = await pool.query("UPDATE known_fixes SET removed_at = SYSUTCDATETIME() WHERE id = $1 AND removed_at IS NULL", [id]);
   if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such known fix");
   await audit(pool, { actorKind: "user", actorId: userId, action: "known_fix.remove", targetKind: "known_fix", targetId: id, outcome: "succeeded" });
 }
@@ -95,19 +96,19 @@ export async function removeKnownFix(pool: pg.Pool, userId: string, id: string):
 export async function listKnownFixes(db: Queryable, q: { findingKey?: string; issueTypeId?: string }, viewerId: string) {
   const where = q.findingKey ? "AND f.finding_key = $2" : q.issueTypeId ? "AND f.issue_type_id = $2" : "";
   const args = q.findingKey ? [viewerId, q.findingKey] : q.issueTypeId ? [viewerId, q.issueTypeId] : [viewerId];
-  return (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND (f.status = 'approved' OR f.created_by = $1) ${where} ORDER BY (f.status = 'approved') DESC, f.created_at DESC LIMIT 200`, args)).rows.map(view);
+  return (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND (f.status = 'approved' OR f.created_by = $1) ${where} ORDER BY CASE WHEN f.status = 'approved' THEN 0 ELSE 1 END, f.created_at DESC OFFSET 0 ROWS FETCH NEXT 200 ROWS ONLY`, args)).rows.map(view);
 }
 
 /** The fixes saved for each finding key, newest first; counts each as seen once for this diagnosis. */
 export async function fixesForFindings(db: Queryable, findingIds: string[]): Promise<Record<string, KnownFixView[]>> {
   const keys = [...new Set(findingIds.map(findingKey))];
   if (keys.length === 0) return {};
-  const rows = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status = 'approved' AND f.finding_key = ANY($1::text[]) ORDER BY f.created_at DESC`, [keys])).rows;
+  const rows = (await db.query<Row>(`${SELECT} WHERE f.removed_at IS NULL AND f.status = 'approved' AND f.finding_key IN (SELECT value FROM OPENJSON($1)) ORDER BY f.created_at DESC`, [keys])).rows;
   const out: Record<string, KnownFixView[]> = {};
   for (const id of findingIds) { const m = rows.filter(r => r.finding_key === findingKey(id)).map(view); if (m.length) out[id] = m; }
   return out;
 }
 
 export async function markSeen(db: Queryable, ids: string[]): Promise<void> {
-  if (ids.length) await db.query("UPDATE known_fixes SET seen_count = seen_count + 1, last_seen_at = now() WHERE id = ANY($1::uuid[])", [ids]);
+  if (ids.length) await db.query("UPDATE known_fixes SET seen_count = seen_count + 1, last_seen_at = SYSUTCDATETIME() WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [JSON.stringify(ids)]);
 }

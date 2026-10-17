@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
 import { ResultStream } from "../src/console-api/stream.js";
+import { NotificationFeed } from "../src/db/notifications.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
@@ -23,6 +24,7 @@ import { tempDir } from "./helpers.js";
 let db: TestDatabase;
 let app: FastifyInstance;
 let stream: ResultStream;
+let feed: NotificationFeed;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 
 const h = new ConsoleHarness(secrets);
@@ -38,7 +40,7 @@ async function realCabinet(client: string, site: string, name: string, scenario:
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [clientId, client]);
   await db.app.query("INSERT INTO sites (id, client_id, name, time_zone) VALUES ($1, $2, $3, 'Eastern Standard Time')", [siteId, clientId, site]);
   await db.app.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, firewall_profiles, time_zone_id, clock_skew_seconds, last_heartbeat_at)
-                      VALUES ($1, $2, $3, 'standalone', 'active', $4, $5, false, '0.2.0', 100000, '{"domain":false,"private":false,"public":false}', 'Eastern Standard Time', 0.2, now())`,
+                      VALUES ($1, $2, $3, 'standalone', 'active', $4, $5, 0, '0.2.0', 100000, '{"domain":false,"private":false,"public":false}', 'Eastern Standard Time', 0.2, SYSUTCDATETIME())`,
     [id, siteId, name, name.toUpperCase(), `SN-${name}`]);
   const r = { id, name, scenario };
   real.push(r);
@@ -64,18 +66,20 @@ function startAgents() {
 test.before(async () => {
   db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
-  stream = new ResultStream(db.appUrl, db.app);
+  feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  stream = new ResultStream(feed, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
   startAgents();
 });
-test.after(async () => { clearInterval(answering); await app.close(); await stream.stop(); await db.drop(); });
+test.after(async () => { clearInterval(answering); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 async function diagnose(a: Account, cabinetId: string) {
   const started = await call("POST", `/api/cabinets/${cabinetId}/diagnose/network`, {}, a);
   assert.equal(started.status, 202, JSON.stringify(started.body));
-  for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
+  for (const end = Date.SYSUTCDATETIME() + 30_000; Date.SYSUTCDATETIME() < end; await new Promise(r => setTimeout(r, 100))) {
     const d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, a)).body;
     if (d.state !== "running") return d;
   }
@@ -86,7 +90,7 @@ test("on real cabinets: a diagnosis keeps its full read, a fix saved on one cabi
   const boss = await account("admin"), member = await account("tier1");
   const a = await realCabinet("Real Clinic A", "Main", "Alpha", "net_flaky");
   const b = await realCabinet("Real Clinic B", "Annex", "Bravo", "net_flaky");
-  assert.equal((await db.app.query("SELECT count(*) AS n FROM cabinets WHERE demo_scenario IS NOT NULL")).rows[0].n, "0", "nothing here is a demo cabinet");
+  assert.equal((await db.app.query("SELECT COUNT_BIG(*) AS n FROM cabinets WHERE demo_scenario IS NOT NULL")).rows[0].n, "0", "nothing here is a demo cabinet");
 
   // The diagnosis on a real cabinet: observations from the read, and the whole read kept.
   const first = await diagnose(boss, a.id);
