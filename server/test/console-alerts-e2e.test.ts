@@ -60,7 +60,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
     hostname: "CAB-ICU", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 10", agentVersion: "0.4.0" } }, "127.0.0.1");
   const { cabinetId } = await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU cabinet", role: "standalone" }, ids[0]!);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now()");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME()");
   let record = 500;
   const lockError = (): Event => ({ eventId: randomUUID(), kind: "error", occurredAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), severityHint: "minor",
     source: { log: "System", source: "Biometric Lock Driver", eventId: 4242, level: "error", recordId: ++record }, detail: { message: "Fingerprint sensor timed out." } });
@@ -175,7 +175,7 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
     await shot(tess, "m4-7-major-on-alerts-tab");
 
     // ---- The offline filter -----------------------------------------------------------
-    await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '6 days'");
+    await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(day, -6, SYSUTCDATETIME())");
     await sam.goto(`${origin}/alerts?view=offline`);
     await sam.getByRole("link", { name: "Acme Health" }).click();
     await sam.getByRole("link", { name: "North" }).click();
