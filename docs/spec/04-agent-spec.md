@@ -24,7 +24,7 @@ The agent can be installed in read-only mode, set in its local protected configu
 ## Main loops
 
 - Command loop: long poll for commands, validate, execute, post results
-- Heartbeat loop: every 60 seconds
+- Heartbeat loop: every 60 seconds against a 1.0 server; once the server sends any Protocol 1.1 field, at the interval it names (default 300 seconds; see 03-protocol.md, Protocol 1.1)
 - Monitor loop: background watchers that produce events
 - Event sender: drains the on-disk event queue to the server
 
