@@ -36,11 +36,12 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
    */
   const recordFailure = async (userId: string, kind: "failed_logins" | "failed_step_ups", source: string): Promise<void> => {
     const r = (await o.pool.query<{ failed_logins: number; username: string }>(
-      `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1 ELSE failed_logins + 1 END,
-                        locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= now() THEN 1 ELSE failed_logins + 1 END) >= $2
-                                            THEN now() + make_interval(mins => $3)
-                                            WHEN locked_until IS NOT NULL AND locked_until <= now() THEN NULL ELSE locked_until END
-        WHERE id = $1 RETURNING failed_logins, username`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
+      `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END,
+                        locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END) >= $2
+                                            THEN DATEADD(minute, $3, SYSUTCDATETIME())
+                                            WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN NULL ELSE locked_until END
+        OUTPUT inserted.failed_logins, inserted.username
+        WHERE id = $1`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
     if (r && r.failed_logins === MAX_FAILURES)
       await raiseSecurityAlertNow(o.pool, { kind, signature: `${kind}|${userId}`, userId,
         title: kind === "failed_logins" ? `Repeated failed sign-ins on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`
@@ -57,8 +58,8 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const body = consoleBodies.login.parse(request.body);
     const user = (await o.pool.query<{ id: string; password_hash: string | null; role: string; totp_enabled: boolean; must_change_password: boolean; locked: boolean }>(
-      `SELECT id, password_hash, role, totp_enabled, must_change_password, (locked_until IS NOT NULL AND locked_until > now()) AS locked
-         FROM users WHERE username = $1 AND status = 'active'`, [body.username])).rows[0];
+      `SELECT TOP (1) id, password_hash, role, totp_enabled, must_change_password, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
+         FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [body.username])).rows[0];
     const ok = await verifyPassword(user?.password_hash ?? null, body.password);
     if (user?.locked) return reply.code(429).send({ error: "account_locked" });
     if (!user || !ok) {
@@ -76,7 +77,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       if (stage !== "totp") await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
       const signIn = await recordSignIn(c, { userId: user.id, username: body.username, address: request.ip, userAgent: request.headers["user-agent"],
         deviceCookie: readCookie(request, DEVICE_COOKIE) });
-      if (stage === "complete") await c.query("UPDATE users SET last_login_at = now() WHERE id = $1", [user.id]);
+      if (stage === "complete") await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [user.id]);
       await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded",
         details: { stage, source: request.ip, newNetwork: signIn.newNetwork, newDevice: signIn.newDevice } });
       return { session: await createSession(c, user.id, stage, request.ip, policy, signIn.signInId), device: signIn.deviceValue };
@@ -103,7 +104,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (u.stage !== "totp") throw new Refused("wrong_stage", 409, "no authenticator code is expected now");
     const { code } = consoleBodies.code.parse(request.body);
     const row = (await o.pool.query<{ totp_secret_enc: Buffer; totp_last_step: string | null; locked: boolean }>(
-      "SELECT totp_secret_enc, totp_last_step, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+      "SELECT totp_secret_enc, totp_last_step, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     const step = totp.verify(o.secrets.open(row.totp_secret_enc), code, now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
     if (step === null) {
@@ -115,7 +116,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const stage = nextStage({ totpEnabled: true, role: u.role, mustChangePassword: u.mustChangePassword }, true);
     await transaction(o.pool, async c => {
       // Claimed with a conditional update, so two requests racing with the same code cannot both pass.
-      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 THEN now() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 = 1 THEN SYSUTCDATETIME() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
         [u.userId, step, stage === "complete"]);
       if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
       await setStage(c, u.sessionHash, stage);
@@ -131,7 +132,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     // A GET changes nothing a person could lose: the pending secret is created once and shown again on every later
     // request until setup completes (an Admin's reset clears it), so no link or request can swap it under them.
     const row = (await o.pool.query<{ totp_secret_enc: Buffer | null }>(
-      "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) WHERE id = $1 AND totp_enabled = false RETURNING totp_secret_enc",
+      "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) OUTPUT inserted.totp_secret_enc WHERE id = $1 AND totp_enabled = 0",
       [u.userId, o.secrets.seal(totp.newSecret())])).rows[0];
     if (!row?.totp_secret_enc) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
     const secret = o.secrets.open(row.totp_secret_enc);
@@ -148,7 +149,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (step === null) return reply.code(401).send({ error: "invalid_code" });
     const stage = u.stage === "complete" ? "complete" : nextStage({ totpEnabled: true, role: u.role, mustChangePassword: u.mustChangePassword }, true);
     await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET totp_enabled = true, totp_last_step = $2 WHERE id = $1", [u.userId, step]);
+      await c.query("UPDATE users SET totp_enabled = 1, totp_last_step = $2 WHERE id = $1", [u.userId, step]);
       await setStage(c, u.sessionHash, stage);
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp.enable", targetKind: "user", targetId: u.userId, outcome: "succeeded" });
     });
@@ -162,7 +163,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     // The same limits as sign-in: a stolen session must not become a way to guess the password without locking.
     if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const row = (await o.pool.query<{ password_hash: string; locked: boolean }>(
-      "SELECT password_hash, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+      "SELECT password_hash, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     if (!(await verifyPassword(row.password_hash, body.currentPassword))) {
       noteAddressFailure(request.ip);
@@ -175,7 +176,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       throw new Refused("weak_password", 400, "choose a different, longer password");
     const hash = await hashPassword(body.newPassword);
     await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET password_hash = $2, must_change_password = false WHERE id = $1", [u.userId, hash]);
+      await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [u.userId, hash]);
       // Every other session of this user ends; this one continues.
       await c.query("DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2", [u.userId, u.sessionHash]);
       if (u.stage === "password_change") await setStage(c, u.sessionHash, "complete");
@@ -198,7 +199,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
 
   app.post("/api/auth/tour-complete", async request => {
     const u = await o.guards.role(request, "tier1");
-    await o.pool.query("UPDATE users SET tour_completed = true WHERE id = $1", [u.userId]);
+    await o.pool.query("UPDATE users SET tour_completed = 1 WHERE id = $1", [u.userId]);
     return { ok: true };
   });
 
@@ -207,7 +208,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.stepUp.parse(request.body);
     const row = (await o.pool.query<{ totp_enabled: boolean; totp_secret_enc: Buffer | null; totp_last_step: string | null; locked: boolean }>(
-      "SELECT totp_enabled, totp_secret_enc, totp_last_step, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+      "SELECT totp_enabled, totp_secret_enc, totp_last_step, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (!row.totp_enabled || !row.totp_secret_enc) throw new Refused("totp_required", 403, "set up your authenticator first");
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     const step = totp.verify(o.secrets.open(row.totp_secret_enc), body.code, now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
@@ -236,7 +237,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.confirmPassword.parse(request.body);
     const row = (await o.pool.query<{ password_hash: string | null; locked: boolean }>(
-      "SELECT password_hash, (locked_until IS NOT NULL AND locked_until > now()) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
+      "SELECT password_hash, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
     if (!(await verifyPassword(row.password_hash, body.password))) {
       noteAddressFailure(request.ip);

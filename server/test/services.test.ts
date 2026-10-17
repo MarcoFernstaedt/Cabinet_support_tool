@@ -29,7 +29,7 @@ let cabinetId: string, siteId: string, clientId: string;
 interface Account { id: string; username: string; password: string; secret: Buffer; }
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
@@ -53,7 +53,7 @@ const serviceEvent = (service: string, change: string, extra: Record<string, str
   detail: { message: `${service} ${change}`, fields: { service, change, restartsToday: "1", ...extra } },
 });
 const alertFor = async (signature: string) => (await db.app.query<{ state: string; severity: string; title: string; occurrences: number }>(
-  "SELECT state, severity, title, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = $2 ORDER BY first_seen DESC LIMIT 1", [cabinetId, signature])).rows[0];
+  "SELECT TOP (1) state, severity, title, occurrences FROM alerts WHERE cabinet_id = $1 AND signature = $2 ORDER BY first_seen DESC", [cabinetId, signature])).rows[0];
 
 test.before(async () => {
   db = await createTestDatabase();
@@ -68,7 +68,7 @@ test.before(async () => {
   cabinetId = (await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU", role: "standalone" }, admin.id)).cabinetId;
   const r = (await db.app.query<{ site_id: string; client_id: string }>("SELECT s.id AS site_id, s.client_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0]!;
   siteId = r.site_id; clientId = r.client_id;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now(), read_only = false");
+  await db.app.query<any>("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0");
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
@@ -91,7 +91,7 @@ test("watch lists: the most specific level wins, null inherits, an empty list wa
   assert.equal((await watchLevels(db.app, cabinetId)).source, "site", "null gives the level above back");
   const site = await call("GET", `/api/sites/${siteId}/watched-services`, undefined, c1);
   assert.deepEqual(site.body, { own: [], client: ["BioScanSvc", "MSSQL$SQLEXPRESS"], fleet: ["Spooler"] });
-  const audited = (await db.app.query("SELECT count(*)::int AS n FROM audit_log WHERE action = 'watch.set'")).rows[0].n;
+  const audited = (await db.app.query<any>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'watch.set'")).rows[0].n;
   assert.equal(audited, 5);
   await call("PUT", `/api/sites/${siteId}/watched-services`, { names: null }, c2);
 });
@@ -117,7 +117,7 @@ test("service events: an automatic restart opens a minor alert per service, 3 fa
   assert.deepEqual((await alertFor("service:watch:NoSuchSvc"))!.severity, "minor");
   // A name outside the contract, or an unknown change, is kept as an event and raises nothing.
   await storeEvents(db.app, cabinetId, { events: [serviceEvent("x; rm -rf", "failing"), serviceEvent("BioScanSvc", "exploded")] });
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM alerts WHERE cabinet_id = $1 AND issue_type_id IN ($2, $3, $4)",
+  assert.equal((await db.app.query<any>("SELECT COUNT(*) AS n FROM alerts WHERE cabinet_id = $1 AND issue_type_id IN ($2, $3, $4)",
     [cabinetId, ISSUE.serviceRestarted, ISSUE.serviceFailing, ISSUE.serviceWatch])).rows[0].n, 3);
 });
 
@@ -133,5 +133,5 @@ test("service.control is a click for Tier 2 and refused for Tier 1; services.lis
   assert.equal((await send({ operation: "services.list", params: {} }, c1)).status, 202);
   assert.equal((await send({ operation: "processes.list", params: {} }, c1)).status, 202);
   assert.equal((await send({ operation: "processes.list", params: { includeCommandLines: true } }, c1)).status, 400);
-  await db.app.query("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
+  await db.app.query<any>("UPDATE commands SET status = 'expired' WHERE status = 'queued'");
 });

@@ -4,6 +4,7 @@
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
+import { parseJson } from "../services/settings.js";
 import { setWatched, watchLevels, type WatchLevel } from "../services/watched-services.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -18,14 +19,15 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   for (const [level, table] of [["client", "clients"], ["site", "sites"]] as const) {
     app.get(`/api/${table}/:id/watched-services`, async request => {
       await o.guards.role(request, "tier1");
-      const row = (await o.pool.query<{ own: string[] | null; parent: string[] | null }>(
+      // The lists come back as JSON text under these names (the data layer parses only the columns it knows), so they are parsed here.
+      const row = (await o.pool.query<{ own: string | null; parent: string | null }>(
         level === "client"
-          ? "SELECT watched_services AS own, NULL::text[] AS parent FROM clients WHERE id = $1 AND removed_at IS NULL"
+          ? "SELECT watched_services AS own, CAST(NULL AS nvarchar(max)) AS parent FROM clients WHERE id = $1 AND removed_at IS NULL"
           : "SELECT s.watched_services AS own, c.watched_services AS parent FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1 AND s.removed_at IS NULL",
         [id(request)])).rows[0];
       if (!row) throw new Refused("not_found", 404, `no such ${level}`);
-      const fleet = (await o.pool.query<{ value: string[] }>("SELECT value FROM settings WHERE key = 'services.watched'")).rows[0]?.value ?? null;
-      return { own: row.own, client: level === "site" ? row.parent : null, fleet };
+      const fleet = (await o.pool.query<{ value: string[] }>("SELECT [value] FROM settings WHERE [key] = 'services.watched'")).rows[0]?.value ?? null;
+      return { own: parseJson<string[]>(row.own), client: level === "site" ? parseJson<string[]>(row.parent) : null, fleet };
     });
     app.put(`/api/${table}/:id/watched-services`, async request => {
       const u = await o.guards.role(request, "tier2");
@@ -44,7 +46,7 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
 
   app.get("/api/admin/watched-services", async request => {
     await o.guards.role(request, "tier1");
-    return { names: (await o.pool.query<{ value: string[] }>("SELECT value FROM settings WHERE key = 'services.watched'")).rows[0]?.value ?? null };
+    return { names: (await o.pool.query<{ value: string[] }>("SELECT [value] FROM settings WHERE [key] = 'services.watched'")).rows[0]?.value ?? null };
   });
 
   app.put("/api/admin/watched-services", async request => {

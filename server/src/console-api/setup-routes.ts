@@ -26,11 +26,11 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.get("/api/admin/setup", async request => {
     const u = await o.guards.role(request, "admin");
     const r = (await o.pool.query<{ others: string; cabinets: string; pending: string; newest: string | null; newest_name: string | null }>(
-      `SELECT (SELECT count(*) FROM users WHERE status = 'active' AND id <> $1) AS others,
-              (SELECT count(*) FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL) AS cabinets,
-              (SELECT count(*) FROM enrollment_requests WHERE status = 'pending') AS pending,
-              (SELECT id::text FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL ORDER BY created_at DESC LIMIT 1) AS newest,
-              (SELECT name FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL ORDER BY created_at DESC LIMIT 1) AS newest_name`, [u.userId])).rows[0]!;
+      `SELECT (SELECT COUNT(*) FROM users WHERE status = 'active' AND id <> $1) AS others,
+              (SELECT COUNT(*) FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL) AS cabinets,
+              (SELECT COUNT(*) FROM enrollment_requests WHERE status = 'pending') AS pending,
+              (SELECT TOP (1) id FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL ORDER BY created_at DESC) AS newest,
+              (SELECT TOP (1) name FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL ORDER BY created_at DESC) AS newest_name`, [u.userId])).rows[0]!;
     const pkg = await packageInfo();
     return { otherUsers: Number(r.others), realCabinets: Number(r.cabinets), pendingCabinets: Number(r.pending), newestCabinetId: r.newest, newestCabinetName: r.newest_name,
       agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, package: pkg && { name: pkg.name, bytes: pkg.bytes, sha256: pkg.sha256 },

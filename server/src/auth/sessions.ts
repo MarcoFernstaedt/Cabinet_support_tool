@@ -18,15 +18,15 @@ export const hashId = (id: string): Buffer => createHash("sha256").update(id, "u
 
 export async function createSession(db: Queryable, userId: string, stage: Stage, address: string, policy = DEFAULT_POLICY, signInId: number | null = null): Promise<string> {
   const id = randomBytes(32).toString("base64url");
-  await db.query(`INSERT INTO sessions (id_hash, user_id, stage, expires_at, address, sign_in_id) VALUES ($1, $2, $3, now() + make_interval(hours => $4), $5, $6)`,
-    [hashId(id), userId, stage, policy.absoluteHours, address, signInId]);
+  await db.query(`INSERT INTO sessions (id_hash, user_id, stage, expires_at, address, sign_in_id) VALUES ($1, $2, $3, DATEADD(second, $4, SYSUTCDATETIME()), $5, $6)`,
+    [hashId(id), userId, stage, Math.round(policy.absoluteHours * 3600), address, signInId]);
   if (stage === "complete") await markSignInCompleted(db, hashId(id));
   return id;
 }
 
 /** A sign-in is complete once its session has passed every stage (password, authenticator, any setup). */
 const markSignInCompleted = (db: Queryable, sessionHash: Buffer) =>
-  db.query("UPDATE sign_ins SET completed = true WHERE id = (SELECT sign_in_id FROM sessions WHERE id_hash = $1)", [sessionHash]);
+  db.query("UPDATE sign_ins SET completed = 1 WHERE id = (SELECT sign_in_id FROM sessions WHERE id_hash = $1)", [sessionHash]);
 
 /**
  * The session and its user, if the session is live. A person's own request touches it, extending the idle
@@ -36,13 +36,14 @@ const markSignInCompleted = (db: Queryable, sessionHash: Buffer) =>
 export async function loadSession(db: Queryable, id: string | undefined, policy = DEFAULT_POLICY, touch = true): Promise<SessionUser | null> {
   if (!id || id.length !== 43 || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
   const live = `s.id_hash = $1 AND u.id = s.user_id AND u.status = 'active'
-        AND s.expires_at > now() AND s.last_activity_at > now() - make_interval(mins => $2)`;
-  const columns = "s.stage, u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed, u.can_approve_fixes";
+        AND s.expires_at > SYSUTCDATETIME() AND s.last_activity_at > DATEADD(second, -$2, SYSUTCDATETIME())`;
+  const columns = (touch ? "inserted.stage" : "s.stage") + ", u.id AS user_id, u.username, u.name, u.role, u.totp_enabled, u.must_change_password, u.tour_completed, u.can_approve_fixes";
   const row = (await db.query<{ stage: Stage; user_id: string; username: string; name: string; role: SessionUser["role"]; totp_enabled: boolean;
     must_change_password: boolean; tour_completed: boolean; can_approve_fixes: boolean }>(
-    touch ? `UPDATE sessions s SET last_activity_at = now() FROM users u WHERE ${live} RETURNING ${columns}`
+    // The UPDATE reads the user's columns through OUTPUT (sessions has no trigger, so OUTPUT without INTO is allowed).
+    touch ? `UPDATE s SET last_activity_at = SYSUTCDATETIME() OUTPUT ${columns} FROM sessions s, users u WHERE ${live}`
           : `SELECT ${columns} FROM sessions s, users u WHERE ${live}`,
-    [hashId(id), policy.idleMinutes])).rows[0];
+    [hashId(id), Math.round(policy.idleMinutes * 60)])).rows[0];
   if (!row) return null;
   return { sessionHash: hashId(id), stage: row.stage, userId: row.user_id, username: row.username, name: row.name, role: row.role,
     totpEnabled: row.totp_enabled, mustChangePassword: row.must_change_password, tourCompleted: row.tour_completed, canApproveFixes: row.role === "admin" || (row.role === "tier2" && row.can_approve_fixes) };

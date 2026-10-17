@@ -34,7 +34,7 @@ after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
 async function user(role: "tier1" | "admin") {
   const id = randomUUID(), username = `${role}.${randomBytes(3).toString("hex")}`, secret = totp.newSecret();
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [id, username, `Test ${role}`, role, await hashPassword(PASSWORD), secrets.seal(secret)]);
   return { id, username, secret };
 }
@@ -132,10 +132,10 @@ test("a sign-in stays incomplete until the authenticator code is given", async (
   const u = await user("tier1");
   const b = browser(CHROME, "203.0.113.5");
   await call(b, "POST", "/api/auth/login", { username: u.username, password: PASSWORD });
-  assert.equal((await db.app.query("SELECT completed FROM sign_ins WHERE user_id = $1", [u.id])).rows[0].completed, false);
+  assert.equal((await db.app.query<any>("SELECT completed FROM sign_ins WHERE user_id = $1", [u.id])).rows[0].completed, false);
   clock += 30_000;
   await call(b, "POST", "/api/auth/totp", { code: totp.code(u.secret, totp.stepAt(clock)) });
-  assert.equal((await db.app.query("SELECT completed FROM sign_ins WHERE user_id = $1", [u.id])).rows[0].completed, true);
+  assert.equal((await db.app.query<any>("SELECT completed FROM sign_ins WHERE user_id = $1", [u.id])).rows[0].completed, true);
 });
 
 test("device labels name the browser and system only", () => {

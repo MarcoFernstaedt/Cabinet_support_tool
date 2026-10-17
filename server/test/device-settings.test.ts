@@ -28,7 +28,7 @@ const ids = { client: randomUUID(), otherClient: randomUUID(), site: randomUUID(
 
 async function account(role: Account["role"]): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret(), role };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
@@ -62,10 +62,10 @@ test.before(async () => {
   stream = new ResultStream(db.appUrl, db.app);
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => clock });
-  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health'), ($2, 'Other Client')", [ids.client, ids.otherClient]);
-  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $3, 'North'), ($2, $3, 'South'), ($4, $5, 'Elsewhere')", [ids.site, ids.site2, ids.client, randomUUID(), ids.otherClient]);
+  await db.app.query<any>("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health'), ($2, 'Other Client')", [ids.client, ids.otherClient]);
+  await db.app.query<any>("INSERT INTO sites (id, client_id, name) VALUES ($1, $3, 'North'), ($2, $3, 'South'), ($4, $5, 'Elsewhere')", [ids.site, ids.site2, ids.client, randomUUID(), ids.otherClient]);
   for (const [k, site] of [[ids.cab, ids.site], [ids.cab2, ids.site2]] as const)
-    await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, $3, 'standalone', 'active', now())", [k, site, `Cabinet ${k.slice(0, 4)}`]);
+    await db.app.query<any>("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, $3, 'standalone', 'active', SYSUTCDATETIME())", [k, site, `Cabinet ${k.slice(0, 4)}`]);
   [tier1, tier2, admin] = [await account("tier1"), await account("tier2"), await account("admin")];
   for (const a of [tier1, tier2, admin]) await signIn(a);
 });
@@ -113,7 +113,7 @@ test("scanner IDs: Tier 1 cannot change any level, tokens are bound to their lev
 });
 
 test("sync ports: the site's own, else the client's, else the fleet's; only Admins change them; network.test uses what applies", async () => {
-  await db.app.query("UPDATE sites SET sync_address = '10.20.0.15' WHERE id IN ($1, $2)", [ids.site, ids.site2]);
+  await db.app.query<any>("UPDATE sites SET sync_address = '10.20.0.15' WHERE id IN ($1, $2)", [ids.site, ids.site2]);
   assert.deepEqual((await syncForSite(db.app, ids.site))!.source, "none");
   assert.equal((await put(tier2, `/api/clients/${ids.client}/sync-ports`, { ports: [1433] }, "client.sync", ids.client)).status, 403, "Admin only");
   assert.equal((await put(admin, "/api/settings/sync-ports", { ports: [445] }, "settings.sync", "fleet")).status, 200);

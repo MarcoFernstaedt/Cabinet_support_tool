@@ -11,7 +11,7 @@ const hash = (token: string): Buffer => createHash("sha256").update(token, "utf8
 
 export async function issueStepUpToken(db: Queryable, userId: string, action: string, target: string, boundParamsHash?: string): Promise<string> {
   const token = randomBytes(32).toString("base64url");
-  await db.query(`INSERT INTO step_up_tokens (token_hash, user_id, action, target, params_hash, expires_at) VALUES ($1, $2, $3, $4, $5, now() + make_interval(secs => $6))`,
+  await db.query(`INSERT INTO step_up_tokens (token_hash, user_id, action, target, params_hash, expires_at) VALUES ($1, $2, $3, $4, $5, DATEADD(second, $6, SYSUTCDATETIME()))`,
     [hash(token), userId, action, target, boundParamsHash ?? null, STEP_UP_SECONDS]);
   return token;
 }
@@ -35,9 +35,9 @@ export async function consumeStepUpToken(db: Queryable, token: string, userId: s
   const boundHash = dot < 0 ? null : token.slice(dot + 1);
   if (dot >= 0) token = token.slice(0, dot);
   const required = params === undefined ? boundHash : paramsHash(params);
-  const r = await db.query(`UPDATE step_up_tokens SET used_at = now()
-                              WHERE token_hash = $1 AND user_id = $2 AND action = $3 AND target = $4 AND used_at IS NULL AND expires_at > now()
-                                AND ($5::text IS NULL OR params_hash = $5)`,
+  const r = await db.query(`UPDATE step_up_tokens SET used_at = SYSUTCDATETIME()
+                              WHERE token_hash = $1 AND user_id = $2 AND action = $3 AND target = $4 AND used_at IS NULL AND expires_at > SYSUTCDATETIME()
+                                AND ($5 IS NULL OR params_hash = $5)`,
     [hash(token), userId, action, target, required]);
   if (r.rowCount !== 1) throw new Refused("step_up_required", 403, "a valid step-up token for this exact action is required");
 }

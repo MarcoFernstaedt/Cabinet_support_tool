@@ -1,21 +1,38 @@
 // Console-managed settings: the scanner's hardware IDs (fleet and per cabinet) and each
 // site's sync cabinet. Each change needs its step-up token and is audited with the action.
-import type pg from "pg";
-import { audit, safeJson, transaction, type Queryable } from "../db/db.js";
+import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 
-export async function setFleetScanner(pool: pg.Pool, userId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
+/**
+ * Writes one row of the settings table: replaces the value when the key exists, adds the row when it does not. Call it inside a
+ * transaction: the key is locked by name until the transaction ends, so two writers of the same key cannot both insert it.
+ */
+export async function upsertSetting(db: Queryable, key: string, value: unknown, changedBy: string): Promise<void> {
+  await lock(db, `settings:${key}`);
+  const text = safeJson(value);
+  await db.query("UPDATE settings SET [value] = $2, changed_by = $3, changed_at = SYSUTCDATETIME() WHERE [key] = $1", [key, text, changedBy]);
+  // One statement decides and inserts, so a row cannot appear between the update and the insert.
+  await db.query("INSERT INTO settings ([key], [value], changed_by) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE [key] = $1)", [key, text, changedBy]);
+}
+
+/** A JSON column read under an alias the data layer does not know (it parses only the columns named in json-columns.ts): text in, value out. */
+export function parseJson<T>(v: unknown): T | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v !== "string") return v as T;
+  try { return JSON.parse(v) as T; } catch { return null; }
+}
+
+export async function setFleetScanner(pool: Pool, userId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, "settings.scanner", "fleet");
-    if (ids === null) await c.query("DELETE FROM settings WHERE key = 'scanner.hardwareIds'");
-    else await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ('scanner.hardwareIds', $1, $2)
-                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [safeJson(ids), userId]);
+    if (ids === null) await c.query("DELETE FROM settings WHERE [key] = 'scanner.hardwareIds'");
+    else await upsertSetting(c, "scanner.hardwareIds", ids, userId);
     await audit(c, { actorKind: "user", actorId: userId, action: "settings.scanner", outcome: "succeeded", details: { hardwareIds: ids } });
   });
 }
 
-export async function setCabinetScanner(pool: pg.Pool, userId: string, cabinetId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
+export async function setCabinetScanner(pool: Pool, userId: string, cabinetId: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, "cabinet.scanner", cabinetId);
     const r = await c.query("UPDATE cabinets SET scanner_hardware_ids = $2 WHERE id = $1 AND status <> 'removed'", [cabinetId, ids === null ? null : safeJson(ids)]);
@@ -33,7 +50,7 @@ export function isPrivateIpv4(address: string): boolean {
 }
 
 /** A site's sync cabinet address, and its own ports (null: use the client's, else the fleet's). */
-export async function setSiteSync(pool: pg.Pool, userId: string, siteId: string, address: string | null, ports: number[] | null, stepUpToken: string): Promise<void> {
+export async function setSiteSync(pool: Pool, userId: string, siteId: string, address: string | null, ports: number[] | null, stepUpToken: string): Promise<void> {
   if (address !== null && !isPrivateIpv4(address)) throw new Refused("invalid_address", 400, "the sync cabinet must have a private IPv4 address");
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "site.sync", siteId);
@@ -66,8 +83,8 @@ const KEYS = {
 } as const;
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
-  const rows = new Map((await db.query<{ key: string; value: unknown }>("SELECT key, value FROM settings WHERE key LIKE ANY ($1)",
-    [["alerts.%", "sessions.%", "retention.%"]])).rows.map(r => [r.key, r.value]));
+  const rows = new Map((await db.query<{ key: string; value: unknown }>(
+    "SELECT [key], [value] FROM settings WHERE [key] LIKE 'alerts.%' OR [key] LIKE 'sessions.%' OR [key] LIKE 'retention.%'")).rows.map(r => [r.key, r.value]));
   const num = (name: keyof typeof KEYS, fallback: number): number => {
     const [key, min, max] = KEYS[name];
     const v = rows.get(key);
@@ -100,7 +117,7 @@ export interface SettingsChange {
   retention?: Partial<PlatformSettings["retention"]>;
 }
 
-export async function updatePlatformSettings(pool: pg.Pool, adminId: string, change: SettingsChange, stepUpToken: string): Promise<PlatformSettings> {
+export async function updatePlatformSettings(pool: Pool, adminId: string, change: SettingsChange, stepUpToken: string): Promise<PlatformSettings> {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "settings.update", "fleet");
     const before = await platformSettings(c);
@@ -109,9 +126,7 @@ export async function updatePlatformSettings(pool: pg.Pool, adminId: string, cha
       if (change[name] !== undefined) writes.push([KEYS[name][0], change[name]]);
     for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const)
       if (change.retention?.[name] !== undefined) writes.push([KEYS[name][0], change.retention[name]]);
-    for (const [key, value] of writes)
-      await c.query(`INSERT INTO settings (key, value, changed_by) VALUES ($1, $2, $3)
-                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, changed_by = EXCLUDED.changed_by, changed_at = now()`, [key, safeJson(value), adminId]);
+    for (const [key, value] of writes) await upsertSetting(c, key, value, adminId);
     const after = await platformSettings(c);
     await audit(c, { actorKind: "user", actorId: adminId, action: "settings.update", outcome: "succeeded", details: { before, after } });
     return after;

@@ -41,8 +41,8 @@ interface Account { id: string; username: string; password: string; secret?: Buf
 async function account(role: "tier1" | "tier2" | "admin", opts: { totp?: boolean } = { totp: true }): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple" };
   const secret = opts.totp ? totp.newSecret() : undefined;
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, $2, $3, $4, $5, false, $6, $7, true)`,
+  await db.app.query<any>(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
+                      VALUES ($1, $2, $3, $4, $5, 0, $6, $7, 1)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), !!secret, secret ? secrets.seal(secret) : null]);
   if (secret) a.secret = secret;
   return a;
@@ -102,7 +102,7 @@ test("an Admin creates an account with a one-time password; the new person must 
   assert.equal(r.headers["cache-control"], "no-store");
   const login = await call("POST", "/api/auth/login", { username: "tess.new", password: r.body.temporaryPassword });
   assert.equal(login.body.stage, "totp_setup");
-  assert.ok(!JSON.stringify((await db.app.query("SELECT details FROM audit_log WHERE action = 'user.create'")).rows).includes(r.body.temporaryPassword), "the password is never audited");
+  assert.ok(!JSON.stringify((await db.app.query<any>("SELECT details FROM audit_log WHERE action = 'user.create'")).rows).includes(r.body.temporaryPassword), "the password is never audited");
   // The same username twice, and a hostile one, are refused.
   assert.equal((await call("POST", "/api/admin/users", { username: "tess.new", name: "Again", role: "tier1", stepUpToken: await stepUp(boss, bossCookie, "user.create", "fleet", { username: "tess.new", name: "Again", role: "tier1" }) }, bossCookie)).body.error, "username_taken");
   assert.equal((await call("POST", "/api/admin/users", { username: "Robert'); DROP TABLE users;--", name: "x", role: "tier1", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
@@ -130,7 +130,7 @@ test("role changes need an authenticator and end the person's sessions; nobody c
 test("two Admins demoting each other at the same moment leave one Admin: the last active Admin can never be removed", async () => {
   const other = await account("admin");
   const otherCookie = await signIn(other);
-  await db.app.query("UPDATE users SET status = 'disabled' WHERE role = 'admin' AND status = 'active' AND id NOT IN ($1, $2)", [boss.id, other.id]);
+  await db.app.query<any>("UPDATE users SET status = 'disabled' WHERE role = 'admin' AND status = 'active' AND id NOT IN ($1, $2)", [boss.id, other.id]);
   const demote = await stepUp(boss, bossCookie, "user.update", other.id, { role: "tier2" });
   const remove = await stepUp(other, otherCookie, "user.delete", boss.id);
   const [a, b] = await Promise.all([
@@ -222,7 +222,7 @@ test("a deleted username is not free: creating it again offers the deleted accou
   const login = await call("POST", "/api/auth/login", { username, password: ok.body.temporaryPassword });
   assert.equal(login.status, 200);
   assert.ok(["totp_setup", "password_change"].includes(login.body.stage), login.body.stage);
-  const audit = (await db.app.query("SELECT details FROM audit_log WHERE action = 'user.reactivate' AND target_id = $1", [id])).rows;
+  const audit = (await db.app.query<any>("SELECT details FROM audit_log WHERE action = 'user.reactivate' AND target_id = $1", [id])).rows;
   assert.equal(audit.length, 1);
   assert.equal(audit[0].details.reason, reason);
   assert.equal(audit[0].details.username, username);
@@ -245,10 +245,10 @@ test("each authenticator setup has its own account label, so an old entry in the
 test("background checks do not count as activity, so an unattended console still times out; the timeout comes from settings", async () => {
   const t = await account("tier1");
   const c = await signIn(t);
-  const backdate = (minutes: number) => asOwner(db, k => k.query("UPDATE sessions SET last_activity_at = now() - make_interval(mins => $2) WHERE user_id = $1", [t.id, minutes]));
+  const backdate = (minutes: number) => asOwner(db, k => k.query<any>("UPDATE sessions SET last_activity_at = DATEADD(minute, -$2, SYSUTCDATETIME()) WHERE user_id = $1", [t.id, minutes]));
   await backdate(20);
   assert.equal((await call("GET", "/api/writes/status", undefined, c, { background: true })).status, 200);
-  const after = (await db.app.query<{ idle: number }>("SELECT extract(epoch FROM now() - last_activity_at)::int AS idle FROM sessions WHERE user_id = $1", [t.id])).rows[0]!;
+  const after = (await db.app.query<{ idle: number }>("SELECT DATEDIFF(second, last_activity_at, SYSUTCDATETIME()) AS idle FROM sessions WHERE user_id = $1", [t.id])).rows[0]!;
   assert.ok(after.idle >= 1190, "a background poll leaves the idle clock running");
   // The Admin shortens the idle timeout to 10 minutes: the 20-minute-idle session is over.
   const r = await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 10, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", { sessionIdleMinutes: 10 }) }, bossCookie);
@@ -277,7 +277,7 @@ test("online now shows who is active, their role and the cabinet they have open;
   const me = online.find(o => o.id === t.id);
   assert.equal(me.cabinet.name, "ICU 1");
   assert.equal(me.role, "tier1");
-  await asOwner(db, k => k.query("UPDATE sessions SET last_activity_at = now() - interval '6 minutes' WHERE user_id = $1", [t.id]));
+  await asOwner(db, k => k.query<any>("UPDATE sessions SET last_activity_at = DATEADD(minute, -6, SYSUTCDATETIME()) WHERE user_id = $1", [t.id]));
   assert.ok(!((await call("GET", "/api/admin/online", undefined, bossCookie)).body as any[]).some(o => o.id === t.id), "idle over 5 minutes is not online");
 
   const activity = (await call("GET", `/api/admin/users/${t.id}/activity`, undefined, bossCookie)).body;
@@ -326,7 +326,7 @@ test("clients and sites are created, renamed and removed; one with cabinets cann
 test("a cabinet's role is changed by an Admin with step-up", async () => {
   const r = await call("PUT", `/api/admin/cabinets/${cabinetId}/role`, { role: "sync", stepUpToken: await stepUp(boss, bossCookie, "cabinet.role", cabinetId, { role: "sync" }) }, bossCookie);
   assert.equal(r.status, 200);
-  assert.equal((await db.app.query("SELECT role FROM cabinets WHERE id = $1", [cabinetId])).rows[0].role, "sync");
+  assert.equal((await db.app.query<any>("SELECT role FROM cabinets WHERE id = $1", [cabinetId])).rows[0].role, "sync");
   assert.equal((await call("PUT", `/api/admin/cabinets/${cabinetId}/role`, { role: "primary", stepUpToken: "A".repeat(43) }, bossCookie)).status, 400);
 });
 
@@ -353,10 +353,10 @@ test("issue types are created and edited; suppressions need a reason, expire aft
     source: { log: "System", source: "Kernel-Power", eventId: 109, level: "error", recordId: 9 }, detail: { message: "The system has rebooted." } } as const;
   assert.deepEqual((await storeEvents(db.app, cabinetId, { events: [ev] })).outcomes[0]!.kind, "suppressed");
   // Renewing pushes it out again; past its date it expires, with history.
-  await asOwner(db, k => k.query("UPDATE symptom_rules SET expires_at = now() + interval '1 day' WHERE id = $1", [ruleId]));
+  await asOwner(db, k => k.query<any>("UPDATE symptom_rules SET expires_at = DATEADD(day, 1, SYSUTCDATETIME()) WHERE id = $1", [ruleId]));
   r = await call("POST", `/api/admin/suppressions/${ruleId}/renew`, { stepUpToken: await stepUp(boss, bossCookie, "rule.renew", ruleId) }, bossCookie);
   assert.equal(days(r.body.expiresAt), 90);
-  await asOwner(db, k => k.query("UPDATE symptom_rules SET expires_at = now() - interval '1 minute' WHERE id = $1", [ruleId]));
+  await asOwner(db, k => k.query<any>("UPDATE symptom_rules SET expires_at = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE id = $1", [ruleId]));
   assert.equal(await expireRules(db.app), 1);
   const changes = ((await call("GET", `/api/rules/${ruleId}/history`, undefined, bossCookie)).body as any[]).map(h => h.change);
   assert.deepEqual(changes, ["created", "renewed", "expired"]);
@@ -368,30 +368,30 @@ test("issue types are created and edited; suppressions need a reason, expire aft
 });
 
 test("retention removes old events, alerts and firewall history and clears old command results; the audit log is never pruned", async () => {
-  const before = (await db.app.query("SELECT count(*)::int AS n FROM audit_log")).rows[0].n;
+  const before = (await db.app.query<any>("SELECT COUNT(*) AS n FROM audit_log")).rows[0].n;
   const old = randomUUID();
   await asOwner(db, async k => {
-    await k.query(`INSERT INTO events (event_id, cabinet_id, kind, occurred_at, received_at, detail) VALUES ($1, $2, 'error', now() - interval '200 days', now() - interval '200 days', '{}')`, [old, cabinetId]);
-    await k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
-                   VALUES ($1, $2, 'system.info', '{}', $3, now() - interval '100 days', now() - interval '99 days', 'succeeded', '{"x":1}', now() - interval '100 days')`, [randomUUID(), cabinetId, boss.id]);
+    await k.query<any>(`INSERT INTO events (event_id, cabinet_id, kind, occurred_at, received_at, detail) VALUES ($1, $2, 'error', DATEADD(day, -200, SYSUTCDATETIME()), DATEADD(day, -200, SYSUTCDATETIME()), '{}')`, [old, cabinetId]);
+    await k.query<any>(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
+                   VALUES ($1, $2, 'system.info', '{}', $3, DATEADD(day, -100, SYSUTCDATETIME()), DATEADD(day, -99, SYSUTCDATETIME()), 'succeeded', '{"x":1}', DATEADD(day, -100, SYSUTCDATETIME()))`, [randomUUID(), cabinetId, boss.id]);
   });
   // The newer classes: a network diagnosis, a boot record, and a finished fleet job past their retention (30, 365 and 365
   // days by default); a running job is never removed, however old.
   const [done, running] = [randomUUID(), randomUUID()];
   await asOwner(db, async k => {
-    await k.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands, started_at) VALUES ($1, $2, 'network', $3, 'done', '[]', now() - interval '40 days')", [randomUUID(), cabinetId, boss.id]);
-    await k.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, now() - interval '400 days', 'heartbeat')", [cabinetId]);
+    await k.query<any>("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands, started_at) VALUES ($1, $2, 'network', $3, 'done', '[]', DATEADD(day, -40, SYSUTCDATETIME()))", [randomUUID(), cabinetId, boss.id]);
+    await k.query<any>("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, DATEADD(day, -400, SYSUTCDATETIME()), 'heartbeat')", [cabinetId]);
     for (const [id, state] of [[done, "done"], [running, "running"]])
-      await k.query("INSERT INTO fleet_jobs (id, operation, created_by, created_at, batch_size, total, state) VALUES ($1, 'time.sync', $2, now() - interval '400 days', 1, 1, $3)", [id, boss.id, state]);
-    await k.query("INSERT INTO fleet_job_targets (job_id, cabinet_id, position, state) VALUES ($1, $2, 0, 'verified')", [done, cabinetId]);
+      await k.query<any>("INSERT INTO fleet_jobs (id, operation, created_by, created_at, batch_size, total, state) VALUES ($1, 'time.sync', $2, DATEADD(day, -400, SYSUTCDATETIME()), 1, 1, $3)", [id, boss.id, state]);
+    await k.query<any>("INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], state) VALUES ($1, $2, 0, 'verified')", [done, cabinetId]);
   });
   const run = await runRetention(db.app);
   assert.ok(run.events >= 1 && run.commandResults >= 1);
   assert.ok(run.diagnoses >= 1 && run.boots >= 1);
   assert.equal(run.jobs, 1);
-  assert.equal((await db.app.query("SELECT 1 FROM fleet_jobs WHERE id = $1", [running])).rowCount, 1, "a running job is kept");
-  assert.equal((await db.app.query("SELECT 1 FROM events WHERE event_id = $1", [old])).rowCount, 0);
-  assert.ok((await db.app.query("SELECT count(*)::int AS n FROM audit_log")).rows[0].n > before);
+  assert.equal((await db.app.query<any>("SELECT 1 FROM fleet_jobs WHERE id = $1", [running])).rowCount, 1, "a running job is kept");
+  assert.equal((await db.app.query<any>("SELECT 1 FROM events WHERE event_id = $1", [old])).rowCount, 0);
+  assert.ok((await db.app.query<any>("SELECT COUNT(*) AS n FROM audit_log")).rows[0].n > before);
   assert.equal((await verifyAuditChain(db.app)).ok, true);
 });
 
@@ -426,7 +426,7 @@ test("security alert: a sign-in from a network the account has not used before, 
 
 test("security alert: unusual write volume pauses the person's writes and tells the Admins", async () => {
   const t = await account("tier2");
-  await db.app.query("UPDATE users SET write_limit = 2 WHERE id = $1", [t.id]);
+  await db.app.query<any>("UPDATE users SET write_limit = 2 WHERE id = $1", [t.id]);
   for (let i = 0; i < 3; i++) {
     const token = await issueStepUpToken(db.app, t.id, "network.setDns", cabinetId, paramsHash({ interfaceIndex: 12, mode: "automatic" }));
     await issueCommand(db.app, t.id, cabinetId, "network.setDns", { interfaceIndex: 12, mode: "automatic" }, "command.issue", { stepUpToken: token }).catch(() => undefined);
@@ -436,16 +436,16 @@ test("security alert: unusual write volume pauses the person's writes and tells 
   const safety = (await call("GET", "/api/admin/fleet-safety", undefined, bossCookie)).body;
   assert.ok(safety.pausedUsers.some((u: any) => u.id === t.id));
   assert.equal((await call("POST", `/api/admin/users/${t.id}/resume-writes`, { stepUpToken: await stepUp(boss, bossCookie, "user.resume_writes", t.id) }, bossCookie)).status, 200);
-  assert.equal((await db.app.query("SELECT writes_paused FROM users WHERE id = $1", [t.id])).rows[0].writes_paused, false);
+  assert.equal((await db.app.query<any>("SELECT writes_paused FROM users WHERE id = $1", [t.id])).rows[0].writes_paused, false);
 });
 
 test("security alert: an audit chain break, found by the Admin's check or the daily one", async () => {
   assert.equal((await call("POST", "/api/admin/audit/verify", {}, bossCookie)).body.ok, true);
-  const seq = (await db.app.query<{ seq: string }>("SELECT seq FROM audit_log ORDER BY seq LIMIT 1 OFFSET 3")).rows[0]!.seq;
+  const seq = (await db.app.query<{ seq: string }>("SELECT seq FROM audit_log ORDER BY seq OFFSET 3 ROWS FETCH NEXT 1 ROWS ONLY")).rows[0]!.seq;
   await asOwner(db, async k => {
-    await k.query("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
-    await k.query("UPDATE audit_log SET outcome = 'refused' WHERE seq = $1", [seq]);
-    await k.query("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable");
+    await k.query<any>("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
+    await k.query<any>("UPDATE audit_log SET outcome = 'refused' WHERE seq = $1", [seq]);
+    await k.query<any>("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable");
   });
   const r = await call("POST", "/api/admin/audit/verify", {}, bossCookie);
   assert.equal(r.body.ok, false);
@@ -455,9 +455,9 @@ test("security alert: an audit chain break, found by the Admin's check or the da
   assert.match(alerts[0]!.title, new RegExp(`broken at entry ${seq}`));
   // Put it back so the rest of the file has an intact chain.
   await asOwner(db, async k => {
-    await k.query("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
-    await k.query("UPDATE audit_log SET outcome = 'succeeded' WHERE seq = $1", [seq]);
-    await k.query("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable");
+    await k.query<any>("ALTER TABLE audit_log DISABLE TRIGGER audit_log_immutable");
+    await k.query<any>("UPDATE audit_log SET outcome = 'succeeded' WHERE seq = $1", [seq]);
+    await k.query<any>("ALTER TABLE audit_log ENABLE TRIGGER audit_log_immutable");
   });
 });
 
@@ -469,8 +469,8 @@ test("security alert: an agent's failed self-check, a refused package and a sign
   // The agent refuses a package it was sent: the result says which check failed.
   for (const code of ["publisher_not_trusted", "signature_invalid"]) {
     const cmd = randomUUID();
-    await asOwner(db, k => k.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at)
-      VALUES ($1, $2, 'package.install', '{}', $3, now(), now() + interval '10 minutes', 'delivered', now())`, [cmd, cabinetId, boss.id]));
+    await asOwner(db, k => k.query<any>(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at)
+      VALUES ($1, $2, 'package.install', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 10, SYSUTCDATETIME()), 'delivered', SYSUTCDATETIME())`, [cmd, cabinetId, boss.id]));
     await storeResult(db.app, cabinetId, { commandId: cmd, status: "rejected", startedAt: at(), finishedAt: at(), error: { code, message: "refused" } } as any);
   }
   assert.equal((await securityAlerts("package_refused")).filter(a => a.cabinet_id === cabinetId).length, 1);
@@ -481,7 +481,7 @@ test("security alert: an agent's failed self-check, a refused package and a sign
 test("security alerts fold repeats, go to Admins only (list, count and live stream), and closing one needs a note and step-up", async () => {
   const t = await account("tier1");
   for (let round = 0; round < 2; round++) {
-    await db.app.query("UPDATE users SET locked_until = NULL, failed_logins = 0 WHERE id = $1", [t.id]);
+    await db.app.query<any>("UPDATE users SET locked_until = NULL, failed_logins = 0 WHERE id = $1", [t.id]);
     for (let i = 0; i < 5; i++) await call("POST", "/api/auth/login", { username: t.username, password: "nope" + i });
   }
   const folded = (await securityAlerts("failed_logins")).filter(a => a.user_id === t.id);
