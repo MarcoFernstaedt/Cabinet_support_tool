@@ -144,8 +144,9 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
 /** "HH:MM" (server local time) as hours and minutes; the default is 02:30. */
 export function parseDailyTime(text: string | undefined): { hour: number; minute: number } {
   const m = (text ?? "02:30").trim().split(":");
+  const digits = (s: string | undefined) => s !== undefined && s.length >= 1 && s.length <= 2 && [...s].every(ch => ch >= "0" && ch <= "9");
   const hour = Number(m[0]), minute = Number(m[1]);
-  if (m.length !== 2 || !Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59)
+  if (m.length !== 2 || !digits(m[0]) || !digits(m[1]) || !Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59)
     throw new Error("The maintenance time must be HH:MM, 00:00 to 23:59.");
   return { hour, minute };
 }
