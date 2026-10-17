@@ -129,7 +129,7 @@ function Restart({ cabinet }: { cabinet: CabinetDetail }) {
           <option value="restart">Restart</option>{admin && <option value="shutdown">Shut down</option>}</select></label>
         <label className="field inline"><span>In</span><select value={delay} onChange={e => setDelay(Number(e.target.value))}>
           {[[0, "Right away"], [60, "1 minute"], [300, "5 minutes"], [900, "15 minutes"], [3600, "1 hour"]].map(([s, l]) => <option key={s} value={s}>{l}</option>)}</select></label>
-        <label className="field inline"><span>Message (optional)</span><input maxLength={200} value={message} onChange={e => setMessage(e.target.value.replace(/[\u0000-\u001f]/g, ""))} placeholder="Restarting to finish updates." /></label>
+        <label className="field inline"><span>Message (optional)</span><input maxLength={200} value={message} onChange={e => setMessage(e.target.value.replace(/[\u0000-\u001f\u007f]/g, ""))} placeholder="Restarting to finish updates." /></label>
         <button className="btn" type="submit" disabled={run.run.state === "running"}>Review</button>
         <button className="btn ghost" type="button" disabled={run.run.state === "running"}
           onClick={() => run.ask({ mode: "cancel" }, <p>Cancel a restart or shutdown that is waiting on the cabinet.</p>)}>Cancel a waiting restart</button>

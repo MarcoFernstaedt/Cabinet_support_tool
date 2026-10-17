@@ -247,6 +247,22 @@ export interface NetworkBaseline {
 }
 
 /**
+ * One physical drive's own health report: Windows' verdict, the drive's failure prediction, and its wear and error counters.
+ */
+export interface DriveHealthReport {
+  model: string | null;
+  serialNumber: string | null;
+  health: "healthy" | "warning" | "failing" | "unknown";
+  predictFailure: boolean | null;
+  temperatureCelsius: number | null;
+  powerOnHours: number | null;
+  reallocatedSectors: number | null;
+  pendingSectors: number | null;
+  uncorrectableErrors: number | null;
+  wearPercent: number | null;
+}
+
+/**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
 export interface UpgradeKeys {
@@ -1498,6 +1514,12 @@ export interface Heartbeat {
     cpuPercent: number;
     memoryUsedPercent: number;
     diskFreePercent: number;
+    /**
+     * Each physical drive's own health report, sent once after the agent's daily drive check (not with every heartbeat), so the server can keep a history and see a drive getting worse before it fails. The same fields as the disk.smart read.
+     *
+     * @maxItems 32
+     */
+    drives?: DriveHealthReport[];
   };
 }
 
@@ -2169,18 +2191,7 @@ export interface DiskSmartOutput {
   /**
    * @maxItems 32
    */
-  drives: {
-    model: string | null;
-    serialNumber: string | null;
-    health: "healthy" | "warning" | "failing" | "unknown";
-    predictFailure: boolean | null;
-    temperatureCelsius: number | null;
-    powerOnHours: number | null;
-    reallocatedSectors: number | null;
-    pendingSectors: number | null;
-    uncorrectableErrors: number | null;
-    wearPercent: number | null;
-  }[];
+  drives: DriveHealthReport[];
 }
 
 export interface FilesListParams {

@@ -53,6 +53,14 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 100
+        },
+        "drives": {
+          "description": "Each physical drive's own health report, sent once after the agent's daily drive check (not with every heartbeat), so the server can keep a history and see a drive getting worse before it fails. The same fields as the disk.smart read.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/driveHealthReport"
+          }
         }
       }
     }

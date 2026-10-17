@@ -97,7 +97,7 @@ public sealed class NetworkService : ServiceBase
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
                 ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
-                TimeZoneId = TimeRules.CurrentReportableZone, Health = new HealthSampler().Sample,
+                TimeZoneId = TimeRules.CurrentReportableZone, Health = HealthWithDrives(new HealthSampler(), monitors), HealthSent = health => { if (health.Drives is { } d) monitors.DrivesSent(d); },
                 Upgrades = new UpgradeCoordinator(AgentPaths.Downloads, SystemOperations.AgentVersion, new UpgradeJournalStore(AgentPaths.UpgradeJournal),
                     AgentPaths.CheckIn, AgentPaths.UpgradeReported, broker.UpgradeAsync, events, clock, _log.Write),
                 ConfirmSafetyNet = broker.ConfirmAsync, AfterWrite = monitors.FirewallNow,
@@ -210,6 +210,10 @@ public sealed class NetworkService : ServiceBase
             catch (OperationCanceledException) { return; }
         }
     }
+
+    /// <summary>The load sample for a heartbeat, with the drives' health report added once after each daily drive check.</summary>
+    private static Func<HealthSample?> HealthWithDrives(HealthSampler sampler, MonitorHost monitors) =>
+        () => sampler.Sample() is { } sample ? sample with { Drives = monitors.PeekDriveSnapshot() } : null;
 
     public static void Main() => Run(new NetworkService());
 }

@@ -506,3 +506,26 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 - **Load samples ride on the heartbeat** as an optional `health` object (processor use since the last heartbeat, memory in use, free space on the system drive, whole percents). The server stores at most one per cabinet every 5 minutes and keeps 14 days, enough for a week's trend. They come from plain Windows calls that need no rights. Older agents send none and the chart says so.
 - **Last known state:** every reading on a cabinet's Windows tab shows the latest stored answer with when it was read, whether or not the cabinet is online; Run reads it again.
 - **Peripherals by type of device** are placed in a class by plain words in the device's name (fingerprint scanner, network adapter, keyboard and mouse, touch screen, card reader, barcode scanner, storage, audio, camera, hub, other). Printers are not a class.
+
+### Drive failure prediction, October 2026 (built, thresholds to tune on real drives)
+
+The agent already checked each drive's own health report once a day (`disk.smart`: Windows' verdict, the drive's failure prediction, reallocated and pending sectors, uncorrectable errors, wear, heat) and raised an event for a drive in trouble. What was missing was **history**: a drive whose reallocated sectors go 0, 3, 11, 26 over a month looks the same, one day at a time, as one that has had 26 for years.
+
+- **The agent sends each daily drive report once** with the next heartbeat (`health.drives`, up to 32 drives, the same fields as `disk.smart`). Nothing new runs on the cabinet and nothing needs administrator rights beyond what the daily check already used.
+- **The server keeps one sample per drive every 12 hours for 400 days** and judges the history (`server/src/services/trends.ts`, plain arithmetic, tested with plain numbers). Levels: *ok*, *watch* (look at it), *act* (plan a replacement), *urgent* (back up and replace now).
+
+| What the history shows | Level |
+|---|---|
+| The drive predicts failure, or Windows says it is failing | urgent |
+| Uncorrectable errors or pending sectors above zero | act; urgent when the number grew in the last 30 days |
+| Reallocated sectors above zero and steady | watch |
+| Reallocated sectors that grew in the last 7 days | act |
+| 8 or more new reallocated sectors in 30 days | urgent |
+| Wear 80%, 90%, 95% or more | watch, act, urgent |
+| Wear rising so that 100% is reached within 180 days, or 60 days (needs 4 reports over at least 14 days) | act, urgent |
+| 60 °C, 70 °C or more; or 10 °C hotter than 30 days ago | watch, act, watch |
+| Windows health "warning" | watch |
+
+- **Alerts:** a drive reaching *act* raises a minor "Drive failing" alert, *urgent* a major one, once and only when its level rises. *Watch* raises nothing; it shows on the cabinet's drive page and in the Fleet page's "Drives to look at" list, which appears only when a drive is a concern.
+- **Free space is forecast too:** the system drive's free percentage over the last 14 days (at least 48 samples over 5 days) is projected forward; a drive that would be full within 30 days raises a "Low disk space" alert (major within 7 days).
+- **The thresholds are first estimates.** SMART attributes differ by maker and by interface (NVMe reports wear and spare capacity; SATA reports reallocated sectors), and Windows exposes only some of them. They should be reviewed against real cabinets' drives after a few weeks of data; every rule is a constant in one file.

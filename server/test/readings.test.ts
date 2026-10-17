@@ -55,6 +55,9 @@ test("the simulated fleet comes with stored readings for the cabinet that is off
   const one = await h.call("GET", `/api/cabinets/${offline.id}/readings/power.status`, undefined, t1);
   assert.equal(one.body.reading.output.plan, "Balanced");
   assert.deepEqual((await h.call("GET", `/api/cabinets/${offline.id}/readings/dns.cache`, undefined, t1)).body, { reading: null }, "never read");
+  // Content that is audited when opened, or chosen by the person asking, is never replayed from storage.
+  for (const op of ["eventlog.get", "eventlog.query", "files.list", "disk.folders"]) assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/${op}`, undefined, t1)).status, 404, op);
+  assert.ok(!list.body.readings.some((r: { operation: string }) => r.operation.startsWith("eventlog.")));
   assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/firewall.setProfile`, undefined, t1)).status, 404, "a write is not a reading");
   // From here the tests store their own readings on a clean slate.
   await db.app.query("DELETE FROM commands WHERE operation = ANY($1::text[])", [["software.list", "startup.list", "power.status", "system.security", "shares.list"]]);

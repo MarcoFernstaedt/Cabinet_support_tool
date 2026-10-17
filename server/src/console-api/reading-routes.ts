@@ -3,11 +3,15 @@
 // against their contracts first, and the search is audited like any other look at fleet data.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
-import { audit } from "../db/db.js";
+import { audit, transaction } from "../db/db.js";
 import { Refused } from "../services/errors.js";
+import { cabinetDrives, drivesAtRisk } from "../services/drives.js";
 import { healthHistory, latestReading, latestReadings, searchReadings } from "../services/readings.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+
+/** A search scans every cabinet's stored reading, so one person runs one at a time and each is stopped after 15 seconds. */
+const searching = new Set<string>();
 
 export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const cabinet = async (cabinetId: string) => {
@@ -28,10 +32,27 @@ export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const q = consoleBodies.healthQuery.parse(request.query);
     return { hours: Number(q.hours ?? 24), points: await healthHistory(o.pool, await cabinet(id(request)), Number(q.hours ?? 24)) };
   });
+  // Each drive's level of concern and its history, and the drives that are a concern anywhere in the fleet.
+  app.get("/api/cabinets/:id/drives", async request => {
+    await o.guards.role(request, "tier1");
+    return { drives: await cabinetDrives(o.pool, await cabinet(id(request))) };
+  });
+  app.get("/api/fleet/drives-at-risk", async request => {
+    await o.guards.role(request, "tier1");
+    return { drives: await drivesAtRisk(o.pool) };
+  });
   app.get("/api/readings/search", async request => {
     const u = await o.guards.role(request, "tier1");
     const q = consoleBodies.readingSearch.parse(request.query);
-    const result = await searchReadings(o.pool, q.operation, q.q, { ...(q.clientId ? { clientId: q.clientId } : {}), ...(q.siteId ? { siteId: q.siteId } : {}) });
+    if (searching.has(u.userId)) throw new Refused("rate_limited", 429, "your previous search is still running");
+    searching.add(u.userId);
+    let result;
+    try {
+      result = await transaction(o.pool, async c => {
+        await c.query("SET LOCAL statement_timeout = '15s'");
+        return searchReadings(c, q.operation, q.q, { ...(q.clientId ? { clientId: q.clientId } : {}), ...(q.siteId ? { siteId: q.siteId } : {}) });
+      });
+    } finally { searching.delete(u.userId); }
     await audit(o.pool, { actorKind: "user", actorId: u.userId, action: "readings.search", outcome: "succeeded", details: { operation: q.operation, q: q.q, matches: result.matches.length } });
     return result;
   });

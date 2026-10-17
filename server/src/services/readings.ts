@@ -7,7 +7,9 @@ import { Refused } from "./errors.js";
 
 export interface LatestReading { operation: string; at: string }
 
-const readOperations = new Set<string>([...catalog.values()].filter(e => e.kind === "read").map(e => e.name));
+/** Reads whose content is audited when it is opened (event entries) or chosen by the person asking (event queries, directory listings) are never replayed from storage. */
+const NOT_STORED = new Set<string>(["eventlog.query", "eventlog.get", "files.list", "disk.folders"]);
+const readOperations = new Set<string>([...catalog.values()].filter(e => e.kind === "read" && !NOT_STORED.has(e.name)).map(e => e.name));
 
 /** The latest stored successful answer of every read for one cabinet. */
 export async function latestReadings(db: Queryable, cabinetId: string): Promise<LatestReading[]> {

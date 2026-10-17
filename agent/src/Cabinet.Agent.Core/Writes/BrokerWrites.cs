@@ -8,8 +8,9 @@ namespace Cabinet.Agent.Core.Writes;
 /// the safety net, and record the firewall's new fingerprint so the change detector can
 /// attribute it to this command. The Windows specifics sit behind the two control interfaces.
 /// </summary>
-public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl network, SafetyNet safetyNet, FirewallStore store, TimeProvider clock, Action<string> log)
+public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl network, SafetyNet safetyNet, FirewallStore store, TimeProvider clock, Action<string> log, Action<TimeSpan>? pause = null)
 {
+    private readonly Action<TimeSpan> wait = pause ?? (d => Thread.Sleep(d));
     public const string PlatformRulePrefix = "MashuraDiag";
     private readonly object _gate = new(); // one change at a time
 
@@ -67,6 +68,12 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
                 return new() { InterfaceIndex = p.InterfaceIndex, Result = RenewLeaseResult.NotDhcp, Message = "This adapter has a fixed address, so there is no lease to renew.", AddressBefore = before, AddressAfter = before };
             if (p.Release == true) network.ReleaseLease(p.InterfaceIndex);
             int code = network.RenewLease(p.InterfaceIndex);
+            // After giving the lease back there is nothing to fall back on, so a slow DHCP server gets three more tries before the answer is "failed".
+            for (int retry = 0; p.Release == true && retry < 3 && !(code == 0 && HasRealAddress(p.InterfaceIndex)); retry++)
+            {
+                wait(TimeSpan.FromSeconds(3));
+                code = network.RenewLease(p.InterfaceIndex);
+            }
             string? after = FirstAddress(network.Read(p.InterfaceIndex).Ip);
             bool leased = code == 0 && after is not null && !after.StartsWith("169.254.", StringComparison.Ordinal);
             return new()
@@ -83,6 +90,8 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         Command();
         lock (_gate) return new() { Flushed = network.FlushDns() };
     }
+
+    private bool HasRealAddress(int interfaceIndex) => FirstAddress(network.Read(interfaceIndex).Ip) is { } a && !a.StartsWith("169.254.", StringComparison.Ordinal);
 
     private static string? FirstAddress(Ipv4Settings ip) => ip.Addresses.Count > 0 ? ip.Addresses[0].Address : null;
 

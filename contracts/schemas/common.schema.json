@@ -842,6 +842,86 @@
           }
         }
       }
+    },
+    "driveHealthReport": {
+      "description": "One physical drive's own health report: Windows' verdict, the drive's failure prediction, and its wear and error counters.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "$ref": "#/$defs/nullableShortText"
+        },
+        "serialNumber": {
+          "$ref": "#/$defs/nullableShortText"
+        },
+        "health": {
+          "type": "string",
+          "enum": [
+            "healthy",
+            "warning",
+            "failing",
+            "unknown"
+          ]
+        },
+        "predictFailure": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "temperatureCelsius": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": -40,
+              "maximum": 150
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "powerOnHours": {
+          "$ref": "#/$defs/nullableCount"
+        },
+        "reallocatedSectors": {
+          "$ref": "#/$defs/nullableCount"
+        },
+        "pendingSectors": {
+          "$ref": "#/$defs/nullableCount"
+        },
+        "uncorrectableErrors": {
+          "$ref": "#/$defs/nullableCount"
+        },
+        "wearPercent": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "model",
+        "serialNumber",
+        "health",
+        "predictFailure",
+        "temperatureCelsius",
+        "powerOnHours",
+        "reallocatedSectors",
+        "pendingSectors",
+        "uncorrectableErrors",
+        "wearPercent"
+      ]
     }
   }
 }

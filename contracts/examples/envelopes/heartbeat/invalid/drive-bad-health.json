@@ -1,0 +1,24 @@
+{
+  "agentVersion": "1.4.2",
+  "uptimeSeconds": 60,
+  "readOnlyMode": false,
+  "health": {
+    "cpuPercent": 12,
+    "memoryUsedPercent": 61,
+    "diskFreePercent": 38,
+    "drives": [
+      {
+        "model": "Samsung SSD 870 EVO 500GB",
+        "serialNumber": "S5Y1NJ0R123456",
+        "health": "dying",
+        "predictFailure": false,
+        "temperatureCelsius": 38,
+        "powerOnHours": 9120,
+        "reallocatedSectors": 0,
+        "pendingSectors": 0,
+        "uncorrectableErrors": 0,
+        "wearPercent": 6
+      }
+    ]
+  }
+}

@@ -1,3 +1,4 @@
+import { DrivesAtRisk } from "../components/DriveTrends";
 import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
@@ -35,6 +36,7 @@ export function FleetHome() {
     <div className="page">
       <h1>Fleet</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
+      <DrivesAtRisk />
       {data && data.length === 0 && <Empty>No cabinets have been approved yet. {atLeast(me, "admin")
         ? <>Start with <Link to="/admin/setup">Admin → Set up and demo</Link>: add your team, install the agent on a computer, or turn on demo mode.</>
         : "An admin approves new cabinets under Admin → Pending cabinets."}</Empty>}

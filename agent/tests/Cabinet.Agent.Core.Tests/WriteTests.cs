@@ -194,6 +194,23 @@ public class BrokerWriteTests
     }
 
     [Fact]
+    public void After_a_release_a_slow_dhcp_server_gets_three_more_tries_and_the_waits_are_real_pauses()
+    {
+        var pauses = new List<TimeSpan>();
+        var writes = new BrokerWrites(_fw, _net, _safety, _store, _clock, _ => { }, pauses.Add);
+        _net.LeaseAddress = null;   // nobody answers
+        var output = As(Guid.NewGuid(), () => writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12, Release = true }));
+        Assert.Equal(RenewLeaseResult.Failed, output.Result);
+        Assert.Equal(3, pauses.Count);
+        pauses.Clear();
+        _net.LeaseAddress = "10.20.0.77";
+        Assert.Equal(RenewLeaseResult.Renewed, As(Guid.NewGuid(), () => writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12, Release = true })).Result);
+        Assert.Empty(pauses);       // answered first time: no waiting
+        As(Guid.NewGuid(), () => writes.RenewLease(new NetworkRenewLeaseParams { InterfaceIndex = 12 }));
+        Assert.Empty(pauses);       // a plain renew never retries
+    }
+
+    [Fact]
     public void A_static_address_with_no_gateway_leaves_no_gateway_and_still_arms_the_safety_net()
     {
         var output = As(Guid.NewGuid(), () => _writes.SetIp(new NetworkSetIpParams { InterfaceIndex = 12, Mode = IpMode.Static, Address = "172.20.1.10", PrefixLength = 24 }));

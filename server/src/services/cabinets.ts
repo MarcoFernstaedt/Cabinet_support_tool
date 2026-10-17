@@ -7,6 +7,7 @@ import { AGENT_RENEW_DAYS, issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 import { recordHealth } from "./readings.js";
+import { recordDriveReport } from "./drives.js";
 
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 /** The same tolerance as services/time.ts CLOCK_TOLERANCE_SECONDS (kept here to avoid a circular import). */
@@ -51,7 +52,10 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
      h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE])).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).
-  if (r && h.health) await recordHealth(db, cabinetId, h.health);
+  if (r && h.health) {
+    await recordHealth(db, cabinetId, h.health);
+    if (h.health.drives && h.health.drives.length > 0) await recordDriveReport(db, cabinetId, h.health.drives);
+  }
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });
   return { wasOffline: r?.was_offline ?? false, firewallChanged: r?.firewall_changed ?? false, timeCheck: r?.time_check ?? false };
 }

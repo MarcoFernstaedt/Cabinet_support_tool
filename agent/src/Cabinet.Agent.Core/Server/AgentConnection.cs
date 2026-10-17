@@ -55,6 +55,8 @@ public sealed class AgentConnectionOptions
     public Func<string?>? TimeZoneId { get; init; }
     /// <summary>A small load sample sent with each heartbeat, or null when none can be taken yet.</summary>
     public Func<HealthSample?>? Health { get; init; }
+    /// <summary>Called with the sample after the server accepted the heartbeat that carried it.</summary>
+    public Action<HealthSample>? HealthSent { get; init; }
     /// <summary>Tells the broker the server was reached after a safety-net change; null when this agent makes no changes.</summary>
     public Func<Guid, CancellationToken, Task<SafetyNetStatus>>? ConfirmSafetyNet { get; init; }
     /// <summary>Called after every successful write (the firewall change detector looks at once, to attribute it).</summary>
@@ -250,11 +252,13 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             try
             {
                 double? skew = api.LastServerTime is { } t ? Math.Clamp(Math.Round((t.Local - t.Server).TotalSeconds, 1), -86_400, 86_400) : null;
+                HealthSample? health = o.Health?.Invoke();
                 HeartbeatResponse answer = await api.HeartbeatAsync(new Heartbeat
                 {
                     AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
-                    FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(), Health = o.Health?.Invoke(),
+                    FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(), Health = health,
                 }, token).ConfigureAwait(false);
+                if (health is not null) o.HealthSent?.Invoke(health);
                 o.Settings?.Apply(answer);
                 if (o.Upgrades is not null) await o.Upgrades.AfterHeartbeatAsync(api, answer, token).ConfigureAwait(false);
                 if (!online)

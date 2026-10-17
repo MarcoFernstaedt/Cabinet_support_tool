@@ -1,4 +1,5 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
+import { DriveTrends } from "../../components/DriveTrends";
 import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
 import { PortCheck } from "../../components/PortCheck";
 import { PacketPath } from "../../components/PacketPath";
@@ -106,7 +107,8 @@ const HEALTH: Record<string, ["ok" | "warn" | "crit" | "off", string]> = {
 export function DriveHealth({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<DiskSmartOutput>(cabinetId, "disk.smart");
   useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
+  return (<>
+    <DriveTrends cabinetId={cabinetId} />
     <OperationPanel title="Drive health"
       run={op} onRun={() => void op.start()}>
       {out => out.drives.length === 0 ? <Empty>No drive reported health data.</Empty> : (
@@ -123,7 +125,7 @@ export function DriveHealth({ cabinetId }: { cabinetId: string }) {
             </article>);
         })}</div>)}
     </OperationPanel>
-  );
+  </>);
 }
 
 export function Network({ cabinet }: { cabinet: CabinetDetail }) {

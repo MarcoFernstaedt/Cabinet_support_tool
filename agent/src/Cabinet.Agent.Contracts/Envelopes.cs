@@ -105,6 +105,8 @@ public sealed record HealthSample
     public required int CpuPercent { get; init; }
     public required int MemoryUsedPercent { get; init; }
     public required int DiskFreePercent { get; init; }
+    /// <summary>Each drive's own health report, sent once after the daily drive check so the server can follow it over time.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<DriveSmart>? Drives { get; init; }
 }
 
 public sealed record ServerAck

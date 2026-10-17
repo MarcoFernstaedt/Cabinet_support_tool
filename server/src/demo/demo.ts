@@ -18,6 +18,7 @@ import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageError
 import { evaluateTime } from "../services/time.js";
 import { checkSiteOutages } from "../services/site-outage.js";
 import { demoOutput, examplesAvailable, type DemoContext } from "./outputs.js";
+import { refreshDrive } from "../services/drives.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
 import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
@@ -319,6 +320,19 @@ async function seedHistory(pool: pg.Pool, userId: string): Promise<void> {
     }
     await pool.query(`INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent) VALUES ${values.join(", ")} ON CONFLICT DO NOTHING`, params);
   }
+  // A month of daily drive reports. Most drives are fine; three show the trends the platform exists to catch early.
+  await pool.query(
+    `INSERT INTO drive_samples (cabinet_id, drive_key, at, model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
+     SELECT k.id, 'DEMO' || upper(substr(replace(k.id::text, '-', ''), 1, 8)), now() - make_interval(days => d), 'Samsung SSD 870 EVO 500GB', 'DEMO' || upper(substr(replace(k.id::text, '-', ''), 1, 8)),
+            'healthy', false,
+            CASE k.name WHEN 'ICU' THEN 40 + ((29 - d) * 0.41)::int ELSE 34 + (abs(hashtext(k.id::text)) % 8) END,
+            9000 + (29 - d) * 24,
+            CASE k.name WHEN 'Surgery' THEN CASE WHEN d > 20 THEN 0 ELSE (21 - d) * 2 END ELSE 0 END, 0, 0,
+            CASE k.name WHEN 'Lab' THEN 70 + ((29 - d) * 0.25)::int ELSE 6 + abs(hashtext(k.id::text)) % 5 END
+       FROM cabinets k CROSS JOIN generate_series(0, 29) d
+      WHERE k.demo_scenario IS NOT NULL AND NOT (k.demo_scenario = ANY($1::text[]))
+     ON CONFLICT DO NOTHING`, [["offline", "site_outage", "incident_loop"]]);
+  for (const r of (await pool.query<{ cabinet_id: string; drive_key: string }>("SELECT DISTINCT cabinet_id, drive_key FROM drive_samples")).rows) await refreshDrive(pool, r.cabinet_id, r.drive_key);
   for (const k of rows.filter(r => r.offline)) {
     const ctx = await context(pool, k.id);
     if (!ctx) continue;

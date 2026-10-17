@@ -63,9 +63,17 @@ public static class ActionOperations
     public static SystemCheckHealthOutput CheckHealth()
     {
         var clock = Stopwatch.StartNew();
-        var r = ExternalProgram.Run("dism.exe", ["/Online", "/Cleanup-Image", "/CheckHealth"], TimeSpan.FromMinutes(4));
-        var (state, summary) = ActionRules.ReadDism(r.ExitCode, r.Output);
-        return new SystemCheckHealthOutput { State = state, Summary = summary, ExitCode = r.ExitCode, ElapsedMs = clock.ElapsedMilliseconds };
+        // Reads are given 90 seconds in all; DISM is stopped at 80 so the answer, "not clear", arrives instead of a time-out, and nothing is left running.
+        try
+        {
+            var r = ExternalProgram.Run("dism.exe", ["/Online", "/Cleanup-Image", "/CheckHealth"], TimeSpan.FromSeconds(80));
+            var (state, summary) = ActionRules.ReadDism(r.ExitCode, r.Output);
+            return new SystemCheckHealthOutput { State = state, Summary = summary, ExitCode = r.ExitCode, ElapsedMs = clock.ElapsedMilliseconds };
+        }
+        catch (OperationFailedException e) when (e.Code == "timeout")
+        {
+            return new SystemCheckHealthOutput { State = ComponentStoreState.Unknown, Summary = "DISM did not answer within 80 seconds. Try again when the cabinet is less busy.", ExitCode = -1, ElapsedMs = clock.ElapsedMilliseconds };
+        }
     }
 
     public static PowerSetOutput SetPower(PowerSetParams p)

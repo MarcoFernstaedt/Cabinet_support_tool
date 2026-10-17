@@ -13,7 +13,8 @@ public static class ActionRules
     public static readonly IReadOnlySet<string> ProtectedProcesses = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "System", "System Idle Process", "Idle", "Registry", "Secure System", "Memory Compression", "smss", "csrss", "wininit", "winlogon", "services", "lsass", "lsm",
-        "svchost", "dwm", "fontdrvhost", "LogonUI", "sihost", "taskhostw", "RuntimeBroker", "MsMpEng", "NisSrv", "SecurityHealthService", "SgrmBroker", "WmiPrvSE",
+        "svchost", "dwm", "fontdrvhost", "LogonUI", "sihost", "taskhostw", "RuntimeBroker", "MsMpEng", "NisSrv", "MpDefenderCoreService", "MsSense", "SenseIR", "SecurityHealthService", "SecurityHealthSystray", "SgrmBroker", "smartscreen", "WmiPrvSE",
+        "spoolsv", "audiodg", "lsaiso", "WUDFHost", "conhost", "dllhost", "ctfmon", "wlms", "wuauserv", "TrustedInstaller", "TiWorker",
         "TermService", "rdpclip", "rdpinit", "sshd", "ssh-agent", "TeamViewer", "TeamViewer_Service", "AnyDesk", "winvnc", "tvnserver", "vncserver", "uvnc_service",
     };
 

@@ -459,6 +459,43 @@ public class MonitorHostTests
     }
 }
 
+public class DriveSnapshotTests
+{
+    private static DriveSmart Drive(string serial, int? wear = 5) => new() { Model = "SSD", SerialNumber = serial, Health = DriveHealth.Healthy, PredictFailure = false, TemperatureCelsius = 38,
+        PowerOnHours = 1000, ReallocatedSectors = 0, PendingSectors = 0, UncorrectableErrors = 0, WearPercent = wear };
+
+    [Fact]
+    public async Task The_drive_report_is_kept_for_one_heartbeat_even_when_nothing_is_wrong_and_is_not_sent_twice()
+    {
+        var drives = new List<DriveSmart> { Drive("A1"), Drive("B2") };
+        var queue = new EventQueue(null);
+        var host = new MonitorHost(new MonitorSources { Drives = _ => Task.FromResult(new DiskSmartOutput { Drives = drives }) }, new MonitorSettings(null, null), queue, null, new ManualClock(Fixtures.Start), _ => { });
+        Assert.Null(host.PeekDriveSnapshot());
+        await host.DrivesOnceAsync(new DriveWatch(new StateFile<DriveWatch.State>(null)), default);
+        Assert.Equal(0, queue.Count);                       // healthy drives raise no event ...
+        var report = host.PeekDriveSnapshot()!;
+        Assert.Equal(["A1", "B2"], report.Select(d => d.SerialNumber));   // ... but are reported
+        Assert.Equal(["A1", "B2"], host.PeekDriveSnapshot()!.Select(d => d.SerialNumber));   // and kept when the heartbeat fails
+        host.DrivesSent(report);
+        Assert.Null(host.PeekDriveSnapshot());              // sent once the server accepted it
+        await host.DrivesOnceAsync(new DriveWatch(new StateFile<DriveWatch.State>(null)), default);
+        var newer = host.PeekDriveSnapshot()!;
+        host.DrivesSent(report);                            // the old report being acknowledged does not drop a newer one
+        Assert.Same(newer, host.PeekDriveSnapshot());
+    }
+
+    [Fact]
+    public async Task A_failing_drive_still_raises_its_warning_and_is_in_the_report()
+    {
+        var bad = Drive("C3") with { Health = DriveHealth.Failing, PredictFailure = true };
+        var queue = new EventQueue(null);
+        var host = new MonitorHost(new MonitorSources { Drives = _ => Task.FromResult(new DiskSmartOutput { Drives = [bad] }) }, new MonitorSettings(null, null), queue, null, new ManualClock(Fixtures.Start), _ => { });
+        await host.DrivesOnceAsync(new DriveWatch(new StateFile<DriveWatch.State>(null)), default);
+        Assert.Equal(1, queue.Count);
+        Assert.Single(host.PeekDriveSnapshot()!);
+    }
+}
+
 public class ChangeWatchTests
 {
     private static EventSummary Entry(long id, int minutes, string source, int eventId, EventLevel level = EventLevel.Information, string line = "Change.") => new()

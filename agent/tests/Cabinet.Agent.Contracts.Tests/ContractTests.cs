@@ -94,7 +94,7 @@ public sealed class ContractTests
         new object[] { typeof(NetworkTestTarget), "operations/network.test.schema.json", "/$defs/params/properties/target/enum" },
         new object[] { typeof(NetworkTestMethod), "operations/network.test.schema.json", "/$defs/params/properties/method/enum" },
         new object[] { typeof(UpdateResult), "operations/updates.status.schema.json", "/$defs/output/properties/installed/items/properties/result/enum" },
-        new object[] { typeof(DriveHealth), "operations/disk.smart.schema.json", "/$defs/output/properties/drives/items/properties/health/enum" },
+        new object[] { typeof(DriveHealth), "common.schema.json", "/$defs/driveHealthReport/properties/health/enum" },
         new object[] { typeof(FileEntryType), "operations/files.list.schema.json", "/$defs/output/properties/entries/items/properties/type/enum" },
         new object[] { typeof(AdapterType), "operations/network.config.schema.json", "/$defs/output/properties/adapters/items/properties/type/enum" },
         new object[] { typeof(IpMode), "operations/network.setIp.schema.json", "/$defs/params/properties/mode/enum" },

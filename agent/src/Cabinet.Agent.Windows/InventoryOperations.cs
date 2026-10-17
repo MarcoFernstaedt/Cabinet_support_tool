@@ -62,7 +62,8 @@ public static class InventoryOperations
                 {
                     Name = InventoryRules.Clean(t.Text("ProcessName") ?? $"Threat {t.Long("ThreatID")}", 200) ?? "Threat",
                     DetectedAt = t.Date("InitialDetectionTime"),
-                    Active = t.Long("CurrentThreatExecutionStatusID") is not (null or 0 or 2),
+                    // MSFT_MpThreatDetection: 1 blocked, 2 allowed, 3 executing, 4 not executing. A threat Defender let run, or that is running, is active.
+                    Active = t.Long("CurrentThreatExecutionStatusID") is 2 or 3,
                 }).ToList();
             defender = new DefenderStatus
             {

@@ -50,6 +50,21 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
     /// <summary>Each firewall profile on or off as the watcher last saw it; null until it has looked once. Sent with every heartbeat.</summary>
     public FirewallProfileSwitches? FirewallProfiles => _firewallProfiles;
 
+    private readonly object _drivesGate = new();
+    private IReadOnlyList<DriveSmart>? _drivesToSend;
+
+    /// <summary>The drives as the daily check last saw them, until a heartbeat that carried them has been accepted (<see cref="DrivesSent"/>).</summary>
+    public IReadOnlyList<DriveSmart>? PeekDriveSnapshot()
+    {
+        lock (_drivesGate) return _drivesToSend;
+    }
+
+    /// <summary>The server accepted a heartbeat that carried this report: it is not sent again. A newer report that arrived meanwhile is kept.</summary>
+    public void DrivesSent(IReadOnlyList<DriveSmart> sent)
+    {
+        lock (_drivesGate) if (ReferenceEquals(_drivesToSend, sent)) _drivesToSend = null;
+    }
+
     /// <summary>Looks at the firewall now instead of waiting (after a platform change, so it is attributed promptly).</summary>
     public void FirewallNow()
     {
@@ -86,10 +101,7 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         if (sources.Drives is not null)
         {
             var watch = new DriveWatch(new StateFile<DriveWatch.State>(State("drive-health.json")));
-            loops.Add(Loop("drive health", _every.Drives, _every.FirstDriveCheck, async t =>
-            {
-                foreach (var e in watch.Check(await sources.Drives(t).ConfigureAwait(false), clock.GetUtcNow())) Add(e);
-            }, token));
+            loops.Add(Loop("drive health", _every.Drives, _every.FirstDriveCheck, t => DrivesOnceAsync(watch, t), token));
         }
         if (sources.Watch is not null)
         {
@@ -117,6 +129,14 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
             log($"Watched service {e.Detail!.Fields!["service"]}: {e.Detail.Fields["change"]}.");
             Add(e);
         }
+    }
+
+    /// <summary>One drive check: the warnings go to the queue, and the whole report is kept for the next heartbeat to send once.</summary>
+    public async Task DrivesOnceAsync(DriveWatch watch, CancellationToken token)
+    {
+        var output = await sources.Drives!(token).ConfigureAwait(false);
+        lock (_drivesGate) _drivesToSend = output.Drives.Take(32).ToList();
+        foreach (var e in watch.Check(output, clock.GetUtcNow())) Add(e);
     }
 
     /// <summary>One look at the scanner, for tests and the harness.</summary>

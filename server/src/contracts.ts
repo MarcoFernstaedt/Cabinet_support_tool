@@ -12,6 +12,7 @@ import type {
   DemoMode,
   CrashQuery,
   HealthQuery,
+  DriveHealthReport,
   ReadingSearch,
   Command,
   CommandsResponse,
