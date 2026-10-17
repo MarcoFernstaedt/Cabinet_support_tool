@@ -159,7 +159,6 @@ CREATE TABLE issue_types (
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [scope] nvarchar(64) DEFAULT 'fleet' NOT NULL,
   CONSTRAINT [issue_types_pkey] PRIMARY KEY ([id]),
-  CONSTRAINT [issue_types_key_key] UNIQUE ([key]),
   CONSTRAINT [issue_types_name_key] UNIQUE ([name]),
   CONSTRAINT [issue_types_description_check] CHECK ((LEN(description) <= 1024)),
   CONSTRAINT [issue_types_name_check] CHECK (((LEN(name) >= 1) AND (LEN(name) <= 128))),
@@ -705,6 +704,9 @@ CREATE TABLE user_networks (
 );
 GO
 
+CREATE UNIQUE INDEX issue_types_key_key ON issue_types ([key]) WHERE [key] IS NOT NULL;
+GO
+
 -- Foreign keys
 ALTER TABLE agent_releases ADD CONSTRAINT [agent_releases_added_by_fkey] FOREIGN KEY ([added_by]) REFERENCES users([id]);
 ALTER TABLE sites ADD CONSTRAINT [sites_client_id_fkey] FOREIGN KEY ([client_id]) REFERENCES clients([id]);
@@ -818,11 +820,110 @@ CREATE INDEX symptom_rule_history_rule ON symptom_rule_history ([rule_id], [id])
 CREATE INDEX symptom_rules_state ON symptom_rules ([state]);
 GO
 -- Built-in issue types and symptom rules
-
+INSERT INTO issue_types ([id], [key], [name], [severity], [description], [built_in], [scope]) VALUES
+  (N'00000000-0000-4000-8000-000000000101', N'scanner', N'Fingerprint scanner problem', N'major', N'The fingerprint scanner is disconnected, has no driver, or Windows reports a device error.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000102', N'drive', N'Drive failing', N'major', N'The drive predicts failure or shows early signs of wear. Plan a replacement before it fails.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000103', N'driver', N'Driver failure', N'minor', N'A driver failed to load or start.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000104', N'network', N'Network connectivity', N'major', N'The cabinet is losing its network, DNS or connection to the sync cabinet.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000105', N'firewall', N'Unexpected firewall change', N'major', N'The firewall changed outside the platform.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000106', N'update', N'Windows update failure', N'minor', N'Windows Update failed to install an update.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000107', N'agent', N'Agent problem', N'minor', N'The cabinet agent reported a problem with itself.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000108', N'offline', N'Cabinet offline', N'minor', N'The cabinet has not been heard from for longer than the offline alert threshold.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000109', N'crash', N'System crash (blue screen)', N'major', N'Windows stopped with a bug check and restarted.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000110', N'shutdown', N'Unexpected shutdown or power loss', N'minor', N'The cabinet turned off without shutting down: power was cut, the power button held, or it froze.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000111', N'hardware', N'Hardware error', N'major', N'The processor, memory or a PCIe device reported an error to Windows (WHEA).', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000112', N'service', N'Windows service failure', N'minor', N'A Windows service failed to start, hung or stopped unexpectedly.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000113', N'firewall_policy', N'Firewall differs from client policy', N'minor', N'One or more firewall profiles are on or off unlike the client''s firewall policy. Apply the policy from the cabinet page, or to every cabinet of a site or client at once.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000114', N'service_restarted', N'Service restarted automatically', N'minor', N'A watched service stopped and the agent started it again. Repeated restarts point at the software behind the service.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000115', N'service_failing', N'Service will not stay running', N'major', N'A watched service failed 3 restarts in a row. The agent keeps trying every 15 minutes; the alert closes once it runs again.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000116', N'service_watch', N'Watched service missing or disabled', N'minor', N'A service on the watch list does not exist on the cabinet, or is disabled, so it is not started. The watch list may name the wrong service.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000117', N'reboot_loop', N'Restarting repeatedly (possible reboot loop)', N'major', N'The cabinet started 3 or more times within an hour, or restarted and then went quiet. A cabinet stuck in a crash loop cannot run the agent for long, so its evidence is what was collected before.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000118', N'time_zone_wrong', N'Wrong time zone', N'minor', N'The cabinet''s Windows time zone is not its site''s. Schedules, logs and dispensing times show the wrong local time. Correct it from the cabinet''s Time section, or for many cabinets from Fleet operations.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000119', N'clock_off', N'Clock is off', N'minor', N'The cabinet''s clock is more than two minutes away from the server''s. Sync the clock; if it drifts again, check Windows Time and its source.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000120', N'site_outage', N'Whole site offline (network or power)', N'major', N'Every cabinet at the site stopped reporting within the same 10 minutes. That points at the site: its internet connection, firewall, switch or power, not the cabinets. Check with the site before working on any one cabinet.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000121', N'network_baseline', N'Network settings differ from the site baseline', N'minor', N'A network diagnosis found this cabinet''s address, gateway or DNS servers different from what the site''s baseline says they should be. Open the diagnosis: it shows what differs and offers the fix.', 1, N'fleet'),
+  (N'00000000-0000-4000-8000-000000000122', N'usb_missing', N'Expected USB device not detected', N'minor', N'The cabinet should have a USB device plugged in (the fingerprint scanner), but Windows sees nothing on any USB port. Check the cable and the port at the cabinet. This alert stays on the cabinet.', 1, N'cabinet'),
+  (N'00000000-0000-4000-8000-000000000123', N'disk_space', N'Low disk space', N'minor', N'Windows reports a drive is nearly full. Updates, logs and the cabinet application can start failing when it fills.', 1, N'fleet');
 GO
-
+INSERT INTO symptom_rules ([id], [issue_type_id], [kind], [state], [version], [match], [regroup], [built_in], [severity]) VALUES
+  (N'00000000-0000-4000-8000-000000000201', N'00000000-0000-4000-8000-000000000101', N'map', N'live', 1, N'{"kind":"scanner"}', 0, 1, NULL),
+  (N'00000000-0000-4000-8000-000000000202', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"kind":"smart_warning"}', 0, 1, NULL),
+  (N'00000000-0000-4000-8000-000000000203', N'00000000-0000-4000-8000-000000000105', N'map', N'live', 1, N'{"kind":"firewall_changed"}', 0, 1, NULL),
+  (N'00000000-0000-4000-8000-000000000301', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":7}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000302', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":11}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000303', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":52}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000304', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":154}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000305', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":15}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000306', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":51}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000307', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"disk","eventId":153}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000308', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Ntfs","eventId":55}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000309', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":55}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000310', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":98}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000311', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":140}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000312', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"storahci","eventId":129}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000313', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"stornvme","eventId":129}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000314', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"iaStorA","eventId":129}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000315', N'00000000-0000-4000-8000-000000000102', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"iaStorAVC","eventId":129}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000320', N'00000000-0000-4000-8000-000000000111', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":18}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000321', N'00000000-0000-4000-8000-000000000111', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":17}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000322', N'00000000-0000-4000-8000-000000000111', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":19}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000323', N'00000000-0000-4000-8000-000000000111', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":47}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000330', N'00000000-0000-4000-8000-000000000109', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WER-SystemErrorReporting","eventId":1001}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000331', N'00000000-0000-4000-8000-000000000109', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"BugCheck","eventId":1001}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000332', N'00000000-0000-4000-8000-000000000110', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-Kernel-Power","eventId":41}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000333', N'00000000-0000-4000-8000-000000000110', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"EventLog","eventId":6008}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000340', N'00000000-0000-4000-8000-000000000103', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-Kernel-PnP","eventId":219}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000341', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7000}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000342', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7009}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000343', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7011}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000344', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7023}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000345', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7031}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000346', N'00000000-0000-4000-8000-000000000112', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7034}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000350', N'00000000-0000-4000-8000-000000000104', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Tcpip","eventId":4199}', 0, 1, N'major'),
+  (N'00000000-0000-4000-8000-000000000351', N'00000000-0000-4000-8000-000000000104', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-DNS-Client","eventId":1014}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000360', N'00000000-0000-4000-8000-000000000106', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"Microsoft-Windows-WindowsUpdateClient","eventId":20}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000370', N'00000000-0000-4000-8000-000000000122', N'map', N'live', 1, N'{"kind":"scanner","phrase":"No USB device"}', 0, 1, N'minor'),
+  (N'00000000-0000-4000-8000-000000000371', N'00000000-0000-4000-8000-000000000123', N'map', N'live', 1, N'{"log":"System","kind":"error","source":"srv","eventId":2013}', 0, 1, N'minor');
 GO
-
+INSERT INTO symptom_rule_history ([rule_id], [version], [change], [state], [issue_type_id], [match], [severity]) VALUES
+  (N'00000000-0000-4000-8000-000000000201', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000101', N'{"kind":"scanner"}', NULL),
+  (N'00000000-0000-4000-8000-000000000202', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"kind":"smart_warning"}', NULL),
+  (N'00000000-0000-4000-8000-000000000203', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000105', N'{"kind":"firewall_changed"}', NULL),
+  (N'00000000-0000-4000-8000-000000000301', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":7}', N'major'),
+  (N'00000000-0000-4000-8000-000000000302', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":11}', N'major'),
+  (N'00000000-0000-4000-8000-000000000303', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":52}', N'major'),
+  (N'00000000-0000-4000-8000-000000000304', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":154}', N'major'),
+  (N'00000000-0000-4000-8000-000000000305', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":15}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000306', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":51}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000307', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"disk","eventId":153}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000308', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"Ntfs","eventId":55}', N'major'),
+  (N'00000000-0000-4000-8000-000000000309', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":55}', N'major'),
+  (N'00000000-0000-4000-8000-000000000310', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":98}', N'major'),
+  (N'00000000-0000-4000-8000-000000000311', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"Microsoft-Windows-Ntfs","eventId":140}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000312', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"storahci","eventId":129}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000313', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"stornvme","eventId":129}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000314', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"iaStorA","eventId":129}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000315', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000102', N'{"log":"System","kind":"error","source":"iaStorAVC","eventId":129}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000320', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000111', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":18}', N'major'),
+  (N'00000000-0000-4000-8000-000000000321', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000111', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":17}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000322', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000111', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":19}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000323', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000111', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WHEA-Logger","eventId":47}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000330', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000109', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WER-SystemErrorReporting","eventId":1001}', N'major'),
+  (N'00000000-0000-4000-8000-000000000331', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000109', N'{"log":"System","kind":"error","source":"BugCheck","eventId":1001}', N'major'),
+  (N'00000000-0000-4000-8000-000000000332', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000110', N'{"log":"System","kind":"error","source":"Microsoft-Windows-Kernel-Power","eventId":41}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000333', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000110', N'{"log":"System","kind":"error","source":"EventLog","eventId":6008}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000340', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000103', N'{"log":"System","kind":"error","source":"Microsoft-Windows-Kernel-PnP","eventId":219}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000341', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7000}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000342', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7009}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000343', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7011}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000344', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7023}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000345', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7031}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000346', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000112', N'{"log":"System","kind":"error","source":"Service Control Manager","eventId":7034}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000350', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000104', N'{"log":"System","kind":"error","source":"Tcpip","eventId":4199}', N'major'),
+  (N'00000000-0000-4000-8000-000000000351', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000104', N'{"log":"System","kind":"error","source":"Microsoft-Windows-DNS-Client","eventId":1014}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000360', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000106', N'{"log":"System","kind":"error","source":"Microsoft-Windows-WindowsUpdateClient","eventId":20}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000370', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000122', N'{"kind":"scanner","phrase":"No USB device"}', N'minor'),
+  (N'00000000-0000-4000-8000-000000000371', 1, N'created', N'live', N'00000000-0000-4000-8000-000000000123', N'{"log":"System","kind":"error","source":"srv","eventId":2013}', N'minor');
 GO
 
 -- ---- Audit log: append-only hash chain ------------------------------------------------------------------------
