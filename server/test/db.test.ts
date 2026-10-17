@@ -50,7 +50,7 @@ test("the server's account cannot write, change or delete audit entries directly
     "TRUNCATE TABLE audit_log",
     "UPDATE audit_chain_head SET seq = 0",
     "SELECT * FROM audit_chain_head",
-  ]) await assert.rejects(db.app.query(sql), /permission was denied|permission denied/i, sql);
+  ]) await assert.rejects(db.app.query(sql), /permission was denied|permission denied|do not have permission/i, sql);
 });
 
 test("even the audit table's owner cannot change or delete an entry", async () => {
@@ -64,6 +64,16 @@ test("the list of JSON columns is exactly the columns the schema checks as JSON"
   const rows = await asOwner(db, c => c.query<{ name: string }>(
     "SELECT DISTINCT col.name AS name FROM sys.check_constraints cc JOIN sys.columns col ON col.object_id = cc.parent_object_id AND col.column_id = cc.parent_column_id WHERE cc.definition LIKE '%isjson%'"));
   assert.deepEqual([...JSON_COLUMNS].sort(), rows.rows.map(r => r.name).sort());
+});
+
+test("every table has a primary key, and the foreign keys, unique rules and indexes are in place", async () => {
+  const q = async (sql: string) => (await asOwner(db, c => c.query<{ n: number }>(sql))).rows[0]!.n;
+  assert.equal(await q("SELECT COUNT(*) AS n FROM sys.tables t WHERE NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id = t.object_id AND i.is_primary_key = 1)"), 0, "tables without a primary key");
+  assert.ok(await q("SELECT COUNT(*) AS n FROM sys.foreign_keys") >= 60, "foreign keys");
+  assert.ok(await q("SELECT COUNT(*) AS n FROM sys.indexes WHERE is_unique_constraint = 1 OR (is_unique = 1 AND is_primary_key = 0)") >= 15, "unique rules");
+  // A settings value may be any JSON value, not only an object.
+  for (const v of ["true", "12", '"unset"', "{}"]) await asOwner(db, c => c.query("INSERT INTO settings ([key], [value]) VALUES ($1, $2)", ["test." + v.length + v, v]));
+  await assert.rejects(asOwner(db, c => c.query("INSERT INTO settings ([key], [value]) VALUES ('bad', 'not json')")), /CHECK/i);
 });
 
 test("tampering with an entry is detected at the entry that changed", async () => {
