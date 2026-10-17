@@ -46,7 +46,7 @@ const agentZip = Buffer.from("PK\u0003\u0004 not really a zip, but the server on
 interface Account { id: string; username: string; password: string; secret: Buffer; }
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
-  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, false, true, $6)`,
+  await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, $5, 0, 1, $6)`,
     [a.id, a.username, "Test " + a.username, role, await hashPassword(a.password), secrets.seal(a.secret)]);
   return a;
 }
@@ -78,7 +78,7 @@ const until = async (what: string, check: () => Promise<boolean>, ms = 10_000) =
 };
 const openAlert = async (cabinetId: string, issue: string) => (await db.app.query(
   "SELECT 1 FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'", [cabinetId, issue])).rows.length > 0;
-const demoCabinet = async (scenario: string) => (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = $1 LIMIT 1", [scenario])).rows[0]!.id;
+const demoCabinet = async (scenario: string) => (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = $1", [scenario])).rows[0]!.id;
 
 test.before(async () => {
   db = await createTestDatabase();
@@ -93,7 +93,7 @@ test.before(async () => {
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
     hostname: "MY-HP", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 11", agentVersion: "0.5.0" } }, "127.0.0.1");
   realCabinet = (await approveEnrollment(db.app, key, requestId, { clientName: "Mashura Office", siteName: "HQ", cabinetName: "Marco's HP", role: "standalone" }, admin.id)).cabinetId;
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = now(), read_only = false WHERE id = $1", [realCabinet]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0 WHERE id = $1", [realCabinet]);
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
@@ -179,15 +179,15 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
     const drift = await demoCabinet("firewall_drift");
     const read = await call("POST", `/api/cabinets/${drift}/commands`, { operation: "system.info", params: {} }, t1);
     assert.equal(read.status, 202);
-    await until("the simulated answer", async () => (await db.app.query("SELECT status FROM commands WHERE id = $1", [read.body.commandId])).rows[0]?.status === "succeeded");
-    const info = (await db.app.query("SELECT result FROM commands WHERE id = $1", [read.body.commandId])).rows[0].result.output;
+    await until("the simulated answer", async () => (await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [read.body.commandId])).rows[0]?.status === "succeeded");
+    const info = (await db.app.query<{ result: { output: any } }>("SELECT result FROM commands WHERE id = $1", [read.body.commandId])).rows[0]!.result.output;
     assert.match(info.hostname, /^CAB-\d{2}[SC]\d{2}$/);
 
     // Tier 1 applies the client's policy (all off) with one click: the drift alert resolves as it would on a real cabinet.
     const fix = await call("POST", `/api/cabinets/${drift}/commands`, { operation: "firewall.applyPolicy", params: {} }, t1);
     assert.equal(fix.status, 202, JSON.stringify(fix.body));
     await until("the drift alert to resolve", async () => !(await openAlert(drift, ISSUE.firewallPolicy)));
-    assert.equal((await db.app.query("SELECT demo_scenario FROM cabinets WHERE id = $1", [drift])).rows[0].demo_scenario, "healthy");
+    assert.equal((await db.app.query<{ demo_scenario: string }>("SELECT demo_scenario FROM cabinets WHERE id = $1", [drift])).rows[0]!.demo_scenario, "healthy");
 
     // Tier 2 restarts the failing scanner service: it recovers and its major alert resolves.
     const failing = await demoCabinet("service_failing");
@@ -199,12 +199,12 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
     const offline = await demoCabinet("offline");
     const silent = await call("POST", `/api/cabinets/${offline}/commands`, { operation: "system.info", params: {} }, t1);
     await new Promise(r => setTimeout(r, 300));
-    assert.equal((await db.app.query("SELECT status FROM commands WHERE id = $1", [silent.body.commandId])).rows[0].status, "queued");
+    assert.equal((await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [silent.body.commandId])).rows[0]!.status, "queued");
 
     // The real cabinet's commands are never answered by the simulator.
     const real = await call("POST", `/api/cabinets/${realCabinet}/commands`, { operation: "system.info", params: {} }, t1);
     await new Promise(r => setTimeout(r, 300));
-    assert.equal((await db.app.query("SELECT status FROM commands WHERE id = $1", [real.body.commandId])).rows[0].status, "queued");
+    assert.equal((await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [real.body.commandId])).rows[0]!.status, "queued");
   } finally {
     sim.stop();
   }
@@ -223,7 +223,7 @@ test("time: wrong zones and a drifting clock raise alerts; Tier 1 corrects them 
   sim.start();
   try {
     const status = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.status", params: {} }, t1);
-    await until("time.status", async () => (await db.app.query("SELECT status FROM commands WHERE id = $1", [status.body.commandId])).rows[0]?.status === "succeeded");
+    await until("time.status", async () => (await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [status.body.commandId])).rows[0]?.status === "succeeded");
     // Tier 1 sets the site's zone with one click; the zone alert closes from the next heartbeat.
     const set = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params: { timeZoneId: facts.siteTimeZone } }, t1);
     assert.equal(set.status, 202, JSON.stringify(set.body));
@@ -256,21 +256,21 @@ test("time: wrong zones and a drifting clock raise alerts; Tier 1 corrects them 
 
 test("a whole site going quiet together is one outage, not several cabinet problems; a lone offline cabinet or ones that drifted off hours apart are not", async () => {
   // The Chicago pharmacy: all five cabinets lose the network at the same time (made here; the demo fleet has no such site).
-  const site = (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo AND s.name LIKE 'Chicago%'")).rows[0]!.id;
+  const site = (await db.app.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.demo = 1 AND s.name LIKE 'Chicago%'")).rows[0]!.id;
   const down = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE site_id = $1 ORDER BY name", [site])).rows;
   assert.equal(down.length, 5);
-  const quiet = async (minutes: number) => { for (const [i, k] of down.entries()) await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - make_interval(mins => $2, secs => $3) WHERE id = $1", [k.id, minutes, -i * 20]); };
+  const quiet = async (minutes: number) => { for (const [i, k] of down.entries()) await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(second, $3, DATEADD(minute, -$2, SYSUTCDATETIME())) WHERE id = $1", [k.id, minutes, -i * 20]); };
   try {
     await quiet(40);
     assert.equal((await checkSiteOutages(db.app)).raised, 5);
     for (const k of down) assert.ok(await openAlert(k.id, ISSUE.siteOutage), "each cabinet at the site carries it");
     // Denver has one offline cabinet and online ones: no site outage there. Harbor's crash loops are a crash incident, not a network outage.
     assert.ok(!(await openAlert(await demoCabinet("offline"), ISSUE.siteOutage)));
-    assert.equal((await db.app.query(`SELECT count(*)::int AS n FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
-                                        WHERE a.issue_type_id = $1 AND a.state <> 'resolved' AND k.demo_scenario LIKE 'incident_%'`, [ISSUE.siteOutage])).rows[0].n, 0);
+    assert.equal((await db.app.query<{ n: number }>(`SELECT count(*) AS n FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
+                                        WHERE a.issue_type_id = $1 AND a.state <> 'resolved' AND k.demo_scenario LIKE 'incident_%'`, [ISSUE.siteOutage])).rows[0]!.n, 0);
     // Cabinets that stopped hours apart are not "together".
-    await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = now() WHERE issue_type_id = $1", [ISSUE.siteOutage]);
-    await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() - interval '5 hours' WHERE id = $1", [down[0]!.id]);
+    await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE issue_type_id = $1", [ISSUE.siteOutage]);
+    await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -5, SYSUTCDATETIME()) WHERE id = $1", [down[0]!.id]);
     assert.equal((await checkSiteOutages(db.app)).raised, 0);
     // Together again, then one cabinet is heard again: the site is reachable, so every outage alert closes.
     await quiet(40);
@@ -279,8 +279,8 @@ test("a whole site going quiet together is one outage, not several cabinet probl
     assert.equal((await checkSiteOutages(db.app)).resolved, 5);
     for (const k of down) assert.ok(!(await openAlert(k.id, ISSUE.siteOutage)));
   } finally {
-    await db.app.query("UPDATE cabinets SET last_heartbeat_at = now() WHERE site_id = $1", [site]);
-    await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = now() WHERE issue_type_id = $1 AND state <> 'resolved'", [ISSUE.siteOutage]);
+    await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE site_id = $1", [site]);
+    await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE issue_type_id = $1 AND state <> 'resolved'", [ISSUE.siteOutage]);
   }
 });
 
@@ -309,7 +309,7 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
     assert.deepEqual(blocked.action, { kind: "apply_policy", cabinetId: sync, cabinetName: "Pharmacy Sync" });
     assert.equal(before[0]!.id, "sync-firewall", "problems come first");
     // Each command the diagnosis issued is the person's own, in the audit log.
-    assert.ok(Number((await db.app.query("SELECT count(*) FROM audit_log WHERE action = 'command.issue' AND details->>'operation' = 'network.test' AND target_id = $1", [surgery])).rows[0].count) >= 4);
+    assert.ok(Number((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM audit_log WHERE action = 'command.issue' AND JSON_VALUE(details, '$.operation') = 'network.test' AND target_id = $1", [surgery])).rows[0]!.n) >= 4);
     // The fix, as the finding offers it: apply the policy on the sync cabinet. Then the satellite reaches it.
     assert.equal((await call("POST", `/api/cabinets/${sync}/commands`, { operation: "firewall.applyPolicy", params: {} }, t1)).status, 202);
     await until("the sync cabinet's firewall to report off", async () => !(await openAlert(sync, ISSUE.firewallPolicy)));
@@ -325,7 +325,7 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
 test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
   const t1 = await signIn(await account("tier1"));
   // Cabinets that never answer keep their diagnoses running.
-  const quiet = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario = 'incident_loop' ORDER BY name LIMIT 4")).rows.map(r => r.id);
+  const quiet = (await db.app.query<{ id: string }>("SELECT TOP (4) id FROM cabinets WHERE demo_scenario = 'incident_loop' ORDER BY name")).rows.map(r => r.id);
   assert.equal(quiet.length, 4);
   const start = (cab: string) => call("POST", `/api/cabinets/${cab}/diagnose/network`, {}, t1);
   const a = await start(quiet[0]!), again = await start(quiet[0]!);
@@ -337,13 +337,13 @@ test("diagnoses cannot be used to flood a cabinet or the server: a running one i
   assert.equal(fourth.status, 429, JSON.stringify(fourth.body));
   // At the limit, asking for one already running still answers with it.
   assert.equal((await start(quiet[0]!)).body.diagnosisId, a.body.diagnosisId);
-  await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = now() WHERE state = 'running'");
+  await db.app.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME() WHERE state = 'running'");
 });
 
 test("a real cabinet is never filed under a simulated client, and turning demo mode off never deletes one", async () => {
   const admin = await account("admin");
   const ca = await signIn(admin);
-  const demoClient = (await db.app.query<{ id: string; name: string }>("SELECT id, name FROM clients WHERE demo ORDER BY name LIMIT 1")).rows[0]!;
+  const demoClient = (await db.app.query<{ id: string; name: string }>("SELECT TOP (1) id, name FROM clients WHERE demo = 1 ORDER BY name")).rows[0]!;
   const { token } = await createBootstrapToken(db.app, admin.id);
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
     hostname: "REAL-2", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 11", agentVersion: "0.5.0" } }, "127.0.0.1");
@@ -355,7 +355,7 @@ test("a real cabinet is never filed under a simulated client, and turning demo m
   assert.equal((await call("POST", "/api/admin/sites", { ...body, stepUpToken: t }, ca)).body.error, "demo_client");
   // Older data could still hold one: turning demo mode off then refuses rather than deleting a real cabinet.
   const home = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [realCabinet])).rows[0]!.site_id;
-  await db.app.query("UPDATE cabinets SET site_id = (SELECT id FROM sites WHERE client_id = $2 LIMIT 1) WHERE id = $1", [realCabinet, demoClient.id]);
+  await db.app.query("UPDATE cabinets SET site_id = (SELECT TOP (1) id FROM sites WHERE client_id = $2) WHERE id = $1", [realCabinet, demoClient.id]);
   assert.equal((await demoChange(admin, ca, { enabled: false })).body.error, "real_cabinet_in_demo_client");
   await db.app.query("UPDATE cabinets SET site_id = $2 WHERE id = $1", [realCabinet, home]);
 });
@@ -366,9 +366,9 @@ test("turning demo mode off deletes every simulated record and leaves the real c
   const off = await demoChange(admin, ca, { enabled: false });
   assert.deepEqual(off.body, { enabled: false, clients: 0, cabinets: 0, storyReady: false });
   for (const table of ["alerts", "events", "commands", "firewall_changes"])
-    assert.equal((await db.app.query(`SELECT count(*)::int AS n FROM ${table} t JOIN cabinets k ON k.id = t.cabinet_id WHERE k.demo_scenario IS NOT NULL`)).rows[0].n, 0, table);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE id = $1 AND status = 'active'", [realCabinet])).rows[0].n, 1);
-  assert.equal((await db.app.query("SELECT count(*)::int AS n FROM commands WHERE cabinet_id = $1", [realCabinet])).rows[0].n, 1, "the real cabinet's command history is kept");
+    assert.equal((await db.app.query<{ n: number }>(`SELECT count(*) AS n FROM ${table} t JOIN cabinets k ON k.id = t.cabinet_id WHERE k.demo_scenario IS NOT NULL`)).rows[0]!.n, 0, table);
+  assert.equal((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM cabinets WHERE id = $1 AND status = 'active'", [realCabinet])).rows[0]!.n, 1);
+  assert.equal((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM commands WHERE cabinet_id = $1", [realCabinet])).rows[0]!.n, 1, "the real cabinet's command history is kept");
   const audited = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE action LIKE 'demo.%' ORDER BY seq")).rows.map(r => r.action);
   assert.deepEqual(audited, ["demo.enable", "demo.disable"]);
 });

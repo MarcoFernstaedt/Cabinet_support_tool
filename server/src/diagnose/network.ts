@@ -2,10 +2,9 @@
 // issued, checked and audited exactly as if they had clicked it), then reads the results with the fixed checks in
 // network-findings.ts. The run is stored, so the next person sees what was found.
 import { randomUUID } from "node:crypto";
-import type pg from "pg";
 import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import type { Role } from "../services/console-commands.js";
-import { safeJson } from "../db/db.js";
+import { safeJson, type Pool } from "../db/db.js";
 import { issueFromConsole } from "../services/console-commands.js";
 import { cabinetPolicy, switchesFor } from "../services/firewall-policy.js";
 import { syncForCabinet } from "../services/device-settings.js";
@@ -24,11 +23,11 @@ const POLL_MS = 300;
 interface Issued { key: string; label: string; operation: string; params: Record<string, unknown>; commandId: string }
 type Outcome = { status: string; output?: unknown; failure?: string | undefined };
 
-async function waitFor(pool: pg.Pool, ids: string[], deadline: number): Promise<Map<string, Outcome>> {
+async function waitFor(pool: Pool, ids: string[], deadline: number): Promise<Map<string, Outcome>> {
   const done = new Map<string, Outcome>();
   while (Date.now() < deadline) {
     const rows = (await pool.query<{ id: string; status: string; result: { output?: unknown; error?: { message: string } } | null }>(
-      "SELECT id, status, result FROM commands WHERE id = ANY($1::uuid[]) AND status NOT IN ('queued', 'delivered')", [ids])).rows;
+      "SELECT id, status, result FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status NOT IN ('queued', 'delivered')", [ids])).rows;
     for (const r of rows) done.set(r.id, { status: r.status, output: r.result?.output, failure: r.status === "succeeded" ? undefined : r.result?.error?.message ?? r.status });
     if (done.size === ids.length) break;
     await new Promise(res => setTimeout(res, POLL_MS));
@@ -38,16 +37,16 @@ async function waitFor(pool: pg.Pool, ids: string[], deadline: number): Promise<
 
 const MAX_RUNNING_PER_USER = 3;
 
-export async function startNetworkDiagnosis(pool: pg.Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
+export async function startNetworkDiagnosis(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
   const k = (await pool.query<{ name: string; role: string }>("SELECT name, role FROM cabinets WHERE id = $1 AND status = 'active'", [cabinetId])).rows[0];
   if (!k) throw new Refused("not_found", 404, "no such cabinet");
   // A diagnosis already running on this cabinet is shared rather than started twice; one person runs at most 3 at a time.
   const running = (await pool.query<{ id: string }>(
-    "SELECT id FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'running' AND started_at > now() - make_interval(secs => $2) ORDER BY started_at DESC LIMIT 1",
+    "SELECT TOP (1) id FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'running' AND started_at > DATEADD(second, -$2, SYSUTCDATETIME()) ORDER BY started_at DESC",
     [cabinetId, RUN_LIMIT_MS / 1000 + 5])).rows[0];
   if (running) return running.id;
-  const mine = Number((await pool.query<{ n: string }>(
-    "SELECT count(*) AS n FROM diagnoses WHERE run_by = $1 AND state = 'running' AND started_at > now() - make_interval(secs => $2)",
+  const mine = Number((await pool.query<{ n: number }>(
+    "SELECT count(*) AS n FROM diagnoses WHERE run_by = $1 AND state = 'running' AND started_at > DATEADD(second, -$2, SYSUTCDATETIME())",
     [user.userId, RUN_LIMIT_MS / 1000 + 5])).rows[0]!.n);
   if (mine >= MAX_RUNNING_PER_USER) throw new Refused("rate_limited", 429, `you already have ${MAX_RUNNING_PER_USER} diagnoses running; wait for one to finish`);
   const { id } = await beginDiagnosis(pool, user, cabinetId, k, null, log);
@@ -58,7 +57,7 @@ export async function startNetworkDiagnosis(pool: pg.Pool, user: { userId: strin
  * Creates the diagnosis row, issues its first reads (so a refusal reaches the person at once) and runs the rest in the
  * background. `done` settles when the run has finished; a batch waits on it to limit how many run at once.
  */
-export async function beginDiagnosis(pool: pg.Pool, user: { userId: string; role: Role }, cabinetId: string, k: { name: string; role: string }, batchId: string | null,
+export async function beginDiagnosis(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, k: { name: string; role: string }, batchId: string | null,
   log: (m: string) => void): Promise<{ id: string; done: Promise<void> }> {
   const id = randomUUID();
   // The first two commands are issued before answering, so a refusal (role, write pause does not apply to reads) reaches the person.
@@ -69,12 +68,12 @@ export async function beginDiagnosis(pool: pg.Pool, user: { userId: string; role
     [id, cabinetId, user.userId, safeJson(first.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId }))), batchId]);
   const done = run(pool, user, cabinetId, { name: k.name, role: k.role }, id, first, issue).catch(async e => {
     log(`network diagnosis failed: ${(e as Error).message}`);
-    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = now(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
+    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
   });
   return { id, done };
 }
 
-async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetId: string, cabinet: { name: string; role: string }, id: string, first: Issued[],
+async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, cabinet: { name: string; role: string }, id: string, first: Issued[],
   issue: (key: string, label: string, operation: string, params: Record<string, unknown>) => Promise<Issued>): Promise<void> {
   const deadline = Date.now() + RUN_LIMIT_MS;
   const firstDone = await waitFor(pool, [first[0]!.commandId], Math.min(deadline, Date.now() + 30_000));
@@ -103,19 +102,19 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
   const fw = outcome(first[1]!);
 
   // The site's sync cabinet as the platform knows it: whether it is checking in, and its firewall profiles.
-  const sc = sync?.address ? (await pool.query<{ id: string; name: string; last: Date | null; profiles: Profiles | null }>(
-    `SELECT k.id, k.name, k.last_heartbeat_at AS last, k.firewall_profiles AS profiles FROM cabinets k
-      WHERE k.site_id = (SELECT site_id FROM cabinets WHERE id = $1) AND k.role = 'sync' AND k.status = 'active' AND k.id <> $1 ORDER BY k.name LIMIT 1`, [cabinetId])).rows[0] : undefined;
+  const sc = sync?.address ? (await pool.query<{ id: string; name: string; last: Date | null; firewall_profiles: Profiles | null }>(
+    `SELECT TOP (1) k.id, k.name, k.last_heartbeat_at AS last, k.firewall_profiles FROM cabinets k
+      WHERE k.site_id = (SELECT site_id FROM cabinets WHERE id = $1) AND k.role = 'sync' AND k.status = 'active' AND k.id <> $1 ORDER BY k.name`, [cabinetId])).rows[0] : undefined;
   const policy = switchesFor((await cabinetPolicy(pool, cabinetId)).policy);
-  const baseline = (await pool.query<{ b: NetworkBaseline | null }>(
-    "SELECT s.network_baseline AS b FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0]?.b ?? null;
+  const baseline = (await pool.query<{ network_baseline: NetworkBaseline | null }>(
+    "SELECT s.network_baseline FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0]?.network_baseline ?? null;
   const evidence: NetworkEvidence = {
     cabinet: { id: cabinetId, name: cabinet.name, role: cabinet.role }, baseline,
     ...(configOut ? { config: configOut } : { configFailure: config?.failure ?? "no answer" }),
     ...(fw.status === "succeeded" ? { firewall: fw.output as FirewallStateOutput } : { firewallFailure: fw.failure ?? "no answer" }),
     policy,
     sync: { address: sync?.address ?? null, ports: sync?.effective ?? [], cabinet: sc ? { id: sc.id, name: sc.name,
-      online: !!sc.last && Date.now() - sc.last.getTime() < OFFLINE_AFTER_MS, minutesSilent: sc.last ? Math.round((Date.now() - sc.last.getTime()) / 60_000) : null, profiles: sc.profiles } : null },
+      online: !!sc.last && Date.now() - sc.last.getTime() < OFFLINE_AFTER_MS, minutesSilent: sc.last ? Math.round((Date.now() - sc.last.getTime()) / 60_000) : null, profiles: sc.firewall_profiles } : null },
     tests: tests.map((t): TestRun => {
       const o = outcome(t);
       return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as NetworkTestOutput } : { failure: o.failure ?? o.status }) };
@@ -129,7 +128,7 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
   // Everything that was read, kept whether or not anything is wrong, so the console can show the full read.
   const readings = { takenAt: new Date().toISOString(), adapters: configOut?.adapters ?? [], routes: configOut?.routes ?? [], neighbors: configOut?.neighbors ?? [],
     tests: evidence.tests, traces: evidence.traces };
-  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = now(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
+  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
   // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
   const seen = await fixesForFindings(pool, findings.filter(f => f.severity !== "ok").map(f => f.id));
@@ -137,7 +136,7 @@ async function run(pool: pg.Pool, user: { userId: string; role: Role }, cabinetI
 }
 
 /** The minor alert that says a cabinet differs from its site's baseline; the same alert is kept while it differs. */
-export async function raiseBaselineAlert(db: pg.Pool, cabinetId: string, titles: string[]): Promise<void> {
+export async function raiseBaselineAlert(db: Pool, cabinetId: string, titles: string[]): Promise<void> {
   const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [ISSUE.networkBaseline])).rows[0];
   if (issue) await upsertAlert(db, { cabinetId, issueTypeId: ISSUE.networkBaseline, severity: issue.severity, signature: `issue:${ISSUE.networkBaseline}`,
     title: `${issue.name}: ${titles.slice(0, 2).join("; ")}`.slice(0, 250), seenAt: new Date(), ruleId: null, eventId: null });
@@ -147,29 +146,29 @@ export async function raiseBaselineAlert(db: pg.Pool, cabinetId: string, titles:
  * A diagnosis that finds the cabinet's address, gateway or DNS different from the site baseline raises a minor alert, so the
  * cabinet shows in Alerts; a later diagnosis that finds it matching closes it. Only when the baseline was set and the settings were read.
  */
-async function reconcileBaselineAlert(pool: pg.Pool, cabinetId: string, findings: Finding[], comparable: boolean): Promise<void> {
+async function reconcileBaselineAlert(pool: Pool, cabinetId: string, findings: Finding[], comparable: boolean): Promise<void> {
   if (!comparable) return;
   const off = findings.filter(f => f.id.startsWith("baseline-") && f.severity !== "ok");
   if (off.length > 0) {
     await raiseBaselineAlert(pool, cabinetId, off.map(f => f.title));
   } else {
-    await pool.query(`UPDATE alerts SET state = 'resolved', resolved_at = now(), resolution = 'A network diagnosis found the settings matching the site baseline.'
+    await pool.query(`UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'A network diagnosis found the settings matching the site baseline.'
                        WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'`, [cabinetId, ISSUE.networkBaseline]);
   }
 }
 
-export async function diagnosis(db: pg.Pool, id: string) {
+export async function diagnosis(db: Pool, id: string) {
   const r = (await db.query<{ id: string; cabinet_id: string; kind: string; state: string; started_at: Date; finished_at: Date | null; findings: unknown; failure: string | null; commands: unknown; readings: unknown; run_by: string }>(
     `SELECT d.id, d.cabinet_id, d.kind, d.state, d.started_at, d.finished_at, d.findings, d.failure, d.commands, d.readings, u.name AS run_by
        FROM diagnoses d JOIN users u ON u.id = d.run_by WHERE d.id = $1`, [id])).rows[0];
   if (!r) return null;
-  const hasBaseline = (await db.query<{ b: boolean }>("SELECT s.network_baseline IS NOT NULL AS b FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [r.cabinet_id])).rows[0]?.b ?? false;
+  const hasBaseline = (await db.query<{ b: boolean }>("SELECT CAST(CASE WHEN s.network_baseline IS NOT NULL THEN 1 ELSE 0 END AS bit) AS b FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [r.cabinet_id])).rows[0]?.b ?? false;
   return { id: r.id, cabinetId: r.cabinet_id, kind: r.kind, state: r.state, startedAt: r.started_at.toISOString(), finishedAt: r.finished_at?.toISOString() ?? null,
     runBy: r.run_by, findings: r.findings, failure: r.failure, commands: r.commands, readings: r.readings, hasBaseline };
 }
 
-export async function latestDiagnosis(db: pg.Pool, cabinetId: string) {
-  const id = (await db.query<{ id: string }>("SELECT id FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' ORDER BY started_at DESC LIMIT 1", [cabinetId])).rows[0]?.id;
+export async function latestDiagnosis(db: Pool, cabinetId: string) {
+  const id = (await db.query<{ id: string }>("SELECT TOP (1) id FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' ORDER BY started_at DESC", [cabinetId])).rows[0]?.id;
   return id ? diagnosis(db, id) : null;
 }
 
@@ -180,12 +179,12 @@ export const BATCH_LIMIT = 60;
 const BATCH_CONCURRENCY = 8;
 
 /** Starts the diagnosis on the chosen cabinets, or on every active cabinet of a site. Offline cabinets are listed, not waited for. */
-export async function startNetworkBatch(pool: pg.Pool, user: { userId: string; role: Role }, selection: { cabinetIds: string[] } | { siteId: string },
+export async function startNetworkBatch(pool: Pool, user: { userId: string; role: Role }, selection: { cabinetIds: string[] } | { siteId: string },
   log: (m: string) => void = () => {}): Promise<{ batchId: string; total: number; offline: number }> {
   const rows = (await pool.query<{ id: string; name: string; role: string; site_id: string; site: string; online: boolean }>(
-    `SELECT k.id, k.name, k.role, s.id AS site_id, s.name AS site, COALESCE(k.last_heartbeat_at > now() - make_interval(secs => $2), false) AS online
+    `SELECT k.id, k.name, k.role, s.id AS site_id, s.name AS site, CAST(CASE WHEN k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS bit) AS online
        FROM cabinets k JOIN sites s ON s.id = k.site_id
-      WHERE k.status = 'active' AND ${"siteId" in selection ? "s.id = $1" : "k.id = ANY($1::uuid[])"} ORDER BY s.name, k.name`,
+      WHERE k.status = 'active' AND ${"siteId" in selection ? "s.id = $1" : "k.id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))"} ORDER BY s.name, k.name`,
     ["siteId" in selection ? selection.siteId : selection.cabinetIds, OFFLINE_AFTER_MS / 1000])).rows;
   if (rows.length === 0) throw new Refused("not_found", 404, "no such active cabinets");
   if (rows.length > BATCH_LIMIT) throw new Refused("too_many_cabinets", 409, `a network diagnosis covers at most ${BATCH_LIMIT} cabinets at a time`);
@@ -193,7 +192,7 @@ export async function startNetworkBatch(pool: pg.Pool, user: { userId: string; r
   // A batch is running until every one of its cabinets has a finished diagnosis (or it is older than a run can last).
   const running = (await pool.query<{ id: string; total: number; cabinet_ids: string[] }>(
     `SELECT b.id, b.total, b.cabinet_ids FROM diagnosis_batches b
-      WHERE b.created_by = $1 AND b.created_at > now() - make_interval(secs => $2)
+      WHERE b.created_by = $1 AND b.created_at > DATEADD(second, -$2, SYSUTCDATETIME())
         AND (SELECT count(*) FROM diagnoses d WHERE d.batch_id = b.id AND d.state <> 'running') < b.total ORDER BY b.created_at DESC`, [user.userId, RUN_LIMIT_MS / 1000 + 30])).rows;
   // Asking again for the very same cabinets while that check is still going (a second click, a page reload) joins it; a different set waits.
   const ids = new Set(rows.map(r => r.id));
@@ -207,7 +206,7 @@ export async function startNetworkBatch(pool: pg.Pool, user: { userId: string; r
     [batchId, user.userId, label.slice(0, 200), "siteId" in selection ? selection.siteId : null, rows.length, rows.map(r => r.id)]);
   const offline = rows.filter(r => !r.online);
   for (const r of offline)
-    await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'offline', now(), $4, $5)`,
+    await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'offline', SYSUTCDATETIME(), $4, $5)`,
       [randomUUID(), r.id, user.userId, "Offline: not heard from in the last 5 minutes, so nothing could be checked.", batchId]);
   const queue = rows.filter(r => r.online);
   // At most a few run at once; each is issued as the person who asked, so the audit log shows who looked at which cabinet.
@@ -220,7 +219,7 @@ export async function startNetworkBatch(pool: pg.Pool, user: { userId: string; r
         try { await (await beginDiagnosis(pool, user, r.id, r, batchId, log)).done; }
         catch (e) {
           log(`network diagnosis of ${r.name} could not start: ${(e as Error).message}`);
-          await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'failed', now(), $4, $5)`,
+          await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'failed', SYSUTCDATETIME(), $4, $5)`,
             [randomUUID(), r.id, user.userId, "The diagnosis could not be started.", batchId]).catch(() => undefined);
         }
       }
@@ -240,7 +239,7 @@ export const JOB_FOR: Record<string, "firewall.applyPolicy" | "network.setDns" |
   apply_policy: "firewall.applyPolicy", renew_lease: "network.renewLease", set_dns: "network.setDns", use_dhcp: "network.setIp", set_static: "network.setIp",
 };
 
-export async function networkBatch(db: pg.Pool, batchId: string) {
+export async function networkBatch(db: Pool, batchId: string) {
   const b = (await db.query<{ id: string; label: string; site_id: string | null; created_at: Date; total: number; cabinet_ids: string[]; name: string }>(
     "SELECT b.id, b.label, b.site_id, b.created_at, b.total, b.cabinet_ids, u.name FROM diagnosis_batches b JOIN users u ON u.id = b.created_by WHERE b.id = $1", [batchId])).rows[0];
   if (!b) return null;
@@ -267,8 +266,8 @@ export async function networkBatch(db: pg.Pool, batchId: string) {
     if (f.action && f.action.kind !== "open") { const a = f.action as Exclude<FixAction, { kind: "open" }>; g.targets.set(a.cabinetId, { cabinetId: a.cabinetId, cabinetName: a.cabinetName, label: "label" in a ? a.label : `Apply the policy on ${a.cabinetName}`, action: a }); }
   }
   // Whether every site in the batch has a network baseline; without one the readings are shown but nothing is compared.
-  const hasBaseline = rows.length > 0 && (await db.query<{ n: string }>(
-    "SELECT count(*) AS n FROM sites s JOIN cabinets k ON k.site_id = s.id WHERE k.id = ANY($1::uuid[]) AND s.network_baseline IS NULL", [rows.map(r => r.cabinet_id)])).rows[0]!.n === "0";
+  const hasBaseline = rows.length > 0 && (await db.query<{ n: number }>(
+    "SELECT count(*) AS n FROM sites s JOIN cabinets k ON k.site_id = s.id WHERE k.id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND s.network_baseline IS NULL", [rows.map(r => r.cabinet_id)])).rows[0]!.n === 0;
   return { id: b.id, label: b.label, siteId: b.site_id, startedAt: b.created_at.toISOString(), startedBy: b.name, total: b.total, finished, hasBaseline,
     state: finished >= b.total ? "done" : "running", cabinets,
     waiting: b.total - rows.length,
