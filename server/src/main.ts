@@ -1,6 +1,6 @@
 // Starts the agent API, the console API when configured, and the offline alert job.
 import { scheduleDailyJobs } from "./services/maintenance.js";
-import { expireRules } from "./services/rules.js";
+import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/db.js";
 import { NotificationFeed } from "./db/notifications.js";
@@ -10,7 +10,7 @@ import { agentApiTls, issuingKey } from "./runtime.js";
 import { buildConsoleApi } from "./console-api/server.js";
 import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
-import { checkOffline } from "./services/alerts.js";
+import { checkOffline, fleetContact } from "./services/alerts.js";
 import { checkSiteOutages } from "./services/site-outage.js";
 import { expireUnanswered } from "./services/commands.js";
 import { TrustList } from "./packages/trust.js";
@@ -45,7 +45,9 @@ if (config.console) {
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
-// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs.
+// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs. Not right after the server (or its
+// database) was away, though: every cabinet would look silent then (FleetContact holds those judgements until the fleet has reported again).
+fleetContact.start();
 const offlineJob = setInterval(() => {
   checkOffline(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
   checkSiteOutages(pool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "site outage check failed"));
@@ -63,7 +65,7 @@ demo.start();
 resumeJobs(pool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: { type: (e as Error).name } }, "resuming fleet jobs failed"));
 
 // The daily audit chain check (a break raises a security alert) and retention.
-const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message));
+const stopDaily = scheduleDailyJobs(pool, message => app.log.error(message), { at: config.maintenanceAt });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const)
-  process.once(signal, () => { void (async () => { clearInterval(offlineJob); demo.stop(); stopDaily(); await app.close(); await consoleApp?.close(); await stream?.stop(); feed.stop(); await pool.end(); process.exit(0); })(); });
+  process.once(signal, () => { void (async () => { clearInterval(offlineJob); demo.stop(); stopDaily(); await flushRuleHits().catch(() => undefined); await app.close(); await consoleApp?.close(); await stream?.stop(); feed.stop(); await pool.end(); process.exit(0); })(); });

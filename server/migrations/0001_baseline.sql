@@ -39,7 +39,7 @@ GO
 CREATE TABLE agent_releases (
   [version] nvarchar(450) NOT NULL,
   [manifest] varbinary(4096) NOT NULL,
-  [signature] nvarchar(max) NOT NULL,
+  [signature] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [key_id] nvarchar(max) NOT NULL,
   [minimum_version] nvarchar(max) NOT NULL,
   [sha256] nvarchar(max) NOT NULL,
@@ -68,10 +68,10 @@ CREATE TABLE clients (
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [write_pause_reason] nvarchar(max) NULL,
   [removed_at] datetime2(3) NULL,
-  [scanner_hardware_ids] nvarchar(max) NULL,
-  [sync_ports] nvarchar(max) NULL,
-  [firewall_policy] nvarchar(max) NULL,
-  [watched_services] nvarchar(max) NULL,
+  [scanner_hardware_ids] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [sync_ports] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [firewall_policy] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [watched_services] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [demo] bit DEFAULT 0 NOT NULL,
   CONSTRAINT [clients_pkey] PRIMARY KEY ([id]),
   CONSTRAINT [clients_scanner_hardware_ids_json] CHECK ([scanner_hardware_ids] IS NULL OR ISJSON([scanner_hardware_ids], VALUE) = 1),
@@ -90,12 +90,12 @@ CREATE TABLE sites (
   [name] nvarchar(128) NOT NULL,
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [sync_address] nvarchar(max) NULL,
-  [sync_ports] nvarchar(max) NULL,
+  [sync_ports] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [removed_at] datetime2(3) NULL,
-  [scanner_hardware_ids] nvarchar(max) NULL,
-  [watched_services] nvarchar(max) NULL,
+  [scanner_hardware_ids] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [watched_services] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [time_zone] nvarchar(64) NULL,
-  [network_baseline] nvarchar(max) NULL,
+  [network_baseline] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   CONSTRAINT [sites_pkey] PRIMARY KEY ([id]),
   CONSTRAINT [sites_sync_ports_json] CHECK ([sync_ports] IS NULL OR ISJSON([sync_ports], VALUE) = 1),
   CONSTRAINT [sites_scanner_hardware_ids_json] CHECK ([scanner_hardware_ids] IS NULL OR ISJSON([scanner_hardware_ids], VALUE) = 1),
@@ -123,13 +123,13 @@ CREATE TABLE cabinets (
   [clock_skew_seconds] float NULL,
   [last_heartbeat_at] datetime2(3) NULL,
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
-  [scanner_hardware_ids] nvarchar(max) NULL,
+  [scanner_hardware_ids] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [in_office] bit DEFAULT 0 NOT NULL,
-  [firewall_profiles] nvarchar(max) NULL,
-  [watched_services] nvarchar(max) NULL,
+  [firewall_profiles] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [watched_services] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [demo_scenario] nvarchar(max) NULL,
   [time_zone_id] nvarchar(64) NULL,
-  [demo_net] nvarchar(max) NULL,
+  [demo_net] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [ipv4] nvarchar(15) NULL,
   [ipv4_at] datetime2(3) NULL,
   CONSTRAINT [cabinets_pkey] PRIMARY KEY ([id]),
@@ -173,7 +173,7 @@ CREATE TABLE symptom_rules (
   [kind] nvarchar(64) NOT NULL,
   [state] nvarchar(64) NOT NULL,
   [version] int DEFAULT 1 NOT NULL,
-  [match] nvarchar(max) NOT NULL,
+  [match] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [regroup] bit DEFAULT 0 NOT NULL,
   [built_in] bit DEFAULT 0 NOT NULL,
   [proposed_by] uniqueidentifier NULL,
@@ -218,7 +218,7 @@ CREATE TABLE alerts (
   CONSTRAINT [alerts_scope_check] CHECK (scope IN ('fleet', 'cabinet')),
   CONSTRAINT [alerts_severity_check] CHECK (severity IN ('major', 'minor')),
   CONSTRAINT [alerts_state_check] CHECK (state IN ('open', 'claimed', 'resolved'))
-);
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE audit_chain_head (
@@ -239,13 +239,13 @@ CREATE TABLE audit_log (
   [target_kind] nvarchar(max) NULL,
   [target_id] nvarchar(450) NULL,
   [outcome] nvarchar(max) NOT NULL,
-  [details] nvarchar(max) NOT NULL,
+  [details] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [prev_hash] nvarchar(64) NOT NULL,
   [hash] nvarchar(64) NOT NULL,
   CONSTRAINT [audit_log_pkey] PRIMARY KEY ([seq]),
   CONSTRAINT [audit_log_details_json] CHECK ([details] IS NULL OR ISJSON([details], VALUE) = 1),
   CONSTRAINT [audit_log_actor_kind_check] CHECK (actor_kind IN ('user', 'agent', 'system'))
-);
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE bootstrap_tokens (
@@ -286,13 +286,13 @@ CREATE TABLE commands (
   [id] uniqueidentifier NOT NULL,
   [cabinet_id] uniqueidentifier NOT NULL,
   [operation] nvarchar(450) NOT NULL,
-  [params] nvarchar(max) NOT NULL,
+  [params] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [issued_by] uniqueidentifier NOT NULL,
   [issued_at] datetime2(3) NOT NULL,
   [expires_at] datetime2(3) NOT NULL,
   [status] nvarchar(64) NOT NULL,
   [delivered_at] datetime2(3) NULL,
-  [result] nvarchar(max) NULL,
+  [result] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [result_at] datetime2(3) NULL,
   [bulk_id] uniqueidentifier NULL,
   CONSTRAINT [commands_pkey] PRIMARY KEY ([id]),
@@ -300,7 +300,7 @@ CREATE TABLE commands (
   CONSTRAINT [commands_result_json] CHECK ([result] IS NULL OR ISJSON([result], VALUE) = 1),
   CONSTRAINT [commands_check] CHECK ((expires_at > issued_at)),
   CONSTRAINT [commands_status_check] CHECK (status IN ('queued', 'delivered', 'succeeded', 'failed', 'rejected', 'expired'))
-);
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE diagnosis_batches (
@@ -309,7 +309,7 @@ CREATE TABLE diagnosis_batches (
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [label] nvarchar(200) NOT NULL,
   [site_id] uniqueidentifier NULL,
-  [cabinet_ids] nvarchar(max) NOT NULL,
+  [cabinet_ids] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [total] int NOT NULL,
   CONSTRAINT [diagnosis_batches_pkey] PRIMARY KEY ([id]),
   CONSTRAINT [diagnosis_batches_cabinet_ids_json] CHECK ([cabinet_ids] IS NULL OR ISJSON([cabinet_ids], VALUE) = 1),
@@ -326,11 +326,11 @@ CREATE TABLE diagnoses (
   [started_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [finished_at] datetime2(3) NULL,
   [state] nvarchar(64) NOT NULL,
-  [commands] nvarchar(max) DEFAULT '[]' NOT NULL,
-  [findings] nvarchar(max) NULL,
+  [commands] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 DEFAULT '[]' NOT NULL,
+  [findings] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [failure] nvarchar(max) NULL,
   [batch_id] uniqueidentifier NULL,
-  [readings] nvarchar(max) NULL,
+  [readings] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   CONSTRAINT [diagnoses_pkey] PRIMARY KEY ([id]),
   CONSTRAINT [diagnoses_commands_json] CHECK ([commands] IS NULL OR ISJSON([commands], VALUE) = 1),
   CONSTRAINT [diagnoses_findings_json] CHECK ([findings] IS NULL OR ISJSON([findings], VALUE) = 1),
@@ -357,7 +357,7 @@ CREATE TABLE drive_samples (
   CONSTRAINT [drive_samples_pkey] PRIMARY KEY ([cabinet_id], [drive_key], [at]),
   CONSTRAINT [drive_samples_drive_key_check] CHECK (((LEN(drive_key) >= 1) AND (LEN(drive_key) <= 256))),
   CONSTRAINT [drive_samples_health_check] CHECK (health IN ('healthy', 'warning', 'failing', 'unknown'))
-);
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE drive_status (
@@ -365,8 +365,8 @@ CREATE TABLE drive_status (
   [drive_key] nvarchar(450) NOT NULL,
   [model] nvarchar(max) NULL,
   [level] nvarchar(64) NOT NULL,
-  [reasons] nvarchar(max) DEFAULT '[]' NOT NULL,
-  [projection] nvarchar(max) DEFAULT '{}' NOT NULL,
+  [reasons] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 DEFAULT '[]' NOT NULL,
+  [projection] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 DEFAULT '{}' NOT NULL,
   [assessed_at] datetime2(3) NOT NULL,
   CONSTRAINT [drive_status_pkey] PRIMARY KEY ([cabinet_id], [drive_key]),
   CONSTRAINT [drive_status_reasons_json] CHECK ([reasons] IS NULL OR ISJSON([reasons], VALUE) = 1),
@@ -379,7 +379,7 @@ CREATE TABLE enrollment_requests (
   [id] uniqueidentifier NOT NULL,
   [token_id] uniqueidentifier NOT NULL,
   [csr] nvarchar(max) NOT NULL,
-  [fingerprints] nvarchar(max) NOT NULL,
+  [fingerprints] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [source_address] nvarchar(max) NULL,
   [status] nvarchar(64) NOT NULL,
   [cabinet_id] uniqueidentifier NULL,
@@ -395,24 +395,28 @@ CREATE TABLE enrollment_requests (
 );
 GO
 
+-- Clustered on an ever-increasing seq, so new events append at the end of the table (a random GUID key would split pages and
+-- scatter writes); event_id, the agent's own key, is the nonclustered primary key that keeps a retried event from being stored twice.
 CREATE TABLE events (
+  [seq] bigint IDENTITY(1,1) NOT NULL,
   [event_id] uniqueidentifier NOT NULL,
   [cabinet_id] uniqueidentifier NOT NULL,
   [kind] nvarchar(max) NOT NULL,
   [occurred_at] datetime2(3) NOT NULL,
   [received_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
-  [source] nvarchar(max) NULL,
+  [source] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [command_id] uniqueidentifier NULL,
   [severity_hint] nvarchar(max) NULL,
-  [detail] nvarchar(max) NULL,
+  [detail] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [matched_rule] uniqueidentifier NULL,
-  [device] nvarchar(max) NULL,
+  [device] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [alert_id] uniqueidentifier NULL,
-  CONSTRAINT [events_pkey] PRIMARY KEY ([event_id]),
+  CONSTRAINT [events_pkey] PRIMARY KEY NONCLUSTERED ([event_id]) WITH (DATA_COMPRESSION = PAGE),
+  CONSTRAINT [events_seq] UNIQUE CLUSTERED ([seq]),
   CONSTRAINT [events_source_json] CHECK ([source] IS NULL OR ISJSON([source], VALUE) = 1),
   CONSTRAINT [events_detail_json] CHECK ([detail] IS NULL OR ISJSON([detail], VALUE) = 1),
   CONSTRAINT [events_device_json] CHECK ([device] IS NULL OR ISJSON([device], VALUE) = 1)
-);
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE firewall_changes (
@@ -422,9 +426,9 @@ CREATE TABLE firewall_changes (
   [event_id] uniqueidentifier NULL,
   [explained] bit NOT NULL,
   [operation] nvarchar(max) NULL,
-  [before] nvarchar(max) NULL,
-  [after] nvarchar(max) NULL,
-  [detail] nvarchar(max) NULL,
+  [before] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [after] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
+  [detail] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [occurred_at] datetime2(3) NOT NULL,
   [recorded_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   CONSTRAINT [firewall_changes_pkey] PRIMARY KEY ([id]),
@@ -456,7 +460,7 @@ CREATE TABLE fleet_job_targets (
   [job_id] uniqueidentifier NOT NULL,
   [cabinet_id] uniqueidentifier NOT NULL,
   [position] int NOT NULL,
-  [params] nvarchar(max) NULL,
+  [params] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL,
   [state] nvarchar(64) NOT NULL,
   [command_id] uniqueidentifier NULL,
   [detail] nvarchar(300) NULL,
@@ -478,7 +482,21 @@ CREATE TABLE health_samples (
   CONSTRAINT [health_samples_cpu_percent_check] CHECK (((cpu_percent >= 0) AND (cpu_percent <= 100))),
   CONSTRAINT [health_samples_disk_free_percent_check] CHECK (((disk_free_percent >= 0) AND (disk_free_percent <= 100))),
   CONSTRAINT [health_samples_memory_used_percent_check] CHECK (((memory_used_percent >= 0) AND (memory_used_percent <= 100)))
-);
+) WITH (DATA_COMPRESSION = PAGE);
+GO
+
+-- Load samples older than 48 hours, rolled up to one row per cabinet and hour (maintenance.ts); the trend chart reads both.
+CREATE TABLE health_hourly (
+  [cabinet_id] uniqueidentifier NOT NULL,
+  [hour] datetime2(0) NOT NULL,
+  [samples] smallint NOT NULL,
+  [cpu_min] tinyint NOT NULL, [cpu_avg] tinyint NOT NULL, [cpu_max] tinyint NOT NULL,
+  [memory_min] tinyint NOT NULL, [memory_avg] tinyint NOT NULL, [memory_max] tinyint NOT NULL,
+  [disk_free_min] tinyint NOT NULL, [disk_free_avg] tinyint NOT NULL, [disk_free_max] tinyint NOT NULL,
+  CONSTRAINT [health_hourly_pkey] PRIMARY KEY ([cabinet_id], [hour]),
+  CONSTRAINT [health_hourly_range_check] CHECK (cpu_max <= 100 AND memory_max <= 100 AND disk_free_max <= 100 AND cpu_min <= cpu_avg AND cpu_avg <= cpu_max
+    AND memory_min <= memory_avg AND memory_avg <= memory_max AND disk_free_min <= disk_free_avg AND disk_free_avg <= disk_free_max)
+) WITH (DATA_COMPRESSION = PAGE);
 GO
 
 CREATE TABLE known_fixes (
@@ -487,7 +505,7 @@ CREATE TABLE known_fixes (
   [solution] nvarchar(2000) NOT NULL,
   [finding_key] nvarchar(450) NULL,
   [issue_type_id] uniqueidentifier NULL,
-  [environment] nvarchar(max) NOT NULL,
+  [environment] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [cabinet_id] uniqueidentifier NULL,
   [created_by] uniqueidentifier NOT NULL,
   [created_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
@@ -516,7 +534,7 @@ CREATE TABLE packages (
   [version] nvarchar(64) NOT NULL,
   [vendor] nvarchar(128) NOT NULL,
   [type] nvarchar(64) NOT NULL,
-  [hardware_ids] nvarchar(max) DEFAULT '[]' NOT NULL,
+  [hardware_ids] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 DEFAULT '[]' NOT NULL,
   [notes] nvarchar(max) NULL,
   [state] nvarchar(64) NOT NULL,
   [sha256] nvarchar(max) NULL,
@@ -590,7 +608,7 @@ CREATE TABLE security_alerts (
   [kind] nvarchar(64) NOT NULL,
   [signature] nvarchar(256) NOT NULL,
   [title] nvarchar(256) NOT NULL,
-  [detail] nvarchar(max) DEFAULT '{}' NOT NULL,
+  [detail] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 DEFAULT '{}' NOT NULL,
   [user_id] uniqueidentifier NULL,
   [cabinet_id] uniqueidentifier NULL,
   [state] nvarchar(64) DEFAULT 'open' NOT NULL,
@@ -645,7 +663,7 @@ GO
 
 CREATE TABLE settings (
   [key] nvarchar(450) NOT NULL,
-  [value] nvarchar(max) NOT NULL,
+  [value] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [changed_by] uniqueidentifier NULL,
   [changed_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   CONSTRAINT [settings_pkey] PRIMARY KEY ([key]),
@@ -673,7 +691,7 @@ CREATE TABLE symptom_rule_history (
   [change] nvarchar(64) NOT NULL,
   [state] nvarchar(max) NOT NULL,
   [issue_type_id] uniqueidentifier NULL,
-  [match] nvarchar(max) NOT NULL,
+  [match] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NOT NULL,
   [changed_by] uniqueidentifier NULL,
   [changed_at] datetime2(3) DEFAULT SYSUTCDATETIME() NOT NULL,
   [severity] nvarchar(max) NULL,
@@ -747,6 +765,7 @@ ALTER TABLE fleet_job_targets ADD CONSTRAINT [fleet_job_targets_cabinet_id_fkey]
 ALTER TABLE fleet_job_targets ADD CONSTRAINT [fleet_job_targets_command_id_fkey] FOREIGN KEY ([command_id]) REFERENCES commands([id]);
 ALTER TABLE fleet_job_targets ADD CONSTRAINT [fleet_job_targets_job_id_fkey] FOREIGN KEY ([job_id]) REFERENCES fleet_jobs([id]);
 ALTER TABLE health_samples ADD CONSTRAINT [health_samples_cabinet_id_fkey] FOREIGN KEY ([cabinet_id]) REFERENCES cabinets([id]) ON DELETE CASCADE;
+ALTER TABLE health_hourly ADD CONSTRAINT [health_hourly_cabinet_id_fkey] FOREIGN KEY ([cabinet_id]) REFERENCES cabinets([id]) ON DELETE CASCADE;
 ALTER TABLE known_fixes ADD CONSTRAINT [known_fixes_alert_id_fkey] FOREIGN KEY ([alert_id]) REFERENCES alerts([id]) ON DELETE SET NULL;
 ALTER TABLE known_fixes ADD CONSTRAINT [known_fixes_cabinet_id_fkey] FOREIGN KEY ([cabinet_id]) REFERENCES cabinets([id]);
 ALTER TABLE known_fixes ADD CONSTRAINT [known_fixes_created_by_fkey] FOREIGN KEY ([created_by]) REFERENCES users([id]);
@@ -775,33 +794,42 @@ ALTER TABLE user_networks ADD CONSTRAINT [user_networks_user_id_fkey] FOREIGN KE
 GO
 
 -- Indexes (filtered where the PostgreSQL ones were partial)
-CREATE INDEX alerts_fleet_scope ON alerts ([state], [severity], [last_seen] DESC) WHERE scope = 'fleet';
-CREATE INDEX alerts_issue_recent ON alerts ([issue_type_id], [last_seen] DESC);
-CREATE UNIQUE INDEX alerts_one_active ON alerts ([cabinet_id], [signature]) WHERE state <> 'resolved';
-CREATE INDEX alerts_state_severity ON alerts ([state], [severity], [last_seen] DESC);
-CREATE INDEX audit_log_action ON audit_log ([action], [seq] DESC);
-CREATE INDEX audit_log_actor ON audit_log ([actor_id], [seq] DESC);
-CREATE INDEX audit_log_at ON audit_log ([at]);
-CREATE INDEX audit_log_target ON audit_log ([target_id], [seq] DESC);
+-- The large tables and their large indexes are page compressed (SQL Server Express supports it); see docs/platform/performance.md "Database size".
+CREATE INDEX alerts_fleet_scope ON alerts ([state], [severity], [last_seen] DESC) WHERE scope = 'fleet' WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX alerts_issue_recent ON alerts ([issue_type_id], [last_seen] DESC) WITH (DATA_COMPRESSION = PAGE);
+CREATE UNIQUE INDEX alerts_one_active ON alerts ([cabinet_id], [signature]) WHERE state <> 'resolved' WITH (DATA_COMPRESSION = PAGE);
+-- The offline, site-outage and reboot-loop jobs look up the active alerts of one issue type, fleet-wide or for one cabinet.
+CREATE INDEX alerts_open_issue ON alerts ([issue_type_id], [cabinet_id]) WHERE state <> 'resolved';
+CREATE INDEX alerts_state_severity ON alerts ([state], [severity], [last_seen] DESC) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX audit_log_action ON audit_log ([action], [seq] DESC) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX audit_log_actor ON audit_log ([actor_id], [seq] DESC) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX audit_log_at ON audit_log ([at]) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX audit_log_target ON audit_log ([target_id], [seq] DESC) WITH (DATA_COMPRESSION = PAGE);
 CREATE INDEX cabinet_certificates_cabinet ON cabinet_certificates ([cabinet_id]);
 CREATE INDEX cabinet_certificates_renewed_from ON cabinet_certificates ([renewed_from]) WHERE renewed_from IS NOT NULL;
 CREATE INDEX cabinets_demo ON cabinets ([id]) WHERE demo_scenario IS NOT NULL;
 CREATE UNIQUE INDEX clients_live_name ON clients ([name]) WHERE removed_at IS NULL;
-CREATE INDEX commands_cabinet_issued ON commands ([cabinet_id], [issued_at] DESC);
+CREATE INDEX commands_cabinet_issued ON commands ([cabinet_id], [issued_at] DESC) WITH (DATA_COMPRESSION = PAGE);
 CREATE INDEX commands_delivered ON commands ([delivered_at]) WHERE status = 'delivered';
-CREATE INDEX commands_latest_result ON commands ([cabinet_id], [operation], [result_at] DESC) WHERE (status = 'succeeded') AND (result IS NOT NULL);
-CREATE INDEX commands_result_by_operation ON commands ([operation], [cabinet_id], [result_at] DESC) WHERE (status = 'succeeded') AND (result IS NOT NULL);
+CREATE INDEX commands_latest_result ON commands ([cabinet_id], [operation], [result_at] DESC) WHERE (status = 'succeeded') AND (result IS NOT NULL) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX commands_result_by_operation ON commands ([operation], [cabinet_id], [result_at] DESC) WHERE (status = 'succeeded') AND (result IS NOT NULL) WITH (DATA_COMPRESSION = PAGE);
+-- Retention clears results past their time in batches (maintenance.ts).
+CREATE INDEX commands_result_at ON commands ([result_at]) WHERE result IS NOT NULL WITH (DATA_COMPRESSION = PAGE);
 CREATE INDEX commands_waiting ON commands ([cabinet_id], [issued_at]) WHERE status = 'queued';
-CREATE INDEX commands_writes_by_user ON commands ([issued_by], [issued_at] DESC);
+CREATE INDEX commands_writes_by_user ON commands ([issued_by], [issued_at] DESC) WITH (DATA_COMPRESSION = PAGE);
 CREATE INDEX diagnoses_batch ON diagnoses ([batch_id]) WHERE batch_id IS NOT NULL;
 CREATE INDEX diagnoses_cabinet ON diagnoses ([cabinet_id], [started_at] DESC);
+CREATE INDEX diagnoses_started ON diagnoses ([started_at]);
 CREATE INDEX drive_status_level ON drive_status ([level]) WHERE level <> 'ok';
 CREATE INDEX enrollment_requests_pending ON enrollment_requests ([created_at]) WHERE status = 'pending';
-CREATE INDEX events_alert ON events ([alert_id]);
-CREATE INDEX events_cabinet_time ON events ([cabinet_id], [occurred_at] DESC);
-CREATE INDEX events_received ON events ([occurred_at] DESC);
-CREATE INDEX events_received_at ON events ([received_at]);
+-- Most events never get an alert, so only the ones that did are indexed (regrouping, retention, the foreign key check when an alert is deleted).
+CREATE INDEX events_alert ON events ([alert_id]) WHERE alert_id IS NOT NULL WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX events_cabinet_time ON events ([cabinet_id], [occurred_at] DESC) WITH (DATA_COMPRESSION = PAGE);
+-- Retention deletes by arrival time. There is no index on occurred_at alone: the fleet-wide reads over 30 days cover the whole table anyway.
+CREATE INDEX events_received_at ON events ([received_at]) WITH (DATA_COMPRESSION = PAGE);
+CREATE INDEX cabinet_boots_booted ON cabinet_boots ([booted_at]);
 CREATE INDEX firewall_changes_cabinet ON firewall_changes ([cabinet_id], [occurred_at] DESC);
+CREATE INDEX firewall_changes_occurred ON firewall_changes ([occurred_at]);
 CREATE INDEX fleet_job_targets_order ON fleet_job_targets ([job_id], [position]);
 CREATE INDEX fleet_jobs_recent ON fleet_jobs ([created_at] DESC);
 CREATE INDEX known_fixes_finding ON known_fixes ([finding_key]) WHERE (removed_at IS NULL) AND (finding_key IS NOT NULL);
@@ -952,6 +980,66 @@ BEGIN
 END
 GO
 
+-- Several entries in one call (a JSON array of {actorKind, actorId, action, targetKind, targetId, outcome, details}, details being JSON text),
+-- chained in order with exactly the hash audit_append computes, all with the same time. @first and @last are the sequence numbers given.
+CREATE PROCEDURE audit_append_many
+  @entries nvarchar(max), @first bigint OUTPUT, @last bigint OUTPUT
+AS
+BEGIN
+  SET NOCOUNT ON;
+  IF ISJSON(@entries, ARRAY) IS NULL OR ISJSON(@entries, ARRAY) = 0 THROW 50011, 'the audit entries must be a JSON array', 1;
+  IF EXISTS (SELECT 1 FROM OPENJSON(@entries) WHERE [type] <> 5) THROW 50011, 'every audit entry must be a JSON object', 1;
+  DECLARE @t TABLE (n int PRIMARY KEY, actor_kind nvarchar(64), actor_id nvarchar(450), action nvarchar(450), target_kind nvarchar(64), target_id nvarchar(450),
+    outcome nvarchar(64), details nvarchar(max), seq bigint NULL, prev_hash nvarchar(64) NULL, hash nvarchar(64) NULL);
+  INSERT INTO @t (n, actor_kind, actor_id, action, target_kind, target_id, outcome, details)
+    SELECT CAST(a.[key] AS int), j.actor_kind, j.actor_id, j.action, j.target_kind, j.target_id, j.outcome, j.details
+      FROM OPENJSON(@entries) a CROSS APPLY OPENJSON(a.[value]) WITH (actor_kind nvarchar(64) '$.actorKind', actor_id nvarchar(450) '$.actorId', action nvarchar(450) '$.action',
+        target_kind nvarchar(64) '$.targetKind', target_id nvarchar(450) '$.targetId', outcome nvarchar(64) '$.outcome', details nvarchar(max) '$.details') j;
+  DECLARE @count int = (SELECT COUNT(*) FROM @t);
+  IF @count = 0 BEGIN SET @first = NULL; SET @last = NULL; RETURN; END
+  DECLARE @prev nvarchar(64), @n bigint, @at datetime2(6) = SYSUTCDATETIME(), @hash nvarchar(64), @input nvarchar(max), @i int = 0;
+  SELECT @prev = [hash], @n = [seq] FROM audit_chain_head WITH (UPDLOCK, HOLDLOCK) WHERE id = 1; -- serializes the chain
+  SET @first = @n + 1;
+  WHILE @i < @count
+  BEGIN
+    SET @n = @n + 1;
+    SELECT @input = CONCAT(@prev, NCHAR(31), CONVERT(nvarchar(20), @n), NCHAR(31), CONVERT(nvarchar(27), @at, 126), NCHAR(31), actor_kind, NCHAR(31),
+      actor_id, NCHAR(31), action, NCHAR(31), COALESCE(target_kind, N''), NCHAR(31), COALESCE(target_id, N''), NCHAR(31), outcome, NCHAR(31), details) FROM @t WHERE n = @i;
+    SET @hash = LOWER(CONVERT(nvarchar(64), HASHBYTES('SHA2_256', @input), 2));
+    UPDATE @t SET seq = @n, prev_hash = @prev, hash = @hash WHERE n = @i;
+    SET @prev = @hash;
+    SET @i = @i + 1;
+  END
+  INSERT INTO audit_log ([seq], [at], [actor_kind], [actor_id], [action], [target_kind], [target_id], [outcome], [details], [prev_hash], [hash])
+    SELECT seq, @at, actor_kind, actor_id, action, target_kind, target_id, outcome, details, prev_hash, hash FROM @t ORDER BY n;
+  UPDATE audit_chain_head SET [seq] = @n, [hash] = @prev WHERE id = 1;
+  SET @last = @n;
+END
+GO
+
+-- How far the chain has been verified (the daily check goes on from here; the weekly one checks everything again). The application's role
+-- can read it and move it forward only through audit_checkpoint_advance, and only to an entry that exists with exactly that hash.
+CREATE TABLE audit_checkpoint (
+  [id] int NOT NULL,
+  [seq] bigint NOT NULL,
+  [hash] nvarchar(64) NOT NULL,
+  [checked_at] datetime2(3) NOT NULL,
+  CONSTRAINT [audit_checkpoint_pkey] PRIMARY KEY ([id]),
+  CONSTRAINT [audit_checkpoint_id_check] CHECK ((id = 1))
+);
+GO
+INSERT INTO audit_checkpoint ([id], [seq], [hash], [checked_at]) VALUES (1, 0, REPLICATE('0', 64), SYSUTCDATETIME());
+GO
+
+CREATE PROCEDURE audit_checkpoint_advance @seq bigint, @hash nvarchar(64)
+AS
+BEGIN
+  SET NOCOUNT ON;
+  IF NOT EXISTS (SELECT 1 FROM audit_log WHERE [seq] = @seq AND [hash] = @hash) THROW 50012, 'no audit entry has that sequence number and hash', 1;
+  UPDATE audit_checkpoint SET [seq] = @seq, [hash] = @hash, checked_at = SYSUTCDATETIME() WHERE id = 1 AND [seq] <= @seq;
+END
+GO
+
 -- Append-only even for the owner. (SQL Server has no TRUNCATE trigger: the application's role has no ALTER right, which TRUNCATE needs.)
 CREATE TRIGGER audit_log_immutable ON audit_log INSTEAD OF UPDATE, DELETE AS
 BEGIN
@@ -971,8 +1059,10 @@ CREATE TABLE notifications (
 CREATE INDEX notifications_at ON notifications ([at]);
 GO
 
+-- Every trigger first returns when its statement touched no row (@@ROWCOUNT must be read before any SET statement resets it).
 CREATE TRIGGER commands_notify ON commands AFTER INSERT AS
 BEGIN
+  IF @@ROWCOUNT = 0 RETURN;
   SET NOCOUNT ON;
   INSERT INTO notifications ([channel], [payload]) SELECT 'cabinet_commands', LOWER(CONVERT(nvarchar(36), cabinet_id)) FROM inserted;
 END
@@ -980,6 +1070,7 @@ GO
 
 CREATE TRIGGER command_result_notify ON commands AFTER UPDATE AS
 BEGIN
+  IF @@ROWCOUNT = 0 RETURN;
   SET NOCOUNT ON;
   IF NOT UPDATE([result]) RETURN;
   INSERT INTO notifications ([channel], [payload])
@@ -991,6 +1082,7 @@ GO
 -- An alert that becomes major (a more serious symptom of the same issue arrived) is announced like a new major alert.
 CREATE TRIGGER alert_notify ON alerts AFTER INSERT, UPDATE AS
 BEGIN
+  IF @@ROWCOUNT = 0 RETURN;
   SET NOCOUNT ON;
   INSERT INTO notifications ([channel], [payload])
     SELECT 'alerts', LOWER(CONVERT(nvarchar(36), i.id)) + ' ' + CASE WHEN d.id IS NULL THEN 'created' WHEN i.state <> d.state THEN i.state ELSE 'created' END
@@ -1037,6 +1129,11 @@ GRANT INSERT, SELECT, UPDATE ON user_networks TO cabinet_app;
 GRANT DELETE, INSERT, SELECT, UPDATE ON users TO cabinet_app;
 GRANT SELECT, INSERT, DELETE ON notifications TO cabinet_app;
 GRANT EXECUTE ON audit_append TO cabinet_app;
+GRANT EXECUTE ON audit_append_many TO cabinet_app;
+GRANT EXECUTE ON audit_checkpoint_advance TO cabinet_app;
+GRANT SELECT ON audit_checkpoint TO cabinet_app;
+DENY INSERT, UPDATE, DELETE ON audit_checkpoint TO cabinet_app;
+GRANT DELETE, INSERT, SELECT ON health_hourly TO cabinet_app;
 DENY INSERT, UPDATE, DELETE ON audit_log TO cabinet_app;
 DENY SELECT, INSERT, UPDATE, DELETE ON audit_chain_head TO cabinet_app;
 GO

@@ -71,7 +71,7 @@ export interface PlatformSettings {
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12,
-  retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
+  retention: { eventsDays: 30, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
 };
 
 /** Each setting's key in the settings table, with the range it must be in (the console contract checks the same ranges). */

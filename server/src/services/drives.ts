@@ -60,7 +60,12 @@ export async function refreshDrive(db: Queryable, cabinetId: string, key: string
 /** Free space on the system drive projected from the last two weeks: an alert when it would be full within 30 days. */
 async function diskForecast(db: Queryable, cabinetId: string): Promise<void> {
   const rows = (await db.query<{ at: Date; free: number }>(
-    "SELECT [at], disk_free_percent AS [free] FROM health_samples WHERE cabinet_id = $1 AND [at] > DATEADD(day, -14, SYSUTCDATETIME()) ORDER BY [at]", [cabinetId])).rows;
+    // Samples of the last 48 hours, and the hourly averages they were rolled up to before that.
+    `SELECT [at], [free] FROM (
+       SELECT [at], CAST(disk_free_percent AS int) AS [free] FROM health_samples WHERE cabinet_id = $1 AND [at] > DATEADD(day, -14, SYSUTCDATETIME())
+       UNION ALL
+       SELECT DATEADD(minute, 30, CAST([hour] AS datetime2(3))), disk_free_avg FROM health_hourly WHERE cabinet_id = $1 AND [hour] > DATEADD(day, -14, SYSUTCDATETIME())) x
+     ORDER BY [at]`, [cabinetId])).rows;
   if (rows.length < 48) return;
   const days = daysUntilEmpty(rows[rows.length - 1]!.free, slopePerDay(rows.map(r => ({ t: r.at.getTime(), v: r.free })), 48, 5));
   if (days === null || days > 30) {

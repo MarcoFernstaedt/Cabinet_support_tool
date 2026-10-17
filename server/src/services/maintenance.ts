@@ -1,73 +1,185 @@
-// Daily jobs (docs/spec/05-server-spec.md "Audit log" and "Retention"): verify the audit chain,
-// raising a security alert if it is broken, and remove what is past its retention period.
-import { audit, transaction, verifyAuditChain, type ChainCheck, type Pool, type Queryable } from "../db/db.js";
+// Daily jobs (docs/spec/05-server-spec.md "Audit log" and "Retention"): verify the audit chain, raising a security alert if it is broken,
+// and remove what is past its retention period. Retention never runs as one big transaction: every table is trimmed in small autocommit
+// batches (BATCH rows each, with a pause between them and a time limit on each), so the log, the locks and the buffer pool of a 10,000-cabinet
+// database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
+import { advanceAuditCheckpoint, audit, auditCheckpoint, transaction, verifyAuditChain, type ChainCheck, type Pool, type Queryable } from "../db/db.js";
 import { platformSettings } from "./settings.js";
 import { raiseSecurityAlert } from "./security.js";
 
-/** Checks the whole chain. A break raises a security alert; the check itself is audited either way. */
-export async function verifyChainAndAlert(pool: Pool, by: { userId: string } | "daily"): Promise<ChainCheck> {
-  const check = await verifyAuditChain(pool);
+/**
+ * Checks the audit chain: the whole of it ("full"), or only what was added since the last successful check ("incremental", from the
+ * checkpoint). A break raises a security alert; the check itself is audited either way. A successful check moves the checkpoint forward.
+ */
+export async function verifyChainAndAlert(pool: Pool, by: { userId: string } | "daily" | "weekly", mode: "full" | "incremental" = "full"): Promise<ChainCheck> {
+  const from = mode === "incremental" ? await auditCheckpoint(pool) : undefined;
+  const check = await verifyAuditChain(pool, 10_000, from);
+  if (check.ok && check.lastSeq !== undefined && check.lastHash !== undefined && check.lastSeq > 0)
+    await advanceAuditCheckpoint(pool, { seq: check.lastSeq, hash: check.lastHash });
   await transaction(pool, async c => {
     if (!check.ok)
       await raiseSecurityAlert(c, { kind: "audit_chain", signature: `audit_chain|${check.firstBadSeq}`,
         title: `The audit log's hash chain is broken at entry ${check.firstBadSeq}`, detail: { firstBadSeq: check.firstBadSeq, entries: check.entries } });
-    await audit(c, { actorKind: by === "daily" ? "system" : "user", actorId: by === "daily" ? "daily-check" : by.userId, action: "audit.verify",
-      outcome: check.ok ? "succeeded" : "failed", details: { entries: check.entries, firstBadSeq: check.firstBadSeq ?? null } });
+    await audit(c, { actorKind: by === "daily" || by === "weekly" ? "system" : "user", actorId: by === "daily" ? "daily-check" : by === "weekly" ? "weekly-check" : by.userId,
+      action: "audit.verify", outcome: check.ok ? "succeeded" : "failed", details: { entries: check.entries, firstBadSeq: check.firstBadSeq ?? null, mode, fromSeq: check.fromSeq ?? 1 } });
   });
-  return check;
+  const { lastHash: _hash, ...shown } = check;
+  return shown;
+}
+
+export interface BatchOptions {
+  /** Rows per statement. */
+  batch: number;
+  /** Pause between two statements, so the agents' writes get their turn. */
+  pauseMs: number;
+  /** Each statement is stopped after this long (it has then changed nothing; the next run goes on). */
+  timeoutMs: number;
+}
+export const RETENTION_BATCH: BatchOptions = { batch: 4_000, pauseMs: 200, timeoutMs: 30_000 };
+
+const sleep = (ms: number) => (ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve());
+
+/**
+ * Runs one statement that changes at most `TOP (@batch)` rows (it must say `TOP ($1)`; its own parameters follow from $2) again and again,
+ * each in its own autocommit transaction, until a run changes fewer rows than a batch. Returns how many rows it changed in all.
+ */
+export async function inBatches(db: Queryable, statement: string, params: readonly unknown[], o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const n = (await db.query(statement, [o.batch, ...params], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    total += n;
+    if (n < o.batch) return total;
+    await sleep(o.pauseMs);
+  }
 }
 
 /** Notifications only wake other server processes (each reads them within a second), so one older than an hour is of no use. */
-export async function pruneNotifications(db: Queryable): Promise<number> {
-  return (await db.query("DELETE FROM notifications WHERE [at] < DATEADD(hour, -1, SYSUTCDATETIME())")).rowCount;
+export async function pruneNotifications(db: Queryable, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  return inBatches(db, "DELETE TOP ($1) FROM notifications WHERE [at] < DATEADD(hour, -1, SYSUTCDATETIME())", [], o);
+}
+
+/** Load samples are kept as they came for this long, then as one row per hour (health_hourly). */
+export const HEALTH_RAW_HOURS = 48;
+/** Load samples are for trend charts only, so two weeks is all they are kept. */
+export const HEALTH_DAYS = 14;
+/** A drive's history is kept for 400 days: long enough to see a year of wear. */
+export const DRIVE_DAYS = 400;
+/** Cabinets handled together by the per-cabinet steps (40 cabinets × 96 samples a day stays under one batch). */
+const CABINET_CHUNK = 40;
+
+const DAY = 86_400_000;
+const daysAgo = (n: number, now: number) => new Date(now - n * DAY);
+
+/**
+ * Rolls load samples older than HEALTH_RAW_HOURS up into hourly rows (min, average, max) and removes them, then removes hourly rows past
+ * HEALTH_DAYS and drive samples past DRIVE_DAYS. Done per group of cabinets, by the tables' primary keys (cabinet first), one short
+ * transaction per group. Returns the raw samples rolled up.
+ */
+export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH): Promise<{ rolledUp: number; driveSamples: number }> {
+  // Whole hours only: the hour that holds the cut-off stays raw until the next run.
+  const cut = new Date(Math.floor((now - HEALTH_RAW_HOURS * 3_600_000) / 3_600_000) * 3_600_000);
+  const healthCut = daysAgo(HEALTH_DAYS, now), driveCut = daysAgo(DRIVE_DAYS, now);
+  const ids = (await pool.query<{ id: string }>("SELECT id FROM cabinets ORDER BY id")).rows.map(r => r.id);
+  let rolledUp = 0, driveSamples = 0;
+  for (let i = 0; i < ids.length; i += CABINET_CHUNK) {
+    const chunk = JSON.stringify(ids.slice(i, i + CABINET_CHUNK));
+    rolledUp += await transaction(pool, async c => {
+      // Samples already older than the whole history are not worth rolling up; an hour already rolled up (a run stopped half way) is not again.
+      await c.query(
+        `INSERT INTO health_hourly (cabinet_id, [hour], samples, cpu_min, cpu_avg, cpu_max, memory_min, memory_avg, memory_max, disk_free_min, disk_free_avg, disk_free_max)
+         SELECT s.cabinet_id, s.[hour], COUNT(*), MIN(s.cpu), ROUND(AVG(CAST(s.cpu AS float)), 0), MAX(s.cpu), MIN(s.mem), ROUND(AVG(CAST(s.mem AS float)), 0), MAX(s.mem),
+                MIN(s.disk), ROUND(AVG(CAST(s.disk AS float)), 0), MAX(s.disk)
+           FROM (SELECT h.cabinet_id, CAST(DATEADD(hour, DATEDIFF(hour, '2000-01-01', h.[at]), '2000-01-01') AS datetime2(0)) AS [hour],
+                        h.cpu_percent AS cpu, h.memory_used_percent AS mem, h.disk_free_percent AS disk
+                   FROM health_samples h
+                  WHERE h.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND h.[at] < $2 AND h.[at] >= $3) s
+          WHERE NOT EXISTS (SELECT 1 FROM health_hourly x WHERE x.cabinet_id = s.cabinet_id AND x.[hour] = s.[hour])
+          GROUP BY s.cabinet_id, s.[hour]`, [chunk, cut, healthCut], { timeoutMs: o.timeoutMs });
+      return (await c.query(
+        "DELETE FROM health_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND [at] < $2", [chunk, cut], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    });
+    await inBatches(pool, "DELETE TOP ($1) FROM health_hourly WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [hour] < $3", [chunk, healthCut], o);
+    driveSamples += await inBatches(pool, "DELETE TOP ($1) FROM drive_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [at] < $3", [chunk, driveCut], o);
+    await sleep(o.pauseMs);
+  }
+  return { rolledUp, driveSamples };
 }
 
 export interface RetentionRun { events: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
-  diagnoses: number; boots: number; jobs: number; }
+  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number }
 
 /**
  * Removes events, resolved alerts, firewall history, diagnoses, boot records and finished fleet jobs past their retention, and clears old command results
- * (the command itself, who sent it and when, stays in the history). The audit log is never pruned.
+ * (the command itself, who sent it and when, stays in the history). The audit log is never pruned. Every step is batched (inBatches); the
+ * run is audited at the end in its own small transaction.
  */
-export async function runRetention(pool: Pool): Promise<RetentionRun> {
-  return transaction(pool, async c => {
-    const r = (await platformSettings(c)).retention;
-    const days = (n: number) => [n];
-    const events = (await c.query("DELETE FROM events WHERE received_at < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.eventsDays))).rowCount ?? 0;
-    const commandResults = (await c.query("UPDATE commands SET result = NULL WHERE result IS NOT NULL AND result_at < DATEADD(day, -$1, SYSUTCDATETIME())",
-      days(r.commandsDays))).rowCount ?? 0;
-    // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
-    await c.query(`UPDATE events SET alert_id = NULL WHERE alert_id IN
-                     (SELECT id FROM alerts WHERE state = 'resolved' AND last_seen < DATEADD(day, -$1, SYSUTCDATETIME()))`, days(r.alertsDays));
-    const alerts = (await c.query("DELETE FROM alerts WHERE state = 'resolved' AND last_seen < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.alertsDays))).rowCount ?? 0;
-    const firewallChanges = (await c.query("DELETE FROM firewall_changes WHERE occurred_at < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.firewallDays))).rowCount ?? 0;
-    const sessions = (await c.query("DELETE FROM sessions WHERE expires_at < DATEADD(day, -1, SYSUTCDATETIME())")).rowCount ?? 0;
-    const stepUpTokens = (await c.query("DELETE FROM step_up_tokens WHERE expires_at < DATEADD(day, -1, SYSUTCDATETIME())")).rowCount ?? 0;
-    const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.diagnosesDays))).rowCount ?? 0;
-    // Load samples are for trend charts only, so two weeks is all they are kept.
-    await c.query("DELETE FROM health_samples WHERE [at] < DATEADD(day, -14, SYSUTCDATETIME())");
-    // A drive's history is kept for 400 days: long enough to see a year of wear.
-    await c.query("DELETE FROM drive_samples WHERE [at] < DATEADD(day, -400, SYSUTCDATETIME())");
-    await pruneNotifications(c);
-    const boots = (await c.query("DELETE FROM cabinet_boots WHERE booted_at < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.bootsDays))).rowCount ?? 0;
-    // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
-    await c.query(`DELETE FROM fleet_job_targets WHERE job_id IN
-                     (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < DATEADD(day, -$1, SYSUTCDATETIME()))`, days(r.jobsDays));
-    const jobs = (await c.query("DELETE FROM fleet_jobs WHERE state <> 'running' AND created_at < DATEADD(day, -$1, SYSUTCDATETIME())", days(r.jobsDays))).rowCount ?? 0;
-    const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs };
-    await audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } });
-    return run;
-  });
+export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH): Promise<RetentionRun> {
+  const r = (await platformSettings(pool)).retention;
+  const now = Date.now();
+  const cut = (days: number) => daysAgo(days, now);
+  const events = await inBatches(pool, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cut(r.eventsDays)], o);
+  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o);
+  // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
+  await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
+                          WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cut(r.alertsDays)], o);
+  const alerts = await inBatches(pool, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
+                                          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o);
+  const firewallChanges = await inBatches(pool, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cut(r.firewallDays)], o);
+  const sessions = await inBatches(pool, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cut(1)], o);
+  const stepUpTokens = await inBatches(pool, "DELETE TOP ($1) FROM step_up_tokens WHERE expires_at < $2", [cut(1)], o);
+  const diagnoses = await inBatches(pool, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cut(r.diagnosesDays)], o);
+  const samples = await rollUpAndTrimSamples(pool, now, o);
+  const notifications = await pruneNotifications(pool, o);
+  const boots = await inBatches(pool, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cut(r.bootsDays)], o);
+  // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
+  await inBatches(pool, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
+                           (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o);
+  const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
+                                        AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o);
+  const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
+    driveSamples: samples.driveSamples, notifications };
+  await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
+  return run;
 }
 
-/** Runs both jobs a few minutes after start and then every 24 hours; the notifications table is trimmed every hour. */
-export function scheduleDailyJobs(pool: Pool, log: (message: string) => void): () => void {
-  const run = () => {
-    verifyChainAndAlert(pool, "daily").then(c => { if (!c.ok) log(`Audit chain broken at entry ${c.firstBadSeq}.`); }, () => log("Audit chain check failed to run."));
-    runRetention(pool).catch(() => log("Retention failed to run."));
+/** "HH:MM" (server local time) as hours and minutes; the default is 02:30. */
+export function parseDailyTime(text: string | undefined): { hour: number; minute: number } {
+  const m = (text ?? "02:30").trim().split(":");
+  const hour = Number(m[0]), minute = Number(m[1]);
+  if (m.length !== 2 || !Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59)
+    throw new Error("The maintenance time must be HH:MM, 00:00 to 23:59.");
+  return { hour, minute };
+}
+
+/** The next time of day at { hour, minute } (server local time) after `from`. */
+export function nextRunAt(at: { hour: number; minute: number }, from = new Date()): Date {
+  const next = new Date(from.getFullYear(), from.getMonth(), from.getDate(), at.hour, at.minute, 0, 0);
+  if (next.getTime() <= from.getTime()) next.setDate(next.getDate() + 1);
+  return next;
+}
+
+/** Sundays the chain is checked whole; on the other days from the checkpoint. */
+export const chainCheckMode = (day: Date): "full" | "incremental" => (day.getDay() === 0 ? "full" : "incremental");
+
+/**
+ * Runs the chain check and retention every day at a fixed quiet time (`at`, server local time, default 02:30), the chain check whole once a
+ * week; the notifications table is trimmed every hour.
+ */
+export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, options: { at?: string } = {}): () => void {
+  const at = parseDailyTime(options.at);
+  let timer: NodeJS.Timeout | null = null;
+  const run = async () => {
+    const mode = chainCheckMode(new Date());
+    await verifyChainAndAlert(pool, mode === "full" ? "weekly" : "daily", mode)
+      .then(c => { if (!c.ok) log(`Audit chain broken at entry ${c.firstBadSeq}.`); }, () => log("Audit chain check failed to run."));
+    await runRetention(pool).catch(() => log("Retention failed to run."));
   };
-  const first = setTimeout(run, 5 * 60_000);
-  const daily = setInterval(run, 24 * 3_600_000);
+  const plan = () => {
+    const delay = Math.max(1_000, nextRunAt(at).getTime() - Date.now());
+    timer = setTimeout(() => { void run().finally(plan); }, delay);
+    timer.unref();
+  };
+  plan();
   const hourly = setInterval(() => { pruneNotifications(pool).catch(() => log("Pruning notifications failed to run.")); }, 3_600_000);
-  return () => { clearTimeout(first); clearInterval(daily); clearInterval(hourly); };
+  hourly.unref();
+  return () => { if (timer) clearTimeout(timer); clearInterval(hourly); };
 }
