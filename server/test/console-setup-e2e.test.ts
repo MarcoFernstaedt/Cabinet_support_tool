@@ -198,8 +198,8 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.getByRole("button", { name: "Turn demo mode off" }).click();
     await confirmCode();
     await p.getByText("No simulated cabinets.").waitFor();
-    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE demo_scenario IS NOT NULL")).rows[0].n, 0);
-    assert.equal((await db.app.query("SELECT count(*)::int AS n FROM cabinets WHERE name = $1 AND status = 'active'", ["Marco's HP"])).rows[0].n, 1);
+    assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinets WHERE demo_scenario IS NOT NULL")).rows[0].n, 0);
+    assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM cabinets WHERE name = $1 AND status = 'active'", ["Marco's HP"])).rows[0].n, 1);
     assert.deepEqual(problems, []);
   } finally {
     agent?.kill("SIGINT");

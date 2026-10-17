@@ -2,6 +2,7 @@
 import type { Queryable } from "../db/db.js";
 import { likeContains } from "./sql-like.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
+import { parseJson } from "./settings.js";
 import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncForSite } from "./device-settings.js";
 
 export { fleetScannerIds, fleetSyncPorts };
@@ -57,7 +58,7 @@ export async function client(db: Queryable, id: string) {
 }
 
 export async function site(db: Queryable, id: string) {
-  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string[] | null; time_zone: string | null; network_baseline: unknown }>(
+  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; network_baseline: unknown }>(
     `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, s.network_baseline
        FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
@@ -65,7 +66,7 @@ export async function site(db: Queryable, id: string) {
   const sync = (await syncForSite(db, id))!;
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
     sync: { address: sync.address, ports: sync.site, effectivePorts: sync.effective, portsSource: sync.source },
-    scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: s.client_scanner, fleetHardwareIds: await fleetScannerIds(db) },
+    scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: parseJson<string[]>(s.client_scanner), fleetHardwareIds: await fleetScannerIds(db) },
     cabinets: cabinets.map(cabinetRow) };
 }
 

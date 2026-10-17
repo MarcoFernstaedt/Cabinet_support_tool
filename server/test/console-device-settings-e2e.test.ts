@@ -41,7 +41,7 @@ test("device settings in the console: a client's scanner and sync ports set once
   const client = randomUUID(), site = randomUUID(), cabinet = randomUUID();
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
   await db.app.query("INSERT INTO sites (id, client_id, name, sync_address) VALUES ($1, $2, 'North', '10.20.0.15')", [site, client]);
-  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, 'ICU cabinet', 'standalone', 'active', now())", [cabinet, site]);
+  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, 'ICU cabinet', 'standalone', 'active', SYSUTCDATETIME())", [cabinet, site]);
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
@@ -59,7 +59,10 @@ test("device settings in the console: a client's scanner and sync ports set once
       const dialog = page.getByRole("dialog", { name: "Confirm with your authenticator" });
       await dialog.getByText(expect).first().waitFor();
       await dialog.getByLabel("Authenticator code").fill(code());
+      // The change itself (the PUT after the step-up) must finish before the test moves on; leaving the page would abort it.
+      const saved = page.waitForResponse(r => r.request().method() === "PUT" && r.url().includes("/api/"));
       await dialog.getByRole("button", { name: "Confirm" }).click();
+      await saved;
     };
 
     // The client: its scanner (any model from the vendor) and its sync ports, once.
@@ -110,14 +113,14 @@ test("device settings in the console: a client's scanner and sync ports set once
     await page.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
     await dialog.getByText("Set here:").first().waitFor().catch(async e => { await page.screenshot({ path: "/tmp/std.png" }); throw new Error(`${e.message}\nPage: ${(await page.locator("body").innerText()).slice(0, 900)}`); });
     await dialog.getByRole("button", { name: "Close" }).click();
-    assert.deepEqual((await db.app.query("SELECT scanner_hardware_ids AS ids FROM cabinets WHERE id = $1", [cabinet])).rows[0].ids, ["USB\\VID_5555&PID_0002"]);
+    assert.deepEqual((await db.app.query("SELECT scanner_hardware_ids FROM cabinets WHERE id = $1", [cabinet])).rows[0].scanner_hardware_ids, ["USB\\VID_5555&PID_0002"]);
     // The firewall policy line opens the policy at the cabinet's client; changing it asks for the code.
     await table.getByRole("button", { name: "Firewall policy" }).click();
     await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("heading", { name: "Firewall policy for Acme Health" }).waitFor();
     await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("button", { name: "Close" }).click();
 
     // ---- The client firewall policy: the cabinet reports all profiles on, unlike the default (all off) ----
-    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = 0, last_heartbeat_at = now() WHERE id = $1`, [cabinet]);
+    await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', read_only = 0, last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1`, [cabinet]);
     await page.goto(`${origin}/sites/${site}`);
     const bulk = page.getByRole("region", { name: "Firewall policy across North" });
     await bulk.getByText(/1 online cabinet differs from the firewall policy: ICU cabinet/).waitFor();
