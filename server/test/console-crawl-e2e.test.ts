@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { AxeBuilder } from "@axe-core/playwright";
 import type { Page } from "playwright";
 import { DemoSimulator } from "../src/demo/demo.js";
 import { startConsole } from "./browser-console.js";
@@ -63,7 +64,18 @@ test("every page and cabinet section loads cleanly and its read buttons answer",
         }
         await readPage(page, note);
       }
+      await accessibility(page, note);
       if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/crawl-${String(++n).padStart(2, "0")}-${path.replaceAll(/[^a-z0-9]+/gi, "_").slice(-40)}.png`, fullPage: true });
+    }
+    // The light theme, on the main pages and a cabinet.
+    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+    for (const path of ["/", "/alerts", "/search", "/admin/settings", `/cabinets/${cabinet}/overview`, `/cabinets/${cabinet}/drives`, `/cabinets/${cabinet}/network`]) {
+      where = `${path} (light)`;
+      await page.goto(c.origin + path);
+      await page.evaluate(() => document.documentElement.setAttribute("data-theme", "light"));
+      await page.locator("h1, h2").first().waitFor({ timeout: 30_000 });
+      await page.waitForTimeout(700);
+      await accessibility(page, note);
     }
     assert.deepEqual(problems, []);
   } finally {
@@ -78,4 +90,10 @@ async function readPage(page: Page, note: (m: string) => void): Promise<void> {
   for (const text of await page.locator("[role=alert]:visible").allTextContents()) note(`alert: ${text.slice(0, 200)}`);
   if (await page.getByText(/Something went wrong|Unexpected Application Error/i).count()) note("the error screen is showing");
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) note("the page scrolls sideways");
+}
+
+/** The automated WCAG 2.1 A and AA rules (axe-core); anything it reports is a failure, named with the first element it found. */
+async function accessibility(page: Page, note: (m: string) => void): Promise<void> {
+  const result = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  for (const v of result.violations) note(`accessibility ${v.id} (${v.impact}, ${v.nodes.length}): ${v.nodes[0]?.target.join(" ")} ${(v.nodes[0]?.html ?? "").slice(0, 120)}`);
 }

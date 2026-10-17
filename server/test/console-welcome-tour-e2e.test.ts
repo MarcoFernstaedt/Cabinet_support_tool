@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "playwright";
+import { AxeBuilder } from "@axe-core/playwright";
 import { DemoSimulator } from "../src/demo/demo.js";
 import { startConsole } from "./browser-console.js";
 
@@ -16,6 +17,8 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const TABS = ["Overview", "Standards", "Troubleshoot", "What changed", "Compare", "Alerts", "Event logs", "Services", "Processes", "Files", "Devices and drivers", "Drive health",
   "Windows updates", "Time", "Network", "Firewall", "Fingerprint scanner", "Crashes and restarts", "Windows", "Software", "Command history"];
 
+const shot = async (page: Page, name: string) => { if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/tour-${name.replace(/\W+/g, "_")}.png` }); };
+const axe = async (page: Page, where: string) => assert.deepEqual((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations.map(v => `${where}: ${v.id}`), []);
 /** Goes through the whole tour with Next, returning each step's title; at every step what it points at is outlined (unless it says it cannot be). */
 async function walk(page: Page, expect: { outlined: (title: string) => string | null }): Promise<string[]> {
   const panel = page.getByRole("dialog", { name: /./ }).filter({ has: page.locator("#welcome-title") });
@@ -30,6 +33,7 @@ async function walk(page: Page, expect: { outlined: (title: string) => string | 
       assert.match((await marked.innerText()).trim(), new RegExp(wanted), `${title}: the outlined control`);
       assert.equal(await panel.getByText(/not on screen for you/).count(), 0, `${title}: it found what it points at`);
     }
+    if (/^(Fleet|Drive health|Time)$/.test(title)) await shot(page, title);
     assert.equal(await page.evaluate(() => document.activeElement?.id ?? ""), "welcome-title", `${title}: the step's heading has the focus`);
     if (await panel.getByRole("button", { name: "Finish" }).count()) { await panel.getByRole("button", { name: "Finish" }).click(); return titles; }
     await panel.getByRole("button", { name: "Next" }).click();
@@ -59,7 +63,12 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     await welcome.waitFor();
     await welcome.getByText(/no remote shell and no file transfer/).waitFor();
     assert.equal(await tourCompleted("ada.admin"), false);
+    await shot(page, "welcome");
+    await axe(page, "welcome card");
     await welcome.getByRole("button", { name: "Take the tour" }).click();
+    await page.locator("#welcome-title", { hasText: "The main menu" }).waitFor();
+    await shot(page, "menu");
+    await axe(page, "a tour step");
     const outlinedBy: Record<string, string | null> = { "The main menu": "Fleet", Fleet: "^Fleet$", "Jump to": "Jump", Search: "^Search$", Alerts: "^Alerts", Incidents: "^Incidents$", "Fleet operations": "^Fleet operations$",
       Issues: "^Issues$", Fixes: "^Fixes", Admin: "^Admin", "Your account": "Ada Admin" };
     const first = await walk(page, { outlined: t => outlinedBy[t] ?? null });
