@@ -129,7 +129,22 @@ else
   say "An Admin already exists; none created. (Reset a password: docker compose exec server node /opt/cabinet/server/dist/src/cli.js user reset-password --username <user> --as <admin>)"
 fi
 
-# 6. Done --------------------------------------------------------------------------------------------------------
+# 6. Backups and encryption at rest -------------------------------------------------------------------------------
+if [[ ! -s /root/.cabinet-backup-key ]]; then
+  say "Creating the backup encryption key (/root/.cabinet-backup-key). Copy it somewhere safe off this server: without it a backup cannot be read."
+  (umask 077; openssl rand -base64 48 > /root/.cabinet-backup-key)
+fi
+command -v gpg >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq gnupg >/dev/null; }
+cron_line="17 2 * * * root $DEPLOY_DIR/backup.sh >> /var/log/cabinet-backup.log 2>&1"
+echo "$cron_line" > /etc/cron.d/cabinet-backup && chmod 644 /etc/cron.d/cabinet-backup
+echo "Nightly encrypted database backup at 02:17 to /var/backups/cabinet (set BACKUP_TARGET in /etc/cron.d/cabinet-backup to copy it off this server)."
+# The spec asks for data at rest to be encrypted. SQL Server Express has no transparent data encryption, so the disk must be.
+docker_dev="$(df --output=source /var/lib/docker 2>/dev/null | tail -1)"
+if ! lsblk -no TYPE "$docker_dev" -s 2>/dev/null | grep -q crypt; then
+  echo "WARNING: /var/lib/docker (the database files) is not on an encrypted volume. Use your provider's encrypted disk or LUKS before real data goes in."
+fi
+
+# 7. Done --------------------------------------------------------------------------------------------------------
 say "Ready"
 echo "Console:    https://$console_site"
 if [[ "$console_tls" == "internal" ]]; then

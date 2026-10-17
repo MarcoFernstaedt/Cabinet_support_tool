@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mssql:
-        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
+        image: mcr.microsoft.com/mssql/server:2022-CU27-GDR1-ubuntu-22.04@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
         env:
           ACCEPT_EULA: 'Y'
           MSSQL_PID: Developer
@@ -24,13 +24,13 @@ jobs:
     env:
       TEST_DATABASE_ADMIN_URL: sqlserver://sa:Ci-only-not-a-secret-1@localhost:1433/master?trustServerCertificate=true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
       - name: Contracts (schemas, examples, generated types)
@@ -51,6 +51,7 @@ jobs:
           npx playwright install --with-deps chromium
           npm test
           npm audit --audit-level=low
+          npm audit signatures
       - name: Agent API under load (1,000 simulated agents with their own certificates, 3 minutes; the full 8,000 run is a rollout gate)
         working-directory: server
         timeout-minutes: 10
@@ -82,7 +83,7 @@ jobs:
           for d in contracts console server; do (cd $d && npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/sbom/$d.cdx.json"); done
           # The agent's resolved NuGet packages with their content hashes: the lock files are its inventory.
           find agent -name packages.lock.json -not -path '*/obj/*' -not -path '*/bin/*' | while read f; do cp "$f" "$RUNNER_TEMP/sbom/$(echo "$f" | tr '/' '_')"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom
           path: ${{ runner.temp }}/sbom
@@ -94,10 +95,10 @@ jobs:
   agent-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
       - name: Build
@@ -209,7 +210,7 @@ jobs:
           if (@($codes).Count -ne 1 -or $codes -ne 'replayed') { throw "Expected every command to be refused as replayed, got: $codes" }
           # The harness exits 1 because nothing succeeded, which is the expected outcome here.
           exit 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
       - name: Platform server, enrollment, commands and revocation end to end

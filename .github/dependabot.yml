@@ -8,3 +8,5 @@ updates:
   - { package-ecosystem: nuget, directory: /agent, schedule: { interval: weekly }, open-pull-requests-limit: 5 }
   - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }
   - { package-ecosystem: docker, directory: /deploy, schedule: { interval: weekly } }
+  # The images in compose.yaml (SQL Server, Caddy) are only seen by the docker-compose ecosystem.
+  - { package-ecosystem: docker-compose, directory: /deploy, schedule: { interval: weekly } }

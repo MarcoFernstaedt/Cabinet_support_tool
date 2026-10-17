@@ -93,14 +93,15 @@ The `migrate` service runs before the server starts and applies only new migrati
 
 ## Back up
 
-The database:
+`setup.sh` installs a nightly job (`/etc/cron.d/cabinet-backup`, 02:17) that runs `deploy/backup.sh`:
 
-```sh
-cd deploy
-docker compose exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" \
-  -Q "BACKUP DATABASE cabinet TO DISK = N'"'"'/var/opt/mssql/data/cabinet.bak'"'"' WITH COMPRESSION, CHECKSUM, INIT"'
-docker compose cp mssql:/var/opt/mssql/data/cabinet.bak cabinet-$(date +%F).bak
-```
+- `BACKUP DATABASE` inside the SQL Server container (compressed, with checksums), then `RESTORE VERIFYONLY`;
+- the backup is encrypted with the key in `/root/.cabinet-backup-key` (AES-256) and every plain copy is deleted;
+- the last 14 are kept in `/var/backups/cabinet`; set `BACKUP_TARGET` (an rsync destination on another machine) in the cron line to copy each one off the server.
+
+Copy `/root/.cabinet-backup-key` somewhere safe off the server once: without it no backup can be read. Run a backup now with `sudo deploy/backup.sh`.
+
+The database uses the SIMPLE recovery model, so its log never grows without bound; the recovery point is the last nightly backup.
 
 The development CA and the stores (the CA's private key is in `pki`; keep the backup private):
 
@@ -109,17 +110,19 @@ docker run --rm -v cabinet_pki:/pki -v cabinet_packages:/packages -v cabinet_rel
   debian:bookworm-slim tar czf /backup/cabinet-files-$(date +%F).tgz /pki /packages /releases
 ```
 
-To restore the database into a fresh install, stop the server, then:
+To restore the database, stop the server, then:
 
 ```sh
+cd deploy
+gpg --decrypt --passphrase-file /root/.cabinet-backup-key --batch /var/backups/cabinet/cabinet-<stamp>.bak.gpg > /tmp/cabinet.bak
 docker compose stop server
-docker compose cp cabinet-<date>.bak mssql:/var/opt/mssql/data/cabinet.bak
-docker compose exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" \
-  -Q "ALTER DATABASE cabinet SET SINGLE_USER WITH ROLLBACK IMMEDIATE; RESTORE DATABASE cabinet FROM DISK = N'"'"'/var/opt/mssql/data/cabinet.bak'"'"' WITH REPLACE, CHECKSUM; ALTER DATABASE cabinet SET MULTI_USER"'
+docker compose cp /tmp/cabinet.bak mssql:/var/opt/mssql/data/cabinet.bak && rm /tmp/cabinet.bak
+docker compose exec -T mssql sh -c '/opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -P "$MSSQL_SA_PASSWORD" \
+  -Q "ALTER DATABASE cabinet SET SINGLE_USER WITH ROLLBACK IMMEDIATE; RESTORE DATABASE cabinet FROM DISK = N'"'"'/var/opt/mssql/data/cabinet.bak'"'"' WITH REPLACE, CHECKSUM; ALTER DATABASE cabinet SET MULTI_USER"; rm -f /var/opt/mssql/data/cabinet.bak'
 docker compose up -d
 ```
 
-Without the `pki` backup, restored cabinets cannot connect: their certificates were issued by the old CA.
+Without the `pki` backup, restored cabinets cannot connect: their certificates were issued by the old CA. Test a restore on a spare machine once a month.
 
 ## Reset the demo
 

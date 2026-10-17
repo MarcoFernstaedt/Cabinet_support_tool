@@ -40,9 +40,9 @@ test("workflows are read-only, keep no credentials, and install only from lock f
 });
 
 /** Actions not yet pinned to a commit. The list may only shrink: run deploy/pin-actions.sh and it empties. */
-const UNPINNED_ALLOWED = new Set(["actions/checkout", "actions/setup-node", "actions/setup-dotnet", "actions/upload-artifact"]);
+const UNPINNED_ALLOWED = new Set<string>();
 
-test("third-party actions are pinned to a commit, except those still waiting for deploy/pin-actions.sh", () => {
+test("every action is pinned to a commit", () => {
   for (const f of readdirSync(join(root, ".github/workflows")).filter(f => f.endsWith(".yml"))) {
     for (const [i, l] of lines(`.github/workflows/${f}`).entries()) {
       const m = /uses:\s+([\w.-]+\/[\w./-]+)@(\S+)/.exec(l);
@@ -59,4 +59,12 @@ test("the files that keep dependencies, owners and reporting in order exist", ()
   const lockedMode = read("agent/Directory.Build.props");
   assert.match(lockedMode, /RestorePackagesWithLockFile>true/);
   assert.match(lockedMode, /RestoreLockedMode Condition="'\$\(CI\)' == 'true'">true/);
+});
+
+test("CI tests against the same SQL Server image the deployment runs", () => {
+  const image = (file: string) => lines(file).map(l => l.match(/image:\s*(mcr\.microsoft\.com\/mssql\/server\S+)/)?.[1]).find(Boolean);
+  const deployed = image("deploy/compose.yaml");
+  assert.ok(deployed && /@sha256:[0-9a-f]{64}$/.test(deployed), "pinned by digest");
+  assert.ok(!/:2022-latest@/.test(deployed!), "a versioned tag, so updates are visible");
+  assert.equal(image(".github/workflows/platform-contracts.yml"), deployed);
 });

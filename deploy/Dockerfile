@@ -64,14 +64,16 @@ COPY contracts/schemas ./contracts/schemas
 COPY contracts/trust ./contracts/trust
 COPY agent/ ./agent/
 # The same publish as agent/install/Publish-CabinetAgent.ps1: four programs, self-contained single files for win-x64.
+# The restore is locked (packages.lock.json, including the win-x64 runtime packs) and agent/nuget.config allows nuget.org only and requires
+# every package to be signed by nuget.org, so the shipped broker and network service are built from exactly the reviewed packages.
 # EnableWindowsTargeting (also set in agent/Directory.Build.props) lets the Windows projects build on Linux.
 # The zip's layout is what Install-CabinetAgent.ps1 expects: its default -SourceDir is <script folder>\..\out.
 RUN set -eu; \
     pkg=/pkg/CabinetAgent; mkdir -p "$pkg/out" "$pkg/install"; \
     for project in Cabinet.Agent.Broker Cabinet.Agent.Network Cabinet.Agent.Harness Cabinet.Agent.Updater; do \
-      dotnet publish "agent/src/$project/$project.csproj" --configuration Release \
+      dotnet restore "agent/src/$project/$project.csproj" --runtime win-x64 --locked-mode; \
+      dotnet publish "agent/src/$project/$project.csproj" --no-restore --configuration Release \
         --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableWindowsTargeting=true \
-        -p:NuGetLockFilePath=obj/publish.packages.lock.json -p:RestoreLockedMode=false \
         ${AGENT_VERSION:+-p:Version=$AGENT_VERSION} \
         --output "$pkg/out/$project"; \
     done; \

@@ -17,7 +17,7 @@
     "@mashura/cabinet-contracts": "file:../contracts",
     "@node-rs/argon2": "2.2.2",
     "fastify": "5.12.5",
-    "mssql": "^12.7.9"
+    "mssql": "12.7.9"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

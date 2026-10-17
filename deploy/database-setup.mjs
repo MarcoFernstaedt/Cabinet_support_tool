@@ -30,6 +30,14 @@ if (step === "create") {
   try {
     await pool.request().input("name", mssql.NVarChar(128), database)
       .query(`IF DB_ID(@name) IS NULL BEGIN DECLARE @sql nvarchar(400) = N'CREATE DATABASE ' + QUOTENAME(@name) + N' COLLATE Latin1_General_100_CI_AS_SC'; EXEC (@sql); END`);
+    // SIMPLE recovery: the log is reused after each checkpoint instead of growing until a log backup that Express cannot schedule.
+    // Recovery point is the nightly full backup (deploy/backup.sh). The log starts at 1 GB and grows in 256 MB steps.
+    await pool.request().input("name", mssql.NVarChar(128), database).query(`
+      DECLARE @sql nvarchar(800) = N'ALTER DATABASE ' + QUOTENAME(@name) + N' SET RECOVERY SIMPLE; ALTER DATABASE ' + QUOTENAME(@name) + N' SET PAGE_VERIFY CHECKSUM;';
+      EXEC (@sql);
+      DECLARE @log sysname = (SELECT name FROM sys.master_files WHERE database_id = DB_ID(@name) AND type = 1);
+      IF (SELECT size FROM sys.master_files WHERE database_id = DB_ID(@name) AND type = 1) < 131072
+      BEGIN SET @sql = N'ALTER DATABASE ' + QUOTENAME(@name) + N' MODIFY FILE (NAME = ' + QUOTENAME(@log) + N', SIZE = 1024MB, FILEGROWTH = 256MB)'; EXEC (@sql); END`);
     console.log(`Database ${database} is ready.`);
   } finally { await pool.close(); }
 } else {
