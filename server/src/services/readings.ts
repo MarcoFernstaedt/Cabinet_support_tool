@@ -136,7 +136,7 @@ export async function searchReadings(db: Queryable, operation: string, q: string
 
 export interface HealthPoint { at: string; cpu: number; memory: number; diskFree: number }
 
-/** The samples of the last <hours> hours, oldest first. At most one every five minutes is stored, so 14 days is under 4,100 points. */
+/** The samples of the last <hours> hours, oldest first. At most one every 15 minutes is stored, so 14 days is under 1,400 points. */
 export async function healthHistory(db: Queryable, cabinetId: string, hours: number): Promise<HealthPoint[]> {
   const rows = (await db.query<{ at: Date; cpu: number; memory: number; disk: number }>(
     `SELECT at, cpu_percent AS cpu, memory_used_percent AS memory, disk_free_percent AS disk FROM health_samples
@@ -144,10 +144,10 @@ export async function healthHistory(db: Queryable, cabinetId: string, hours: num
   return rows.map(r => ({ at: r.at.toISOString(), cpu: r.cpu, memory: r.memory, diskFree: r.disk }));
 }
 
-/** Stores one sample from a heartbeat unless one was stored in the last five minutes. */
+/** Stores one sample from a heartbeat unless one was stored in the last 15 minutes. */
 export async function recordHealth(db: Queryable, cabinetId: string, h: { cpuPercent: number; memoryUsedPercent: number; diskFreePercent: number }): Promise<void> {
   await db.query(
     `INSERT INTO health_samples (cabinet_id, at, cpu_percent, memory_used_percent, disk_free_percent)
-     SELECT $1, now(), $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM health_samples WHERE cabinet_id = $1 AND at > now() - interval '5 minutes')`,
+     SELECT $1, now(), $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM health_samples WHERE cabinet_id = $1 AND at > now() - interval '15 minutes')`,
     [cabinetId, h.cpuPercent, h.memoryUsedPercent, h.diskFreePercent]);
 }

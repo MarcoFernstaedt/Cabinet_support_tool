@@ -115,13 +115,13 @@ test("searches are audited", async () => {
   assert.ok(((await db.app.query("SELECT 1 FROM audit_log WHERE action = 'readings.search'")).rowCount ?? 0) > 0);
 });
 
-test("a heartbeat's load sample is stored at most every five minutes, kept in range, and read back as a history", async () => {
+test("a heartbeat's load sample is stored at most every 15 minutes, kept in range, and read back as a history", async () => {
   const t1 = await h.account("tier1");
   const k = await cab("Surgery").catch(() => cab("Check-in"));
   const hb = (cpu: number) => ({ agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false, health: { cpuPercent: cpu, memoryUsedPercent: 50, diskFreePercent: 40 } });
   await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [k.id]);
   await recordHeartbeat(db.app, k.id, hb(10));
-  await recordHeartbeat(db.app, k.id, hb(90));   // within five minutes: not stored
+  await recordHeartbeat(db.app, k.id, hb(90));   // within 15 minutes: not stored
   const history = await h.call("GET", `/api/cabinets/${k.id}/health?hours=6`, undefined, t1);
   assert.equal(history.status, 200);
   assert.deepEqual(history.body.points.map((p: { cpu: number }) => p.cpu), [10]);
@@ -132,4 +132,14 @@ test("a heartbeat's load sample is stored at most every five minutes, kept in ra
   // The simulated fleet has a day of history already.
   const demo = await h.call("GET", `/api/cabinets/${(await cab("Midtown Sync")).id}/health?hours=24`, undefined, t1);
   assert.ok(demo.body.points.length > 100);
+});
+
+test("the welcome tour is given a cabinet to walk through: an online one, and a real one before a simulated one", async () => {
+  const t1 = await h.account("tier1");
+  const first = (await h.call("GET", "/api/fleet/first-cabinet", undefined, t1)).body.cabinet;
+  assert.ok(first.id && first.name);
+  assert.equal((await h.call("GET", "/api/fleet/first-cabinet", undefined)).status, 401);
+  await db.app.query("UPDATE cabinets SET status = 'removed' WHERE demo_scenario IS NOT NULL");
+  assert.deepEqual((await h.call("GET", "/api/fleet/first-cabinet", undefined, t1)).body, { cabinet: null }, "nothing to show");
+  await db.app.query("UPDATE cabinets SET status = 'active' WHERE demo_scenario IS NOT NULL");
 });

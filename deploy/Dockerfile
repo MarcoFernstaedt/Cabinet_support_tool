@@ -12,8 +12,9 @@
 #   agent-build    the Windows agent, cross-published self-contained for win-x64 from Linux, zipped
 #   runtime        node slim, non-root, serves both APIs and the console
 
-ARG NODE_IMAGE=node:22.23.2-bookworm-slim
-ARG DOTNET_SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0.401-noble
+# Base images are pinned by digest as well as by tag: a tag can be moved, a digest cannot. Dependabot proposes new ones; each is reviewed.
+ARG NODE_IMAGE=node:22.23.2-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9
+ARG DOTNET_SDK_IMAGE=mcr.microsoft.com/dotnet/sdk:10.0.401-noble@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317
 
 # ---------------------------------------------------------------- contracts
 FROM ${NODE_IMAGE} AS contracts
@@ -33,7 +34,7 @@ FROM ${NODE_IMAGE} AS console-build
 WORKDIR /build
 COPY --from=contracts /build/contracts ./contracts
 COPY console/package.json console/package-lock.json ./console/
-RUN cd console && npm ci --no-audit --no-fund
+RUN cd console && npm ci --ignore-scripts --no-audit --no-fund
 COPY console/ ./console/
 RUN cd console && npm run build
 
@@ -42,8 +43,8 @@ FROM ${NODE_IMAGE} AS server-build
 WORKDIR /build
 COPY --from=contracts /build/contracts ./contracts
 COPY server/package.json server/package-lock.json ./server/
-# PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: the browser tests are not run here, so no browser is fetched.
-RUN cd server && PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --no-audit --no-fund
+# --ignore-scripts: no dependency may run code at install time. (The browser tests are not run here, so no browser is fetched.)
+RUN cd server && npm ci --ignore-scripts --no-audit --no-fund
 COPY server/ ./server/
 RUN cd server && npm run build
 
@@ -51,7 +52,7 @@ FROM ${NODE_IMAGE} AS server-deps
 WORKDIR /build
 COPY --from=contracts /build/contracts ./contracts
 COPY server/package.json server/package-lock.json ./server/
-RUN cd server && npm ci --omit=dev --no-audit --no-fund
+RUN cd server && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 # ---------------------------------------------------------------- Windows agent
 FROM ${DOTNET_SDK_IMAGE} AS agent-build

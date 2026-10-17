@@ -395,3 +395,7 @@ tr.highlight > * { background: color-mix(in srgb, var(--accent, #22d3ee) 12%, tr
 .field.grow { flex: 1; min-width: 220px; }
 .field.grow input { width: 100%; }
 .field.inline > span:first-child { white-space: nowrap; }
+
+/* The welcome tour's first card sits in the middle of the page, with the rest of the page dimmed behind it. */
+.welcome-tour.centered { right: auto; bottom: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - var(--s-8))); box-shadow: 0 0 0 100vmax rgba(4, 9, 16, .62), var(--shadow-3, 0 12px 40px rgba(0,0,0,.5)); }
+.welcome-tour h2:focus { outline: none; }

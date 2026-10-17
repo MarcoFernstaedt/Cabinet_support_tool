@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
         env:
           POSTGRES_PASSWORD: ci-only-not-a-secret
         ports: ['5432:5432']
@@ -22,6 +22,8 @@ jobs:
       TEST_DATABASE_ADMIN_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -30,19 +32,19 @@ jobs:
           dotnet-version: '10.0.x'
       - name: Contracts (schemas, examples, generated types)
         working-directory: contracts
-        run: npm ci && npm test && npm run check-generated && npm audit --audit-level=low
+        run: npm ci --ignore-scripts && npm test && npm run check-generated && npm audit --audit-level=low && npm audit signatures
       - name: Agent builds (Windows projects compile here too)
         run: dotnet build agent/Cabinet.Agent.sln -c Release
       - name: Console builds (strict TypeScript)
         working-directory: console
-        run: npm ci && npm run build && npm test && npm audit --audit-level=low
+        run: npm ci --ignore-scripts && npm run build && npm test && npm audit --audit-level=low && npm audit signatures
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
         timeout-minutes: 15
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net10.0/Cabinet.Agent.TestAgent.dll
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npx playwright install --with-deps chromium
           npm test
           npm audit --audit-level=low
@@ -74,6 +76,8 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/sbom"
           for d in contracts console server; do (cd $d && npm sbom --sbom-format cyclonedx --omit dev > "$RUNNER_TEMP/sbom/$d.cdx.json"); done
+          # The agent's resolved NuGet packages with their content hashes: the lock files are its inventory.
+          find agent -name packages.lock.json -not -path '*/obj/*' -not -path '*/bin/*' | while read f; do cp "$f" "$RUNNER_TEMP/sbom/$(echo "$f" | tr '/' '_')"; done
       - uses: actions/upload-artifact@v4
         with:
           name: sbom
@@ -87,6 +91,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -213,8 +219,8 @@ jobs:
           $psql = Join-Path $env:PGBIN 'psql.exe'
           $env:PGPASSWORD = 'root'
           & $psql -U postgres -c 'CREATE DATABASE cabinet'
-          Push-Location contracts; npm ci; Pop-Location
-          Push-Location server; npm ci; npm run build; Pop-Location
+          Push-Location contracts; npm ci --ignore-scripts; Pop-Location
+          Push-Location server; npm ci --ignore-scripts; npm run build; Pop-Location
           $env:DATABASE_OWNER_URL = 'postgres://postgres:root@localhost:5432/cabinet'
           node server/dist/src/cli.js migrate
           & $psql -U postgres -d cabinet -c "CREATE ROLE cabinet_app_ci LOGIN PASSWORD 'ci-only-not-a-secret'; GRANT cabinet_app TO cabinet_app_ci;"

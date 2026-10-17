@@ -10,7 +10,6 @@ import { assessDrive, daysUntilEmpty, higher, slopePerDay, type Assessment, type
 const DAY = 86_400_000;
 /** At most one sample per drive in this time, so a repeated report adds nothing. */
 const MIN_GAP_HOURS = 12;
-const KEEP_DAYS = 400;
 
 /** A drive's serial number when it has one; otherwise its model and position, so two drives without serial numbers never share a history. */
 export const driveKey = (d: Pick<DriveHealthReport, "serialNumber" | "model">, index: number): string =>
@@ -33,7 +32,6 @@ export async function recordDriveReport(db: Queryable, cabinetId: string, drives
       [cabinetId, key, d.model, d.serialNumber, d.health, d.predictFailure, d.temperatureCelsius, d.powerOnHours, d.reallocatedSectors, d.pendingSectors, d.uncorrectableErrors, d.wearPercent, MIN_GAP_HOURS]);
     if ((stored.rowCount ?? 0) > 0) await refreshDrive(db, cabinetId, key);
   }
-  await db.query("DELETE FROM drive_samples WHERE cabinet_id = $1 AND at < now() - make_interval(days => $2)", [cabinetId, KEEP_DAYS]);
   await diskForecast(db, cabinetId);
 }
 

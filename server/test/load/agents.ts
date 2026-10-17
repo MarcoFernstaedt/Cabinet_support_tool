@@ -104,9 +104,14 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function runAgent(id: Identity, ca: string, base: URL, startDelayMs: number, eventsPerHour: number, output: unknown): Promise<void> {
   await sleep(startDelayMs);
   const agent = new Agent({ cert: id.certPem, key: id.keyPem, ca, keepAlive: true, maxSockets: 2, servername: base.hostname });
+  // The heartbeat a current agent sends: with its load sample every time, and its drives' report once (the real one sends it once a day).
+  const drive = { model: "Load SSD 500GB", serialNumber: `LOAD-${id.certPem.slice(-40, -20).replace(/[^A-Za-z0-9]/g, "x")}`, health: "healthy", predictFailure: false, temperatureCelsius: 38,
+    powerOnHours: 9000, reallocatedSectors: 0, pendingSectors: 0, uncorrectableErrors: 0, wearPercent: 8 };
+  let beats = 0;
   const heartbeat = (async () => {
     while (!stopping) {
-      await timed("heartbeat", () => call(agent, base, "POST", "/agent/v1/heartbeat", { agentVersion: "0.1.0", uptimeSeconds: 3600, readOnlyMode: false }, 30_000));
+      const health = { cpuPercent: Math.floor(Math.random() * 60), memoryUsedPercent: 40 + Math.floor(Math.random() * 30), diskFreePercent: 30 + Math.floor(Math.random() * 40), ...(beats++ === 0 ? { drives: [drive] } : {}) };
+      await timed("heartbeat", () => call(agent, base, "POST", "/agent/v1/heartbeat", { agentVersion: "0.1.0", uptimeSeconds: 3600, readOnlyMode: false, health }, 30_000));
       if (eventsPerHour > 0 && Math.random() < eventsPerHour / 60) {
         const now = new Date().toISOString();
         await timed("events", () => call(agent, base, "POST", "/agent/v1/events", { events: [{ eventId: randomUUID(), kind: "error", occurredAt: now, severityHint: "minor",

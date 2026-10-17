@@ -18,7 +18,7 @@ x-platform-image: &platform-image
 
 services:
   postgres:
-    image: postgres:16.15-bookworm
+    image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
     restart: unless-stopped
     environment:
       POSTGRES_DB: cabinet
@@ -90,7 +90,7 @@ services:
     security_opt: ["no-new-privileges:true"]
 
   caddy:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.7-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     restart: unless-stopped
     depends_on:
       - server

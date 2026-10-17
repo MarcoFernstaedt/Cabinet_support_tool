@@ -6,7 +6,7 @@ import { WriteStatusProvider } from "./lib/writes";
 import { Router, match, useRouter } from "./lib/router";
 import { SessionContext, type Me } from "./lib/session";
 import { Layout } from "./components/Layout";
-import { Tour } from "./components/Tour";
+import { WelcomeTour, startWelcomeTour } from "./components/WelcomeTour";
 import { PasswordChange, SignIn, TotpSetup, TotpStep, type Stage } from "./pages/SignIn";
 import { ClientPage, FleetHome, SitePage } from "./pages/Fleet";
 import { CabinetPage } from "./pages/cabinet/CabinetPage";
@@ -32,14 +32,12 @@ import { DemoTour } from "./components/DemoTour";
 export function App() {
   const [stage, setStage] = useState<Stage | "loading">("loading");
   const [me, setMe] = useState<Me | null>(null);
-  const [tour, setTour] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
       const r = await api<{ user: Me; stage: Stage }>("GET", "/api/auth/me");
       setMe(r.user);
       setStage(r.stage);
-      if (r.stage === "complete" && !r.user.tourCompleted) setTour(true);
     } catch { setMe(null); setStage("signed_out"); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
@@ -64,9 +62,9 @@ export function App() {
       <Router>
         <CommandStream>
           <WriteStatusProvider>
-            <Layout><RoutedPages onTour={() => setTour(true)} /></Layout>
+            <Layout><RoutedPages onTour={startWelcomeTour} /></Layout>
             <DemoTour />
-            {tour && <Tour onClose={() => setTour(false)} />}
+            <WelcomeTour />
           </WriteStatusProvider>
         </CommandStream>
       </Router>

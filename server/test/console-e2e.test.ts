@@ -91,7 +91,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByLabel(/6-digit code/).fill(code());
     await page.getByRole("button", { name: "Continue" }).click();
-    await page.getByRole("dialog", { name: "Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
+    await page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
     // ---- Creates an install token in the console; the cabinet installs with it ---------
@@ -154,14 +154,19 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     // Every account, Tier 1 included, sets up an authenticator at its first sign-in.
     await page.getByRole("heading", { name: "Set up your authenticator" }).waitFor();
     await setUpAuthenticatorInBrowser(page, s => { clock += 30_000; return totp.code(s, totp.stepAt(clock)); });
-    // First sign-in shows the getting-started tour; walk through every step.
-    const tour = page.locator("dialog.tour");
+    // First sign-in shows the welcome tour; take the short version to the end.
+    const tour = page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" });
     await tour.waitFor();
-    for (let i = 0; i < 10 && await tour.isVisible(); i++) {
-      const finish = tour.getByRole("button", { name: "Finish" });
-      if (await finish.isVisible()) await finish.click(); else await tour.getByRole("button", { name: "Next" }).click();
+    await tour.getByRole("button", { name: "Short version" }).click();
+    const steps = page.locator("#welcome-title");
+    for (let i = 0; i < 40; i++) {
+      const finish = page.getByRole("button", { name: "Finish" });
+      if (await finish.count()) { await finish.click(); break; }
+      const before = await steps.innerText();
+      await page.getByRole("button", { name: "Next" }).click();
+      await steps.and(page.locator(":not(:has-text(\"" + before.replace(/"/g, "") + "\"))")).waitFor().catch(() => { });
     }
-    await tour.waitFor({ state: "hidden" });
+    await steps.waitFor({ state: "detached" });
     await page.getByRole("combobox", { name: /Jump to/ }).fill("Lab");
     await page.getByRole("option", { name: /Lab cabinet/ }).waitFor();
     await page.keyboard.press("Enter");

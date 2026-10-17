@@ -29,6 +29,7 @@ import { Software } from "./Software";
 import { WindowsInfo } from "./WindowsInfo";
 import { TrendCharts } from "../../components/TrendChart";
 import { WritePauseBanner } from "../../lib/writes";
+import { SECTIONS, type SectionId } from "../../lib/sections";
 
 export interface CabinetDetail extends CabinetRow {
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
@@ -38,13 +39,6 @@ export interface CabinetDetail extends CabinetRow {
   siblings: CabinetRow[];
 }
 
-export const SECTIONS = [
-  ["overview", "Overview"], ["standards", "Standards"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
-  ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
-  ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
-  ["windows", "Windows"], ["software", "Software"], ["history", "Command history"],
-] as const;
-export type SectionId = (typeof SECTIONS)[number][0];
 
 export function CabinetPage({ id, section }: { id: string; section: string }) {
   const { me } = useSession();

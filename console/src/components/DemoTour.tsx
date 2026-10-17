@@ -1,14 +1,13 @@
 // The guided demo tour (docs/platform/demo.md): a small panel at the side of the page, not a popup, that walks a presenter
 // through the platform while they use the real console. Each step says what to show and opens the right page; the
 // presenter can skip, go back, stop or start again at any time. Its position is kept for this browser tab only.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, describeError } from "../lib/api";
 import { useSession } from "../lib/session";
 import { StepUpDialog } from "./ui";
 import { useRouter } from "../lib/router";
+import { useSpotlight, type Target } from "../lib/spotlight";
 
-/** The control the step is about: a CSS selector, and optionally text the element must contain. */
-interface Target { selector: string; text?: string }
 interface Step {
   title: string; body: string; path: string | ((s: Scenarios) => string | null); target?: Target;
   /** What to say when the control never shows up (nothing has happened yet that would put it there). */
@@ -124,54 +123,10 @@ export function DemoTour() {
     // Only if you are still where you started: if you have already clicked on, leave the page alone.
     if (path === opening || window.location.pathname + window.location.search === opening) go(place.step);
   }, [opening, place, scenarios, go, path]);
-  // Show me: find the control the step is about, scroll it to the middle of the screen and outline it. The page may still be loading
-  // (a check takes a few seconds), so it keeps looking for up to a minute and a half.
-  const [looks, setLooks] = useState(0);
-  const [found, setFound] = useState<"looking" | "found" | "missing" | null>(null);
-  const [targetEl, setTargetEl] = useState<HTMLElement | null>(null);
-  const target = place ? steps[place.step]?.target : undefined;
-  const targetKey = target ? `${target.selector}|${target.text ?? ""}` : "";
-  useEffect(() => {
-    if (!target) { setFound(null); return; }
-    let stopped = false, marked: Element | null = null, timer: ReturnType<typeof setTimeout> | undefined;
-    const started = Date.now();
-    setFound("looking");
-    const look = () => {
-      if (stopped) return;
-      const el = [...document.querySelectorAll<HTMLElement>(target.selector)].find(e => !target.text || (e.textContent ?? "").includes(target.text));
-      if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("tour-target"); marked = el; setTargetEl(el); setFound("found"); return; }
-      if (Date.now() - started > 90_000) { setFound("missing"); return; }
-      timer = setTimeout(look, 400);
-    };
-    look();
-    return () => { stopped = true; if (timer) clearTimeout(timer); marked?.classList.remove("tour-target"); setTargetEl(null); };
-  }, [place?.tour, place?.step, path, looks, targetKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const step = place?.step ?? null;
-  // Focus: the page is shown whole for a moment, then everything but the control the step is about is dimmed, and the guide sits beside that control
-  // instead of over it. "Focus" in the guide turns the dimming off.
+  const { found, el: targetEl, spot, pos, dim, panel, lookAgain } = useSpotlight(place ? steps[place.step]?.target : undefined, `${place?.tour}:${place?.step}:${path}`);
+  // "Focus" in the guide turns the dimming off.
   const [focus, setFocus] = useState(true);
-  const [dim, setDim] = useState(false);
-  const [spot, setSpot] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const panel = useRef<HTMLElement>(null);
-  useEffect(() => {
-    setDim(false);
-    if (!targetEl) { setSpot(null); setPos(null); return; }
-    const timer = setTimeout(() => setDim(true), 700);
-    let last = "";
-    const measure = () => {
-      if (!targetEl.isConnected) return;
-      const r = targetEl.getBoundingClientRect();
-      const key = [r.top, r.left, r.width, r.height, window.innerWidth, window.innerHeight, panel.current?.offsetHeight ?? 0].map(Math.round).join(",");
-      if (key === last) return;
-      last = key;
-      setSpot({ top: r.top - 6, left: r.left - 6, width: r.width + 12, height: r.height + 12 });
-      setPos(panelPosition(r, 380, panel.current?.offsetHeight ?? 260));
-    };
-    measure();
-    const t = setInterval(measure, 120);
-    return () => { clearTimeout(timer); clearInterval(t); };
-  }, [targetEl]);
   // A step that asks for something is complete once the page shows it was done; that is remembered, so going back and forward never asks twice.
   const action = place && step !== null ? steps[step]?.action : undefined;
   const [complete, setComplete] = useState(false);
@@ -218,27 +173,11 @@ export function DemoTour() {
         <button className="btn small" disabled={step === 0} onClick={() => go(step - 1)}>Back</button>
         {step < steps.length - 1 ? <button className="btn small primary" disabled={gated && !complete} onClick={() => go(step + 1)}>Next</button>
           : <button className="btn small primary" onClick={() => go(null)}>Finish</button>}
-        {found === "missing" && <button className="btn small ghost" onClick={() => { go(step); setLooks(n => n + 1); }}>Look again</button>}
+        {found === "missing" && <button className="btn small ghost" onClick={() => { go(step); lookAgain(); }}>Look again</button>}
         {targetEl && <button className="btn small ghost" aria-pressed={focus} onClick={() => setFocus(f => !f)} title="Dim everything except what this step is about">Focus {focus ? "on" : "off"}</button>}
         <button className="btn small ghost" onClick={() => setLeft(l => !l)} aria-label="Move this panel to the other side of the screen" title="Move panel">{left ? "⇥" : "⇤"}</button>
         <button className="btn small ghost" onClick={() => go(null)} aria-label="Stop the guided demo">Stop</button>
       </div>
     </aside>
   </>);
-}
-
-/** Where the guide goes so it does not cover the control: beside it if there is room, else below or above; null puts it back in the corner. */
-function panelPosition(r: DOMRect, width: number, height: number): { top: number; left: number } | null {
-  const vw = window.innerWidth, vh = window.innerHeight, gap = 18, edge = 12;
-  const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
-  let at: { top: number; left: number } | null = null;
-  if (r.right + gap + width + edge <= vw) at = { left: r.right + gap, top: r.top };
-  else if (r.left - gap - width >= edge) at = { left: r.left - gap - width, top: r.top };
-  else if (r.bottom + gap + height + edge <= vh) at = { top: r.bottom + gap, left: r.left };
-  else if (r.top - gap - height >= edge) at = { top: r.top - gap - height, left: r.left };
-  if (!at) return null;
-  // Always fully on screen; and if keeping it on screen would put it over the control, use the corner instead.
-  const top = clamp(at.top, edge, vh - height - edge), left = clamp(at.left, edge, vw - width - edge);
-  const overlaps = left < r.right && left + width > r.left && top < r.bottom && top + height > r.top;
-  return overlaps ? null : { top, left };
 }

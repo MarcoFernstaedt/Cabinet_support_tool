@@ -89,6 +89,15 @@ export async function cabinet(db: Queryable, id: string) {
 }
 
 /** Name search across clients, sites and cabinets. LIKE wildcards in the query are matched literally. */
+/** A cabinet to show a new person around: a real one before a simulated one, one that is online before one that is not. Null when there is none. */
+export async function firstCabinet(db: Queryable): Promise<{ id: string; name: string } | null> {
+  const r = (await db.query<{ id: string; name: string }>(
+    `SELECT k.id, k.name FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
+      WHERE k.status = 'active' AND c.removed_at IS NULL AND s.removed_at IS NULL
+      ORDER BY c.demo, (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < now() - interval '5 minutes'), c.name, s.name, k.name LIMIT 1`)).rows[0];
+  return r ?? null;
+}
+
 export async function search(db: Queryable, q: string) {
   const like = "%" + q.replace(/[\\%_]/g, m => "\\" + m) + "%";
   const rows = (await db.query<{ kind: string; id: string; name: string; context: string }>(

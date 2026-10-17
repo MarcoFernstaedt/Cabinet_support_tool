@@ -22,6 +22,7 @@ export function id(request: FastifyRequest, name = "id"): string {
 }
 
 export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
+  app.get("/api/fleet/first-cabinet", async request => { await o.guards.role(request, "tier1"); return { cabinet: await fleet.firstCabinet(o.pool) }; });
   app.get("/api/fleet/clients", async request => { await o.guards.role(request, "tier1"); return fleet.clients(o.pool); });
 
   app.get("/api/fleet/clients/:id", async request => {

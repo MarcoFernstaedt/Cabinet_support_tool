@@ -1,0 +1,10 @@
+# Dependency updates arrive as reviewed pull requests, never silently. Each ecosystem is checked weekly; security updates are raised at once
+# by GitHub regardless. Docker entries propose new image digests, and the github-actions entry proposes new action versions.
+version: 2
+updates:
+  - { package-ecosystem: npm, directory: /server, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
+  - { package-ecosystem: npm, directory: /console, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
+  - { package-ecosystem: npm, directory: /contracts, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
+  - { package-ecosystem: nuget, directory: /agent, schedule: { interval: weekly }, open-pull-requests-limit: 5 }
+  - { package-ecosystem: github-actions, directory: /, schedule: { interval: weekly } }
+  - { package-ecosystem: docker, directory: /deploy, schedule: { interval: weekly } }

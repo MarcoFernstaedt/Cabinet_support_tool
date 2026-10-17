@@ -18,6 +18,10 @@ export interface Console {
   /** A current authenticator code (moves the test clock on, so each code is new). */
   code(): Promise<string>;
   signIn(page: Page): Promise<void>;
+  /** Another person, with the same password and authenticator as the Admin, who has not seen the welcome tour. */
+  addUser(username: string, role: "tier1" | "tier2" | "admin", canApproveFixes?: boolean): Promise<string>;
+  /** Signs in and stops at what the person sees first: the welcome tour, if they have not had it. */
+  signInAs(page: Page, username: string): Promise<void>;
   /** From the signed-in Fleet page: sets the guided demo up (the simulated fleet) and closes its panel. */
   startDemo(page: Page): Promise<void>;
   /** Confirms the open dialog with a fresh authenticator code. */
@@ -39,24 +43,35 @@ export async function startConsole(staticDir: string): Promise<Console> {
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
   const adminId = randomUUID();
+  const passwordHash = await hashPassword(password);
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed)
-                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, false)`, [adminId, await hashPassword(password), secrets.seal(secret)]);
+                      VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, false, true, $3, false)`, [adminId, passwordHash, secrets.seal(secret)]);
   const code = async () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
+  const signInAs = async (page: Page, username: string) => {
+    await page.goto(origin);
+    await page.getByLabel("Username").fill(username);
+    await page.getByLabel("Password").fill(password);
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await page.getByLabel(/6-digit code/).fill(await code());
+    await page.getByRole("button", { name: "Continue" }).click();
+  };
   const confirmWithCode = async (page: Page) => {
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(await code());
     await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
   };
   return {
     db, origin, adminId, password, code,
+    signInAs,
     async signIn(page) {
-      await page.goto(origin);
-      await page.getByLabel("Username").fill("ada.admin");
-      await page.getByLabel("Password").fill(password);
-      await page.getByRole("button", { name: "Sign in" }).click();
-      await page.getByLabel(/6-digit code/).fill(await code());
-      await page.getByRole("button", { name: "Continue" }).click();
+      await signInAs(page, "ada.admin");
       await page.getByRole("button", { name: "Skip tour" }).click();
       await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
+    },
+    async addUser(username, role, canApproveFixes = false) {
+      const id = randomUUID();
+      await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, tour_completed, can_approve_fixes)
+                          VALUES ($1, $2, $3, $4, $5, false, true, $6, false, $7)`, [id, username, `Test ${username}`, role, passwordHash, secrets.seal(secret), canApproveFixes]);
+      return id;
     },
     confirmWithCode,
     async startDemo(page) {

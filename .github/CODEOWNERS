@@ -1,0 +1,12 @@
+# Changes to these paths need the owner's review before they merge (set "Require review from Code Owners" in the branch protection rule).
+# They are where a mistake or a malicious change would do the most harm: what an agent may run, what the server accepts, how it is built and shipped.
+*                                   @MarcoFernstaedt
+/contracts/                         @MarcoFernstaedt
+/agent/src/Cabinet.Agent.Core/      @MarcoFernstaedt
+/agent/src/Cabinet.Agent.Windows/   @MarcoFernstaedt
+/agent/src/Cabinet.Agent.Broker/    @MarcoFernstaedt
+/server/src/auth/                   @MarcoFernstaedt
+/server/migrations/                 @MarcoFernstaedt
+/deploy/                            @MarcoFernstaedt
+/.github/                           @MarcoFernstaedt
+/CLAUDE.md                          @MarcoFernstaedt

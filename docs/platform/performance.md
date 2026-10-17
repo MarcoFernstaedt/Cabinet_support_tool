@@ -67,6 +67,42 @@ Nothing failed, but heartbeats waited up to 20 s. Every held poll re-checked the
 - A heartbeat records itself and learns whether the cabinet had been offline in one statement, and reads the scanner settings in one query. It skips the rollout transaction unless a rollout is running (checked at most every 5 s per server process).
 - The agent API no longer logs each request; refusals and errors are still logged, and everything that matters is in the audit log.
 
+## Measured again, October 2026 (the platform as it is now)
+
+The earlier results above were measured before load samples, drive history, stored readings, fleet search and the new actions were added. The load tool now sends what a current agent sends (a load sample with every heartbeat, and a drive report once), and the run was repeated on a deliberately small server.
+
+**Setup:** the application server pinned to **2 cores** with a **1 GB** JavaScript heap limit (about what a 2 vCPU, 4 GB virtual machine gives it), PostgreSQL 16 on the same machine, and the load generator on the other two cores. 8,000 simulated agents, each with its own certificate, ramping up over 120 s and then running for 7 minutes (6 event batches an hour each, 2 commands a second).
+
+| | Count | p50 | p95 | p99 | Max |
+|---|---|---|---|---|---|
+| Heartbeat (with a load sample; the first also carries a drive report) | 52,004 | 5.7 ms | 33 ms | 216 ms | 1.3 s |
+| Event batch | 5,215 | 5.6 ms | 17 ms | 95 ms | 398 ms |
+| Command result upload | 534 | 4.5 ms | 10 ms | 19 ms | 113 ms |
+| **Command delivery, issue to cabinet** | 534 | **6 ms** | **14 ms** | | 192 ms |
+| Long poll with no command (should be 25 s) | 119,579 | 25.002 s | 25.016 s | 25.094 s | 25.6 s |
+
+177,332 requests, **0 failed**, every command delivered. After the ramp, heartbeats settled at p95 10 to 15 ms.
+Server process memory peaked at **1.4 GB** (the 8,000 held connections are most of it); average CPU was about **40% of one core**.
+
+**The ramp matters.** An earlier attempt that connected all 8,000 agents in 90 s (89 new connections a second, each a TLS handshake with a client certificate checked) missed the heartbeat threshold during the ramp (p95 1.7 s over the whole run) and was perfectly steady afterwards. At 120 s (67 a second) it passes. After a server restart the agents reconnect with a randomised backoff, so a real restart looks like the 120 s ramp, not a 90 s one. If that ever becomes a concern, run two server processes behind the load balancer.
+
+### What size of server for how many cabinets
+
+| Cabinets | Server memory (process) | Application cores | Database size after 14 days of load samples + a year of drive history |
+|---|---|---|---|
+| 100 | about 170 MB (estimated) | 1 | under 50 MB |
+| 1,000 | about 290 MB (measured) | 1 | about 200 MB (estimated) |
+| 8,000 | about 1.4 GB (measured) | 2 | about 1.5 GB (estimated) |
+
+A **2 vCPU, 4 GB** virtual machine running the application and PostgreSQL together carries 8,000 cabinets as measured above, with room left over; 1,000 cabinets fit in 2 GB. Memory grows with the cabinets because each holds a connection open. PostgreSQL settings for such a machine: `shared_buffers` 1 GB, `effective_cache_size` 2 GB, `max_connections` 50 (the application keeps a small pool), and autovacuum left on, because load samples are deleted by the nightly retention job.
+
+### What grows, and what keeps it small
+
+- **Load samples:** one per cabinet every 15 minutes, 14 days kept, pruned nightly: under 1,400 rows a cabinet (about 120 bytes each).
+- **Drive reports:** one per drive every 12 hours at most, 400 days kept: about 800 rows a drive, in the order of 100 KB.
+- **Events, alerts, firewall history, diagnoses, boots, fleet jobs and command results** are pruned by the retention settings (Admin → Settings). The audit log is never pruned.
+- **Fleet search** scans stored readings with a time limit of 15 seconds and one search at a time per person.
+
 ## Thresholds
 
 The load tool fails the run when any of these is missed. They are in `server/test/load/agents.ts` (`THRESHOLDS`).

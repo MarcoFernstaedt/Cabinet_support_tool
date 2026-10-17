@@ -42,6 +42,8 @@ export async function runRetention(pool: pg.Pool): Promise<RetentionRun> {
     const diagnoses = (await c.query("DELETE FROM diagnoses WHERE started_at < now() - make_interval(days => $1)", days(r.diagnosesDays))).rowCount ?? 0;
     // Load samples are for trend charts only, so two weeks is all they are kept.
     await c.query("DELETE FROM health_samples WHERE at < now() - interval '14 days'");
+    // A drive's history is kept for 400 days: long enough to see a year of wear.
+    await c.query("DELETE FROM drive_samples WHERE at < now() - interval '400 days'");
     const boots = (await c.query("DELETE FROM cabinet_boots WHERE booted_at < now() - make_interval(days => $1)", days(r.bootsDays))).rowCount ?? 0;
     // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
     await c.query(`DELETE FROM fleet_job_targets WHERE job_id IN
