@@ -17,7 +17,7 @@ A STRIDE review of the Mashura cabinet diagnostics platform, October 2026. It co
 
 ```
  Support staff browser ──HTTPS (console, Caddy, IP allow-list)──▶ Console API ──┐
-                                                                                ├──▶ PostgreSQL (app role, least privilege)
+                                                                                ├──▶ SQL Server (app role, least privilege)
  Cabinet: agent network service ──mutual TLS, outbound only──▶ Agent API ───────┘
      │  (low privilege, no admin rights)
      └── named pipe, ACL to the service SID ──▶ Broker (SYSTEM, never opens a network connection)

@@ -80,7 +80,7 @@ Each new event is checked against the live symptom rules in the transaction that
 - **Claims are atomic** (`UPDATE … WHERE state = 'open'`). The loser is told who won, and both outcomes are audited.
 - **Rules:** a Tier 2 user's rule is a proposal until an Admin approves it; an Admin's goes live at once. Both need step-up, and every change is kept in `symptom_rule_history` and the audit log.
 - **Offline:** a job every minute raises Cabinet offline past the threshold (`alerts.offlineDays`, default 5) and resolves it when the cabinet is back.
-- **Live stream:** new major alerts go to every signed-in console, and claims and resolutions go to everyone (PostgreSQL `NOTIFY alerts`).
+- **Live stream:** new major alerts go to every signed-in console, and claims and resolutions go to everyone (the notifications table, read by every server process).
 
 ## Writes and the software library
 
@@ -162,11 +162,12 @@ Security behaviour:
 ## Run it locally
 
 ```bash
-createdb cabinet
-export DATABASE_OWNER_URL=postgres://owner@localhost/cabinet        # migrations only
+# SQL Server 2022 (for example: docker run -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD='<strong password>' -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest)
+export DATABASE_OWNER_URL='sqlserver://sa:<password>@localhost:1433/cabinet?trustServerCertificate=true'   # creation and migrations only
+node ../deploy/database-setup.mjs create
 npm ci && npm run build && npm run admin -- migrate
-psql cabinet -c "CREATE ROLE cabinet_app_dev LOGIN PASSWORD '<choose one>'; GRANT cabinet_app TO cabinet_app_dev;"
-export DATABASE_URL=postgres://cabinet_app_dev:<password>@localhost/cabinet
+APP_DB_PASSWORD=<24 to 128 letters and digits> node ../deploy/database-setup.mjs login
+export DATABASE_URL='sqlserver://cabinet_app_login:<that password>@localhost:1433/cabinet?trustServerCertificate=true'   # use encrypt with a real certificate in production
 export DEV_PKI_DIR=$HOME/.cabinet-dev-pki AGENT_API_HOSTNAMES=localhost,<this machine's name or IP>
 export CONSOLE_ORIGIN=http://localhost:8080 CONSOLE_PORT=8080 CONSOLE_SECRET_KEY=$(openssl rand -base64 32)
 (cd ../console && npm ci && npm run build)
@@ -193,7 +194,7 @@ On the cabinet, in an elevated PowerShell:
 
 ## Tests
 
-`npm test` needs a PostgreSQL where `TEST_DATABASE_ADMIN_URL` (default `postgres://platform_owner:dev-only-local@localhost:5432/postgres`) can create databases. Each test file gets its own database.
+`npm test` needs a SQL Server 2022 where `TEST_DATABASE_ADMIN_URL` (default `sqlserver://sa:Dev-Only-Pass-1%21@localhost:1433/master?trustServerCertificate=true`) can create databases. Each test file gets its own database.
 
 The end-to-end test runs the real agent connection code against the server when `TEST_AGENT_DLL` points at the built `agent/tests/Cabinet.Agent.TestAgent`, as CI does.
 

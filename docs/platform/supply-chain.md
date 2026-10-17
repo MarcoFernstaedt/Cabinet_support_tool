@@ -19,7 +19,7 @@ The agent runs on clinic computers with administrator rights in one small part (
 | Known-vulnerability gates that fail the build (`npm audit`, `dotnet list package --vulnerable --include-transitive`) | CI | In place |
 | Registry signatures and provenance of every installed npm package verified (`npm audit signatures`) | CI | In place |
 | Software bill of materials per build (CycloneDX for each Node project; the NuGet lock files for the agent) | CI artifact | In place |
-| Base images pinned by digest as well as tag (Node, .NET SDK, PostgreSQL, Caddy) | `deploy/Dockerfile`, `deploy/compose.yaml`, CI | In place |
+| Base images pinned by digest as well as tag (Node, .NET SDK, SQL Server, Caddy) | `deploy/Dockerfile`, `deploy/compose.yaml`, CI | In place |
 | Container runs as an unprivileged user, no shell in the runtime stage's entry point | `deploy/Dockerfile` | In place |
 | Workflow token is read-only; checkouts do not keep credentials | `.github/workflows` | In place |
 | Automated update proposals, reviewed one by one | `.github/dependabot.yml` | In place |

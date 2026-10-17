@@ -150,7 +150,7 @@ Records it holds:
 - Audit entry: as above
 - Rollout: ID, version, batches, state, started by
 
-Database engine: PostgreSQL, with a separate database account for the audit table that can only insert. Schema changes go through versioned migration files checked into the repository, never manual edits.
+Database engine: Microsoft SQL Server 2022 (decided by the owner in October 2026; the first milestones used PostgreSQL, see docs/platform/sqlserver-port.md). The application's database role has no right to write the audit tables: entries are appended only through a stored procedure that chains their hashes, and an `INSTEAD OF` trigger refuses to change or delete an entry even for the owner. Schema changes go through versioned migration files checked into the repository, never manual edits.
 
 ## Retention
 

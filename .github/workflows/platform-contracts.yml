@@ -11,15 +11,18 @@ jobs:
   contracts-server-agent:
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:16.15-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest@sha256:cf8f0ab2ebe61feec2eed2629061a07d247f791c2a8ddda74a4ac9f06a291718
         env:
-          POSTGRES_PASSWORD: ci-only-not-a-secret
-        ports: ['5432:5432']
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Developer
+          MSSQL_SA_PASSWORD: Ci-only-not-a-secret-1
+        ports: ['1433:1433']
         options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P Ci-only-not-a-secret-1 -Q 'SELECT 1' -b -o /dev/null"
+          --health-interval 5s --health-timeout 5s --health-retries 30 --health-start-period 20s
     env:
-      TEST_DATABASE_ADMIN_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/postgres
+      TEST_DATABASE_ADMIN_URL: sqlserver://sa:Ci-only-not-a-secret-1@localhost:1433/master?trustServerCertificate=true
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,14 +55,15 @@ jobs:
         working-directory: server
         timeout-minutes: 10
         env:
-          DATABASE_OWNER_URL: postgres://postgres:ci-only-not-a-secret@localhost:5432/cabinet_load
-          DATABASE_URL: postgres://cabinet_load_app:ci-only-not-a-secret@localhost:5432/cabinet_load
+          DATABASE_OWNER_URL: sqlserver://sa:Ci-only-not-a-secret-1@localhost:1433/cabinet_load?trustServerCertificate=true
+          DATABASE_URL: sqlserver://cabinet_app_login:CiOnlyNotASecret0123456789Aa1@localhost:1433/cabinet_load?trustServerCertificate=true
+          APP_DB_PASSWORD: CiOnlyNotASecret0123456789Aa1
           DEV_PKI_DIR: ${{ runner.temp }}/load-pki
           AGENT_API_HOSTNAMES: localhost
         run: |
-          psql "$TEST_DATABASE_ADMIN_URL" -c "CREATE DATABASE cabinet_load"
+          node ../deploy/database-setup.mjs create
           node dist/src/cli.js migrate
-          psql "$DATABASE_OWNER_URL" -c "CREATE ROLE cabinet_load_app LOGIN PASSWORD 'ci-only-not-a-secret'" -c "GRANT cabinet_app TO cabinet_load_app"
+          node ../deploy/database-setup.mjs login
           node dist/src/main.js > "$RUNNER_TEMP/load-server.log" 2>&1 &
           sleep 5
           node dist/test/load/agents.js setup --count 1000 --state "$RUNNER_TEMP/load-state.json"

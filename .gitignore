@@ -67,3 +67,4 @@ data/
 # Demo deployment (deploy/): the real environment file holds generated secrets; only the example is committed.
 deploy/.env
 !deploy/.env.example
+.claude/worktrees/
