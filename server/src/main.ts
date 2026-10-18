@@ -1,4 +1,6 @@
-// Starts the agent API, the console API when configured, and the offline alert job.
+// Starts the agent API, the console API when configured, and the background jobs. With AGENT_API_WORKERS > 1 the agent API runs in
+// that many worker processes sharing its port (node:cluster), and this primary process runs the console and the background jobs only,
+// so a 10,000-cabinet fleet is not limited to one event loop. Each process has its own pools, notification feed and presence flush.
 import { scheduleDailyJobs } from "./services/maintenance.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
@@ -23,78 +25,123 @@ import { DemoSimulator } from "./demo/demo.js";
 import { checkQuietLoops } from "./services/crashes.js";
 import { resumeJobs } from "./services/fleet-jobs.js";
 
+import cluster from "node:cluster";
+import { createHmac, randomBytes } from "node:crypto";
 const config = loadConfig();
-// Three pools, so neither console work nor a background job can take the connections the agents need: the agent API's (and the
-// notification feed that wakes its long polls), the console's, and the background jobs' (whose statements may run longer).
-const agentPool = await createPool(config.databaseUrl, { max: config.database.agentPoolMax });
-const consolePool = await createPool(config.databaseUrl, { max: config.database.consolePoolMax });
-const jobsPool = await createPool(config.databaseUrl, { max: config.database.jobsPoolMax, min: 1, requestTimeoutMs: 120_000 });
+const workers = config.agentApi.workers;
+const servesAgents = workers === 1 || cluster.isWorker;
+const runsServices = workers === 1 || cluster.isPrimary;
+
+// Pools: the agent API's (and the notification feed that wakes its long polls), the console's, and the background jobs' (whose
+// statements may run longer), so neither console work nor a job can take the connections the agents need.
+const agentPool = servesAgents ? await createPool(config.databaseUrl, { max: config.database.agentPoolMax }) : null;
+const consolePool = runsServices ? await createPool(config.databaseUrl, { max: config.database.consolePoolMax }) : null;
+const jobsPool = runsServices ? await createPool(config.databaseUrl, { max: config.database.jobsPoolMax, min: 1, requestTimeoutMs: 120_000 }) : null;
 // One poller of the notifications table per process; the command long poll and the consoles' live stream listen to it.
-const feed = new NotificationFeed(agentPool);
+const feed = new NotificationFeed((agentPool ?? consolePool)!);
 await feed.start();
 const key = await issuingKey(config);
 mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
 const packages = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
 mkdirSync(config.releases.dir, { recursive: true, mode: 0o700 });
 const releases = { dir: config.releases.dir, maxBytes: config.releases.maxBytes, keys: ReleaseKeys.fromFolder(config.releases.keysDir) };
-const notifier = new CommandNotifier(feed);
-// Without this the long polls would fall back to re-checking the database every 5 s.
-await notifier.start();
-const log = (message: string): void => { app.log.error(message); };
-// Contact from long polls, written in one batched statement a minute.
-const presence = new Presence(agentPool, message => log(message));
-presence.start();
-const { newConnectionsPerSecond, requestsPerSecond } = config.agentApi.admission;
-const app = await buildAgentApi({ pool: agentPool, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
-  ...(config.agentApi.longPollSeconds !== undefined ? { longPollMs: config.agentApi.longPollSeconds * 1000 } : {}),
-  admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2,
-    maxPendingAcquires: config.database.agentPoolMax } });
-await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
+let logError: (message: string) => void = message => console.error(message);
 
-let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
-let stream: ResultStream | null = null;
-if (config.console) {
-  stream = new ResultStream(feed, consolePool);
-  await stream.start();
-  consoleApp = await buildConsoleApi({ pool: consolePool, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-    stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
-  await consoleApp.listen({ host: config.console.host, port: config.console.port });
+// ---- The agent API (in every worker, or in the only process) ---------------------------------------------------------------------
+let app: Awaited<ReturnType<typeof buildAgentApi>> | null = null;
+let notifier: CommandNotifier | null = null;
+let presence: Presence | null = null;
+if (servesAgents) {
+  notifier = new CommandNotifier(feed);
+  // Without this the long polls would fall back to re-checking the database every 5 s.
+  await notifier.start();
+  // Contact from long polls, written in one batched statement a minute.
+  presence = new Presence(agentPool!, message => logError(message));
+  presence.start();
+  // Workers share one secret (from the primary), so a TLS session resumes in whichever worker the reconnect reaches.
+  const secret = process.env.AGENT_TICKET_SECRET;
+  const ticketKey = workers > 1 && secret ? (day: number) => createHmac("sha384", Buffer.from(secret, "hex")).update(`ticket:${day}`).digest() : undefined;
+  const { newConnectionsPerSecond, requestsPerSecond } = config.agentApi.admission;
+  app = await buildAgentApi({ pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
+    ...(config.agentApi.longPollSeconds !== undefined ? { longPollMs: config.agentApi.longPollSeconds * 1000 } : {}),
+    ...(ticketKey ? { ticketKey } : {}),
+    admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2,
+      maxPendingAcquires: config.database.agentPoolMax } });
+  const agentLog = app.log;
+  logError = message => agentLog.error(message);
+  await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
 }
 
-// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs. Not right after the server (or its
-// database) was away, though: every cabinet would look silent then (FleetContact holds those judgements until the fleet has reported again).
-// Contact includes long polls (Presence writes them each minute), so 1.1 agents heartbeating every 5 minutes stay online.
-fleetContact.start();
-let minutes = 0;
-const offlineJob = setInterval(() => {
-  checkOffline(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "offline alert check failed"));
-  checkSiteOutages(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "site outage check failed"));
-  expireUnanswered(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "unanswered command check failed"));
-  expireRules(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "rule expiry failed"));
-  checkRollouts(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "rollout check failed"));
-  checkQuietLoops(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "reboot loop check failed"));
-  // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
-  if (minutes++ % 60 === 0)
-    checkExpiringCertificates(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "certificate expiry check failed"));
-}, 60_000);
+// ---- The agent API workers (primary of a multi-process server) ------------------------------------------------------------------
+let stopping = false;
+if (workers > 1 && cluster.isPrimary) {
+  const env = { AGENT_TICKET_SECRET: randomBytes(32).toString("hex") };
+  const fork = (): void => { cluster.fork(env); };
+  for (let i = 0; i < workers; i++) fork();
+  // A worker that stops on its own is replaced (after a pause, so a crash loop does not spin).
+  cluster.on("exit", (w, code, signal) => {
+    if (stopping) return;
+    logError(`agent API worker ${w.process.pid} stopped (${signal ?? code}); starting another`);
+    setTimeout(fork, 2_000);
+  });
+}
 
-// Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
-const demo = new DemoSimulator(jobsPool, message => app.log.error(message));
-demo.start();
+// ---- The console and the background jobs (in the primary, or in the only process) -----------------------------------------------
+let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
+let stream: ResultStream | null = null;
+let stopServices = (): void => undefined;
+if (runsServices) {
+  if (config.console) {
+    stream = new ResultStream(feed, consolePool!);
+    await stream.start();
+    consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
+      stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
+    await consoleApp.listen({ host: config.console.host, port: config.console.port });
+  }
+  const jobs = jobsPool!;
+  const failed = (what: string) => (e: unknown): void => logError(`${what} failed: ${JSON.stringify(errorInfo(e))}`);
 
-// Fleet jobs that were running when the server stopped carry on where they left off.
-resumeJobs(jobsPool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: errorInfo(e) }, "resuming fleet jobs failed"));
+  // Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs. Not right after the server (or its
+  // database) was away, though: every cabinet would look silent then (FleetContact holds those judgements until the fleet has reported again).
+  // Contact includes long polls (Presence writes them each minute), so 1.1 agents heartbeating every 5 minutes stay online.
+  fleetContact.start();
+  let minutes = 0;
+  const offlineJob = setInterval(() => {
+    checkOffline(jobs).catch(failed("offline alert check"));
+    checkSiteOutages(jobs).catch(failed("site outage check"));
+    expireUnanswered(jobs).catch(failed("unanswered command check"));
+    expireRules(jobs).catch(failed("rule expiry"));
+    checkRollouts(jobs).catch(failed("rollout check"));
+    checkQuietLoops(jobs).catch(failed("reboot loop check"));
+    // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
+    if (minutes++ % 60 === 0) checkExpiringCertificates(jobs).catch(failed("certificate expiry check"));
+  }, 60_000);
 
-// The daily audit chain check (a break raises a security alert) and retention.
-const stopDaily = scheduleDailyJobs(jobsPool, message => app.log.error(message), { at: config.maintenanceAt });
+  // Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
+  const demo = new DemoSimulator(jobs, message => logError(message));
+  demo.start();
+
+  // Fleet jobs that were running when the server stopped carry on where they left off.
+  resumeJobs(jobs, undefined, message => logError(message)).catch(failed("resuming fleet jobs"));
+
+  // The daily audit chain check (a break raises a security alert) and retention.
+  const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
+  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); };
+}
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every
-// cabinet back in the same second; the contact noted since the last minute is written before the pools close.
+// cabinet back in the same second; the contact noted since the last minute is written before the pools close. The primary of a
+// multi-process server stops its workers first and waits for them.
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => { void (async () => {
-    clearInterval(offlineJob); demo.stop(); stopDaily();
+    stopping = true;
+    stopServices();
+    if (workers > 1 && cluster.isPrimary) {
+      const alive = Object.values(cluster.workers ?? {}).filter((w): w is NonNullable<typeof w> => !!w);
+      await Promise.all(alive.map(w => new Promise<void>(resolve => { w.once("exit", () => resolve()); w.process.kill(signal); })));
+    }
     await flushRuleHits().catch(() => undefined);
-    await app.close(); await presence.stop(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); feed.stop();
-    await Promise.all([agentPool.end(), consolePool.end(), jobsPool.end()]);
+    await app?.close(); await presence?.stop(); await consoleApp?.close(); await stream?.stop(); await notifier?.stop(); feed.stop();
+    await Promise.all([agentPool?.end(), consolePool?.end(), jobsPool?.end()]);
     process.exit(0);
   })(); });

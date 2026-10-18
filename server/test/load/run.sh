@@ -20,6 +20,7 @@
 #                       the run; put back to unlimited afterwards. Express itself uses at most 4 cores.
 #   OUT_DIR             where the report and server log are kept, default ./load-results
 #   SKIP_BUILD=1        do not run npm run build
+#   SERVER_NODE_OPTIONS extra node options for the server, e.g. "--cpu-prof --cpu-prof-dir=/tmp/prof" to profile it
 set -euo pipefail
 
 if [ $# -lt 3 ]; then
@@ -107,7 +108,7 @@ echo "== $AGENTS cabinets and certificates"
 taskset -c "$GEN_CORES" node dist/test/load/agents.js setup --count "$AGENTS" --state "$WORK/state.json"
 
 start_server() {
-  taskset -c "$SERVER_CORES" node --max-old-space-size="$SERVER_HEAP_MB" dist/src/main.js >>"$SERVER_LOG" 2>&1 &
+  taskset -c "$SERVER_CORES" node ${SERVER_NODE_OPTIONS:-} --max-old-space-size="$SERVER_HEAP_MB" dist/src/main.js >>"$SERVER_LOG" 2>&1 &
   echo $! >"$PIDFILE"
 }
 cat >"$WORK/restart-server.sh" <<EOF
@@ -119,7 +120,7 @@ kill "\$pid" 2>/dev/null
 for i in \$(seq 1 100); do kill -0 "\$pid" 2>/dev/null || break; sleep 0.1; done
 kill -9 "\$pid" 2>/dev/null
 cd "$SERVER_DIR"
-taskset -c "$SERVER_CORES" node --max-old-space-size="$SERVER_HEAP_MB" dist/src/main.js >>"$SERVER_LOG" 2>&1 &
+taskset -c "$SERVER_CORES" node ${SERVER_NODE_OPTIONS:-} --max-old-space-size="$SERVER_HEAP_MB" dist/src/main.js >>"$SERVER_LOG" 2>&1 &
 echo \$! >"$PIDFILE"
 echo "server restarted as \$!"
 EOF

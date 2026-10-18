@@ -78,6 +78,9 @@ export interface AgentApiOptions {
   admission?: Partial<Admission>;
   /** How long an accepted certificate is remembered for its connection before it is checked again. */
   authCacheMs?: number;
+  /** The TLS session-ticket key for a UTC day (48 bytes). Given when several processes serve the agent port, so a session resumes in
+   *  any of them; otherwise each process uses its own random key, changed daily. */
+  ticketKey?: (day: number) => Buffer;
   logger?: boolean;
 }
 
@@ -193,7 +196,12 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     http2Sessions.add(session);
     session.once("close", () => http2Sessions.delete(session));
   });
-  const ticketTimer = setInterval(() => server.setTicketKeys(randomBytes(48)), 24 * 3600_000);
+  const today = (): number => Math.floor(Date.now() / 86_400_000);
+  let ticketDay = today();
+  if (o.ticketKey) server.setTicketKeys(o.ticketKey(ticketDay));
+  const ticketTimer = o.ticketKey
+    ? setInterval(() => { if (today() !== ticketDay) { ticketDay = today(); server.setTicketKeys(o.ticketKey!(ticketDay)); } }, 60_000)
+    : setInterval(() => server.setTicketKeys(randomBytes(48)), 24 * 3600_000);
   ticketTimer.unref();
 
   // ---- Load: the database pool's queue and the event loop's lag ------------------------------------------------------------

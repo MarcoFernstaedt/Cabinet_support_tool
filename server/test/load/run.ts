@@ -74,7 +74,25 @@ const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, Math
 interface ProcSample { at: number; cpuTicks: number; rssKb: number }
 const CLK_TCK = 100;
 
+/** The process and its direct children (the agent API workers of a multi-process server), summed. */
 function readProc(pid: number): ProcSample | null {
+  const self = readOne(pid);
+  if (!self) return null;
+  try {
+    for (const d of readdirSync("/proc")) {
+      if (!/^\d+$/.test(d) || Number(d) === pid) continue;
+      try {
+        const stat = readFileSync(`/proc/${d}/stat`, "utf8");
+        if (Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]) !== pid) continue;
+        const child = readOne(Number(d));
+        if (child) { self.cpuTicks += child.cpuTicks; self.rssKb += child.rssKb; }
+      } catch { /* gone */ }
+    }
+  } catch { /* no /proc */ }
+  return self;
+}
+
+function readOne(pid: number): ProcSample | null {
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     const after = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
