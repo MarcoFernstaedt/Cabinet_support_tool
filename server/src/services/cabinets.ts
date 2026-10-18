@@ -11,6 +11,7 @@ import { effectiveWatched } from "./watched-services.js";
 import { parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
+import { ISSUE } from "./rules.js";
 
 export const OFFLINE_AFTER_MS = 5 * 60_000;
 /** The same tolerance as services/time.ts CLOCK_TOLERANCE_SECONDS (kept here to avoid a circular import). */
@@ -44,6 +45,7 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
 }
 
 export interface HeartbeatOutcome {
+  /** It had been silent past the offline threshold and has an open offline alert to resolve. */
   wasOffline: boolean; firewallChanged: boolean; timeCheck: boolean;
   /** The scanner hardware IDs the agent's watcher looks for (null: find it automatically), and the services it keeps running. */
   scannerIds: string[] | null; watched: string[];
@@ -58,7 +60,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   // the policy or the site's zone. The time alerts are checked again when the zone changed or the clock is, or was, off.
   // prev_at is when the previous uptime was reported (uptime_at), not the last contact: polls move last_heartbeat_at too.
   // The settings columns are named ks, ss, … here, which the data layer does not parse as JSON, so they are parsed below.
-  const r = (await db.query<{ was_offline: number; firewall_changed: number; prev_uptime: string | null; prev_at: Date | null; time_check: number;
+  const r = (await db.query<{ was_offline: number; offline_open: number; firewall_changed: number; prev_uptime: string | null; prev_at: Date | null; time_check: number;
     ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null }>(
     `DECLARE @r TABLE (was_offline bit, firewall_changed bit, prev_uptime bigint NULL, prev_at datetime2(3) NULL, time_check bit);
      UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), uptime_at = SYSUTCDATETIME(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = CAST($5 AS float),
@@ -73,7 +75,9 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
      IF CAST($10 AS int) IS NOT NULL AND EXISTS (SELECT 1 FROM @r)
        INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
        SELECT $1, SYSUTCDATETIME(), $10, $11, $12 WHERE NOT EXISTS (SELECT 1 FROM health_samples WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1 AND [at] > DATEADD(minute, -15, SYSUTCDATETIME()));
-     SELECT r.was_offline, r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw
+     -- Whether an offline alert is open, so the heartbeat after a silence resolves it only when there is one to resolve.
+     SELECT r.was_offline, CAST(CASE WHEN r.was_offline = 1 AND EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $13 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS offline_open,
+            r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw
        FROM @r r CROSS JOIN (
          SELECT k.scanner_hardware_ids AS ks, s.scanner_hardware_ids AS ss, c.scanner_hardware_ids AS cs,
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'scanner.hardwareIds') AS fs,
@@ -82,7 +86,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
            FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1) x;`,
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
      h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE,
-     h.health?.cpuPercent ?? null, h.health?.memoryUsedPercent ?? null, h.health?.diskFreePercent ?? null], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
+     h.health?.cpuPercent ?? null, h.health?.memoryUsedPercent ?? null, h.health?.diskFreePercent ?? null, ISSUE.offline], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).
   if (r && h.health?.drives && h.health.drives.length > 0) await recordDriveReport(db, cabinetId, h.health.drives);
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });
@@ -90,7 +94,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   const fleetWatched = r ? parseJson<unknown>(r.fw) : null;
   const watched = r ? effectiveWatched({ cabinet: parseJson<string[]>(r.kw), site: parseJson<string[]>(r.sw), client: parseJson<string[]>(r.cw),
     fleet: Array.isArray(fleetWatched) ? fleetWatched as string[] : null }).effective : [];
-  return { wasOffline: !!r?.was_offline, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
+  return { wasOffline: !!r?.was_offline && !!r?.offline_open, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
     scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched };
 }
 

@@ -342,7 +342,8 @@ export async function run(o: RunOptions): Promise<number> {
     const sp = serverProc.samples[serverProc.samples.length - 1];
     const req = series.totalPrefix("req|", s - 30, s);
     console.log(`  ${s}s: ${(req / 30).toFixed(0)} req/s, ${g?.open ?? 0} connections, ${g?.online ?? 0} online, ${g?.linkDown ?? 0} links down, ${g?.queued ?? 0} events queued, ` +
-      `${issuedCmds.length} commands issued, hs full ${series.total("hs|full", s - 30, s)} / resumed ${series.total("hs|resumed", s - 30, s)} in 30 s` +
+      `${issuedCmds.length} commands issued, hs full ${series.total("hs|full", s - 30, s)} / resumed ${series.total("hs|resumed", s - 30, s)} in 30 s, ` +
+      `503 ${series.totalPrefix("st|503", s - 30, s)} / 429 ${series.totalPrefix("st|429", s - 30, s)} / net errors ${series.totalPrefix("st|net:", s - 30, s)} in 30 s` +
       (sp ? `, server ${sp.cpuPercent.toFixed(0)}% CPU ${sp.rssMb.toFixed(0)} MB` : ""));
   }, 30_000);
 

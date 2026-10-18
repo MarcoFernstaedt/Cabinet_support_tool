@@ -22,12 +22,21 @@ export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opene
   // The scope's own id is the last parameter of each statement, so its number is given when the statement is written.
   const [whereAt, args] = scope === "all" ? [() => "1 = 1", []] : "cabinetId" in scope ? [(n: number) => `k.id = $${n}`, [scope.cabinetId]] : [(n: number) => `k.site_id = $${n}`, [scope.siteId]];
   let opened = 0, resolved = 0;
+  // One cabinet (a heartbeat): a lock-free read first says what is to be done; usually nothing, so no range-locking MERGE runs.
+  const need = "cabinetId" in (scope as object) ? (await db.query<{ zone: boolean; clock: boolean; zone_open: boolean; clock_open: boolean }>(
+    `SELECT CAST(CASE WHEN ${ZONE_WRONG} THEN 1 ELSE 0 END AS bit) AS zone, CAST(CASE WHEN ${CLOCK_OFF} THEN 1 ELSE 0 END AS bit) AS clock,
+            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $2 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS zone_open,
+            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS clock_open
+       FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1 AND k.status = 'active'`,
+    [(scope as { cabinetId: string }).cabinetId, ISSUE.timeZone, ISSUE.clock])).rows[0] ?? { zone: false, clock: false, zone_open: false, clock_open: false } : null;
   for (const [issueId, condition, fixed] of [[ISSUE.timeZone, ZONE_WRONG, "The cabinet is in its site's time zone again."],
                                              [ISSUE.clock, CLOCK_OFF, "The cabinet's clock is within two minutes of the server's again."]] as const) {
+    const [wrong, open] = need === null ? [true, true] : issueId === ISSUE.timeZone ? [need.zone, need.zone_open] : [need.clock, need.clock_open];
+    if (!wrong && !open) continue;
     const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [issueId])).rows[0];
     if (!issue) continue;
     // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
-    const o = await db.query<{ act: string }>(
+    const o = !wrong ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
       `DECLARE @o TABLE (act nvarchar(10));
        MERGE alerts WITH (HOLDLOCK) AS t
        USING (SELECT k.id AS cabinet_id FROM cabinets k JOIN sites s ON s.id = k.site_id
@@ -39,7 +48,7 @@ export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opene
         OUTPUT $action INTO @o (act);
        SELECT act FROM @o;`, [issueId, issue.severity, `issue:${issueId}`, Math.round(OFFLINE_AFTER_MS / 1000), issue.name, ...args]);
     opened += o.rows.filter(r => r.act === "INSERT").length;
-    const r = await db.query(
+    const r = !open ? { rowCount: 0 } : await db.query(
       `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2
          FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id
         WHERE a.issue_type_id = CAST($1 AS uniqueidentifier) AND a.state <> 'resolved' AND ${whereAt(3)}

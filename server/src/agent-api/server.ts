@@ -199,10 +199,12 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   // ---- Load: the database pool's queue and the event loop's lag ------------------------------------------------------------
   const lag = monitorEventLoopDelay({ resolution: 20 });
   lag.enable();
-  let lagMs = 0;
-  const lagTimer = setInterval(() => { lagMs = lag.percentile(99) / 1e6; lag.reset(); }, 1_000);
+  // Lag counts only when it lasts: three seconds in a row over the limit. One garbage-collection pause must not turn away a minute of
+  // agents (a shed agent stays away 30 to 90 s), while a server that is really behind still sheds within seconds.
+  let lagSeconds = 0;
+  const lagTimer = setInterval(() => { lagSeconds = lag.percentile(99) / 1e6 > admission.maxEventLoopLagMs ? lagSeconds + 1 : 0; lag.reset(); }, 1_000);
   lagTimer.unref();
-  const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.pending > admission.maxPendingAcquires || lagMs > admission.maxEventLoopLagMs);
+  const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.pending > admission.maxPendingAcquires || lagSeconds >= 3);
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   const admitted = new WeakSet<object>();

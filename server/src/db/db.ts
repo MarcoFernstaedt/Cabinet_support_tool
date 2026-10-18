@@ -207,8 +207,10 @@ export const isConstraintViolation = (e: unknown): boolean => numberOf(e) === 54
 export const isDeadlock = (e: unknown): boolean => numberOf(e) === 1205;
 /** What may be logged about an error: its kind, the driver's code and SQL Server's error number. Never the message, which can carry data. */
 export function errorInfo(e: unknown): { type: string; code?: string; number?: number } {
-  const x = e as { name?: string; code?: unknown; number?: unknown } | null;
-  return { type: x?.name ?? typeof e, ...(typeof x?.code === "string" ? { code: x.code } : {}), ...(typeof x?.number === "number" ? { number: x.number } : {}) };
+  const x = e as { name?: string; code?: unknown; number?: unknown; constructor?: { name?: string } } | null;
+  // Some libraries leave name as "Error" (tarn's pool TimeoutError), so the class name is used when it says more.
+  const type = x?.name && x.name !== "Error" ? x.name : x?.constructor?.name && x.constructor.name !== "Object" ? x.constructor.name : x?.name ?? typeof e;
+  return { type, ...(typeof x?.code === "string" ? { code: x.code } : {}), ...(typeof x?.number === "number" ? { number: x.number } : {}) };
 }
 /**
  * The database is too busy or briefly unavailable: no free connection within the acquire limit, a statement stopped by its time

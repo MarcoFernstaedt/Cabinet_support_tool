@@ -1,7 +1,7 @@
 // Presence (docs/spec/03-protocol.md "Protocol 1.1"): a long poll counts as contact. Contact is kept in memory and written in one
 // batched statement a minute, into cabinets.last_heartbeat_at, which every "offline after 5 minutes" judgement reads. With polls every
 // 25 s and a flush every 60 s, a connected cabinet's recorded contact is never more than about 90 s old, well inside the threshold.
-import type { Queryable } from "../db/db.js";
+import { errorInfo, type Queryable } from "../db/db.js";
 
 /** Rows per statement: OPENJSON of 2,000 small objects is one cheap set-based update. */
 const CHUNK = 2_000;
@@ -21,7 +21,7 @@ export class Presence {
 
   start(intervalMs = 60_000): void {
     if (this.timer) return;
-    this.timer = setInterval(() => { this.flush().catch(e => this.log(`presence flush failed: ${(e as Error).name}`)); }, intervalMs);
+    this.timer = setInterval(() => { this.flush().catch(e => this.log(`presence flush failed: ${JSON.stringify(errorInfo(e))}`)); }, intervalMs);
     this.timer.unref();
   }
 
@@ -29,7 +29,7 @@ export class Presence {
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
-    await this.flush().catch(e => this.log(`presence flush failed: ${(e as Error).name}`));
+    await this.flush().catch(e => this.log(`presence flush failed: ${JSON.stringify(errorInfo(e))}`));
   }
 
   /** Writes every contact noted since the last flush; a contact is never moved backwards. Returns the rows written. */

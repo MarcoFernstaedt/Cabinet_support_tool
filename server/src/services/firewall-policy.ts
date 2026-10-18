@@ -61,11 +61,22 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
   const fleet = safeJson(await fleetPolicy(db));
   const [where, arg] = scope === "all" ? ["1 = 1", null] : "cabinetId" in scope ? ["k.id = $2", scope.cabinetId] : ["cl.id = $2", scope.clientId];
   const params = arg === null ? [fleet] : [fleet, arg];
+  // One cabinet (a heartbeat): a lock-free read first says whether it differs and whether an alert is open; usually neither, and then
+  // no range-locking MERGE runs (it was the costliest statement of a fleet's first heartbeats).
+  let [differ, open] = [true, true];
+  if (scope !== "all" && "cabinetId" in scope) {
+    const r = (await db.query<{ d: boolean; o: boolean }>(
+      `SELECT CAST(CASE WHEN k.status = 'active' AND ${DIFFERS_SQL} THEN 1 ELSE 0 END AS bit) AS d,
+              CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS o
+         FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $2`, [fleet, scope.cabinetId, ISSUE.firewallPolicy])).rows[0];
+    [differ, open] = [!!r?.d, !!r?.o];
+    if (!differ && !open) return { opened: 0, resolved: 0 };
+  }
   const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [ISSUE.firewallPolicy])).rows[0];
   if (!issue) return { opened: 0, resolved: 0 };
   const n = params.length;
   // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
-  const opened = await db.query<{ act: string }>(
+  const opened = !differ ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
     `DECLARE @o TABLE (act nvarchar(10));
      MERGE alerts WITH (HOLDLOCK) AS t
      USING (SELECT k.id AS cabinet_id
@@ -78,7 +89,7 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
       OUTPUT $action INTO @o (act);
      SELECT act FROM @o;`,
     [...params, ISSUE.firewallPolicy, issue.severity, `issue:${ISSUE.firewallPolicy}`, issue.name]);
-  const resolved = await db.query(
+  const resolved = !open ? { rowCount: 0 } : await db.query(
     `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The firewall matches the client policy again.'
        FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
       WHERE a.issue_type_id = CAST($${n + 1} AS uniqueidentifier) AND a.state <> 'resolved' AND ${where}
