@@ -75,6 +75,9 @@ services:
       CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY:?set CONSOLE_SECRET_KEY in deploy/.env}
       # Believe only Caddy (its fixed address below) about the browser's address.
       CONSOLE_TRUST_PROXY: ${CADDY_IP:-172.30.57.10}
+      # Processes serving the agent port. 1 is enough for a few thousand cabinets; use 2 on a 4-core server from about 8,000
+      # (docs/platform/performance.md). The heap is per process.
+      AGENT_API_WORKERS: ${AGENT_API_WORKERS:-1}
       # Fixed in the image: CONSOLE_HOST=0.0.0.0, CONSOLE_PORT=8080, AGENT_API_PORT=8443, DEV_PKI_DIR=/var/lib/cabinet/pki,
       # PACKAGE_DIR, RELEASE_DIR, CONSOLE_STATIC_DIR, AGENT_DOWNLOAD_DIR=/opt/cabinet/agent-download.
     ports:

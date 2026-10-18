@@ -310,8 +310,42 @@ rm load-state.json   # it holds the test cabinets' private keys
 
 **In CI:** every push runs 1,000 agents for 3 minutes (the "Agent API under load" step of `.github/workflows/platform-contracts.yml`); with the new generator that is the `steady` scenario with the default link mix and the thresholds above.
 
+## SQL Server, Protocol 1.1: 8,000 and 10,000 cabinets (October 2026)
+
+**Setup:** the same kind of machine as above: 4 cores, 15 GB, shared by SQL Server 2022 (Developer edition, memory capped at 1,410 MB like Express's buffer pool), the server (pinned to 2 cores, 2 GB heap, `AGENT_API_WORKERS=2`) and the load generator (pinned to the other 2 cores, but SQL Server floats over all 4). So this machine is smaller than the target: the load generator takes 0.6 to 0.8 of a core and 2 to 2.7 GB that a real server keeps for itself. Steady scenario, Protocol 1.1 agents on simulated links (60% fiber, 25% DSL, 12% 4G with NAT drops and failovers, 3% bad), 8 minutes including a 2-minute ramp, 2 commands a second, 6 events an hour per cabinet. `server/test/load/run.sh steady <n> 8`.
+
+| | 8,000 cabinets | 10,000 cabinets |
+|---|---|---|
+| Lost commands / lost results / false offlines | 0 / 0 / 0 | 0 / 0 / 2 (agent view) |
+| Cabinets online at the end | 8,000 of 8,000 | 9,885 to 10,000 of 10,000 |
+| Command delivery, median (fiber / DSL / 4G) | 0.24 / 0.28 / 0.32 s | 0.4 to 0.8 / 0.4 to 1.1 / 0.5 to 1.0 s |
+| Command delivery, p95 (fiber / DSL / 4G) | 13 / 1.5 / 51 s | 60 to 90 / 80 to 120 / 90 to 170 s |
+| Heartbeat, median / p95 (fiber, steady) | 0.10 / 3.4 s | 0.2 to 0.9 / 1.3 to 4 s |
+| Requests turned away for load (503 or a shed poll) | about 4,000, almost all in the ramp | 9,000 to 17,000, continuing in the steady phase |
+| SQL Server CPU (cores, average) | 1.16 | 1.1 to 1.4 |
+| Server CPU (cores, 3 processes) / memory | 1.2 / 2.0 GB | 1.3 / 2.3 GB |
+
+**Verdict on this machine:** 8,000 is close (correct, fast median, everything online, sheds only during the connection ramp); its remaining misses are tail latencies from the ramp and from first heartbeats. 10,000 is beyond what this machine can do with the load generator on it: SQL Server, the server and the generator together use about 3.3 of its 4 cores, requests wait for database connections, and the shed agents' back-off gives the long p95. **Repeat both on the real server with the load generator elsewhere** before relying on 10,000 on 4 cores; if it still sheds there, give SQL Server more cores (Express can use 4).
+
+### What the 10,000 runs found and fixed
+
+Each item was measured with SQL Server's own statistics (`sys.dm_exec_query_stats`, wait statistics, blocking samples) and a CPU profile of the server, then fixed and run again:
+
+1. **Range-locking alert checks on every first heartbeat.** The firewall-policy and time-zone checks ran a `MERGE ... WITH (HOLDLOCK)` and a resolve on every heartbeat that reported a change, and the "back online" resolve on every first heartbeat. Now a lock-free read decides first, and the heartbeat batch says whether an offline alert is open. (~1,000 s of lock waits in 5 minutes before.)
+2. **Plans compiled on empty tables.** Hot statements on `alerts` and `commands` had cached plans that scanned the table (estimated one row when compiled), and a `HOLDLOCK` scan locks the whole table. A new install starts with empty tables too. The hot lookups now force index seeks (`FORCESEEK`).
+3. **Table variables on every request.** Every poll and heartbeat declared a table variable, which an ad-hoc batch creates in tempdb each time; they queued on tempdb's metadata pages (`PAGELATCH` on 2:1:16). The poll now reads back what it took by its lease end, and the heartbeat reads previous values into scalar variables. (Waits fell about tenfold.)
+4. **One Node.js process at 100% of a core.** TLS, HTTP/2 and the SQL Server driver (about 0.7 ms of CPU per query) all ran on one event loop. `AGENT_API_WORKERS=N` runs the agent API in N processes on one port; background jobs and the console stay in the primary.
+5. **A poll with nothing waiting did all the command work.** Two index seeks now skip it (most polls).
+6. **Shedding that tripped on harmless bursts.** It used "more than 20 requests waiting for a connection"; it now uses how long they wait (over 1 s), and a shed poll comes back in 10 to 30 s instead of 30 to 90 s. One garbage-collection pause no longer sheds (lag must last 3 s).
+
+### Still open
+
+- The tail at 8,000: heartbeat p95 3.4 s while the median is 0.1 s. Most likely the cabinets' first heartbeats (in an 8-minute run many are; every simulated cabinet also differs from the firewall policy, so each first heartbeat opens an alert, which a real fleet rarely does). A longer run on the real server shows whether it persists.
+- An agent pauses all its loops when any request gets a 503, so a shed heartbeat also delays commands. Changing that is a protocol decision (spec 03 "Admission control").
+- The other scenarios (restart, regional outage with a 3-day backlog, no-ramp, failover during commands, event storm) passed at 300 cabinets; they have not been run at 8,000 or 10,000.
+
 ## Still to do before going wide
 
-Repeat the 8,000-agent run against the production hosting and database, with the load generator on a separate machine, once hosting is decided ([open decisions](../spec/09-open-decisions.md)).
+Repeat the 8,000 and 10,000 runs against the production server and SQL Server Express, with the load generator on a separate machine, once hosting is decided ([open decisions](../spec/09-open-decisions.md)).
 
-When going wider than 8,000 cabinets, or when one process is no longer enough, the agent API can run as several processes behind a load balancer: command announcements already reach every process through PostgreSQL.
+When one process is no longer enough, set `AGENT_API_WORKERS` (2 on a 4-core server at 10,000 cabinets): command announcements reach every process through the notifications table.

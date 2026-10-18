@@ -3,8 +3,8 @@
 // 25 s and a flush every 60 s, a connected cabinet's recorded contact is never more than about 90 s old, well inside the threshold.
 import { errorInfo, type Queryable } from "../db/db.js";
 
-/** Rows per statement: OPENJSON of 2,000 small objects is one cheap set-based update. */
-const CHUNK = 2_000;
+/** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
+const CHUNK = 500;
 
 export class Presence {
   private seen = new Map<string, number>();
