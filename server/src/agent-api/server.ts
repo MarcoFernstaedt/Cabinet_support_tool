@@ -232,14 +232,14 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   });
 
   /** A refusal for load: 503 with a randomised Retry-After; a long poll instead gets an empty answer telling it when to come back. */
-  const shed = (request: FastifyRequest, reply: FastifyReply, opts: { seconds: number; closeConnection?: boolean; pollAnswer?: boolean }): FastifyReply => {
+  const shed = (request: FastifyRequest, reply: FastifyReply, opts: { seconds: number; closeConnection?: boolean; pollAnswer?: boolean; pollMs?: number }): FastifyReply => {
     if (opts.closeConnection) {
       if (isHttp2(request)) reply.raw.once("finish", () => (request.raw as unknown as { stream?: { session?: { close(): void } } }).stream?.session?.close());
       else reply.header("connection", "close");
     }
     const isPoll = request.method === "GET" && request.url.split("?")[0] === "/agent/v1/commands";
     if (isPoll && opts.pollAnswer !== false)
-      return reply.code(200).send({ serverTime: serverTime(), commands: [], reconnectAfterMs: opts.seconds * 1000 });
+      return reply.code(200).send({ serverTime: serverTime(), commands: [], reconnectAfterMs: opts.pollMs ?? opts.seconds * 1000 });
     return reply.code(503).header("retry-after", String(opts.seconds)).send({ error: "busy" });
   };
 
@@ -261,7 +261,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       admitted.add(connection);
     }
     if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });
-    if (overloaded()) return shed(request, reply, { seconds: retryAfter() });
+    // A long poll turned away for load comes back within seconds: it costs the database almost nothing (one seek when nothing waits),
+    // and sending it away for a minute would leave its cabinet unable to receive a command for that long.
+    if (overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(2_000, 10_001) });
   });
 
   app.addHook("preClose", async () => {
