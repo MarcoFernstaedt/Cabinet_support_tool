@@ -55,7 +55,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
   const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") ? "alerts"
-    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : "fleet";
+    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : path.split("?")[0] === "/" || /^\/(clients|sites|cabinets)\//.test(path) ? "fleet" : "";
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>

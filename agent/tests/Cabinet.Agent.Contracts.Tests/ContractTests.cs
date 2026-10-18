@@ -219,6 +219,11 @@ public sealed class ContractTests
             if (n is JsonObject obj)
             {
                 foreach (string key in obj.Where(p => p.Value is null).Select(p => p.Key).ToList()) obj.Remove(key);
+                // A timestamp is the same instant whether written with milliseconds (as the server's toISOString does) or without.
+                foreach (var (key, value) in obj.ToList())
+                    if (value is JsonValue v && v.TryGetValue(out string? text) && text.Length is >= 20 and <= 35 && text[^1] == 'Z' && text[10] == 'T' &&
+                        DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out DateTimeOffset at))
+                        obj[key] = at.UtcTicks;
                 foreach (var p in obj) Strip(p.Value);
             }
             else if (n is JsonArray arr)

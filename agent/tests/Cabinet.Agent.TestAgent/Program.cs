@@ -99,7 +99,11 @@ var connection = new AgentConnection(new AgentConnectionOptions
     FirewallProfiles = () => monitorHost?.FirewallProfiles,
     TimeZoneId = () => simulatedTime.CurrentZone().Id,
     EnrollPollInterval = TimeSpan.FromSeconds(1), HeartbeatInterval = TimeSpan.FromSeconds(2),
+    // Protocol 1.1 pacing, shortened for tests: a server-directed heartbeat interval is held at 2 s, and reconnect spreading is at most 1 s.
+    HeartbeatInterval11 = TimeSpan.FromSeconds(2), MinHeartbeat = TimeSpan.FromSeconds(2), MaxHeartbeat = TimeSpan.FromSeconds(2),
+    ReconnectFlushJitter = TimeSpan.FromSeconds(1), ResetJitter = TimeSpan.FromSeconds(1), NetworkChangeJitter = TimeSpan.FromSeconds(1),
     Backoff = new Backoff(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(3)),
+    LocalBackoff = () => new Backoff(TimeSpan.FromMilliseconds(500), TimeSpan.FromSeconds(3)),
 });
 
 using var stop = new CancellationTokenSource();
