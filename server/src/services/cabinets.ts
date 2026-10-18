@@ -62,23 +62,40 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   // The settings columns are named ks, ss, … here, which the data layer does not parse as JSON, so they are parsed below.
   const r = (await db.query<{ was_offline: number; offline_open: number; firewall_changed: number; prev_uptime: string | null; prev_at: Date | null; time_check: number;
     ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null }>(
-    `DECLARE @r TABLE (was_offline bit, firewall_changed bit, prev_uptime bigint NULL, prev_at datetime2(3) NULL, time_check bit);
-     UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), uptime_at = SYSUTCDATETIME(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = CAST($5 AS float),
-            firewall_profiles = COALESCE(CAST($7 AS nvarchar(max)), firewall_profiles), time_zone_id = COALESCE(CAST($8 AS nvarchar(64)), time_zone_id)
-     OUTPUT CASE WHEN deleted.last_heartbeat_at IS NULL OR deleted.last_heartbeat_at < DATEADD(second, -$6, SYSUTCDATETIME()) THEN 1 ELSE 0 END,
-            CASE WHEN CAST($7 AS nvarchar(max)) IS NOT NULL AND deleted.firewall_profiles IS DISTINCT FROM CAST($7 AS nvarchar(max)) THEN 1 ELSE 0 END,
-            deleted.uptime_seconds, COALESCE(deleted.uptime_at, deleted.last_heartbeat_at),
-            CASE WHEN (CAST($8 AS nvarchar(64)) IS NOT NULL AND deleted.time_zone_id IS DISTINCT FROM CAST($8 AS nvarchar(64)))
-                   OR ABS(COALESCE(CAST($5 AS float), 0)) > $9 OR ABS(COALESCE(deleted.clock_skew_seconds, 0)) > $9 THEN 1 ELSE 0 END
-       INTO @r
-      WHERE id = $1;
-     IF CAST($10 AS int) IS NOT NULL AND EXISTS (SELECT 1 FROM @r)
-       INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
-       SELECT $1, SYSUTCDATETIME(), $10, $11, $12 WHERE NOT EXISTS (SELECT 1 FROM health_samples WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1 AND [at] > DATEADD(minute, -15, SYSUTCDATETIME()));
+    // No table variable: on SQL Server each one declared by an ad-hoc batch is created in tempdb, and at 10,000 cabinets those creations
+    // queued on tempdb's metadata pages. The previous values are read into scalar variables under an update lock instead, in one short
+    // transaction (TRY/CATCH, not XACT_ABORT, so nothing is left set on the pooled connection).
+    `DECLARE @found bit = 0, @hb datetime2(3), @fw nvarchar(max), @up bigint, @upat datetime2(3), @tz nvarchar(64), @skew float;
+     BEGIN TRY
+       BEGIN TRANSACTION;
+       SELECT @found = 1, @hb = last_heartbeat_at, @fw = firewall_profiles, @up = uptime_seconds, @upat = COALESCE(uptime_at, last_heartbeat_at),
+              @tz = time_zone_id, @skew = clock_skew_seconds
+         FROM cabinets WITH (UPDLOCK, ROWLOCK) WHERE id = $1;
+       IF @found = 1
+       BEGIN
+         UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), uptime_at = SYSUTCDATETIME(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = CAST($5 AS float),
+                firewall_profiles = COALESCE(CAST($7 AS nvarchar(max)), firewall_profiles), time_zone_id = COALESCE(CAST($8 AS nvarchar(64)), time_zone_id)
+          WHERE id = $1;
+         IF CAST($10 AS int) IS NOT NULL
+           INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
+           SELECT $1, SYSUTCDATETIME(), $10, $11, $12 WHERE NOT EXISTS (SELECT 1 FROM health_samples WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1 AND [at] > DATEADD(minute, -15, SYSUTCDATETIME()));
+       END
+       COMMIT TRANSACTION;
+     END TRY
+     BEGIN CATCH
+       IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+       THROW;
+     END CATCH;
      -- Whether an offline alert is open, so the heartbeat after a silence resolves it only when there is one to resolve.
      SELECT r.was_offline, CAST(CASE WHEN r.was_offline = 1 AND EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND issue_type_id = $13 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS offline_open,
             r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw
-       FROM @r r CROSS JOIN (
+       FROM (SELECT CAST(CASE WHEN @hb IS NULL OR @hb < DATEADD(second, -$6, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS bit) AS was_offline,
+                    CAST(CASE WHEN CAST($7 AS nvarchar(max)) IS NOT NULL AND @fw IS DISTINCT FROM CAST($7 AS nvarchar(max)) THEN 1 ELSE 0 END AS bit) AS firewall_changed,
+                    @up AS prev_uptime, @upat AS prev_at,
+                    CAST(CASE WHEN (CAST($8 AS nvarchar(64)) IS NOT NULL AND @tz IS DISTINCT FROM CAST($8 AS nvarchar(64)))
+                           OR ABS(COALESCE(CAST($5 AS float), 0)) > $9 OR ABS(COALESCE(@skew, 0)) > $9 THEN 1 ELSE 0 END AS bit) AS time_check
+              WHERE @found = 1) r
+       CROSS JOIN (
          SELECT k.scanner_hardware_ids AS ks, s.scanner_hardware_ids AS ss, c.scanner_hardware_ids AS cs,
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'scanner.hardwareIds') AS fs,
                 k.watched_services AS kw, s.watched_services AS sw, c.watched_services AS cw,

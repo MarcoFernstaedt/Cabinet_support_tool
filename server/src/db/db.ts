@@ -38,6 +38,14 @@ export function placeholders(text: string): string {
   let inString = false;
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
+    // A -- comment runs to the end of its line, untouched: an apostrophe in it is not a string.
+    if (!inString && ch === "-" && text[i + 1] === "-") {
+      const end = text.indexOf("\n", i);
+      const stop = end === -1 ? text.length : end;
+      out += text.slice(i, stop);
+      i = stop - 1;
+      continue;
+    }
     if (ch === "'") inString = !inString;
     if (!inString && ch === "$" && /\d/.test(text[i + 1] ?? "")) { out += "@p"; continue; }
     out += ch;

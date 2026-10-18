@@ -102,11 +102,11 @@ export interface TakenCommands {
  */
 export async function takeLeasedCommands(pool: Queryable, cabinetId: string, acks: readonly string[] = [], leaseSeconds = LEASE_SECONDS): Promise<TakenCommands> {
   // One batch, one round trip: it runs for every long poll of every cabinet. At most MAX_COMMANDS_PER_POLL, oldest first.
-  // (commands has triggers, so the delivered rows go INTO a table variable.) READPAST skips rows another poll has locked.
+  // READPAST skips rows another poll has locked.
   // The last SELECT always returns at least one row (the next lease end), with the taken commands joined to it.
   const rows = (await pool.query<{ id: string | null; operation: string; params: Record<string, unknown>; issued_by: string; issued_at: Date; expires_at: Date; next_lease: Date | null }>(
-    `DECLARE @taken TABLE (id uniqueidentifier, operation nvarchar(450), params nvarchar(max), issued_by uniqueidentifier, issued_at datetime2(3), expires_at datetime2(3));
-     DECLARE @now datetime2(3) = SYSUTCDATETIME();
+    `DECLARE @now datetime2(3) = SYSUTCDATETIME();
+     DECLARE @until datetime2(3) = DATEADD(second, $3, @now);
      IF $2 IS NOT NULL
        UPDATE commands SET ack_at = @now
         WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($2));
@@ -115,8 +115,7 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
      -- offered again: it is expired now, not left looking as if it were running. A result that still arrives is kept (storeResult).
      UPDATE commands SET status = 'expired'
       WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at <= @now;
-     UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = DATEADD(second, $3, @now)
-       OUTPUT inserted.id, inserted.operation, inserted.params, inserted.issued_by, inserted.issued_at, inserted.expires_at INTO @taken
+     UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = @until
       WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) w.id FROM (
                      SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
                       WHERE cabinet_id = $1 AND status = 'queued' AND expires_at > @now
@@ -124,10 +123,13 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
                      SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
                       WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at > @now) w
                     ORDER BY w.issued_at);
+     -- What this poll took is read back by its lease end (no table variable: commands has triggers, so OUTPUT would need one, and each
+     -- one an ad-hoc batch declares is created in tempdb, which queued at 10,000 cabinets). Two polls of one cabinet in the same
+     -- millisecond would both see the other's commands; the agent acknowledges and answers repeats, so that is harmless.
      SELECT t.id, t.operation, t.params, t.issued_by, t.issued_at, t.expires_at, n.next_lease
        FROM (SELECT MIN(lease_until) AS next_lease FROM commands
               WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until > @now AND expires_at > @now) n
-       LEFT JOIN @taken t ON 1 = 1;`,
+       LEFT JOIN commands t ON t.cabinet_id = $1 AND t.status = 'delivered' AND t.lease_until = @until AND t.ack_at IS NULL AND t.result_at IS NULL;`,
     [cabinetId, acks.length > 0 ? JSON.stringify(acks) : null, leaseSeconds], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows;
   const commands = rows.filter(r => r.id !== null).sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
     commandId: r.id!, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,

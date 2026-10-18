@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { audit, transaction, verifyAuditChain } from "../src/db/db.js";
+import { placeholders } from "../src/db/db.js";
 import { connectOwner, migrate, MIGRATIONS_DIR, readMigrations } from "../src/db/migrate.js";
 import { JSON_COLUMNS } from "../src/db/json-columns.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
@@ -108,4 +109,9 @@ test("text that looks like a GUID is kept as stored, and an audit entry with one
   const row = (await db.app.query<{ actor_id: string; id: string }>("SELECT TOP (1) actor_id, CAST($1 AS uniqueidentifier) AS id FROM audit_log WHERE action = 'test.guid-looking'", [look])).rows[0]!;
   assert.equal(row.actor_id, look, "a text column is returned as stored");
   assert.equal(row.id, look.toLowerCase(), "a uniqueidentifier column is lower case");
+});
+
+test("placeholders: $n becomes @pn outside strings and comments; an apostrophe in a comment is not a string", () => {
+  assert.equal(placeholders("SELECT $1, '$2' -- the cabinet's $3\nWHERE x = $4"), "SELECT @p1, '$2' -- the cabinet's $3\nWHERE x = @p4");
+  assert.equal(placeholders("SELECT 'a--b', $1"), "SELECT 'a--b', @p1");
 });
