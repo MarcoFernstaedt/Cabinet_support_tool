@@ -333,7 +333,7 @@ test("under load, requests are shed before the database with a randomised Retry-
     const poll = await call("GET", "/agent/v1/commands", undefined, cab, { port: other.port });
     assert.equal(poll.status, 200);
     assert.deepEqual(poll.body.commands, []);
-    assert.ok(poll.body.reconnectAfterMs >= 2_000 && poll.body.reconnectAfterMs <= 10_000, "a poll comes back within seconds, so commands still arrive");
+    assert.ok(poll.body.reconnectAfterMs >= 10_000 && poll.body.reconnectAfterMs <= 30_000, "a poll comes back sooner than other requests, so commands still arrive");
     assert.equal((await call("GET", "/health", undefined, undefined, { port: other.port })).status, 200, "health is never shed");
   } finally { await other.app.close(); }
 });

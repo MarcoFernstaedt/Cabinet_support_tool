@@ -266,9 +266,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       admitted.add(connection);
     }
     if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });
-    // A long poll turned away for load comes back within seconds: it costs the database almost nothing (one seek when nothing waits),
-    // and sending it away for a minute would leave its cabinet unable to receive a command for that long.
-    if (overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(2_000, 10_001) });
+    // A long poll turned away for load comes back in 10 to 30 s: it costs the database almost nothing (one seek when nothing waits),
+    // and sending it away for a minute would leave its cabinet unable to receive a command for that long; sooner adds load (2-10 s did, at 10,000).
+    if (overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
   });
 
   app.addHook("preClose", async () => {
