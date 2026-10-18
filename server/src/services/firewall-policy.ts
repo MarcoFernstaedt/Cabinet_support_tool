@@ -61,13 +61,15 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
   const fleet = safeJson(await fleetPolicy(db));
   const [where, arg] = scope === "all" ? ["1 = 1", null] : "cabinetId" in scope ? ["k.id = $2", scope.cabinetId] : ["cl.id = $2", scope.clientId];
   const params = arg === null ? [fleet] : [fleet, arg];
+  // FORCESEEK on alerts here and in the MERGE: a plan compiled while alerts was still nearly empty (a new install, a load test) chose a
+  // scan, and a HOLDLOCK scan range-locks the whole table, which serialised every heartbeat of a 10,000-cabinet fleet.
   // One cabinet (a heartbeat): a lock-free read first says whether it differs and whether an alert is open; usually neither, and then
   // no range-locking MERGE runs (it was the costliest statement of a fleet's first heartbeats).
   let [differ, open] = [true, true];
   if (scope !== "all" && "cabinetId" in scope) {
     const r = (await db.query<{ d: boolean; o: boolean }>(
       `SELECT CAST(CASE WHEN k.status = 'active' AND ${DIFFERS_SQL} THEN 1 ELSE 0 END AS bit) AS d,
-              CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS o
+              CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS o
          FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $2`, [fleet, scope.cabinetId, ISSUE.firewallPolicy])).rows[0];
     [differ, open] = [!!r?.d, !!r?.o];
     if (!differ && !open) return { opened: 0, resolved: 0 };
@@ -78,7 +80,7 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
   // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
   const opened = !differ ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
     `DECLARE @o TABLE (act nvarchar(10));
-     MERGE alerts WITH (HOLDLOCK) AS t
+     MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
      USING (SELECT k.id AS cabinet_id
               FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
              WHERE k.status = 'active' AND ${where} AND ${DIFFERS_SQL}) AS src

@@ -25,8 +25,8 @@ export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opene
   // One cabinet (a heartbeat): a lock-free read first says what is to be done; usually nothing, so no range-locking MERGE runs.
   const need = "cabinetId" in (scope as object) ? (await db.query<{ zone: boolean; clock: boolean; zone_open: boolean; clock_open: boolean }>(
     `SELECT CAST(CASE WHEN ${ZONE_WRONG} THEN 1 ELSE 0 END AS bit) AS zone, CAST(CASE WHEN ${CLOCK_OFF} THEN 1 ELSE 0 END AS bit) AS clock,
-            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $2 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS zone_open,
-            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS clock_open
+            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = k.id AND issue_type_id = $2 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS zone_open,
+            CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS clock_open
        FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1 AND k.status = 'active'`,
     [(scope as { cabinetId: string }).cabinetId, ISSUE.timeZone, ISSUE.clock])).rows[0] ?? { zone: false, clock: false, zone_open: false, clock_open: false } : null;
   for (const [issueId, condition, fixed] of [[ISSUE.timeZone, ZONE_WRONG, "The cabinet is in its site's time zone again."],
@@ -38,7 +38,7 @@ export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opene
     // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
     const o = !wrong ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
       `DECLARE @o TABLE (act nvarchar(10));
-       MERGE alerts WITH (HOLDLOCK) AS t
+       MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
        USING (SELECT k.id AS cabinet_id FROM cabinets k JOIN sites s ON s.id = k.site_id
                WHERE k.status = 'active' AND ${whereAt(6)} AND k.last_heartbeat_at > DATEADD(second, -$4, SYSUTCDATETIME()) AND ${condition}) AS src
           ON t.cabinet_id = src.cabinet_id AND t.signature = $3 AND t.state <> 'resolved'

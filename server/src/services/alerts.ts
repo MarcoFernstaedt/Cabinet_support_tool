@@ -602,7 +602,7 @@ export async function resolveOfflineFor(db: Queryable, cabinetId: string | null)
           AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())`, [ISSUE.offline, OFFLINE_AFTER_MS / 1000])
     : await db.query(
       `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The cabinet is back online.'
-         FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.cabinet_id = $3 AND a.state <> 'resolved'
+         FROM alerts a WITH (FORCESEEK) JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.cabinet_id = $3 AND a.state <> 'resolved'
           AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())`, [ISSUE.offline, OFFLINE_AFTER_MS / 1000, cabinetId]);
   return r.rowCount ?? 0;
 }
