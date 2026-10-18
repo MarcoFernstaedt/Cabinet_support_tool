@@ -48,12 +48,12 @@ function Reactivate({ id, who, onPassword, onCancel }: { id: string; who: string
 }
 
 /** The new-account form, with its one-time password; used on Users and on the setup page. */
-export function NewAccount({ onCreated, heading = "New account" }: { onCreated: (text: string) => void; heading?: string }) {
+export function NewAccount({ onCreated, onStart, heading = "New account" }: { onCreated: (text: string) => void; onStart?: () => void; heading?: string }) {
   const step = useStepUp();
   const [draft, setDraft] = useState({ username: "", name: "", role: "tier1" as Role });
   const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
   const [deleted, setDeleted] = useState<{ id: string; username: string } | null>(null);
-  const create = () => { setDeleted(null); step.ask("user.create", "fleet",
+  const create = () => { setDeleted(null); setShown(null); onStart?.(); step.ask("user.create", "fleet",
     <p>Create a {roleName(draft.role)} account <strong>{draft.username}</strong> for {draft.name}. They choose their own password and set up an authenticator at their first sign-in.</p>,
     async token => {
       let r: { id: string; temporaryPassword: string };
@@ -104,7 +104,7 @@ export function Users() {
       <h1>Users</h1>
       {shown && <OneTimePassword who={shown.who} password={shown.password} onDone={() => setShown(null)} />}
       {done && <p className="notice ok" role="status">{done}</p>}
-      <NewAccount onCreated={after} />
+      <NewAccount onCreated={after} onStart={() => setDone(null)} />
 
       {problem && <p className="error" role="alert">{problem}</p>}
       <label className="check"><input type="checkbox" checked={showDeleted} onChange={e => setShowDeleted(e.target.checked)} /> Show deleted accounts</label>

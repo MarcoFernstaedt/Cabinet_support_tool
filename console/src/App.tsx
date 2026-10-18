@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, onSignedOut } from "./lib/api";
 import { CommandStream } from "./lib/commands";
 import { WriteStatusProvider } from "./lib/writes";
-import { Router, match, useRouter } from "./lib/router";
-import { SessionContext, type Me } from "./lib/session";
+import { Link, Router, match, useRouter } from "./lib/router";
+import { SessionContext, atLeast, useSession, type Me } from "./lib/session";
 import { Layout } from "./components/Layout";
 import { WelcomeTour, startWelcomeTour } from "./components/WelcomeTour";
 import { PasswordChange, SignIn, TotpSetup, TotpStep, type Stage } from "./pages/SignIn";
@@ -80,11 +80,15 @@ function RoutedPages({ onTour }: { onTour: () => void }) {
 
 function Pages({ onTour }: { onTour: () => void }) {
   const { path } = useRouter();
+  const { me } = useSession();
   let m: Record<string, string> | null;
   if ((m = match("/clients/:id", path))) return <ClientPage id={m.id!} />;
   if ((m = match("/sites/:id", path))) return <SitePage id={m.id!} />;
   if ((m = match("/cabinets/:id", path))) return <CabinetPage id={m.id!} section="overview" />;
   if ((m = match("/cabinets/:id/:section", path))) return <CabinetPage id={m.id!} section={m.section!} />;
+  // Admin pages are for Admins: the server refuses their data to anyone else anyway, so another role sees a plain explanation instead of
+  // half a page of refusals.
+  if ((path === "/admin" || path.startsWith("/admin/") || path.startsWith("/admin?")) && !atLeast(me, "admin")) return <NotFound admin />;
   if (match("/admin", path)) return <AdminHome />;
   if (match("/admin/setup", path)) return <Setup />;
   if (match("/admin/pending", path)) return <PendingCabinets />;
@@ -112,5 +116,17 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/fleet-operations", path)) return <FleetOperations key={path} />;
   if ((m = match("/fleet-operations/jobs/:id", path))) return <FleetJob id={m.id!} />;
   if (match("/demo", path)) return <DemoGuide />;
-  return <FleetHome />;
+  if ((path.split("?")[0] ?? "/").replace(/\/+$/, "") === "") return <FleetHome />;
+  return <NotFound />;
+}
+
+/** An address the console has no page for (or an Admin page opened by another role). */
+function NotFound({ admin = false }: { admin?: boolean }) {
+  return (
+    <div className="page">
+      <h1>{admin ? "Admin only" : "Page not found"}</h1>
+      <p>{admin ? "This page is for Admins. Ask an Admin if you need something changed here." : "There is no page at this address. The link may be old, or mistyped."}</p>
+      <p><Link to="/">Go to the fleet</Link></p>
+    </div>
+  );
 }

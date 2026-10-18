@@ -8,7 +8,7 @@ This is the contract between agent and server. Both sides are built against the 
 - GET /agent/v1/enroll/{requestId}: poll for approval. Returns pending, rejected, or the issued certificate.
 - GET /agent/v1/commands: long poll. The server holds the request up to 25 seconds and returns any waiting commands, or an empty list.
 - POST /agent/v1/results: report the result of a command.
-- POST /agent/v1/heartbeat: every 60 seconds, with agent version, uptime and read-only mode.
+- POST /agent/v1/heartbeat: every 60 seconds (Protocol 1.0) or at the server-directed interval (1.1, default 300 seconds), with agent version, uptime and read-only mode.
 - POST /agent/v1/events: report detected errors and changes in batches.
 - POST /agent/v1/renew: renew the agent certificate before it expires.
 - GET /agent/v1/packages/{packageId}: download an approved software library package. The server serves it only while a package.install command for that package and that cabinet is open.
@@ -59,7 +59,7 @@ Security events cover a failed self-check of the agent's own files, a refused pa
 
 ## Timing and limits
 
-- Heartbeat every 60 seconds. A cabinet with no heartbeat for 5 minutes shows as offline.
+- Heartbeat every 60 seconds (1.0; 300 seconds by default in 1.1, where polls also count as contact). A cabinet with no contact for 5 minutes shows as offline.
 - Clock skew tolerance 2 minutes. The server returns its own time on every response so the agent can detect drift and report it.
 - Request bodies capped at 1 MB except package and update downloads.
 - Events batched up to 100 per request. If the server is unreachable, the agent queues events on disk up to a size cap and sends them when connected, oldest first.
