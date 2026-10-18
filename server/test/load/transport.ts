@@ -36,6 +36,8 @@ export interface TransportOptions {
   /** A connection older than this takes no new requests (SocketsHttpHandler.PooledConnectionLifetime). */
   lifetimeMs: number;
   keepaliveSec: number;
+  /** HTTP/2 PING every this many ms (KeepAlivePingDelay, policy Always), dropped after 10 s without an answer; 0 = off. */
+  h2PingMs?: number;
   connectTimeoutMs?: number;
   onHandshake?: (reused: boolean, ms: number, protocol: string) => void;
   onBytes?: (direction: "up" | "down", n: number) => void;
@@ -277,6 +279,14 @@ export class AgentTransport {
         const session = h2Connect(`https://${this.o.servername}:${this.o.port}`, { createConnection: () => socket, maxSessionMemory: 10 });
         const entry = { session, openedAt: Date.now(), streams: 0, idleTimer: null as NodeJS.Timeout | null };
         session.on("error", () => session.destroy());
+        if (this.o.h2PingMs) {
+          const ping = setInterval(() => {
+            if (session.destroyed || session.closed) return;
+            const dead = setTimeout(() => session.destroy(), 10_000);
+            try { session.ping(() => clearTimeout(dead)); } catch { clearTimeout(dead); }
+          }, this.o.h2PingMs);
+          session.once("close", () => clearInterval(ping));
+        }
         session.on("goaway", () => { if (this.h2 === entry) this.h2 = null; });
         session.on("close", () => { if (this.h2 === entry) this.h2 = null; });
         this.h2 = entry;

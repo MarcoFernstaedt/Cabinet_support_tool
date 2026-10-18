@@ -1,19 +1,28 @@
-// One simulated cabinet agent, modelled on the real agent (agent/src/Cabinet.Agent.Core/Server/AgentConnection.cs) and
-// on Protocol 1.1 (docs/spec/03-protocol.md "Protocol 1.1"). `protocol: "1.0"` keeps the behaviour of the agent as it
-// was before 1.1, so a run can be compared before and after.
+// One simulated cabinet agent, modelled on the real one: agent/src/Cabinet.Agent.Core/Server/AgentConnection.cs,
+// Connectivity.cs, ResultOutbox.cs, AgentApiClient.cs and Monitoring/EventQueue.cs (Protocol 1.1, merged October 2026).
+// `protocol: "1.0"` keeps the agent as it was before 1.1, so a run can be compared before and after.
 //
-//                         1.0 (today's agent)                         1.1
-//   connection            HTTP/1.1 pool, idle 60 s, 10 min lifetime,   one HTTP/2 connection if offered (else HTTP/1.1
-//                         no TCP keepalive                             keep-alive, idle 20 s), keepalive 20 s, 24 h lifetime
-//   long poll             25 s, no ack; commands run one after         ?ack= of the last poll's commands; pollSeconds and
-//                         another inside the poll loop                 reconnectAfterMs honoured; commands run beside it
-//   heartbeat             every 60 s, load sample every time           server-directed (default 300 s), load sample every 15 min
-//   results               8 attempts, then given up                    on-disk outbox, posted until accepted (or 409)
-//   events                100 per batch, one after another             100 / 256 KB, gzip when accepted, paced drain,
-//                                                                      halved on 413, a failing first event set aside,
-//                                                                      a priority queue for security / agent status
-//   failures              per-loop exponential backoff (full jitter)   one shared connectivity state, decorrelated jitter
-//                                                                      capped at 5 min, Retry-After honoured
+//                         1.0 (the agent before 1.1)                   1.1 (the agent now)
+//   connection            HTTP/1.1 pool, idle 60 s, 10 min lifetime,   HTTP/2 if offered (RequestVersionOrLower), else HTTP/1.1
+//                         no TCP keepalive                             idle 20 s; lifetime 23 h + 0-120 min; TCP keepalive 20 s
+//                                                                      then 5 s probes; HTTP/2 ping every 20 s (10 s timeout)
+//   long poll             25 s, client timeout 60 s, no ack;           ?ack= the previous poll's commands (lower-case, at most 50);
+//                         commands run inside the poll loop            client timeout pollSeconds + 35 s; pollSeconds and
+//                                                                      reconnectAfterMs honoured; one worker runs commands in turn
+//                                                                      while polling goes on; a poll answered in under 1 s with
+//                                                                      nothing waits 1 s
+//   heartbeat             every 60 s                                   60 s until the server shows 1.1 (any pacing field), then
+//                                                                      intervals.heartbeatSeconds or 300 s
+//   results               8 attempts, then given up                    outbox, oldest first, until 2xx or 409; other 4xx dropped
+//   events                100 per batch, back to back                  100 events / 256 KB; gzip only once the server showed 1.1
+//                                                                      and the body is >= 1 KB (415: plain, for 24 h); halved on a
+//                                                                      refusal, set aside after 5 refusals alone; paced only when
+//                                                                      the server sets eventsPaceMs; after a reconnection the main
+//                                                                      lane waits a random 0-120 s (security/agent status do not)
+//   failures              per-loop exponential backoff (full jitter)   one shared state: network errors and 502/503/504 pause every
+//                                                                      loop (one probe at a time, decorrelated jitter from 2 s,
+//                                                                      capped at 5 min, 0-30 s after a reset of a live connection);
+//                                                                      429 waits only in that loop; Retry-After honoured up to 10 min
 import { randomUUID } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import { AgentTransport, NetError, type HttpResponse } from "./transport.js";
@@ -38,10 +47,8 @@ export interface AgentConfig {
   timeCompression: number;
   /** How long the simulated install (the 5% long command) takes on the cabinet. */
   installMinutes: number;
+  /** "auto" = as the agent does; "on" = gzip events >= 1 KB even before the server shows 1.1; "off" = never. */
   gzip: "auto" | "on" | "off";
-  eventQueueCap: number;
-  /** Pause between backlog batches when the server sets none (1.1). */
-  eventsPaceMs: number;
   clockOffsetMs: number;
   /** Override the HTTP version offer: "auto" = h2 for 1.1, h1 for 1.0. */
   httpOffer: "auto" | "h1" | "h2";
@@ -64,42 +71,19 @@ export interface AgentHooks {
 
 const sleep = (ms: number): Promise<void> => new Promise(r => setTimeout(r, Math.max(0, ms)));
 const CAP_MS = 300_000;
+const MAX_SERVER_WAIT_MS = 600_000;
 
-/** Decorrelated jitter (min(cap, random(base, previous x 3))), shared by every loop of a 1.1 agent. */
-export class Connectivity {
-  online = false;
-  notBefore = 0;
+/** Decorrelated jitter, as the agent's Backoff: min(cap, random(base, previous x 3)), base 2 s, cap 5 min. */
+export class Backoff {
   private prev = 0;
-  private waiters: (() => void)[] = [];
-  constructor(private readonly baseMs = 1_000, private readonly capMs = CAP_MS, private readonly rand: () => number = Math.random) {}
-
-  /** A request failed on the network. Escalates the wait only once per attempt window, however many loops failed. */
-  failed(now = Date.now()): number {
-    this.online = false;
-    if (now < this.notBefore) return this.notBefore - now;
-    const hi = Math.max(this.baseMs, this.prev * 3);
-    const next = Math.min(this.capMs, this.baseMs + this.rand() * (hi - this.baseMs));
-    this.prev = next;
-    this.notBefore = now + next;
-    return next;
+  constructor(private readonly baseMs = 2_000, private readonly capMs = CAP_MS, private readonly rand: () => number = Math.random) {}
+  next(): number {
+    const lo = this.baseMs;
+    const hi = Math.max(lo, (this.prev <= 0 ? lo : this.prev) * 3);
+    this.prev = Math.min(this.capMs, lo + this.rand() * (hi - lo));
+    return this.prev;
   }
-
-  ok(): void {
-    this.prev = 0;
-    if (this.online) return;
-    this.online = true;
-    const w = this.waiters; this.waiters = [];
-    for (const f of w) f();
-  }
-
-  /** Retry-After or reconnectAfterMs: no request before then. */
-  defer(ms: number, now = Date.now()): void { this.notBefore = Math.max(this.notBefore, now + ms); }
-
-  async gate(stopped: () => boolean): Promise<void> {
-    while (!stopped() && Date.now() < this.notBefore) await sleep(Math.min(5_000, this.notBefore - Date.now()));
-  }
-
-  waitOnline(): Promise<void> { return this.online ? Promise.resolve() : new Promise(r => this.waiters.push(r)); }
+  reset(): void { this.prev = 0; }
 }
 
 /** The 1.0 agent's Backoff: exponential with full jitter from 2 s, capped at 5 minutes. */
@@ -111,6 +95,91 @@ export class LegacyBackoff {
     return 1_000 + Math.random() * (ceiling - 1_000);
   }
   reset(): void { this.attempt = 0; }
+}
+
+export type FailureKind = "network" | "unavailable" | "quota" | "certificate" | "answered";
+export function classify(r: HttpResponse | NetError): FailureKind {
+  if (r instanceof NetError) return "network";
+  if (r.status === 401) return "certificate";
+  if (r.status === 429) return "quota";
+  if (r.status === 502 || r.status === 503 || r.status === 504) return "unavailable";
+  return "answered";
+}
+
+/**
+ * The shared connectivity state (Connectivity.cs). While the server is unreachable one request at a time probes it
+ * (polls and heartbeats may; results and events only send once connected), at the pace of one backoff.
+ */
+export class Connectivity {
+  connected = false;
+  private everConnected = false;
+  private probing = false;
+  private failedAt = 0;
+  private backoffUntil = 0;
+  serverWaitUntil = 0;
+  private signal!: Promise<void>;
+  private fire!: () => void;
+  onConnected: ((reconnected: boolean) => void) | null = null;
+  constructor(private readonly backoff = new Backoff(), private readonly rand: () => number = Math.random, private readonly resetJitterMs = 30_000,
+    private readonly now: () => number = Date.now) { this.renew(); }
+
+  private renew(): void { this.signal = new Promise(r => { this.fire = r; }); }
+  private changed(): void { const f = this.fire; this.renew(); f(); }
+
+  /** Waits until this loop may send; returns a release function (which frees the probe slot when this was the probe). */
+  async enter(stopped: () => boolean, maxBackoffMs?: number, probe = true): Promise<(() => void) | null> {
+    for (;;) {
+      if (stopped()) return null;
+      const now = this.now();
+      let wait: number;
+      if (this.connected) {
+        if (this.serverWaitUntil <= now) return () => undefined;
+        wait = this.serverWaitUntil - now;
+      } else if (probe && !this.probing) {
+        let until = this.backoffUntil;
+        if (maxBackoffMs !== undefined && until > this.failedAt + maxBackoffMs) until = this.failedAt + maxBackoffMs;
+        until = Math.max(until, this.serverWaitUntil);
+        if (until <= now) { this.probing = true; return () => { this.probing = false; this.changed(); }; }
+        wait = until - now;
+      } else wait = 5_000; // wait for "connected" (re-checked so a stopped agent can leave)
+      await Promise.race([this.signal, sleep(Math.min(wait, 5_000))]);
+    }
+  }
+
+  reached(): void {
+    if (this.connected) return;
+    const reconnected = this.everConnected;
+    this.connected = this.everConnected = true;
+    this.backoff.reset();
+    this.backoffUntil = 0;
+    this.changed();
+    this.onConnected?.(reconnected);
+  }
+
+  /** Returns the classification; network and 502/503/504 put every loop on hold, quota and other answers do not. */
+  failed(kind: FailureKind, retryAfterMs: number | null): FailureKind {
+    if (kind === "answered" || kind === "quota") this.reached();
+    else if (kind === "network" || kind === "unavailable") this.down(kind === "network", retryAfterMs);
+    return kind;
+  }
+
+  serverAskedToWait(ms: number): void { this.down(false, ms); }
+
+  private down(networkReset: boolean, serverWaitMs: number | null): void {
+    const now = this.now();
+    const lost = this.connected;
+    this.connected = false;
+    this.failedAt = now;
+    let b = this.backoff.next();
+    // A live connection that was reset: everyone behind the same failure sees it at once, so the first retry is spread.
+    if (lost && networkReset) b = this.rand() * this.resetJitterMs;
+    this.backoffUntil = now + b;
+    if (serverWaitMs !== null) this.serverWaitUntil = Math.max(this.serverWaitUntil, now + Math.min(MAX_SERVER_WAIT_MS, Math.max(0, serverWaitMs)));
+    this.changed();
+  }
+
+  /** Lets every waiter re-check (the agent is stopping). */
+  wake(): void { this.changed(); }
 }
 
 /** Retry-After in ms: delta seconds or an HTTP date; null when absent or unreadable. */
@@ -128,7 +197,7 @@ const clamp = (v: unknown, lo: number, hi: number): number | null =>
 
 interface QueuedEvent { id: string; json: string; bytes: number; failures: number }
 
-/** Builds one batch: priority events first, at most maxEvents and maxBytes of JSON. */
+/** Builds one batch from a lane: at most maxEvents and maxBytes of JSON (one event always goes, so it can be refused alone). */
 export function takeBatch(priority: QueuedEvent[], normal: QueuedEvent[], maxEvents: number, maxBytes: number): QueuedEvent[] {
   const out: QueuedEvent[] = [];
   let bytes = 12; // {"events":[]}
@@ -143,24 +212,33 @@ export function takeBatch(priority: QueuedEvent[], normal: QueuedEvent[], maxEve
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAIN_QUEUE_CAP = 5_000;
+const PRIORITY_QUEUE_CAP = 1_000;
+const MAX_QUEUED_COMMANDS = 200;
+const MAX_EVENT_FAILURES = 5;
 
 export class SimAgent {
   readonly transport: AgentTransport;
-  private readonly conn = new Connectivity();
+  private readonly link11: Connectivity;
   private stopped = false;
+  private server11 = false;
   private pollSeconds = 25;
-  private heartbeatSeconds: number;
-  private eventsPace: number | null = null;
-  private acks: string[] = [];
-  private readonly seen = new Map<string, { at: number; result: unknown | null }>();
-  private readonly outbox: { result: Record<string, unknown>; attempts: number }[] = [];
+  private heartbeatSeconds11: number | null = null;
+  private eventsPaceMs = 0;
+  private readonly inFlight = new Set<string>();
+  private readonly work: { id: string; raw: Record<string, unknown> }[] = [];
+  private workSignal: (() => void) | null = null;
+  /** The result outbox: pending results oldest first, and the delivered ones kept to answer a repeat offer. */
+  private readonly outbox: { id: string; result: Record<string, unknown> }[] = [];
+  private readonly delivered = new Map<string, Record<string, unknown>>();
   private outboxSignal: (() => void) | null = null;
+  private readonly seen = new Map<string, number>(); // 1.0 replay store
   private readonly priority: QueuedEvent[] = [];
   private readonly normal: QueuedEvent[] = [];
   private readonly recentEvents: QueuedEvent[] = [];
   private recordId = Math.floor(Math.random() * 1e6);
-  private batchMax = 100;
-  private gzipState: "unknown" | "yes" | "no";
+  private gzipRefusedAt = 0;
+  private flushNotBefore = 0;
   private lastServer: { server: number; local: number } | null = null;
   private lastHealthAt = 0;
   private nextDrivesAt: number;
@@ -169,67 +247,67 @@ export class SimAgent {
   lastContact = 0;
   /** Set while the worker wants to know when the event backlog is empty again (after an outage). */
   drainWatch = false;
-  falseOfflines = 0;
   readonly linkClass: string;
 
   constructor(readonly id: AgentIdentity, readonly link: AgentLink, private readonly cfg: AgentConfig, private readonly hooks: AgentHooks) {
     this.linkClass = link.cls.name;
-    this.heartbeatSeconds = cfg.protocol === "1.0" ? 60 : 300;
-    this.gzipState = cfg.protocol === "1.0" || cfg.gzip === "off" ? "no" : cfg.gzip === "on" ? "yes" : "unknown";
     const day = 86_400_000 / cfg.timeCompression;
     this.nextDrivesAt = Date.now() + Math.random() * day;
+    this.link11 = new Connectivity();
+    this.link11.onConnected = reconnected => {
+      if (reconnected) { this.flushNotBefore = Date.now() + Math.random() * 120_000; hooks.count("reconnected"); }
+    };
     const offer = cfg.httpOffer === "auto" ? (cfg.protocol === "1.1" ? "h2" : "h1") : cfg.httpOffer;
     this.transport = new AgentTransport({ host: cfg.host, port: cfg.port, servername: cfg.servername, ca: cfg.ca, cert: id.certPem, key: id.keyPem, link, offer,
-      idleTimeoutMs: cfg.protocol === "1.0" ? 60_000 : 20_000, lifetimeMs: cfg.protocol === "1.0" ? 600_000 : 86_400_000, keepaliveSec: cfg.keepaliveSec,
+      idleTimeoutMs: cfg.protocol === "1.0" ? 60_000 : 20_000, lifetimeMs: cfg.protocol === "1.0" ? 600_000 : (23 * 60 + Math.random() * 120) * 60_000,
+      keepaliveSec: cfg.keepaliveSec, h2PingMs: cfg.protocol === "1.1" ? 20_000 : 0,
       onHandshake: (reused, ms, p) => hooks.handshake(this, reused, ms, p), onBytes: (d, n) => hooks.bytes(this, d, n) });
   }
 
   get queued(): number { return this.priority.length + this.normal.length; }
   get pendingResults(): number { return this.outbox.length; }
-  get pendingResultIds(): string[] { return this.outbox.map(o => String(o.result["commandId"]).toLowerCase()); }
+  get pendingResultIds(): string[] { return this.outbox.map(o => o.id); }
   private localNow(): number { return Date.now() + this.cfg.clockOffsetMs; }
   private iso(t = this.localNow()): string { return new Date(t).toISOString(); }
   private v11(): boolean { return this.cfg.protocol === "1.1"; }
+  private get heartbeatMs(): number { return (!this.v11() || !this.server11 ? 60 : this.heartbeatSeconds11 ?? 300) * 1000; }
 
   async run(startDelayMs: number): Promise<void> {
     await sleep(startDelayMs);
     if (this.stopped) return;
-    const loops = [this.heartbeatLoop(), this.pollLoop(), this.eventLoop(), this.monitorLoop()];
-    if (this.v11()) loops.push(this.outboxLoop());
+    const loops = this.v11()
+      ? [this.heartbeatLoop11(), this.pollLoop11(), this.workerLoop11(), this.outboxLoop11(), this.eventLoop11(), this.monitorLoop()]
+      : [this.heartbeatLoop10(), this.pollLoop10(), this.eventLoop10(), this.monitorLoop()];
     await Promise.all(loops);
   }
 
   stop(): void {
     this.stopped = true;
     this.outboxSignal?.();
-    this.conn.ok(); // release waiters so the loops can end
+    this.workSignal?.();
+    this.link11.wake();
     this.transport.stop();
   }
 
   // ---- Requests --------------------------------------------------------------------------------
 
-  private async send(kind: Kind, method: "GET" | "POST", path: string, body: unknown, timeoutMs: number, gzip = false): Promise<HttpResponse | NetError> {
-    let payload: Buffer | undefined;
+  private async send(kind: Kind, method: "GET" | "POST", path: string, body: Buffer | undefined, timeoutMs: number, encoding?: string): Promise<HttpResponse | NetError> {
     const headers: Record<string, string> = { accept: "application/json", "user-agent": "MashuraCabinetAgent/1 (load)" };
-    if (body !== undefined) {
-      payload = Buffer.from(JSON.stringify(body));
-      headers["content-type"] = "application/json";
-      if (gzip) { payload = gzipSync(payload); headers["content-encoding"] = "gzip"; }
-    }
-    if (this.v11()) headers["accept-encoding"] = "gzip";
+    if (body !== undefined) { headers["content-type"] = "application/json"; if (encoding) headers["content-encoding"] = encoding; }
     const t = performance.now();
     try {
-      const r = await this.transport.request(method, path, headers, payload, timeoutMs);
+      const r = await this.transport.request(method, path, headers, body, timeoutMs);
       const ms = performance.now() - t;
       let held = false;
       if (r.status >= 200 && r.status < 300) {
-        const st = r.headers["date"];
-        // serverTime from the body is preferred (the agent uses it for skew); the Date header is the fallback.
-        try { const j = JSON.parse(r.body.toString()) as { serverTime?: string; commands?: unknown[] }; const s = Date.parse(j.serverTime ?? st ?? "");
+        try {
+          const j = JSON.parse(r.body.toString()) as { serverTime?: string; commands?: unknown[] };
+          const s = Date.parse(j.serverTime ?? "");
           if (Number.isFinite(s)) this.lastServer = { server: s, local: this.localNow() };
-          held = kind === "poll" && Array.isArray(j.commands) && j.commands.length === 0; } catch { /* checked by the caller */ }
+          held = kind === "poll" && Array.isArray(j.commands) && j.commands.length === 0;
+        } catch { /* checked by the caller */ }
       }
-      this.hooks.request(this, kind, ms, String(r.status), { held, bytes: payload?.length ?? 0 });
+      this.hooks.request(this, kind, ms, String(r.status), { held, bytes: body?.length ?? 0 });
       return r;
     } catch (e) {
       const err = e instanceof NetError ? e : new NetError("ERR", (e as Error).message);
@@ -239,132 +317,268 @@ export class SimAgent {
     }
   }
 
+  private json(v: unknown): Buffer { return Buffer.from(JSON.stringify(v)); }
+
   private contact(): void {
     const now = Date.now();
     this.hooks.contact(this, now);
     this.lastContact = now;
   }
 
-  /** A network failure: 1.1 marks the shared state offline and returns the wait; 1.0 loops use their own backoff. */
-  private netFailed(): number { return this.conn.failed(); }
-
-  /** 503 / 429: wait at least Retry-After (1.1); 1.0 has no idea of it and backs off as for any failure. */
-  private refused(r: HttpResponse): void {
-    const ms = retryAfterMs(r.headers["retry-after"]);
-    this.hooks.count(`refused.${r.status}${ms === null ? "" : ".retryAfter"}`);
-    if (this.v11()) this.conn.defer(ms ?? 5_000 + Math.random() * 10_000);
+  /** Records a failure with the shared state (1.1) and counts refusals. */
+  private failed11(r: HttpResponse | NetError): FailureKind {
+    const kind = classify(r);
+    const ra = r instanceof NetError ? null : retryAfterMs(r.headers["retry-after"]);
+    if (!(r instanceof NetError) && kind !== "answered") this.hooks.count(`refused.${r.status}${ra === null ? "" : ".retryAfter"}`);
+    return this.link11.failed(kind, ra);
   }
 
-  // ---- Long poll and commands ------------------------------------------------------------------
+  /** LocalWait: the loop's own backoff, capped, but at least Retry-After (up to 10 min). */
+  private localWait(r: HttpResponse | NetError, b: Backoff, capMs?: number): number {
+    let w = b.next();
+    if (capMs !== undefined && w > capMs) w = capMs;
+    const ra = r instanceof NetError ? null : retryAfterMs(r.headers["retry-after"]);
+    if (ra !== null) w = Math.max(w, Math.min(ra, MAX_SERVER_WAIT_MS));
+    return w;
+  }
 
-  private async pollLoop(): Promise<void> {
-    const backoff = new LegacyBackoff();
+  private applyIntervals(intervals: unknown): void {
+    if (typeof intervals !== "object" || intervals === null) return;
+    const i = intervals as { heartbeatSeconds?: unknown; pollSeconds?: unknown; eventsPaceMs?: unknown };
+    if (!this.server11) this.hooks.count("server11.detected");
+    this.server11 = true;
+    this.heartbeatSeconds11 = clamp(i.heartbeatSeconds, 60, 900);
+    const p = clamp(i.pollSeconds, 15, 110);
+    if (p !== null) this.pollSeconds = p;
+    this.eventsPaceMs = clamp(i.eventsPaceMs, 0, 60_000) ?? 0;
+  }
+
+  // ---- Protocol 1.1 ----------------------------------------------------------------------------
+
+  private async pollLoop11(): Promise<void> {
+    const local = new Backoff();
+    let ack: string[] = [];
     while (!this.stopped) {
-      if (this.v11()) await this.conn.gate(() => this.stopped);
-      if (this.stopped) return;
-      const sent = this.v11() ? this.acks.slice(0, 50) : [];
+      const release = await this.link11.enter(() => this.stopped);
+      if (!release) return;
+      const started = Date.now();
+      const sent = ack.slice(0, 50);
       const path = sent.length ? `/agent/v1/commands?ack=${sent.join(",")}` : "/agent/v1/commands";
-      const r = await this.send("poll", "GET", path, undefined, this.v11() ? this.pollSeconds * 1000 + 20_000 : 60_000);
+      const r = await this.send("poll", "GET", path, undefined, this.pollSeconds * 1000 + 35_000);
+      release();
       if (this.stopped) return;
-      if (r instanceof NetError) {
-        if (this.v11()) this.netFailed(); else await sleep(backoff.next());
+      const body = this.pollAnswer(r);
+      if (!body) {
+        const kind = this.failed11(r);
+        if (kind === "network" || kind === "unavailable") continue;
+        await sleep(this.localWait(r, local));
         continue;
       }
-      if (r.status === 503 || r.status === 429) { this.refused(r); if (!this.v11()) await sleep(backoff.next()); continue; }
-      if (r.status !== 200) { this.hooks.count(`poll.status.${r.status}`); if (this.v11()) this.netFailed(); else await sleep(backoff.next()); continue; }
-      let body: { commands?: unknown; pollSeconds?: unknown; reconnectAfterMs?: unknown };
-      try { body = JSON.parse(r.body.toString()) as typeof body; } catch { this.hooks.count("poll.badJson"); continue; }
-      if (!Array.isArray(body.commands)) { this.hooks.count("poll.badShape"); continue; }
-      backoff.reset();
-      if (this.v11()) {
-        this.conn.ok();
-        this.acks = this.acks.filter(a => !sent.includes(a));
-        const ps = clamp(body.pollSeconds, 15, 110);
-        if (ps !== null) this.pollSeconds = ps;
-        const ra = clamp(body.reconnectAfterMs, 0, 600_000);
-        if (ra !== null) { this.hooks.count("poll.reconnectAfterMs"); this.conn.defer(ra); }
-      }
-      // Presence: a 1.1 server counts a poll as contact; a 1.0 server only a heartbeat.
-      if (this.v11()) this.contact();
-      for (const c of body.commands) {
-        if (this.v11()) { void this.handleCommand(c); }
-        else await this.handleCommand(c); // the 1.0 loop runs each command before it polls again
-      }
+      this.link11.reached();
+      local.reset();
+      this.contact();
+      ack = this.takeCommands(body.commands);
+      const ps = clamp(body.pollSeconds, 15, 110);
+      if (ps !== null) { if (!this.server11) this.hooks.count("server11.detected"); this.server11 = true; this.pollSeconds = ps; }
+      const ra = clamp(body.reconnectAfterMs, 0, 600_000);
+      if (ra !== null) { this.hooks.count("poll.reconnectAfterMs"); this.link11.serverAskedToWait(ra); }
+      else if (body.commands.length === 0 && Date.now() - started < 1_000) await sleep(1_000);
     }
   }
 
-  private async handleCommand(raw: unknown): Promise<void> {
-    const c = raw as { commandId?: unknown; cabinetId?: unknown; operation?: unknown; expiresAt?: unknown };
-    if (typeof c !== "object" || c === null || typeof c.commandId !== "string" || !UUID.test(c.commandId)) { this.hooks.count("command.malformed"); return; }
-    const id = c.commandId.toLowerCase();
+  private pollAnswer(r: HttpResponse | NetError): { commands: unknown[]; pollSeconds?: unknown; reconnectAfterMs?: unknown } | null {
+    if (r instanceof NetError || r.status !== 200) return null;
+    try {
+      const j = JSON.parse(r.body.toString()) as { commands?: unknown; pollSeconds?: unknown; reconnectAfterMs?: unknown };
+      if (typeof j === "object" && j !== null && Array.isArray(j.commands)) return j as { commands: unknown[] };
+    } catch { /* counted below */ }
+    this.hooks.count("poll.badAnswer");
+    return null;
+  }
+
+  /** TakeCommands: decides what to acknowledge next poll and hands new commands to the worker. */
+  private takeCommands(commands: unknown[]): string[] {
+    const ack: string[] = [];
     const now = Date.now();
-    const op = typeof c.operation === "string" ? c.operation : "?";
-    if (this.v11()) this.acks.push(c.commandId);
-    const prior = this.seen.get(id);
-    this.hooks.received(this, id, op, now, prior !== undefined);
-    if (prior) {
-      // A lease re-offer: answered from the replay store (its result goes out again), never run twice.
-      if (prior.result && this.v11() && !this.outbox.some(o => o.result["commandId"] === c.commandId)) this.enqueueResult(prior.result as Record<string, unknown>);
-      return;
+    for (const raw of commands) {
+      const c = raw as Record<string, unknown>;
+      const idText = typeof c === "object" && c !== null && typeof c["commandId"] === "string" && UUID.test(c["commandId"]) ? c["commandId"] : null;
+      if (!idText) { this.hooks.count("command.malformed"); continue; }
+      const id = idText.toLowerCase();
+      const op = typeof c["operation"] === "string" ? c["operation"] : "?";
+      const pending = this.outbox.some(o => o.id === id);
+      const repeat = this.inFlight.has(id) || pending || this.delivered.has(id);
+      this.hooks.received(this, id, op, now, repeat);
+      if (this.inFlight.has(id) || pending) { ack.push(id); continue; }
+      const done = this.delivered.get(id);
+      if (done) { this.hooks.count("commands.answeredFromOutbox"); this.addResult(id, done); ack.push(id); continue; }
+      if (this.inFlight.size >= MAX_QUEUED_COMMANDS) continue; // not acknowledged: offered again later
+      this.inFlight.add(id);
+      ack.push(id);
+      this.work.push({ id, raw: c });
+      this.workSignal?.();
     }
-    this.seen.set(id, { at: now, result: null });
-    if (this.seen.size > 2000) for (const [k, v] of this.seen) if (now - v.at > 3_600_000) this.seen.delete(k);
-    const started = this.iso();
-    let result: Record<string, unknown>;
-    if (c.cabinetId !== this.id.cabinetId) {
-      result = { commandId: c.commandId, status: "rejected", startedAt: started, finishedAt: started, error: { code: "wrong_cabinet", message: "not this cabinet" } };
-    } else if (typeof c.expiresAt !== "string" || !(Date.parse(c.expiresAt) > this.localNow())) {
-      result = { commandId: c.commandId, status: "rejected", startedAt: started, finishedAt: started, error: { code: "expired", message: "arrived after expiry" } };
-    } else {
-      await sleep(this.runtimeMs(op));
-      if (this.stopped && !this.v11()) return;
-      result = { commandId: c.commandId, status: "succeeded", startedAt: started, finishedAt: this.iso(), output: this.hooks.outputs[op] ?? this.hooks.outputs["system.info"] };
-    }
-    this.seen.get(id)!.result = result;
-    if (this.v11()) this.enqueueResult(result);
-    else await this.postResultLegacy(result);
+    return ack;
   }
 
-  private runtimeMs(op: string): number {
-    if (op === "eventlog.query") return 2_000 + Math.random() * 18_000;
-    if (op === "system.checkHealth") return this.cfg.installMinutes * 60_000 * (0.8 + Math.random() * 0.4);
-    if (op === "system.info") return 200 + Math.random() * 1_200;
-    return 500 + Math.random() * 1_500;
+  /** One command at a time, as the agent's worker; polling goes on meanwhile. */
+  private async workerLoop11(): Promise<void> {
+    while (!this.stopped) {
+      const item = this.work.shift();
+      if (!item) { await new Promise<void>(r => { this.workSignal = r; setTimeout(r, 5_000); }); this.workSignal = null; continue; }
+      const result = await this.execute(item.raw);
+      this.inFlight.delete(item.id);
+      if (this.stopped) return;
+      this.addResult(item.id, result);
+    }
   }
 
-  // ---- Results ---------------------------------------------------------------------------------
-
-  private enqueueResult(result: Record<string, unknown>): void {
-    this.outbox.push({ result, attempts: 0 });
+  private addResult(id: string, result: Record<string, unknown>): void {
+    this.delivered.delete(id);
+    this.outbox.push({ id, result });
     this.outboxSignal?.();
   }
 
-  /** 1.1: the outbox is posted from its own loop until the server accepts each result (409 = already stored). */
-  private async outboxLoop(): Promise<void> {
+  private async outboxLoop11(): Promise<void> {
+    const local = new Backoff();
     while (!this.stopped) {
-      const item = this.outbox[0];
-      if (!item) { await new Promise<void>(r => { this.outboxSignal = r; setTimeout(r, 5_000); }); this.outboxSignal = null; continue; }
-      await this.conn.gate(() => this.stopped);
-      if (!this.conn.online) await this.conn.waitOnline();
+      const next = this.outbox[0];
+      if (!next) { await new Promise<void>(r => { this.outboxSignal = r; setTimeout(r, 5_000); }); this.outboxSignal = null; continue; }
+      const release = await this.link11.enter(() => this.stopped, undefined, false);
+      if (!release) return;
+      const r = await this.send("result", "POST", "/agent/v1/results", this.json(next.result), 60_000);
+      release();
       if (this.stopped) return;
-      item.attempts++;
-      const r = await this.send("result", "POST", "/agent/v1/results", item.result, 60_000);
-      const id = String(item.result["commandId"]).toLowerCase();
-      if (r instanceof NetError) { this.netFailed(); continue; }
-      if (r.status === 200) { this.outbox.shift(); this.hooks.resultDone(this, id, "accepted"); this.conn.ok(); continue; }
-      if (r.status === 409) { this.outbox.shift(); this.hooks.resultDone(this, id, "already"); continue; }
-      if (r.status === 503 || r.status === 429) { this.refused(r); continue; }
-      if (r.status === 400 || r.status === 404) { this.outbox.shift(); this.hooks.resultDone(this, id, "refused"); continue; }
-      this.netFailed(); // 5xx: try again later
+      const settle = (outcome: "accepted" | "already" | "refused"): void => {
+        this.outbox.shift();
+        this.delivered.set(next.id, next.result);
+        if (this.delivered.size > 1000) this.delivered.delete(this.delivered.keys().next().value!);
+        this.hooks.resultDone(this, next.id, outcome);
+      };
+      if (!(r instanceof NetError) && r.status >= 200 && r.status < 300) { this.link11.reached(); local.reset(); settle("accepted"); continue; }
+      const kind = this.failed11(r);
+      if (!(r instanceof NetError) && r.status === 409) { settle("already"); continue; }
+      if (kind === "answered" && !(r instanceof NetError) && r.status >= 400 && r.status < 500) { settle("refused"); continue; }
+      if (kind === "answered" || kind === "quota") await sleep(this.localWait(r, local));
     }
   }
 
-  /** 1.0: PostResultAsync, 8 attempts with backoff, then the result is given up. */
-  private async postResultLegacy(result: Record<string, unknown>): Promise<void> {
+  private async heartbeatLoop11(): Promise<void> {
+    const local = new Backoff();
+    while (!this.stopped) {
+      const release = await this.link11.enter(() => this.stopped, this.heartbeatMs);
+      if (!release) return;
+      const body = this.heartbeatBody();
+      const r = await this.send("heartbeat", "POST", "/agent/v1/heartbeat", this.json(body), 60_000);
+      release();
+      if (this.stopped) return;
+      let next: number;
+      if (!(r instanceof NetError) && r.status === 200) {
+        this.link11.reached();
+        local.reset();
+        this.contact();
+        if (body["health"]) this.lastHealthAt = Date.now();
+        try { this.applyIntervals((JSON.parse(r.body.toString()) as { intervals?: unknown }).intervals); } catch { this.hooks.count("heartbeat.badJson"); }
+        next = this.heartbeatMs;
+      } else {
+        const kind = this.failed11(r);
+        if (kind === "network" || kind === "unavailable") continue; // the shared state paces the retry
+        next = this.localWait(r, local, this.heartbeatMs);
+      }
+      await this.sleepOrStop(next);
+    }
+  }
+
+  private async eventLoop11(): Promise<void> {
+    const local = new Backoff();
+    let maxCount = 100;
+    let failingHead: QueuedEvent | null = null;
+    let failuresAlone = 0;
+    while (!this.stopped) {
+      if (this.queued === 0) {
+        if (this.drainWatch) { this.drainWatch = false; this.hooks.drained(this, Date.now()); }
+        await this.sleepOrStop(15_000);
+        continue;
+      }
+      const hold = this.flushNotBefore - Date.now();
+      if (this.priority.length === 0 && hold > 0) { await this.sleepOrStop(Math.min(hold, 15_000)); continue; }
+      const lane = this.priority.length > 0 ? this.priority : this.normal;
+      const batch = takeBatch(lane === this.priority ? this.priority : [], lane === this.normal ? this.normal : [], maxCount, 256 * 1024);
+      const release = await this.link11.enter(() => this.stopped, undefined, false);
+      if (!release) return;
+      if (this.priority.length === 0 && this.flushNotBefore > Date.now()) { release(); continue; }
+      const plain = Buffer.from(`{"events":[${batch.map(e => e.json).join(",")}]}`);
+      const gzipOk = this.cfg.gzip !== "off" && (this.server11 || this.cfg.gzip === "on") && Date.now() - this.gzipRefusedAt > 86_400_000 && plain.length >= 1024;
+      let r = await this.send("events", "POST", "/agent/v1/events", gzipOk ? gzipSync(plain) : plain, 60_000, gzipOk ? "gzip" : undefined);
+      if (gzipOk && !(r instanceof NetError) && r.status === 415) {
+        this.gzipRefusedAt = Date.now();
+        this.hooks.count("events.gzipRefused415");
+        r = await this.send("events", "POST", "/agent/v1/events", plain, 60_000);
+      }
+      release();
+      if (this.stopped) return;
+      let wait: number | null = null;
+      if (!(r instanceof NetError) && r.status >= 200 && r.status < 300) {
+        this.link11.reached();
+        if (gzipOk) this.hooks.count("events.gzipBatches");
+        this.remove(batch);
+        this.hooks.count("events.sent", batch.length);
+        local.reset();
+        maxCount = Math.min(100, maxCount * 2);
+        failingHead = null; failuresAlone = 0;
+        if (this.queued > 0 && this.eventsPaceMs > 0) wait = this.eventsPaceMs;
+      } else {
+        const kind = this.failed11(r);
+        if (kind === "quota") wait = this.localWait(r, local);
+        else if (kind === "answered") {
+          maxCount = Math.max(1, Math.floor(batch.length / 2));
+          if (batch.length === 1) {
+            failuresAlone = failingHead === batch[0] ? failuresAlone + 1 : 1;
+            failingHead = batch[0]!;
+            if (failuresAlone >= MAX_EVENT_FAILURES) { this.remove(batch); this.hooks.count("events.setAside"); failingHead = null; failuresAlone = 0; }
+          }
+          if (r instanceof NetError || r.status !== 413) wait = this.localWait(r, local);
+        }
+      }
+      if (wait !== null) await sleep(wait);
+    }
+  }
+
+  // ---- Protocol 1.0 (the agent before 1.1) -----------------------------------------------------
+
+  private async pollLoop10(): Promise<void> {
     const backoff = new LegacyBackoff();
-    const id = String(result["commandId"]).toLowerCase();
+    while (!this.stopped) {
+      const r = await this.send("poll", "GET", "/agent/v1/commands", undefined, 60_000);
+      if (this.stopped) return;
+      let commands: unknown[] | null = null;
+      if (!(r instanceof NetError) && r.status === 200) {
+        try { const j = JSON.parse(r.body.toString()) as { commands?: unknown }; if (Array.isArray(j.commands)) commands = j.commands; } catch { /* below */ }
+      }
+      if (!commands) { await sleep(backoff.next()); continue; }
+      backoff.reset();
+      for (const raw of commands) {
+        const c = raw as Record<string, unknown>;
+        if (typeof c !== "object" || c === null || typeof c["commandId"] !== "string" || !UUID.test(c["commandId"])) { this.hooks.count("command.malformed"); continue; }
+        const id = c["commandId"].toLowerCase();
+        const repeat = this.seen.has(id);
+        this.hooks.received(this, id, String(c["operation"]), Date.now(), repeat);
+        if (repeat) continue; // the replay store refuses a repeat
+        this.seen.set(id, Date.now());
+        if (this.seen.size > 2000) for (const [k, v] of this.seen) if (Date.now() - v > 3_600_000) this.seen.delete(k);
+        // The 1.0 loop runs each command, and posts its result, before it polls again.
+        const result = await this.execute(c);
+        if (this.stopped) return;
+        await this.postResult10(id, result);
+      }
+    }
+  }
+
+  /** PostResultAsync: 8 attempts with backoff, then the result is given up. */
+  private async postResult10(id: string, result: Record<string, unknown>): Promise<void> {
+    const backoff = new LegacyBackoff();
     for (let attempt = 0; attempt < 8 && !this.stopped; attempt++) {
-      const r = await this.send("result", "POST", "/agent/v1/results", result, 60_000);
+      const r = await this.send("result", "POST", "/agent/v1/results", this.json(result), 60_000);
       if (!(r instanceof NetError)) {
         if (r.status === 200) { this.hooks.resultDone(this, id, "accepted"); return; }
         if (r.status === 409) { this.hooks.resultDone(this, id, "already"); return; }
@@ -375,11 +589,63 @@ export class SimAgent {
     if (!this.stopped) this.hooks.resultDone(this, id, "abandoned");
   }
 
-  // ---- Heartbeat -------------------------------------------------------------------------------
+  private async heartbeatLoop10(): Promise<void> {
+    const backoff = new LegacyBackoff();
+    while (!this.stopped) {
+      const body = this.heartbeatBody();
+      const r = await this.send("heartbeat", "POST", "/agent/v1/heartbeat", this.json(body), 60_000);
+      if (this.stopped) return;
+      if (!(r instanceof NetError) && r.status === 200) {
+        backoff.reset();
+        this.lastHealthAt = Date.now();
+        this.contact(); // a 1.0 server records presence from the heartbeat only
+        await this.sleepOrStop(60_000);
+      } else await sleep(backoff.next());
+    }
+  }
+
+  private async eventLoop10(): Promise<void> {
+    const backoff = new LegacyBackoff();
+    while (!this.stopped) {
+      if (this.queued === 0) {
+        if (this.drainWatch) { this.drainWatch = false; this.hooks.drained(this, Date.now()); }
+        await this.sleepOrStop(15_000);
+        continue;
+      }
+      const batch = this.normal.slice(0, 100);
+      const r = await this.send("events", "POST", "/agent/v1/events", Buffer.from(`{"events":[${batch.map(e => e.json).join(",")}]}`), 60_000);
+      if (this.stopped) return;
+      if (!(r instanceof NetError) && r.status === 200) { this.remove(batch); this.hooks.count("events.sent", batch.length); backoff.reset(); continue; }
+      if (!(r instanceof NetError) && r.status === 400) { this.remove(batch); this.hooks.count("events.droppedMalformed", batch.length); continue; }
+      await sleep(backoff.next());
+    }
+  }
+
+  // ---- Shared: running a command, the heartbeat body, the monitors ------------------------------
+
+  private async execute(c: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const commandId = String(c["commandId"]);
+    const op = typeof c["operation"] === "string" ? c["operation"] : "?";
+    const started = this.iso();
+    if (c["cabinetId"] !== this.id.cabinetId)
+      return { commandId, status: "rejected", startedAt: started, finishedAt: started, error: { code: "wrong_cabinet", message: "not this cabinet" } };
+    if (typeof c["expiresAt"] !== "string" || !(Date.parse(c["expiresAt"]) > this.localNow()))
+      return { commandId, status: "rejected", startedAt: started, finishedAt: started, error: { code: "expired", message: "arrived after expiry" } };
+    await sleep(this.runtimeMs(op));
+    return { commandId, status: "succeeded", startedAt: started, finishedAt: this.iso(), output: this.hooks.outputs[op] ?? this.hooks.outputs["system.info"] };
+  }
+
+  private runtimeMs(op: string): number {
+    if (op === "eventlog.query") return 2_000 + Math.random() * 18_000;
+    if (op === "system.checkHealth") return this.cfg.installMinutes * 60_000 * (0.8 + Math.random() * 0.4);
+    if (op === "system.info") return 200 + Math.random() * 1_200;
+    return 500 + Math.random() * 1_500;
+  }
 
   private heartbeatBody(): Record<string, unknown> {
     const now = Date.now();
     const skew = this.lastServer ? Math.max(-86_400, Math.min(86_400, Math.round((this.lastServer.local - this.lastServer.server) / 100) / 10)) : undefined;
+    // A load sample at most every 15 minutes in 1.1 (spec "Presence"); with every heartbeat in 1.0.
     const healthDue = !this.v11() || now - this.lastHealthAt >= 15 * 60_000;
     let health: Record<string, unknown> | undefined;
     if (healthDue) {
@@ -398,46 +664,10 @@ export class SimAgent {
       timeZoneId: "W. Europe Standard Time", ...(health ? { health } : {}) };
   }
 
-  private async heartbeatLoop(): Promise<void> {
-    const backoff = new LegacyBackoff();
-    while (!this.stopped) {
-      if (this.v11()) { await this.conn.gate(() => this.stopped); if (this.stopped) return; }
-      const body = this.heartbeatBody();
-      const r = await this.send("heartbeat", "POST", "/agent/v1/heartbeat", body, 60_000);
-      if (this.stopped) return;
-      if (r instanceof NetError || r.status >= 500 || r.status === 429) {
-        if (!(r instanceof NetError) && (r.status === 503 || r.status === 429)) this.refused(r);
-        if (this.v11()) {
-          if (r instanceof NetError) this.netFailed();
-          await this.conn.waitOnline(); // the poll loop probes; send a heartbeat as soon as the server is back
-          await this.conn.gate(() => this.stopped);
-        } else await sleep(backoff.next());
-        continue;
-      }
-      if (r.status !== 200) { this.hooks.count(`heartbeat.status.${r.status}`); await sleep(backoff.next()); continue; }
-      backoff.reset();
-      if (body["health"]) this.lastHealthAt = Date.now();
-      this.contact();
-      if (this.v11()) {
-        this.conn.ok();
-        try {
-          const j = JSON.parse(r.body.toString()) as { intervals?: { heartbeatSeconds?: unknown; pollSeconds?: unknown; eventsPaceMs?: unknown } };
-          const hb = clamp(j.intervals?.heartbeatSeconds, 60, 900); if (hb !== null) this.heartbeatSeconds = hb;
-          const ps = clamp(j.intervals?.pollSeconds, 15, 110); if (ps !== null) this.pollSeconds = ps;
-          const ep = clamp(j.intervals?.eventsPaceMs, 0, 60_000); if (ep !== null) this.eventsPace = ep;
-          if (j.intervals) this.hooks.count("heartbeat.intervals");
-        } catch { this.hooks.count("heartbeat.badJson"); }
-      }
-      await this.sleepOrStop(this.heartbeatSeconds * 1000);
-    }
-  }
-
   private async sleepOrStop(ms: number): Promise<void> {
     const end = Date.now() + ms;
     while (!this.stopped && Date.now() < end) await sleep(Math.min(5_000, end - Date.now()));
   }
-
-  // ---- Events ----------------------------------------------------------------------------------
 
   /** The monitors: Poisson arrivals at eventsPerHour, a fifth of them in bursts of 2 to 10 (a crash loop, a flapping device). */
   private async monitorLoop(): Promise<void> {
@@ -456,7 +686,7 @@ export class SimAgent {
 
   /** A backlog as if the cabinet had been cut off for `hours` (oldest first, timestamps in the past). */
   preload(hours: number): void {
-    const n = Math.min(this.cfg.eventQueueCap, Math.round(this.cfg.eventsPerHour * hours));
+    const n = Math.min(MAIN_QUEUE_CAP, Math.round(this.cfg.eventsPerHour * hours));
     const now = this.localNow();
     for (let i = 0; i < n; i++) this.enqueue(this.makeEvent(now - (hours * 3_600_000 * (n - i)) / n));
   }
@@ -502,10 +732,11 @@ export class SimAgent {
   }
 
   private enqueue(e: QueuedEvent): void {
-    const isPriority = e.json.includes('"kind":"security"') || e.json.includes('"kind":"agent_status"');
-    if (isPriority && this.v11()) { this.priority.push(e); return; }
-    this.normal.push(e);
-    if (this.normal.length > this.cfg.eventQueueCap) { this.normal.shift(); this.hooks.count("events.droppedQueueFull"); }
+    // 1.1 keeps security and agent-status events in their own lane, sent first.
+    const isPriority = this.v11() && (e.json.includes('"kind":"security"') || e.json.includes('"kind":"agent_status"'));
+    const q = isPriority ? this.priority : this.normal;
+    q.push(e);
+    if (q.length > (isPriority ? PRIORITY_QUEUE_CAP : MAIN_QUEUE_CAP)) { q.shift(); this.hooks.count("events.droppedQueueFull"); }
   }
 
   private remove(batch: QueuedEvent[]): void {
@@ -516,62 +747,5 @@ export class SimAgent {
       q.length = w;
     }
     for (const e of batch) { this.recentEvents.push(e); if (this.recentEvents.length > 20) this.recentEvents.shift(); }
-  }
-
-  private async eventLoop(): Promise<void> {
-    const backoff = new LegacyBackoff();
-    while (!this.stopped) {
-      if (this.queued === 0) {
-        if (this.drainWatch) { this.drainWatch = false; this.hooks.drained(this, Date.now()); }
-        await this.sleepOrStop(15_000);
-        continue;
-      }
-      if (this.v11()) {
-        await this.conn.gate(() => this.stopped);
-        if (!this.conn.online) await this.conn.waitOnline();
-        if (this.stopped) return;
-      }
-      const batch = this.v11() ? takeBatch(this.priority, this.normal, this.batchMax, 256 * 1024) : this.normal.slice(0, 100);
-      const gzip = this.gzipState !== "no";
-      const r = await this.send("events", "POST", "/agent/v1/events", { events: batch.map(e => JSON.parse(e.json) as unknown) }, 60_000, gzip);
-      if (this.stopped) return;
-      if (r instanceof NetError) {
-        if (this.v11()) this.netFailed(); else await sleep(backoff.next());
-        continue;
-      }
-      if (gzip && this.gzipState === "unknown" && (r.status === 400 || r.status === 415)) {
-        // The server did not take a compressed body: send plain from now on.
-        this.gzipState = "no";
-        this.hooks.count("events.gzipNotAccepted");
-        continue;
-      }
-      if (r.status === 200) {
-        if (gzip) { if (this.gzipState === "unknown") this.hooks.count("events.gzipAccepted"); this.gzipState = "yes"; }
-        this.remove(batch);
-        this.hooks.count("events.sent", batch.length);
-        backoff.reset();
-        if (this.v11()) this.conn.ok();
-        if (this.queued > 0) {
-          const pace = this.v11() ? (this.eventsPace ?? this.cfg.eventsPaceMs) : 0;
-          if (pace > 0) await sleep(pace);
-        }
-        continue;
-      }
-      if (r.status === 429 || r.status === 503) {
-        this.refused(r);
-        if (!this.v11()) await sleep(backoff.next());
-        continue;
-      }
-      if (r.status === 413 && this.v11()) { this.batchMax = Math.max(1, Math.floor(batch.length / 2)); this.hooks.count("events.413"); continue; }
-      if (r.status === 400) {
-        if (!this.v11()) { this.remove(batch); this.hooks.count("events.droppedMalformed", batch.length); continue; }
-        // 1.1: a batch that keeps failing sets its first event aside, so one bad event cannot stall the queue.
-        const first = batch[0]!;
-        if (++first.failures >= 3) { this.remove([first]); this.hooks.count("events.setAside"); }
-        else if (batch.length > 1) this.batchMax = Math.max(1, Math.floor(batch.length / 2));
-        continue;
-      }
-      if (this.v11()) this.netFailed(); else await sleep(backoff.next());
-    }
   }
 }

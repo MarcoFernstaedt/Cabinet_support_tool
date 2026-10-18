@@ -7,8 +7,16 @@ import assert from "node:assert/strict";
 import { createServer, type Server, type Socket } from "node:net";
 import { ResponseParser, NetError, MAX_RESPONSE_BYTES } from "./transport.js";
 import { AgentLink, DeliveryQueue, LINK_CLASSES, LinkShim, parseLinkMix, pickLinkClass, type LinkClass } from "./link.js";
-import { Connectivity, retryAfterMs, takeBatch } from "./agent-sim.js";
+import { Backoff, Connectivity, classify, retryAfterMs, takeBatch } from "./agent-sim.js";
 import { Histogram, seeded } from "./metrics.js";
+import { SimAgent } from "./agent-sim.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSecureServer } from "node:http2";
+import { gunzipSync } from "node:zlib";
+import { developmentIssuingKey, developmentServerCertificate, issueAgentCertificate } from "../../src/pki/issuing.js";
+import { csrFor, ecKey } from "../helpers.js";
 
 const parse = (text: string | Buffer, method = "GET") => new ResponseParser(method).push(Buffer.isBuffer(text) ? text : Buffer.from(text, "latin1"));
 
@@ -78,19 +86,48 @@ test("Retry-After: seconds, an HTTP date, or nothing usable", () => {
   assert.equal(retryAfterMs("1e9"), null);
 });
 
-test("decorrelated jitter grows, is capped at 5 minutes, and resets on success", () => {
-  const c = new Connectivity(1_000, 300_000, seeded(3));
-  let now = 0;
+test("decorrelated jitter grows from 2 s and is capped at 5 minutes", () => {
+  const b = new Backoff(2_000, 300_000, seeded(3));
   let max = 0;
-  for (let i = 0; i < 50; i++) { const w = c.failed(now); assert.ok(w >= 1_000 && w <= 300_000); max = Math.max(max, w); now += w; }
+  for (let i = 0; i < 50; i++) { const w = b.next(); assert.ok(w >= 2_000 && w <= 300_000); max = Math.max(max, w); }
   assert.ok(max > 100_000, "reaches minutes after many failures");
-  // Several loops failing within one wait do not escalate it again.
-  const w1 = c.failed(now);
-  assert.equal(c.failed(now + 10), w1 - 10);
-  c.ok();
-  assert.ok(c.failed(now + w1 + 1) <= 3_000, "starts small again after a success");
-  c.defer(60_000, 0);
-  assert.ok(c.notBefore >= 60_000);
+  b.reset();
+  assert.ok(b.next() <= 6_000, "starts small again after a reset");
+});
+
+test("shared connectivity: one probe while down, everyone after a success; 429 is local; Retry-After capped at 10 min", async () => {
+  let now = 1_000_000;
+  const c = new Connectivity(new Backoff(2_000, 300_000, seeded(5)), seeded(6), 30_000, () => now);
+  const stopped = () => false;
+  assert.equal(classify(new NetError("ECONNRESET", "x")), "network");
+  assert.equal(c.failed("network", null), "network");
+  assert.equal(c.connected, false);
+  now += 400_000; // past any backoff
+  const probe = await c.enter(stopped);
+  assert.ok(probe);
+  let second = false;
+  const other = c.enter(stopped).then(r => { second = true; return r; });
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(second, false, "a second loop waits while one probes");
+  c.reached();
+  probe!();
+  assert.ok(await other);
+  // A quota refusal leaves the shared state connected.
+  c.failed("quota", 60_000);
+  assert.equal(c.connected, true);
+  // 503 with Retry-After of a day is honoured for 10 minutes only.
+  c.failed("unavailable", 86_400_000);
+  assert.equal(c.serverWaitUntil - now, 600_000);
+  // A reset of a live connection retries within 0-30 s, not after the backoff step.
+  const d = new Connectivity(new Backoff(2_000, 300_000, () => 0.99), () => 0.5, 30_000, () => now);
+  d.reached();
+  d.failed("network", null);
+  let entered = false;
+  void d.enter(stopped).then(() => { entered = true; });
+  now += 15_001;
+  d.wake();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(entered, true);
 });
 
 test("event batches keep to 100 events and 256 KB, priority events first", () => {
@@ -164,13 +201,13 @@ test("the shim relays in order with delay, and counts bytes", async () => {
 test("a black-hole kills existing connections for good; keepalive notices an idle one", async () => {
   const { server, port, sockets } = await echoServer();
   const link = new AgentLink(FAST, Math.random);
-  const shim = new LinkShim(link, { host: "127.0.0.1", port, keepaliveSec: 0.05 });
+  const shim = new LinkShim(link, { host: "127.0.0.1", port, keepaliveSec: 0.05, keepaliveProbesMs: 300 });
   await new Promise(r => setTimeout(r, 50));
   const t = Date.now();
   link.blackhole("test");
   const err = await new Promise<Error>(r => shim.on("error", r));
   assert.match(err.message, /keepalive/);
-  assert.ok(Date.now() - t >= 10_000 - 100, "about 10 probes after the idle time");
+  assert.ok(Date.now() - t >= 300 - 20, "the probes run out after the idle time");
   link.restore("test");
   // The old connection stays dead after the link is back; a new one works.
   const fresh = new LinkShim(link, { host: "127.0.0.1", port, keepaliveSec: 0 });
@@ -225,4 +262,88 @@ test("a NAT forgets an idle flow unless keepalive is shorter than its timeout", 
   assert.equal(await check(0.1), true, "keepalive every 0.1 s keeps a 0.2 s NAT mapping");
   for (const s of sockets) s.destroy();
   server.close();
+});
+
+// ---- The agent model against a small Protocol 1.1 server ---------------------------------------
+// The platform server does not speak 1.1 yet, so its features are exercised here: HTTP/2 through ALPN, leased delivery
+// with ?ack= and a repeat offer answered from the outbox, server-directed intervals, a 429 with Retry-After, and gzip
+// event batches once the server has shown 1.1.
+
+test("a 1.1 agent against a 1.1 server: HTTP/2, acks, repeat offer, intervals, 429 Retry-After, gzip", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "load-test-pki-"));
+  try {
+    const key = await developmentIssuingKey(dir);
+    const tls = await developmentServerCertificate(key, dir, ["localhost"]);
+    const cabinetId = "6f1c2a3b-4d5e-4f60-8a71-b2c3d4e5f607";
+    const k = ecKey();
+    const cert = await issueAgentCertificate(key, csrFor(k), cabinetId);
+    const commandId = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+    const seen = { acks: [] as string[], polls: 0, results: 0, gzip: 0, plain: 0, events: 0, refusedOnce: false, protocols: new Set<string>() };
+    const server = createSecureServer({ allowHTTP1: true, key: tls.keyPem, cert: tls.certPem, ca: key.certificatePem, requestCert: true, rejectUnauthorized: true }, (req, res) => {
+      seen.protocols.add(req.httpVersion);
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const url = new URL(req.url, "https://localhost");
+        const send = (status: number, body: unknown, headers: Record<string, string> = {}): void => {
+          res.writeHead(status, { "content-type": "application/json", ...headers }); res.end(JSON.stringify(body));
+        };
+        const serverTime = new Date().toISOString();
+        if (url.pathname === "/agent/v1/heartbeat") { send(200, { serverTime, scanner: { hardwareIds: null }, intervals: { heartbeatSeconds: 60, pollSeconds: 20, eventsPaceMs: 0 } }); return; }
+        if (url.pathname === "/agent/v1/commands") {
+          seen.polls++;
+          const ack = url.searchParams.get("ack");
+          if (ack) seen.acks.push(ack);
+          const command = { commandId, cabinetId, operation: "system.info", params: {}, issuedBy: cabinetId, issuedAt: serverTime, expiresAt: new Date(Date.now() + 300_000).toISOString() };
+          // The command is offered on the first poll and, as a lease re-offer, again on the third.
+          if (seen.polls === 1 || seen.polls === 3) { send(200, { serverTime, commands: [command] }); return; }
+          setTimeout(() => send(200, { serverTime, commands: [], pollSeconds: 20 }), 300);
+          return;
+        }
+        if (url.pathname === "/agent/v1/results") { seen.results++; if (seen.results === 1) send(200, { serverTime }); else send(409, { error: "result_not_expected" }); return; }
+        if (url.pathname === "/agent/v1/events") {
+          if (!seen.refusedOnce) { seen.refusedOnce = true; send(429, { error: "rate_limited" }, { "retry-after": "1" }); return; }
+          const raw = Buffer.concat(chunks);
+          const gz = req.headers["content-encoding"] === "gzip";
+          if (gz) seen.gzip++; else seen.plain++;
+          seen.events += (JSON.parse((gz ? gunzipSync(raw) : raw).toString()) as { events: unknown[] }).events.length;
+          send(200, { serverTime });
+          return;
+        }
+        send(404, { error: "not_found" });
+      });
+    });
+    await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as { port: number }).port;
+    const counts: Record<string, number> = {};
+    const outcomes: string[] = [];
+    const protocolsSeen: string[] = [];
+    const hooks = {
+      phase: () => "test", outputs: { "system.info": { ok: true } },
+      request: () => undefined, contact: () => undefined, received: () => undefined, drained: () => undefined, bytes: () => undefined,
+      resultDone: (_a: unknown, _id: string, outcome: string) => { outcomes.push(outcome); },
+      count: (k: string, n = 1) => { counts[k] = (counts[k] ?? 0) + n; },
+      handshake: (_a: unknown, _r: boolean, _ms: number, p: string) => { protocolsSeen.push(p); },
+    };
+    const agent = new SimAgent({ index: 0, cabinetId, keyPem: k.keyPem, certPem: cert.pem }, new AgentLink(FAST, Math.random),
+      { protocol: "1.1", host: "localhost", port, servername: "localhost", ca: key.certificatePem, eventsPerHour: 40, storm: false, timeCompression: 1,
+        installMinutes: 0, gzip: "auto", clockOffsetMs: 0, httpOffer: "auto", keepaliveSec: 20 }, hooks as never);
+    agent.preload(1); // a backlog of 40 events
+    const running = agent.run(0);
+    const deadline = Date.now() + 25_000;
+    while (Date.now() < deadline && !(outcomes.length >= 2 && seen.events >= 40 && seen.acks.length >= 2)) await new Promise(r => setTimeout(r, 100));
+    agent.stop();
+    await running;
+    server.close();
+    assert.equal(protocolsSeen[0], "h2", "HTTP/2 negotiated through ALPN");
+    assert.ok(seen.protocols.has("2.0"));
+    assert.equal(seen.acks[0], commandId.toLowerCase(), "the next poll acknowledges the command, lower-case");
+    assert.deepEqual(outcomes, ["accepted", "already"], "the repeat offer is answered from the outbox; the server's 409 settles it");
+    assert.equal(counts["commands.answeredFromOutbox"], 1);
+    assert.equal(counts["refused.429.retryAfter"], 1, "the 429 and its Retry-After were seen (and only the event loop waited)");
+    assert.equal(counts["reconnected"], undefined, "a quota refusal does not count as losing the server");
+    assert.equal(counts["server11.detected"], 1);
+    assert.ok(seen.gzip >= 1, "event batches are gzip-compressed once the server has shown 1.1");
+    assert.ok(seen.events >= 40);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

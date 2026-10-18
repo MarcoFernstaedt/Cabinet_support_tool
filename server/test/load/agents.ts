@@ -33,7 +33,7 @@ const USAGE = `usage:
     --server-pid PID | --server-pid-file FILE           sample the server's CPU and memory from /proc
     --http auto|h1|h2  --gzip auto|on|off  --tcp-keepalive-seconds S
     --drain-seconds S (120)            no new commands in the last S seconds, so every lease can settle
-    --install-minutes M (10)  --events-pace-ms MS (1000)  --offline-command-share F (0.03)  --clock-skew-share F (0.02)`;
+    --install-minutes M (10)  --offline-command-share F (0.03)  --clock-skew-share F (0.02)`;
 
 function num(v: string | undefined, def: number, name: string, lo = 0, hi = Number.MAX_SAFE_INTEGER): number {
   if (v === undefined) return def;
@@ -57,7 +57,7 @@ async function main(): Promise<void> {
     "outage-at-minute": { type: "string" }, "outage-minutes": { type: "string" }, "outage-share": { type: "string" }, "preload-hours": { type: "string" },
     "failover-every-minutes": { type: "string" }, "server-pid": { type: "string" }, "server-pid-file": { type: "string" }, http: { type: "string" },
     gzip: { type: "string" }, "tcp-keepalive-seconds": { type: "string" }, "drain-seconds": { type: "string" }, "install-minutes": { type: "string" },
-    "events-pace-ms": { type: "string" }, "offline-command-share": { type: "string" }, "clock-skew-share": { type: "string" }, "storm-share": { type: "string" },
+    "offline-command-share": { type: "string" }, "clock-skew-share": { type: "string" }, "storm-share": { type: "string" },
     help: { type: "boolean" } } });
   const state = v.state ?? "load-state.json";
   if (positionals[0] === "setup") {
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
     http: oneOf(v.http, ["auto", "h1", "h2"] as const, "auto", "http"), gzip: oneOf(v.gzip, ["auto", "on", "off"] as const, "auto", "gzip"),
     ...(v["tcp-keepalive-seconds"] !== undefined ? { keepaliveSeconds: num(v["tcp-keepalive-seconds"], 20, "tcp-keepalive-seconds", 0, 7200) } : {}),
     drainSeconds: num(v["drain-seconds"], 120, "drain-seconds", 0), installMinutes: num(v["install-minutes"], 10, "install-minutes", 0, 120),
-    eventsPaceMs: num(v["events-pace-ms"], 1000, "events-pace-ms", 0, 60_000), offlineCommandShare: num(v["offline-command-share"], 0.03, "offline-command-share", 0, 1),
+    offlineCommandShare: num(v["offline-command-share"], 0.03, "offline-command-share", 0, 1),
     stormShare: num(v["storm-share"], 0.01, "storm-share", 0, 1),
   };
   process.exitCode = await run(o);

@@ -50,7 +50,6 @@ export interface RunOptions {
   keepaliveSeconds?: number;
   drainSeconds: number;
   installMinutes: number;
-  eventsPaceMs: number;
   offlineCommandShare: number;
   stormShare: number;
 }
@@ -183,7 +182,7 @@ export async function run(o: RunOptions): Promise<number> {
     const init: WorkerInit = { workerId: w, t0, agents: mine, seed: o.seed * 7919 + w, failovers: scenario !== "nat-drop",
       ...(o.failoverEveryMinutes !== undefined ? { failoverEveryMinutes: o.failoverEveryMinutes } : {}),
       config: { protocol: o.protocol, host: base.hostname, port: Number(base.port || 443), servername: base.hostname, ca: state.caPem, eventsPerHour: o.eventsPerHour,
-        timeCompression: o.timeCompression, installMinutes: o.installMinutes, gzip: o.gzip, eventQueueCap: 10_000, eventsPaceMs: o.eventsPaceMs, httpOffer: o.http,
+        timeCompression: o.timeCompression, installMinutes: o.installMinutes, gzip: o.gzip, httpOffer: o.http,
         keepaliveSec: keepalive } };
     const worker = new Worker(workerFile, { workerData: init, resourceLimits: { maxOldGenerationSizeMb: 4096 } });
     worker.on("message", (m: { t: string } & Record<string, unknown>) => {

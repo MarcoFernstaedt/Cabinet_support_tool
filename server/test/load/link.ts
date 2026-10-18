@@ -16,7 +16,7 @@
 //     the flow state is lost) and new connections cannot be opened until the link is back;
 //   - how the client notices a dead connection: unacknowledged data is retransmitted and the connection reset after
 //     about 20 s (Windows TcpMaxDataRetransmissions 5); an idle one is found by keepalive (idle time, then 10 probes
-//     one second apart), or never when keepalive is off (the application's own timeout ends it);
+//     5 s apart, as the agent sets them), or never when keepalive is off (the application's own timeout ends it);
 //   - the server's side of a dead connection stays open until the server closes it or about 15 minutes pass
 //     (Linux tcp_retries2), like a real half-dead socket.
 import { Duplex } from "node:stream";
@@ -126,6 +126,8 @@ export interface ShimOptions {
   port: number;
   /** TCP keepalive idle time in seconds; 0 = keepalive off. */
   keepaliveSec: number;
+  /** How long the keepalive probes take to give up on a dead peer (the agent: 10 probes 5 s apart). */
+  keepaliveProbesMs?: number;
   connectTimeoutMs?: number;
   /** How long the client retransmits unacknowledged data on a dead connection before it gives up. */
   retransmitGiveUpMs?: number;
@@ -277,7 +279,7 @@ export class LinkShim extends Duplex {
   private becameDead(): void {
     if (this.destroyed || this.deadTimer || this.o.keepaliveSec <= 0) return;
     const idleFor = Date.now() - this.lastActivity;
-    const wait = Math.max(0, this.o.keepaliveSec * 1000 - idleFor) + 10_000;
+    const wait = Math.max(0, this.o.keepaliveSec * 1000 - idleFor) + (this.o.keepaliveProbesMs ?? 50_000);
     this.deadTimer = setTimeout(() => this.destroy(new LinkError("ETIMEDOUT", "keepalive found the connection dead")), wait);
   }
 
