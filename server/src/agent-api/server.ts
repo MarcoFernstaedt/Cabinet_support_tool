@@ -41,6 +41,8 @@ export interface Admission {
   requestsPerSecond: number; requestsBurst: number;
   /** Shed load when more requests than this wait for a database connection... */
   maxPendingAcquires: number;
+  /** Requests waiting longer than this for a database connection mean the database is behind. */
+  maxAcquireWaitMs: number;
   /** ...or the event loop lags by more than this. */
   maxEventLoopLagMs: number;
   /** Retry-After range for shed requests, in seconds. */
@@ -51,7 +53,7 @@ export interface Admission {
 
 export const DEFAULT_ADMISSION: Admission = {
   newConnectionsPerSecond: 100, newConnectionsBurst: 300, requestsPerSecond: 2_000, requestsBurst: 4_000,
-  maxPendingAcquires: 20, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90],
+  maxPendingAcquires: 20, maxAcquireWaitMs: 1_000, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90],
 };
 
 export interface AgentApiOptions {
@@ -212,7 +214,10 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   let lagSeconds = 0;
   const lagTimer = setInterval(() => { lagSeconds = lag.percentile(99) / 1e6 > admission.maxEventLoopLagMs ? lagSeconds + 1 : 0; lag.reset(); }, 1_000);
   lagTimer.unref();
-  const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.pending > admission.maxPendingAcquires || lagSeconds >= 3);
+  // The database is behind when requests wait more than maxAcquireWaitMs for a connection (not when many wait: a queue of 1 ms
+  // statements clears at once), or when the queue is five times maxPendingAcquires (a burst no wait can absorb).
+  const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.waitMs > admission.maxAcquireWaitMs
+    || o.pool.pending > admission.maxPendingAcquires * 5 || lagSeconds >= 3);
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   const admitted = new WeakSet<object>();

@@ -119,7 +119,41 @@ export class Tx implements Queryable {
 }
 
 export class Pool implements Queryable {
-  constructor(private readonly pool: sql.ConnectionPool) {}
+  /** When each waiting request asked for a connection, and the longest wait that ended in the current and the previous second. */
+  private readonly asked = new Map<number, number>();
+  private waited = [0, 0];
+  private waitedSecond = 0;
+  constructor(private readonly pool: sql.ConnectionPool) {
+    // tarn (inside mssql) announces each request for a connection and its outcome.
+    const tarn = (pool as unknown as { pool?: { on(event: string, f: (id: number) => void): void } }).pool;
+    const ended = (id: number): void => {
+      const at = this.asked.get(id);
+      if (at === undefined) return;
+      this.asked.delete(id);
+      this.rollWaits();
+      this.waited[1] = Math.max(this.waited[1]!, Date.now() - at);
+    };
+    tarn?.on("acquireRequest", id => { this.asked.set(id, Date.now()); });
+    tarn?.on("acquireSuccess", ended);
+    tarn?.on("acquireFail", ended);
+  }
+  private rollWaits(): void {
+    const second = Math.floor(Date.now() / 1000);
+    if (second === this.waitedSecond) return;
+    this.waited = second === this.waitedSecond + 1 ? [this.waited[1]!, 0] : [0, 0];
+    this.waitedSecond = second;
+  }
+  /**
+   * How long requests are waiting for a connection: the longest wait that ended in the last second or two, or the age of the oldest
+   * request still waiting. A long queue of 1 ms statements clears at once; a wait this long means the database is not keeping up.
+   */
+  get waitMs(): number {
+    this.rollWaits();
+    let oldest = 0;
+    const now = Date.now();
+    for (const at of this.asked.values()) { oldest = now - at; break; } // Map keeps insertion order: the first is the oldest
+    return Math.max(this.waited[0]!, this.waited[1]!, oldest);
+  }
   /**
    * One statement outside a transaction. SQL Server may pick it as a deadlock victim; it was rolled back whole, so it is run again (up to
    * three times). A batch of several statements is not retried: the ones before the victim have already committed.

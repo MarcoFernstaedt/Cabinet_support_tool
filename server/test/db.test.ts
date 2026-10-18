@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { audit, transaction, verifyAuditChain } from "../src/db/db.js";
-import { placeholders } from "../src/db/db.js";
+import { createPool, placeholders } from "../src/db/db.js";
 import { connectOwner, migrate, MIGRATIONS_DIR, readMigrations } from "../src/db/migrate.js";
 import { JSON_COLUMNS } from "../src/db/json-columns.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
@@ -114,4 +114,18 @@ test("text that looks like a GUID is kept as stored, and an audit entry with one
 test("placeholders: $n becomes @pn outside strings and comments; an apostrophe in a comment is not a string", () => {
   assert.equal(placeholders("SELECT $1, '$2' -- the cabinet's $3\nWHERE x = $4"), "SELECT @p1, '$2' -- the cabinet's $3\nWHERE x = @p4");
   assert.equal(placeholders("SELECT 'a--b', $1"), "SELECT 'a--b', @p1");
+});
+
+test("the pool reports how long requests wait for a connection, not just how many wait", async () => {
+  const one = await createPool(db.appUrl, { max: 1, min: 1 });
+  try {
+    assert.ok(one.waitMs < 200, "nothing waits on an idle pool");
+    const holding = one.query("WAITFOR DELAY '00:00:01.500'");
+    await new Promise(r => setTimeout(r, 100));
+    const waiting = one.query("SELECT 1 AS x");
+    await new Promise(r => setTimeout(r, 1_100));
+    assert.ok(one.waitMs >= 1_000, `the waiting request is seen while it waits (${one.waitMs} ms)`);
+    await Promise.all([holding, waiting]);
+    assert.ok(one.waitMs >= 1_000, "and the finished wait is remembered for a second");
+  } finally { await one.end(); }
 });
