@@ -110,6 +110,10 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
      IF $2 IS NOT NULL
        UPDATE commands SET ack_at = @now
         WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($2));
+     -- Almost every poll finds nothing waiting: two seeks on the small filtered indexes say so, and then nothing else runs.
+     IF EXISTS (SELECT 1 FROM commands WITH (FORCESEEK) WHERE cabinet_id = $1 AND status = 'queued')
+        OR EXISTS (SELECT 1 FROM commands WITH (FORCESEEK) WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL)
+     BEGIN
      UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= @now;
      -- Handed to a poll that never confirmed it (its answer went into a dead connection), and its lifetime ran out before it could be
      -- offered again: it is expired now, not left looking as if it were running. A result that still arrives is kept (storeResult).
@@ -117,19 +121,20 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
       WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at <= @now;
      UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = @until
       WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) w.id FROM (
-                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
+                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST, FORCESEEK)
                       WHERE cabinet_id = $1 AND status = 'queued' AND expires_at > @now
                      UNION ALL
-                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
+                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST, FORCESEEK)
                       WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at > @now) w
                     ORDER BY w.issued_at);
+     END
      -- What this poll took is read back by its lease end (no table variable: commands has triggers, so OUTPUT would need one, and each
      -- one an ad-hoc batch declares is created in tempdb, which queued at 10,000 cabinets). Two polls of one cabinet in the same
      -- millisecond would both see the other's commands; the agent acknowledges and answers repeats, so that is harmless.
      SELECT t.id, t.operation, t.params, t.issued_by, t.issued_at, t.expires_at, n.next_lease
-       FROM (SELECT MIN(lease_until) AS next_lease FROM commands
+       FROM (SELECT MIN(lease_until) AS next_lease FROM commands WITH (FORCESEEK)
               WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until > @now AND expires_at > @now) n
-       LEFT JOIN commands t ON t.cabinet_id = $1 AND t.status = 'delivered' AND t.lease_until = @until AND t.ack_at IS NULL AND t.result_at IS NULL;`,
+       LEFT JOIN commands t WITH (FORCESEEK) ON t.cabinet_id = $1 AND t.status = 'delivered' AND t.lease_until = @until AND t.ack_at IS NULL AND t.result_at IS NULL;`,
     [cabinetId, acks.length > 0 ? JSON.stringify(acks) : null, leaseSeconds], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows;
   const commands = rows.filter(r => r.id !== null).sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
     commandId: r.id!, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,
