@@ -103,36 +103,158 @@ A **2 vCPU, 4 GB** virtual machine running the application and PostgreSQL togeth
 - **Events, alerts, firewall history, diagnoses, boots, fleet jobs and command results** are pruned by the retention settings (Admin → Settings). The audit log is never pruned.
 - **Fleet search** scans stored readings with a time limit of 15 seconds and one search at a time per person.
 
+## How the load test models the fleet (October 2026)
+
+The load generator (`server/test/load/`) was rebuilt so that a run with 8,000 or 10,000 cabinets on a small server can be trusted: each simulated cabinet behaves like the real agent, over a network like the clinics' own, through the events that hurt a fleet (a server restart, a regional outage, mobile failovers). The measured results above predate it and the SQL Server port; they stay for comparison until new runs replace them.
+
+### The simulated agent
+
+Each simulated agent has its own cabinet, its own client certificate and its own TLS sessions, and follows the agent's code (`agent/src/Cabinet.Agent.Core/Server/AgentConnection.cs`, `Connectivity.cs`, `ResultOutbox.cs`, `AgentApiClient.cs`, `Monitoring/EventQueue.cs`). `--protocol 1.0` gives the agent as it was before Protocol 1.1, so runs can be compared before and after.
+
+| | `--protocol 1.0` (the agent before 1.1) | `--protocol 1.1` (default; the agent now) |
+|---|---|---|
+| Connection | HTTP/1.1 pool, idle connections closed after 60 s, 10-minute lifetime, no TCP keepalive | HTTP/2 when the server offers it through ALPN, else HTTP/1.1 with idle connections closed after 20 s; lifetime 23 h + 0–120 min; TCP keepalive after 20 s idle, then a probe every 5 s (10 probes); HTTP/2 PING every 20 s, connection dropped after 10 s without an answer |
+| Long poll | 25 s, client timeout 60 s, no acknowledgement; each command runs (and its result is posted) before the next poll | `?ack=` with the previous poll's command IDs (lower-case, at most 50); client timeout `pollSeconds` + 35 s; `pollSeconds` and `reconnectAfterMs` honoured; one worker runs commands in turn while polling goes on; a repeat offer is answered from the result outbox; a poll answered in under 1 s with nothing waits 1 s |
+| Heartbeat | every 60 s, with a load sample | every 60 s until the server shows 1.1 (any pacing field), then `intervals.heartbeatSeconds` or 300 s; a load sample at most every 15 minutes; a drive report once a day |
+| Results | 8 attempts with backoff, then given up | outbox, oldest first, until 2xx or 409; another 4xx drops it |
+| Events | 100 per batch, back to back | 100 events and 256 KB per batch; gzip only after the server has shown 1.1, for bodies of 1 KB or more (415: plain for 24 h); halved after a refusal, an event refused alone 5 times set aside; paced only when the server sets `eventsPaceMs`; after a reconnection the main lane waits a random 0–120 s (security and agent-status events have their own lane, 1,000 deep, and do not wait); main queue 5,000 events |
+| Failures | each loop backs off on its own (exponential, full jitter, 2 s to 5 min) | one shared state: a network error or 502/503/504 pauses every loop and one request at a time probes, with decorrelated jitter from 2 s capped at 5 minutes (0–30 s for the first retry after a live connection was reset); 429 waits only in the loop that got it; `Retry-After` honoured up to 10 minutes |
+
+**Commands:** 70% `system.info` (0.2–1.4 s on the cabinet), 25% `eventlog.query` (2–20 s, a 50-entry page), 5% a 10-minute long command standing in for a software install, and 3% sent to cabinets that never connect (they expire and are reported separately). The install stand-in is `system.checkHealth` with a simulated 10-minute runtime: a real `package.install` needs an approved package, a step-up code and a write limit, none of which a load run should exercise. Commands go through the server's own issuing path (`issueCommand`), 2 a second by default, from 30 s after the ramp until `--drain-seconds` (120 s) before the end, so every delivery can settle before the database is checked.
+
+**Events:** 6 an hour per cabinet by default (Poisson; a fifth arrive in bursts of 2 to 10): log errors, update installs, service restarts, scanner disconnects, firewall changes, SMART warnings and agent-status events, about 3% of them repeating an earlier event's ID (a record read again).
+
+**Clock skew:** 2% of the cabinets run 1 to 3 minutes fast or slow; their timestamps and reported skew follow, and they check command expiry against their own clock.
+
+**Fleet shape:** setup creates sites of 1 to 6 cabinets (about 3 on average) in clients of 500, each site in one of ten regions, plus 2% extra cabinets that never connect.
+
+### Simulated links
+
+Every agent's TCP connections run through an in-process relay (`server/test/load/link.ts`; no root, no `tc`): bytes go to a real TCP connection to the server with the link's delay, loss and bandwidth applied, and a NAT or a failover can silently black-hole them. The server sees ordinary connections, half-dead ones included. Bytes are counted at the relay (TLS bytes, plus an estimate of TCP/IP headers).
+
+| Class | Default share | Round trip (lognormal) | Loss (as retransmit delay) | NAT idle timeout | Failovers | Bandwidth down / up |
+|---|---|---|---|---|---|---|
+| fiber | 60% | median 25 ms, p99 80 ms | none | none | none | 100 / 40 Mbit/s |
+| DSL | 25% | median 60 ms, p99 300 ms | 0.5% | 120 s | none | 16 / 1 Mbit/s |
+| 4G | 12% | median 120 ms, p99 800 ms | 2% | 30–60 s, flows dropped silently | every 6 h ± 3 h, every socket black-holed for 30–90 s; connections open before it stay dead | 20 / 5 Mbit/s |
+| bad | 3% | median 500 ms, p99 1.5 s | 5% | 30 s | none | 1 / 0.25 Mbit/s |
+
+- `--links fiber=60,dsl=25,4g=12,bad=3` sets the mix. Each cabinet's class follows from `--seed` and its cabinet ID, so runs are repeatable.
+- How a dead connection is noticed is modelled: data written into it is retransmitted and the connection reset after about 20 s; an idle one is found by the keepalive probes (1.1) or not at all (1.0, until the request times out). The server's side of a dead connection stays open until the server closes it or about 15 minutes pass.
+- `--time-compression C` runs the multi-hour behaviours C times faster: 4G failovers and the daily drive report. Protocol timings (polls, heartbeats, NAT timeouts, backoffs) always run in real time, because the server is real. With 18 (the `run.sh` default) each 4G cabinet fails over about once every 20 minutes. Bytes per cabinet per day are measured in real time over the steady phase and include the compressed failovers, so they slightly overstate a real day of a 4G cabinet.
+
+### Scenarios (`--scenario`)
+
+| Scenario | What happens | What it shows |
+|---|---|---|
+| `steady` | ramp over `--ramp-seconds` (120), then steady load | the baseline and the thresholds below |
+| `restart` | at `--restart-at-minute` (5) the server is stopped and started again by `--restart-exec` (`run.sh` passes a script that sends SIGTERM and starts the server on the same cores; without it the run says when to restart by hand and waits for `/health`) | reconnection times, 503s while closing, commands caught in the restart, site-outage alerts that must not appear |
+| `no-ramp` | every agent connects within 2 s | the handshake storm |
+| `regional-outage` | at `--outage-at-minute` (4), 30% of the regions (whole sites) are black-holed for `--outage-minutes` (20), then released together; `--preload-hours 72` gives those cabinets the event backlog of a 3-day outage | event drain time, reconnection, isolation of the cabinets not affected, site-outage alerts for the right sites |
+| `nat-drop` | 4G links only, without failovers | whether NAT timeouts break connections (1.0 has no keepalive; 1.1 has) |
+| `failover-during-command` | 4G only, a failover every `--failover-every-minutes` (4) per cabinet, and half of the commands sent to cabinets whose link is down at that moment | commands issued during a blackout must be delivered after the reconnect |
+| `event-storm` | 1% of the cabinets send one event a second for the whole run | the ingest quota (429) touches only those cabinets |
+
+### What a run reports
+
+The summary is printed and written as JSON (`--report`):
+
+- requests per second by kind, overall and in the steady phase; outcomes by status; peak 503 and 429 per second;
+- new TLS connections per second, full and resumed (`tlsSocket.isSessionReused()`), the HTTP version the server chose, open connections;
+- bytes up and down per cabinet per day by link class (counted at the relay, steady phase);
+- latency per request kind (all cabinets, and fiber cabinets in the steady phase, which shows the server's own speed);
+- command delivery (issue to the cabinet holding it) p50/p95/max per link class; commands issued while the target's link was down and how long after the link came back they arrived; repeat offers;
+- **lost commands**: delivered according to the database but never received by the agent; **undelivered commands** to cabinets whose link was up for the command's whole life; commands to never-connected cabinets;
+- **lost results**: accepted by the server (2xx or 409) but not in the database, or given up by a 1.0 agent; results still in an outbox at the end;
+- **false offlines**: a cabinet more than 5 minutes without contact (a poll or heartbeat for 1.1, a heartbeat for 1.0), not counting the time its link was down; and the server's own view, sampled from the database every 30 s (`last_contact_at`, or `last_heartbeat_at` while that is the column): cabinets with no recorded contact for 6 min 10 s (presence may be written up to a minute late) whose link was up;
+- site-outage alerts raised during the run, for sites in the outage and elsewhere;
+- time for 50/95/99/99.9% of the cabinets to be back after a restart (from the kill and from the server answering `/health`) or after an outage, and cabinets not back at the end;
+- event drain time after an outage, events sent, duplicates, gzip use, events dropped or set aside;
+- heartbeat and event latency of the cabinets outside the outage, during it and in the steady phase (isolation);
+- server process CPU (% of one core) and memory, and the SQL Server process's, sampled every 5 s from `/proc` (SQL Server's figures are the whole instance: on a shared machine they include other databases).
+
 ## Thresholds
 
-The load tool fails the run when any of these is missed. They are in `server/test/load/agents.ts` (`THRESHOLDS`).
+The run fails when any of these is missed (`THRESHOLDS` in `server/test/load/run.ts`).
 
 | | Limit |
 |---|---|
-| Failed requests | at most 0.1% |
-| Heartbeat | p95 under 1 s, p99 under 3 s |
-| Event batch | p95 under 2 s |
-| Command delivery | p95 under 3 s; none over 26 s (one long poll) |
-| Commands never delivered | none |
+| Lost commands (delivered by the server, never received by the agent) | none |
+| Commands to reachable cabinets never delivered | none |
+| Commands issued during a blackout never delivered (`failover-during-command`) | none |
+| Lost results | none |
+| False offlines: agent view (`steady`, `no-ramp`, `restart`), server view (`steady`, `restart`) | none |
+| After a restart, 99% of cabinets back | within 3 minutes of the server answering again |
+| Site-outage alerts after a restart | none |
+| Full TLS handshakes in the steady phase | at most 1% of requests |
+| Command delivery p95 | under 3 s on fiber and DSL, under 10 s on 4G and bad links |
+| Heartbeat, fiber cabinets, steady phase | p95 under 1 s, p99 under 3 s |
 
 ## Running it
 
+### One command
+
 ```sh
 cd server && npm ci && npm run build
-# 1. Cabinets with their own certificates (uses the server's database and development issuing key).
-DATABASE_URL=postgres://… DEV_PKI_DIR=… node dist/test/load/agents.js setup --count 8000 --state load-state.json
-# 2. The run, against a running server.
-DATABASE_URL=postgres://… node dist/test/load/agents.js run --server https://<agent-api-host>:8443 --state load-state.json \
-  --minutes 10 --ramp-seconds 120 --commands-per-second 2 --events-per-hour 6 --report report.json
-# 3. The state file holds the test cabinets' private keys.
-rm load-state.json
+MSSQL_SA_PASSWORD=… test/load/run.sh <scenario> <agents> <minutes> [more agents.js run options]
 ```
 
-- Without `DATABASE_URL`, the run issues no commands and measures only polls, heartbeats and events.
-- `--first N` uses only the first N agents.
-- One Node.js process can drive 8,000 agents. With `--first` and separate state files, it can be split across machines.
+`run.sh` creates a database and a login for this run only, applies the migrations, makes a development PKI, sets up the cabinets and their certificates, starts the server pinned to its cores with a heap cap, runs the generator on the other cores, and tears everything down at the end (server stopped, database and login dropped, private keys deleted). The report and the server log stay in `OUT_DIR` (default `./load-results`). Settings, all through the environment:
 
-**In CI:** every push runs 1,000 agents for 3 minutes against the same thresholds (the "Agent API under load" step of `.github/workflows/platform-contracts.yml`).
+| Variable | Default | |
+|---|---|---|
+| `MSSQL_SA_PASSWORD` | (required) | the SQL Server owner's password; never stored in the repository |
+| `MSSQL_HOST`, `MSSQL_PORT` | localhost, 1433 | |
+| `SERVER_CORES` | 0,1 | `taskset` cores for the server process |
+| `GEN_CORES` | 2,3 | `taskset` cores for the load generator (and setup) |
+| `SERVER_HEAP_MB` | 1024 | the server's JavaScript heap cap (`--max-old-space-size`) |
+| `DB_MEMORY_MB` | unchanged | SQL Server `max server memory` for the run (what `MSSQL_MEMORY_LIMIT_MB` does, without recreating the container); put back afterwards |
+| `DB_CPUS` | unchanged | `docker update --cpus` on the SQL Server container (`MSSQL_CONTAINER`, default `mssql`) for the run; set back to unlimited afterwards |
+| `PROTOCOL` | 1.1 | 1.0 for the agent before Protocol 1.1 |
+| `TIME_COMPRESSION` | 18 | |
+| `RAMP_SECONDS` | 120 | |
+
+### The small-server profile
+
+The profile stands for a 2 vCPU / 4 GB application server with SQL Server Express, on a 4-core machine:
+
+- the server on 2 cores with a 1 GB heap: `SERVER_CORES=0,1 SERVER_HEAP_MB=1024`;
+- SQL Server: Express itself uses at most 4 cores and about 1.4 GB of buffer pool; to hold it to the profile, `DB_MEMORY_MB=2048 DB_CPUS=2` (or, when the container is created, `MSSQL_MEMORY_LIMIT_MB=2048`, `--cpus 2` and `MSSQL_PID=Express`);
+- the generator on the remaining cores: `GEN_CORES=2,3`. In this layout it shares cores with SQL Server; for a clean measurement run it on a second machine (`agents.js run --server https://<host>:8443` with the state file copied there).
+
+10,000 and 8,000 cabinets, the steady baseline first and then the disturbances:
+
+```sh
+export MSSQL_SA_PASSWORD=… SERVER_CORES=0,1 GEN_CORES=2,3 SERVER_HEAP_MB=1024 DB_MEMORY_MB=2048 DB_CPUS=2
+for n in 10000 8000; do
+  test/load/run.sh steady          $n 20
+  test/load/run.sh restart         $n 20 --restart-at-minute 8
+  test/load/run.sh no-ramp         $n 10
+  test/load/run.sh regional-outage $n 40 --outage-at-minute 5 --outage-minutes 20 --preload-hours 72
+  test/load/run.sh failover-during-command $n 20
+  test/load/run.sh event-storm     $n 20
+  PROTOCOL=1.0 test/load/run.sh steady $n 20      # before/after comparison
+done
+```
+
+- Each cabinet holds at least one connection on each side, so the machine needs a high open-file limit (`run.sh` raises the soft limit to the hard limit; 10,000 cabinets need about 25,000 descriptors per process).
+- `--workers W` spreads the agents over worker threads (default one per 2,500 agents, at most one per core).
+- Setting up 10,000 cabinets (a key and certificate each) takes a few minutes.
+
+### By hand
+
+```sh
+DATABASE_URL=sqlserver://… DEV_PKI_DIR=… node dist/test/load/agents.js setup --count 8000 --state load-state.json
+DATABASE_URL=sqlserver://… node dist/test/load/agents.js run --server https://<agent-api-host>:8443 --state load-state.json \
+  --scenario steady --minutes 20 --server-pid <pid> --report report.json
+rm load-state.json   # it holds the test cabinets' private keys
+```
+
+- Without `DATABASE_URL`, the run issues no commands and checks nothing in the database.
+- `--first N` uses only the first N agents; `agents.js run --help` lists every option.
+- The generator's own tests (response parser with hostile input, the relay, backoff, batching, and the 1.1 agent model against a small 1.1 server): `npm run build && node --test dist/test/load/load-tools.test.js`.
+
+**In CI:** every push runs 1,000 agents for 3 minutes (the "Agent API under load" step of `.github/workflows/platform-contracts.yml`); with the new generator that is the `steady` scenario with the default link mix and the thresholds above.
 
 ## Still to do before going wide
 
