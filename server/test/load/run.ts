@@ -134,6 +134,7 @@ export async function run(o: RunOptions): Promise<number> {
   const all = state.agents.slice(0, o.first ?? state.agents.length);
   const base = new URL(o.server);
   const t0 = Date.now();
+  const cpu0 = process.cpuUsage();
   const rand = seeded(o.seed);
   const mix = parseLinkMix(o.links);
   const scenario = o.scenario;
@@ -357,6 +358,7 @@ export async function run(o: RunOptions): Promise<number> {
   clearInterval(dbSampler);
   for (const w of workers) void w.terminate();
   const runSeconds = (Date.now() - t0) / 1000;
+  const cpuUsed = process.cpuUsage(cpu0);
 
   // ---- Merge ----
   const received = new Map<string, [number, number]>();
@@ -512,7 +514,7 @@ export async function run(o: RunOptions): Promise<number> {
     linkEvents: { failovers: counters.get("failovers"), linkDownSeconds: Object.fromEntries(Object.entries(linkDownSeconds).map(([k, v]) => [k, Math.round(v)])) },
     serverProcess: serverProc.summary(), serverProcessSteady: serverProc.summary(t0 + sFrom * 1000), sqlServerProcess: sqlProc.summary(),
     counters: counters.data(),
-    generatorCores: cpus().length,
+    generator: { cores: cpus().length, cpuPercentOfOneCore: Math.round((cpuUsed.user + cpuUsed.system) / 1e4 / runSeconds), rssMb: Math.round(process.memoryUsage().rss / 1048576) },
   };
 
   // ---- Thresholds ----
