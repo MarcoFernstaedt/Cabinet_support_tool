@@ -98,10 +98,64 @@ A **2 vCPU, 4 GB** virtual machine running the application and PostgreSQL togeth
 
 ### What grows, and what keeps it small
 
-- **Load samples:** one per cabinet every 15 minutes, 14 days kept, pruned nightly: under 1,400 rows a cabinet (about 120 bytes each).
+- **Load samples:** one per cabinet every 15 minutes, rolled up to one row per hour after 48 hours, 14 days kept: under 600 rows a cabinet (about 35 bytes each). See "Database size" below.
 - **Drive reports:** one per drive every 12 hours at most, 400 days kept: about 800 rows a drive, in the order of 100 KB.
 - **Events, alerts, firewall history, diagnoses, boots, fleet jobs and command results** are pruned by the retention settings (Admin → Settings). The audit log is never pruned.
 - **Fleet search** scans stored readings with a time limit of 15 seconds and one search at a time per person.
+
+## Database size
+
+Target: 10,000 cabinets in one SQL Server **Express** database (10 GB at most, 1.4 GB buffer pool), comfortably under 6 to 7 GB in the first year.
+
+### What changed (the "data diet", `server/migrations/0001_baseline.sql`)
+
+- **JSON columns are `varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8`**, not `nvarchar(max)`: UTF-8 stores the (mostly ASCII) JSON in half the bytes; `ISJSON`, `JSON_VALUE` and `OPENJSON` work unchanged, and the data layer parses these columns as before.
+- **Page compression** on `events`, `health_samples`, `health_hourly`, `drive_samples`, `audit_log`, `commands`, `alerts` and their large indexes (Express supports it).
+- **`events` is clustered on an ever-increasing `seq`**; `event_id` is the nonclustered primary key. New events append at the end instead of splitting pages all over a random-GUID index.
+- **Indexes:** `events_alert` covers only events that have an alert; the index on `events.occurred_at` alone was dropped (no query used it: the fleet-wide 30-day reads cover the whole table). Added for retention: `commands_result_at` (filtered), `firewall_changes_occurred`, `diagnoses_started`, `cabinet_boots_booted`; for the offline jobs `alerts_open_issue`.
+- **Command answers are stored out of the row**: page compression does not shrink `varchar(max)` values, and in the row a 3 KB answer left pages half empty and was read by every scan of the command history.
+- **Load samples older than 48 hours become one row per hour** (min, average, max) in `health_hourly`; the trend chart and the disk-space forecast read both.
+- **Events are kept 30 days by default** (was 90; a setting, see [open decisions](../spec/09-open-decisions.md)).
+
+### Measured bytes per row (including the table's indexes)
+
+Measured on SQL Server 2022 with synthetic rows shaped like real ones (System-log errors with real-looking messages; 3 KB software lists with per-cabinet differences; 400 days of SMART samples; audit entries for views, commands and results). Same rows in the old and the new table shapes.
+
+| Table | Before | After | Why |
+|---|---|---|---|
+| events (1 row) | 1,248 B | 428 B | UTF-8, page compression, sequential key, fewer indexes |
+| health samples (1 row, 15 min) | 53 B | 31 B raw, 35 B per hourly row | compression; 4 rows become 1 after 48 h |
+| drive samples (1 row) | 208 B | 36 B | compression (model and serial repeat) |
+| commands with a 3 KB answer | 8,230 B | 4,567 B | UTF-8, answer out of row (the answer itself is not compressed) |
+| audit log (1 entry) | 1,061 B | 383 B | UTF-8 details, compression of table and its 4 indexes |
+
+### Estimate at 10,000 cabinets
+
+Assumptions (to check against the first real months): **20 events a cabinet a day** (Windows errors, warnings and changes on a quiet cabinet), 1.5 drives a cabinet with one report a day, **5,000 stored answers a day** fleet-wide and about 12,000 audit entries a day (both follow support activity, not the number of cabinets), retention at the defaults.
+
+| | Rows kept | Before | After |
+|---|---|---|---|
+| events | 90 days → 30 days: 18 M → 6 M | 22.5 GB | 2.6 GB |
+| command answers (90 days) | 450,000 | 3.7 GB | 2.1 GB |
+| audit log (first year; never pruned) | 4.4 M | 4.6 GB | 1.7 GB |
+| load samples (14 days) | 13.4 M → 2.9 M raw + 2.9 M hourly | 0.7 GB | 0.2 GB |
+| drive samples (400 days) | 6 M | 1.2 GB | 0.2 GB |
+| alerts, cabinets, the rest | | about 0.3 GB | about 0.2 GB |
+| **Total** | | **about 33 GB: does not fit Express** | **about 7 GB** |
+
+With command answers kept 30 days instead of 90 it is about 5.6 GB. What grows without limit is the audit log, about 1.7 GB a year at these assumptions; see [open decisions](../spec/09-open-decisions.md) "Database at 10,000 cabinets".
+
+### What keeps the database healthy at night
+
+- **Retention never runs as one big transaction.** Each table is trimmed with `DELETE TOP (4000) … WHERE <date> < @cut` (or `UPDATE TOP (4000)` for command answers) in autocommit statements, repeated until a statement changes fewer than 4,000 rows, with a 200 ms pause between them and a 30 s limit on each. Load and drive samples are trimmed per group of 40 cabinets through their primary keys (cabinet first). The run is audited at the end in its own small transaction. Notifications older than an hour go the same way, every hour.
+- **It runs at a fixed quiet time**, 02:30 server time by default (`MAINTENANCE_AT=HH:MM`), not "five minutes after start".
+- **The audit chain check is incremental**: each night from the checkpoint the last successful check left (`audit_checkpoint`, which only the `audit_checkpoint_advance` procedure can move, and only forward to an entry that exists with that hash); the whole chain on Sundays and whenever an Admin asks.
+
+## Event ingest cost
+
+An event batch used to cost about 9 round trips **per event** that raised or updated an alert (store it, read its issue type, take the alert lock, fold, insert, link the event, count the rule, find the site, take the site lock, flag the site pattern), plus a read of every live rule per batch: about 270 round trips for a batch of 30.
+
+Now a batch costs **3 round trips** whatever its size (measured: 30 events with 3 signatures → 3, `server/test/scale.test.ts`): one `INSERT … SELECT FROM OPENJSON … WHERE NOT EXISTS` that also returns the rules stamp, one statement that takes the alert and site-pattern locks in name order and folds, inserts and flags all alerts of the batch, and one that links the events to their alerts and rules. Repeats of one signature fold once per batch; a resolve (scanner or service recovered) between two failures still splits them, exactly as one-by-one judging did. The live rules and issue types are kept in memory and reloaded only when their stamp (counts and checksums over `symptom_rules` and `issue_types`, read in the same statement as the insert) changes, or after 60 s. How often each rule matched is counted in memory and written every 60 s in one statement, so no batch waits on a hot rule row; the rule list adds what is not written yet.
 
 ## Thresholds
 

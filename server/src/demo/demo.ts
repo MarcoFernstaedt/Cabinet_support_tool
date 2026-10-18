@@ -5,7 +5,7 @@
 // deletes every simulated record (security alerts stay, unlinked). Real cabinets are never touched: a simulated cabinet is one with a demo_scenario.
 import { Refused } from "../services/errors.js";
 import { randomUUID } from "node:crypto";
-import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, isDeadlock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { recordHeartbeat } from "../services/cabinets.js";
 import { storeEvents } from "../services/events.js";
 import { storeResult, takeQueuedCommands } from "../services/commands.js";
@@ -363,10 +363,12 @@ async function seedHistory(pool: Pool, userId: string): Promise<void> {
       WHERE k.demo_scenario IS NOT NULL AND k.demo_scenario NOT IN (SELECT value FROM OPENJSON($1))`, [["offline", "site_outage", "incident_loop"]]);
   for (const r of (await pool.query<{ cabinet_id: string; drive_key: string }>("SELECT DISTINCT cabinet_id, drive_key FROM drive_samples")).rows) await refreshDrive(pool, r.cabinet_id, r.drive_key);
   const stored: unknown[][] = [];
-  for (const k of rows.filter(r => r.offline)) {
+  // Offline cabinets keep their last readings (shown while they are away); every other cabinet has its installed software read once, so a
+  // fleet search for the scanner software finds the whole demo fleet instead of a handful.
+  for (const k of rows) {
     const ctx = await context(pool, k.id);
     if (!ctx) continue;
-    for (const operation of ["system.security", "software.list", "startup.list", "power.status", "shares.list"]) {
+    for (const operation of k.offline ? ["system.security", "software.list", "startup.list", "power.status", "shares.list"] : ["software.list"]) {
       const output = demoOutput(operation, {}, ctx);
       const at = new Date(Date.now() - (k.scenario === "offline" ? 6 * 86_400_000 : 3_600_000));
       const commandId = randomUUID();
@@ -527,8 +529,11 @@ export class DemoSimulator {
         }
       if (Date.now() - this.lastHeartbeat >= 60_000) {
         this.lastHeartbeat = Date.now();
-        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario NOT IN (SELECT value FROM OPENJSON($1))", [LOOPING])).rows)
-          await heartbeat(this.pool, id);
+        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario NOT IN (SELECT value FROM OPENJSON($1))", [LOOPING])).rows) {
+          // One cabinet's heartbeat can lose a deadlock to a person's action on it; it is tried again once, and never stops the others.
+          try { await heartbeat(this.pool, id); }
+          catch (e) { if (isDeadlock(e)) await heartbeat(this.pool, id).catch(e2 => this.log(`demo heartbeat failed: ${(e2 as Error).message}`)); else this.log(`demo heartbeat failed: ${(e as Error).message}`); }
+        }
       }
     } catch (e) {
       this.log(`demo tick failed: ${(e as Error).message}`);

@@ -21,6 +21,10 @@ export const LOOP_WINDOW_MINUTES = 60;
 /** Running this long without a restart ends a reboot loop. */
 export const LOOP_RECOVERED_SECONDS = 2 * 3600;
 
+/** Whether this heartbeat is the one on which the cabinet passed LOOP_RECOVERED_SECONDS of uptime (the first heartbeat known, or a new boot, counts). */
+export const crossedRecovery = (uptimeSeconds: number, previousUptime: number | null, newBoot: boolean): boolean =>
+  uptimeSeconds >= LOOP_RECOVERED_SECONDS && (previousUptime === null || newBoot || previousUptime < LOOP_RECOVERED_SECONDS);
+
 export async function recordBoot(db: Queryable, cabinetId: string, at: Date, source: "heartbeat" | "event"): Promise<boolean> {
   const r = await db.query(
     `INSERT INTO cabinet_boots (cabinet_id, booted_at, source)
@@ -48,14 +52,16 @@ async function raiseLoop(db: Queryable, cabinetId: string, what: string, seenAt:
 
 /**
  * The heartbeat side: a new boot when the uptime went back (a boot time that moved by more than the same-boot window),
- * and a loop alert resolved once the cabinet has run for 2 hours.
+ * and a loop alert resolved once the cabinet has run for 2 hours. The resolve is looked at only on the heartbeat that crosses the 2 hours
+ * (or the first one the server has), not on every heartbeat after it.
  */
 export async function bootFromHeartbeat(db: Queryable, cabinetId: string, uptimeSeconds: number, previous: { uptimeSeconds: number | null; at: Date | null }): Promise<void> {
   const now = Date.now();
   const bootAt = now - uptimeSeconds * 1000;
   const previousBoot = previous.at && previous.uptimeSeconds !== null ? previous.at.getTime() - previous.uptimeSeconds * 1000 : null;
-  if (previousBoot === null || Math.abs(bootAt - previousBoot) > SAME_BOOT_MINUTES * 60_000) await recordBoot(db, cabinetId, new Date(bootAt), "heartbeat");
-  if (uptimeSeconds >= LOOP_RECOVERED_SECONDS)
+  const newBoot = previousBoot === null || Math.abs(bootAt - previousBoot) > SAME_BOOT_MINUTES * 60_000;
+  if (newBoot) await recordBoot(db, cabinetId, new Date(bootAt), "heartbeat");
+  if (crossedRecovery(uptimeSeconds, previous.uptimeSeconds, newBoot))
     await db.query(`UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'Running for 2 hours without restarting.'
                      WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`, [cabinetId]);
 }

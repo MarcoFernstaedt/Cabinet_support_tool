@@ -1,6 +1,6 @@
 // Starts the agent API, the console API when configured, and the offline alert job.
 import { scheduleDailyJobs } from "./services/maintenance.js";
-import { expireRules } from "./services/rules.js";
+import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool } from "./db/db.js";
 import { NotificationFeed } from "./db/notifications.js";
@@ -11,7 +11,7 @@ import { agentApiTls, issuingKey } from "./runtime.js";
 import { buildConsoleApi } from "./console-api/server.js";
 import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
-import { checkOffline } from "./services/alerts.js";
+import { checkOffline, fleetContact } from "./services/alerts.js";
 import { checkSiteOutages } from "./services/site-outage.js";
 import { expireUnanswered } from "./services/commands.js";
 import { checkExpiringCertificates } from "./services/cabinets.js";
@@ -61,7 +61,10 @@ if (config.console) {
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
 
-// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs.
+// Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs. Not right after the server (or its
+// database) was away, though: every cabinet would look silent then (FleetContact holds those judgements until the fleet has reported again).
+// Contact includes long polls (Presence writes them each minute), so 1.1 agents heartbeating every 5 minutes stay online.
+fleetContact.start();
 let minutes = 0;
 const offlineJob = setInterval(() => {
   checkOffline(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
@@ -83,13 +86,14 @@ demo.start();
 resumeJobs(jobsPool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: { type: (e as Error).name } }, "resuming fleet jobs failed"));
 
 // The daily audit chain check (a break raises a security alert) and retention.
-const stopDaily = scheduleDailyJobs(jobsPool, message => app.log.error(message));
+const stopDaily = scheduleDailyJobs(jobsPool, message => app.log.error(message), { at: config.maintenanceAt });
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every
 // cabinet back in the same second; the contact noted since the last minute is written before the pools close.
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => { void (async () => {
     clearInterval(offlineJob); demo.stop(); stopDaily();
+    await flushRuleHits().catch(() => undefined);
     await app.close(); await presence.stop(); await consoleApp?.close(); await stream?.stop(); await notifier.stop(); feed.stop();
     await Promise.all([agentPool.end(), consolePool.end(), jobsPool.end()]);
     process.exit(0);

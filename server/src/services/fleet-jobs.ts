@@ -7,7 +7,7 @@
 import { parseJson } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { catalog, operations } from "../contracts.js";
-import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, auditMany, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
@@ -241,11 +241,10 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
         [jobId, t.cabinet_id, commandId]);
       issued.push({ cabinet_id: t.cabinet_id, command_id: commandId, params: t.params });
     }
-    // The audit entries go last, together: the audit procedure serializes every writer of the log, so it is held for the shortest
-    // time (they still commit or roll back with the commands). A batched audit helper (auditMany) would make this one call.
-    for (const t of issued)
-      await audit(c, { actorKind: "user", actorId: job.created_by, action: "command.write", targetKind: "cabinet", targetId: t.cabinet_id, outcome: "succeeded",
-        details: { commandId: t.command_id, operation: job.operation, params: t.params, bulkId: jobId } });
+    // The audit entries go last, in one call: the audit chain serializes every writer of the log, so it is held for the shortest
+    // time (they still commit or roll back with the commands).
+    await auditMany(c, issued.map(t => ({ actorKind: "user" as const, actorId: job.created_by, action: "command.write", targetKind: "cabinet" as const, targetId: t.cabinet_id,
+      outcome: "succeeded" as const, details: { commandId: t.command_id, operation: job.operation, params: t.params, bulkId: jobId } })));
     return issued;
   }).then(async issued =>
     // Every cabinet in this batch was skipped: go on to the next batch rather than ending the job.

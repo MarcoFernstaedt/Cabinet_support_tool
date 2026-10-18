@@ -70,7 +70,7 @@ function shape<R>(rows: Record<string, unknown>[], columns: sql.IColumnMetadata 
   const guid = new Set<string>(), json = new Set<string>();
   for (const [name, c] of Object.entries(meta ?? {})) {
     if (c.type === sql.UniqueIdentifier) guid.add(name);
-    else if (JSON_COLUMNS.has(name) && (c.type === sql.NVarChar || c.type === sql.NChar)) json.add(name);
+    else if (JSON_COLUMNS.has(name) && (c.type === sql.NVarChar || c.type === sql.NChar || c.type === sql.VarChar)) json.add(name);
   }
   if (guid.size === 0 && json.size === 0) return rows as R[];
   for (const row of rows) {
@@ -218,7 +218,7 @@ export function isBusy(e: unknown, depth = 0): boolean {
   if (x.code === "ETIMEOUT") return true; // the driver's requestTimeout
   // The database is unreachable or dropped the connection, or the pool is closing: transient, the caller tries again later.
   if (x.code === "ESOCKET" || x.code === "ECONNCLOSED" || x.code === "ENOTOPEN" || x.code === "ECONNRESET" || x.code === "EINSTLOOKUP") return true;
-  if (isDeadlock(x)) return true; // a deadlock victim still losing after its retries
+  if (isDeadlock(x) || x.name === "LockDeadlock") return true; // a deadlock victim still losing after its retries
   return x.originalError !== undefined && isBusy(x.originalError, depth + 1);
 }
 
@@ -229,9 +229,27 @@ export async function notify(db: Queryable, channel: string, payload: string): P
 
 export function transaction<T>(pool: Pool, fn: (tx: Tx) => Promise<T>): Promise<T> { return pool.transaction(fn); }
 
-/** Serializes a section of work by name until the transaction ends (replaces PostgreSQL's advisory locks). */
+/** How long lock() waits for a named lock before giving up. */
+export const LOCK_TIMEOUT_MS = 5_000;
+
+/** sp_getapplock chose this transaction as the victim of a deadlock between named locks: retryable like SQL Server's own deadlock (1205). */
+export class LockDeadlock extends Error {
+  readonly number = 1205;
+  constructor(name: string) { super(`deadlock while waiting for the lock ${name}`); this.name = "LockDeadlock"; }
+}
+
+/**
+ * Serializes a section of work by name until the transaction ends (replaces PostgreSQL's advisory locks). Waits at most LOCK_TIMEOUT_MS.
+ * A deadlock (sp_getapplock returns -3) is reported as one, so transaction() runs the work again.
+ */
 export async function lock(db: Queryable, name: string): Promise<void> {
-  await db.query("DECLARE @r int; EXEC @r = sp_getapplock @Resource = $1, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 30000; IF @r < 0 THROW 50001, 'could not take the lock', 1;", [name]);
+  try {
+    await db.query(`DECLARE @r int; EXEC @r = sp_getapplock @Resource = $1, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = ${LOCK_TIMEOUT_MS};
+                    IF @r = -3 THROW 50003, 'deadlock while waiting for the lock', 1; IF @r < 0 THROW 50001, 'could not take the lock', 1;`, [name]);
+  } catch (e) {
+    if (numberOf(e) === 50003) throw new LockDeadlock(name);
+    throw e;
+  }
 }
 
 export interface AuditEntry {
@@ -252,26 +270,68 @@ export async function audit(db: Queryable, e: AuditEntry): Promise<number> {
   return Number(r.rows[0]!.seq);
 }
 
+/**
+ * Appends several audit entries in one call, in order, inside the caller's transaction (audit_append_many chains them on the server with
+ * the same hash as audit_append). Returns their sequence numbers.
+ */
+export async function auditMany(db: Queryable, entries: readonly AuditEntry[]): Promise<number[]> {
+  if (entries.length === 0) return [];
+  const list = entries.map(e => ({ actorKind: e.actorKind, actorId: e.actorId, action: e.action, targetKind: e.targetKind ?? null, targetId: e.targetId ?? null,
+    outcome: e.outcome, details: safeJson(e.details ?? {}) }));
+  const r = await db.query<{ first: string | null; last: string | null }>(
+    "DECLARE @first bigint, @last bigint; EXEC audit_append_many $1, @first OUTPUT, @last OUTPUT; SELECT @first AS [first], @last AS [last];", [safeJson(list)]);
+  const first = Number(r.rows[0]!.first), last = Number(r.rows[0]!.last);
+  if (last - first + 1 !== entries.length) throw new Error("the audit log did not take every entry");
+  return entries.map((_, i) => first + i);
+}
+
 /** JSON text for a column: the NUL character is removed from every string so the stored text is always plain. */
 export function safeJson(value: unknown): string {
   return JSON.stringify(value, (_key, v: unknown) => (typeof v === "string" ? v.replaceAll("\u0000", "") : v));
 }
 
-/** firstBadSeq is the earliest broken entry; badSeqs lists up to 100 of them, so damage after the first break is still found. */
-export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; badSeqs?: number[]; }
+/**
+ * firstBadSeq is the earliest broken entry; badSeqs lists up to 100 of them, so damage after the first break is still found. A check that
+ * went on from a checkpoint says from which entry (fromSeq) it started; entries counts what it checked.
+ */
+export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; badSeqs?: number[]; fromSeq?: number; lastSeq?: number; lastHash?: string; }
+
+/** Where the last successful check ended (seq 0 and the all-zero hash before any). */
+export interface ChainCheckpoint { seq: number; hash: string; }
+
+export async function auditCheckpoint(db: Queryable): Promise<ChainCheckpoint> {
+  const r = (await db.query<{ seq: string; hash: string }>("SELECT [seq], [hash] FROM audit_checkpoint WHERE id = 1", [], { raw: true })).rows[0];
+  return r ? { seq: Number(r.seq), hash: r.hash } : { seq: 0, hash: "0".repeat(64) };
+}
+
+/** Moves the checkpoint forward to a verified entry (the procedure refuses an entry that does not exist with that hash). */
+export async function advanceAuditCheckpoint(db: Queryable, to: ChainCheckpoint): Promise<void> {
+  await db.query("EXEC audit_checkpoint_advance $1, $2", [to.seq, to.hash]);
+}
 
 /** The text each entry's hash covers: the previous hash and the entry's own stored fields, joined by the unit separator. */
 export function auditHashInput(prev: string, r: { seq: string | number; at_text: string; actor_kind: string; actor_id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; details_raw: string }): string {
   return [prev, String(r.seq), r.at_text, r.actor_kind, r.actor_id, r.action, r.target_kind ?? "", r.target_id ?? "", r.outcome, r.details_raw].join("\u001f");
 }
 
-/** Recomputes every entry's hash from its stored fields and the previous hash. */
-export async function verifyAuditChain(db: Queryable, batch = 10_000): Promise<ChainCheck> {
+/**
+ * Recomputes every entry's hash from its stored fields and the previous hash. With `from` (a checkpoint), only the entries after it are
+ * checked, starting from the checkpoint's hash; the checkpoint entry itself must still carry that hash.
+ */
+export async function verifyAuditChain(db: Queryable, batch = 10_000, from?: ChainCheckpoint): Promise<ChainCheck> {
   // The log is kept forever, so it is read in batches rather than all at once.
-  let previous = "0".repeat(64);
-  let expectedSeq = 1;
+  let previous = from?.hash ?? "0".repeat(64);
+  let expectedSeq = (from?.seq ?? 0) + 1;
   let entries = 0;
   const bad: number[] = [];
+  if (from && from.seq > 0) {
+    const anchor = (await db.query<{ hash: string }>("SELECT [hash] FROM audit_log WHERE seq = $1", [from.seq], { raw: true })).rows[0];
+    if (anchor?.hash !== from.hash) bad.push(from.seq);
+  }
+  const done = (): ChainCheck => {
+    const tail = { fromSeq: (from?.seq ?? 0) + 1, lastSeq: expectedSeq - 1, lastHash: previous };
+    return bad.length ? { ok: false, entries, firstBadSeq: bad[0]!, badSeqs: bad, ...tail } : { ok: true, entries, ...tail };
+  };
   for (;;) {
     const rows = (await db.query<{ seq: string; at_text: string; actor_kind: string; actor_id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; details_raw: string; prev_hash: string; hash: string }>(
       `SELECT TOP (${Math.trunc(batch)}) seq, CONVERT(varchar(27), at, 126) AS at_text, actor_kind, actor_id, action, target_kind, target_id, outcome, details AS details_raw, prev_hash, hash
@@ -286,6 +346,6 @@ export async function verifyAuditChain(db: Queryable, batch = 10_000): Promise<C
       previous = row.hash;
       expectedSeq = seq + 1;
     }
-    if (rows.length < batch) return bad.length ? { ok: false, entries, firstBadSeq: bad[0]!, badSeqs: bad } : { ok: true, entries };
+    if (rows.length < batch) return done();
   }
 }

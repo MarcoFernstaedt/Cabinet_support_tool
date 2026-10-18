@@ -1,6 +1,7 @@
 // Configuration from environment variables only (docs/spec/05-server-spec.md "Operations").
 // Secrets (database passwords) live in the environment or a secret store, never in the repository.
 import { fileURLToPath } from "node:url";
+import { parseDailyTime } from "./services/maintenance.js";
 
 export interface Config {
   /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
@@ -18,6 +19,8 @@ export interface Config {
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
   /** What the setup page tells an Admin about installing the agent: the address cabinets use to reach the agent API, and the folder holding the agent package to download (optional). */
   agentSetup: { host: string; port: number; downloadDir?: string };
+  /** When the nightly audit check and retention run, server local time (MAINTENANCE_AT, HH:MM, default 02:30). */
+  maintenanceAt: string;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -31,6 +34,12 @@ export function databaseUrl(env: NodeJS.ProcessEnv, name: string): string {
   const value = required(env, name);
   if (!value.startsWith("sqlserver://")) throw new Error(`${name} must be a sqlserver:// URL (Microsoft SQL Server).`);
   return value;
+}
+
+/** The nightly maintenance time, checked here so a typo stops the server at start rather than at night. */
+function maintenanceAt(value: string | undefined): string {
+  parseDailyTime(value);
+  return value?.trim() ?? "02:30";
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -54,6 +63,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     tls: {},
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },
+    maintenanceAt: maintenanceAt(env.MAINTENANCE_AT),
     agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port) },
   };
   if (env.AGENT_DOWNLOAD_DIR) config.agentSetup.downloadDir = env.AGENT_DOWNLOAD_DIR;

@@ -201,6 +201,15 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
       throw new Error(`${e.message}\n${(await page.locator("#packets-heading").locator("xpath=ancestor::section").innerText())}\n${JSON.stringify(rows)}`);
     });
 
+    // An address with no page says so, and an Admin page opened by Tier 1 says it is for Admins instead of showing refusals.
+    const back = page.url();
+    await page.goto(`${origin}/nope/nothing`);
+    await page.getByRole("heading", { name: "Page not found" }).waitFor();
+    await page.goto(`${origin}/admin/users`);
+    await page.getByRole("heading", { name: "Admin only" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Create account" }).count(), 0);
+    await page.goto(back);
+
     // The DNS cache flush is a Tier 1 write that goes through the broker like every other write.
     await page.getByRole("button", { name: "Flush DNS cache" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();

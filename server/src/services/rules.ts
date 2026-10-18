@@ -103,6 +103,83 @@ export async function liveRules(db: Queryable): Promise<LiveRule[]> {
     .map(r => ({ id: r.id, kind: r.kind, issueTypeId: r.issue_type_id, match: r.match, builtIn: r.built_in, createdAt: r.created_at, severity: r.severity }));
 }
 
+// ---- The rules in memory ------------------------------------------------------------------------------------------------
+// Event ingest needs the live rules and the issue types for every batch. They change rarely, so each server process keeps them in
+// memory: reloaded when the rules stamp (RULES_STAMP_SQL: counts and checksums of what the engine reads, so a change made by any process,
+// or directly in the database, moves it) differs from the one loaded, and at least every RULE_CACHE_TTL_MS. The statement that stores a
+// batch reads the stamp, so checking costs no extra round trip. A rule's expiry is checked when it is used, not when it was loaded.
+
+/** A scalar expression: what the engine reads from symptom_rules and issue_types (not the match counts), as one short text. */
+export const RULES_STAMP_SQL = `CONCAT(
+  (SELECT CONCAT(COUNT_BIG(*), ':', CHECKSUM_AGG(CHECKSUM(id, kind, state, [version], issue_type_id, expires_at, severity, created_at, HASHBYTES('SHA2_256', [match])))) FROM symptom_rules), '|',
+  (SELECT CONCAT(COUNT_BIG(*), ':', CHECKSUM_AGG(CHECKSUM(id, name, severity, scope))) FROM issue_types))`;
+
+export interface IssueTypeInfo { id: string; name: string; severity: string; scope: string }
+export interface RuleConfig { version: string | null; loadedAt: number; rules: (LiveRule & { expiresAt: Date | null })[]; issues: Map<string, IssueTypeInfo> }
+
+export const RULE_CACHE_TTL_MS = 60_000;
+let ruleCache: RuleConfig | null = null;
+
+/** Forgets the rules held in memory (the next batch loads them again). */
+export function invalidateRuleCache(): void { ruleCache = null; }
+
+/**
+ * The live rules and issue types. With `version` (as read in the same statement that stored the events), the copy in memory is used only if it
+ * was loaded at that version; without it, a copy younger than the TTL is used.
+ */
+export async function ruleConfig(db: Queryable, version?: string | null): Promise<RuleConfig> {
+  const c = ruleCache;
+  if (c && Date.now() - c.loadedAt < RULE_CACHE_TTL_MS && (version === undefined || (version !== null && version === c.version))) return c;
+  // The stamp is read first: a change between the two reads makes the next batch load again, never the other way round.
+  const types = (await db.query<{ id: string; name: string; severity: string; scope: string; version: string | null }>(
+    `SELECT t.id, t.name, t.severity, t.scope, v.stamp AS [version] FROM issue_types t CROSS JOIN (SELECT ${RULES_STAMP_SQL} AS stamp) v`)).rows;
+  const rows = (await db.query<{ id: string; kind: "map" | "suppress"; issue_type_id: string | null; match: SymptomMatch; built_in: boolean; created_at: Date;
+    severity: "major" | "minor" | null; expires_at: Date | null }>(
+    "SELECT id, kind, issue_type_id, [match], built_in, created_at, severity, expires_at FROM symptom_rules WHERE state = 'live'")).rows;
+  const loaded: RuleConfig = {
+    version: types[0]?.version ?? null, loadedAt: Date.now(), issues: new Map(types.map(t => [t.id, { id: t.id, name: t.name, severity: t.severity, scope: t.scope }])),
+    // A stored match is checked again before use: the table is never trusted to hold only valid rules.
+    rules: rows.filter(r => commonDefs.symptomMatch.is(r.match)).map(r => ({ id: r.id, kind: r.kind, issueTypeId: r.issue_type_id, match: r.match, builtIn: r.built_in,
+      createdAt: r.created_at, severity: r.severity, expiresAt: r.expires_at })),
+  };
+  ruleCache = loaded;
+  return loaded;
+}
+
+/** The rules of a config that are live now (an expired suppression stops counting the moment it expires). */
+export const liveNow = (c: RuleConfig, now = Date.now()): LiveRule[] => c.rules.filter(r => r.expiresAt === null || r.expiresAt.getTime() > now);
+
+// How often each rule matched is counted in memory and added to symptom_rules.matched_count every RULE_HITS_FLUSH_MS in one statement,
+// so ingest never waits on (or deadlocks over) a hot rule row. The rule list adds what this process has not written yet.
+export const RULE_HITS_FLUSH_MS = 60_000;
+const pendingHits = new Map<string, number>();
+let hitsDb: Queryable | null = null;
+let hitsTimer: NodeJS.Timeout | null = null;
+
+export function countRuleHits(db: Queryable, hits: ReadonlyMap<string, number>): void {
+  if (hits.size === 0) return;
+  for (const [id, n] of hits) pendingHits.set(id, (pendingHits.get(id) ?? 0) + n);
+  hitsDb = db;
+  if (!hitsTimer) { hitsTimer = setInterval(() => void flushRuleHits().catch(() => undefined), RULE_HITS_FLUSH_MS); hitsTimer.unref(); }
+}
+
+export const pendingRuleHits = (ruleId: string): number => pendingHits.get(ruleId) ?? 0;
+
+/** Writes the counted matches. On failure they are kept and written with the next flush. */
+export async function flushRuleHits(db: Queryable | null = hitsDb): Promise<number> {
+  if (!db || pendingHits.size === 0) return 0;
+  const batch = [...pendingHits.entries()].map(([id, n]) => ({ id, n }));
+  pendingHits.clear();
+  try {
+    await db.query(`UPDATE r SET matched_count = r.matched_count + j.n FROM symptom_rules r
+                      JOIN OPENJSON($1) WITH (id uniqueidentifier '$.id', n bigint '$.n') j ON j.id = r.id`, [JSON.stringify(batch)]);
+    return batch.length;
+  } catch (e) {
+    for (const { id, n } of batch) pendingHits.set(id, (pendingHits.get(id) ?? 0) + n);
+    throw e;
+  }
+}
+
 /** The rule that decides an event: a suppression first, else the most specific map rule (the oldest on a tie). */
 export function decide(rules: readonly LiveRule[], e: MatchableEvent): LiveRule | null {
   const hits = rules.filter(r => matches(r.match, e));
@@ -140,7 +217,8 @@ const ruleView = (r: RuleRow) => ({
   id: r.id, issueType: r.issue_type_id ? { id: r.issue_type_id, name: r.issue_name } : null, kind: r.kind, state: r.state, version: r.version,
   match: r.match, severity: r.severity, regroup: r.regroup, builtIn: r.built_in, proposedBy: r.proposed_by ? { id: r.proposed_by, name: r.proposed_by_name } : null,
   approvedBy: r.approved_by ? { id: r.approved_by, name: r.approved_by_name } : null, reason: r.reason,
-  expiresAt: r.expires_at?.toISOString() ?? null, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(), matchedCount: Number(r.matched_count),
+  expiresAt: r.expires_at?.toISOString() ?? null, createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
+  matchedCount: Number(r.matched_count) + pendingRuleHits(r.id),
 });
 
 export async function listRules(db: Queryable, filter: { state?: string; issueTypeId?: string }) {

@@ -8,15 +8,16 @@ Nothing had been deployed on PostgreSQL, so `server/migrations/0001_baseline.sql
 - `createPool(url)` returns a `Pool`. The URL is `sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false`.
 - `pool.query(sql, params)` and `tx.query(sql, params)` take `$1`, `$2` placeholders (turned into `@p1`, `@p2`) and return `{ rows, rowCount }`.
 - `transaction(pool, async tx => …)` runs one transaction. A deadlock victim is run again (up to 3 times), so the function must change nothing outside the database.
-- `lock(tx, name)` serializes a section by name until the transaction ends (it replaces PostgreSQL advisory locks).
-- `notify(tx, channel, payload)` writes a row to the `notifications` table; triggers do the same for new commands, command results and alert changes. Server processes poll the table (`src/db/notifications.ts`).
+- `lock(tx, name)` serializes a section by name until the transaction ends (it replaces PostgreSQL advisory locks). It waits at most 5 s; a deadlock between named locks (`sp_getapplock` returns -3) is reported as a deadlock (`LockDeadlock`, number 1205), so `transaction()` runs the work again.
+- `notify(tx, channel, payload)` writes a row to the `notifications` table; triggers do the same for new commands, command results and alert changes. Server processes poll the table (`src/db/notifications.ts`); each poll also re-reads a short window below the newest id it saw, because IDENTITY values can commit out of order, and the feed reports itself down after 3 failed polls.
 - `isUniqueViolation(e)`, `isConstraintViolation(e)`, `isDeadlock(e)` replace PostgreSQL error codes.
-- `audit(tx, entry)` calls the `audit_append` procedure. The application's role cannot write the audit tables itself.
+- `audit(tx, entry)` calls the `audit_append` procedure; `auditMany(tx, entries)` calls `audit_append_many`, which chains several entries in one call with the same hash. The application's role cannot write the audit tables itself.
+- `verifyAuditChain(db, batch, from?)` checks the whole chain, or only what follows a checkpoint (`auditCheckpoint`, `advanceAuditCheckpoint`; the nightly check is incremental, the Sunday one whole).
 
 What the layer does for the rest of the code, so the rest need not think about it:
 
 - JavaScript values become fixed SQL types: strings `nvarchar`, integers `int` or `bigint`, numbers with a fraction `float`, booleans `bit`, `Date` `datetime2(3)`, `Buffer` `varbinary`, objects and arrays JSON text.
-- GUIDs come back in lower case. Columns listed in `src/db/json-columns.ts` come back parsed (objects and arrays; `value` any JSON).
+- GUIDs come back in lower case. Columns listed in `src/db/json-columns.ts` come back parsed (objects and arrays; `value` any JSON), whether `nvarchar` or `varchar`.
 - `bigint` columns come back as strings (as before); `int` as numbers.
 
 ## Schema conventions
@@ -27,7 +28,7 @@ What the layer does for the rest of the code, so the rest need not think about i
 | `text` | `nvarchar(n)`; indexed or constrained columns are bounded (at most 450), others `nvarchar(max)` |
 | `timestamptz` | `datetime2(3)`, always UTC (`SYSUTCDATETIME()`); the audit time is `datetime2(6)` |
 | `boolean` | `bit` |
-| `jsonb` | `nvarchar(max)` with `CHECK (ISJSON(col) = 1)` |
+| `jsonb` | `varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8` with `CHECK (ISJSON(col) = 1)` (UTF-8: half the bytes of `nvarchar`) |
 | `text[]`, `integer[]`, `uuid[]` | JSON array in `nvarchar(max)` |
 | `bytea` | `varbinary(n)` |
 | `bigserial` | `bigint IDENTITY` |

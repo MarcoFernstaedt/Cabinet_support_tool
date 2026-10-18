@@ -543,3 +543,14 @@ The owner asked for the cheapest communication that still delivers commands with
 - **Outbound proxies.** Some clinics may require one. Proposal: an explicit proxy setting in the agent's configuration (HTTP CONNECT only, no automatic discovery), with mutual TLS end to end through the tunnel. Not built until a clinic needs it.
 - **A cabinet clock that is far off** (a dead CMOS battery) fails certificate validation, so the agent can never report it. Proposal: tolerate a not-yet-valid or expired server certificate only to send a time report, never commands. A security decision; not built.
 - **Certificates of cabinets switched off for over 60 days** expire and need a new bootstrap token. The server now raises an alert a week before an unrenewed certificate expires.
+- **A command acknowledged but not yet stored** is lost if the agent process crashes in between (it is not offered again because it was acknowledged); it expires on the server and the console shows it as expired. Proposal if this matters in practice: acknowledge only once the command is in the agent's durable queue.
+
+## Database at 10,000 cabinets on SQL Server Express (October 2026)
+
+Built to fit one 4 vCPU / 8 GB machine with SQL Server Express (1.4 GB buffer pool, 10 GB per database); sizes in [performance](../platform/performance.md) "Database size". Differences from the spec, and questions for the owner:
+
+- **Events are kept 30 days by default, not 90** (05-server-spec.md "Retention" says 90). At 90 days events alone would be about 7.7 GB of the 10 GB an Express database may hold. The setting still allows 7 to 3,650 days. *Owner to confirm 30.*
+- **Load samples older than 48 hours are kept as one row per hour** (minimum, average, maximum) for the rest of the 14 days; the trend chart shows hourly points before that.
+- **Offline and site-outage alerts wait after the server or its database was away** (or when fleet-wide contact falls by more than half, or no heartbeat arrives for 3 minutes) until the offline window plus the agents' 5-minute backoff has passed. The fleet-wide signals count only with at least 20 cabinets reporting, so small installations behave as before. A real regional outage of more than half the fleet is therefore reported up to an hour late (until the remembered "usual contact" ages out). *Owner to confirm.*
+- **The audit log is never pruned**, and grows by about 1.7 GB a year at the assumed support activity: it reaches Express's 10 GB in roughly three years. *Open: archive older years to signed files (the chain checkpoint makes that verifiable), or move to SQL Server Standard.*
+- **Command results** are the largest table after events and are not compressed by SQL Server (page compression skips varchar(max) values). Keeping them 30 days instead of 90 would save about 1.4 GB at the assumed volume. *Open.*

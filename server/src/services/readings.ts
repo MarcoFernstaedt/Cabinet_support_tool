@@ -145,14 +145,28 @@ export async function searchReadings(db: Queryable, operation: string, q: string
 
 // ---- Load samples -------------------------------------------------------------------------------------------------------------------
 
-export interface HealthPoint { at: string; cpu: number; memory: number; diskFree: number }
+export interface HealthPoint {
+  at: string; cpu: number; memory: number; diskFree: number;
+  /** On a point older than 48 hours, which stands for a whole hour (its averages above, at the middle of the hour): the extremes in it. */
+  cpuMax?: number; memoryMax?: number; diskFreeMin?: number;
+}
 
-/** The samples of the last <hours> hours, oldest first. At most one every 15 minutes is stored, so 14 days is under 1,400 points. */
+/**
+ * The samples of the last <hours> hours, oldest first. At most one every 15 minutes is stored, and after 48 hours they are rolled up to one
+ * point per hour (health_hourly, maintenance.ts), so 14 days is under 550 points.
+ */
 export async function healthHistory(db: Queryable, cabinetId: string, hours: number): Promise<HealthPoint[]> {
-  const rows = (await db.query<{ at: Date; cpu: number; memory: number; disk: number }>(
-    `SELECT [at], cpu_percent AS cpu, memory_used_percent AS memory, disk_free_percent AS disk FROM health_samples
-      WHERE cabinet_id = $1 AND [at] >= DATEADD(hour, -$2, SYSUTCDATETIME()) ORDER BY [at]`, [cabinetId, hours])).rows;
-  return rows.map(r => ({ at: r.at.toISOString(), cpu: r.cpu, memory: r.memory, diskFree: r.disk }));
+  const rows = (await db.query<{ at: Date; cpu: number; memory: number; disk: number; cpu_max: number | null; memory_max: number | null; disk_min: number | null }>(
+    `SELECT [at], cpu, memory, disk, cpu_max, memory_max, disk_min FROM (
+       SELECT [at], CAST(cpu_percent AS int) AS cpu, CAST(memory_used_percent AS int) AS memory, CAST(disk_free_percent AS int) AS disk,
+              CAST(NULL AS int) AS cpu_max, CAST(NULL AS int) AS memory_max, CAST(NULL AS int) AS disk_min
+         FROM health_samples WHERE cabinet_id = $1 AND [at] >= DATEADD(hour, -$2, SYSUTCDATETIME())
+       UNION ALL
+       SELECT DATEADD(minute, 30, CAST([hour] AS datetime2(3))), cpu_avg, memory_avg, disk_free_avg, cpu_max, memory_max, disk_free_min
+         FROM health_hourly WHERE cabinet_id = $1 AND [hour] >= DATEADD(hour, -$2, SYSUTCDATETIME())) x
+     ORDER BY [at]`, [cabinetId, hours])).rows;
+  return rows.map(r => ({ at: r.at.toISOString(), cpu: r.cpu, memory: r.memory, diskFree: r.disk,
+    ...(r.cpu_max === null ? {} : { cpuMax: r.cpu_max, memoryMax: r.memory_max!, diskFreeMin: r.disk_min! }) }));
 }
 
 /** Stores one sample from a heartbeat unless one was stored in the last 15 minutes. */

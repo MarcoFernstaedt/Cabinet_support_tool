@@ -21,6 +21,7 @@ import { envelopes, operations } from "../src/contracts.js";
 import { DemoSimulator, scenarioEvents } from "../src/demo/demo.js";
 import { DEMO_FLEET, type Scenario } from "../src/demo/fleet.js";
 import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
+import { searchReadings } from "../src/services/readings.js";
 import { baselineFor, initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
 import { evaluateDrift } from "../src/services/firewall-policy.js";
@@ -168,6 +169,10 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   const fleet = (await call("GET", "/api/fleet/clients", undefined, ca)).body as { name: string; demo: boolean }[];
   assert.deepEqual(fleet.filter(c => c.demo).map(c => c.name).sort(), DEMO_FLEET.map(c => c.name).sort());
   assert.ok(fleet.some(c => c.name === "Mashura Office" && !c.demo), "the real client is listed too, not marked demo");
+  // Every simulated cabinet has its installed software read, so the obvious search finds the scanner software across the fleet.
+  const found = await searchReadings(db.app, "software.list", "bioscan", {});
+  assert.equal(found.cabinetsRead, expected);
+  assert.equal(found.matches.length, expected);
 });
 
 test("simulated cabinets answer commands, and a fix made on one takes effect", async () => {

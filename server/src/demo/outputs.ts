@@ -372,6 +372,14 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       return { ...o, profile: params.profile, before: row(ctx.firewallProfiles[params.profile as "domain"]),
         after: { ...row(enabled), reenableAt: !enabled && params.durationMinutes ? ago(ctx, -params.durationMinutes) : null }, snapshotId: crypto.randomUUID(), safetyNetDeadline: ago(ctx, -2) };
     }
+    case "software.list": {
+      // The cabinet's own software as well as Windows updates, so a fleet search for the scanner software finds every cabinet that was read.
+      const o = example("software.list", "typical.json");
+      return { ...o, takenAt: ago(ctx, 0), programs: [...o.programs,
+        { name: "BioScan Client", version: ctx.index % 3 ? "4.2.1" : "4.1.7", publisher: "BioScan Systems", installedOn: "20260215" },
+        { name: "BioScan Fingerprint Driver", version: "3.1.0.7", publisher: "BioScan Systems", installedOn: "20260215" },
+        { name: "Microsoft SQL Server 2019 Express LocalDB", version: "15.0.4382.1", publisher: "Microsoft Corporation", installedOn: "20260110" }] };
+    }
     default:
       return example(operation);
   }
