@@ -5,9 +5,13 @@ import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { scannerHistory } from "../services/scanner-history.js";
-import { exportEvidence } from "../services/evidence.js";
+import { buildEvidence } from "../services/evidence.js";
+import { audit, transaction } from "../db/db.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
+
+const evidenceExports = new HeavyQuery("evidence export", HEAVY_LIMIT_MS);
 
 const DAY = 86_400_000;
 const MAX_DAYS = 90;
@@ -48,8 +52,11 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.get("/api/cabinets/:id/evidence", async (request, reply) => {
     const u = await o.guards.role(request, "tier1");
     const w = window(consoleBodies.crashQuery.parse(request.query), 30);
-    const pkg = await exportEvidence(o.pool, id(request), w.from, w.to, { userId: u.userId, name: u.name });
+    // Built under a time limit, one at a time per person; its export is audited as exportEvidence does.
+    const pkg = await evidenceExports.run(u.userId, o.pool, db => buildEvidence(db, id(request), w.from, w.to, { userId: u.userId, name: u.name }));
     if (!pkg) throw new Refused("not_found", 404, "no such cabinet");
+    await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "evidence.export", targetKind: "cabinet", targetId: pkg.manifest.cabinetId,
+      outcome: "succeeded", details: { from: w.from.toISOString(), to: w.to.toISOString(), packageSha256: pkg.manifest.packageSha256 } }));
     const day = w.to.toISOString().slice(0, 10);
     return reply.header("content-disposition", `attachment; filename="evidence-${pkg.manifest.cabinetId}-${day}.json"`).send(pkg);
   });

@@ -10,6 +10,9 @@ import { Refused } from "../services/errors.js";
 import * as rules from "../services/rules.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
+
+const previews = new HeavyQuery("rule preview", HEAVY_LIMIT_MS);
 
 /** A route that takes no body accepts none, or an empty object. */
 function noBody(body: unknown): void {
@@ -83,10 +86,11 @@ export async function alertRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.get("/api/rules/:id/history", async request => { await o.guards.role(request, "tier1"); return rules.ruleHistory(o.pool, id(request)); });
 
   app.post("/api/rules/preview", async request => {
-    await o.guards.role(request, "tier2");
+    const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.rulePreview.parse(request.body);
     rules.checkUserMatch(body.match);
-    return rules.preview(o.pool, body.match);
+    // It counts matching events across the fleet: one at a time per person, stopped after 15 s.
+    return previews.run(u.userId, o.pool, db => rules.preview(db, body.match));
   });
 
   app.post("/api/rules", async (request, reply) => {

@@ -158,9 +158,12 @@ export async function startJob(pool: Pool, user: { userId: string; role: Role },
     const targets = await plan(c, r.operation, r.cabinetIds);
     await c.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, $2, $3, $4, $5)",
       [r.jobId, r.operation, user.userId, r.batchSize, targets.length]);
-    for (const [i, t] of targets.entries())
-      await c.query("INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, detail) VALUES ($1, $2, $3, $4, $5, $6)",
-        [r.jobId, t.cabinetId, i, t.params === null ? null : safeJson(t.params), t.skip ? "skipped" : "pending", t.skip]);
+    // Every target in one statement (up to BULK_LIMIT rows), not one round trip each.
+    if (targets.length > 0)
+      await c.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, detail)
+                     SELECT $1, j.cabinet_id, j.position, j.params, j.state, j.detail
+                       FROM OPENJSON($2) WITH (cabinet_id uniqueidentifier '$.c', position int '$.i', params nvarchar(max) '$.p', state nvarchar(64) '$.s', detail nvarchar(max) '$.d') j`,
+        [r.jobId, JSON.stringify(targets.map((t, i) => ({ c: t.cabinetId, i, p: t.params === null ? null : safeJson(t.params), s: t.skip ? "skipped" : "pending", d: t.skip })))]);
     const change = targets.filter(t => !t.skip).length;
     await audit(c, { actorKind: "user", actorId: user.userId, action: "fleet.job.start", targetKind: "job", targetId: r.jobId, outcome: "succeeded",
       details: { operation: r.operation, cabinets: targets.length, change, batchSize: r.batchSize } });
@@ -234,12 +237,15 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
       const commandId = randomUUID();
       await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`, [commandId, t.cabinet_id, job.operation, safeJson(t.params), job.created_by, issuedAt, expiresAt, jobId]);
-      await audit(c, { actorKind: "user", actorId: job.created_by, action: "command.write", targetKind: "cabinet", targetId: t.cabinet_id, outcome: "succeeded",
-        details: { commandId, operation: job.operation, params: t.params, bulkId: jobId } });
       await c.query("UPDATE fleet_job_targets SET state = 'issued', command_id = $3, detail = NULL, updated_at = SYSUTCDATETIME() WHERE job_id = $1 AND cabinet_id = $2",
         [jobId, t.cabinet_id, commandId]);
       issued.push({ cabinet_id: t.cabinet_id, command_id: commandId, params: t.params });
     }
+    // The audit entries go last, together: the audit procedure serializes every writer of the log, so it is held for the shortest
+    // time (they still commit or roll back with the commands). A batched audit helper (auditMany) would make this one call.
+    for (const t of issued)
+      await audit(c, { actorKind: "user", actorId: job.created_by, action: "command.write", targetKind: "cabinet", targetId: t.cabinet_id, outcome: "succeeded",
+        details: { commandId: t.command_id, operation: job.operation, params: t.params, bulkId: jobId } });
     return issued;
   }).then(async issued =>
     // Every cabinet in this batch was skipped: go on to the next batch rather than ending the job.

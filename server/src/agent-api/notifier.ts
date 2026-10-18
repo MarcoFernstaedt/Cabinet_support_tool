@@ -1,6 +1,7 @@
 // Wakes long polls when a command for their cabinet is inserted, from any server process: the commands table's trigger writes
 // a row to the notifications table, and the NotificationFeed (one per server process) hands it to this class.
 import type { NotificationFeed } from "../db/notifications.js";
+import { noteRevocation, REVOCATION_CHANNEL } from "./revocations.js";
 
 export class CommandNotifier {
   private readonly waiters = new Map<string, Set<() => void>>();
@@ -16,7 +17,10 @@ export class CommandNotifier {
 
   async start(): Promise<void> {
     if (this.unsubscribe) return;
-    this.unsubscribe = this.feed.on("cabinet_commands", payload => this.wake(payload));
+    const commands = this.feed.on("cabinet_commands", payload => this.wake(payload));
+    // A certificate revoked by any server process: the agent API checks every remembered connection again.
+    const revoked = this.feed.on(REVOCATION_CHANNEL, () => noteRevocation());
+    this.unsubscribe = () => { commands(); revoked(); };
     // Wake counters only need to outlive one long poll; forget the idle ones.
     this.sweep ??= setInterval(() => { for (const k of this.woken.keys()) if (!this.waiters.has(k)) this.woken.delete(k); }, 60_000);
     this.sweep.unref();

@@ -15,6 +15,9 @@ import { platformSettings, updatePlatformSettings } from "../services/settings.j
 import { verifyChainAndAlert } from "../services/maintenance.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
+
+const auditSearches = new HeavyQuery("audit search", HEAVY_LIMIT_MS);
 
 export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const asAdmin = (request: Parameters<Guards["role"]>[0]) => o.guards.role(request, "admin");
@@ -78,8 +81,10 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
   });
 
   app.get("/api/admin/audit", async request => {
-    await asAdmin(request);
-    return admin.searchAudit(o.pool, consoleBodies.auditFilter.parse(request.query));
+    const u = await asAdmin(request);
+    const filter = consoleBodies.auditFilter.parse(request.query);
+    // The audit log is kept forever: one search at a time per person, stopped after 15 s.
+    return auditSearches.run(u.userId, o.pool, db => admin.searchAudit(db, filter));
   });
 
   app.post("/api/admin/audit/verify", async request => {

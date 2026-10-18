@@ -19,7 +19,11 @@ export async function watchLevels(db: Queryable, cabinetId: string): Promise<Wat
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId, FLEET_KEY])).rows[0];
   if (!r) throw new Refused("not_found", 404, "no such cabinet");
   const fleet = parseJson<unknown>(r.f);
-  const levels = { cabinet: parseJson<string[]>(r.k), site: parseJson<string[]>(r.s), client: parseJson<string[]>(r.c), fleet: Array.isArray(fleet) ? fleet as string[] : null };
+  return effectiveWatched({ cabinet: parseJson<string[]>(r.k), site: parseJson<string[]>(r.s), client: parseJson<string[]>(r.c), fleet: Array.isArray(fleet) ? fleet as string[] : null });
+}
+
+/** The level that applies: the most specific one with a list (also used by the heartbeat, which reads the levels in its own statement). */
+export function effectiveWatched(levels: { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null }): WatchLevels {
   for (const level of ["cabinet", "site", "client", "fleet"] as const)
     if (levels[level] !== null) return { ...levels, effective: levels[level]!, source: level };
   return { ...levels, effective: [], source: "none" };

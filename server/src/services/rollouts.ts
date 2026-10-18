@@ -94,10 +94,16 @@ export async function changeRollout(pool: Pool, adminId: string, rolloutId: stri
 }
 
 let running: { at: number; value: Promise<boolean> } | null = null;
-/** Whether any rollout is running, looked up at most every 5 seconds per server process. */
-export function anyRolloutRunning(pool: Pool): Promise<boolean> {
+/**
+ * Whether any rollout is running, looked up at most every 5 seconds per server process. A failed lookup answers false (no offer this
+ * time: the next heartbeat asks again) and is not remembered, so a struggling database is not handed a rollout transaction per heartbeat.
+ */
+export function anyRolloutRunning(pool: Queryable): Promise<boolean> {
   if (!running || Date.now() - running.at > 5_000) {
-    const value = pool.query("SELECT TOP (1) 1 FROM rollouts WHERE state = 'running'").then(r => r.rows.length > 0, () => true);
+    const value = pool.query("SELECT TOP (1) 1 FROM rollouts WHERE state = 'running'", [], { timeoutMs: 3_000 }).then(r => r.rows.length > 0, () => {
+      if (running?.value === value) running = null;
+      return false;
+    });
     running = { at: Date.now(), value };
   }
   return running.value;

@@ -38,7 +38,11 @@ export async function scannerLevels(db: Queryable, cabinetId: string): Promise<S
     `SELECT k.scanner_hardware_ids AS k, s.scanner_hardware_ids AS s, c.scanner_hardware_ids AS c,
             (SELECT TOP (1) [value] FROM settings WHERE [key] = 'scanner.hardwareIds') AS f
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
-  const levels = { cabinet: parseJson<string[]>(r?.k), site: parseJson<string[]>(r?.s), client: parseJson<string[]>(r?.c), fleet: parseJson<string[]>(r?.f) };
+  return effectiveScanner({ cabinet: parseJson<string[]>(r?.k), site: parseJson<string[]>(r?.s), client: parseJson<string[]>(r?.c), fleet: parseJson<string[]>(r?.f) });
+}
+
+/** The level that applies: the most specific non-empty list (also used by the heartbeat, which reads the levels in its own statement). */
+export function effectiveScanner(levels: { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null }): ScannerLevels {
   const [effective, source] = firstSet([levels.cabinet, "cabinet"], [levels.site, "site"], [levels.client, "client"], [levels.fleet, "fleet"]);
   return { ...levels, effective, source: (source ?? "automatic") as ScannerSource };
 }

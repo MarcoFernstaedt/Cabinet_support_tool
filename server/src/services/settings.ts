@@ -112,6 +112,44 @@ export class SettingsCache {
   invalidate(): void { this.value = null; }
 }
 
+// ---- Agent pacing (docs/spec/03-protocol.md "Protocol 1.1": server-directed intervals) ------
+
+export interface AgentPacing { heartbeatSeconds: number; pollSeconds: number; eventsPaceMs: number }
+
+export const DEFAULT_PACING: AgentPacing = { heartbeatSeconds: 300, pollSeconds: 25, eventsPaceMs: 2_000 };
+
+/** Each pacing setting's key, with the range the heartbeat-response contract allows. */
+const PACING_KEYS = {
+  heartbeatSeconds: ["agents.heartbeatSeconds", 60, 900], pollSeconds: ["agents.pollSeconds", 15, 110], eventsPaceMs: ["agents.eventsPaceMs", 0, 60_000],
+} as const;
+
+/** The pacing the heartbeat answer carries: the settings table's values when set and in range, else the defaults. */
+export async function agentPacing(db: Queryable): Promise<AgentPacing> {
+  const rows = new Map((await db.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE 'agents.%'")).rows.map(r => [r.key, r.value]));
+  const num = (name: keyof AgentPacing): number => {
+    const [key, min, max] = PACING_KEYS[name];
+    const v = rows.get(key);
+    return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : DEFAULT_PACING[name];
+  };
+  return { heartbeatSeconds: num("heartbeatSeconds"), pollSeconds: num("pollSeconds"), eventsPaceMs: num("eventsPaceMs") };
+}
+
+/** Pacing read at most once a minute per process (every heartbeat answer carries it); the defaults while the database cannot answer. */
+export class PacingCache {
+  private value: AgentPacing = DEFAULT_PACING;
+  private at = 0;
+  private loading: Promise<void> | null = null;
+  constructor(private readonly db: Queryable, private readonly ttlMs = 60_000) {}
+  /** Never waits for the database once a value is known: a stale value is refreshed in the background. */
+  async get(): Promise<AgentPacing> {
+    if (Date.now() - this.at > this.ttlMs && !this.loading) {
+      this.loading = agentPacing(this.db).then(v => { this.value = v; }, () => undefined).finally(() => { this.at = Date.now(); this.loading = null; });
+      if (this.at === 0) await this.loading;
+    }
+    return this.value;
+  }
+}
+
 export interface SettingsChange {
   offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number;
   retention?: Partial<PlatformSettings["retention"]>;

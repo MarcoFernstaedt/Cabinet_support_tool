@@ -83,8 +83,12 @@ function shape<R>(rows: Record<string, unknown>[], columns: sql.IColumnMetadata 
   return rows as R[];
 }
 
-async function run<R>(make: () => sql.Request, text: string, params: readonly unknown[], options?: QueryOptions): Promise<QueryResult<R>> {
-  const request = make();
+/** The driver's own per-statement limit (the pool's requestTimeout) must not cut a statement short of the limit its caller gave. */
+const overrides = (options?: QueryOptions): { requestTimeout: number } | undefined =>
+  options?.timeoutMs && options.timeoutMs >= DEFAULT_REQUEST_TIMEOUT_MS ? { requestTimeout: options.timeoutMs + 1_000 } : undefined;
+
+async function run<R>(make: (conf?: { requestTimeout: number }) => sql.Request, text: string, params: readonly unknown[], options?: QueryOptions): Promise<QueryResult<R>> {
+  const request = make(overrides(options));
   params.forEach((v, i) => bind(request, i, v));
   let timedOut = false;
   const timer = options?.timeoutMs ? setTimeout(() => { timedOut = true; request.cancel(); }, options.timeoutMs) : undefined;
@@ -101,7 +105,8 @@ async function run<R>(make: () => sql.Request, text: string, params: readonly un
 export class Tx implements Queryable {
   constructor(private readonly tx: sql.Transaction) {}
   query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
-    return run<R>(() => new sql.Request(this.tx), text, params, options);
+    // mssql 12 takes per-request overrides ({ requestTimeout }); its type definitions do not list them yet.
+    return run<R>(conf => new (sql.Request as unknown as new (parent: sql.Transaction, conf?: { requestTimeout: number }) => sql.Request)(this.tx, conf), text, params, options);
   }
 }
 
@@ -114,7 +119,7 @@ export class Pool implements Queryable {
   async query<R = any>(text: string, params: readonly unknown[] = [], options?: QueryOptions): Promise<QueryResult<R>> {
     const retryable = singleStatement(text);
     for (let attempt = 1; ; attempt++) {
-      try { return await run<R>(() => this.pool.request(), text, params, options); }
+      try { return await run<R>(conf => (this.pool.request as (conf?: { requestTimeout: number }) => sql.Request).call(this.pool, conf), text, params, options); }
       catch (e) { if (!retryable || !isDeadlock(e) || attempt >= 3) throw e; }
     }
   }
@@ -137,6 +142,23 @@ export class Pool implements Queryable {
     }
   }
   end(): Promise<void> { return this.pool.close(); }
+  /** Requests waiting for a free connection (tarn's numPendingAcquires): the first sign that the database cannot keep up. */
+  get pending(): number { return this.pool.pending; }
+}
+
+/**
+ * A Queryable whose statements are stopped once the whole operation has run for ms milliseconds (console queries that read the whole
+ * fleet: rule preview, audit search, evidence export, drives at risk). The statement that runs out rejects with QueryTimeout.
+ */
+export function limited(db: Queryable, ms: number): Queryable {
+  const started = Date.now();
+  return {
+    query<R = any>(text: string, params?: readonly unknown[], options?: QueryOptions): Promise<QueryResult<R>> {
+      const left = ms - (Date.now() - started);
+      if (left <= 0) return Promise.reject(new QueryTimeout(ms));
+      return db.query<R>(text, params, { ...options, timeoutMs: Math.min(options?.timeoutMs ?? left, left) });
+    },
+  };
 }
 
 /** `sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false` */
@@ -152,8 +174,26 @@ export function parseDatabaseUrl(connectionString: string): sql.config {
   };
 }
 
-export async function createPool(connectionString: string, max = 10): Promise<Pool> {
-  const pool = new sql.ConnectionPool({ ...parseDatabaseUrl(connectionString), pool: { max, min: 0, idleTimeoutMillis: 30_000 } });
+/** Every statement is stopped by the driver after this long unless its caller allows longer (QueryOptions.timeoutMs). */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+/** Statements on the agent hot path (authenticate, take commands, heartbeat) give up after this long: the agent retries later. */
+export const HOT_PATH_TIMEOUT_MS = 3_000;
+
+export interface PoolOptions {
+  max?: number;
+  /** Connections kept open while idle (default 4, at most max). */
+  min?: number;
+  /** How long a request waits for a free connection before it fails (default 3 s: fail fast rather than queue without end). */
+  acquireTimeoutMs?: number;
+  /** The driver's limit on one statement (default 10 s). */
+  requestTimeoutMs?: number;
+}
+
+export async function createPool(connectionString: string, options: number | PoolOptions = 10): Promise<Pool> {
+  const o: PoolOptions = typeof options === "number" ? { max: options } : options;
+  const max = o.max ?? 10;
+  const pool = new sql.ConnectionPool({ ...parseDatabaseUrl(connectionString), requestTimeout: o.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    pool: { max, min: Math.min(o.min ?? 4, max), idleTimeoutMillis: 30_000, acquireTimeoutMillis: o.acquireTimeoutMs ?? 3_000 } });
   pool.on("error", () => { /* a broken idle connection is dropped and replaced; requests surface their own errors */ });
   await pool.connect();
   return new Pool(pool);
@@ -165,6 +205,22 @@ export const isUniqueViolation = (e: unknown): boolean => numberOf(e) === 2601 |
 /** A FOREIGN KEY or CHECK rule refused the row (23503 and 23514). */
 export const isConstraintViolation = (e: unknown): boolean => numberOf(e) === 547;
 export const isDeadlock = (e: unknown): boolean => numberOf(e) === 1205;
+/**
+ * The database is too busy or briefly unavailable: no free connection within the acquire limit, a statement stopped by its time
+ * limit, a dropped or refused connection, or a deadlock that outlived its retries.
+ * The agent API answers these with 503 and a Retry-After rather than an error.
+ */
+export function isBusy(e: unknown, depth = 0): boolean {
+  if (e instanceof QueryTimeout) return true;
+  const x = e as { code?: string; name?: string; constructor?: { name?: string }; originalError?: unknown } | null;
+  if (!x || typeof x !== "object" || depth > 3) return false;
+  if (x.constructor?.name === "TimeoutError" || x.name === "TimeoutError") return true; // tarn: no connection within acquireTimeoutMillis
+  if (x.code === "ETIMEOUT") return true; // the driver's requestTimeout
+  // The database is unreachable or dropped the connection, or the pool is closing: transient, the caller tries again later.
+  if (x.code === "ESOCKET" || x.code === "ECONNCLOSED" || x.code === "ENOTOPEN" || x.code === "ECONNRESET" || x.code === "EINSTLOOKUP") return true;
+  if (isDeadlock(x)) return true; // a deadlock victim still losing after its retries
+  return x.originalError !== undefined && isBusy(x.originalError, depth + 1);
+}
 
 /** Wakes the other server processes (and this one) listening on a channel; see the notifications table and src/db/notifications.ts. */
 export async function notify(db: Queryable, channel: string, payload: string): Promise<void> {

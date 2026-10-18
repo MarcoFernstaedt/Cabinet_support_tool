@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, WriteLimitReached } from "./writes.js";
-import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
@@ -85,23 +85,56 @@ async function issueInTransaction(pool: Pool, userId: string, cabinetId: string,
   });
 }
 
-/** Hands over every waiting command for this cabinet, once. Commands past their expiry are marked expired instead. */
-export async function takeQueuedCommands(pool: Pool, cabinetId: string): Promise<Command[]> {
-  // One statement, one round trip: it runs for every long poll of every cabinet. Commands past their expiry are marked
-  // expired, never delivered; the rest are delivered oldest first, at most MAX_COMMANDS_PER_POLL.
-  const rows = (await pool.query<{ id: string; operation: string; params: Record<string, unknown>; issued_by: string; issued_at: Date; expires_at: Date }>(
-    // (commands has triggers, so the delivered rows go INTO a table variable.) READPAST skips rows another poll has locked.
+/** How long a command handed to a poll stays leased to it (docs/spec/03-protocol.md "Protocol 1.1"). */
+export const LEASE_SECONDS = 30;
+
+export interface TakenCommands {
+  commands: Command[];
+  /** When the earliest lease still running for this cabinet ends (a command handed out but not yet acknowledged), else null. */
+  nextLeaseEnd: Date | null;
+}
+
+/**
+ * Hands over the commands waiting for this cabinet (Protocol 1.1 leased delivery), after recording the acknowledgements the poll
+ * carried. A command handed to a poll is leased for leaseSeconds; one neither acknowledged nor answered when its lease ends is offered
+ * again while it has not expired, so a poll whose answer was lost on the way loses no command. Commands past their expiry are marked
+ * expired, never delivered. The acknowledgements count only for this cabinet's own commands.
+ */
+export async function takeLeasedCommands(pool: Queryable, cabinetId: string, acks: readonly string[] = [], leaseSeconds = LEASE_SECONDS): Promise<TakenCommands> {
+  // One batch, one round trip: it runs for every long poll of every cabinet. At most MAX_COMMANDS_PER_POLL, oldest first.
+  // (commands has triggers, so the delivered rows go INTO a table variable.) READPAST skips rows another poll has locked.
+  // The last SELECT always returns at least one row (the next lease end), with the taken commands joined to it.
+  const rows = (await pool.query<{ id: string | null; operation: string; params: Record<string, unknown>; issued_by: string; issued_at: Date; expires_at: Date; next_lease: Date | null }>(
     `DECLARE @taken TABLE (id uniqueidentifier, operation nvarchar(450), params nvarchar(max), issued_by uniqueidentifier, issued_at datetime2(3), expires_at datetime2(3));
-     UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= SYSUTCDATETIME();
-     UPDATE commands SET status = 'delivered', delivered_at = SYSUTCDATETIME()
+     DECLARE @now datetime2(3) = SYSUTCDATETIME();
+     IF $2 IS NOT NULL
+       UPDATE commands SET ack_at = @now
+        WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($2));
+     UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= @now;
+     UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = DATEADD(second, $3, @now)
        OUTPUT inserted.id, inserted.operation, inserted.params, inserted.issued_by, inserted.issued_at, inserted.expires_at INTO @taken
-      WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) id FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
-                    WHERE cabinet_id = $1 AND status = 'queued' AND expires_at > SYSUTCDATETIME() ORDER BY issued_at);
-     SELECT id, operation, params, issued_by, issued_at, expires_at FROM @taken ORDER BY issued_at;`, [cabinetId])).rows;
-  return rows.sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
-    commandId: r.id, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,
+      WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) w.id FROM (
+                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
+                      WHERE cabinet_id = $1 AND status = 'queued' AND expires_at > @now
+                     UNION ALL
+                     SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST)
+                      WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at > @now) w
+                    ORDER BY w.issued_at);
+     SELECT t.id, t.operation, t.params, t.issued_by, t.issued_at, t.expires_at, n.next_lease
+       FROM (SELECT MIN(lease_until) AS next_lease FROM commands
+              WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until > @now AND expires_at > @now) n
+       LEFT JOIN @taken t ON 1 = 1;`,
+    [cabinetId, acks.length > 0 ? JSON.stringify(acks) : null, leaseSeconds], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows;
+  const commands = rows.filter(r => r.id !== null).sort((a, b) => a.issued_at.getTime() - b.issued_at.getTime()).map(r => ({
+    commandId: r.id!, cabinetId, operation: r.operation as Command["operation"], params: r.params, issuedBy: r.issued_by,
     issuedAt: r.issued_at.toISOString(), expiresAt: r.expires_at.toISOString(),
   }));
+  return { commands, nextLeaseEnd: rows[0]?.next_lease ?? null };
+}
+
+/** The waiting commands only (the demo simulator and tests, which stand in for an agent in this process). */
+export async function takeQueuedCommands(pool: Queryable, cabinetId: string): Promise<Command[]> {
+  return (await takeLeasedCommands(pool, cabinetId)).commands;
 }
 
 /**
@@ -114,6 +147,13 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
     const command = (await c.query<{ operation: string; status: string; delivered: number }>(
       "SELECT operation, status, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered FROM commands WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND cabinet_id = $2", [result.commandId, cabinetId])).rows[0];
     if (!command) throw new Refused("unknown_command", 404, "no such command for this cabinet");
+    // A command offered again after its lease (Protocol 1.1) may reach an agent that already had it; an agent without a stored result
+    // for it refuses the repeat as replayed. That says only that the cabinet had it: it counts as the acknowledgement, never as the
+    // outcome, so the real result can still arrive.
+    if (result.status === "rejected" && result.error?.code === "replayed" && command.status === "delivered") {
+      await c.query("UPDATE commands SET ack_at = COALESCE(ack_at, SYSUTCDATETIME()) WHERE id = $1", [result.commandId]);
+      return;
+    }
     // A delivered command that went quiet is marked expired (expireUnanswered), but its result still counts if it arrives
     // later (the cabinet ran it, then lost the server): what really happened on the cabinet is never thrown away.
     if (!(command.status === "delivered" || (command.status === "expired" && command.delivered === 1)))

@@ -5,7 +5,10 @@ import { fileURLToPath } from "node:url";
 export interface Config {
   /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
   databaseUrl: string;
-  agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds: number };
+  /** longPollSeconds: how long a poll is held; unset, it follows the platform's pacing setting (default 25). */
+  agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds?: number; http2: boolean; admission: { newConnectionsPerSecond: number; requestsPerSecond: number } };
+  /** Separate connection pools, so console work and background jobs can never take the connections agents need. */
+  database: { agentPoolMax: number; consolePoolMax: number; jobsPoolMax: number };
   tls: { certFile?: string; keyFile?: string };
   devPkiDir?: string;
   /** The software library: where approved packages are stored (read-only files), and the size limit. */
@@ -33,11 +36,21 @@ export function databaseUrl(env: NodeJS.ProcessEnv, name: string): string {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const port = Number(env.AGENT_API_PORT ?? "8443");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("AGENT_API_PORT must be a port number.");
-  const longPollSeconds = Number(env.AGENT_LONG_POLL_SECONDS ?? "25");
-  if (!(longPollSeconds >= 1 && longPollSeconds <= 25)) throw new Error("AGENT_LONG_POLL_SECONDS must be 1 to 25.");
+  const longPollSeconds = env.AGENT_LONG_POLL_SECONDS === undefined ? undefined : Number(env.AGENT_LONG_POLL_SECONDS);
+  if (longPollSeconds !== undefined && !(Number.isInteger(longPollSeconds) && longPollSeconds >= 1 && longPollSeconds <= 110)) throw new Error("AGENT_LONG_POLL_SECONDS must be 1 to 110.");
+  const whole = (name: string, fallback: number, min: number, max: number): number => {
+    const v = Number(env[name] ?? fallback);
+    if (!Number.isInteger(v) || v < min || v > max) throw new Error(`${name} must be a whole number from ${min} to ${max}.`);
+    return v;
+  };
   const config: Config = {
     databaseUrl: databaseUrl(env, "DATABASE_URL"),
-    agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean), longPollSeconds },
+    agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean),
+      ...(longPollSeconds !== undefined ? { longPollSeconds } : {}),
+      // HTTP/2 is offered (ALPN, with HTTP/1.1 on the same port); AGENT_API_HTTP2=false offers HTTP/1.1 only.
+      http2: env.AGENT_API_HTTP2 !== "false",
+      admission: { newConnectionsPerSecond: whole("AGENT_NEW_CONNECTIONS_PER_SECOND", 100, 1, 10_000), requestsPerSecond: whole("AGENT_REQUESTS_PER_SECOND", 2_000, 10, 100_000) } },
+    database: { agentPoolMax: whole("AGENT_DB_POOL_MAX", 20, 4, 200), consolePoolMax: whole("CONSOLE_DB_POOL_MAX", 10, 4, 100), jobsPoolMax: whole("JOBS_DB_POOL_MAX", 4, 1, 50) },
     tls: {},
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },

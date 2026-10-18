@@ -9,10 +9,12 @@ import { cabinetDrives, drivesAtRisk } from "../services/drives.js";
 import { healthHistory, latestReading, latestReadings, searchReadings } from "../services/readings.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
 
 /** A search scans every cabinet's stored reading, so one person runs one at a time and each is stopped (cancelled in the database) after 15 seconds. */
 const searching = new Set<string>();
 const SEARCH_LIMIT_MS = 15_000;
+const drivesAtRiskQueries = new HeavyQuery("drives-at-risk list", HEAVY_LIMIT_MS);
 
 export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const cabinet = async (cabinetId: string) => {
@@ -39,8 +41,9 @@ export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     return { drives: await cabinetDrives(o.pool, await cabinet(id(request))) };
   });
   app.get("/api/fleet/drives-at-risk", async request => {
-    await o.guards.role(request, "tier1");
-    return { drives: await drivesAtRisk(o.pool) };
+    const u = await o.guards.role(request, "tier1");
+    // Reads every cabinet's drive history: one at a time per person, stopped after 15 s.
+    return { drives: await drivesAtRiskQueries.run(u.userId, o.pool, db => drivesAtRisk(db)) };
   });
   app.get("/api/readings/search", async request => {
     const u = await o.guards.role(request, "tier1");
