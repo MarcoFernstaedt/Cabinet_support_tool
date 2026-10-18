@@ -543,6 +543,9 @@ The owner asked for the cheapest communication that still delivers commands with
 - **Outbound proxies.** Some clinics may require one. Proposal: an explicit proxy setting in the agent's configuration (HTTP CONNECT only, no automatic discovery), with mutual TLS end to end through the tunnel. Not built until a clinic needs it.
 - **A cabinet clock that is far off** (a dead CMOS battery) fails certificate validation, so the agent can never report it. Proposal: tolerate a not-yet-valid or expired server certificate only to send a time report, never commands. A security decision; not built.
 - **Certificates of cabinets switched off for over 60 days** expire and need a new bootstrap token. The server now raises an alert a week before an unrenewed certificate expires.
+- **The poll's `ack` query string has no contract schema yet.** The server checks it strictly in code (only `ack`, at most 50 GUIDs, comma-separated, anything else 400). Proposal: add `envelopes/commands-request.schema.json` to the contracts so the agent and server share it.
+- **Pacing is set in the settings table only** (`agents.heartbeatSeconds` 60–900, default 300; `agents.pollSeconds` 15–110, default 25; `agents.eventsPaceMs` 0–60000, default 2000). The console's settings contract has no fields for them yet. Under load the server raises the events pace (×4, at least 10 s).
+- **A re-offered command answered "replayed"** by an agent without a stored result is taken as the acknowledgement, not the outcome; the command then expires as unanswered unless the real result arrives.
 - **A command acknowledged but not yet stored** is lost if the agent process crashes in between (it is not offered again because it was acknowledged); it expires on the server and the console shows it as expired. Proposal if this matters in practice: acknowledge only once the command is in the agent's durable queue.
 
 ## Database at 10,000 cabinets on SQL Server Express (October 2026)
