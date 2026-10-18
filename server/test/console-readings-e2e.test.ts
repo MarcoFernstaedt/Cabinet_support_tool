@@ -33,17 +33,18 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     await page.getByRole("button", { name: "Search", exact: true }).click();
     const results = page.getByRole("region", { name: "Search results" });
     await results.getByText(/found among the/).waitFor({ timeout: 30_000 });
-    await results.getByText(/never read/).waitFor();
-    // A state search offers fixed choices.
+    // A state search offers fixed choices; only the offline cabinets have their power settings stored, so the rest are never read.
     await page.getByLabel("Find").selectOption("power.status");
     assert.equal(await page.getByLabel("Text").count(), 0, "no free text for a state search");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await results.getByText(/found among the/).waitFor();
+    await results.getByText(/never read/).waitFor();
     // Back to the program, and open the match.
     await page.getByLabel("Find").selectOption("software.list");
     await page.getByLabel("Text").fill("Practice Manager");
     await page.getByRole("button", { name: "Search", exact: true }).click();
-    await results.getByRole("link").first().click();
+    // Every demo cabinet has its software read; the offline one is opened by name.
+    await results.getByRole("link", { name: /Step-down/ }).first().click();
 
     // The offline cabinet's Windows tab shows what it last reported, without asking it.
     await page.getByText(/This cabinet has not been heard from since/).waitFor();

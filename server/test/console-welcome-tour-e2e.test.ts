@@ -97,6 +97,9 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     assert.deepEqual(full.slice(full.indexOf("A cabinet") + 1).filter(t => TABS.includes(t)), TABS, "in the order the tabs are shown");
 
     // 3. The short version, left early with Escape, counts as seen.
+    // The finished tour is saved by a request of its own; it must land before the reset, or it would undo it.
+    for (let i = 0; i < 100 && !(await c.db.app.query<{ done: boolean }>("SELECT tour_completed AS done FROM users WHERE username = 'ada.admin'")).rows[0]?.done; i++)
+      await new Promise(r => setTimeout(r, 100));
     await c.db.app.query("UPDATE users SET tour_completed = 0 WHERE username = 'ada.admin'");
     await page.goto(`${c.origin}/`);
     const card = page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" });
