@@ -459,3 +459,14 @@ test("a reboot loop is resolved on the heartbeat that crosses 2 hours of uptime,
 
 // Keep the pool type referenced for readers of this file: every service here takes the application's pool.
 void Pool;
+
+test("two heartbeats for one cabinet at the same moment store one load sample, never a duplicate key", async () => {
+  const { recordHealth } = await import("../src/services/readings.js");
+  const id = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets")).rows[0]?.id;
+  if (!id) return;
+  for (let round = 0; round < 25; round++) {
+    await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [id]);
+    await Promise.all(Array.from({ length: 12 }, () => recordHealth(db.app, id, { cpuPercent: 5, memoryUsedPercent: 40, diskFreePercent: 60 })));
+    assert.equal(Number((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM health_samples WHERE cabinet_id = $1", [id])).rows[0]!.n), 1, `round ${round}`);
+  }
+});
