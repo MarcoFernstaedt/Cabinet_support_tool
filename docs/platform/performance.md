@@ -217,8 +217,8 @@ The summary is printed and written as JSON (`--report`):
 - new TLS connections per second, full and resumed (`tlsSocket.isSessionReused()`), the HTTP version the server chose, open connections;
 - bytes up and down per cabinet per day by link class (counted at the relay, steady phase);
 - latency per request kind (all cabinets, and fiber cabinets in the steady phase, which shows the server's own speed);
-- command delivery (issue to the cabinet holding it) p50/p95/max per link class; commands issued while the target's link was down and how long after the link came back they arrived; repeat offers;
-- **lost commands**: delivered according to the database but never received by the agent; **undelivered commands** to cabinets whose link was up for the command's whole life; commands to never-connected cabinets;
+- command delivery (issue to the cabinet holding it) p50/p95/max per link class; commands issued while the target's link was down and how long after the link came back they arrived; commands issued in the 10 minutes after a cabinet's link came back ("recovering": they wait for the agent's reconnect backoff, so they are reported apart and not held to the per-link thresholds); repeat offers;
+- **lost commands**: delivered according to the database but never received by the agent (a command whose lifetime ran out before its cabinet came back is expired, not lost); **undelivered commands** to cabinets whose link was up for the command's whole life; commands to never-connected cabinets;
 - **lost results**: accepted by the server (2xx or 409) but not in the database, or given up by a 1.0 agent; results still in an outbox at the end;
 - **false offlines**: a cabinet more than 5 minutes without contact (a poll or heartbeat for 1.1, a heartbeat for 1.0), not counting the time its link was down; and the server's own view, sampled from the database every 30 s (`last_contact_at`, or `last_heartbeat_at` while that is the column): cabinets with no recorded contact for 6 min 10 s (presence may be written up to a minute late) whose link was up;
 - site-outage alerts raised during the run, for sites in the outage and elsewhere;

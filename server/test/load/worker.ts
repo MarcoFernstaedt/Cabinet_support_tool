@@ -82,7 +82,10 @@ const falseOfflines: WorkerFinal["falseOfflines"] = [];
 const outageMember = new Set<number>();
 
 function recordDelivery(agent: SimAgent, commandId: string, at: number, iss: { at: number; tag: string }): void {
-  const tag = iss.tag !== "normal" ? iss.tag : agent.link.downWithin(iss.at, at) > 0 ? "blackout" : "normal";
+  // "recovering": the link was up when the command was issued but had been down in the 10 minutes before, so delivery waits for the
+  // agent's reconnect backoff (reported under reconnect times), not for the server; kept out of the per-link delivery thresholds.
+  const tag = iss.tag !== "normal" ? iss.tag : agent.link.downWithin(iss.at, at) > 0 ? "blackout"
+    : agent.link.downWithin(iss.at - 600_000, iss.at) > 0 ? "recovering" : "normal";
   hist.add(`delivery|${agent.linkClass}|${tag}`, at - iss.at);
   if (tag === "blackout") {
     // After a blackout: how long after the link came back did it arrive?

@@ -2,7 +2,7 @@
 import { scheduleDailyJobs } from "./services/maintenance.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
-import { createPool } from "./db/db.js";
+import { createPool, errorInfo } from "./db/db.js";
 import { NotificationFeed } from "./db/notifications.js";
 import { CommandNotifier } from "./agent-api/notifier.js";
 import { buildAgentApi } from "./agent-api/server.js";
@@ -67,15 +67,15 @@ if (config.console) {
 fleetContact.start();
 let minutes = 0;
 const offlineJob = setInterval(() => {
-  checkOffline(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "offline alert check failed"));
-  checkSiteOutages(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "site outage check failed"));
-  expireUnanswered(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "unanswered command check failed"));
-  expireRules(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rule expiry failed"));
-  checkRollouts(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "rollout check failed"));
-  checkQuietLoops(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "reboot loop check failed"));
+  checkOffline(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "offline alert check failed"));
+  checkSiteOutages(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "site outage check failed"));
+  expireUnanswered(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "unanswered command check failed"));
+  expireRules(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "rule expiry failed"));
+  checkRollouts(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "rollout check failed"));
+  checkQuietLoops(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "reboot loop check failed"));
   // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
   if (minutes++ % 60 === 0)
-    checkExpiringCertificates(jobsPool).catch(e => app.log.error({ err: { type: (e as Error).name } }, "certificate expiry check failed"));
+    checkExpiringCertificates(jobsPool).catch(e => app.log.error({ err: errorInfo(e) }, "certificate expiry check failed"));
 }, 60_000);
 
 // Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
@@ -83,7 +83,7 @@ const demo = new DemoSimulator(jobsPool, message => app.log.error(message));
 demo.start();
 
 // Fleet jobs that were running when the server stopped carry on where they left off.
-resumeJobs(jobsPool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: { type: (e as Error).name } }, "resuming fleet jobs failed"));
+resumeJobs(jobsPool, undefined, message => app.log.error(message)).catch(e => app.log.error({ err: errorInfo(e) }, "resuming fleet jobs failed"));
 
 // The daily audit chain check (a break raises a security alert) and retention.
 const stopDaily = scheduleDailyJobs(jobsPool, message => app.log.error(message), { at: config.maintenanceAt });

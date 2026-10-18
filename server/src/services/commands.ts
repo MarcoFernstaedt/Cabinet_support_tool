@@ -111,6 +111,10 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
        UPDATE commands SET ack_at = @now
         WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($2));
      UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= @now;
+     -- Handed to a poll that never confirmed it (its answer went into a dead connection), and its lifetime ran out before it could be
+     -- offered again: it is expired now, not left looking as if it were running. A result that still arrives is kept (storeResult).
+     UPDATE commands SET status = 'expired'
+      WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at <= @now;
      UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = DATEADD(second, $3, @now)
        OUTPUT inserted.id, inserted.operation, inserted.params, inserted.issued_by, inserted.issued_at, inserted.expires_at INTO @taken
       WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) w.id FROM (

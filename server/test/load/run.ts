@@ -404,7 +404,8 @@ export async function run(o: RunOptions): Promise<number> {
       const got = received.has(c.id);
       const status = row?.status ?? "missing";
       if (got) deliveredOk++;
-      if (!got && row && row.delivered === 1) lost.push({ ...c, status });
+      // A command whose lifetime ran out while its cabinet was unreachable is expired, not lost: the server never got to offer it again.
+      if (!got && row && row.delivered === 1 && status !== "expired") lost.push({ ...c, status });
       else if (!got && !wasDown(c.index, c.at, c.at + 300_000)) undeliveredReachable.push({ ...c, status });
       else if (!got) undeliveredBlackout.push({ ...c, status });
     }
@@ -450,6 +451,7 @@ export async function run(o: RunOptions): Promise<number> {
     if (h.count > 0) delivery[cls] = h.summary();
   }
   const blackoutDelivery = hist.select("delivery", "", "blackout");
+  const recoveringDelivery = hist.select("delivery", "", "recovering");
   const afterUp = hist.select("delivery-after-link-up");
   const bytesPerDay: Record<string, { up: number; down: number; payloadUp: number; payloadDown: number }> = {};
   const [bFrom, bTo] = steadySeconds > 60 ? [sFrom, sTo] : [rampMs / 1000, runSeconds];
@@ -495,7 +497,7 @@ export async function run(o: RunOptions): Promise<number> {
     connections: { max: Math.max(0, ...gaugeSeries.map(g => g.open)), last: gaugeSeries[gaugeSeries.length - 1]?.open ?? 0 },
     bytesPerCabinetPerDay: bytesPerDay,
     latencyMs: latency, latencySteadyFiberMs: latencySteadyFiber,
-    commands: { issued: issuedCmds.length, received: deliveredOk, issueMs: hist.select("issue").summary(), delivery, blackout: { count: blackoutDelivery.count, latency: blackoutDelivery.summary(), afterLinkUp: afterUp.summary() },
+    commands: { issued: issuedCmds.length, received: deliveredOk, issueMs: hist.select("issue").summary(), delivery, blackout: { count: blackoutDelivery.count, latency: blackoutDelivery.summary(), afterLinkUp: afterUp.summary() }, recovering: { count: recoveringDelivery.count, latency: recoveringDelivery.summary() },
       redelivered: counters.get("commands.redelivered"), lost: lost.length, lostSample: lost.slice(0, 10), undeliveredReachable: undeliveredReachable.length,
       undeliveredReachableSample: undeliveredReachable.slice(0, 10), undeliveredWhileUnreachable: undeliveredBlackout.length, toOfflineCabinets: { issued: offlineCmds.length, status: offlineCmdStatus } },
     results: { checkedAccepted: resultsChecked, lost: lostResults, lostSample: lostResultIds.slice(0, 10), pendingInOutboxAtEnd: pendingResults.size, commandsStillRunningAtEnd: stillRunning,

@@ -13,7 +13,7 @@ import { Transform, pipeline, type Readable, type TransformCallback } from "node
 import { createGunzip } from "node:zlib";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ContractError, envelopes } from "../contracts.js";
-import { audit, isBusy, transaction, type Pool } from "../db/db.js";
+import { audit, errorInfo, isBusy, transaction, type Pool } from "../db/db.js";
 import { CsrError, type IssuingKey } from "../pki/x509.js";
 import { authenticate, recordHeartbeat, renewCertificate, type AuthenticatedCabinet } from "../services/cabinets.js";
 import { storeResult, takeLeasedCommands, LEASE_SECONDS, MAX_COMMANDS_PER_POLL } from "../services/commands.js";
@@ -281,7 +281,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     const status = (error as { statusCode?: number }).statusCode;
     if (status === 413) return reply.code(413).send({ error: "too_large" });
     if (status && status >= 400 && status < 500) return reply.code(status).send({ error: "invalid_request" });
-    request.log.error({ err: { type: (error as Error).name } }, "request failed");
+    request.log.error({ err: errorInfo(error) }, "request failed");
     return reply.code(500).send({ error: "server_error" });
   });
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: "not_found" }));

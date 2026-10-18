@@ -6,7 +6,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ContractError } from "../contracts.js";
-import type { Pool } from "../db/db.js";
+import { errorInfo, type Pool } from "../db/db.js";
 import { loadSession, policyFrom, COOKIE, type SessionPolicy, type SessionUser } from "../auth/sessions.js";
 import { clearCookie, readCookie, setCookie } from "../auth/cookies.js";
 import { SettingsCache } from "../services/settings.js";
@@ -116,7 +116,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
     if (error instanceof ContractError) return reply.code(400).send({ error: "invalid_request", issues: error.issues });
     const status = (error as { statusCode?: number }).statusCode;
     if (status && status >= 400 && status < 500) return reply.code(status).send({ error: "invalid_request" });
-    request.log.error({ err: { type: (error as Error).name } }, "request failed");
+    request.log.error({ err: errorInfo(error) }, "request failed");
     return reply.code(500).send({ error: "server_error" });
   });
 

@@ -172,6 +172,13 @@ test("an expired command is not offered again, and a repeat refused as replayed 
   assert.equal((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands.length, 1);
   await asOwner(db, c => c.query("UPDATE commands SET expires_at = DATEADD(second, -1, SYSUTCDATETIME()), issued_at = DATEADD(minute, -6, SYSUTCDATETIME()) WHERE id = $1", [late.commandId]));
   assert.deepEqual((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands, [], "past its expiry it is never offered again");
+  // Never confirmed, its lease over and its lifetime gone: it is shown as expired, not as running for the next 35 minutes.
+  await new Promise(r => setTimeout(r, 1100));
+  await call("GET", "/agent/v1/commands", undefined, cab);
+  assert.equal((await commandRecord(db.app, late.commandId))?.status, "expired");
+  // A result that still arrives (the cabinet did get it) is kept.
+  assert.equal((await call("POST", "/agent/v1/results", resultFor(late.commandId), cab)).status, 200);
+  assert.equal((await commandRecord(db.app, late.commandId))?.status, "succeeded");
 });
 
 test("acknowledgements count only for the cabinet's own commands", async () => {
