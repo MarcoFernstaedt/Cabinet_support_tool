@@ -302,6 +302,10 @@ CREATE TABLE commands (
   CONSTRAINT [commands_status_check] CHECK (status IN ('queued', 'delivered', 'succeeded', 'failed', 'rejected', 'expired'))
 ) WITH (DATA_COMPRESSION = PAGE);
 GO
+-- Stored answers (a few KB of JSON) are kept out of the row: page compression does not shrink varchar(max) values, and in the row they left
+-- pages half empty and made every scan of the command history read them (docs/platform/performance.md "Database size").
+EXEC sp_tableoption 'commands', 'large value types out of row', 1;
+GO
 
 CREATE TABLE diagnosis_batches (
   [id] uniqueidentifier NOT NULL,
