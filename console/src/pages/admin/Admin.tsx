@@ -30,6 +30,7 @@ export function AdminHome() {
         <li><Link to="/admin/software"><strong>Software library</strong><span>Packages</span></Link></li>
         <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Releases and rollouts</span></Link></li>
         <li><Link to="/admin/scanner"><strong>Device defaults</strong><span>Scanner IDs, sync ports</span></Link></li>
+        <li><Link to="/admin/health"><strong>System health</strong><span>Database, disk, backup, counters</span></Link></li>
         <li><Link to="/admin/settings"><strong>Settings</strong><span>Timeouts, retention, 2FA</span></Link></li>
       </ul>
     </div>

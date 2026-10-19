@@ -18,6 +18,7 @@ import { FleetSafety, PlatformSettings, SecurityAlerts } from "./pages/admin/Saf
 import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
 import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
 import { Setup } from "./pages/admin/Setup";
+import { SystemHealth } from "./pages/admin/SystemHealth";
 import { Account } from "./pages/Account";
 import { FixQueue } from "./pages/Fixes";
 import { AlertsPage } from "./pages/alerts/Alerts";
@@ -106,6 +107,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/safety", path)) return <FleetSafety />;
   if (match("/admin/security", path)) return <SecurityAlerts />;
   if (match("/admin/settings", path)) return <PlatformSettings />;
+  if (match("/admin/health", path)) return <SystemHealth />;
   if (match("/account", path)) return <Account onTour={onTour} />;
   if (match("/fixes", path)) return <FixQueue />;
   if (match("/alerts", path)) return <AlertsPage />;

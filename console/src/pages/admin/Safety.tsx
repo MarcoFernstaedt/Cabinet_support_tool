@@ -88,6 +88,7 @@ const KIND: Record<string, string> = {
   write_volume: "Unusual write volume", failed_logins: "Repeated failed sign-ins", failed_step_ups: "Repeated failed confirmations", new_location: "Sign-in from a new network", new_device: "Sign-in from a new device",
   audit_chain: "Audit chain break", agent_self_check: "Agent self-check failed", package_refused: "Package refused", signature_failure: "Signature failure",
   certificate: "Revoked or unknown certificate",
+  ops_database: "Database size", ops_disk: "Low disk space", ops_backup: "Backup", ops_errors: "Server errors", ops_shed: "Agents turned away", ops_migration: "Migration failed", ops_ca: "Certificate authority expiry",
 };
 
 export function SecurityAlerts() {
@@ -140,6 +141,7 @@ export function SecurityAlerts() {
 interface Settings {
   offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
+  agents: { heartbeatSeconds: number; pollSeconds: number; eventsPaceMs: number };
 }
 
 export function PlatformSettings() {
@@ -159,6 +161,9 @@ export function PlatformSettings() {
     const r: Record<string, number> = {};
     for (const k of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const) if (form.retention[k] !== data.retention[k]) r[k] = form.retention[k];
     if (Object.keys(r).length) c.retention = r;
+    const a: Record<string, number> = {};
+    for (const k of ["heartbeatSeconds", "pollSeconds", "eventsPaceMs"] as const) if (form.agents[k] !== data.agents[k]) a[k] = form.agents[k];
+    if (Object.keys(a).length) c.agents = a;
     return c;
   };
   const save = () => {
@@ -168,6 +173,7 @@ export function PlatformSettings() {
       async t => { await api("PUT", "/api/admin/settings", { ...c, stepUpToken: t }); setDone("Settings saved."); reload(); }, c);
   };
   const set = (patch: Partial<Settings>) => setForm(f => f && { ...f, ...patch });
+  const setA = (patch: Partial<Settings["agents"]>) => setForm(f => f && { ...f, agents: { ...f.agents, ...patch } });
   const setR = (patch: Partial<Settings["retention"]>) => setForm(f => f && { ...f, retention: { ...f.retention, ...patch } });
   return (
     <div className="page">
@@ -194,6 +200,14 @@ export function PlatformSettings() {
             {num("Fleet operation jobs", form.retention.jobsDays, 30, 3650, n => setR({ jobsDays: n }), "days")}
           </div>
           <p className="muted small">The audit log is kept forever.</p>
+        </section>
+        <section className="panel" aria-labelledby="s-agents"><h2 id="s-agents">Agent pacing</h2>
+          <div className="row gap wrap">
+            {num("Heartbeat every", form.agents.heartbeatSeconds, 60, 900, n => setA({ heartbeatSeconds: n }), "seconds")}
+            {num("Hold command polls for", form.agents.pollSeconds, 15, 110, n => setA({ pollSeconds: n }), "seconds")}
+            {num("Pause between event batches", form.agents.eventsPaceMs, 0, 60000, n => setA({ eventsPaceMs: n }), "ms")}
+          </div>
+          <p className="muted small">Agents pick these up with a heartbeat answer (within about a minute). Longer intervals cost less at 10,000 cabinets; a cabinet with no contact for 5 minutes still shows as offline.</p>
         </section>
         <button className="btn primary" type="submit" disabled={Object.keys(changes()).length === 0}>Save settings</button>
       </form>
