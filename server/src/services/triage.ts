@@ -18,7 +18,9 @@ export interface ScoreInput {
 }
 
 /** The score and the reasons for it, in words, so the order is never a mystery. Pure. */
-export function triageScore(i: ScoreInput): { score: number; why: string[] } {
+export function triageScore(raw: ScoreInput): { score: number; why: string[] } {
+  const fin = (n: number) => (Number.isFinite(n) ? n : 0);
+  const i = { ...raw, cabinets: fin(raw.cabinets), unclaimed: fin(raw.unclaimed), oldestUnclaimedHours: fin(raw.oldestUnclaimedHours) };
   const why: string[] = [];
   let score = SEVERITY_POINTS[i.severity];
   why.push(i.severity === "major" ? "major severity" : "minor severity");
