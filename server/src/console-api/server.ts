@@ -34,6 +34,7 @@ import type { ReleaseStore } from "../services/releases.js";
 import { upgradeRoutes } from "./upgrade-routes.js";
 import { ResultStream } from "./stream.js";
 import { manageRoutes } from "./manage-routes.js";
+import { noteError, noteResponse, routeOf } from "../services/ops-meter.js";
 
 export interface ConsoleApiOptions {
   pool: Pool;
@@ -94,6 +95,9 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
     try { done(null, JSON.parse(body as string)); } catch { done(new Refused("invalid_json", 400, "body is not JSON"), undefined); }
   });
 
+  // Operations counters: requests and server errors by route pattern (counts only).
+  app.addHook("onResponse", async (request, reply) => { if (request.url.startsWith("/api/")) noteResponse("console", routeOf(request), reply.statusCode); });
+
   app.addHook("onSend", async (request, reply, payload) => {
     reply.header("X-Content-Type-Options", "nosniff");
     reply.header("Referrer-Policy", "no-referrer");
@@ -117,6 +121,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
     const status = (error as { statusCode?: number }).statusCode;
     if (status && status >= 400 && status < 500) return reply.code(status).send({ error: "invalid_request" });
     request.log.error({ err: errorInfo(error) }, "request failed");
+    noteError("console", error);
     return reply.code(500).send({ error: "server_error" });
   });
 

@@ -822,6 +822,23 @@ export interface PlatformSettings {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
+  /**
+   * How the agents pace themselves: the heartbeat answer carries these values (docs/spec/03-protocol.md Protocol 1.1).
+   */
+  agents?: {
+    /**
+     * Seconds between heartbeats.
+     */
+    heartbeatSeconds?: number;
+    /**
+     * How long the server holds a command poll.
+     */
+    pollSeconds?: number;
+    /**
+     * Pause between event batches while an agent catches up after an outage.
+     */
+    eventsPaceMs?: number;
+  };
 }
 
 /**
@@ -1130,6 +1147,11 @@ export interface SyncSettings {
    */
   stepUpToken: string;
 }
+
+/**
+ * The System health page's request. It takes no parameters; anything in the query string is refused.
+ */
+export interface SystemHealthQuery {}
 
 /**
  * An Admin creates an account. The server makes a temporary password, shown once.

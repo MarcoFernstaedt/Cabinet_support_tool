@@ -6,7 +6,7 @@ import { audit, isUniqueViolation, notify, safeJson, transaction, type Pool, typ
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 
-export type SecurityKind = "write_volume" | "failed_logins" | "failed_step_ups" | "new_location" | "new_device" | "audit_chain"
+export type SecurityKind = "ops_database" | "ops_disk" | "ops_backup" | "ops_errors" | "ops_shed" | "ops_migration" | "ops_ca" | "write_volume" | "failed_logins" | "failed_step_ups" | "new_location" | "new_device" | "audit_chain"
   | "agent_self_check" | "package_refused" | "signature_failure" | "certificate";
 
 export interface SecurityAlertInput {

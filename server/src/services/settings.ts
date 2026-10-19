@@ -8,7 +8,7 @@ import { Refused } from "./errors.js";
  * Writes one row of the settings table: replaces the value when the key exists, adds the row when it does not. Call it inside a
  * transaction: the key is locked by name until the transaction ends, so two writers of the same key cannot both insert it.
  */
-export async function upsertSetting(db: Queryable, key: string, value: unknown, changedBy: string): Promise<void> {
+export async function upsertSetting(db: Queryable, key: string, value: unknown, changedBy: string | null): Promise<void> {
   await lock(db, `settings:${key}`);
   const text = safeJson(value);
   await db.query("UPDATE settings SET [value] = $2, changed_by = $3, changed_at = SYSUTCDATETIME() WHERE [key] = $1", [key, text, changedBy]);
@@ -67,11 +67,14 @@ export interface PlatformSettings {
   sessionIdleMinutes: number;
   sessionAbsoluteHours: number;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
+  /** How the agents pace themselves (see AgentPacing); the heartbeat answer carries these. */
+  agents: AgentPacing;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12,
-  retention: { eventsDays: 30, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
+  retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
+  agents: { heartbeatSeconds: 300, pollSeconds: 25, eventsPaceMs: 2_000 },
 };
 
 /** Each setting's key in the settings table, with the range it must be in (the console contract checks the same ranges). */
@@ -84,7 +87,7 @@ const KEYS = {
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
   const rows = new Map((await db.query<{ key: string; value: unknown }>(
-    "SELECT [key], [value] FROM settings WHERE [key] LIKE 'alerts.%' OR [key] LIKE 'sessions.%' OR [key] LIKE 'retention.%'")).rows.map(r => [r.key, r.value]));
+    "SELECT [key], [value] FROM settings WHERE [key] LIKE 'alerts.%' OR [key] LIKE 'sessions.%' OR [key] LIKE 'retention.%' OR [key] LIKE 'agents.%'")).rows.map(r => [r.key, r.value]));
   const num = (name: keyof typeof KEYS, fallback: number): number => {
     const [key, min, max] = KEYS[name];
     const v = rows.get(key);
@@ -97,6 +100,7 @@ export async function platformSettings(db: Queryable): Promise<PlatformSettings>
     retention: { eventsDays: num("eventsDays", d.retention.eventsDays), commandsDays: num("commandsDays", d.retention.commandsDays),
       alertsDays: num("alertsDays", d.retention.alertsDays), firewallDays: num("firewallDays", d.retention.firewallDays),
       diagnosesDays: num("diagnosesDays", d.retention.diagnosesDays), bootsDays: num("bootsDays", d.retention.bootsDays), jobsDays: num("jobsDays", d.retention.jobsDays) },
+    agents: pacingFrom(rows),
   };
 }
 
@@ -123,15 +127,19 @@ const PACING_KEYS = {
   heartbeatSeconds: ["agents.heartbeatSeconds", 60, 900], pollSeconds: ["agents.pollSeconds", 15, 110], eventsPaceMs: ["agents.eventsPaceMs", 0, 60_000],
 } as const;
 
-/** The pacing the heartbeat answer carries: the settings table's values when set and in range, else the defaults. */
-export async function agentPacing(db: Queryable): Promise<AgentPacing> {
-  const rows = new Map((await db.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE 'agents.%'")).rows.map(r => [r.key, r.value]));
+/** The pacing from the settings rows: a whole number is clamped to the contract's range; anything else falls back to the default. */
+function pacingFrom(rows: Map<string, unknown>): AgentPacing {
   const num = (name: keyof AgentPacing): number => {
     const [key, min, max] = PACING_KEYS[name];
     const v = rows.get(key);
-    return typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : DEFAULT_PACING[name];
+    return typeof v === "number" && Number.isInteger(v) ? Math.min(max, Math.max(min, v)) : DEFAULT_PACING[name];
   };
   return { heartbeatSeconds: num("heartbeatSeconds"), pollSeconds: num("pollSeconds"), eventsPaceMs: num("eventsPaceMs") };
+}
+
+/** The pacing the heartbeat answer carries: the settings table's values (clamped to the allowed ranges), else the defaults. */
+export async function agentPacing(db: Queryable): Promise<AgentPacing> {
+  return pacingFrom(new Map((await db.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE 'agents.%'")).rows.map(r => [r.key, r.value])));
 }
 
 /** Pacing read at most once a minute per process (every heartbeat answer carries it); the defaults while the database cannot answer. */
@@ -153,6 +161,7 @@ export class PacingCache {
 export interface SettingsChange {
   offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number;
   retention?: Partial<PlatformSettings["retention"]>;
+  agents?: Partial<AgentPacing>;
 }
 
 export async function updatePlatformSettings(pool: Pool, adminId: string, change: SettingsChange, stepUpToken: string): Promise<PlatformSettings> {
@@ -164,6 +173,11 @@ export async function updatePlatformSettings(pool: Pool, adminId: string, change
       if (change[name] !== undefined) writes.push([KEYS[name][0], change[name]]);
     for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const)
       if (change.retention?.[name] !== undefined) writes.push([KEYS[name][0], change.retention[name]]);
+    for (const name of ["heartbeatSeconds", "pollSeconds", "eventsPaceMs"] as const) {
+      const [key, min, max] = PACING_KEYS[name];
+      const v = change.agents?.[name];
+      if (v !== undefined) writes.push([key, Math.min(max, Math.max(min, v))]);
+    }
     for (const [key, value] of writes) await upsertSetting(c, key, value, adminId);
     const after = await platformSettings(c);
     await audit(c, { actorKind: "user", actorId: adminId, action: "settings.update", outcome: "succeeded", details: { before, after } });

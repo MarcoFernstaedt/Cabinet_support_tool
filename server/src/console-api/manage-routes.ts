@@ -12,6 +12,7 @@ import * as users from "../services/users.js";
 import { listSecurityAlerts, openSecurityAlertCount, resolveSecurityAlert } from "../services/security.js";
 import { createSuppression, listSuppressions, renewSuppression } from "../services/rules.js";
 import { platformSettings, updatePlatformSettings } from "../services/settings.js";
+import { healthSummary } from "../services/ops-health.js";
 import { verifyChainAndAlert } from "../services/maintenance.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -180,9 +181,17 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
       ...(b.sessionIdleMinutes !== undefined ? { sessionIdleMinutes: b.sessionIdleMinutes } : {}),
       ...(b.sessionAbsoluteHours !== undefined ? { sessionAbsoluteHours: b.sessionAbsoluteHours } : {}),
       ...(b.retention ? { retention: b.retention } : {}),
+      ...(b.agents ? { agents: b.agents } : {}),
     }, boundTo(b.stepUpToken, b));
     o.guards.settings.invalidate();
     return after;
+  });
+
+  // ---- System health: Admin only, counts and sizes, no secrets (docs/platform/operations.md) ----------------
+  app.get("/api/admin/system-health", async (request, reply) => {
+    await asAdmin(request);
+    consoleBodies.systemHealthQuery.parse(request.query);
+    return reply.header("Cache-Control", "no-store").send(await healthSummary(o.pool, { caCertificatePem: o.issuingKey.certificatePem }));
   });
 
   // ---- Security alerts -----------------------------------------------------------------------

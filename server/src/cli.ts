@@ -8,6 +8,7 @@ import { databaseUrl, loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
 import { connectOwner, migrate } from "./db/migrate.js";
 import { upsertSetting } from "./services/settings.js";
+import { formatHealth, healthSummary } from "./services/ops-health.js";
 import { listCabinets, revokeCabinet } from "./services/cabinets.js";
 import { commandRecord } from "./services/commands.js";
 import { issueFromConsole, ROLE_RANK as RANKS, type Role } from "./services/console-commands.js";
@@ -51,7 +52,8 @@ const USAGE = `platform-admin <command> [options]
   rollout pause|resume|stop <rolloutId> --as <admin>
   cabinet in-office <cabinetId> on|off --as <admin>   batch 2 of every rollout
   command <commandId>                       a command's status and result
-  audit-verify                              recompute the audit hash chain`;
+  audit-verify                              recompute the audit hash chain
+  status                                    health summary: database size, disk, backup, certificates, counters, open operations alerts`;
 
 const ROLE_RANK: Record<string, number> = RANKS;
 
@@ -305,6 +307,12 @@ async function main(argv: string[]): Promise<void> {
         const check = await verifyAuditChain(pool);
         console.log(check.ok ? `Audit chain intact: ${check.entries} entries.` : `AUDIT CHAIN BROKEN at entry ${check.firstBadSeq}.`);
         if (!check.ok) process.exitCode = 1;
+        return;
+      }
+      case "status": {
+        // The same summary as the console's System health page; needs no sign-in because it runs on the server host with the database account.
+        const ca = await issuingKey(config).then(k => k.certificatePem, () => undefined);
+        console.log(formatHealth(await healthSummary(pool, { caCertificatePem: ca })).join("\n"));
         return;
       }
       default:

@@ -285,9 +285,9 @@ export async function cabinetCrashes(db: Queryable, cabinetId: string, days = 30
 // ---- The fleet: a crash incident ---------------------------------------------------------------------------------------
 
 const CRASH_KEYS: [string, number][] = [["bugcheck", 1001], ["microsoft-windows-wer-systemerrorreporting", 1001], ["microsoft-windows-kernel-power", 41], ["eventlog", 6008]];
-const crashPredicate = (alias: string, first: number) =>
+export const crashPredicate = (alias: string, first: number) =>
   "(" + CRASH_KEYS.map((_, i) => `(JSON_VALUE(${alias}.source, '$.source') = $${first + i * 2} AND TRY_CAST(JSON_VALUE(${alias}.source, '$.eventId') AS int) = $${first + i * 2 + 1})`).join(" OR ") + ")";
-const crashArgs = CRASH_KEYS.flat();
+export const crashArgs = CRASH_KEYS.flat();
 
 export interface IncidentFilter { from: Date; to: Date; clientId?: string | undefined }
 

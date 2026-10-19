@@ -40,7 +40,10 @@ public enum FailureKind
 {
     /// <summary>No answer: the network, the TLS connection or a timeout. The server is treated as unreachable.</summary>
     Network,
-    /// <summary>502, 503 or 504: the server (or its front) is up but shedding load or restarting.</summary>
+    /// <summary>
+    /// 502, 503 or 504: the server (or its front) answered but is shedding load or restarting. It was reached, so the shared state is left
+    /// alone; only the endpoint that got the answer waits (at least its Retry-After), and the other loops, the long poll above all, go on.
+    /// </summary>
     Unavailable,
     /// <summary>429: this cabinet's quota on one endpoint. Only the loop that hit it waits.</summary>
     Quota,
@@ -53,9 +56,11 @@ public enum FailureKind
 /// <summary>
 /// The one connectivity state every loop shares (protocol 1.1). While the server is unreachable
 /// a single request at a time probes it, at the pace of one backoff; the other loops wait for
-/// "connected" instead of each backing off on its own. Retry-After and reconnectAfterMs are
-/// honoured (the wait is the longer of them and the backoff), a connection that was up and is
-/// reset waits a random 0–30 s before the first retry, and a network change resets the backoff.
+/// "connected" instead of each backing off on its own. Only real network failures (no answer at all)
+/// take the whole connection down; an answer, even 503 or 429, means the server was reached, and the
+/// loop that got it waits for itself (<see cref="AgentConnection"/> honours its Retry-After). A poll
+/// the server turns away answers 200 with reconnectAfterMs, which does hold every loop. A connection
+/// that was up and is reset waits a random 0–30 s before the first retry, and a network change resets the backoff.
 /// </summary>
 public sealed class Connectivity
 {
@@ -175,7 +180,7 @@ public sealed class Connectivity
         if (changed) { Signal(); Connected?.Invoke(reconnected); }
     }
 
-    /// <summary>Records a failure. Returns how the failure was classified; Quota and Answered leave the shared state alone.</summary>
+    /// <summary>Records a failure. Returns how the failure was classified; only Network takes the shared state down (an answer, even 503 or 429, proves the server was reached).</summary>
     public FailureKind Failed(AgentApiException e)
     {
         FailureKind kind = Classify(e);
@@ -185,11 +190,11 @@ public sealed class Connectivity
                 Reached();
                 break;
             case FailureKind.Quota:
+            case FailureKind.Unavailable:
                 Reached();
                 break;
             case FailureKind.Network:
-            case FailureKind.Unavailable:
-                Down(e.Message, kind == FailureKind.Network, e.RetryAfter);
+                Down(e.Message, networkReset: true, e.RetryAfter);
                 break;
         }
         return kind;

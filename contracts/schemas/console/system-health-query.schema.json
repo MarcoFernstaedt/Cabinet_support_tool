@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/system-health-query.schema.json",
+  "title": "system-health-query",
+  "description": "The System health page's request. It takes no parameters; anything in the query string is refused.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {},
+  "required": []
+}

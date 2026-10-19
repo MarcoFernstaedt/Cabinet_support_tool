@@ -1,0 +1,8 @@
+{
+  "agents": {
+    "heartbeatSeconds": 120,
+    "pollSeconds": 30,
+    "eventsPaceMs": 0
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

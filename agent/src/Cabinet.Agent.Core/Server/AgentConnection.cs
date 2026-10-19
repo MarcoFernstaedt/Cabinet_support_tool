@@ -316,12 +316,16 @@ public sealed class AgentConnection(AgentConnectionOptions o)
         return Ended.Cancelled;
     }
 
-    /// <summary>How long a loop waits after a failure only it should wait for (a quota, or an answer the server refused).</summary>
-    private static TimeSpan LocalWait(AgentApiException e, Backoff backoff, TimeSpan? cap = null)
+    /// <summary>
+    /// How long a loop waits after a failure only it should wait for (a shed 503, a quota, or an answer the server refused): its own
+    /// backoff, or the server's Retry-After when that is longer. A Retry-After is never trusted past <see cref="Connectivity.MaxServerWait"/>
+    /// (the client already clamps it; this keeps the wait bounded whatever reaches here) and a negative or missing one counts as none.
+    /// </summary>
+    internal static TimeSpan LocalWait(AgentApiException e, Backoff backoff, TimeSpan? cap = null)
     {
         TimeSpan wait = backoff.Next();
         if (cap is { } c && wait > c) wait = c;
-        if (e.RetryAfter is { } after && after > wait) wait = after;
+        if (e.RetryAfter is { } after && after > wait) wait = after > Connectivity.MaxServerWait ? Connectivity.MaxServerWait : after;
         return wait;
     }
 
@@ -356,8 +360,8 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     switch (s.Link.Failed(e))
                     {
                         case FailureKind.CertificateRefused: return Ended.CertificateRefused;
-                        case FailureKind.Network or FailureKind.Unavailable: continue; // the shared state paces the retry
-                        default: next = LocalWait(e, local, _pacing.Heartbeat); break;
+                        case FailureKind.Network: continue; // the shared state paces the retry
+                        default: next = LocalWait(e, local, _pacing.Heartbeat); break; // a 503 or 429 here pauses the heartbeat only, for at least its Retry-After
                     }
                 }
             }
@@ -393,8 +397,8 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     switch (s.Link.Failed(e))
                     {
                         case FailureKind.CertificateRefused: return Ended.CertificateRefused;
-                        case FailureKind.Network or FailureKind.Unavailable: continue;
-                        default: wait = LocalWait(e, local); break;
+                        case FailureKind.Network: continue;
+                        default: wait = LocalWait(e, local); break; // the poll's own shed answer is a 200 with reconnectAfterMs; a bare 503 or 429 pauses only this loop
                     }
                     await Delay(wait, token).ConfigureAwait(false);
                     continue;
@@ -523,7 +527,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                         o.Log($"The server did not accept the result for {next.Id} ({(int)status} {e.Code}); it is not sent again.");
                         s.Outbox.Delivered(next.Id);
                     }
-                    else if (kind is FailureKind.Answered or FailureKind.Quota) wait = LocalWait(e, local);
+                    else if (kind is FailureKind.Answered or FailureKind.Quota or FailureKind.Unavailable) wait = LocalWait(e, local);
                 }
             }
             if (wait is { } w) await Delay(w, token).ConfigureAwait(false);
@@ -577,7 +581,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                 {
                     FailureKind kind = s.Link.Failed(e);
                     if (kind == FailureKind.CertificateRefused) return Ended.CertificateRefused;
-                    if (kind == FailureKind.Quota) wait = LocalWait(e, local);
+                    if (kind is FailureKind.Quota or FailureKind.Unavailable) wait = LocalWait(e, local);
                     else if (kind == FailureKind.Answered)
                     {
                         maxCount = Math.Max(1, batch.Count / 2);

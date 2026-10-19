@@ -1,0 +1,6 @@
+{
+  "agents": {
+    "heartbeatSeconds": 10
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

@@ -295,16 +295,112 @@ public sealed class ConnectionLoopTests : IDisposable
         });
     }
 
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task A_shed_heartbeat_waits_only_the_heartbeat_and_polling_goes_on(HttpStatusCode status)
+    {
+        var server = new FakeServer { Heartbeat = (_, _) => Task.FromResult(FakeServer.Status(status, TimeSpan.FromSeconds(30))) };
+        int polls = 0;
+        server.Commands = async (_, t) => { Interlocked.Increment(ref polls); await Task.Delay(50, t); return FakeServer.CommandsAnswer(); };
+        await Run(Connection(server), async _ =>
+        {
+            await Until(() => server.To("/agent/v1/heartbeat").Any(), "the first heartbeat");
+            int before = Volatile.Read(ref polls);
+            await Task.Delay(TimeSpan.FromSeconds(3.2)); // a poll that returns at once is followed by a 1 s pause, so about three polls
+            Assert.Single(server.To("/agent/v1/heartbeat")); // its Retry-After (30 s) is honoured, although its own interval is 300 ms
+            Assert.True(Volatile.Read(ref polls) >= before + 2, $"polling went on ({before} -> {polls})");
+        });
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task Shed_results_and_events_wait_only_their_own_loops_and_heartbeats_and_polls_go_on(HttpStatusCode status)
+    {
+        var command = Fixtures.Command();
+        var events = new EventQueue(null);
+        events.Enqueue(Smart());
+        var server = new FakeServer
+        {
+            Results = (_, _) => Task.FromResult(FakeServer.Status(status, TimeSpan.FromSeconds(30))),
+            Events = (_, _) => Task.FromResult(FakeServer.Status(status, TimeSpan.FromSeconds(30))),
+        };
+        int polls = 0;
+        bool offered = false;
+        server.Commands = async (_, t) =>
+        {
+            Interlocked.Increment(ref polls);
+            await Task.Delay(50, t);
+            if (offered) return FakeServer.CommandsAnswer();
+            offered = true;
+            return FakeServer.CommandsAnswer(command);
+        };
+        await Run(Connection(server, events), async _ =>
+        {
+            await Until(() => server.To("/agent/v1/results").Any() && server.To("/agent/v1/events").Any(), "the first sends");
+            int polled = Volatile.Read(ref polls), beats = server.To("/agent/v1/heartbeat").Count();
+            await Task.Delay(TimeSpan.FromSeconds(3.2));
+            Assert.Single(server.To("/agent/v1/results"));
+            Assert.Single(server.To("/agent/v1/events"));
+            Assert.True(Volatile.Read(ref polls) >= polled + 2, "polling went on");
+            Assert.True(server.To("/agent/v1/heartbeat").Count() >= beats + 3, "heartbeats went on");
+        });
+    }
+
+    [Fact]
+    public async Task A_hostile_retry_after_on_a_shed_heartbeat_is_capped_and_a_malformed_one_is_ignored()
+    {
+        // 365 days is clamped by the client to the 10-minute maximum; garbage and negative values are no Retry-After at all.
+        var server = new FakeServer();
+        int beats = 0;
+        server.Heartbeat = (_, _) =>
+        {
+            var response = FakeServer.Status(HttpStatusCode.ServiceUnavailable);
+            response.Headers.TryAddWithoutValidation("Retry-After", Interlocked.Increment(ref beats) % 2 == 0 ? "-3600" : "tomorrow, maybe; rm -rf /");
+            return Task.FromResult(response);
+        };
+        int polls = 0;
+        server.Commands = async (_, t) => { Interlocked.Increment(ref polls); await Task.Delay(50, t); return FakeServer.CommandsAnswer(); };
+        await Run(Connection(server), async _ =>
+            await Until(() => Volatile.Read(ref beats) >= 3 && Volatile.Read(ref polls) >= 3, "heartbeats on their own backoff and polls"));
+        Assert.Equal(TimeSpan.FromMinutes(10), Connectivity.MaxServerWait);
+    }
+
+    [Fact]
+    public async Task A_polls_own_shed_answer_still_holds_every_loop()
+    {
+        // The 200 with reconnectAfterMs is the one server answer that asks the whole connection to wait (it is sent to polls only).
+        var server = new FakeServer();
+        var times = new List<DateTime>();
+        server.Commands = (_, _) =>
+        {
+            lock (times) times.Add(DateTime.UtcNow);
+            return Task.FromResult(times.Count == 1
+                ? FakeServer.Json($$"""{"serverTime":"{{FakeServer.ServerTime}}","commands":[],"reconnectAfterMs":1500}""")
+                : FakeServer.CommandsAnswer());
+        };
+        var beatsAt = new List<DateTime>();
+        server.Heartbeat = (_, _) => { lock (beatsAt) beatsAt.Add(DateTime.UtcNow); return Task.FromResult(FakeServer.Json($$$"""{"serverTime":"{{{FakeServer.ServerTime}}}","scanner":{"hardwareIds":null}}""")); };
+        await Run(Connection(server), async _ => await Until(() => { lock (times) return times.Count >= 2; }, "the second poll"));
+        DateTime shedAt; lock (times) shedAt = times[0];
+        lock (beatsAt) Assert.DoesNotContain(beatsAt, b => b > shedAt + TimeSpan.FromMilliseconds(100) && b < shedAt + TimeSpan.FromMilliseconds(1400));
+    }
+
     [Fact]
     public async Task Loops_wait_for_the_shared_connection_and_resume_together()
     {
         var server = new FakeServer();
         bool down = true;
-        server.Heartbeat = (_, _) => Task.FromResult(Volatile.Read(ref down) ? FakeServer.Status(HttpStatusCode.ServiceUnavailable) : FakeServer.Json($$$"""{"serverTime":"{{{FakeServer.ServerTime}}}","scanner":{"hardwareIds":null}}"""));
+        // A real network failure (nothing answers): that is what takes every loop down together.
+        server.Heartbeat = (_, _) => Volatile.Read(ref down) ? Task.FromException<HttpResponseMessage>(new HttpRequestException("connection refused"))
+            : Task.FromResult(FakeServer.Json($$$"""{"serverTime":"{{{FakeServer.ServerTime}}}","scanner":{"hardwareIds":null}}"""));
         server.Commands = async (_, t) =>
         {
             await Task.Delay(20, t);
-            return Volatile.Read(ref down) ? FakeServer.Status(HttpStatusCode.ServiceUnavailable) : FakeServer.CommandsAnswer();
+            return Volatile.Read(ref down) ? throw new HttpRequestException("connection refused") : FakeServer.CommandsAnswer();
         };
         var events = new EventQueue(null);
         events.Enqueue(Smart());

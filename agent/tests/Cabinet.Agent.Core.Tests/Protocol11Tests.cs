@@ -44,13 +44,59 @@ public sealed class ConnectivityTests
         Assert.True(took < TimeSpan.FromSeconds(2), $"{took}");
     }
 
-    [Fact]
-    public async Task Retry_after_is_honoured_even_when_the_backoff_is_shorter()
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task A_shed_answer_with_retry_after_leaves_the_shared_state_alone(HttpStatusCode status)
     {
-        var link = new Connectivity(new Backoff(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(10)));
-        link.Failed(Status(HttpStatusCode.ServiceUnavailable, TimeSpan.FromMilliseconds(800)));
+        // The server answered, so it was reached: the other loops (the long poll above all) must not wait for the endpoint that was told to.
+        var link = new Connectivity(new Backoff(TimeSpan.FromMinutes(5)));
+        link.Reached();
+        link.Failed(Status(status, TimeSpan.FromSeconds(90)));
+        Assert.True(link.IsConnected);
         TimeSpan took = await Timed(async () => { using var _ = await link.EnterAsync(CancellationToken.None); });
+        Assert.True(took < TimeSpan.FromMilliseconds(500), $"{took}");
+        // Also as the very first answer after a loss: a 503 proves the server is back.
+        var down = new Connectivity(new Backoff(TimeSpan.FromMinutes(5)));
+        down.Failed(Network());
+        Assert.False(down.IsConnected);
+        down.Failed(Status(status, TimeSpan.FromSeconds(90)));
+        Assert.True(down.IsConnected);
+    }
+
+    [Fact]
+    public async Task A_network_failure_still_pauses_every_loop_for_the_backoff_and_a_server_wait_is_honoured()
+    {
+        var link = new Connectivity(new Backoff(TimeSpan.FromMilliseconds(600), TimeSpan.FromMilliseconds(600)));
+        link.Failed(Network());
+        Assert.False(link.IsConnected);
+        TimeSpan took = await Timed(async () => { using var _ = await link.EnterAsync(CancellationToken.None); });
+        Assert.True(took >= TimeSpan.FromMilliseconds(500), $"{took}");
+        var withWait = new Connectivity(new Backoff(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(10)));
+        withWait.Failed(new AgentApiException(null, "unreachable", "cut", TimeSpan.FromMilliseconds(800)));
+        took = await Timed(async () => { using var _ = await withWait.EnterAsync(CancellationToken.None); });
         Assert.True(took >= TimeSpan.FromMilliseconds(700), $"{took}");
+    }
+
+    [Theory]
+    [InlineData(30, 30)]
+    [InlineData(1, 1)]
+    [InlineData(31_536_000, 600)]       // a year: capped at the 10-minute maximum
+    [InlineData(null, 0)]               // none: the endpoint's own backoff alone
+    public void An_endpoint_waits_at_least_its_retry_after_and_never_longer_than_the_maximum(int? seconds, int atLeast)
+    {
+        var e = new AgentApiException(HttpStatusCode.ServiceUnavailable, "busy", "shed", seconds is { } s ? TimeSpan.FromSeconds(s) : null);
+        TimeSpan wait = AgentConnection.LocalWait(e, new Backoff(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(10)));
+        Assert.True(wait >= TimeSpan.FromSeconds(atLeast), $"{wait}");
+        Assert.True(wait <= Connectivity.MaxServerWait, $"{wait}");
+        // A hostile (negative) wait is no wait at all.
+        var hostile = new AgentApiException(HttpStatusCode.ServiceUnavailable, "busy", "shed", TimeSpan.FromSeconds(-5));
+        Assert.True(AgentConnection.LocalWait(hostile, new Backoff(TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(10))) <= TimeSpan.FromMilliseconds(10));
+        // The heartbeat caps its own backoff at its interval, but not the server's Retry-After.
+        var capped = AgentConnection.LocalWait(new AgentApiException(HttpStatusCode.ServiceUnavailable, "busy", "shed", TimeSpan.FromSeconds(45)), new Backoff(TimeSpan.FromMinutes(5)), TimeSpan.FromSeconds(1));
+        Assert.Equal(TimeSpan.FromSeconds(45), capped);
     }
 
     [Fact]
@@ -67,7 +113,7 @@ public sealed class ConnectivityTests
     public async Task A_hostile_wait_is_capped()
     {
         var link = new Connectivity(new Backoff(TimeSpan.FromMilliseconds(5)));
-        link.Failed(Status(HttpStatusCode.ServiceUnavailable, TimeSpan.FromDays(365)));
+        link.Failed(new AgentApiException(null, "unreachable", "cut", TimeSpan.FromDays(365)));
         link.ServerAskedToWait(TimeSpan.FromDays(365));
         using var cts = new CancellationTokenSource(200);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => link.EnterAsync(cts.Token));
@@ -118,7 +164,7 @@ public sealed class ConnectivityTests
     }
 
     [Fact]
-    public void Quotas_and_refusals_do_not_mark_the_server_down()
+    public void Quotas_sheds_and_refusals_do_not_mark_the_server_down_but_a_network_failure_does()
     {
         var link = new Connectivity();
         link.Reached();
@@ -126,6 +172,8 @@ public sealed class ConnectivityTests
         Assert.Equal(FailureKind.Answered, link.Failed(Status(HttpStatusCode.BadRequest)));
         Assert.True(link.IsConnected);
         Assert.Equal(FailureKind.Unavailable, link.Failed(Status(HttpStatusCode.ServiceUnavailable)));
+        Assert.True(link.IsConnected, "a shed answer proves the server was reached; only the endpoint waits");
+        Assert.Equal(FailureKind.Network, link.Failed(Network()));
         Assert.False(link.IsConnected);
     }
 

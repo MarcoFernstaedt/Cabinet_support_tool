@@ -1,0 +1,6 @@
+{
+  "agents": {
+    "pollSeconds": 14
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

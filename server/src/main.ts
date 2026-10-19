@@ -2,6 +2,8 @@
 // that many worker processes sharing its port (node:cluster), and this primary process runs the console and the background jobs only,
 // so a 10,000-cabinet fleet is not limited to one event loop. Each process has its own pools, notification feed and presence flush.
 import { scheduleDailyJobs } from "./services/maintenance.js";
+import { OpsReporter } from "./services/ops-meter.js";
+import { scheduleOpsChecks } from "./services/ops-health.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool, errorInfo } from "./db/db.js";
@@ -72,6 +74,12 @@ if (servesAgents) {
   await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
 }
 
+// ---- Operations counters: written from memory once a minute, with the pools' connection waits and the event loop's delay ----------------
+// Every process (each worker, or the only process) reports its own; counts add up in the database.
+const opsReporter = new OpsReporter({ pool: (jobsPool ?? agentPool)!, log: message => logError(message),
+  sampled: { ...(agentPool ? { agent: agentPool } : {}), ...(consolePool ? { console: consolePool } : {}) } });
+opsReporter.start();
+
 // ---- The agent API workers (primary of a multi-process server) ------------------------------------------------------------------
 let stopping = false;
 if (workers > 1 && cluster.isPrimary) {
@@ -126,7 +134,9 @@ if (runsServices) {
 
   // The daily audit chain check (a break raises a security alert) and retention.
   const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
-  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); };
+  // Database size, free disk, backup age and CA expiry: one open operations alert per kind, shown in the console (no outbound notification).
+  const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem });
+  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); stopOpsChecks(); };
 }
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every
@@ -141,6 +151,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
       await Promise.all(alive.map(w => new Promise<void>(resolve => { w.once("exit", () => resolve()); w.process.kill(signal); })));
     }
     await flushRuleHits().catch(() => undefined);
+    await opsReporter.stop().catch(() => undefined);
     await app?.close(); await presence?.stop(); await consoleApp?.close(); await stream?.stop(); await notifier?.stop(); feed.stop();
     await Promise.all([agentPool?.end(), consolePool?.end(), jobsPool?.end()]);
     process.exit(0);

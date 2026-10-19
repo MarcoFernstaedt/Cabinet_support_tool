@@ -70,6 +70,32 @@
       "description": "A one-time step-up token bound to this exact action.",
       "type": "string",
       "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "agents": {
+      "description": "How the agents pace themselves: the heartbeat answer carries these values (docs/spec/03-protocol.md Protocol 1.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "heartbeatSeconds": {
+          "description": "Seconds between heartbeats.",
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 900
+        },
+        "pollSeconds": {
+          "description": "How long the server holds a command poll.",
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 110
+        },
+        "eventsPaceMs": {
+          "description": "Pause between event batches while an agent catches up after an outage.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        }
+      }
     }
   },
   "required": [

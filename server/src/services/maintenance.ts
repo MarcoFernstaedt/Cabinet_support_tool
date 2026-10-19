@@ -3,8 +3,10 @@
 // batches (BATCH rows each, with a pause between them and a time limit on each), so the log, the locks and the buffer pool of a 10,000-cabinet
 // database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
 import { advanceAuditCheckpoint, audit, auditCheckpoint, transaction, verifyAuditChain, type ChainCheck, type Pool, type Queryable } from "../db/db.js";
-import { platformSettings } from "./settings.js";
+import { platformSettings, upsertSetting } from "./settings.js";
 import { raiseSecurityAlert } from "./security.js";
+import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
+import { crashArgs, crashPredicate } from "./crashes.js";
 
 /**
  * Checks the audit chain: the whole of it ("full"), or only what was added since the last successful check ("incremental", from the
@@ -104,7 +106,39 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
   return { rolledUp, driveSamples };
 }
 
-export interface RetentionRun { events: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
+/** After this many days an event that has no alert loses its bulky detail and source JSON (the row, its kind, time, cabinet and device stay). */
+export const EVENT_DETAIL_DAYS = 30;
+/** Where the clearing stopped, as an event sequence number, so each night only looks at events it has not seen. */
+const DETAIL_CURSOR = "maintenance.eventDetailSeq";
+
+/**
+ * Clears `detail` and `source` of events older than EVENT_DETAIL_DAYS that have no alert, so the database keeps every event for the whole
+ * retention period (90 days by default) within SQL Server Express's 10 GB. Events with an alert stay whole, as do security events and the
+ * crash records (BugCheck, Kernel-Power 41, unexpected shutdown) the crash timelines read. Walks the events in sequence order from a stored
+ * cursor in batches (a clustered-key range each, never a scan from the start), so a night's work is only the day that just became old.
+ */
+export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH, days = EVENT_DETAIL_DAYS): Promise<number> {
+  const cut = daysAgo(days, now);
+  const stored = (await pool.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [DETAIL_CURSOR])).rows[0]?.value;
+  let last = typeof stored === "number" && Number.isInteger(stored) && stored >= 0 ? stored : 0;
+  let cleared = 0;
+  for (;;) {
+    // The end of the next batch of old events, in sequence order.
+    const hi = (await pool.query<{ hi: string | number | null }>(
+      "SELECT MAX(seq) AS hi FROM (SELECT TOP ($1) seq FROM events WHERE seq > $2 AND received_at < $3 ORDER BY seq) x", [o.batch, last, cut], { timeoutMs: o.timeoutMs })).rows[0]?.hi;
+    if (hi === null || hi === undefined) break;
+    cleared += (await pool.query(
+      `UPDATE events SET detail = NULL, source = NULL
+        WHERE seq > $1 AND seq <= $2 AND received_at < $3 AND alert_id IS NULL AND (detail IS NOT NULL OR source IS NOT NULL) AND kind <> 'security'
+          AND NOT ${crashPredicate("events", 4)}`, [last, Number(hi), cut, ...crashArgs], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    last = Number(hi);
+    await transaction(pool, c => upsertSetting(c, DETAIL_CURSOR, last, null));
+    await sleep(o.pauseMs);
+  }
+  return cleared;
+}
+
+export interface RetentionRun { events: number; eventsCleared: number; opsCounters: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
   diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number }
 
 /**
@@ -117,6 +151,10 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   const now = Date.now();
   const cut = (days: number) => daysAgo(days, now);
   const events = await inBatches(pool, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cut(r.eventsDays)], o);
+  const eventsCleared = r.eventsDays > EVENT_DETAIL_DAYS ? await clearOldEventDetail(pool, now, o) : 0;
+  // The cleared rows only free space inside their pages; compacting the index gives it back (incremental: a stopped run is not lost).
+  if (eventsCleared > 0) await pool.query("EXEC reorganize_events", [], { timeoutMs: 20 * 60_000 });
+  const opsCounters = await pruneOpsCounters(pool, now);
   const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o);
   // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
   await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
@@ -135,9 +173,12 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
                            (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o);
   const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
                                         AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o);
-  const run = { events, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
+  const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
     driveSamples: samples.driveSamples, notifications };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
+  // Counts for the System health page: that it ran, and how many rows it removed or cleared per table (numbers only).
+  opsMeter.count("retention", "ok");
+  for (const [table, n] of Object.entries(run)) if (n > 0) opsMeter.count("retention_rows", table, n);
   return run;
 }
 
@@ -172,7 +213,7 @@ export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, op
     const mode = chainCheckMode(new Date());
     await verifyChainAndAlert(pool, mode === "full" ? "weekly" : "daily", mode)
       .then(c => { if (!c.ok) log(`Audit chain broken at entry ${c.firstBadSeq}.`); }, () => log("Audit chain check failed to run."));
-    await runRetention(pool).catch(() => log("Retention failed to run."));
+    await runRetention(pool).catch(() => { opsMeter.count("retention", "failed"); log("Retention failed to run."); });
   };
   const plan = () => {
     const delay = Math.max(1_000, nextRunAt(at).getTime() - Date.now());

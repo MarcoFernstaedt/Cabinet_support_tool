@@ -29,6 +29,20 @@ export async function connectOwner(url: string): Promise<sql.ConnectionPool> {
   return new sql.ConnectionPool({ ...parseDatabaseUrl(url), pool: { max: 1, min: 1 }, requestTimeout: 120_000 }).connect();
 }
 
+/**
+ * A failed migration leaves an operations alert for the Admins (best effort: it needs the security alerts table and the widened kind rule,
+ * so it cannot be raised when the failing migration is one of the first). The alert names the migration, never the error text.
+ */
+export async function alertMigrationFailed(pool: sql.ConnectionPool, version: string): Promise<boolean> {
+  const title = `Database migration ${version} failed; the database stays at the previous version`;
+  try {
+    const r = await pool.request().input("t", sql.NVarChar(256), title).input("d", sql.VarChar(sql.MAX), JSON.stringify({ version })).query(
+      `UPDATE security_alerts SET occurrences = occurrences + 1, last_seen = SYSUTCDATETIME(), title = @t, detail = @d WHERE signature = 'ops:migration' AND state = 'open';
+       IF @@ROWCOUNT = 0 INSERT INTO security_alerts (kind, signature, title, detail) VALUES ('ops_migration', 'ops:migration', @t, @d);`);
+    return r.rowsAffected.length > 0;
+  } catch { return false; }
+}
+
 export async function migrate(pool: sql.ConnectionPool, migrations = readMigrations()): Promise<string[]> {
   // Readers must not block writers: row versioning gives each statement a consistent snapshot, as PostgreSQL does.
   await pool.request().query("IF (SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME()) = 0 ALTER DATABASE CURRENT SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE");
@@ -54,6 +68,7 @@ export async function migrate(pool: sql.ConnectionPool, migrations = readMigrati
         ran.push(m.version);
       } catch (e) {
         await t.rollback().catch(() => undefined);
+        await alertMigrationFailed(pool, m.version);
         throw new Error(`Migration ${m.version} failed: ${(e as Error).message}`);
       }
     }

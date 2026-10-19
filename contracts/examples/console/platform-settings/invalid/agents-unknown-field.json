@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "heartbeatSeconds": 300,
+    "command": "x"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

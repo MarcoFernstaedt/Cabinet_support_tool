@@ -27,6 +27,7 @@ import type { CommandNotifier } from "./notifier.js";
 import { createReadStream } from "node:fs";
 import { downloadablePath, type PackageStore } from "../services/packages.js";
 import { raiseSecurityAlert } from "../services/security.js";
+import { noteError, noteResponse, opsMeter, routeOf } from "../services/ops-meter.js";
 import { releaseForAgent, releasePackageForAgent, type ReleaseStore } from "../services/releases.js";
 import { anyRolloutRunning, offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 import { PacingCache } from "../services/settings.js";
@@ -271,6 +272,11 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
   });
 
+  // Operations counters (counts only, see docs/platform/operations.md): every answered request, sheds and server errors by route pattern.
+  app.addHook("onResponse", async (request, reply) => {
+    if (request.url !== "/health") noteResponse("agent", routeOf(request), reply.statusCode);
+  });
+
   app.addHook("preClose", async () => {
     shuttingDown = true;
     for (const h of held) h.abort.abort();
@@ -294,11 +300,12 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (error instanceof ContractError) return reply.code(400).send({ error: "invalid_request", issues: error.issues });
     if (error instanceof CsrError) return reply.code(400).send({ error: "invalid_request" });
     // The database could not answer in time: the agent comes back later, at a random moment.
-    if (isBusy(error)) return reply.code(503).header("retry-after", String(retryAfter())).send({ error: "busy" });
+    if (isBusy(error)) { noteError("agent", error); return reply.code(503).header("retry-after", String(retryAfter())).send({ error: "busy" }); }
     const status = (error as { statusCode?: number }).statusCode;
     if (status === 413) return reply.code(413).send({ error: "too_large" });
     if (status && status >= 400 && status < 500) return reply.code(status).send({ error: "invalid_request" });
     request.log.error({ err: errorInfo(error) }, "request failed");
+    noteError("agent", error);
     return reply.code(500).send({ error: "server_error" });
   });
   app.setNotFoundHandler((_req, reply) => reply.code(404).send({ error: "not_found" }));
@@ -327,6 +334,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     const found = socket.authorized && serial ? await authenticate(o.pool, serial, subject) : null;
     if (!found) {
       accepted.delete(connection);
+      opsMeter.count("agent_auth_fail", !serial ? "no_certificate" : socket.authorized ? "certificate_refused" : "untrusted");
       await noteRefusal(request, socket.authorized, serial, subject);
       return reply.code(401).send({ error: "certificate_refused" });
     }
