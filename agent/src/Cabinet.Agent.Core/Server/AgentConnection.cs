@@ -312,6 +312,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             {
                 TimeSpan wait = backoff.Next();
                 o.Log($"The {name} loop failed ({e.GetType().Name}: {OperationRunner.Truncate(e.Message)}); restarting it in {wait.TotalSeconds:0.#} s.");
+                FaultCode("loop_restart", name.Replace(' ', '_'), e.GetType().Name);
                 try { await Delay(wait, token).ConfigureAwait(false); } catch (OperationCanceledException) { break; }
             }
         }
@@ -633,6 +634,21 @@ public sealed class AgentConnection(AgentConnectionOptions o)
         return (queue.Dropped, queue.SetAside);
     }
 
+    /// <summary>
+    /// Reports one of the agent's own faults to the server as a CODE only (an agent_status event: which check, a short code, the exception's type name),
+    /// at most once an hour per check and code, so a fault that repeats cannot flood the queue. Never a message, a path, file contents or anything from the cabinet.
+    /// </summary>
+    private void FaultCode(string check, string code, string exception)
+    {
+        if (o.Events is null) return;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        o.Events.Enqueue(new AgentEvent
+        {
+            EventId = EventIds.For($"fault|{check}|{code}|{now.ToUnixTimeSeconds() / 3600}"), Kind = EventKind.AgentStatus, OccurredAt = now, SeverityHint = SeverityHint.Minor,
+            Detail = new EventDetail { Message = $"Agent fault: {check} ({code}).", Fields = new Dictionary<string, string> { ["check"] = check, ["code"] = code, ["exception"] = exception } },
+        });
+    }
+
     private static async Task<Ended> Idle(CancellationToken token)
     {
         try { await Task.Delay(Timeout.Infinite, token).ConfigureAwait(false); } catch (OperationCanceledException) { }
@@ -724,7 +740,11 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     o.Log("Renewed the cabinet's certificate; new connections use it.");
                 }
                 catch (AgentApiException e) when (e.CertificateRefused) { return Ended.CertificateRefused; }
-                catch (Exception e) when (e is AgentApiException or InvalidDataException) { o.Log($"Certificate renewal: {e.Message}"); }
+                catch (Exception e) when (e is AgentApiException or InvalidDataException)
+                {
+                    o.Log($"Certificate renewal: {e.Message}");
+                    FaultCode("renewal_failed", e is AgentApiException { Status: { } st } ? $"http_{(int)st}" : e is AgentApiException ? "unreachable" : "invalid_certificate", e.GetType().Name);
+                }
             }
             await Delay(o.RenewCheckInterval, token).ConfigureAwait(false);
         }

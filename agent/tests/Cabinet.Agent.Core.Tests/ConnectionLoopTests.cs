@@ -415,6 +415,21 @@ public sealed class ConnectionLoopTests : IDisposable
     }
 
     [Fact]
+    public async Task A_loop_restart_is_reported_as_a_code_only_agent_status_event()
+    {
+        var events = new EventQueue(null);
+        var server = new FakeServer();
+        int calls = 0;
+        AgentConnection connection = Connection(server, events, health: () => Interlocked.Increment(ref calls) == 2 ? throw new InvalidOperationException(@"sensor bug at C:\\secret\\path.txt") : null);
+        await Run(connection, async _ => await Until(() => server.To("/agent/v1/events").Any(), "the fault report"));
+        var sent = server.To("/agent/v1/events").SelectMany(r => r.Json!["events"]!.AsArray()).Single(e => e!["kind"]!.GetValue<string>() == "agent_status");
+        Assert.Equal("loop_restart", sent!["detail"]!["fields"]!["check"]!.GetValue<string>());
+        Assert.Equal("heartbeat", sent["detail"]!["fields"]!["code"]!.GetValue<string>());
+        Assert.Equal("InvalidOperationException", sent["detail"]!["fields"]!["exception"]!.GetValue<string>());
+        Assert.DoesNotContain("secret", sent.ToJsonString()); // the exception's message never leaves the cabinet
+    }
+
+    [Fact]
     public async Task A_fault_in_one_loop_restarts_that_loop_only()
     {
         var server = new FakeServer();
