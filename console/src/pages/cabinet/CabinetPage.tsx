@@ -29,7 +29,7 @@ import { Software } from "./Software";
 import { WindowsInfo } from "./WindowsInfo";
 import { TrendCharts } from "../../components/TrendChart";
 import { WritePauseBanner } from "../../lib/writes";
-import { SECTIONS, type SectionId } from "../../lib/sections";
+import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 
 export interface CabinetDetail extends CabinetRow {
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
@@ -51,16 +51,30 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
 
   return (
     <div className="cabinet-layout">
-      <aside className="sidebar" aria-label={`Cabinets at ${cabinet.site.name}`}>
-        <h2 className="sidebar-title">{cabinet.site.name}</h2>
-        <ul>{cabinet.siblings.map(s => (
-          <li key={s.id}>
-            <Link to={`/cabinets/${s.id}/${current}`} aria-current={s.id === cabinet.id ? "page" : undefined} className={s.id === cabinet.id ? "current" : ""}>
-              <span className="name">{s.name}</span>
-              <span className="meta">{roleLabel(s.role)} · <OnlineBadge online={s.online} />{s.openAlerts > 0 && <> · {s.openAlerts} {s.openAlerts === 1 ? "alert" : "alerts"}</>}</span>
-            </Link>
-          </li>))}
-        </ul>
+      <aside className="sidebar">
+        <nav aria-label="Cabinet sections" className="section-nav">
+          {groupedSections().map(g => (
+            <div key={g.title ?? "main"}>
+              {g.title && <h2 className="sidebar-title">{g.title}</h2>}
+              <ul>{g.items.map(([key, label]) => (
+                <li key={key}><Link to={`/cabinets/${cabinet.id}/${key}`} aria-current={key === current ? "page" : undefined}>{label}</Link></li>))}
+              </ul>
+            </div>))}
+        </nav>
+        <nav aria-label={`Cabinets at ${cabinet.site.name}`}>
+          <h2 className="sidebar-title">At {cabinet.site.name}</h2>
+          <ul>{cabinet.siblings.map(s => (
+            <li key={s.id}>
+              <Link to={`/cabinets/${s.id}/${current}`} aria-current={s.id === cabinet.id ? "location" : undefined} className={s.id === cabinet.id ? "current" : ""}>
+                <span className="name">{s.name}</span>
+                <span className="meta">
+                  {s.online ? <span className="sr-only">Online</span> : <Badge tone="off">Offline</Badge>}
+                  {s.openAlerts > 0 && <> {s.openAlerts} {s.openAlerts === 1 ? "alert" : "alerts"}</>}
+                </span>
+              </Link>
+            </li>))}
+          </ul>
+        </nav>
       </aside>
       <div className="cabinet-main">
         <header className="cabinet-header">
@@ -72,11 +86,6 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             {cabinet.demo ? <> <DemoTag long /></> : <> <Badge tone="ok">Live agent</Badge></>}
             {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Access history</Link></>}
           </p>
-          <nav aria-label="Cabinet sections" className="tabs">
-            {SECTIONS.map(([key, label]) => (
-              <Link key={key} to={`/cabinets/${cabinet.id}/${key}`} aria-current={key === current ? "page" : undefined}>{label}</Link>
-            ))}
-          </nav>
         </header>
         <WritePauseBanner clientId={cabinet.client.id} clientOnly />
         {!cabinet.online && <div className="notice warn" role="status">{cabinet.lastHeartbeatAt ? <>This cabinet has not been heard from since {ago(cabinet.lastHeartbeatAt)}.</> : "This cabinet has not connected yet."} Diagnostics will wait for it to come back, and expire if it does not.</div>}
@@ -112,29 +121,61 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
   }
 }
 
-function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: () => void }) {
+interface ScannerHistory { drops24h: number; drops7d: number; offNow: boolean }
+
+/** The top of the Overview: how the cabinet is right now, from what the platform already holds, and the next things worth doing. */
+function Summary({ cabinet }: { cabinet: CabinetDetail }) {
   const { navigate } = useRouter();
+  const scanner = useLoad<ScannerHistory>(`/api/cabinets/${cabinet.id}/scanner-history`).data;
+  const tone = !cabinet.online ? "crit" : cabinet.openAlerts > 0 || scanner?.offNow ? "warn" : "ok";
+  const headline = !cabinet.online ? "Offline" : cabinet.openAlerts > 0 ? `Online, ${cabinet.openAlerts} open ${cabinet.openAlerts === 1 ? "alert" : "alerts"}` : "Online, no open alerts";
+  const scannerText = !scanner ? "Not read yet" : scanner.offNow ? "Not detected now" : scanner.drops24h > 0 ? `${scanner.drops24h} ${scanner.drops24h === 1 ? "drop" : "drops"} in 24 hours` : "No drops in 24 hours";
+  const go = (section: string) => navigate(`/cabinets/${cabinet.id}/${section}`);
+  // Reads need the cabinet to answer, so an offline cabinet is offered what the platform already knows instead.
+  const candidates: [string, string][] = [];
+  if (scanner?.offNow || (scanner?.drops24h ?? 0) > 0) candidates.push(["scanner", "Check the fingerprint scanner"]);
+  if (cabinet.openAlerts > 0) candidates.push(["alerts", `Review ${cabinet.openAlerts === 1 ? "the open alert" : `${cabinet.openAlerts} open alerts`}`]);
+  if (cabinet.online) candidates.push(["troubleshoot", "Troubleshoot a problem"], ["events", "Browse event logs"], ["drives", "Check drive health"], ["scanner", "Check the fingerprint scanner"]);
+  else candidates.push(["changes", "See what changed"], ["history", "Open command history"], ["troubleshoot", "Troubleshoot a problem"]);
+  const actions = candidates.filter(([k], i) => candidates.findIndex(c => c[0] === k) === i).slice(0, 3);
+  return (
+    <section className={`panel summary ${tone}`} aria-labelledby="overview-heading">
+      <h2 id="overview-heading" className="sr-only">Overview</h2>
+      <div className="summary-state">
+        <OnlineBadge online={cabinet.online} />
+        <strong>{headline}</strong>
+        {cabinet.online && cabinet.readOnly && <Badge tone="info">Read-only</Badge>}
+      </div>
+      <dl className="summary-grid">
+        <div><dt>Last contact</dt><dd title={fullTime(cabinet.lastHeartbeatAt)}>{cabinet.lastHeartbeatAt ? ago(cabinet.lastHeartbeatAt) : "Never"}</dd></div>
+        <div><dt>Agent version</dt><dd>{cabinet.agentVersion ?? <span className="muted">Unknown</span>}</dd></div>
+        <div><dt>Uptime</dt><dd>{cabinet.uptimeSeconds === null ? <span className="muted">Unknown</span> : duration(cabinet.uptimeSeconds)}</dd></div>
+        <div><dt>Fingerprint scanner</dt><dd>{scanner && (scanner.offNow || scanner.drops24h > 0) ? <Link to={`/cabinets/${cabinet.id}/scanner`}>{scannerText}</Link> : scannerText}</dd></div>
+        <div><dt>Open alerts</dt><dd>{cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"}</dd></div>
+        <div><dt>Last known healthy</dt><dd>{cabinet.online && cabinet.openAlerts === 0 && !scanner?.offNow ? "Now" : <span className="muted" title="The platform does not keep this yet">Not recorded</span>}</dd></div>
+      </dl>
+      <div className="next-actions">
+        <span className="label">Next:</span>
+        {actions.map(([k, label], i) => <button key={k} className={i === 0 ? "btn primary" : "btn"} onClick={() => go(k)}>{label}</button>)}
+      </div>
+    </section>
+  );
+}
+
+function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: () => void }) {
   const { me } = useSession();
   return (<>
-    <section className="panel" aria-labelledby="overview-heading">
-      <h2 id="overview-heading">Overview</h2>
+    <Summary cabinet={cabinet} />
+    <section className="panel" aria-labelledby="details-heading">
+      <h2 id="details-heading">Details</h2>
       <KeyValues rows={[
-        ["Status", <OnlineBadge online={cabinet.online} />],
         ["Role", atLeast(me, "admin") ? <RoleChange cabinet={cabinet} onChanged={onChanged} /> : roleLabel(cabinet.role)],
-        ["Open alerts", cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"],
-        ["Last heard from", <>{fullTime(cabinet.lastHeartbeatAt)} <span className="muted">({ago(cabinet.lastHeartbeatAt)})</span></>],
         ["Windows host name", cabinet.hostname],
         ["Serial number", cabinet.serialNumber],
-        ["Uptime", duration(cabinet.uptimeSeconds)],
-        ["Agent version", cabinet.agentVersion],
+        ["Last heard from", <>{fullTime(cabinet.lastHeartbeatAt)}</>],
         ["Read-only mode", cabinet.readOnly === null ? null : cabinet.readOnly ? "On: the agent refuses every change" : "Off"],
         ["Clock difference", cabinet.clockSkewSeconds === null ? null : `${cabinet.clockSkewSeconds} s from the server`],
       ]} />
-      <div className="row gap wrap">
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/scanner`)}>Check the fingerprint scanner</button>
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/events`)}>Browse event logs</button>
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
-      </div>
     </section>
     <TrendCharts cabinetId={cabinet.id} />
     <CaseNotes cabinetId={cabinet.id} title="Case notes for this cabinet" />

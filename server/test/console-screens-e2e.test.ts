@@ -1,4 +1,4 @@
-// Visits every page of the console at a desktop and a phone width, with the demo fleet on, and fails on sideways scrolling, raw values
+// Visits every page of the console at desktop widths (1280 and 1440), and checks that a narrow window gets the desktop-only notice, with the demo fleet on, and fails on sideways scrolling, raw values
 // (undefined, [object Object], NaN, null) and console errors. With SHOTS set it photographs each page for review.
 // The guided demo in a real browser: one story at Midtown Manhattan. The firewall fix is one click and it works (the site comes back clean),
 // the scanner page shows three drops and the driver installed before them, and a site with no baseline still gets its network read.
@@ -53,6 +53,11 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
     page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
     await page.goto(origin);
+    // Desktop only: under 1200 px the sign-in page, like every page, is replaced by a plain notice.
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await page.getByText("This console is for desktop computers. Open it on a computer with a wider screen.").waitFor();
+    assert.equal(await page.locator("#root").isVisible(), false);
+    await page.setViewportSize({ width: 1360, height: 900 });
     await page.getByLabel("Username").fill("ada.admin");
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
@@ -72,7 +77,7 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
       "/admin", "/admin/setup", "/admin/pending", "/admin/tokens", "/admin/scanner", "/admin/audit", "/admin/software", "/admin/upgrades", "/admin/users", "/admin/online",
       "/admin/clients", "/admin/issues", "/admin/safety", "/admin/security", "/admin/settings", ...tabs.map(t => `/cabinets/${ids.cabinet}/${t}`)];
     const faults: string[] = [];
-    for (const [label, size] of [["wide", { width: 1360, height: 900 }]] as const) {
+    for (const [label, size] of [["w1440", { width: 1440, height: 900 }], ["w1280", { width: 1280, height: 800 }]] as const) {
       await page.setViewportSize(size);
       for (const path of pages.filter(p => !process.env.ONLY || p.includes(process.env.ONLY) || process.env.ONLY.split(",").some(o => p.includes(o)))) {
         await page.goto(`${origin}${path}`);

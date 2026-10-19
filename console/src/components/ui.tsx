@@ -27,7 +27,7 @@ export function OperationPanel<T>({ title, description, run, onRun, buttonLabel 
     <section className="panel" aria-busy={busy}>
       <div className="panel-head">
         <div>
-          <h3>{title}</h3>
+          <h2>{title}</h2>
           {description && <p className="muted small">{description}</p>}
         </div>
         <button className="btn primary" onClick={onRun} disabled={busy}>{busy ? "Running…" : run.state === "done" || stored ? "Run again" : buttonLabel}</button>

@@ -21,7 +21,7 @@ export interface TourStep {
 export interface TourPerson { role: Role; canApproveFixes: boolean }
 
 const nav = (href: string): Target => ({ selector: `.topbar nav a[href="${href}"]` });
-const tab = (key: SectionId): Target => ({ selector: `.cabinet-header .tabs a[href$="/${key}"]` });
+const tab = (key: SectionId): Target => ({ selector: `.section-nav a[href$="/${key}"]` });
 
 /** The cabinet tabs, each with what it is for. Every key of SECTIONS must appear (checked by a test). */
 const TABS: Record<SectionId, { body: string[]; needs?: string; quick?: boolean }> = {
@@ -73,8 +73,8 @@ export function welcomeSteps(me: TourPerson, cabinetId: string | null): TourStep
   if (cabinetId) {
     const path = (k: SectionId) => `/cabinets/${cabinetId}/${k}`;
     steps.push({ id: "cabinet", title: "A cabinet", path: path("overview"), target: { selector: ".cabinet-header h1" }, quick: true, body: [
-      "This is one cabinet. Its name, client, site and role (sync cabinet, satellite or standalone) stay at the top, and the sidebar switches to the other cabinets at the same site.",
-      "The tabs under the name are each a different place to look. They are the next steps."] });
+      "This is one cabinet. Its name, client, site and role (sync cabinet, satellite or standalone) stay at the top. The menu on the left switches between the cabinet's tabs, and the list under it switches to the other cabinets at the same site.",
+      "The tabs in the left menu are each a different place to look. They are the next steps."] });
     for (const [key, label] of SECTIONS) {
       const t = TABS[key];
       steps.push({ id: `tab-${key}`, title: label, path: path(key), target: tab(key), quick: !!t.quick, body: t.body, ...(t.needs ? { needs: t.needs } : {}) });
