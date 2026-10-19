@@ -83,8 +83,12 @@ export async function cabinet(db: Queryable, id: string) {
   if (!k) return null;
   const siblings = (await db.query<CabinetDbRow>(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [k.site_id])).rows;
   const levels = await scannerLevels(db, id);
+  // The last moment nothing was wrong: before the oldest open alert began; with none open, now if the cabinet is online, else when it was last heard from.
+  const oldestOpen = (await db.query<{ since: Date | null }>("SELECT MIN(first_seen) AS since FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND state <> 'resolved'", [id])).rows[0]?.since ?? null;
+  const row = cabinetRow(k);
+  const lastHealthyAt = oldestOpen ? oldestOpen.toISOString() : row.online ? new Date().toISOString() : k.last_heartbeat_at ? k.last_heartbeat_at.toISOString() : null;
   return {
-    ...cabinetRow(k), serialNumber: k.serial_number, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
+    ...row, lastHealthyAt, serialNumber: k.serial_number, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
     site: { id: k.site_id, name: k.site_name }, client: { id: k.client_id, name: k.client_name },
     scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
       effective: levels.effective, source: levels.source },
