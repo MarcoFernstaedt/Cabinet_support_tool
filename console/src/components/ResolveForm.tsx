@@ -29,7 +29,7 @@ export function ResolveForm({ alert, onDone, onCancel }: { alert: Alert; onDone:
   const known = useLoad<{ fixes: { id: string; title: string; status: string; symptom: { kind: string } }[] }>(alert.issueTypeId ? `/api/known-fixes?issueTypeId=${alert.issueTypeId}` : null);
   const approved = (known.data?.fixes ?? []).filter(f => f.status === "approved" && f.symptom.kind === "issue");
   const [cause, setCause] = useState("");
-  const [choice, setChoice] = useState("");   // "", a known fix's id, or "other"
+  const [choice, setChoice] = useState("");   // "" or a known fix's id
   const [typed, setTyped] = useState("");
   const [keep, setKeep] = useState(false);
   const [note, setNote] = useState("");
@@ -40,8 +40,8 @@ export function ResolveForm({ alert, onDone, onCancel }: { alert: Alert; onDone:
     const body: Record<string, unknown> = {};
     if (cause.trim()) body.cause = cause.trim();
     if (note.trim()) body.note = note.trim();
-    if (choice === "other" && typed.trim()) { body.fix = { kind: "text", text: typed.trim() }; if (keep) body.saveFix = true; }
-    else if (choice && choice !== "other") body.fix = { kind: "known", fixId: choice };
+    if (!choice && typed.trim()) { body.fix = { kind: "text", text: typed.trim() }; if (keep) body.saveFix = true; }
+    else if (choice) body.fix = { kind: "known", fixId: choice };
     try { await api("POST", `/api/alerts/${alert.id}/resolve`, body); window.dispatchEvent(new Event("fixes-changed")); onDone(); }
     catch (e) { setProblem(describeError(e)); } finally { setBusy(false); }
   };
@@ -49,14 +49,13 @@ export function ResolveForm({ alert, onDone, onCancel }: { alert: Alert; onDone:
     <form className="stack" onSubmit={e => { e.preventDefault(); void submit(); }} aria-label="Resolve this alert">
       {alert.issueTypeId && <UsualFixes issueTypeId={alert.issueTypeId} />}
       <label className="field"><span>What was wrong (optional)</span><textarea rows={2} maxLength={500} value={cause} onChange={e => setCause(e.target.value)} autoFocus /></label>
-      <label className="field"><span>What fixed it (optional)</span>
+      {approved.length > 0 && <label className="field"><span>Use a known fix</span>
         <select value={choice} onChange={e => setChoice(e.target.value)}>
-          <option value="">Not recorded</option>
+          <option value="">None: I will type it</option>
           {approved.map(f => <option key={f.id} value={f.id}>{f.title}</option>)}
-          <option value="other">Something else: I will type it</option>
-        </select></label>
-      {choice === "other" && <>
-        <label className="field"><span>The fix, in a sentence</span><input value={typed} maxLength={256} onChange={e => setTyped(e.target.value)} /></label>
+        </select></label>}
+      {!choice && <>
+        <label className="field"><span>What fixed it (optional)</span><input value={typed} maxLength={256} onChange={e => setTyped(e.target.value)} /></label>
         {alert.issueTypeId && typed.trim() && <label className="check small"><input type="checkbox" checked={keep} onChange={e => setKeep(e.target.checked)} /> Also keep this as a possible fix for every cabinet{me.canApproveFixes ? "" : " (an Admin approves it first)"}</label>}
       </>}
       <label className="field"><span>Note (optional)</span><input value={note} maxLength={256} onChange={e => setNote(e.target.value)} /></label>

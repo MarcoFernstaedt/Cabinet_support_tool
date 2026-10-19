@@ -22,6 +22,7 @@ import { Account } from "./pages/Account";
 import { FixQueue } from "./pages/Fixes";
 import { AlertsPage } from "./pages/alerts/Alerts";
 import { IssuesPage } from "./pages/alerts/Issues";
+import { TriagePage } from "./pages/Triage";
 import { IncidentsPage } from "./pages/Crashes";
 import { ReadingSearch } from "./pages/ReadingSearch";
 import { FleetJob, FleetOperations } from "./pages/FleetOperations";
@@ -110,6 +111,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/fixes", path)) return <FixQueue />;
   if (match("/alerts", path)) return <AlertsPage />;
   if (match("/issues", path)) return <IssuesPage />;
+  if (match("/triage", path)) return <TriagePage />;
   if (match("/incidents", path)) return <IncidentsPage />;
   if (match("/search", path)) return <ReadingSearch />;
   if ((m = match("/network/diagnosis/:id", path))) return <NetworkDiagnosisPage key={m.id} id={m.id!} />;
