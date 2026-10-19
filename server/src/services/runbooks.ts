@@ -32,7 +32,7 @@ export interface RunbookView {
 }
 
 /** What a step may ask the console to run, checked against the catalog. Throws a Refused naming the step and the rule it broke. */
-export function checkRunbookBody(b: Pick<RunbookPropose, "title" | "steps"> & { links?: RunbookLink[] | undefined }): void {
+export function checkRunbookBody(b: { title: string; steps: readonly RunbookStep[]; links?: readonly RunbookLink[] | undefined }): void {
   let text = b.title.length;
   const bad = (i: number, why: string): never => { throw new Refused("invalid_runbook", 400, `step ${i + 1}: ${why}`); };
   b.steps.forEach((s, i) => {
