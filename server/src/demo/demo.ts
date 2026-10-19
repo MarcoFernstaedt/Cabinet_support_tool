@@ -513,12 +513,22 @@ export class DemoSimulator {
 
   start(): void {
     if (!examplesAvailable()) this.log("demo cabinets cannot answer: the contract examples are missing from this installation (deploy/Dockerfile must copy contracts/examples)");
+    this.stopped = false;
     this.timer = setInterval(() => void this.tick(), this.tickMs);
   }
-  stop(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }
+  private stopped = false;
+  private readonly answers = new Set<NodeJS.Timeout>();
+  /** Stops ticking and drops the answers still waiting to be sent; a tick already running ends quietly. */
+  stop(): void {
+    this.stopped = true;
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+    for (const t of this.answers) clearTimeout(t);
+    this.answers.clear();
+  }
 
   async tick(): Promise<void> {
-    if (this.busy) return;
+    if (this.busy || this.stopped) return;
     this.busy = true;
     try {
       if (!(await demoEnabled(this.pool))) return;
@@ -528,7 +538,8 @@ export class DemoSimulator {
       for (const { id } of waiting)
         for (const command of await takeQueuedCommands(this.pool, id)) {
           const [min, max] = this.answerDelayMs;
-          setTimeout(() => answer(this.pool, id, command).catch(e => this.log(`demo answer failed: ${(e as Error).message}`)), min + Math.random() * (max - min));
+          const t = setTimeout(() => { this.answers.delete(t); if (!this.stopped) answer(this.pool, id, command).catch(e => { if (!this.stopped) this.log(`demo answer failed: ${(e as Error).message}`); }); }, min + Math.random() * (max - min));
+          this.answers.add(t);
         }
       if (Date.now() - this.lastHeartbeat >= 60_000) {
         this.lastHeartbeat = Date.now();
@@ -539,7 +550,7 @@ export class DemoSimulator {
         }
       }
     } catch (e) {
-      this.log(`demo tick failed: ${(e as Error).message}`);
+      if (!this.stopped) this.log(`demo tick failed: ${(e as Error).message}`);
     } finally {
       this.busy = false;
     }
