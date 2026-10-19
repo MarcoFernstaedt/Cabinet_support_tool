@@ -33,7 +33,7 @@ import { TrendCharts } from "../../components/TrendChart";
 import { WritePauseBanner } from "../../lib/writes";
 import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 
-export interface CabinetDetail extends CabinetRow {
+export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null;
   serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
   site: { id: string; name: string }; client: { id: string; name: string };
   scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
@@ -154,7 +154,7 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
         <div><dt>Uptime</dt><dd>{cabinet.uptimeSeconds === null ? <span className="muted">Unknown</span> : duration(cabinet.uptimeSeconds)}</dd></div>
         <div><dt>Fingerprint scanner</dt><dd>{scanner && (scanner.offNow || scanner.drops24h > 0) ? <Link to={`/cabinets/${cabinet.id}/scanner`}>{scannerText}</Link> : scannerText}</dd></div>
         <div><dt>Open alerts</dt><dd>{cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"}</dd></div>
-        <div><dt>Last known healthy</dt><dd>{cabinet.online && cabinet.openAlerts === 0 && !scanner?.offNow ? "Now" : <span className="muted" title="The platform does not keep this yet">Not recorded</span>}</dd></div>
+        <div><dt>Last known healthy</dt><dd>{cabinet.online && cabinet.openAlerts === 0 && !scanner?.offNow ? "Now" : cabinet.lastHealthyAt ? <span title={fullTime(cabinet.lastHealthyAt)}>{ago(cabinet.lastHealthyAt)}</span> : <span className="muted">Not recorded</span>}</dd></div>
       </dl>
       <div className="next-actions">
         <span className="label">Next:</span>
