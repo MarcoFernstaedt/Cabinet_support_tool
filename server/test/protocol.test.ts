@@ -251,7 +251,7 @@ test("the heartbeat answer carries the pacing, the scanner and the watched servi
   const other = await otherApi({});
   try {
     const next = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port });
-    assert.deepEqual(next.body.intervals, { heartbeatSeconds: 120, pollSeconds: 15, eventsPaceMs: 2000 }, "an out-of-range setting falls back to the default");
+    assert.deepEqual(next.body.intervals, { heartbeatSeconds: 120, pollSeconds: 15, eventsPaceMs: 60_000 }, "an out-of-range setting is clamped to the allowed range");
     assert.deepEqual(next.body.scanner.hardwareIds, ["USB\\VID_1234"]);
     assert.deepEqual(next.body.watchedServices.names, ["Spooler"]);
   } finally { await other.app.close(); }

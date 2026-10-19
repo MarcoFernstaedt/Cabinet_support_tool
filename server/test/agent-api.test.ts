@@ -12,6 +12,7 @@ import { approveEnrollment, createBootstrapToken } from "../src/services/enrollm
 import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { NotificationFeed } from "../src/db/notifications.js";
+import { opsMeter } from "../src/services/ops-meter.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir, type TestKey } from "./helpers.js";
 
@@ -325,4 +326,18 @@ test("unknown paths are 404 and the package and update downloads do not exist ye
   const cab = await enrolledCabinet();
   for (const path of ["/agent/v1/packages/x", "/agent/v1/updates/1.0.0", "/agent/v1/files", "/admin"])
     assert.equal((await call("GET", path, undefined, cab)).status, 404, path);
+});
+
+test("operations counters: requests, refusals and sheds are counted by route pattern, with nothing identifying", async () => {
+  opsMeter.drain();
+  const me = await enrolledCabinet();
+  await call("POST", "/agent/v1/heartbeat", heartbeat, me);
+  await call("POST", "/agent/v1/heartbeat", heartbeat); // no certificate
+  await call("GET", "/agent/v1/no-such-route-" + me.cabinetId, undefined, me);
+  const d = opsMeter.drain();
+  const counts = Object.fromEntries([...d.counts].map(([k, n]) => [k.replace("\u0000", "|"), n]));
+  assert.ok(counts["requests|agent"]! >= 3, JSON.stringify(counts));
+  assert.ok(counts["agent_auth_fail|no_certificate"]! >= 1, JSON.stringify(counts));
+  const text = JSON.stringify(counts);
+  assert.ok(!text.includes(me.cabinetId) && !text.includes("no-such-route"), "no identifier or URL in a code");
 });

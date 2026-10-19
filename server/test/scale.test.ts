@@ -315,13 +315,13 @@ test("retention works in small batches until done, and every step is its own sta
   assert.equal(await inBatches(db.app, "DELETE TOP ($1) FROM notifications WHERE channel = $2", ["none"], FAST), 0);
   await asOwner(db, async c => {
     await c.query(`INSERT INTO events (event_id, cabinet_id, kind, occurred_at, received_at)
-                   SELECT TOP (7) NEWID(), $1, 'error', DATEADD(day, -40, SYSUTCDATETIME()), DATEADD(day, -40, SYSUTCDATETIME()) FROM sys.all_objects`, [ids.b]);
+                   SELECT TOP (7) NEWID(), $1, 'error', DATEADD(day, -100, SYSUTCDATETIME()), DATEADD(day, -100, SYSUTCDATETIME()) FROM sys.all_objects`, [ids.b]);
     await c.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, DATEADD(day, -400, SYSUTCDATETIME()), 'heartbeat')", [ids.b]);
     await c.query("INSERT INTO firewall_changes (cabinet_id, explained, occurred_at) VALUES ($1, 0, DATEADD(day, -400, SYSUTCDATETIME()))", [ids.b]);
   });
   const audits = await count("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'retention.run'");
   const run = await runRetention(db.app, FAST);
-  assert.ok(run.events >= 7, "older than the 30-day default");
+  assert.ok(run.events >= 7, "older than the 90-day default");
   assert.ok(run.boots >= 1 && run.firewallChanges >= 1);
   assert.equal(await count("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'retention.run'"), audits + 1);
 });
