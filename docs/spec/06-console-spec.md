@@ -26,10 +26,15 @@
 - Site view: all cabinets at one site, each showing name, role, online or offline, agent version, read-only mode and open alert count
 - Cabinet view: one cabinet in detail
 
+## Screen size
+
+- The console is for desktop computers only, designed for 1280 px wide and up. Below 1200 px every page, the sign-in page included, shows a plain notice ("This console is for desktop computers. Open it on a computer with a wider screen.") instead of the console. There is no phone or tablet layout.
+
 ## Cabinet view
 
 - The cabinet's name is always shown clearly at the top, with its client, site and role directly beneath. It stays visible while scrolling.
-- A sidebar lists the other cabinets at the same site, each with status and alert count, for one-click switching.
+- A left menu holds the cabinet's tabs in groups (Windows, Hardware, Network, Record), and under it the other cabinets at the same site, each with offline state and alert count, for one-click switching.
+- The Overview starts with a summary: online state, last contact, agent version, uptime, scanner state, open alerts, last known healthy, and the three most useful next actions.
 - A jump control opens any cabinet at another site or another client without going back up the hierarchy.
 - Sections: overview, alerts, event logs, devices and drivers, fingerprint scanner, Windows updates, drive health, network, firewall, software, files, command history.
 - Write actions appear only for Tier 2 and Admin, and are hidden on read-only cabinets. Each one opens a confirmation that states exactly what will change on which cabinet, then asks for the authenticator code.
