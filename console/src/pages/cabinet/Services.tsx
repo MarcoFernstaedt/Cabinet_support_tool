@@ -36,7 +36,7 @@ function WatchedPanel({ cabinet, levels, watched, onChanged }: { cabinet: Cabine
   if (!levels) return null;
   return (
     <section className="panel" aria-labelledby="watched-heading">
-      <h3 id="watched-heading">Watched services</h3>
+      <h2 id="watched-heading">Watched services</h2>
       <p className="muted small">These must always be running: the agent starts them again when they stop, and raises a major alert after 3 failed restarts in a row.
         This cabinet uses {SOURCE[levels.source] ?? levels.source}.</p>
       {levels.effective.length === 0 ? <Empty>No services are watched on this cabinet.</Empty> : (
@@ -106,7 +106,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
               <tr key={s.name}>
                 <th scope="row">{s.displayName}<div className="muted small"><code>{s.name}</code>{s.processId ? ` · PID ${s.processId}` : ""}{isWatched(s.name) && <> · <Badge tone="info">Watched</Badge></>}</div></th>
                 <td><Badge tone={STATE[s.state]!.tone}>{STATE[s.state]!.label}</Badge></td>
-                <td>{editing?.name === s.name
+                <td className="nowrap">{editing?.name === s.name
                   ? <form className="row gap wrap" aria-label={`Change the start type of ${s.displayName}`} onSubmit={e => {
                       e.preventDefault();
                       const type = editing.type;
@@ -125,7 +125,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
                   {s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>
-                <td><div className="row gap wrap">
+                <td className="nowrap"><div className="row gap">
                   {canControl && s.startType !== "disabled" && s.state === "stopped" && <button className="btn small" onClick={() => ask(s, "start")}>Start</button>}
                   {canControl && s.state === "running" && <><button className="btn small" onClick={() => ask(s, "restart")}>Restart</button><button className="btn small" onClick={() => ask(s, "stop")}>Stop</button></>}
                   {atLeast(me, "tier2") && <button className="btn small ghost" onClick={() => setWatchChange({ name: s.name, watch: !isWatched(s.name) })}>{isWatched(s.name) ? "Stop watching" : "Watch"}</button>}

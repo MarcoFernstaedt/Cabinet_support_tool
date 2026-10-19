@@ -16,14 +16,15 @@ export function JumpControl() {
   const { navigate } = useRouter();
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
+  const [searched, setSearched] = useState(false);
   const [active, setActive] = useState(0);
   const listId = useId();
   useEffect(() => {
-    if (q.trim().length < 1) { setHits([]); return; }
-    const t = setTimeout(() => { api<Hit[]>("GET", `/api/fleet/search?q=${encodeURIComponent(q.trim())}`).then(h => { setHits(h); setActive(0); }, () => setHits([])); }, 150);
+    if (q.trim().length < 1) { setHits([]); setSearched(false); return; }
+    const t = setTimeout(() => { api<Hit[]>("GET", `/api/fleet/search?q=${encodeURIComponent(q.trim())}`).then(h => { setHits(h); setActive(0); setSearched(true); }, () => { setHits([]); setSearched(true); }); }, 150);
     return () => clearTimeout(t);
   }, [q]);
-  const go = (h: Hit) => { setQ(""); setHits([]); navigate(`/${h.kind}s/${h.id}`); };
+  const go = (h: Hit) => { setQ(""); setHits([]); setSearched(false); navigate(`/${h.kind}s/${h.id}`); };
   return (
     <div className="jump" role="search">
       <label className="sr-only" htmlFor={`${listId}-input`}>Jump to a client, site or cabinet</label>
@@ -34,7 +35,7 @@ export function JumpControl() {
           if (e.key === "ArrowDown") { e.preventDefault(); setActive(a => Math.min(a + 1, hits.length - 1)); }
           if (e.key === "ArrowUp") { e.preventDefault(); setActive(a => Math.max(a - 1, 0)); }
           if (e.key === "Enter" && hits[active]) { e.preventDefault(); go(hits[active]!); }
-          if (e.key === "Escape") { setQ(""); setHits([]); }
+          if (e.key === "Escape") { setQ(""); setHits([]); setSearched(false); }
         }} />
       {hits.length > 0 && (
         <ul id={listId} role="listbox" className="jump-results">
@@ -45,6 +46,9 @@ export function JumpControl() {
             </li>
           ))}
         </ul>
+      )}
+      {hits.length === 0 && searched && q.trim() !== "" && (
+        <div className="jump-results muted" role="status">No matches</div>
       )}
     </div>
   );

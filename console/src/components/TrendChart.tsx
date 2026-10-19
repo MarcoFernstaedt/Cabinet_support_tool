@@ -35,7 +35,7 @@ export function TrendCharts({ cabinetId }: { cabinetId: string }) {
   return (
     <section className="panel" aria-labelledby="trend-heading">
       <div className="panel-head">
-        <div><h3 id="trend-heading">Load over time</h3><p className="muted small">Sampled from the cabinet's heartbeat about every 15 minutes.</p></div>
+        <div><h2 id="trend-heading">Load over time</h2><p className="muted small">Sampled from the cabinet's heartbeat about every 15 minutes.</p></div>
         <label className="field inline"><span>Range</span><select value={hours} onChange={e => setHours(e.target.value)}>{RANGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}

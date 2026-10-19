@@ -46,6 +46,7 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
         </div>
       </div>
       {others.length === 0 && <Empty>This site has no other cabinet to compare with.</Empty>}
+      {others.length > 0 && !diffs && !busy && <p className="muted">Pick a cabinet at this site and press Compare. Both cabinets are read now, and the differences are listed.</p>}
       {diffs && diffs.length >= MAX_DIFFERENCES && <p className="small"><Badge tone="warn">Cut short</Badge> Only the first {MAX_DIFFERENCES} differences are shown.</p>}
       {diffs && <p className="muted small">Compared: system, network adapter, firewall profiles and rules, services, drivers and installed updates.</p>}
       {missing.length > 0 && <p className="small"><Badge tone="warn">Incomplete</Badge> Could not read {missing.join(", ")} from one of the cabinets.</p>}

@@ -44,7 +44,7 @@ export function DriveTrends({ cabinetId }: { cabinetId: string }) {
   if (!data || data.drives.length === 0) return data ? <p className="muted small">No drive history yet. The cabinet's agent reports its drives once a day.</p> : null;
   return (
     <section className="panel" aria-labelledby="drive-trends-heading">
-      <h3 id="drive-trends-heading">Drive history</h3>
+      <h2 id="drive-trends-heading">Drive history</h2>
       <p className="muted small">Each drive's own health report, kept daily, so a drive that is getting worse shows up before it fails.</p>
       <div className="cards">{data.drives.map(d => (
         <article key={d.key} className={`card ${LEVEL[d.level].tone === "crit" ? "crit" : LEVEL[d.level].tone === "warn" ? "warn" : ""}`} aria-label={`History of ${d.model ?? d.key}`}>

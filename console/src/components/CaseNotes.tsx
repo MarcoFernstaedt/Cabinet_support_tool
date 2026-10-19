@@ -22,7 +22,7 @@ export function CaseNotes({ cabinetId, title = "Case notes" }: { cabinetId?: str
   return (
     <section className="panel" aria-labelledby={`notes-${cabinetId ?? "all"}`}>
       <div className="panel-head">
-        <h3 id={`notes-${cabinetId ?? "all"}`}>{title}</h3>
+        <h2 id={`notes-${cabinetId ?? "all"}`}>{title}</h2>
         <div className="row gap wrap">
           <label className="sr-only" htmlFor={`notes-hours-${cabinetId ?? "all"}`}>Period</label>
           <select id={`notes-hours-${cabinetId ?? "all"}`} value={hours} onChange={e => { setHours(e.target.value); setReport(null); }}>{WINDOWS.map(([v, l]) => <option key={v} value={v}>Last {l}</option>)}</select>
