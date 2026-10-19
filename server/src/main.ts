@@ -2,6 +2,7 @@
 // that many worker processes sharing its port (node:cluster), and this primary process runs the console and the background jobs only,
 // so a 10,000-cabinet fleet is not limited to one event loop. Each process has its own pools, notification feed and presence flush.
 import { scheduleDailyJobs } from "./services/maintenance.js";
+import { scheduleTroubleshootingJobs } from "./services/error-trends.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool, errorInfo } from "./db/db.js";
@@ -126,7 +127,8 @@ if (runsServices) {
 
   // The daily audit chain check (a break raises a security alert) and retention.
   const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
-  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); };
+  const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt });
+  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); stopTrends(); };
 }
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every
