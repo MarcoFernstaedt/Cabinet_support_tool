@@ -1481,11 +1481,11 @@ export interface SyncSettings {
 }
 
 /**
-<<<<<<< HEAD
  * The System health page's request. It takes no parameters; anything in the query string is refused.
  */
 export interface SystemHealthQuery {}
-=======
+
+/**
  * The triage queue (query string): what needs attention first across the fleet, optionally for one client or site, looking back 7, 14 or 30 days.
  */
 export interface TriageQuery {
@@ -1493,7 +1493,6 @@ export interface TriageQuery {
   siteId?: string;
   days?: "7" | "14" | "30";
 }
->>>>>>> worktree-agent-a4c190983127b6ab9
 
 /**
  * An Admin creates an account. The server makes a temporary password, shown once.

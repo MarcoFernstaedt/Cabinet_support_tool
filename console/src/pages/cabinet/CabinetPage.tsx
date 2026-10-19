@@ -137,7 +137,7 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
   const candidates: [string, string][] = [];
   if (scanner?.offNow || (scanner?.drops24h ?? 0) > 0) candidates.push(["scanner", "Check the fingerprint scanner"]);
   if (cabinet.openAlerts > 0) candidates.push(["alerts", `Review ${cabinet.openAlerts === 1 ? "the open alert" : `${cabinet.openAlerts} open alerts`}`]);
-  if (cabinet.online) candidates.push(["troubleshoot", "Troubleshoot a problem"], ["events", "Browse event logs"], ["drives", "Check drive health"], ["scanner", "Check the fingerprint scanner"]);
+  if (cabinet.online) candidates.push(["troubleshoot", "Diagnose this cabinet"], ["events", "Browse event logs"], ["drives", "Check drive health"], ["scanner", "Check the fingerprint scanner"]);
   else candidates.push(["changes", "See what changed"], ["history", "Open command history"], ["troubleshoot", "Troubleshoot a problem"]);
   const actions = candidates.filter(([k], i) => candidates.findIndex(c => c[0] === k) === i).slice(0, 3);
   return (
@@ -178,15 +178,6 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         ["Read-only mode", cabinet.readOnly === null ? null : cabinet.readOnly ? "On: the agent refuses every change" : "Off"],
         ["Clock difference", cabinet.clockSkewSeconds === null ? null : `${cabinet.clockSkewSeconds} s from the server`],
       ]} />
-<<<<<<< HEAD
-=======
-      <div className="row gap wrap">
-        <button className="btn primary" onClick={() => navigate(`/cabinets/${cabinet.id}/troubleshoot`)}>Diagnose this cabinet</button>
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/scanner`)}>Check the fingerprint scanner</button>
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/events`)}>Browse event logs</button>
-        <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
-      </div>
->>>>>>> worktree-agent-a4c190983127b6ab9
     </section>
     <TrendCharts cabinetId={cabinet.id} />
     <section className="panel" aria-label="Notes on this cabinet"><CabinetNotes cabinetId={cabinet.id} /></section>
