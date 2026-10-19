@@ -67,6 +67,17 @@ public sealed class ConnectivityTests
     }
 
     [Fact]
+    public void The_network_backoff_never_exceeds_a_minute_but_a_server_sent_wait_may_be_longer()
+    {
+        Assert.Equal(TimeSpan.FromSeconds(60), AgentConnectionOptions.NetworkBackoffCap);
+        var backoff = new Backoff(TimeSpan.FromSeconds(2), AgentConnectionOptions.NetworkBackoffCap);
+        var waits = Enumerable.Range(0, 200).Select(_ => backoff.Next()).ToList();
+        Assert.All(waits, w => Assert.InRange(w, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(60)));
+        Assert.Contains(waits, w => w > TimeSpan.FromSeconds(30)); // it does grow to the cap
+        Assert.Equal(TimeSpan.FromMinutes(10), Connectivity.MaxServerWait); // Retry-After and reconnectAfterMs keep their larger ceiling
+    }
+
+    [Fact]
     public async Task A_network_failure_still_pauses_every_loop_for_the_backoff_and_a_server_wait_is_honoured()
     {
         var link = new Connectivity(new Backoff(TimeSpan.FromMilliseconds(600), TimeSpan.FromMilliseconds(600)));

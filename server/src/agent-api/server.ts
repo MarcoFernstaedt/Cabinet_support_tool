@@ -48,13 +48,15 @@ export interface Admission {
   maxEventLoopLagMs: number;
   /** Retry-After range for shed requests, in seconds. */
   retryAfterSeconds: [number, number];
+  /** Retry-After range for a refusal given only because of the new-connection rate (cheap to give, no database load): much shorter, so a fleet returning after a restart is let in quickly. */
+  connectionRetryAfterSeconds: [number, number];
   /** Tests force the overloaded state. */
   overloaded?: () => boolean;
 }
 
 export const DEFAULT_ADMISSION: Admission = {
-  newConnectionsPerSecond: 100, newConnectionsBurst: 300, requestsPerSecond: 2_000, requestsBurst: 4_000,
-  maxPendingAcquires: 20, maxAcquireWaitMs: 1_000, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90],
+  newConnectionsPerSecond: 300, newConnectionsBurst: 900, requestsPerSecond: 2_000, requestsBurst: 4_000,
+  maxPendingAcquires: 20, maxAcquireWaitMs: 1_000, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90], connectionRetryAfterSeconds: [3, 15],
 };
 
 export interface AgentApiOptions {
@@ -222,6 +224,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   const admitted = new WeakSet<object>();
+  const connectionRetryAfter = (): number => randomInt(admission.connectionRetryAfterSeconds[0], admission.connectionRetryAfterSeconds[1] + 1);
   const retryAfter = (): number => randomInt(admission.retryAfterSeconds[0], admission.retryAfterSeconds[1] + 1);
 
   // ---- Shutdown: every held poll is ended with a spread-out reconnectAfterMs -----------------------------------------------------
@@ -263,7 +266,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     }
     const connection = connectionOf(request);
     if (!admitted.has(connection)) {
-      if (!connectionTokens.take()) return shed(request, reply, { seconds: retryAfter(), closeConnection: true, pollAnswer: false });
+      if (!connectionTokens.take()) return shed(request, reply, { seconds: connectionRetryAfter(), closeConnection: true, pollAnswer: false });
       admitted.add(connection);
     }
     if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });

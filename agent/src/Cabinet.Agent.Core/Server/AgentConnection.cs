@@ -61,7 +61,9 @@ public sealed class AgentConnectionOptions
     public int MaxEventFailures { get; init; } = 5;
     public TimeSpan RenewCheckInterval { get; init; } = TimeSpan.FromHours(6);
     public TimeSpan RenewBefore { get; init; } = TimeSpan.FromDays(30);
-    public Backoff Backoff { get; init; } = new();
+    /// <summary>The shared backoff after real network failures (refused, timed out, reset): decorrelated jitter from 2 s, capped at 60 s, so a cabinet is never away much more than a minute after the server is back.</summary>
+    public Backoff Backoff { get; init; } = new(TimeSpan.FromSeconds(2), NetworkBackoffCap);
+    public static readonly TimeSpan NetworkBackoffCap = TimeSpan.FromSeconds(60);
     /// <summary>The backoff a loop uses on its own after an answer only it must wait for (a quota, a refusal, a malformed answer).</summary>
     public Func<Backoff> LocalBackoff { get; init; } = () => new Backoff();
     /// <summary>The backoff before a loop that failed unexpectedly is started again.</summary>

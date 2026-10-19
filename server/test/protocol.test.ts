@@ -346,7 +346,8 @@ test("new connections beyond the admission rate get 503 with Retry-After; admitt
     assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: kept })).status, 200);
     const refused = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: false });
     assert.equal(refused.status, 503);
-    assert.ok(Number(refused.headers["retry-after"]) >= 30);
+    const wait = Number(refused.headers["retry-after"]);
+    assert.ok(wait >= 3 && wait <= 15, `a refusal for the connection rate alone is cheap and short: ${wait}`);
     assert.equal(refused.headers.connection, "close");
     assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: kept })).status, 200, "the admitted connection is unaffected");
   } finally { kept.destroy(); await other.app.close(); }
@@ -355,6 +356,12 @@ test("new connections beyond the admission rate get 503 with Retry-After; admitt
     const statuses = [];
     for (let i = 0; i < 3; i++) statuses.push((await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: limited.port })).status);
     assert.deepEqual(statuses, [200, 200, 503]);
+    const overloadedApi = await otherApi({ admission: { overloaded: () => true } });
+    try {
+      const over = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: overloadedApi.port });
+      assert.equal(over.status, 503);
+      assert.ok(Number(over.headers["retry-after"]) >= 30, "database or event-loop overload keeps 30-90 s");
+    } finally { await overloadedApi.app.close(); }
   } finally { await limited.app.close(); }
   const bucket = new TokenBucket(1000, 2);
   assert.deepEqual([bucket.take(), bucket.take(), bucket.take()], [true, true, false]);
