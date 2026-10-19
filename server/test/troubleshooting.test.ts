@@ -227,8 +227,9 @@ test("resolving an alert records the cause and the fix, writes a case note, and 
   const waiting = await db.app.query("SELECT 1 FROM known_fixes WHERE issue_type_id = $1 AND alert_id = $2 AND status = 'pending'", [ISSUE.scanner, alert.id]);
   assert.equal(waiting.rowCount, 1);
   const stats = (await call("GET", `/api/issues/${ISSUE.scanner}/resolutions`, undefined, t1)).body;
-  assert.equal(stats.fixes[0].fix, "Reseated the scanner cable on a rear port.");
-  assert.equal(stats.fixes[0].count, 1);
+  // The demo's own history (two cable fixes and a driver rollback) is counted too; the typed fix is one more.
+  assert.equal(stats.fixes[0].count, 2, "the most common fix comes first");
+  assert.equal(stats.fixes.find((f: { fix: string }) => f.fix === "Reseated the scanner cable on a rear port.").count, 1);
   assert.equal(stats.recent[0].cause, "A cleaner pulled the cable.");
   // A second alert (another cabinet) is resolved with the same words: the count goes to 2, and picking an approved known fix works.
   const known = (await db.app.query<{ id: string }>("SELECT id FROM known_fixes WHERE issue_type_id = $1 AND status = 'pending'", [ISSUE.scanner])).rows[0]!;
@@ -257,6 +258,8 @@ test("error trends are computed from the finished days, marked new or rising, an
   for (let ago = 14; ago >= 1; ago--) await add(ago > 7 ? 1 : 4, ago, "GrowingSource", 200);
   await add(3, 1, "BrandNewSource", 300);
   await add(2, 1, "Quiet", 400, "warning");
+  // The demo ships 30 days of trends of its own; start the job from nothing so it computes these events.
+  await db.app.query("UPDATE trend_state SET computed_through = NULL WHERE id = 1; DELETE FROM error_daily; DELETE FROM issue_daily");
   const out = await runErrorTrends(db.app);
   assert.ok(out.days.length >= 29);
   assert.equal((await runErrorTrends(db.app)).days.length, 0, "a second run finds nothing left to do");
