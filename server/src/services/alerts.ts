@@ -10,6 +10,9 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { countRuleHits, decide, ISSUE, liveNow, ruleConfig, type RuleConfig } from "./rules.js";
 import { isBootRecord, recordBoot } from "./crashes.js";
+import { insertNote } from "./case-notes.js";
+import { resolutionNoteText } from "./resolutions.js";
+import { saveKnownFix } from "./known-fixes.js";
 
 export const SITE_PATTERN_WINDOW_MS = 60 * 60 * 1000;
 
@@ -346,7 +349,7 @@ export function inTransaction<T>(db: Queryable, fn: (tx: Tx) => Promise<T>): Pro
 const ALERT_SELECT = `
   SELECT a.id, a.cabinet_id, k.name AS cabinet_name, s.id AS site_id, s.name AS site_name, c.id AS client_id, c.name AS client_name,
          a.scope, a.issue_type_id, a.severity, a.title, a.state, a.occurrences, a.first_seen, a.last_seen, a.site_pattern, a.rule_id,
-         a.last_event_id, a.claimed_by, cu.name AS claimed_by_name, a.claimed_at, a.resolved_by, ru.name AS resolved_by_name, a.resolved_at, a.resolution
+         a.last_event_id, a.claimed_by, cu.name AS claimed_by_name, a.claimed_at, a.resolved_by, ru.name AS resolved_by_name, a.resolved_at, a.resolution, a.resolution_cause, a.resolution_fix
     FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
     LEFT JOIN users cu ON cu.id = a.claimed_by LEFT JOIN users ru ON ru.id = a.resolved_by`;
 
@@ -355,6 +358,7 @@ interface AlertRow {
   issue_type_id: string | null; severity: string; title: string; state: string; occurrences: number; first_seen: Date; last_seen: Date;
   scope: string; site_pattern: boolean; rule_id: string | null; last_event_id: string | null; claimed_by: string | null; claimed_by_name: string | null;
   claimed_at: Date | null; resolved_by: string | null; resolved_by_name: string | null; resolved_at: Date | null; resolution: string | null;
+  resolution_cause: string | null; resolution_fix: string | null;
 }
 
 export const alertView = (r: AlertRow) => ({
@@ -363,6 +367,7 @@ export const alertView = (r: AlertRow) => ({
   firstSeen: r.first_seen.toISOString(), lastSeen: r.last_seen.toISOString(), sitePattern: r.site_pattern, ruleId: r.rule_id, lastEventId: r.last_event_id,
   claimedBy: r.claimed_by ? { id: r.claimed_by, name: r.claimed_by_name } : null, claimedAt: r.claimed_at?.toISOString() ?? null,
   resolvedBy: r.resolved_by ? { id: r.resolved_by, name: r.resolved_by_name } : null, resolvedAt: r.resolved_at?.toISOString() ?? null, resolution: r.resolution,
+  resolutionCause: r.resolution_cause, resolutionFix: r.resolution_fix,
 });
 
 export async function listAlerts(db: Queryable, f: AlertFilter, me: string) {
@@ -447,28 +452,60 @@ export async function claimAlert(pool: Pool, userId: string, alertId: string) {
   throw new Refused("already_resolved", 409, "the alert is resolved");
 }
 
-/** The person who claimed an alert resolves it; an Admin may resolve any active alert. */
-export async function resolveAlert(pool: Pool, user: { userId: string; role: string }, alertId: string, note: string | undefined) {
-  return transaction(pool, async c => {
+/** What a person says when resolving: what was wrong, what fixed it, and whether to keep a typed fix for every cabinet. */
+export interface ResolveDetails {
+  cause?: string | undefined;
+  fix?: { kind: "known"; fixId: string } | { kind: "text"; text: string } | undefined;
+  saveFix?: boolean | undefined;
+  /** Whether the person may approve fixes (their saved fix is then approved at once). */
+  canApproveFixes?: boolean | undefined;
+}
+
+/**
+ * The person who claimed an alert resolves it; an Admin may resolve any active alert. The cause and the fix are kept on the alert (they feed
+ * "usually fixed by" for its issue type) and a case note on the cabinet says who fixed what, how.
+ */
+export async function resolveAlert(pool: Pool, user: { userId: string; role: string }, alertId: string, note: string | undefined, details: ResolveDetails = {}) {
+  const cause = details.cause?.trim() || undefined;
+  const saved = await transaction(pool, async c => {
+    const a = (await c.query<{ cabinet_id: string; issue_type_id: string | null; title: string }>("SELECT cabinet_id, issue_type_id, title FROM alerts WHERE id = $1", [alertId])).rows[0];
+    if (!a) throw new Refused("not_found", 404, "no such alert");
+    // The fix: one of this issue type's approved known fixes (by its ID), or the person's own words.
+    let fixText: string | undefined, fixId: string | null = null;
+    if (details.fix?.kind === "known") {
+      const f = (await c.query<{ title: string }>("SELECT title FROM known_fixes WHERE id = $1 AND removed_at IS NULL AND status = 'approved' AND issue_type_id = $2", [details.fix.fixId, a.issue_type_id])).rows[0];
+      if (!a.issue_type_id || !f) throw new Refused("fix_not_for_this_issue", 409, "that fix is not an approved fix for this alert's issue");
+      fixText = f.title.slice(0, 256); fixId = details.fix.fixId;
+    } else if (details.fix?.kind === "text") fixText = details.fix.text.trim().slice(0, 256) || undefined;
+    if (details.saveFix && !(details.fix?.kind === "text" && fixText && a.issue_type_id)) throw new Refused("invalid_request", 400, "only a typed fix on an alert with an issue type can be kept for every cabinet");
     // No note typed: a fix this person saved from this alert is what fixed it, so its text becomes the resolution.
-    if (!note) {
+    if (!note && !fixText) {
       const fix = (await c.query<{ solution: string }>("SELECT TOP (1) solution FROM known_fixes WHERE alert_id = $1 AND created_by = $2 AND removed_at IS NULL ORDER BY created_at DESC", [alertId, user.userId])).rows[0];
       if (fix) note = [...fix.solution].map(ch => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? " " : ch)).join("").trim().slice(0, 256) || undefined;
     }
+    const resolution = note ?? fixText ?? null;
     const r = await c.query(
-      `UPDATE alerts SET state = 'resolved', resolved_by = $2, resolved_at = SYSUTCDATETIME(), resolution = $3
+      `UPDATE alerts SET state = 'resolved', resolved_by = $2, resolved_at = SYSUTCDATETIME(), resolution = $3, resolution_cause = $5, resolution_fix = $6, resolution_fix_id = $7
         WHERE id = $1 AND (state = 'claimed' AND claimed_by = $2 OR $4 = 1 AND state <> 'resolved')`,
-      [alertId, user.userId, note ?? null, user.role === "admin"]);
+      [alertId, user.userId, resolution, user.role === "admin", cause ?? null, fixText ?? null, fixId]);
     if (r.rowCount !== 1) {
       const now = await alertById(c, alertId);
       if (!now) throw new Refused("not_found", 404, "no such alert");
       throw new Refused(now.state === "resolved" ? "already_resolved" : "claim_first", 409, "only the person who claimed it can resolve it",
         now.claimedBy ? { claimedBy: now.claimedBy } : undefined);
     }
+    if (cause || fixText || note)
+      await insertNote(c, { cabinetId: a.cabinet_id, alertId, authorId: user.userId, kind: "resolution", body: resolutionNoteText({ cause, fix: fixText, note, title: a.title.slice(0, 200) }) });
     await audit(c, { actorKind: "user", actorId: user.userId, action: "alert.resolve", targetKind: "alert", targetId: alertId, outcome: "succeeded",
-      details: { note: note ?? null } });
-    return (await alertById(c, alertId))!;
+      details: { note: note ?? null, ...(cause ? { cause } : {}), ...(fixText ? { fix: fixText } : {}), ...(fixId ? { fixId } : {}) } });
+    return details.saveFix && fixText && a.issue_type_id ? { cabinetId: a.cabinet_id, issueTypeId: a.issue_type_id, title: a.title, solution: fixText } : null;
   });
+  // Keeping the typed fix for every cabinet is its own record (known_fixes.ts): approved at once only for someone who may approve fixes.
+  if (saved)
+    await saveKnownFix(pool, { userId: user.userId, canApproveFixes: details.canApproveFixes === true },
+      { title: ([...saved.title].map(ch => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? " " : ch)).join("").trim().slice(0, 120)) || "Fix", solution: saved.solution,
+        symptom: { kind: "issue", issueTypeId: saved.issueTypeId }, cabinetId: saved.cabinetId, alertId });
+  return (await alertById(pool, alertId))!;
 }
 
 // ---- Offline ---------------------------------------------------------------------------

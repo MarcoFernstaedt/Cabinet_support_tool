@@ -558,6 +558,7 @@ Built to fit one 4 vCPU / 8 GB machine with SQL Server Express (1.4 GB buffer po
 - **The audit log is never pruned**, and grows by about 1.7 GB a year at the assumed support activity: it reaches Express's 10 GB in roughly three years. *Open: archive older years to signed files (the chain checkpoint makes that verifiable), or move to SQL Server Standard.*
 - **Command results** are the largest table after events and are not compressed by SQL Server (page compression skips varchar(max) values). Keeping them 30 days instead of 90 would save about 1.4 GB at the assumed volume. *Open.*
 
+<<<<<<< HEAD
 ## Operations telemetry and alerts (October 2026)
 
 Decided by the owner: no email features of any kind. The platform counts its own health (docs/platform/operations.md) and raises operations alerts through the security alert mechanism; nothing is sent out. Choices made where the spec was silent:
@@ -567,3 +568,16 @@ Decided by the owner: no email features of any kind. The platform counts its own
 - **Size, disk, backup and CA alerts close themselves** when the condition is gone (audited as `security_alert.auto_resolve`); error and shed alerts stay open until an Admin closes them.
 - **Agent faults are reported as codes** in `agent_status` events (`check` and `code` fields, e.g. `loop_restart` / `heartbeat`, `renewal_failed` / `http_503`), at most once an hour per code. Update failures were already reported by the upgrade status; event-queue losses already existed.
 - **Pacing settings** (heartbeat, poll length, event pace) are editable in Admin -> Settings; values read from the table outside the ranges are clamped, no longer replaced by the defaults.
+=======
+## Troubleshooting workflow (October 2026)
+
+Decided while building it, for the owner to confirm:
+
+- **Runbook approval needs an authenticator code, as rules do.** A runbook cannot run anything by itself, but it tells a Tier 1 person which button to press, so an Admin decides. An Admin who writes one still approves it in a second step.
+- **Only changes confirmed by a click can be a runbook fix.** Changes that need an authenticator code (network addresses, restarts, package installs) stay on the cabinet's own pages. The firewall policy is filled in by the server, so a runbook sends it no parameters.
+- **Error trends count days as the UTC date the platform received the events**, and "cabinets" as the busiest day's count, because distinct cabinets over several days would need a scan of the events table at request time or a nightly scan of 30 days. Today's partial day is not shown. The nightly job reads one finished day through the `events_received_at` index. If exact seven-day distinct counts matter, a second nightly pass over seven days is the way.
+- **Case notes keep their text out of the audit log** (free text can hold anything); the audit log records that a note was added, its length and what it hangs on. Redaction by an Admin needs a reason and keeps the note.
+- **Diagnose this cabinet refuses an offline cabinet** instead of waiting for the reads to expire. The network diagnosis alone still waits.
+- **Open question:** should the triage queue also include the latest cabinet diagnoses' findings (for example "wrong gateway on 5 cabinets") as groups? Today its groups are alerts by issue type and unrecognized errors; the batch network diagnosis already groups fixes by cause.
+- **Open question:** the connection profile read, per-server DNS resolution and a per-hop traceroute are agent operations still to be written (Windows code, not testable on the Linux build machine).
+>>>>>>> worktree-agent-a4c190983127b6ab9

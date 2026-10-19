@@ -21,6 +21,7 @@ import { refreshDrive } from "../services/drives.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
 import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
+import { seedDemoTroubleshooting } from "./troubleshooting.js";
 import { raiseBaselineAlert } from "../diagnose/network.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
 
@@ -280,6 +281,7 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
   }
   await seedHistory(pool, userId);
   await seedSubmittedFix(pool);
+  await seedDemoTroubleshooting(pool, userId);
   // What the platform's regular check of each cabinet against its site's baseline would have found.
   for (const a of netAlerts) await raiseBaselineAlert(pool, a.id, a.problems);
   await checkOffline(pool);
@@ -323,6 +325,7 @@ export async function disableDemo(pool: Pool, userId: string): Promise<number> {
     await c.query(`DELETE FROM diagnosis_batches WHERE site_id IN (SELECT s.id FROM sites s JOIN clients n ON n.id = s.client_id WHERE n.demo = 1)
                   OR EXISTS (SELECT 1 FROM OPENJSON(diagnosis_batches.cabinet_ids) b JOIN OPENJSON($1) x ON x.value = b.value)`, [ids]);
     await c.query("DELETE FROM cabinets WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [ids]);
+    await c.query("DELETE FROM error_daily WHERE client_id IN (SELECT id FROM clients WHERE demo = 1); DELETE FROM issue_daily WHERE client_id IN (SELECT id FROM clients WHERE demo = 1)");
     await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo = 1)");
     await c.query("DELETE FROM clients WHERE demo = 1");
     await upsertSetting(c, SETTING, "false", userId);

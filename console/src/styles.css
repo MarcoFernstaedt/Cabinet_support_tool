@@ -281,7 +281,8 @@ main:focus { outline: none; }
 .alert-list > li:last-child .alert-row, .alert-list > .alert-row:last-child { border-bottom: 0; }
 .alert-row.major { border-left-color: var(--crit); }
 .alert-row.minor { border-left-color: var(--line-strong); }
-.alert-row.resolved { opacity: 0.7; }
+.alert-row.resolved { opacity: 1; }
+.alert-row.resolved .title, .alert-row.resolved .meta { opacity: 0.8; }
 .alert-row .title { font-weight: 600; }
 .alert-row .meta { font-size: var(--fs-sm); color: var(--text-2); display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); }
 .alert-row .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: start; justify-content: flex-end; }

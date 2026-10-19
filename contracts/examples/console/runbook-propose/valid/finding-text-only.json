@@ -1,0 +1,12 @@
+{
+  "target": {
+    "kind": "finding",
+    "key": "dns-all"
+  },
+  "title": "No DNS server answers",
+  "steps": [
+    {
+      "title": "Ask the site whether the router was restarted"
+    }
+  ]
+}

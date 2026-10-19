@@ -1,0 +1,8 @@
+{
+  "cause": "Stale DNS entry on the router.",
+  "fix": {
+    "kind": "text",
+    "text": "Flushed DNS and restarted the DHCP client."
+  },
+  "saveFix": true
+}

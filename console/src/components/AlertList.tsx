@@ -12,6 +12,9 @@ import { atLeast, useSession } from "../lib/session";
 import { ago, fullTime } from "../lib/time";
 import { Badge, ConfirmDialog, Empty } from "./ui";
 import { MapToIssue } from "./MapToIssue";
+import { ResolveForm, UsualFixes } from "./ResolveForm";
+import { RunbookPanel } from "./Runbook";
+import { CabinetNotes } from "./CabinetNotes";
 
 /** The pre-filled match for an event: log, source, event ID and hardware ID when there is one (docs/spec/05-server-spec.md). */
 export function matchFor(e: Pick<StoredEvent, "kind" | "source" | "device">): Match {
@@ -93,16 +96,13 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
                   : <>Resolved {a.resolvedBy ? <>by {a.resolvedBy.name}</> : "on its own"} {ago(a.resolvedAt)}</>}</span>
               </div>
               {a.resolution && <p className="small muted">{a.resolution}</p>}
+              {a.resolutionCause && <p className="small muted">Cause: {a.resolutionCause}</p>}
+              {a.issueTypeId && a.state === "claimed" && mine && <UsualFixes issueTypeId={a.issueTypeId} />}
+              {a.issueTypeId && a.state !== "resolved" && <RunbookPanel target={{ issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} cabinetName={a.cabinet.name} />}
               {a.issueTypeId && withFix.has(a.issueTypeId) && a.state !== "resolved" && <KnownFixes symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} />}
               {a.issueTypeId && a.state === "resolved" && (a.resolvedBy?.id === me.id || atLeast(me, "admin")) && <SaveFix symptom={{ kind: "issue", issueTypeId: a.issueTypeId }} cabinetId={a.cabinet.id} suggestedTitle={a.title} alertId={a.id} />}
               {notes[a.id] && <p className="small error" role="alert">{notes[a.id]}</p>}
-              {resolving === a.id && (
-                <form className="row gap wrap" onSubmit={e => { e.preventDefault(); if (asFix && me.canApproveFixes && resolution.trim()) setConfirmFix(a); else void resolve(a, asFix).catch(() => undefined); }}>
-                  <label className="field"><span>What fixed it (optional)</span><input value={resolution} maxLength={256} onChange={e => setResolution(e.target.value)} autoFocus /></label>
-                  {a.issueTypeId && resolution.trim() && <label className="check small"><input type="checkbox" checked={asFix} onChange={e => setAsFix(e.target.checked)} /> Also keep this as a possible fix for every cabinet{me.canApproveFixes ? "" : " (an Admin approves it first)"}</label>}
-                  <button className="btn primary small">Resolve</button>
-                  <button type="button" className="btn ghost small" onClick={() => setResolving(null)}>Cancel</button>
-                </form>)}
+              {resolving === a.id && <ResolveForm alert={a} onDone={() => { setResolving(null); onChanged(); }} onCancel={() => setResolving(null)} />}
             </div>
             <div className="actions">
               {a.state !== "resolved" && symptomForAlert(a.title) && <Link className="btn small" to={`/cabinets/${a.cabinet.id}/troubleshoot?symptom=${symptomForAlert(a.title)}`}>Troubleshoot</Link>}

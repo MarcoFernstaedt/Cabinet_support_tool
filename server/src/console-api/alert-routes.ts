@@ -48,7 +48,7 @@ export async function alertRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/alerts/:id/resolve", async request => {
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.alertResolve.parse(request.body ?? {});
-    return alerts.resolveAlert(o.pool, u, id(request), body.note);
+    return alerts.resolveAlert(o.pool, u, id(request), body.note, { cause: body.cause, fix: body.fix, saveFix: body.saveFix, canApproveFixes: u.canApproveFixes });
   });
 
   app.get("/api/events/lookup", async request => {

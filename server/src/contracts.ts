@@ -83,6 +83,13 @@ import type {
   RolloutStart,
   CabinetInOffice,
   SyncPorts,
+  CaseNoteCreate,
+  CaseNoteRedact,
+  CaseNoteQuery,
+  RunbookPropose,
+  RunbookQuery,
+  TriageQuery,
+  ErrorTrendQuery,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -223,6 +230,13 @@ export const consoleBodies = {
   rolloutStart: validator<RolloutStart>("rollout-start", consoleBody("rollout-start")),
   cabinetInOffice: validator<CabinetInOffice>("cabinet-in-office", consoleBody("cabinet-in-office")),
   syncPorts: validator<SyncPorts>("sync-ports", consoleBody("sync-ports")),
+  caseNoteCreate: validator<CaseNoteCreate>("case-note-create", consoleBody("case-note-create")),
+  caseNoteRedact: validator<CaseNoteRedact>("case-note-redact", consoleBody("case-note-redact")),
+  caseNoteQuery: validator<CaseNoteQuery>("case-note-query", consoleBody("case-note-query")),
+  runbookPropose: validator<RunbookPropose>("runbook-propose", consoleBody("runbook-propose")),
+  runbookQuery: validator<RunbookQuery>("runbook-query", consoleBody("runbook-query")),
+  triageQuery: validator<TriageQuery>("triage-query", consoleBody("triage-query")),
+  errorTrendQuery: validator<ErrorTrendQuery>("error-trend-query", consoleBody("error-trend-query")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

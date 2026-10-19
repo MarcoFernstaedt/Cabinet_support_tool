@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/alert-resolve.schema.json",
   "title": "alert-resolve",
-  "description": "Resolve a claimed alert, with an optional note on what fixed it.",
+  "description": "Resolve a claimed alert. All parts are optional: a note, the cause (what was really wrong) and the fix (one of the issue type's known fixes, or typed). The server counts which fix resolved each issue type's alerts and shows 'usually fixed by' first on the next alert.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -16,6 +16,56 @@
           "maxLength": 256
         }
       ]
+    },
+    "cause": {
+      "description": "What was wrong, in the person's words (up to 500 characters).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+    },
+    "fix": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "fixId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "known"
+            },
+            "fixId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "text"
+          ],
+          "properties": {
+            "kind": {
+              "const": "text"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+            }
+          }
+        }
+      ]
+    },
+    "saveFix": {
+      "description": "With a typed fix: also keep it as a known fix for the alert's issue type (an Admin approves it first unless the person may approve fixes).",
+      "type": "boolean"
     }
   },
   "required": []

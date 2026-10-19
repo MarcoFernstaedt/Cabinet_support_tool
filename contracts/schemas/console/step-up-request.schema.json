@@ -72,7 +72,10 @@
         "settings.sync",
         "client.firewall_policy",
         "fleet.firewall_policy",
-        "site.network_baseline"
+        "site.network_baseline",
+        "runbook.approve",
+        "runbook.reject",
+        "runbook.retire"
       ]
     },
     "target": {

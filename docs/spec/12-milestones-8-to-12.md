@@ -176,6 +176,8 @@ The console is refined with the product owner's brand rather than rebuilt. Every
 
 ## Milestone 12: diagnose, trend, triage
 
+Status (October 2026): Diagnose this cabinet, runbooks, resolution notes ("usually fixed by"), case notes, the triage queue and error trends are built; see "The troubleshooting workflow" in [13-roadmap.md](13-roadmap.md) for what they do and what differs from the text below. The daily health snapshot is not part of that change.
+
 - **Diagnose this cabinet** (Tier 1): one button that runs the network diagnosis above together with:
   - system.info and the scanner checklist (peripheral.status);
   - devices with problems, disk health, updates status and services.list;

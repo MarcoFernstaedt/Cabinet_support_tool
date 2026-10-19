@@ -24,6 +24,7 @@ export function AlertsPage() {
         <button aria-pressed={view === "alerts"} onClick={() => setView("alerts")}>Major alerts</button>
         <button aria-pressed={view === "unrecognized"} onClick={() => setView("unrecognized")}>Unrecognized errors</button>
         <button aria-pressed={view === "offline"} onClick={() => setView("offline")}>Offline cabinets</button>
+        <button aria-pressed={false} onClick={() => navigate("/triage")}>Triage and trends</button>
       </div>
       {view === "offline" ? <Offline clientId={query.get("clientId")} siteId={query.get("siteId")} /> : <AlertsView unrecognized={view === "unrecognized"} />}
     </div>

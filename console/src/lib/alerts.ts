@@ -7,6 +7,7 @@ export interface Alert {
   issueTypeId: string | null; unrecognized: boolean; severity: "major" | "minor"; title: string; state: "open" | "claimed" | "resolved";
   occurrences: number; firstSeen: string; lastSeen: string; sitePattern: boolean; ruleId: string | null; lastEventId: string | null;
   claimedBy: Person | null; claimedAt: string | null; resolvedBy: Person | null; resolvedAt: string | null; resolution: string | null;
+  resolutionCause?: string | null; resolutionFix?: string | null;
 }
 export interface IssueType { id: string; name: string; severity: "major" | "minor"; description: string; builtIn: boolean; openAlerts: number; liveRules: number }
 

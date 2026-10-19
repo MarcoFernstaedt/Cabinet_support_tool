@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/runbook-propose.schema.json",
+  "title": "runbook-propose",
+  "description": "A runbook for an issue type or a diagnosis finding: ordered steps a support person follows, each with an optional read-only check and an optional one-click fix. Tier 2 proposes; an Admin approves with an authenticator code. At most 12 steps and 5 links; the server also limits the total text to 4,000 characters.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "target",
+    "title",
+    "steps"
+  ],
+  "properties": {
+    "target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "issueTypeId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "issue"
+            },
+            "issueTypeId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "key"
+          ],
+          "properties": {
+            "kind": {
+              "const": "finding"
+            },
+            "key": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]{0,47}$"
+            }
+          }
+        }
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 800,
+            "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+          },
+          "check": {
+            "description": "A read-only operation the person can run from the step. The server accepts reads only, with parameters that fit the operation's own schema.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation",
+              "params"
+            ],
+            "properties": {
+              "operation": {
+                "$ref": "../common.schema.json#/$defs/operationName"
+              },
+              "params": {
+                "type": "object"
+              }
+            }
+          },
+          "fix": {
+            "description": "A change the person can make from the step with one click. The server accepts only catalog writes confirmed by a click; the person's role, the write pause and the cabinet's own rules still decide whether it runs.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "operation",
+              "params",
+              "label"
+            ],
+            "properties": {
+              "operation": {
+                "$ref": "../common.schema.json#/$defs/operationName"
+              },
+              "params": {
+                "type": "object"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "url"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^https://[A-Za-z0-9.-]{1,200}(:[0-9]{1,5})?(/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*)?(\\?[A-Za-z0-9._~!$&'()*+,;=:@%/?-]*)?$"
+          }
+        }
+      }
+    }
+  }
+}

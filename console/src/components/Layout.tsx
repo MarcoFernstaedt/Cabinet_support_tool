@@ -58,7 +58,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { me, signOut } = useSession();
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
-  const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") ? "alerts"
+  const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") || path.startsWith("/triage") ? "alerts"
     : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : path.split("?")[0] === "/" || /^\/(clients|sites|cabinets)\//.test(path) ? "fleet" : "";
   return (
     <>

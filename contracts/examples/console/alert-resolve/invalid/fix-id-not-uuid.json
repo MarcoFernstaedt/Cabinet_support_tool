@@ -1,0 +1,6 @@
+{
+  "fix": {
+    "kind": "known",
+    "fixId": "1; DROP TABLE alerts"
+  }
+}

@@ -358,10 +358,27 @@ export interface AlertFilter {
 }
 
 /**
- * Resolve a claimed alert, with an optional note on what fixed it.
+ * Resolve a claimed alert. All parts are optional: a note, the cause (what was really wrong) and the fix (one of the issue type's known fixes, or typed). The server counts which fix resolved each issue type's alerts and shows 'usually fixed by' first on the next alert.
  */
 export interface AlertResolve {
   note?: string;
+  /**
+   * What was wrong, in the person's words (up to 500 characters).
+   */
+  cause?: string;
+  fix?:
+    | {
+        kind: "known";
+        fixId: string;
+      }
+    | {
+        kind: "text";
+        text: string;
+      };
+  /**
+   * With a typed fix: also keep it as a known fix for the alert's issue type (an Admin approves it first unless the person may approve fixes).
+   */
+  saveFix?: boolean;
 }
 
 /**
@@ -434,6 +451,28 @@ export interface CabinetRole {
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
+}
+
+/**
+ * A case note on a cabinet, optionally tied to one of its alerts: what was found, what was done, what is left. Plain text, up to 2,000 characters. Never put passwords or patient data in a note.
+ */
+export interface CaseNoteCreate {
+  body: string;
+  alertId?: string;
+}
+
+/**
+ * A cabinet's case notes, newest first; optionally only those tied to one alert.
+ */
+export interface CaseNoteQuery {
+  alertId?: string;
+}
+
+/**
+ * An Admin removes the text of a case note (a password or personal data was pasted into it). The note stays, marked removed, with the reason; the audit log keeps who did it.
+ */
+export interface CaseNoteRedact {
+  reason: string;
 }
 
 /**
@@ -545,6 +584,16 @@ export interface DemoMode {
    * A one-time step-up token for demo.change on fleet, bound to this body.
    */
   stepUpToken: string;
+}
+
+/**
+ * Error trends (query string): the cabinets and events per day over the last 30 days for each issue type and each unrecognized error, marked new or rising. Filter by client, by mark, or to the unrecognized errors only.
+ */
+export interface ErrorTrendQuery {
+  clientId?: string;
+  mark?: "new" | "rising" | "all";
+  unrecognized?: "true" | "false";
+  days?: "7" | "14" | "30";
 }
 
 /**
@@ -950,6 +999,286 @@ export interface RuleRollback {
 }
 
 /**
+ * A runbook for an issue type or a diagnosis finding: ordered steps a support person follows, each with an optional read-only check and an optional one-click fix. Tier 2 proposes; an Admin approves with an authenticator code. At most 12 steps and 5 links; the server also limits the total text to 4,000 characters.
+ */
+export interface RunbookPropose {
+  target:
+    | {
+        kind: "issue";
+        issueTypeId: string;
+      }
+    | {
+        kind: "finding";
+        key: string;
+      };
+  title: string;
+  /**
+   * @minItems 1
+   * @maxItems 12
+   */
+  steps: [
+    {
+      title: string;
+      detail?: string;
+      /**
+       * A read-only operation the person can run from the step. The server accepts reads only, with parameters that fit the operation's own schema.
+       */
+      check?: {
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set";
+        params: {};
+      };
+      /**
+       * A change the person can make from the step with one click. The server accepts only catalog writes confirmed by a click; the person's role, the write pause and the cabinet's own rules still decide whether it runs.
+       */
+      fix?: {
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set";
+        params: {};
+        label: string;
+      };
+    },
+    ...{
+      title: string;
+      detail?: string;
+      /**
+       * A read-only operation the person can run from the step. The server accepts reads only, with parameters that fit the operation's own schema.
+       */
+      check?: {
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set";
+        params: {};
+      };
+      /**
+       * A change the person can make from the step with one click. The server accepts only catalog writes confirmed by a click; the person's role, the write pause and the cabinet's own rules still decide whether it runs.
+       */
+      fix?: {
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set";
+        params: {};
+        label: string;
+      };
+    }[]
+  ];
+  /**
+   * @maxItems 5
+   */
+  links?: {
+    label: string;
+    url: string;
+  }[];
+}
+
+/**
+ * Runbooks for an issue type or a finding (query string). With neither, the runbooks in the given state (default: approved).
+ */
+export interface RunbookQuery {
+  issueTypeId?: string;
+  findingKey?: string;
+  state?: "proposed" | "approved" | "rejected" | "retired";
+}
+
+/**
  * The fingerprint scanner's hardware IDs for the fleet default, a client, a site or one cabinet; the most specific one set applies. null removes that level's setting. An ID may be a whole hardware ID (USB\\VID_1234&PID_5678) or a vendor prefix (USB\\VID_1234), which matches every model from that vendor. With none set anywhere, cabinets find the scanner themselves (the Biometric device class).
  */
 export interface ScannerSettings {
@@ -1102,7 +1431,10 @@ export interface StepUpRequest {
     | "settings.sync"
     | "client.firewall_policy"
     | "fleet.firewall_policy"
-    | "site.network_baseline";
+    | "site.network_baseline"
+    | "runbook.approve"
+    | "runbook.reject"
+    | "runbook.retire";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -1149,9 +1481,19 @@ export interface SyncSettings {
 }
 
 /**
+<<<<<<< HEAD
  * The System health page's request. It takes no parameters; anything in the query string is refused.
  */
 export interface SystemHealthQuery {}
+=======
+ * The triage queue (query string): what needs attention first across the fleet, optionally for one client or site, looking back 7, 14 or 30 days.
+ */
+export interface TriageQuery {
+  clientId?: string;
+  siteId?: string;
+  days?: "7" | "14" | "30";
+}
+>>>>>>> worktree-agent-a4c190983127b6ab9
 
 /**
  * An Admin creates an account. The server makes a temporary password, shown once.

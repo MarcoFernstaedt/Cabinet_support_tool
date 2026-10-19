@@ -31,7 +31,7 @@ export async function environmentOf(db: Queryable, cabinetId: string): Promise<E
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) throw new Refused("not_found", 404, "no such cabinet");
   const adaptersText = (await db.query<{ a: string | null }>(
-    "SELECT TOP (1) JSON_QUERY(readings, '$.adapters') AS a FROM diagnoses WHERE cabinet_id = $1 AND state = 'done' AND readings IS NOT NULL ORDER BY finished_at DESC", [cabinetId])).rows[0]?.a;
+    "SELECT TOP (1) JSON_QUERY(readings, '$.adapters') AS a FROM diagnoses WHERE cabinet_id = $1 AND kind = 'network' AND state = 'done' AND readings IS NOT NULL ORDER BY finished_at DESC", [cabinetId])).rows[0]?.a;
   let adapters: unknown = null;
   try { adapters = adaptersText ? JSON.parse(adaptersText) : null; } catch { /* unreadable readings: no network section */ }
   const a = Array.isArray(adapters) ? (adapters as AdapterReading[]).find(x => x?.connected) : undefined;

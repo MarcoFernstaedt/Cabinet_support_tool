@@ -9,6 +9,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { RunbookAdmin } from "../../components/RunbookAdmin";
 
 interface Rule {
   severity?: "major" | "minor" | null;
@@ -52,6 +53,7 @@ export function IssuesPage() {
         {rules.data && rules.data.length === 0 && <Empty>{state === "proposed" ? "No rules are waiting for approval." : "No rules here."}</Empty>}
         {rules.data && rules.data.length > 0 && <ul className="alert-list">{rules.data.map(r => <RuleRow key={r.id} rule={r} admin={atLeast(me, "admin")} onChanged={reload} />)}</ul>}
       </section>
+      <RunbookAdmin />
     </div>
   );
 }

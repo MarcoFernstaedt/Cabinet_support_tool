@@ -4,6 +4,7 @@
 import { scheduleDailyJobs } from "./services/maintenance.js";
 import { OpsReporter } from "./services/ops-meter.js";
 import { scheduleOpsChecks } from "./services/ops-health.js";
+import { scheduleTroubleshootingJobs } from "./services/error-trends.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
 import { createPool, errorInfo } from "./db/db.js";
@@ -136,7 +137,8 @@ if (runsServices) {
   const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
   // Database size, free disk, backup age and CA expiry: one open operations alert per kind, shown in the console (no outbound notification).
   const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem });
-  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); stopOpsChecks(); };
+  const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt });
+  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
 }
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every

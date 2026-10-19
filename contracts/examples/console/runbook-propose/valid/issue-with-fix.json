@@ -1,0 +1,31 @@
+{
+  "target": {
+    "kind": "issue",
+    "issueTypeId": "00000000-0000-4000-8000-000000000119"
+  },
+  "title": "Clock is off",
+  "steps": [
+    {
+      "title": "Check the clock",
+      "detail": "Open the Time section and compare the cabinet's time with the server's.",
+      "check": {
+        "operation": "time.status",
+        "params": {}
+      }
+    },
+    {
+      "title": "Sync the clock",
+      "fix": {
+        "operation": "time.sync",
+        "params": {},
+        "label": "Sync the clock now"
+      }
+    }
+  ],
+  "links": [
+    {
+      "label": "Windows Time service",
+      "url": "https://learn.microsoft.com/windows-server/networking/windows-time-service/windows-time-service-top"
+    }
+  ]
+}
