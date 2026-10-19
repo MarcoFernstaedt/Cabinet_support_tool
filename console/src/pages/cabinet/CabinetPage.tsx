@@ -17,6 +17,8 @@ import { EventLogs } from "./EventLogs";
 import { Changes } from "./Changes";
 import { Compare } from "./Compare";
 import { Troubleshoot } from "./Troubleshoot";
+import { DiagnoseCabinet } from "./DiagnoseCabinet";
+import { CabinetNotes } from "../../components/CabinetNotes";
 import { CaseNotes } from "../../components/CaseNotes";
 import { LiveCheck } from "../../components/LiveCheck";
 import { Time } from "./Time";
@@ -91,7 +93,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "alerts": return <><CabinetAlerts cabinetId={cabinet.id} /><MonitorEvents cabinetId={cabinet.id} /></>;
     case "changes": return <Changes cabinetId={cabinet.id} />;
     case "compare": return <Compare cabinet={cabinet} />;
-    case "troubleshoot": return <Troubleshoot cabinetId={cabinet.id} cabinetName={cabinet.name} />;
+    case "troubleshoot": return <><DiagnoseCabinet cabinetId={cabinet.id} cabinetName={cabinet.name} /><Troubleshoot cabinetId={cabinet.id} cabinetName={cabinet.name} /></>;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "standards": return <Standards cabinet={cabinet} onChanged={reload} />;
     case "scanner": return <Scanner cabinet={cabinet} onSettingsChanged={reload} />;
@@ -131,12 +133,14 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         ["Clock difference", cabinet.clockSkewSeconds === null ? null : `${cabinet.clockSkewSeconds} s from the server`],
       ]} />
       <div className="row gap wrap">
+        <button className="btn primary" onClick={() => navigate(`/cabinets/${cabinet.id}/troubleshoot`)}>Diagnose this cabinet</button>
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/scanner`)}>Check the fingerprint scanner</button>
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/events`)}>Browse event logs</button>
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/drives`)}>Check drive health</button>
       </div>
     </section>
     <TrendCharts cabinetId={cabinet.id} />
+    <section className="panel" aria-label="Notes on this cabinet"><CabinetNotes cabinetId={cabinet.id} /></section>
     <CaseNotes cabinetId={cabinet.id} title="Case notes for this cabinet" />
     <LiveCheck cabinetId={cabinet.id} cabinetName={cabinet.name} simulated={!!cabinet.demo} />
   </>);
