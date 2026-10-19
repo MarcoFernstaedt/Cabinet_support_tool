@@ -115,7 +115,7 @@ Target: 10,000 cabinets in one SQL Server **Express** database (10 GB at most, 1
 - **Indexes:** `events_alert` covers only events that have an alert; the index on `events.occurred_at` alone was dropped (no query used it: the fleet-wide 30-day reads cover the whole table). Added for retention: `commands_result_at` (filtered), `firewall_changes_occurred`, `diagnoses_started`, `cabinet_boots_booted`; for the offline jobs `alerts_open_issue`.
 - **Command answers are stored out of the row**: page compression does not shrink `varchar(max)` values, and in the row a 3 KB answer left pages half empty and was read by every scan of the command history.
 - **Load samples older than 48 hours become one row per hour** (min, average, max) in `health_hourly`; the trend chart and the disk-space forecast read both.
-- **Events are kept 30 days by default** (was 90; a setting, see [open decisions](../spec/09-open-decisions.md)).
+- **Events are kept 90 days by default**, but after 30 days the bulky `detail` and `source` JSON of events that have no alert is cleared (nightly, batched, then the clustered index is reorganized to give the pages back). Alerted events, security events and the crash records the crash timelines read stay whole. See "Events: 90 days within 10 GB" below.
 
 ### Measured bytes per row (including the table's indexes)
 
@@ -135,15 +135,34 @@ Assumptions (to check against the first real months): **20 events a cabinet a da
 
 | | Rows kept | Before | After |
 |---|---|---|---|
-| events | 90 days → 30 days: 18 M → 6 M | 22.5 GB | 2.6 GB |
+| events | 90 days: 6 M whole + 12 M cleared (5% alerted, kept whole) | 22.5 GB | 4.8 GB |
 | command answers (90 days) | 450,000 | 3.7 GB | 2.1 GB |
 | audit log (first year; never pruned) | 4.4 M | 4.6 GB | 1.7 GB |
 | load samples (14 days) | 13.4 M → 2.9 M raw + 2.9 M hourly | 0.7 GB | 0.2 GB |
 | drive samples (400 days) | 6 M | 1.2 GB | 0.2 GB |
 | alerts, cabinets, the rest | | about 0.3 GB | about 0.2 GB |
-| **Total** | | **about 33 GB: does not fit Express** | **about 7 GB** |
+| **Total** | | **about 33 GB: does not fit Express** | **about 9.2 GB** (7.0 GB with events kept 30 days) |
 
-With command answers kept 30 days instead of 90 it is about 5.6 GB. What grows without limit is the audit log, about 1.7 GB a year at these assumptions; see [open decisions](../spec/09-open-decisions.md) "Database at 10,000 cabinets".
+With command answers kept 30 days instead of 90 it is about 7.8 GB (see below). What grows without limit is the audit log, about 1.7 GB a year at these assumptions; see [open decisions](../spec/09-open-decisions.md) "Database at 10,000 cabinets".
+
+### Events: 90 days within 10 GB (October 2026)
+
+The owner wants events kept 90 days. Whole, that is about 7.7 GB of events alone, so after 30 days the `detail` and `source` JSON of events without an alert is set to NULL (`clearOldEventDetail` in `maintenance.ts`, run by the nightly job; the row, its kind, times, cabinet, device and the three indexes stay, so counts, timelines and "how often" questions still work for the whole 90 days). Alerted events, `security` events and the crash records (BugCheck, Kernel-Power 41, unexpected shutdown) stay whole. SQL Server does not give the space back by itself, so the job then runs `reorganize_events` (a procedure that runs as the owner and does only `ALTER INDEX events_seq ON events REORGANIZE`; the application's account may not alter tables).
+
+Measured on SQL Server 2022 with `node dist/test/load/event-size.js 600000` (600,000 synthetic events shaped like real System-log errors, 5% with an alert; the whole row measures 445 B against 428 B earlier, so the generator is close):
+
+| State of an event | Bytes per row, with its 3 indexes |
+|---|---|
+| whole (first 30 days, and alerted events) | 445 B |
+| cleared, before the index is reorganized | 445 B (the pages are only emptier) |
+| cleared and the index reorganized | 163 B |
+| cleared and rebuilt (not needed) | 148 B |
+
+Cost: clearing 550,000 events took 55 s (about 10,000 rows a second; a night at 10,000 cabinets is 200,000 events, so about 25 s). The reorganize of an already compact index with one new cleared day took 2.5 s for 660,000 rows, which extrapolates to about a minute for the 18 M rows of a full database; the first run after switching on takes a few minutes. The cursor (a sequence number in the settings table) means each night looks only at events it has not seen.
+
+At 10,000 cabinets and 20 events a cabinet a day: 6 M whole events (2.7 GB) + 12 M older events, of which 0.6 M are alerted and whole (0.3 GB) and 11.4 M are cleared (1.9 GB) = **4.8 GB of events** (7.7 GB without clearing, 2.6 GB at 30 days). With the other tables as in the table above (4.4 GB) the database is **about 9.2 GB in the first year: it does fit Express's 10 GB, but only just, and not in the second year** (the audit log adds about 1.7 GB a year). To leave room, in order of effect: keep command answers 30 days instead of 90 (-1.4 GB, 7.8 GB total); clear events after 14 days instead of 30 (the constant `EVENT_DETAIL_DAYS`; -0.5 GB); or SQL Server Standard, which has no 10 GB limit. The database-size guard (below, and System health) raises an alert at 70% and 85% of the limit, so the first year's growth is seen coming: at these assumptions the 70% alert appears after about eight months.
+
+The limit Express applies is to the size of the data files. The guard reads it from `sys.database_files` and `SERVERPROPERTY('Edition')` (the application's account cannot see `sys.master_files`).
 
 ### What keeps the database healthy at night
 
@@ -172,7 +191,7 @@ Each simulated agent has its own cabinet, its own client certificate and its own
 | Heartbeat | every 60 s, with a load sample | every 60 s until the server shows 1.1 (any pacing field), then `intervals.heartbeatSeconds` or 300 s; a load sample at most every 15 minutes; a drive report once a day |
 | Results | 8 attempts with backoff, then given up | outbox, oldest first, until 2xx or 409; another 4xx drops it |
 | Events | 100 per batch, back to back | 100 events and 256 KB per batch; gzip only after the server has shown 1.1, for bodies of 1 KB or more (415: plain for 24 h); halved after a refusal, an event refused alone 5 times set aside; paced only when the server sets `eventsPaceMs`; after a reconnection the main lane waits a random 0–120 s (security and agent-status events have their own lane, 1,000 deep, and do not wait); main queue 5,000 events |
-| Failures | each loop backs off on its own (exponential, full jitter, 2 s to 5 min) | one shared state: a network error or 502/503/504 pauses every loop and one request at a time probes, with decorrelated jitter from 2 s capped at 5 minutes (0–30 s for the first retry after a live connection was reset); 429 waits only in the loop that got it; `Retry-After` honoured up to 10 minutes |
+| Failures | each loop backs off on its own (exponential, full jitter, 2 s to 5 min) | one shared state: a network error (no answer) pauses every loop and one request at a time probes, with decorrelated jitter from 2 s capped at **60 s** (0–30 s for the first retry after a live connection was reset); 502/503/504 and 429 wait only in the loop that got them; `Retry-After` and `reconnectAfterMs` honoured up to 10 minutes |
 
 **Commands:** 70% `system.info` (0.2–1.4 s on the cabinet), 25% `eventlog.query` (2–20 s, a 50-entry page), 5% a 10-minute long command standing in for a software install, and 3% sent to cabinets that never connect (they expire and are reported separately). The install stand-in is `system.checkHealth` with a simulated 10-minute runtime: a real `package.install` needs an approved package, a step-up code and a write limit, none of which a load run should exercise. Commands go through the server's own issuing path (`issueCommand`), 2 a second by default, from 30 s after the ramp until `--drain-seconds` (120 s) before the end, so every delivery can settle before the database is checked.
 
@@ -349,3 +368,8 @@ Each item was measured with SQL Server's own statistics (`sys.dm_exec_query_stat
 Repeat the 8,000 and 10,000 runs against the production server and SQL Server Express, with the load generator on a separate machine, once hosting is decided ([open decisions](../spec/09-open-decisions.md)).
 
 When one process is no longer enough, set `AGENT_API_WORKERS` (2 on a 4-core server at 10,000 cabinets): command announcements reach every process through the notifications table.
+
+
+## Restart behaviour and admission (October 2026)
+
+The 10,000-cabinet restart test (0 lost commands or results, 0 false site-outage alerts) reconnected too slowly: median 22 s after the server was ready, p95 136 s, p99 355 s, 53 of 10,000 still missing after 8 minutes, 35,876 answers of 503 with a peak of 422 a second because new connections were admitted at 100 a second. Changes: new connections are admitted at 300 a second by default (burst three times that); a refusal given only for the connection rate carries a `Retry-After` of 3–15 s (database or event-loop overload keeps 30–90 s, and polls keep their 10–30 s `reconnectAfterMs`); and the agent's backoff after real network failures is capped at 60 s instead of 5 minutes. A cabinet is therefore never away much more than a minute after the server accepts connections again; 10,000 cabinets at 300 a second need about 35 s to be let in. To be confirmed by re-running the restart scenario.

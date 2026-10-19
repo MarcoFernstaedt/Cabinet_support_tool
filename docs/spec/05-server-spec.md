@@ -154,7 +154,7 @@ Database engine: Microsoft SQL Server 2022 (decided by the owner in October 2026
 
 ## Retention
 
-Events and command results kept 90 days by default, alerts and firewall history 1 year, the audit log indefinitely. Values are settings.
+Events and command results kept 90 days by default (the bulky detail of events without an alert is cleared after 30 days; see docs/platform/performance.md), alerts and firewall history 1 year, the audit log indefinitely. Values are settings.
 
 ## Operations
 
