@@ -1,0 +1,19 @@
+{
+  "target": {
+    "kind": "finding",
+    "key": "dns-all"
+  },
+  "title": "x",
+  "steps": [
+    {
+      "title": "s",
+      "fix": {
+        "operation": "shell.run",
+        "params": {
+          "command": "calc"
+        },
+        "label": "Run"
+      }
+    }
+  ]
+}

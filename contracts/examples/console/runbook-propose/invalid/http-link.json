@@ -1,0 +1,18 @@
+{
+  "target": {
+    "kind": "finding",
+    "key": "dns-all"
+  },
+  "title": "x",
+  "steps": [
+    {
+      "title": "s"
+    }
+  ],
+  "links": [
+    {
+      "label": "x",
+      "url": "http://example.com/"
+    }
+  ]
+}

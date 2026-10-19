@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/runbook-query.schema.json",
+  "title": "runbook-query",
+  "description": "Runbooks for an issue type or a finding (query string). With neither, the runbooks in the given state (default: approved).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "issueTypeId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "findingKey": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]{0,47}$"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "approved",
+        "rejected",
+        "retired"
+      ]
+    }
+  }
+}

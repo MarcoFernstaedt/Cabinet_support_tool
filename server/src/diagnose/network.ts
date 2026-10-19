@@ -21,9 +21,9 @@ export const RUN_LIMIT_MS = 60_000;
 const POLL_MS = 300;
 
 interface Issued { key: string; label: string; operation: string; params: Record<string, unknown>; commandId: string }
-type Outcome = { status: string; output?: unknown; failure?: string | undefined };
+export type Outcome = { status: string; output?: unknown; failure?: string | undefined };
 
-async function waitFor(pool: Pool, ids: string[], deadline: number): Promise<Map<string, Outcome>> {
+export async function waitFor(pool: Pool, ids: string[], deadline: number): Promise<Map<string, Outcome>> {
   const done = new Map<string, Outcome>();
   while (Date.now() < deadline) {
     const rows = (await pool.query<{ id: string; status: string; result: { output?: unknown; error?: { message: string } } | null }>(

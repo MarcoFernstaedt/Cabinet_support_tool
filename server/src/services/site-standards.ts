@@ -42,7 +42,7 @@ export async function siteStandards(db: Queryable, siteId: string) {
        SELECT d.cabinet_id, k.name, d.finished_at, JSON_QUERY(d.readings, '$.adapters') AS adapters,
               ROW_NUMBER() OVER (PARTITION BY d.cabinet_id ORDER BY d.finished_at DESC) AS rn
          FROM diagnoses d JOIN cabinets k ON k.id = d.cabinet_id
-        WHERE k.site_id = $1 AND k.status <> 'removed' AND d.state = 'done' AND d.readings IS NOT NULL) x
+        WHERE k.site_id = $1 AND k.status <> 'removed' AND d.kind = 'network' AND d.state = 'done' AND d.readings IS NOT NULL) x
       WHERE rn = 1`, [siteId])).rows
     .map(r => ({ r, baseline: baselineFrom(parseJson<unknown>(r.adapters)) })).filter(x => x.baseline !== null)
     .sort((a, b) => b.r.finished_at.getTime() - a.r.finished_at.getTime());

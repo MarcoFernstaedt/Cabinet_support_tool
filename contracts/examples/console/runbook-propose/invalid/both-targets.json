@@ -1,0 +1,13 @@
+{
+  "target": {
+    "kind": "finding",
+    "key": "dns-all",
+    "issueTypeId": "00000000-0000-4000-8000-000000000119"
+  },
+  "title": "x",
+  "steps": [
+    {
+      "title": "s"
+    }
+  ]
+}

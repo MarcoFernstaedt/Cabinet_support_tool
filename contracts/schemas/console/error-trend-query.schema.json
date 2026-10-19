@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/error-trend-query.schema.json",
+  "title": "error-trend-query",
+  "description": "Error trends (query string): the cabinets and events per day over the last 30 days for each issue type and each unrecognized error, marked new or rising. Filter by client, by mark, or to the unrecognized errors only.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "mark": {
+      "type": "string",
+      "enum": [
+        "new",
+        "rising",
+        "all"
+      ]
+    },
+    "unrecognized": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false"
+      ]
+    },
+    "days": {
+      "type": "string",
+      "enum": [
+        "7",
+        "14",
+        "30"
+      ]
+    }
+  }
+}

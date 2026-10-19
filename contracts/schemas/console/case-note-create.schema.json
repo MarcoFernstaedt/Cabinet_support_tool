@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/case-note-create.schema.json",
+  "title": "case-note-create",
+  "description": "A case note on a cabinet, optionally tied to one of its alerts: what was found, what was done, what is left. Plain text, up to 2,000 characters. Never put passwords or patient data in a note.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body"
+  ],
+  "properties": {
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "pattern": "^[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]*$"
+    },
+    "alertId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    }
+  }
+}

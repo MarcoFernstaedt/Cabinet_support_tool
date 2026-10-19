@@ -1,0 +1,12 @@
+{
+  "target": {
+    "kind": "finding",
+    "key": "dns-.*"
+  },
+  "title": "x",
+  "steps": [
+    {
+      "title": "s"
+    }
+  ]
+}
