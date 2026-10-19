@@ -373,3 +373,17 @@ When one process is no longer enough, set `AGENT_API_WORKERS` (2 on a 4-core ser
 ## Restart behaviour and admission (October 2026)
 
 The 10,000-cabinet restart test (0 lost commands or results, 0 false site-outage alerts) reconnected too slowly: median 22 s after the server was ready, p95 136 s, p99 355 s, 53 of 10,000 still missing after 8 minutes, 35,876 answers of 503 with a peak of 422 a second because new connections were admitted at 100 a second. Changes: new connections are admitted at 300 a second by default (burst three times that); a refusal given only for the connection rate carries a `Retry-After` of 3–15 s (database or event-loop overload keeps 30–90 s, and polls keep their 10–30 s `reconnectAfterMs`); and the agent's backoff after real network failures is capped at 60 s instead of 5 minutes. A cabinet is therefore never away much more than a minute after the server accepts connections again; 10,000 cabinets at 300 a second need about 35 s to be let in. To be confirmed by re-running the restart scenario.
+
+## 10,000-cabinet scenario suite (final code, shared 4-core machine)
+
+Generator, SQL Server Express limits and server shared the same four cores, so latency limits are pessimistic. Safety limits are the ones that matter.
+
+| Scenario | Lost commands/results | False offlines | Result |
+|---|---|---|---|
+| Server restart | 0 / 0 | 0 | Reconnect passes (99% back in about 85 s, limit 180 s). Misses only delivery/heartbeat latency tails |
+| Regional outage (3-day backlogs, 1.3M events queued) | 1 command not received / 0 | n/a | Fails: 425 commands to reachable cabinets undelivered, 326 cabinets slow to return, deadlock victims and timeouts in the site-outage check and presence flush while the backlog drains |
+| No ramp (all connect at once) | none | none | Latency tails only (delivery p95 59-103 s) |
+| Failover during a command | none | none | Passes |
+| Event storm | none | none | Latency tails only (delivery p95 13 s) |
+
+Open: the backlog drain after a regional outage needs a real-server run (generator on a separate machine) and a look at the site-outage check's deadlocks (SQL error 1205).
