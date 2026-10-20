@@ -28,6 +28,7 @@ const CATEGORY: Record<string, { label: string; tone: "crit" | "warn" | "info" |
 const Cat = ({ c }: { c: string }) => { const x = CATEGORY[c] ?? { label: c, tone: "off" as const }; return <Badge tone={x.tone}>{x.label}</Badge>; };
 const CORRELATION = "Things that happened before a crash are evidence to check first, not proof of the cause.";
 
+const AFFECTED_SHOWN = 25;
 export function StopCodeLine({ s }: { s: StopCode }) {
   return <><code>{s.text}</code>{s.name && <> <strong>{s.name}</strong></>}{s.hint && <span className="muted small"> — {s.hint}</span>}</>;
 }
@@ -127,6 +128,7 @@ function summaryText(i: Incident): string {
 export function IncidentsPage() {
   const [range, setRange] = useState("3");
   const [clientId, setClientId] = useState("");
+  const [showAll, setShowAll] = useState(false);
   const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
   const { data, problem } = useLoad<Incident>(`/api/incidents/crashes?days=${range}${clientId ? `&clientId=${clientId}` : ""}`);
   const [copied, setCopied] = useState(false);
@@ -200,7 +202,7 @@ export function IncidentsPage() {
           <table className="table compact">
             <caption className="sr-only">Cabinets affected</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">Status</th><th scope="col">First crash</th><th scope="col">Stop code</th><th scope="col">Blue screens</th><th scope="col">Starts</th></tr></thead>
-            <tbody>{[...data.cabinetsAffected].sort((a, b) => Number(a.online) - Number(b.online) || a.firstAt.localeCompare(b.firstAt)).map(c => (
+            <tbody>{[...data.cabinetsAffected].sort((a, b) => Number(a.online) - Number(b.online) || a.firstAt.localeCompare(b.firstAt)).slice(0, showAll ? undefined : AFFECTED_SHOWN).map(c => (
               <tr key={c.id}>
                 <th scope="row"><Link to={`/cabinets/${c.id}/crashes`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}<div className="muted small">{c.client} / {c.site}</div></th>
                 <td>{c.rebootLoop ? <Badge tone="crit">Restarting repeatedly</Badge> : c.online ? <Badge tone="ok">Back online</Badge> : <Badge tone="crit">Down</Badge>}
@@ -211,6 +213,7 @@ export function IncidentsPage() {
               </tr>))}
             </tbody>
           </table>
+          {data.cabinetsAffected.length > AFFECTED_SHOWN && <p><button className="btn" onClick={() => setShowAll(v => !v)}>{showAll ? "Show fewer" : `Show all ${data.cabinetsAffected.length}`}</button></p>}
         </section>
       </>)}
     </div>

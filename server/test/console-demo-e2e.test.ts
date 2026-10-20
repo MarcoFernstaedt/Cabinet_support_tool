@@ -298,8 +298,8 @@ test("the guided demo: check the site, fix the firewall with one click and see i
 
     // Case notes: what this person did on the cabinet becomes text for the ticket, with changes and checks and no raw logs.
     await page.goto(`${origin}/cabinets/${exam}`);
-    await page.getByRole("button", { name: "Build notes" }).first().click();
-    const notes = page.getByRole("textbox", { name: "Case notes" }).first();
+    await page.getByRole("button", { name: "Build summary" }).first().click();
+    const notes = page.getByRole("textbox", { name: "Activity summary" }).first();
     await notes.waitFor({ timeout: 30_000 });
     const noteText = await notes.inputValue();
     assert.match(noteText, /Case notes by Ada Admin/);

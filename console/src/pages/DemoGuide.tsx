@@ -29,7 +29,7 @@ export function DemoGuide() {
         <button className="btn primary" onClick={() => startDemoTour("network")}>Start the guided demo</button>
         {atLeast(me, "admin") && <Link to="/admin/settings#demo">Turn on, off or reset in Settings</Link>}
       </p>
-      <h2>The demo</h2>
+      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>The demo</h2>
       {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the demo.</Empty>}
       <ul className="findings">{lib.data?.scenarios.map(s => (
         <li key={s.id} className="finding info">
@@ -38,7 +38,7 @@ export function DemoGuide() {
           <p className="row gap wrap">{s.steps.map(st => <Link key={st.path + st.label} className="btn small" to={st.path}>{st.label}</Link>)}</p>
         </li>))}
       </ul>
-      <h2>A live agent too</h2>
+      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>A live agent too</h2>
       <p>To show real Windows data, install the agent on a test computer from <Link to="/admin/setup">Admin → Set up and demo</Link>. You don't need demo mode for that, and its data is always live.</p>
     </div>
   );

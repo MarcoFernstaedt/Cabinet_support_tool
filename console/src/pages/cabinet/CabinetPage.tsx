@@ -181,7 +181,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
     </section>
     <TrendCharts cabinetId={cabinet.id} />
     <section className="panel" aria-label="Notes on this cabinet"><CabinetNotes cabinetId={cabinet.id} /></section>
-    <CaseNotes cabinetId={cabinet.id} title="Case notes for this cabinet" />
+    <CaseNotes cabinetId={cabinet.id} title="Activity summary for this cabinet" />
     <LiveCheck cabinetId={cabinet.id} cabinetName={cabinet.name} simulated={!!cabinet.demo} />
   </>);
 }
