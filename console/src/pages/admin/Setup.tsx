@@ -41,7 +41,7 @@ export function Setup() {
     <div className="page narrow">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Set up and demo" }]} />
       <h1>Set up and demo</h1>
-      <p className="muted">Add the team, enroll an agent, approve it, verify the readings. Demo mode adds simulated cabinets.</p>
+      <p className="muted">Add your team, enroll a cabinet's agent, approve it and check its readings. Demo mode adds simulated cabinets for practice.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       {state.problem && <p className="error" role="alert">{state.problem}</p>}
 
@@ -96,8 +96,8 @@ function InstallAgent({ setup }: { setup: SetupState }) {
     <ol className="steps">
       <li>Download the agent{pkg ? <> (<span className="muted small">{(pkg.bytes / 1024 / 1024).toFixed(0)} MB, SHA-256 <code className="hash">{pkg.sha256.slice(0, 16)}…</code></span>)</> : null}:{" "}
         {pkg ? <a className="btn" href="/api/admin/agent-package" download={pkg.name}>Download {pkg.name}</a>
-          : <span className="muted">this server has no agent package (see deploy/README.md); build one with agent/install/Publish-CabinetAgent.ps1.</span>}</li>
-      <li>Create a one-time install token. It works once and expires in 7 days.{" "}
+          : <span className="muted">no package on this server yet. Build one with agent/install/Publish-CabinetAgent.ps1 (see deploy/README.md).</span>}</li>
+      <li>Create a one-time install token (valid for 7 days).{" "}
         <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
         {problem && <p className="error" role="alert">{problem}</p>}
         {issued && files && (
@@ -107,13 +107,11 @@ function InstallAgent({ setup }: { setup: SetupState }) {
               <a className="btn" href={files.ca} download="platform-ca.pem">Download platform-ca.pem</a></p>
           </div>)}
       </li>
-      <li>On the computer, unzip the agent into <code>Downloads</code> (it makes a <code>CabinetAgent</code> folder) and put <code>token.txt</code> and <code>platform-ca.pem</code> in that folder.
-        Then open PowerShell as administrator and run:
+      <li>On the cabinet, unzip the agent into <code>Downloads</code> and add <code>token.txt</code> and <code>platform-ca.pem</code> to the <code>CabinetAgent</code> folder. In an administrator PowerShell, run:
         <pre className="code" tabIndex={0}>{command}</pre>
         <button className="btn small" onClick={() => void navigator.clipboard?.writeText(command)}>Copy commands</button>
-        <p className="muted small">The computer connects out to <code>{host}:{port}</code> only; nothing connects in to it. The installer checks <code>platform-ca.pem</code> against this console,
-          refuses a folder other users could change, and deletes <code>token.txt</code> once it has used it. <code>-AllowUnsigned</code> is needed because this demo build is not code-signed;
-          production builds are, and never install on a cabinet without their signatures.</p></li>
+        <p className="muted small">The agent connects out to <code>{host}:{port}</code> only; nothing connects in. The installer verifies <code>platform-ca.pem</code>, refuses a folder other users can change, and deletes <code>token.txt</code> after use.
+          <code>-AllowUnsigned</code> is needed only for this unsigned demo build; production builds are signed.</p></li>
       <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)}
         description={<p>Create a one-time token that lets one computer ask to join.</p>}
         onToken={async token => {

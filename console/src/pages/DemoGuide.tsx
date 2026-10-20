@@ -16,13 +16,11 @@ export function DemoGuide() {
   return (
     <div className="page narrow">
       <h1>Demo guide</h1>
-      <p>Demo mode adds made-up clients, sites and cabinets alongside the real ones, so you can show the app at fleet size without touching a customer's cabinet.
-        They are tagged <DemoTag /> everywhere and say "Demo: simulated cabinet". Real cabinets say "Live agent".</p>
+      <p>Demo mode adds simulated clients, sites and cabinets beside the real ones, so you can work at fleet size without touching a customer's machine. Simulated cabinets are tagged <DemoTag />; real ones say "Live agent".</p>
       <ul className="links">
-        <li>They send heartbeats and events and answer every check through the same server code a real agent uses, so what you see is what a real cabinet would show.</li>
-        <li>Fixes work on them: apply a firewall policy, restart a service, correct a time zone, and each one is checked afterwards.</li>
-        <li>They never get mixed up with real cabinets. A real cabinet is never answered by the simulation, and a demo one never reaches a real cabinet.</li>
-        <li>Roles and confirmations are the same as for real cabinets.</li>
+        <li>Simulated cabinets use the same server code as a real agent: heartbeats, events, checks and fixes, each verified afterwards.</li>
+        <li>They are kept apart from real cabinets in both directions.</li>
+        <li>Roles and confirmations apply exactly as they do for real cabinets.</li>
       </ul>
       <p className="row gap wrap">
         {demo.data?.enabled ? <Badge tone="info">Demo mode is on: {demo.data.cabinets} simulated cabinets</Badge> : <Badge tone="off">Demo mode is off</Badge>}

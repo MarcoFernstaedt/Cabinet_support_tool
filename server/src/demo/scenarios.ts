@@ -23,9 +23,8 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const reception = rows.find(r => r.name === "Reception");
   const list: DemoScenario[] = [
     { id: "midtown", title: "Midtown Manhattan: site-wide sync failure",
-      story: "Exam rooms report sync failures. Single-cabinet and site-wide network diagnosis show link through DNS passing everywhere and the sync cabinet's firewall blocking the satellites; the client's firewall policy is applied in one step and the site is re-checked. "
-        + "Operating Room matches its baseline but loses packets to the gateway and counts adapter errors. Procedure Room's scanner dropped three times after a driver install. Reception and Waiting Room log driver errors no rule recognizes: map them to the scanner issue and approve the fix a teammate saved. "
-        + "The sequence ends by enrolling a live agent and reading its network.",
+      story: "Exam rooms report sync failures. Network diagnosis finds the sync cabinet's firewall blocking the satellites; applying the client's policy fixes the site in one step. "
+        + "The walkthrough also covers a scanner that drops after a driver install, packet loss at the Operating Room, unrecognized driver errors mapped to an issue, and enrolling a live agent.",
       steps: [{ label: "The site", path: `/sites/${site.site_id}` },
         ...(examRoom ? [{ label: "One cabinet: Exam Room 1", path: `/cabinets/${examRoom.id}/network` }] : []),
         { label: "The whole site", path: `/sites/${site.site_id}?diagnose=network` },
