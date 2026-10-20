@@ -38,11 +38,20 @@ export async function checkSiteOutages(db: Queryable, guard: FleetContact = flee
         firstSeen: k.last_heartbeat_at, lastSeen: now, ruleId: null, eventId: null, occurrences: 1 }, "seen");
       if (a.created) raised++;
     }
-    const resolved = await tx.query(
-      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'A cabinet at the site is reporting again.'
-         FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.state <> 'resolved'
+    // Pick the alerts to close first (a snapshot read under RCSI, no locks on cabinets), then close them by id: the old single UPDATE joined
+    // cabinets while heartbeats were writing them, and lost deadlocks against them during a backlog drain.
+    const closing = (await tx.query<{ id: string }>(
+      `SELECT a.id FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.state <> 'resolved'
           AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))`,
-      [ISSUE.siteOutage, secs]);
-    return { raised, resolved: resolved.rowCount ?? 0 };
+      [ISSUE.siteOutage, secs])).rows;
+    let resolved = 0;
+    for (let i = 0; i < closing.length; i += 500) {
+      const ids = closing.slice(i, i + 500).map(r => r.id);
+      const r = await tx.query(
+        `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'A cabinet at the site is reporting again.'
+          WHERE state <> 'resolved' AND id IN (${ids.map((_, n) => `$${n + 1}`).join(",")})`, ids);
+      resolved += r.rowCount ?? 0;
+    }
+    return { raised, resolved };
   });
 }

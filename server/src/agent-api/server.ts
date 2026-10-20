@@ -221,6 +221,11 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   // statements clears at once), or when the queue is five times maxPendingAcquires (a burst no wait can absorb).
   const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.waitMs > admission.maxAcquireWaitMs
     || o.pool.pending > admission.maxPendingAcquires * 5 || lagSeconds >= 3);
+  // Under plain overload (a backlog draining) the cheap, time-critical calls still go through: a command poll is one seek and a result
+  // is one small write, and turning them away let queued commands expire (regional-outage at 10,000). Event uploads, heartbeats and
+  // downloads are what the shed is for. When the database is far behind (five times the wait) everything is turned away again.
+  const severelyOverloaded = (): boolean => admission.overloaded?.() ?? (o.pool.waitMs > admission.maxAcquireWaitMs * 5
+    || o.pool.pending > admission.maxPendingAcquires * 10 || lagSeconds >= 6);
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   const admitted = new WeakSet<object>();
@@ -272,7 +277,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });
     // A long poll turned away for load comes back in 10 to 30 s: it costs the database almost nothing (one seek when nothing waits),
     // and sending it away for a minute would leave its cabinet unable to receive a command for that long; sooner adds load (2-10 s did, at 10,000).
-    if (overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
+    const path = request.url.split("?")[0];
+    const essential = (request.method === "GET" && path === "/agent/v1/commands") || (request.method === "POST" && path === "/agent/v1/results");
+    if (essential ? severelyOverloaded() : overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
   });
 
   // Operations counters (counts only, see docs/platform/operations.md): every answered request, sheds and server errors by route pattern.
