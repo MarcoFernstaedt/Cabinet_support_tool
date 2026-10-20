@@ -410,18 +410,19 @@ export async function run(o: RunOptions): Promise<number> {
   let siteOutage = { raised: 0, inOutageSites: 0, elsewhere: 0, sitesElsewhere: 0 };
   let offlineCmdStatus: Record<string, number> = {};
   if (pool) {
-    const rows = new Map<string, { status: string; delivered: number; has_result: number }>();
+    const rows = new Map<string, { status: string; delivered: number; has_result: number; expires_at: Date }>();
     const ids = [...issuedCmds.map(c => c.id), ...offlineCmds];
     for (let i = 0; i < ids.length; i += 500) {
-      const r = await pool.query<{ id: string; status: string; delivered: number; has_result: number }>(
-        `SELECT id, status, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered, CASE WHEN result IS NOT NULL THEN 1 ELSE 0 END AS has_result
+      const r = await pool.query<{ id: string; status: string; delivered: number; has_result: number; expires_at: Date }>(
+        `SELECT id, status, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered, CASE WHEN result IS NOT NULL THEN 1 ELSE 0 END AS has_result, expires_at
            FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`, [JSON.stringify(ids.slice(i, i + 500))]);
       for (const row of r.rows) rows.set(row.id.toLowerCase(), row);
     }
     for (const c of issuedCmds) {
       const row = rows.get(c.id);
       const got = received.has(c.id);
-      const status = row?.status ?? "missing";
+      // A leased command whose lifetime ended while its cabinet stayed silent is only marked expired when that cabinet next polls.
+      const status = row && row.status === "delivered" && row.expires_at.getTime() < Date.now() ? "expired" : row?.status ?? "missing";
       if (got) deliveredOk++;
       // A command whose lifetime ran out while its cabinet was unreachable is expired, not lost: the server never got to offer it again.
       if (!got && row && row.delivered === 1 && status !== "expired") lost.push({ ...c, status });

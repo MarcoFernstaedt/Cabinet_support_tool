@@ -381,9 +381,9 @@ Generator, SQL Server Express limits and server shared the same four cores, so l
 | Scenario | Lost commands/results | False offlines | Result |
 |---|---|---|---|
 | Server restart | 0 / 0 | 0 | Reconnect passes (99% back in about 85 s, limit 180 s). Misses only delivery/heartbeat latency tails |
-| Regional outage (3-day backlogs, 1.3M events queued) | 1 command not received / 0 | n/a | Fails: 425 commands to reachable cabinets undelivered, 326 cabinets slow to return, deadlock victims and timeouts in the site-outage check and presence flush while the backlog drains |
+| Regional outage (3-day backlogs, 1.3M events queued) | 2 leased commands of a silent cabinet marked delivered, not expired (harness now counts them as expired) / 0 | 0 | After the fix (polls and results stay admitted under plain overload; events and heartbeats are shed first): every cabinet back (p99 25 s, was never), undelivered commands to reachable cabinets 425 to 103 (all expired or queued), delivery p95 about 55-110 s (was 160-215 s). Still misses the latency limits on this shared machine |
 | No ramp (all connect at once) | none | none | Latency tails only (delivery p95 59-103 s) |
 | Failover during a command | none | none | Passes |
 | Event storm | none | none | Latency tails only (delivery p95 13 s) |
 
-Open: the backlog drain after a regional outage needs a real-server run (generator on a separate machine) and a look at the site-outage check's deadlocks (SQL error 1205).
+Open: confirm the regional-outage latency on a real server with the generator on a separate machine.
