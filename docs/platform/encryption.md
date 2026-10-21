@@ -6,7 +6,7 @@ What is encrypted, where, and what to do about the one gap: SQL Server Express c
 |---|---|---|
 | Agent to server | Mutual TLS 1.2+ with a certificate per cabinet; the server checks the certificate on every request and drops a revoked one at once | Built |
 | Console to server | HTTPS (Caddy), `__Host-` HttpOnly Secure SameSite=Strict cookie, strict CSP | Built |
-| Server to database | TLS to SQL Server inside the compose network | Built |
+| Server to database | Encrypted connection to SQL Server (`encrypt=true`). In the deployment kit the server certificate is not verified (`trustServerCertificate=true`) because the database is only reachable on the private compose network | Built; verify the certificate if the database is ever on another machine |
 | Passwords and authenticator secrets | Password hashes only; authenticator secrets sealed with a server key; no secret in logs | Built |
 | Database backups | AES-256 (gpg), key in `/root/.cabinet-backup-key`, plain copies deleted, `RESTORE VERIFYONLY` first | Built (`deploy/backup.sh`) |
 | **Live data files** (database, CA private key, packages, releases) | **Encrypt the volume that holds them**; see below | Do at install |
