@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/reading-search.schema.json",
   "title": "reading-search",
-  "description": "A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status and system.security one of their fixed keywords. The server limits what comes back.",
+  "description": "A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status, system.security and system.identity one of their fixed keywords. The server limits what comes back.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,7 +19,10 @@
         "sessions.list",
         "dns.cache",
         "power.status",
-        "system.security"
+        "system.security",
+        "system.hardware",
+        "system.identity",
+        "network.hosts"
       ]
     },
     "q": {

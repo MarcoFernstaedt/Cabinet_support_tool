@@ -540,7 +540,10 @@ export interface CommandRequest {
     | "system.restart"
     | "process.end"
     | "system.checkHealth"
-    | "power.set";
+    | "power.set"
+    | "system.hardware"
+    | "system.identity"
+    | "network.hosts";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -891,7 +894,7 @@ export interface PlatformSettings {
 }
 
 /**
- * A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status and system.security one of their fixed keywords. The server limits what comes back.
+ * A search of the latest stored reading of one kind across the fleet, from the query string. q is plain text matched as a part of a name (never a pattern), or for power.status, system.security and system.identity one of their fixed keywords. The server limits what comes back.
  */
 export interface ReadingSearch {
   operation:
@@ -901,7 +904,10 @@ export interface ReadingSearch {
     | "sessions.list"
     | "dns.cache"
     | "power.status"
-    | "system.security";
+    | "system.security"
+    | "system.hardware"
+    | "system.identity"
+    | "network.hosts";
   q: string;
   clientId?: string;
   siteId?: string;
@@ -1075,7 +1081,10 @@ export interface RunbookPropose {
           | "system.restart"
           | "process.end"
           | "system.checkHealth"
-          | "power.set";
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts";
         params: {};
       };
       /**
@@ -1133,7 +1142,10 @@ export interface RunbookPropose {
           | "system.restart"
           | "process.end"
           | "system.checkHealth"
-          | "power.set";
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts";
         params: {};
         label: string;
       };
@@ -1196,7 +1208,10 @@ export interface RunbookPropose {
           | "system.restart"
           | "process.end"
           | "system.checkHealth"
-          | "power.set";
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts";
         params: {};
       };
       /**
@@ -1254,7 +1269,10 @@ export interface RunbookPropose {
           | "system.restart"
           | "process.end"
           | "system.checkHealth"
-          | "power.set";
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts";
         params: {};
         label: string;
       };
@@ -1625,7 +1643,10 @@ export interface Command {
     | "system.restart"
     | "process.end"
     | "system.checkHealth"
-    | "power.set";
+    | "power.set"
+    | "system.hardware"
+    | "system.identity"
+    | "network.hosts";
   params: {};
   issuedBy: string;
   /**
@@ -3729,6 +3750,122 @@ export interface PowerStatusOutput {
   } | null;
 }
 
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SystemHardwareParams {}
+
+export interface SystemHardwareOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  manufacturer: string | null;
+  model: string | null;
+  bios: {
+    vendor: string | null;
+    version: string | null;
+    date: string | null;
+  };
+  cpu: {
+    model: string | null;
+    logicalCores: number | null;
+  };
+  memory: {
+    totalBytes: number | null;
+    moduleCount: number | null;
+    /**
+     * @maxItems 32
+     */
+    modules: {
+      slot: string | null;
+      capacityBytes: number | null;
+      speedMhz: number | null;
+    }[];
+  };
+  tpm: {
+    present: boolean;
+    enabled: boolean | null;
+    version: string | null;
+  } | null;
+  secureBoot: ("on" | "off" | "unsupported") | null;
+  lastBoot: string | null;
+  /**
+   * @maxItems 16
+   */
+  monitors: {
+    name: string | null;
+    width: number | null;
+    height: number | null;
+  }[];
+  /**
+   * @maxItems 32
+   */
+  ports: {
+    /**
+     * A single line of text with no control characters.
+     */
+    port: string;
+    deviceName: string | null;
+    driverProvider: string | null;
+    driverVersion: string | null;
+  }[];
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface SystemIdentityParams {}
+
+export interface SystemIdentityOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  joinType: "domain" | "workgroup" | "unknown";
+  name: string | null;
+  domainControllerFound: boolean | null;
+  localAdministrators: {
+    /**
+     * @maxItems 64
+     */
+    names: string[];
+    truncated: boolean;
+  } | null;
+  autoLogon: {
+    enabled: boolean;
+    userName: string | null;
+  } | null;
+  groupPolicyLastApplied: string | null;
+}
+
+/**
+ * Operations that take no parameters accept only an empty object.
+ */
+export interface NetworkHostsParams {}
+
+export interface NetworkHostsOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 500
+   */
+  entries: {
+    /**
+     * IPv4 or IPv6 address as reported by Windows (read operations only).
+     */
+    address: string;
+    /**
+     * @minItems 1
+     * @maxItems 16
+     */
+    names: [string, ...string[]];
+  }[];
+  truncated: boolean;
+}
+
 export interface SystemRestartParams {
   mode: "restart" | "shutdown" | "cancel";
   delaySeconds?: number;
@@ -3797,7 +3934,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -3850,6 +3987,9 @@ export interface OperationTypes {
   "disk.folders": { params: DiskFoldersParams; output: DiskFoldersOutput };
   "dns.cache": { params: DnsCacheParams; output: DnsCacheOutput };
   "power.status": { params: PowerStatusParams; output: PowerStatusOutput };
+  "system.hardware": { params: SystemHardwareParams; output: SystemHardwareOutput };
+  "system.identity": { params: SystemIdentityParams; output: SystemIdentityOutput };
+  "network.hosts": { params: NetworkHostsParams; output: NetworkHostsOutput };
   "system.restart": { params: SystemRestartParams; output: SystemRestartOutput };
   "process.end": { params: ProcessEndParams; output: ProcessEndOutput };
   "system.checkHealth": { params: SystemCheckHealthParams; output: SystemCheckHealthOutput };

@@ -12,19 +12,24 @@ interface Match { cabinetId: string; name: string; role: string; site: string; c
 interface Result { operation: string; q: string; matches: Match[]; cabinetsRead: number; cabinetsInScope: number; truncated: boolean }
 
 /** What can be searched, by the reading it comes from. A state search offers fixed choices; a name search takes text. */
-const KINDS: { op: string; label: string; hint: string; choices?: [string, string][] }[] = [
+const KINDS: { id?: string; op: string; label: string; hint: string; choices?: [string, string][] }[] = [
   { op: "software.list", label: "Installed program or update", hint: "Part of a name, publisher or update number, such as BioScan or KB5034" },
   { op: "startup.list", label: "Startup item or scheduled task", hint: "Part of a name or command" },
   { op: "shares.list", label: "Network share", hint: "Part of a share name or its folder" },
   { op: "sessions.list", label: "Signed-in user", hint: "Part of a user name" },
   { op: "dns.cache", label: "DNS name looked up", hint: "Part of a host name or its answer" },
   { op: "system.security", label: "Security state", hint: "", choices: [["pending_restart", "A restart is waiting"], ["defender_off", "Defender or real-time protection is off"], ["bitlocker_off", "A drive is not encrypted"], ["cert_expiring", "A certificate expired or expires soon"], ["not_activated", "Windows is not activated"]] },
+  { op: "system.hardware", label: "Hardware", hint: "Part of a model, BIOS version or processor, such as OptiPlex or 1.12" },
+  { id: "identity-name", op: "system.identity", label: "Domain, workgroup or administrator", hint: "Part of a domain, workgroup or local administrator name" },
+  { id: "identity-state", op: "system.identity", label: "Identity state", hint: "", choices: [["workgroup", "In a workgroup, not a domain"], ["auto_logon", "Signs in automatically"], ["no_domain_controller", "No domain controller found"]] },
+  { op: "network.hosts", label: "Hosts file entry", hint: "Part of a host name or address, such as sync" },
   { op: "power.status", label: "Power setting", hint: "", choices: [["usb_suspend", "USB selective suspend is on"], ["fast_startup", "Fast Startup is on"]] },
 ];
 
 export function ReadingSearch() {
-  const [op, setOp] = useState(KINDS[0]!.op);
-  const kind = KINDS.find(k => k.op === op)!;
+  const [key, setKey] = useState(KINDS[0]!.op);
+  const kind = KINDS.find(k => (k.id ?? k.op) === key)!;
+  const op = kind.op;
   const [text, setText] = useState("");
   const [choice, setChoice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -45,7 +50,7 @@ export function ReadingSearch() {
       <p className="muted">Searches what cabinets reported the last time they were read. It does not ask any cabinet anything.</p>
       <form className="panel row gap wrap" aria-label="Search readings" onSubmit={e => { e.preventDefault(); if (q) void search(); }}>
         <label className="field inline"><span>Find</span>
-          <select value={op} onChange={e => { setOp(e.target.value); setChoice(""); setResult(null); }}>{KINDS.map(k => <option key={k.op} value={k.op}>{k.label}</option>)}</select></label>
+          <select value={key} onChange={e => { setKey(e.target.value); setChoice(""); setResult(null); }}>{KINDS.map(k => <option key={k.id ?? k.op} value={k.id ?? k.op}>{k.label}</option>)}</select></label>
         {kind.choices
           ? <label className="field inline"><span>Where</span><select value={choice || kind.choices[0]![0]} onChange={e => setChoice(e.target.value)}>{kind.choices.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
           : <label className="field inline grow"><span>Text</span><input value={text} maxLength={80} onChange={e => setText(e.target.value)} placeholder={kind.hint} /></label>}

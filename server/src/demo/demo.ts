@@ -335,6 +335,9 @@ export async function disableDemo(pool: Pool, userId: string): Promise<number> {
 }
 
 /** A day of load samples for every simulated cabinet that is heard from, and the last stored reads of the ones that are not (what "last known" shows). */
+/** Reads that describe the machine rather than its health, stored for every simulated cabinet so a fleet search over them finds the whole fleet. */
+const WINDOWS_FACTS = ["system.hardware", "system.identity", "network.hosts"];
+
 async function seedHistory(pool: Pool, userId: string): Promise<void> {
   const rows = (await pool.query<{ id: string; scenario: string; offline: boolean }>(
     "SELECT id, demo_scenario AS scenario, CAST(CASE WHEN demo_scenario IN (SELECT value FROM OPENJSON($1)) THEN 1 ELSE 0 END AS bit) AS offline FROM cabinets WHERE demo_scenario IS NOT NULL", [["offline", "site_outage", "incident_loop"]])).rows;
@@ -371,7 +374,7 @@ async function seedHistory(pool: Pool, userId: string): Promise<void> {
   for (const k of rows) {
     const ctx = await context(pool, k.id);
     if (!ctx) continue;
-    for (const operation of k.offline ? ["system.security", "software.list", "startup.list", "power.status", "shares.list"] : ["software.list"]) {
+    for (const operation of k.offline ? ["system.security", "software.list", "startup.list", "power.status", "shares.list", ...WINDOWS_FACTS] : ["software.list", ...WINDOWS_FACTS]) {
       const output = demoOutput(operation, {}, ctx);
       const at = new Date(Date.now() - (k.scenario === "offline" ? 6 * 86_400_000 : 3_600_000));
       const commandId = randomUUID();

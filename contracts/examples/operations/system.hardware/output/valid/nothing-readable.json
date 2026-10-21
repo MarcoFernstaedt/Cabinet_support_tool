@@ -1,0 +1,31 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "manufacturer": null,
+  "model": null,
+  "bios": {
+    "vendor": null,
+    "version": null,
+    "date": null
+  },
+  "cpu": {
+    "model": null,
+    "logicalCores": null
+  },
+  "memory": {
+    "totalBytes": null,
+    "moduleCount": null,
+    "modules": []
+  },
+  "tpm": null,
+  "secureBoot": null,
+  "lastBoot": null,
+  "monitors": [],
+  "ports": [
+    {
+      "port": "COM2",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    }
+  ]
+}

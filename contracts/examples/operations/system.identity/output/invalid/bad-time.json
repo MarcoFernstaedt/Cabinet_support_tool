@@ -1,0 +1,18 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "joinType": "domain",
+  "name": "clinic.example",
+  "domainControllerFound": true,
+  "localAdministrators": {
+    "names": [
+      "CABINET01\\Administrator",
+      "CLINIC\\Domain Admins"
+    ],
+    "truncated": false
+  },
+  "autoLogon": {
+    "enabled": false,
+    "userName": null
+  },
+  "groupPolicyLastApplied": "2026-10-14 11:02"
+}

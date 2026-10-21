@@ -1,0 +1,13 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "entries": [
+    {
+      "address": "10.0.0.1",
+      "names": [
+        "x"
+      ],
+      "comment": "# old"
+    }
+  ],
+  "truncated": false
+}

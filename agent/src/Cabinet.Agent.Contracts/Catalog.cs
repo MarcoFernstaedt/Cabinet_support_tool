@@ -59,6 +59,9 @@ public static class Catalog
     public const string DiskFolders = "disk.folders";
     public const string DnsCache = "dns.cache";
     public const string PowerStatus = "power.status";
+    public const string SystemHardware = "system.hardware";
+    public const string SystemIdentity = "system.identity";
+    public const string NetworkHosts = "network.hosts";
     public const string SystemRestart = "system.restart";
     public const string ProcessEnd = "process.end";
     public const string SystemCheckHealth = "system.checkHealth";
@@ -100,6 +103,9 @@ public static class Catalog
         Read<DiskFoldersParams, DiskFoldersOutput>(DiskFolders),
         Read<EmptyParams, DnsCacheOutput>(DnsCache),
         Read<EmptyParams, PowerStatusOutput>(PowerStatus),
+        Read<EmptyParams, SystemHardwareOutput>(SystemHardware),
+        Read<EmptyParams, SystemIdentityOutput>(SystemIdentity),
+        Read<EmptyParams, NetworkHostsOutput>(NetworkHosts),
         Read<EmptyParams, SystemCheckHealthOutput>(SystemCheckHealth),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),

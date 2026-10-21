@@ -4,21 +4,23 @@ Reviewed against the usual causes of a POS or biometric cabinet call. Every addi
 
 ## Covered today
 
-System info, performance (CPU, memory, disks, volumes), security (Defender, BitLocker, activation, pending restart, certificates), services and processes, event logs (with fleet counts), crashes and boots, devices and drivers, USB ports and the fingerprint scanner, drive health (SMART) with trends, network (adapters, DHCP, routes, ARP, DNS, packet loss, path, listening ports, firewall), time, Windows updates, installed software, startup items and tasks, sessions, shares, reliability history, power settings, DNS cache, folder sizes.
+System info, performance (CPU, memory, disks, volumes), security (Defender, BitLocker, activation, pending restart, certificates), hardware identity (model, BIOS, memory, TPM, Secure Boot, last boot, displays, COM ports), domain and identity (domain or workgroup, local administrators, auto-logon user, last Group Policy time), the hosts file, services and processes, event logs (with fleet counts), crashes and boots, devices and drivers, USB ports and the fingerprint scanner, drive health (SMART) with trends, network (adapters, DHCP, routes, ARP, DNS, packet loss, path, listening ports, firewall), time, Windows updates, installed software, startup items and tasks, sessions, shares, reliability history, power settings, DNS cache, folder sizes.
 
 ## Gaps, in priority order
 
 | # | Gap | Why it matters on a cabinet | Proposed operation (read-only) |
 |---|---|---|---|
-| 1 | **Printers and the print spooler** | Receipt and label printers are the most common POS fault: stopped spooler, stuck queue, offline printer, wrong port or driver | `printer.list`: printers, state, port, driver, default, queued jobs (count, oldest age, error state). Fix actions reuse `service.control` on Spooler |
-| 2 | **Hardware identity** | Model, manufacturer, BIOS version and date, CPU model, RAM size and modules, TPM and Secure Boot state, last boot time. `system.info` has only host name, OS, serial, uptime. Needed to match drivers and spot a bad batch | Extend `system.info` (or add `system.hardware`) |
-| 3 | **Domain and identity** | "Trust relationship failed", wrong domain, local administrators, auto-logon account, last group-policy run and errors | `system.identity`: domain or workgroup, secure channel result, local admin members, auto-logon user, last GPO time and status |
-| 4 | **Serial and COM ports, displays** | Cash drawers and customer displays often sit on COM ports; wrong port number is a common fault | Add COM ports (name, device, driver) to `devices.list`; add monitor count and resolution to `system.hardware` |
-| 5 | **Hosts file and proxy** | A stale hosts entry silently breaks sync; the WinHTTP proxy is already shown, the hosts file is not | `network.hosts`: entries only, no other file content |
-| 6 | **Windows Update source and service health** | Update failures from WSUS or policy, stopped update or BITS services, low disk for updates | Extend `updates.status` with policy source and the health of the update services |
-| 7 | **Volume integrity** | Dirty bit, file system errors, volume shadow copy and System Restore state | Extend `system.performance` volumes (dirty flag) and `system.security` (restore points) |
-| 8 | **Application logs** | The cabinet application's own log is often the answer. A bounded text read is a file transfer in disguise and stays out | Not proposed. Use event-log mapping and the application's own tooling |
+| 1 | **Windows Update source and service health** | Update failures from WSUS or policy, stopped update or BITS services, low disk for updates | Extend `updates.status` with policy source and the health of the update services |
+| 2 | **Volume integrity** | Dirty bit, file system errors, volume shadow copy and System Restore state | Extend `system.performance` volumes (dirty flag) and `system.security` (restore points) |
+| 3 | **Application logs** | The cabinet application's own log is often the answer. A bounded text read is a file transfer in disguise and stays out | Not proposed. Use event-log mapping and the application's own tooling |
+
+## Built
+
+Hardware identity (`system.hardware`), domain and identity (`system.identity`) and the hosts file (`network.hosts`) are built as read-only Tier 1 operations with schemas in `contracts/`, agent code, stored last-known readings, fleet search, sections on the cabinet's Windows tab and demo data. They are not yet run on a real cabinet (Windows code compiles on the Linux build machine and is tested on Windows only). Notes:
+
+- COM ports and displays are part of `system.hardware`. Displays report the monitor's native resolution from its EDID, because the service has no desktop to ask for the resolution in use.
+- The WinHTTP proxy is already in `network.config`; the remaining part of the old "hosts file and proxy" idea is done.
 
 ## Decision needed
 
-Items 1 to 4 are the best value. Each needs a contract, Windows agent code (which can only be tested on a Windows machine, see the Windows CI job), server storage, a console section, demo data and tests. Recorded in `docs/spec/09-open-decisions.md` as a question; not built.
+The remaining ideas above (update source and service health, volume integrity) each need a contract, Windows agent code (which can only be tested on a Windows machine, see the Windows CI job), server storage, a console section, demo data and tests. Nothing here is built until asked for.

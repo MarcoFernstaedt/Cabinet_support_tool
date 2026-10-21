@@ -58,13 +58,18 @@ test("the simulated fleet comes with stored readings for the cabinet that is off
   assert.ok(list.body.readings.some((r: { operation: string }) => r.operation === "power.status"));
   const one = await h.call("GET", `/api/cabinets/${offline.id}/readings/power.status`, undefined, t1);
   assert.equal(one.body.reading.output.plan, "Balanced");
+  for (const op of ["system.hardware", "system.identity", "network.hosts"]) {
+    assert.ok(list.body.readings.some((r: { operation: string }) => r.operation === op), `${op} is stored for the offline cabinet`);
+    assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/${op}`, undefined, t1)).status, 200, op);
+  }
+  assert.equal(JSON.stringify((await h.call("GET", `/api/cabinets/${offline.id}/readings/system.identity`, undefined, t1)).body).toLowerCase().includes("password"), false, "no password anywhere in the identity reading");
   assert.deepEqual((await h.call("GET", `/api/cabinets/${offline.id}/readings/dns.cache`, undefined, t1)).body, { reading: null }, "never read");
   // Content that is audited when opened, or chosen by the person asking, is never replayed from storage.
   for (const op of ["eventlog.get", "eventlog.query", "files.list", "disk.folders"]) assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/${op}`, undefined, t1)).status, 404, op);
   assert.ok(!list.body.readings.some((r: { operation: string }) => r.operation.startsWith("eventlog.")));
   assert.equal((await h.call("GET", `/api/cabinets/${offline.id}/readings/firewall.setProfile`, undefined, t1)).status, 404, "a write is not a reading");
   // From here the tests store their own readings on a clean slate.
-  await db.app.query("DELETE FROM commands WHERE operation IN (SELECT value FROM OPENJSON($1))", [["software.list", "startup.list", "power.status", "system.security", "shares.list"]]);
+  await db.app.query("DELETE FROM commands WHERE operation IN (SELECT value FROM OPENJSON($1))", [["software.list", "startup.list", "power.status", "system.security", "shares.list", "system.hardware", "system.identity", "network.hosts"]]);
 });
 
 test("the search finds the latest stored reading's matches, says how many cabinets were read, and a newer reading replaces an older one", async () => {
@@ -146,4 +151,60 @@ test("the welcome tour is given a cabinet to walk through: an online one, and a 
   await db.app.query("UPDATE cabinets SET status = 'removed' WHERE demo_scenario IS NOT NULL");
   assert.deepEqual((await h.call("GET", "/api/fleet/first-cabinet", undefined, t1)).body, { cabinet: null }, "nothing to show");
   await db.app.query("UPDATE cabinets SET status = 'active' WHERE demo_scenario IS NOT NULL");
+});
+
+const hardware = (model: string, biosVersion: string) => ({ takenAt: "2026-10-16T10:00:00Z", manufacturer: "Dell Inc.", model,
+  bios: { vendor: "Dell Inc.", version: biosVersion, date: "2023-05-09T00:00:00Z" }, cpu: { model: "Intel(R) Core(TM) i5", logicalCores: 8 },
+  memory: { totalBytes: 8589934592, moduleCount: 1, modules: [{ slot: "DIMM A1", capacityBytes: 8589934592, speedMhz: 2666 }] },
+  tpm: { present: true, enabled: true, version: "2.0" }, secureBoot: "on", lastBoot: "2026-10-12T06:41:08Z", monitors: [{ name: "DELL", width: 1920, height: 1080 }], ports: [] });
+const identity = (over: Record<string, unknown>) => ({ takenAt: "2026-10-16T10:00:00Z", joinType: "domain", name: "clinic.example", domainControllerFound: true,
+  localAdministrators: { names: ["PC\\Administrator", "CLINIC\\Domain Admins"], truncated: false }, autoLogon: { enabled: false, userName: null }, groupPolicyLastApplied: null, ...over });
+
+test("hardware, identity and the hosts file are searched by name, and identity also by fixed keyword", async () => {
+  const t1 = await h.account("tier1");
+  const [a, b, c] = [await cab("Exam Room 1"), await cab("Exam Room 2"), await cab("Exam Room 3")];
+  await store(a.id, "system.hardware", hardware("OptiPlex 7090", "1.12.0"));
+  await store(b.id, "system.hardware", hardware("OptiPlex 3080", "2.20.0"));
+  await store(c.id, "system.hardware", hardware("OptiPlex 7090", "1.18.0"), 90);
+  await store(c.id, "system.hardware", hardware("Latitude 5420", "1.18.0"), 3);       // newer: no longer a 7090
+  assert.deepEqual((await search(t1, "system.hardware", "OptiPlex 7090")).body.matches.map((m: { name: string }) => m.name), ["Exam Room 1"]);
+  assert.deepEqual((await search(t1, "system.hardware", "1.18")).body.matches.map((m: { name: string }) => m.name), ["Exam Room 3"], "BIOS version");
+  assert.deepEqual((await search(t1, "system.hardware", "optiplex")).body.matches.map((m: { name: string }) => m.name), ["Exam Room 1", "Exam Room 2"]);
+  assert.match((await search(t1, "system.hardware", "1.12")).body.matches[0].found.join(" "), /BIOS 1\.12\.0/);
+
+  await store(a.id, "system.identity", identity({}));
+  await store(b.id, "system.identity", identity({ joinType: "workgroup", name: "WORKGROUP", domainControllerFound: null, autoLogon: { enabled: true, userName: "cubex" },
+    localAdministrators: { names: ["PC\\Administrator"], truncated: false } }));
+  await store(c.id, "system.identity", identity({ domainControllerFound: false }));
+  const names = async (q: string) => (await search(t1, "system.identity", q)).body.matches.map((m: { name: string }) => m.name);
+  assert.deepEqual(await names("workgroup"), ["Exam Room 2"]);
+  assert.deepEqual(await names("auto_logon"), ["Exam Room 2"]);
+  assert.deepEqual(await names("no_domain_controller"), ["Exam Room 3"]);
+  assert.deepEqual(await names("clinic.example"), ["Exam Room 1", "Exam Room 3"], "a name that is not a keyword is matched as text");
+  assert.deepEqual(await names("domain admins"), ["Exam Room 1", "Exam Room 3"], "local administrators");
+  assert.match((await search(t1, "system.identity", "auto_logon")).body.matches[0].found[0], /cubex/);
+
+  const hosts = (...entries: [string, string[]][]) => ({ takenAt: "2026-10-16T10:00:00Z", entries: entries.map(([address, names]) => ({ address, names })), truncated: false });
+  await store(a.id, "network.hosts", hosts(["127.0.0.1", ["localhost"]], ["10.21.4.12", ["sync.clinic.example", "sync"]]));
+  await store(b.id, "network.hosts", hosts(["127.0.0.1", ["localhost"]]));
+  await store(c.id, "network.hosts", hosts(["10.21.4.20", ["sync.clinic.example"]]));
+  const hit = await search(t1, "network.hosts", "SYNC.clinic");
+  assert.deepEqual(hit.body.matches.map((m: { name: string }) => m.name), ["Exam Room 1", "Exam Room 3"]);
+  assert.deepEqual(hit.body.matches[0].found, ["sync.clinic.example, sync → 10.21.4.12"]);
+  assert.deepEqual((await search(t1, "network.hosts", "10.21.4.20")).body.matches.map((m: { name: string }) => m.name), ["Exam Room 3"], "by address");
+  assert.equal(hit.body.cabinetsRead, 3);
+});
+
+test("hostile text in the new searches is plain text, and malformed searches are refused", async () => {
+  const t1 = await h.account("tier1");
+  for (const op of ["system.hardware", "system.identity", "network.hosts"])
+    for (const q of ["%", "_", "' OR '1'='1", "\"; DROP TABLE commands; --", ".*", "[a-z]+", "\",\""]) {
+      const r = await search(t1, op, q);
+      assert.equal(r.status, 200, `${op} ${q}`);
+      assert.equal(r.body.matches.length, 0, `${op} ${JSON.stringify(q)} is plain text, not a pattern`);
+    }
+  for (const op of ["system.hardware", "system.identity", "network.hosts"])
+    for (const q of ["", "a\nb", "x".repeat(81)]) assert.equal((await search(t1, op, q)).status, 400, `${op} ${JSON.stringify(q)}`);
+  assert.equal((await search(t1, "printer.list", "x")).status, 400);
+  assert.equal((await h.call("GET", "/api/readings/search?operation=network.hosts&q=x&path=C:/Windows", undefined, t1)).status, 400, "no extra parameter");
 });

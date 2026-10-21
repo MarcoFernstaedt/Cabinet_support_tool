@@ -43,6 +43,33 @@ public sealed class ReadOperationTests
         return result.Output.Value;
     }
 
+    private static void MatchesContract(string operation, object output) =>
+        Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Output(operation), JsonSerializer.SerializeToElement(output, ContractJson.Options)));
+
+    [Fact]
+    public void System_hardware_matches_its_contract_and_names_the_machine()
+    {
+        SystemHardwareOutput output = HardwareOperations.Hardware();
+        MatchesContract(Catalog.SystemHardware, output);
+        Assert.True(output.Cpu.LogicalCores > 0);
+    }
+
+    [Fact]
+    public void System_identity_matches_its_contract_and_never_carries_a_password()
+    {
+        SystemIdentityOutput output = HardwareOperations.Identity();
+        MatchesContract(Catalog.SystemIdentity, output);
+        Assert.DoesNotContain("password", JsonSerializer.Serialize(output, ContractJson.Options), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Network_hosts_matches_its_contract()
+    {
+        NetworkHostsOutput output = HardwareOperations.Hosts();
+        MatchesContract(Catalog.NetworkHosts, output);
+        Assert.True(output.Entries.Count <= 500);
+    }
+
     [Fact]
     public async Task System_info() => Assert.False(string.IsNullOrEmpty((await Succeeds(Catalog.SystemInfo)).GetProperty("osBuild").GetString()));
 

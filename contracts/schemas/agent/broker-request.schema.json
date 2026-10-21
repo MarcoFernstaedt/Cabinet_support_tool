@@ -66,7 +66,9 @@
         "system.restart",
         "process.end",
         "system.checkHealth",
-        "power.set"
+        "power.set",
+        "system.hardware",
+        "network.hosts"
       ]
     },
     "params": {
@@ -169,7 +171,9 @@
                 "system.restart",
                 "process.end",
                 "system.checkHealth",
-                "power.set"
+                "power.set",
+                "system.hardware",
+                "network.hosts"
               ]
             }
           },
@@ -1056,6 +1060,48 @@
         "properties": {
           "params": {
             "$ref": "../operations/power.set.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "system.hardware"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/system.hardware.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "network.hosts"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/network.hosts.schema.json#/$defs/params"
           }
         }
       }

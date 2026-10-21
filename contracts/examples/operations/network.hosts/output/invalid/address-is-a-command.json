@@ -1,0 +1,12 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "entries": [
+    {
+      "address": "; rm -rf /",
+      "names": [
+        "x"
+      ]
+    }
+  ],
+  "truncated": false
+}

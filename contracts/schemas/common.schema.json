@@ -266,7 +266,10 @@
         "system.restart",
         "process.end",
         "system.checkHealth",
-        "power.set"
+        "power.set",
+        "system.hardware",
+        "system.identity",
+        "network.hosts"
       ]
     },
     "rejectionCode": {

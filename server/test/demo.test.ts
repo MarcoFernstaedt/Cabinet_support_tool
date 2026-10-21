@@ -173,6 +173,23 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   const found = await searchReadings(db.app, "software.list", "bioscan", {});
   assert.equal(found.cabinetsRead, expected);
   assert.equal(found.matches.length, expected);
+  // The machine facts are read for every simulated cabinet too, and tell their own small stories.
+  const names = async (op: string, q: string) => (await searchReadings(db.app, op, q, {}));
+  const hosts = await names("network.hosts", "sync.clinic.example");
+  assert.equal(hosts.cabinetsRead, expected);
+  const stale = hosts.matches.filter(m => m.found.some(f => f.endsWith(".12")));
+  assert.equal(stale.length, 4, "four cabinets still send the sync cabinet's name to an old address");
+  assert.ok(stale.every(m => m.found.every(f => f.startsWith("sync.clinic.example, sync → "))));
+  assert.ok(hosts.matches.length > stale.length, "a few others pin the right address, so the search shows both");
+  assert.deepEqual((await names("system.identity", "workgroup")).matches.map(m => m.name), ["Intake"]);
+  assert.deepEqual((await names("system.identity", "auto_logon")).matches.map(m => m.name), ["Treatment Room"]);
+  assert.equal((await names("system.identity", "no_domain_controller")).matches.length, 3);
+  assert.equal((await names("system.identity", "clinic.example")).cabinetsRead, expected);
+  assert.equal((await names("system.hardware", "optiplex")).matches.length, expected);
+  const versions = (await db.app.query<{ v: string }>("SELECT DISTINCT JSON_VALUE(result, '$.output.bios.version') AS v FROM commands WHERE operation = 'system.hardware'")).rows;
+  assert.ok(versions.length >= 4, `the fleet runs several BIOS versions: ${versions.map(r => r.v).join(", ")}`);
+  const raw = JSON.stringify((await db.app.query("SELECT result FROM commands WHERE operation IN ('system.identity', 'system.hardware', 'network.hosts')")).rows).toLowerCase();
+  assert.ok(!raw.includes("password"), "no password in any simulated answer");
 });
 
 test("simulated cabinets answer commands, and a fix made on one takes effect", async () => {

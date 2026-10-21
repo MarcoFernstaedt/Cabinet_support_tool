@@ -1,7 +1,7 @@
 // The cabinet's Windows section: what is on the machine and how it is set up, one reading per panel, each run on demand.
 // Panels are declared in READINGS; adding a reading means adding an entry, not another component.
 import { useState, type ReactNode } from "react";
-import type { DiskFoldersOutput, DnsCacheOutput, PowerSetOutput, PowerStatusOutput, SystemCheckHealthOutput, SystemRestartOutput, ReliabilityListOutput, SessionsListOutput, SharesListOutput, SoftwareListOutput, StartupListOutput, SystemSecurityOutput } from "@mashura/cabinet-contracts/types";
+import type { DiskFoldersOutput, DnsCacheOutput, NetworkHostsOutput, SystemHardwareOutput, SystemIdentityOutput, PowerSetOutput, PowerStatusOutput, SystemCheckHealthOutput, SystemRestartOutput, ReliabilityListOutput, SessionsListOutput, SharesListOutput, SoftwareListOutput, StartupListOutput, SystemSecurityOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
 import { useLoad } from "../../lib/useLoad";
 import { ago, bytes, fullTime } from "../../lib/time";
@@ -102,6 +102,56 @@ function Power({ o, cabinet }: { o: PowerStatusOutput; cabinet: CabinetDetail })
   </>);
 }
 
+const notReported = <span className="muted">Not reported</span>;
+const SECURE_BOOT = { on: ["ok", "On"], off: ["warn", "Off"], unsupported: ["off", "Not supported"] } as const;
+
+/** Make and model, BIOS, processor, memory, TPM, Secure Boot, last start, displays and COM ports. Anything the cabinet could not read says so. */
+function Hardware({ o }: { o: SystemHardwareOutput }) {
+  const gib = (n: number | null) => (n === null ? "Not reported" : bytes(n));
+  return (<>
+    <KeyValues rows={[
+      ["Make and model", o.manufacturer || o.model ? `${o.manufacturer ?? ""} ${o.model ?? ""}`.trim() : notReported],
+      ["BIOS", o.bios.version ? `${o.bios.version}${o.bios.vendor ? `, ${o.bios.vendor}` : ""}${o.bios.date ? `, ${fullTime(o.bios.date).split(",")[0]}` : ""}` : notReported],
+      ["Processor", o.cpu.model ? `${o.cpu.model}${o.cpu.logicalCores !== null ? `, ${o.cpu.logicalCores} logical cores` : ""}` : notReported],
+      ["Memory", `${gib(o.memory.totalBytes)}${o.memory.moduleCount !== null ? `, ${o.memory.moduleCount} ${o.memory.moduleCount === 1 ? "module" : "modules"}` : ""}`],
+      ["TPM", o.tpm === null ? notReported : !o.tpm.present ? <Badge tone="warn">None found</Badge> : <>{yesNo(o.tpm.enabled)} {o.tpm.version ? `version ${o.tpm.version}` : ""}</>],
+      ["Secure Boot", o.secureBoot === null ? notReported : <Badge tone={SECURE_BOOT[o.secureBoot][0]}>{SECURE_BOOT[o.secureBoot][1]}</Badge>],
+      ["Last started", o.lastBoot ? <span title={fullTime(o.lastBoot)}>{ago(o.lastBoot)}</span> : notReported],
+    ]} />
+    <h4>Displays</h4>
+    <DataTable label="displays" rows={o.monitors} empty="No displays reported." filterable={false} columns={[
+      { header: "Display", first: true, cell: m => orDash(m.name) }, { header: "Resolution", cell: m => (m.width && m.height ? `${m.width} × ${m.height}` : "Not reported") }]} />
+    <h4>Serial (COM) ports</h4>
+    <DataTable label="COM ports" rows={o.ports} empty="No serial ports are open on this cabinet." filterable={false} columns={[
+      { header: "Port", first: true, cell: p => p.port }, { header: "Device", cell: p => orDash(p.deviceName) },
+      { header: "Driver", cell: p => orDash(p.driverProvider) }, { header: "Version", cell: p => orDash(p.driverVersion) }]} />
+    {o.memory.modules.length > 0 && <>
+      <h4>Memory modules</h4>
+      <DataTable label="memory modules" rows={o.memory.modules} empty="" filterable={false} columns={[
+        { header: "Slot", first: true, cell: m => orDash(m.slot) }, { header: "Size", cell: m => gib(m.capacityBytes) }, { header: "Speed", cell: m => (m.speedMhz === null ? "Not reported" : `${m.speedMhz} MHz`) }]} />
+    </>}
+  </>);
+}
+
+/** Domain or workgroup, the local administrators, automatic sign-in and Group Policy. The automatic sign-in password is never read. */
+function Identity({ o }: { o: SystemIdentityOutput }) {
+  return (<>
+    <KeyValues rows={[
+      ["Joined to", o.joinType === "domain" ? `Domain ${o.name ?? ""}`.trim() : o.joinType === "workgroup" ? <>Workgroup {o.name ?? ""} <Badge tone="info">Not in a domain</Badge></> : notReported],
+      ...(o.joinType === "domain" ? [["Domain controller", o.domainControllerFound === null ? notReported : <Badge tone={o.domainControllerFound ? "ok" : "warn"}>{o.domainControllerFound ? "Found" : "None answered"}</Badge>] as [string, ReactNode]] : []),
+      ["Automatic sign-in", o.autoLogon === null ? notReported : o.autoLogon.enabled ? <Badge tone="warn">On{o.autoLogon.userName ? `, as ${o.autoLogon.userName}` : ""}</Badge> : <Badge tone="ok">Off</Badge>],
+      ["Group Policy last applied", o.groupPolicyLastApplied ? <span title={fullTime(o.groupPolicyLastApplied)}>{ago(o.groupPolicyLastApplied)}</span> : "Not reported"],
+    ]} />
+    <h4>Local administrators</h4>
+    <DataTable label="administrators" rows={(o.localAdministrators?.names ?? []).map(name => ({ name }))} truncated={o.localAdministrators?.truncated} filterable={false}
+      empty={o.localAdministrators === null ? "The cabinet could not list its administrators." : "No members reported."} columns={[{ header: "Name", first: true, cell: a => a.name }]} />
+  </>);
+}
+
+const Hosts = ({ o }: { o: NetworkHostsOutput }) => (
+  <DataTable label="hosts entries" rows={o.entries} truncated={o.truncated} empty="The hosts file has no entries, so every name is looked up normally." columns={[
+    { header: "Address", first: true, cell: e => e.address, text: e => `${e.address} ${e.names.join(" ")}` }, { header: "Names", cell: e => e.names.join(", ") }]} />);
+
 const HEALTH = { healthy: ["ok", "Healthy"], repairable: ["warn", "Damaged, repairable"], corrupt: ["crit", "Damaged"], unknown: ["off", "Not clear"] } as const;
 const Health = ({ o }: { o: SystemCheckHealthOutput }) => (
   <KeyValues rows={[["Component store", <Badge tone={HEALTH[o.state][0]}>{HEALTH[o.state][1]}</Badge>], ["Windows said", o.summary], ["Took", `${(o.elapsedMs / 1000).toFixed(1)} s`]]} />);
@@ -159,6 +209,9 @@ function Folders({ cabinetId }: { cabinetId: string }) {
 interface Reading<T> { op: string; title: string; description: string; view: (o: T, ctx: { cabinet: CabinetDetail }) => ReactNode }
 const READINGS: Reading<never>[] = [
   { op: "system.security", title: "Security and activation", description: "Pending restart, Defender, BitLocker, Windows activation and certificates near expiry.", view: o => <Security o={o} /> },
+  { op: "system.hardware", title: "Hardware", description: "Make and model, BIOS, processor, memory, TPM, Secure Boot, displays and COM ports: to match drivers and spot a bad batch.", view: o => <Hardware o={o} /> },
+  { op: "system.identity", title: "Identity and policy", description: "Domain or workgroup, local administrators, automatic sign-in and when Group Policy last applied. No password is ever read.", view: o => <Identity o={o} /> },
+  { op: "network.hosts", title: "Hosts file", description: "Names the hosts file sends to a fixed address, whatever DNS says. A stale line sends a name to the wrong place. Comments are not read.", view: o => <Hosts o={o} /> },
   { op: "reliability.list", title: "Reliability history", description: "Crashes, hangs and Windows failures, newest first.", view: o => <Reliability o={o} /> },
   { op: "software.list", title: "Installed software", description: "Programs and Windows updates, to compare cabinets or find what changed.", view: o => <Software o={o} /> },
   { op: "startup.list", title: "Startup and scheduled tasks", description: "What starts with Windows and what runs on a schedule.", view: o => <Startup o={o} /> },

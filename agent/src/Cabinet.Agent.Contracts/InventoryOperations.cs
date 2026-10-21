@@ -216,3 +216,111 @@ public sealed record PowerStatusOutput
     public required bool? Hibernate { get; init; }
     public required UsbSuspendSettings? UsbSelectiveSuspend { get; init; }
 }
+
+// ---- system.hardware, system.identity, network.hosts -----------------------------------------------------------------------------
+// Read-only. Every value the cabinet cannot read is null; the operation never fails because one source is missing.
+
+public enum SecureBootState { On, Off, Unsupported }
+
+public sealed record BiosInfo
+{
+    public required string? Vendor { get; init; }
+    public required string? Version { get; init; }
+    public required DateTimeOffset? Date { get; init; }
+}
+
+public sealed record CpuInfo
+{
+    public required string? Model { get; init; }
+    public required long? LogicalCores { get; init; }
+}
+
+public sealed record MemoryModule
+{
+    public required string? Slot { get; init; }
+    public required long? CapacityBytes { get; init; }
+    public required long? SpeedMhz { get; init; }
+}
+
+public sealed record MemoryInfo
+{
+    public required long? TotalBytes { get; init; }
+    public required long? ModuleCount { get; init; }
+    public required IReadOnlyList<MemoryModule> Modules { get; init; }
+}
+
+public sealed record TpmInfo
+{
+    public required bool Present { get; init; }
+    public required bool? Enabled { get; init; }
+    public required string? Version { get; init; }
+}
+
+public sealed record MonitorInfo
+{
+    public required string? Name { get; init; }
+    public required long? Width { get; init; }
+    public required long? Height { get; init; }
+}
+
+public sealed record SerialPortInfo
+{
+    public required string Port { get; init; }
+    public required string? DeviceName { get; init; }
+    public required string? DriverProvider { get; init; }
+    public required string? DriverVersion { get; init; }
+}
+
+public sealed record SystemHardwareOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required string? Manufacturer { get; init; }
+    public required string? Model { get; init; }
+    public required BiosInfo Bios { get; init; }
+    public required CpuInfo Cpu { get; init; }
+    public required MemoryInfo Memory { get; init; }
+    public required TpmInfo? Tpm { get; init; }
+    public required SecureBootState? SecureBoot { get; init; }
+    public required DateTimeOffset? LastBoot { get; init; }
+    public required IReadOnlyList<MonitorInfo> Monitors { get; init; }
+    public required IReadOnlyList<SerialPortInfo> Ports { get; init; }
+}
+
+public enum JoinType { Domain, Workgroup, Unknown }
+
+public sealed record LocalAdministrators
+{
+    public required IReadOnlyList<string> Names { get; init; }
+    public required bool Truncated { get; init; }
+}
+
+/// <summary>Whether automatic sign-in is on and for which user name. The password is never read.</summary>
+public sealed record AutoLogonInfo
+{
+    public required bool Enabled { get; init; }
+    public required string? UserName { get; init; }
+}
+
+public sealed record SystemIdentityOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required JoinType JoinType { get; init; }
+    public required string? Name { get; init; }
+    public required bool? DomainControllerFound { get; init; }
+    public required LocalAdministrators? LocalAdministrators { get; init; }
+    public required AutoLogonInfo? AutoLogon { get; init; }
+    public required DateTimeOffset? GroupPolicyLastApplied { get; init; }
+}
+
+public sealed record HostsEntry
+{
+    public required string Address { get; init; }
+    public required IReadOnlyList<string> Names { get; init; }
+}
+
+public sealed record NetworkHostsOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required IReadOnlyList<HostsEntry> Entries { get; init; }
+    public required bool Truncated { get; init; }
+}

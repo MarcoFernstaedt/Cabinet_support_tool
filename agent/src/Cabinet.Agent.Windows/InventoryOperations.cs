@@ -32,7 +32,9 @@ public static class InventoryOperations
         .Register<EmptyParams, ReliabilityListOutput>(Catalog.ReliabilityList, (_, t) => Task.FromResult(Reliability()))
         .Register<DiskFoldersParams, DiskFoldersOutput>(Catalog.DiskFolders, (p, t) => Task.FromResult(Folders(p, t)))
         .Register<EmptyParams, DnsCacheOutput>(Catalog.DnsCache, (_, t) => Task.FromResult(DnsCache()))
-        .Register<EmptyParams, PowerStatusOutput>(Catalog.PowerStatus, (_, t) => Task.FromResult(Power()));
+        .Register<EmptyParams, PowerStatusOutput>(Catalog.PowerStatus, (_, t) => Task.FromResult(Power()))
+        .Register<EmptyParams, SystemHardwareOutput>(Catalog.SystemHardware, (_, t) => Task.FromResult(HardwareOperations.Hardware()))
+        .Register<EmptyParams, NetworkHostsOutput>(Catalog.NetworkHosts, (_, t) => Task.FromResult(HardwareOperations.Hosts()));
 
     /// <summary>A query that may not exist on this edition of Windows: nothing comes back instead of an error.</summary>
     private static List<Dictionary<string, object?>> Try(string scope, string wql, int max)

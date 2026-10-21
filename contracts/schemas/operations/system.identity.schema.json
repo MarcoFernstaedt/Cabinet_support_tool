@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/system.identity.schema.json",
+  "title": "system.identity",
+  "description": "Whether the cabinet is joined to a domain or a workgroup and its name, whether a domain controller can be found, the members of the local Administrators group (names only), whether automatic sign-in is on and for which user name (never a password), and when Group Policy last applied.",
+  "$defs": {
+    "params": {
+      "$ref": "../common.schema.json#/$defs/emptyParams"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "joinType",
+        "name",
+        "domainControllerFound",
+        "localAdministrators",
+        "autoLogon",
+        "groupPolicyLastApplied"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "joinType": {
+          "type": "string",
+          "enum": [
+            "domain",
+            "workgroup",
+            "unknown"
+          ]
+        },
+        "name": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "domainControllerFound": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "localAdministrators": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "names",
+                "truncated"
+              ],
+              "properties": {
+                "names": {
+                  "type": "array",
+                  "maxItems": 64,
+                  "items": {
+                    "$ref": "../common.schema.json#/$defs/shortText"
+                  }
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "autoLogon": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "enabled",
+                "userName"
+              ],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "userName": {
+                  "$ref": "../common.schema.json#/$defs/nullableShortText"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "groupPolicyLastApplied": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        }
+      }
+    }
+  }
+}

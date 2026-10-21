@@ -82,6 +82,15 @@ function timeStatus(ctx: DemoContext) {
     policyManaged: false };
 }
 
+/** A stable number per simulated cabinet, so its model and BIOS do not change between reads. */
+const seedOf = (ctx: DemoContext): number => [...ctx.hostname].reduce((a, ch) => (a * 31 + ch.charCodeAt(0)) >>> 0, 7);
+const GIB = 1024 ** 3;
+const HARDWARE = [
+  { name: "OptiPlex 7090", cpu: "11th Gen Intel(R) Core(TM) i5-11500 @ 2.70GHz", cores: 12, ramBytes: 16 * GIB, modules: 2, speed: 3200, bios: "1.18.0", biosDate: "2023-05-09T00:00:00Z", oldBios: "1.12.0", oldBiosDate: "2022-02-17T00:00:00Z" },
+  { name: "OptiPlex 3080", cpu: "Intel(R) Core(TM) i3-10100 CPU @ 3.60GHz", cores: 8, ramBytes: 8 * GIB, modules: 1, speed: 2666, bios: "2.20.0", biosDate: "2024-01-22T00:00:00Z", oldBios: "2.14.0", oldBiosDate: "2022-11-03T00:00:00Z" },
+  { name: "OptiPlex 7080", cpu: "Intel(R) Core(TM) i5-10500 CPU @ 3.10GHz", cores: 12, ramBytes: 16 * GIB, modules: 2, speed: 2933, bios: "1.21.0", biosDate: "2023-11-14T00:00:00Z", oldBios: "1.15.0", oldBiosDate: "2022-06-28T00:00:00Z" },
+] as const;
+
 export function demoOutput(operation: string, params: Record<string, any>, ctx: DemoContext): unknown {
   switch (operation) {
     case "system.info": {
@@ -182,6 +191,49 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       const o = example("power.status", "typical.json");
       const usb = ctx.power.usb_selective_suspend ?? o.usbSelectiveSuspend?.pluggedIn ?? true;
       return { ...o, takenAt: iso(ctx.now), fastStartup: ctx.power.fast_startup ?? o.fastStartup, usbSelectiveSuspend: { pluggedIn: usb, onBattery: usb } };
+    }
+    case "system.hardware": {
+      const o = example("system.hardware", "typical.json");
+      const h = seedOf(ctx), model = HARDWARE[h % HARDWARE.length]!, older = (h >>> 4) % 3 === 0;
+      const uptime = ctx.scenario === "bsod" ? 1260 : 86_400 * (3 + ctx.index);
+      const modules = Array.from({ length: model.modules }, (_, i) => ({ slot: `DIMM ${"AB"[i % 2]}${1 + Math.floor(i / 2)}`, capacityBytes: model.ramBytes / model.modules, speedMhz: model.speed }));
+      const second = ctx.role === "sync" || ctx.index % 3 === 0;
+      const noTpm = h % 7 === 0;
+      const com = [
+        ...(ctx.role === "sync" || ctx.index % 2 === 0 ? [{ port: "COM1", deviceName: "Communications Port (COM1)", driverProvider: "Microsoft", driverVersion: "10.0.19041.1" }] : []),
+        ...(ctx.index % 3 === 0 ? [{ port: "COM3", deviceName: "USB Serial Port (COM3)", driverProvider: "FTDI", driverVersion: "2.12.36.4" }] : []),
+      ];
+      return { ...o, takenAt: iso(ctx.now), manufacturer: "Dell Inc.", model: model.name,
+        bios: { vendor: "Dell Inc.", version: older ? model.oldBios : model.bios, date: older ? model.oldBiosDate : model.biosDate },
+        cpu: { model: model.cpu, logicalCores: model.cores },
+        memory: { totalBytes: model.ramBytes, moduleCount: model.modules, modules },
+        tpm: { present: true, enabled: !noTpm, version: "2.0" }, secureBoot: noTpm ? "off" : "on",
+        lastBoot: iso(new Date(ctx.now.getTime() - uptime * 1000)),
+        monitors: [{ name: "DELL P2422H", width: 1920, height: 1080 }, ...(second ? [{ name: "Customer display", width: 1024, height: 768 }] : [])],
+        ports: com };
+    }
+    case "system.identity": {
+      const o = example("system.identity", "domain.json");
+      const workgroup = ctx.scenario === "usb_missing", noController = ctx.scenario === "net_dns_wrong", autoLogon = ctx.scenario === "scanner_disconnected";
+      const extraAdmin = seedOf(ctx) % 5 === 0;
+      return { ...o, takenAt: iso(ctx.now),
+        joinType: workgroup ? "workgroup" : "domain", name: workgroup ? "WORKGROUP" : "clinic.example",
+        domainControllerFound: workgroup ? null : !noController,
+        localAdministrators: { names: [`${ctx.hostname}\\Administrator`, ...(workgroup ? [] : ["CLINIC\\Domain Admins", "CLINIC\\Cabinet Support"]), ...(extraAdmin ? ["CLINIC\\temp.install"] : [])], truncated: false },
+        autoLogon: autoLogon ? { enabled: true, userName: "cubex" } : { enabled: false, userName: null },
+        // Group Policy cannot apply while no domain controller answers.
+        groupPolicyLastApplied: workgroup ? null : noController ? ago(ctx, 9 * 24 * 60) : ago(ctx, 60 + (seedOf(ctx) % 180)) };
+    }
+    case "network.hosts": {
+      const o = example("network.hosts", "typical.json");
+      // A few cabinets still carry an old line that sends the sync cabinet's name to an address it left; a few pin the right one.
+      const stale = ["net_dns_wrong", "dns_errors", "net_static_wrong"].includes(ctx.scenario) && ctx.role !== "sync";
+      const pinned = !stale && ctx.role !== "sync" && ctx.scenario === "healthy" && ctx.index % 4 === 1;
+      return { ...o, takenAt: iso(ctx.now),
+        entries: [{ address: "127.0.0.1", names: ["localhost"] }, { address: "::1", names: ["localhost"] },
+          ...(stale ? [{ address: `${ctx.subnet}.12`, names: ["sync.clinic.example", "sync"] }] : []),
+          ...(pinned ? [{ address: `${ctx.subnet}.20`, names: ["sync.clinic.example"] }] : [])],
+        truncated: false };
     }
     case "power.set": {
       const before = ctx.power[params.setting] ?? true;

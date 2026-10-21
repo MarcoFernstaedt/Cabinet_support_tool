@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "address": "127.0.0.1",
+      "names": [
+        "localhost"
+      ]
+    },
+    {
+      "address": "10.21.4.99",
+      "names": [
+        "sync.clinic.example",
+        "sync"
+      ]
+    }
+  ],
+  "truncated": false
+}

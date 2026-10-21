@@ -52,6 +52,8 @@ const ITEMS = (path: string, fields: Record<string, string>, alias: string): str
 export const KEYWORDS: Record<string, readonly string[]> = {
   "power.status": ["fast_startup", "usb_suspend"],
   "system.security": ["pending_restart", "defender_off", "bitlocker_off", "cert_expiring", "not_activated"],
+  // system.identity is also searched by name (a domain, a workgroup or an administrator): text that is not one of these.
+  "system.identity": ["workgroup", "auto_logon", "no_domain_controller"],
 };
 
 const KEYWORD_WHERE: Record<string, string> = {
@@ -62,6 +64,9 @@ const KEYWORD_WHERE: Record<string, string> = {
   bitlocker_off: `EXISTS (SELECT 1 FROM ${ITEMS("bitlocker", { protection: "protection" }, "v")} WHERE v.protection = 'off')`,
   cert_expiring: `EXISTS (SELECT 1 FROM OPENJSON(cm.result, '$.output.certificates'))`,
   not_activated: `${OUT("activation.licensed")} = 'false'`,
+  workgroup: `${OUT("joinType")} = 'workgroup'`,
+  auto_logon: `${OUT("autoLogon.enabled")} = 'true'`,
+  no_domain_controller: `${OUT("domainControllerFound")} = 'false'`,
 };
 const KEYWORD_FOUND: Record<string, (o: Out) => string[]> = {
   fast_startup: () => ["Fast Startup is on"],
@@ -71,6 +76,9 @@ const KEYWORD_FOUND: Record<string, (o: Out) => string[]> = {
   bitlocker_off: o => first((o.bitlocker ?? []).filter((v: Out) => v.protection === "off").map((v: Out) => `${v.volume} is not protected by BitLocker`)),
   cert_expiring: o => first((o.certificates ?? []).map((c: Out) => `${c.subject}: ${c.expired ? "expired" : `${c.daysLeft} days left`}`)),
   not_activated: o => [`Windows: ${o.activation?.status ?? "not activated"}`],
+  workgroup: o => [`In a workgroup${o.name ? `: ${o.name}` : ""}, not a domain`],
+  auto_logon: o => [`Signs in automatically${o.autoLogon?.userName ? ` as ${o.autoLogon.userName}` : ""}`],
+  no_domain_controller: o => [`No domain controller found for ${o.name ?? "the domain"}`],
 };
 
 const NAMES: Record<string, Searchable> = {
@@ -94,6 +102,27 @@ const NAMES: Record<string, Searchable> = {
     where: `EXISTS (SELECT 1 FROM ${ITEMS("sessions", { account: "user" }, "s")} WHERE CHARINDEX($3, LOWER(s.account)) > 0)`,
     found: (o, q) => first((o.sessions ?? []).filter((s: Out) => has(s.user, q)).map((s: Out) => `${s.user} (${s.state}, ${s.type === "remote" ? "remote desktop" : "at the cabinet"})`)),
   },
+  "system.hardware": {
+    where: `CHARINDEX($3, LOWER(COALESCE(${OUT("model")}, ''))) > 0 OR CHARINDEX($3, LOWER(COALESCE(${OUT("manufacturer")}, ''))) > 0
+            OR CHARINDEX($3, LOWER(COALESCE(${OUT("bios.version")}, ''))) > 0 OR CHARINDEX($3, LOWER(COALESCE(${OUT("bios.vendor")}, ''))) > 0
+            OR CHARINDEX($3, LOWER(COALESCE(${OUT("cpu.model")}, ''))) > 0`,
+    found: (o, q) => first([
+      ...(has(o.model, q) || has(o.manufacturer, q) ? [`${o.manufacturer ?? ""} ${o.model ?? ""}`.trim()] : []),
+      ...(has(o.bios?.version, q) || has(o.bios?.vendor, q) ? [`BIOS ${o.bios?.version ?? "?"}${o.bios?.date ? ` (${String(o.bios.date).slice(0, 10)})` : ""}`] : []),
+      ...(has(o.cpu?.model, q) ? [`Processor ${o.cpu.model}`] : [])]),
+  },
+  "system.identity": {
+    where: `CHARINDEX($3, LOWER(COALESCE(${OUT("name")}, ''))) > 0
+            OR EXISTS (SELECT 1 FROM OPENJSON(cm.result, '$.output.localAdministrators.names') WITH (admin nvarchar(max) '$') a WHERE CHARINDEX($3, LOWER(a.admin)) > 0)`,
+    found: (o, q) => first([
+      ...(has(o.name, q) ? [`${o.joinType === "domain" ? "Domain" : o.joinType === "workgroup" ? "Workgroup" : "Joined to"} ${o.name}`] : []),
+      ...(o.localAdministrators?.names ?? []).filter((n: unknown) => has(n, q)).map((n: string) => `Local administrator ${n}`)]),
+  },
+  "network.hosts": {
+    where: `EXISTS (SELECT 1 FROM OPENJSON(cm.result, '$.output.entries') WITH (address nvarchar(max) '$.address', names nvarchar(max) '$.names' AS JSON) e
+                    WHERE CHARINDEX($3, LOWER(e.address)) > 0 OR EXISTS (SELECT 1 FROM OPENJSON(e.names) n WHERE CHARINDEX($3, LOWER(n.value)) > 0))`,
+    found: (o, q) => first((o.entries ?? []).filter((e: Out) => has(e.address, q) || (e.names ?? []).some((n: unknown) => has(n, q))).map((e: Out) => `${(e.names ?? []).join(", ")} → ${e.address}`)),
+  },
   "dns.cache": {
     where: `EXISTS (SELECT 1 FROM ${ITEMS("entries", { entry_name: "name", entry_data: "data" }, "e")} WHERE CHARINDEX($3, LOWER(e.entry_name)) > 0 OR CHARINDEX($3, LOWER(e.entry_data)) > 0)`,
     found: (o, q) => first((o.entries ?? []).filter((e: Out) => has(e.name, q) || has(e.data, q)).map((e: Out) => `${e.name} → ${e.data}`)),
@@ -112,11 +141,12 @@ const MAX_MATCHES = 200;
 export async function searchReadings(db: Queryable, operation: string, q: string, scope: { clientId?: string; siteId?: string }, limitMs?: number): Promise<SearchResult> {
   const started = Date.now();
   const left = () => (limitMs === undefined ? undefined : { timeoutMs: Math.max(1, limitMs - (Date.now() - started)) });
-  const keywords = KEYWORDS[operation];
   const text = q.trim().toLowerCase();
-  if (keywords) {
-    if (!keywords.includes(text)) throw new Refused("unknown_keyword", 400, `search ${operation} by one of: ${keywords.join(", ")}`);
-  } else if (!NAMES[operation]) throw new Refused("not_searchable", 400, "that reading cannot be searched");
+  const allowed = KEYWORDS[operation];
+  // A reading with a keyword list and no names takes only its keywords; one with both (system.identity) takes a keyword or a name.
+  const keywords = allowed?.includes(text) ? allowed : undefined;
+  if (allowed && !keywords && !NAMES[operation]) throw new Refused("unknown_keyword", 400, `search ${operation} by one of: ${allowed.join(", ")}`);
+  if (!allowed && !NAMES[operation]) throw new Refused("not_searchable", 400, "that reading cannot be searched");
   const condition = keywords ? KEYWORD_WHERE[text]! : NAMES[operation]!.where;
   const inScope = `k.status = 'active' AND (CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))`;
   const params = [scope.clientId ?? null, scope.siteId ?? null, keywords ? "" : text, operation];

@@ -39,6 +39,18 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     await page.getByRole("button", { name: "Search", exact: true }).click();
     await results.getByText(/found among the/).waitFor();
     await results.getByText(/never read/).waitFor();
+    // The machine facts: a hosts line that sends the sync cabinet's name to an old address, and the one cabinet in a workgroup.
+    await page.getByLabel("Find").selectOption("network.hosts");
+    await page.getByLabel("Text").fill("sync.clinic.example");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await results.getByText(/found among the/).waitFor();
+    await results.getByText(/sync\.clinic\.example, sync → \d+\.\d+\.\d+\.12/).first().waitFor();
+    await page.getByLabel("Find").selectOption("identity-state");
+    await page.getByLabel("Where").selectOption("workgroup");
+    await page.getByRole("button", { name: "Search", exact: true }).click();
+    await results.getByText(/found among the/).waitFor();
+    await results.getByRole("link", { name: "Intake" }).waitFor();
+    await results.getByText(/In a workgroup: WORKGROUP/).waitFor();
     // Back to the program, and open the match.
     await page.getByLabel("Find").selectOption("software.list");
     await page.getByLabel("Text").fill("Practice Manager");
@@ -51,6 +63,11 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     await page.getByText(/This cabinet has not been heard from since/).waitFor();
     await page.getByText(/Last read /).first().waitFor({ timeout: 30_000 });
     await page.getByText("Practice Manager").first().waitFor();
+    // The hardware, identity and hosts file readings are stored too, with plain empty states where a list has nothing in it.
+    for (const title of ["Hardware", "Identity and policy", "Hosts file"]) await page.getByRole("heading", { name: title, exact: true }).last().waitFor();
+    await page.getByText(/OptiPlex/).first().waitFor();
+    await page.getByText("Domain clinic.example").first().waitFor();
+    await page.getByRole("cell", { name: "localhost" }).first().waitFor();
 
     // A cabinet that is heard from has a load history on its overview.
     const midtown = (await c.db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.id;

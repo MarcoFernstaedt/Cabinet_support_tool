@@ -1,0 +1,20 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "entries": [
+    {
+      "address": "127.0.0.1",
+      "names": [
+        "localhost"
+      ]
+    },
+    {
+      "address": "10.21.4.99",
+      "names": [
+        "sync.clinic.example",
+        "sync"
+      ]
+    }
+  ],
+  "truncated": false,
+  "shell": "cmd"
+}

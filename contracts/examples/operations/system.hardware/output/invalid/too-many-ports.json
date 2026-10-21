@@ -1,0 +1,249 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "manufacturer": "Dell Inc.",
+  "model": "OptiPlex 7090",
+  "bios": {
+    "vendor": "Dell Inc.",
+    "version": "1.18.0",
+    "date": "2023-05-09T00:00:00Z"
+  },
+  "cpu": {
+    "model": "11th Gen Intel(R) Core(TM) i5-11500 @ 2.70GHz",
+    "logicalCores": 12
+  },
+  "memory": {
+    "totalBytes": 17179869184,
+    "moduleCount": 2,
+    "modules": [
+      {
+        "slot": "DIMM A1",
+        "capacityBytes": 8589934592,
+        "speedMhz": 3200
+      },
+      {
+        "slot": "DIMM B1",
+        "capacityBytes": 8589934592,
+        "speedMhz": 3200
+      }
+    ]
+  },
+  "tpm": {
+    "present": true,
+    "enabled": true,
+    "version": "2.0"
+  },
+  "secureBoot": "on",
+  "lastBoot": "2026-10-12T06:41:08Z",
+  "monitors": [
+    {
+      "name": "DELL P2422H",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "Customer display",
+      "width": 1024,
+      "height": 768
+    }
+  ],
+  "ports": [
+    {
+      "port": "COM1",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM2",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM3",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM4",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM5",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM6",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM7",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM8",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM9",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM10",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM11",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM12",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM13",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM14",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM15",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM16",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM17",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM18",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM19",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM20",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM21",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM22",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM23",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM24",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM25",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM26",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM27",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM28",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM29",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM30",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM31",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM32",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    },
+    {
+      "port": "COM33",
+      "deviceName": null,
+      "driverProvider": null,
+      "driverVersion": null
+    }
+  ]
+}

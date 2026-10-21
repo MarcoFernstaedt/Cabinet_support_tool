@@ -1,0 +1,218 @@
+{
+  "takenAt": "2026-10-14T14:00:00Z",
+  "manufacturer": "Dell Inc.",
+  "model": "OptiPlex 7090",
+  "bios": {
+    "vendor": "Dell Inc.",
+    "version": "1.18.0",
+    "date": "2023-05-09T00:00:00Z"
+  },
+  "cpu": {
+    "model": "11th Gen Intel(R) Core(TM) i5-11500 @ 2.70GHz",
+    "logicalCores": 12
+  },
+  "memory": {
+    "totalBytes": 17179869184,
+    "moduleCount": 2,
+    "modules": [
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      },
+      {
+        "slot": "S",
+        "capacityBytes": 1,
+        "speedMhz": 1
+      }
+    ]
+  },
+  "tpm": {
+    "present": true,
+    "enabled": true,
+    "version": "2.0"
+  },
+  "secureBoot": "on",
+  "lastBoot": "2026-10-12T06:41:08Z",
+  "monitors": [
+    {
+      "name": "DELL P2422H",
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "name": "Customer display",
+      "width": 1024,
+      "height": 768
+    }
+  ],
+  "ports": [
+    {
+      "port": "COM1",
+      "deviceName": "Communications Port (COM1)",
+      "driverProvider": "Microsoft",
+      "driverVersion": "10.0.19041.1"
+    },
+    {
+      "port": "COM3",
+      "deviceName": "USB Serial Port (COM3)",
+      "driverProvider": "FTDI",
+      "driverVersion": "2.12.36.4"
+    }
+  ]
+}

@@ -282,7 +282,8 @@ public static class NetworkOperations
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<NetworkTraceParams, NetworkTraceOutput>(Catalog.NetworkTrace, network.TraceAsync)
-            .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync);
+            .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync)
+            .Register<EmptyParams, SystemIdentityOutput>(Catalog.SystemIdentity, (_, _) => Task.FromResult(HardwareOperations.Identity()));
         packages?.Register(registry, broker.RunAsync);
         broker.RegisterForwarders(registry);
         return registry;

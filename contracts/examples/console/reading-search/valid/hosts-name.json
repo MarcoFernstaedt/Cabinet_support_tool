@@ -1,0 +1,4 @@
+{
+  "operation": "network.hosts",
+  "q": "sync.clinic.example"
+}
