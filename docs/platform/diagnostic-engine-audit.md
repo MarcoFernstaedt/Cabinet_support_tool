@@ -118,3 +118,43 @@ Audited against the repository before any change. "Status" is what exists on `sq
 ## D. Ordering
 
 The plan in section 5 stands. Items 1, 6, 11, 17 and 19 are the shared core and belong to phase 1: the capability registry, the module contract, the incident record and structured diagnostic runs. Everything else plugs into that core. Nothing is merged to `main`.
+
+---
+
+# Expansion 2: crash dumps to out-of-band recovery (items 1 to 12)
+
+Audit before implementation. Status is what exists on `sqlserver` now (including the hardware, identity and hosts reads, built and tested on Linux, never run on Windows).
+
+| # | Capability | Exists today | Gap and approach | Constraint |
+|---|---|---|---|---|
+| 1 | Crash dump analysis | Boots, bug check codes with plain-language text, stop-code grouping, crash incidents across the fleet, evidence packages, 30-day first look at crash evidence | Reading the dump itself. Approach: the agent lists dump files (names, sizes, times) and parses only the **header** of a minidump on the cabinet (bug check code, four parameters, faulting module name when present). **The dump is never uploaded** (no file transfer; dumps hold memory). Application crash signatures come from Application log events (1000, 1002, 1001) | Never transfer dumps. Recurring-signature detection is server-side counting |
+| 2 | Event log intelligence | `eventlog.query/get/channels`, monitors raising events, mapping of an event to an issue type, unrecognized-event triage, error trends, fleet counts per event | Sequence detection and cross-provider correlation as deterministic rules (ordered event kinds within a time window); suppression of known-benign events | No regular expressions; no Security log |
+| 3 | Process and thread diagnostics | `processes.list` (CPU, memory, handles, owner), `process.end` (Tier 2 with code), performance trend | Thread count, handle and memory growth over time (needs a sampled series for chosen processes), "not responding" flag; bounded diagnostic capture is a list of counters, not a memory dump | Never end a process without authorization (already the rule) |
+| 4 | Authentication diagnostics | Time status, `system.identity` (domain or workgroup, controller found, last policy time), certificates, DNS probes | Kerberos and NTLM evidence from System and Application log providers (Netlogon, Kerberos-KDC client, GroupPolicy operational log); DNS SRV lookup for the controller. **Security log events (4625 and similar) are not readable** by project rule, so failed-logon counts are unavailable | Never read tokens or credentials; no `klist` (would run a program that prints ticket data) |
+| 5 | Certificate and TLS | Certificate store read with expiry (`system.security`), time status | Trust chain and hostname checks against configured targets only; TLS handshake test to a configured host (protocol versions offered, certificate presented, chain result); never lowers TLS settings or skips validation | Targets are Admin-configured, never request-supplied |
+| 6 | USB and peripherals | `usb.ports`, `peripheral.status` with eight checks, scanner drop history, USB selective suspend setting and fix, device list with problem codes, Kernel-PnP monitor | Controller and hub errors across all classes (not only the scanner), power-state correlation, device-specific functional test registry | Already covered for the scanner; generalise |
+| 7 | Database connectivity | TCP port check, DNS probe, sync cabinet check (the biometric sync target) | A SQL Server **connectivity ladder** against an Admin-configured target: DNS, TCP, TLS, then a login-free TDS pre-login handshake that proves a SQL Server answers. A login test needs a credential; the platform never stores or uses one. The pre-login test cannot tell authentication failures from database-down, so that distinction comes from client error codes in the Application log | **Platform never connects to the cabinet application's database** (a pre-login handshake is not a database connection; needs your confirmation) |
+| 8 | Power management | Power settings and fix (USB suspend, Fast Startup, hibernate, plan), unexpected shutdowns, Kernel-Power events | Sleep and resume failure events, wake source, power configuration change history | None |
+| 9 | Installer and deployment | Software list with sources, updates status and history, Windows Installer events visible through `eventlog.query`, software library installs with hash and signature checks | MSI failure signatures from the Application log (MsiInstaller 11708, 1033, 1035), service state, repeated attempts. **MSI log files are not collected** (file transfer); only structured events | No file transfer |
+| 10 | Knowledge base | Known fixes (approved by an Admin, shown beside the problem), resolutions with "usually fixed by" counts, runbooks (data), built-in runbooks | A single versioned entry type with error signature, Windows version range, risk, permissions, verification, success rate, version history. **An entry can never authorize anything**: a repair still goes through the catalog, role and confirmation checks | Unverified content shows as "unverified" and cannot start a repair |
+| 11 | Test harness | Demo simulator (121 cabinets, real server paths), scenario library, fleet-scale load test with failure scenarios, mocked agent in tests, Windows CI job | Scripted failure scenarios against the simulated agent for each listed failure, walking detection, diagnosis, evidence, authorization, repair, verification and resolution; no real device or VM disruption | Never disrupt a production or development machine |
+| 12 | Offline and out-of-band recovery | The agent cannot repair an unbootable Windows. Existing: emergency access doc, offline last-known state, agent update with rollback | **Design document only**: recovery USB workflow, a read-only evidence collector run from WinRE that writes a signed JSON file, import into the incident record after recovery | An agent inside Windows cannot repair a Windows that does not boot. Nothing is promised there |
+
+## New decisions this brief needs
+
+1. **Minidump header parsing on the cabinet (item 1).** Confirm: parse headers locally, upload only the bug check code, parameters, faulting module name and size. Dumps are never uploaded.
+2. **Pre-login SQL Server handshake (item 7).** Confirm that a TDS pre-login (no login, no database access) to an Admin-configured server is allowed under "the platform never connects to the cabinet application's database".
+3. **Security log limits (item 4).** Confirm that authentication diagnostics use System, Application, Netlogon, Kerberos and Group Policy logs and accept having no failed-logon counts.
+4. **Out-of-band recovery (item 12)** is delivered as design and a read-only WinRE collector specification, not code, until a real recovery process is chosen.
+
+## Plan placement
+
+The phases from section 5 stand. These twelve fit as:
+
+- **Phase 3 (network and application):** 2, 3, 5, 7, 9.
+- **Phase 2 (drivers and services):** 6, 8.
+- **Phase 5 (extended):** 1, 4.
+- **Phase 1 (foundation):** 10 (knowledge base is the registry's data) and 11 (the harness is built with the first module so every later module ships with its scenarios).
+- **Last:** 12 (design document).
+
+Nothing is built and nothing is merged to `main`. The three new reads (hardware, identity, hosts file) are tested on Linux and still need a real Windows cabinet.
