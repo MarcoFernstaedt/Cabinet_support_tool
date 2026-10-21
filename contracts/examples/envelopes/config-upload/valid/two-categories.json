@@ -1,0 +1,43 @@
+{
+  "snapshots": [
+    {
+      "observedAt": "2026-10-12T09:10:04Z",
+      "category": "services",
+      "hash": "d686f125ce54cb21359a753ec4f1fc15db0ebb597a3ebd276d3ae50fc636b755",
+      "truncated": false,
+      "items": [
+        {
+          "key": "service:BioScanSvc",
+          "values": {
+            "startType": "automatic",
+            "state": "stopped"
+          }
+        },
+        {
+          "key": "service:Spooler",
+          "values": {
+            "startType": "automatic",
+            "state": "running"
+          }
+        }
+      ]
+    },
+    {
+      "observedAt": "2026-10-12T09:20:04Z",
+      "category": "time",
+      "hash": "87bcd48ce72c85fa5cb1747726ab174e53d743832fd61516c5cf9d99d6a1c51c",
+      "truncated": false,
+      "items": [
+        {
+          "key": "time",
+          "values": {
+            "timeZoneId": "Eastern Standard Time",
+            "syncSource": "time.windows.com",
+            "timeService": "running",
+            "policyManaged": false
+          }
+        }
+      ]
+    }
+  ]
+}

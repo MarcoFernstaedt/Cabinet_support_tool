@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-import.schema.json",
+  "title": "baseline-import",
+  "description": "Copies the approved content of one scope's baseline into a draft for another scope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "from",
+    "to",
+    "description"
+  ],
+  "properties": {
+    "from": {
+      "$ref": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-scope.schema.json"
+    },
+    "to": {
+      "$ref": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-scope.schema.json"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    }
+  }
+}

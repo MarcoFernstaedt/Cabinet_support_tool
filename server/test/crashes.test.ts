@@ -18,6 +18,7 @@ import { storeEvents } from "../src/services/events.js";
 import { categorize, changeKey, checkQuietLoops, describeStopCode, stopCodeOf } from "../src/services/crashes.js";
 import { enableDemo, INCIDENT_DRIVER, INCIDENT_UPDATE } from "../src/demo/demo.js";
 import { verifyEvidence } from "../src/services/evidence.js";
+import { decryptEvidence } from "../src/services/evidence-crypto.js";
 import { ISSUE } from "../src/services/rules.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
@@ -183,6 +184,21 @@ test("an evidence package holds the cabinet's events, boots, alerts, commands an
   const audited = (await db.app.query("SELECT details FROM audit_log WHERE action = 'evidence.export' AND target_id = $1", [one])).rows;
   assert.equal(audited.length, 1);
   assert.equal(audited[0].details.packageSha256, pkg.manifest.packageSha256);
+  // The encrypted export: the same package, opened only with the passphrase; the passphrase is not in the audit entry; weak or hostile requests are refused.
+  const pass = "correct horse battery staple";
+  const enc = await app.inject({ method: "POST", url: `/api/cabinets/${one}/evidence/encrypted`, headers: { origin: ORIGIN, cookie }, payload: { days: "7", passphrase: pass } });
+  assert.equal(enc.statusCode, 200);
+  assert.match(String(enc.headers["content-disposition"]), /\.cabev"$/);
+  const opened = JSON.parse(decryptEvidence(enc.rawPayload, pass).toString("utf8"));
+  assert.equal(verifyEvidence(opened), true);
+  assert.throws(() => decryptEvidence(enc.rawPayload, "another passphrase here"));
+  assert.ok(!enc.rawPayload.toString("utf8").includes("mashura-cabinet-evidence"), "the file holds no readable package text");
+  const encAudit = (await db.app.query("SELECT details FROM audit_log WHERE action = 'evidence.export' AND target_id = $1 ORDER BY seq DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY", [one])).rows[0];
+  assert.equal(encAudit.details.encrypted, true);
+  assert.ok(!JSON.stringify(encAudit).includes(pass));
+  for (const payload of [{ days: "7", passphrase: "short" }, { days: "7" }, { days: "999", passphrase: pass }, { days: "7", passphrase: pass, x: 1 }])
+    assert.equal((await app.inject({ method: "POST", url: `/api/cabinets/${one}/evidence/encrypted`, headers: { origin: ORIGIN, cookie }, payload })).statusCode, 400);
+  assert.equal((await app.inject({ method: "POST", url: `/api/cabinets/${one}/evidence/encrypted`, headers: { origin: ORIGIN }, payload: { days: "7", passphrase: pass } })).statusCode, 401);
   // Hostile and unknown requests.
   assert.equal((await call(`/api/cabinets/${randomUUID()}/evidence`)).status, 404);
   for (const q of ["days=1000", "from=2020-01-01T00:00:00Z&to=2026-10-01T00:00:00Z", "days=7&x=1"])

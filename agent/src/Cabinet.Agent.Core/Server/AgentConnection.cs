@@ -25,6 +25,9 @@ public sealed class AgentConnectionOptions
     public EventQueue? Events { get; init; }
     /// <summary>Settings the server sends with each heartbeat answer, kept for the monitors.</summary>
     public MonitorSettings? Settings { get; init; }
+    /// <summary>Configuration snapshots (changed categories only) waiting to be sent.</summary>
+    public Cabinet.Agent.Core.Configuration.ConfigQueue? ConfigUploads { get; init; }
+    public TimeSpan ConfigSendInterval { get; init; } = TimeSpan.FromSeconds(20);
     public TimeSpan EventSendInterval { get; init; } = TimeSpan.FromSeconds(15);
     /// <summary>Downloads packages for package.install while online.</summary>
     public Packages.PackageDownloads? Packages { get; init; }
@@ -292,6 +295,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             Supervise("command worker", t => WorkerLoopAsync(s, processor, t), stop.Token),
             Supervise("result sender", t => ResultLoopAsync(s, t), stop.Token),
             Supervise("event sender", t => EventLoopAsync(s, t), stop.Token),
+            Supervise("configuration sender", t => ConfigLoopAsync(s, t), stop.Token),
             Supervise("certificate renewal", t => RenewLoopAsync(s, t), stop.Token),
         };
         Task<Ended> first = await Task.WhenAny(loops).ConfigureAwait(false);
@@ -602,6 +606,48 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                         }
                         // A 413 is answered at once with the smaller batch; anything else waits a little first.
                         if (e.Status != HttpStatusCode.RequestEntityTooLarge) wait = LocalWait(e, local);
+                    }
+                }
+            }
+            if (wait is { } w) await Delay(w, token).ConfigureAwait(false);
+        }
+        return Ended.Cancelled;
+    }
+
+    /// <summary>
+    /// Sends queued configuration snapshots oldest first, up to 8 at a time and under a size limit; the queue keeps them until the server has
+    /// accepted them. A quota or a shed request waits (the server's Retry-After at least); an answer that refuses the snapshots (the contract
+    /// or hash check) drops them and makes the watcher look at those categories again, so one bad snapshot never blocks the queue.
+    /// </summary>
+    private async Task<Ended> ConfigLoopAsync(Session s, CancellationToken token)
+    {
+        if (o.ConfigUploads is null) return await Idle(token).ConfigureAwait(false);
+        var queue = o.ConfigUploads;
+        Backoff local = o.LocalBackoff();
+        while (!token.IsCancellationRequested)
+        {
+            var next = queue.Peek();
+            if (next is null) { await Delay(o.ConfigSendInterval, token).ConfigureAwait(false); continue; }
+            TimeSpan? wait = null;
+            using (await s.Link.EnterAsync(token, probe: false).ConfigureAwait(false))
+            {
+                try
+                {
+                    await s.Api.PostConfigAsync(next.Value.Body, token).ConfigureAwait(false);
+                    s.Link.Reached();
+                    queue.Acknowledge(next.Value.Count);
+                    local.Reset();
+                    if (queue.Count > 0) wait = TimeSpan.FromSeconds(1); // draining a backlog, gently
+                }
+                catch (AgentApiException e)
+                {
+                    FailureKind kind = s.Link.Failed(e);
+                    if (kind == FailureKind.CertificateRefused) return Ended.CertificateRefused;
+                    if (kind is FailureKind.Quota or FailureKind.Unavailable) wait = LocalWait(e, local);
+                    else if (kind == FailureKind.Answered)
+                    {
+                        o.Log($"The server refused {next.Value.Count} configuration snapshot(s) ({e.Code}); they were dropped and will be looked at again.");
+                        queue.Discard(next.Value.Count);
                     }
                 }
             }

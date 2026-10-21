@@ -1,0 +1,9 @@
+{
+  "items": [
+    {
+      "category": "registry",
+      "key": "reg:HKLM",
+      "mode": "present"
+    }
+  ]
+}

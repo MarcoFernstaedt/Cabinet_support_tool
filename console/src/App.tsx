@@ -19,6 +19,8 @@ import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
 import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
 import { Setup } from "./pages/admin/Setup";
 import { SystemHealth } from "./pages/admin/SystemHealth";
+import { BaselineDetail, Baselines, VersionReview } from "./pages/admin/Baselines";
+import { FleetDifferenceGroup, FleetDifferences } from "./pages/FleetDifferences";
 import { Account } from "./pages/Account";
 import { FixQueue } from "./pages/Fixes";
 import { AlertsPage } from "./pages/alerts/Alerts";
@@ -109,6 +111,9 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/security", path)) return <SecurityAlerts />;
   if (match("/admin/settings", path)) return <PlatformSettings />;
   if (match("/admin/health", path)) return <SystemHealth />;
+  if (match("/admin/baselines", path)) return <Baselines />;
+  if ((m = match("/admin/baselines/versions/:id", path))) return <VersionReview key={m.id} id={m.id!} />;
+  if ((m = match("/admin/baselines/:id", path))) return <BaselineDetail key={m.id} id={m.id!} />;
   if (match("/account", path)) return <Account onTour={onTour} />;
   if (match("/fixes", path)) return <FixQueue />;
   if (match("/alerts", path)) return <AlertsPage />;
@@ -117,6 +122,8 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/incidents", path)) return <IncidentsPage />;
   if (match("/search", path)) return <ReadingSearch />;
   if ((m = match("/network/diagnosis/:id", path))) return <NetworkDiagnosisPage key={m.id} id={m.id!} />;
+  if (match("/fleet-differences", path)) return <FleetDifferences key={path} />;
+  if (match("/fleet-differences/group", path)) return <FleetDifferenceGroup key={path} />;
   if (match("/fleet-operations", path)) return <FleetOperations key={path} />;
   if ((m = match("/fleet-operations/jobs/:id", path))) return <FleetJob id={m.id!} />;
   if (match("/demo", path)) return <DemoGuide />;

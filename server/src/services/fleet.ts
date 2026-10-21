@@ -77,7 +77,7 @@ export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<s
 }
 
 export async function cabinet(db: Queryable, id: string) {
-  const k = (await db.query<CabinetDbRow & { serial_number: string | null; uptime_seconds: string | null; clock_skew_seconds: number | null; site_id: string; site_name: string; client_id: string; client_name: string }>(`SELECT ${CABINET_COLUMNS}, k.serial_number, k.uptime_seconds, k.clock_skew_seconds, k.scanner_hardware_ids, k.site_id,
+  const k = (await db.query<CabinetDbRow & { serial_number: string | null; manufacturer: string | null; model: string | null; uptime_seconds: string | null; clock_skew_seconds: number | null; site_id: string; site_name: string; client_id: string; client_name: string }>(`SELECT ${CABINET_COLUMNS}, k.serial_number, k.manufacturer, k.model, k.uptime_seconds, k.clock_skew_seconds, k.scanner_hardware_ids, k.site_id,
                                     s.name AS site_name, c.id AS client_id, c.name AS client_name
                                FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [id])).rows[0];
   if (!k) return null;
@@ -88,7 +88,7 @@ export async function cabinet(db: Queryable, id: string) {
   const row = cabinetRow(k);
   const lastHealthyAt = oldestOpen ? oldestOpen.toISOString() : row.online ? new Date().toISOString() : k.last_heartbeat_at ? k.last_heartbeat_at.toISOString() : null;
   return {
-    ...row, lastHealthyAt, serialNumber: k.serial_number, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
+    ...row, lastHealthyAt, serialNumber: k.serial_number, manufacturer: k.manufacturer, model: k.model, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
     site: { id: k.site_id, name: k.site_name }, client: { id: k.client_id, name: k.client_name },
     scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
       effective: levels.effective, source: levels.source },

@@ -74,13 +74,17 @@ public sealed class NetworkService : ServiceBase
         // The broker's journal of its own firewall changes lets the change detector attribute them (read-only here).
         var firewallJournal = new FirewallStore(AgentPaths.BrokerFirewall);
         var sources = WindowsMonitors.Sources(config, broker);
+        // Configuration snapshots: collected from the same read operations a command would run, sent only when a category changed.
+        var configQueue = new Core.Configuration.ConfigQueue(Path.Combine(AgentPaths.State, "config-queue.jsonl"));
+        var configCollector = NetworkOperations.Collector(NetworkOperations.Registry(config, broker, clock, packages), clock, _log.Write);
         var monitors = new MonitorHost(new MonitorSources
         {
             Devices = sources.Devices, Drives = sources.Drives, Firewall = sources.Firewall, Logs = sources.Logs, Query = sources.Query,
             PlatformFirewallChange = hash => { try { return firewallJournal.CommandFor(hash); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; } },
             // The broker keeps the watched services running; this side hands it the list and reports what happened.
             Watch = (names, token) => broker.WatchAsync(names, token),
-        }, settings, events, AgentPaths.State, clock, _log.Write);
+            Config = token => configCollector.CollectAsync(null, token),
+        }, settings, events, AgentPaths.State, clock, _log.Write, configQueue: configQueue);
         work.Add(Task.Run(() => monitors.RunAsync(_stop.Token)).ContinueWith(t =>
         {
             if (t.IsFaulted) _log.Write($"The monitors stopped: {t.Exception!.InnerException?.GetType().Name}.");
@@ -96,7 +100,7 @@ public sealed class NetworkService : ServiceBase
             var connection = new AgentConnection(new AgentConnectionOptions
             {
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
-                ProcessorFor = ProcessorFor, Events = events, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
+                ProcessorFor = ProcessorFor, Events = events, ConfigUploads = configQueue, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
                 TimeZoneId = TimeRules.CurrentReportableZone, Health = HealthWithDrives(new HealthSampler(), monitors), HealthSent = health => { if (health.Drives is { } d) monitors.DrivesSent(d); },
                 Upgrades = new UpgradeCoordinator(AgentPaths.Downloads, SystemOperations.AgentVersion, new UpgradeJournalStore(AgentPaths.UpgradeJournal),
                     AgentPaths.CheckIn, AgentPaths.UpgradeReported, broker.UpgradeAsync, events, clock, _log.Write),

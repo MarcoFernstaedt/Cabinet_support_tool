@@ -54,6 +54,7 @@ MonitorHost? monitorHost = null;
 string simulate = Path.Combine(state, "simulate");
 Directory.CreateDirectory(simulate);
 var events = new EventQueue(Path.Combine(state, "events.jsonl"));
+var configQueue = new Cabinet.Agent.Core.Configuration.ConfigQueue(Path.Combine(state, "config-queue.jsonl"));
 var settings = new MonitorSettings(Path.Combine(state, "monitor-settings.json"));
 // Services (milestone 10): the broker's real service logic and watcher over a simulated service manager.
 Directory.CreateDirectory(Path.Combine(state, "broker"));
@@ -92,7 +93,7 @@ var connection = new AgentConnection(new AgentConnectionOptions
         OnlineSince = DateTimeOffset.UtcNow.AddMinutes(-Environment.TickCount64 / 60000), OsVersion = "test", AgentVersion = agentVersion,
     },
     AgentVersion = agentVersion, UptimeSeconds = () => Environment.TickCount64 / 1000, Log = Log,
-    Events = events, Settings = settings, EventSendInterval = TimeSpan.FromMilliseconds(500), Packages = packages,
+    Events = events, ConfigUploads = configQueue, ConfigSendInterval = TimeSpan.FromMilliseconds(500), Settings = settings, EventSendInterval = TimeSpan.FromMilliseconds(500), Packages = packages,
     Upgrades = new UpgradeCoordinator(Path.Combine(state, "downloads"), agentVersion, journal, Path.Combine(state, "check-in.json"), Path.Combine(state, "upgrade-reported"),
         (version, _) => { var (_, error) = upgradeBroker.Start(version); return Task.FromResult((error is null, error)); }, events, clock, Log),
     ConfirmSafetyNet = (id, _) => Task.FromResult(safetyNet.Confirm(id)), AfterWrite = () => monitorHost?.FirewallNow(),
@@ -120,6 +121,10 @@ var monitors = new MonitorHost(new MonitorSources
     Devices = _ => Task.FromResult<IReadOnlyList<DeviceFacts>>(Read<List<DeviceFacts>>("devices.json") ?? []),
     Firewall = _ => Task.FromResult(firewall.Read()),
     PlatformFirewallChange = firewallStore.CommandFor,
+    // The configuration a test wants the cabinet to have: simulate/config.json holds a ConfigSnapshotOutput (the hashes are made again here, as the real builders do).
+    Config = _ => Task.FromResult(Read<ConfigSnapshotOutput>("config.json") is { } snap
+        ? snap with { TakenAt = DateTimeOffset.UtcNow, Categories = snap.Categories.Select(c => Cabinet.Agent.Core.Configuration.ConfigBuilders.Make(c.Category, c.Items)).ToList() }
+        : new ConfigSnapshotOutput { TakenAt = DateTimeOffset.UtcNow, Categories = [] }),
     Watch = (names, _) => { if (names is not null) serviceWatcher.SetList(names); return Task.FromResult(serviceWatcher.Status()); },
     Logs = _ => Task.FromResult<IReadOnlyList<string>>(["System", "Application"]),
     Query = (p, _) => Task.FromResult(new EventlogQueryOutput
@@ -129,7 +134,7 @@ var monitors = new MonitorHost(new MonitorSources
             .Where(e => (p.From is null || e.Time >= p.From) && (p.BeforeRecordId is null || e.RecordId < p.BeforeRecordId))
             .OrderByDescending(e => e.RecordId).Take(p.PageSize ?? 100).ToList(),
     }),
-}, settings, events, state, clock, Log, new MonitorIntervals { Scanner = TimeSpan.FromSeconds(1), EventLogs = TimeSpan.FromSeconds(1), FirstEventLogLook = TimeSpan.FromSeconds(1), WatchedServices = TimeSpan.FromSeconds(1) });
+}, settings, events, state, clock, Log, new MonitorIntervals { Scanner = TimeSpan.FromSeconds(1), EventLogs = TimeSpan.FromSeconds(1), FirstEventLogLook = TimeSpan.FromSeconds(1), WatchedServices = TimeSpan.FromSeconds(1), Config = TimeSpan.FromSeconds(1), FirstConfigLook = TimeSpan.FromSeconds(1) }, configQueue);
 monitorHost = monitors;
 var monitoring = monitors.RunAsync(stop.Token);
 // The broker's upkeep: safety-net rollbacks and firewall timers.

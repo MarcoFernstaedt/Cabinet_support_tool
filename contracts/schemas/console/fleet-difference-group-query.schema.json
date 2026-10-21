@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-difference-group-query.schema.json",
+  "title": "fleet-difference-group-query",
+  "description": "One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "category",
+    "itemKey"
+  ],
+  "properties": {
+    "category": {
+      "$ref": "../common.schema.json#/$defs/configCategory"
+    },
+    "itemKey": {
+      "$ref": "../common.schema.json#/$defs/configKey"
+    },
+    "field": {
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
+    },
+    "clientId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "siteId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    }
+  }
+}

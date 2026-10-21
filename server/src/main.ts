@@ -26,6 +26,7 @@ import { ReleaseKeys } from "./services/releases.js";
 import { checkRollouts } from "./services/rollouts.js";
 import { DemoSimulator } from "./demo/demo.js";
 import { checkQuietLoops } from "./services/crashes.js";
+import { sweepHealth } from "./services/cabinet-health.js";
 import { resumeJobs } from "./services/fleet-jobs.js";
 
 import cluster from "node:cluster";
@@ -122,6 +123,8 @@ if (runsServices) {
     expireRules(jobs).catch(failed("rule expiry"));
     checkRollouts(jobs).catch(failed("rollout check"));
     checkQuietLoops(jobs).catch(failed("reboot loop check"));
+    // Health against the baselines: contact can lapse, and come back, with no event to trigger a judgement.
+    sweepHealth(jobs).catch(failed("health sweep"));
     // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
     if (minutes++ % 60 === 0) checkExpiringCertificates(jobs).catch(failed("certificate expiry check"));
   }, 60_000);

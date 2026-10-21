@@ -267,6 +267,14 @@ public sealed class SystemOperations(AgentConfig config)
 [SupportedOSPlatform("windows")]
 public static class NetworkOperations
 {
+    /// <summary>
+    /// The configuration collector over a registry's own read operations (docs/spec/15-baselines-and-config.md): the same code a command would run,
+    /// so a snapshot can show nothing a read could not. It adds no Windows access and no privilege.
+    /// </summary>
+    public static Core.Configuration.ConfigCollector Collector(OperationRegistry registry, TimeProvider clock, Action<string>? log = null) =>
+        new((operation, parameters, token) => registry.TryGet(operation, out var handler) ? handler(parameters, token)
+            : throw new OperationFailedException("unavailable", "That read is not available."), Environment.MachineName, clock, log ?? (_ => { }));
+
     /// <param name="packages">Downloads packages for package.install before the broker checks and installs them.</param>
     public static OperationRegistry Registry(AgentConfig config, BrokerClient broker, TimeProvider clock, Core.Packages.PackageDownloads? packages = null)
     {
@@ -286,6 +294,9 @@ public static class NetworkOperations
             .Register<EmptyParams, SystemIdentityOutput>(Catalog.SystemIdentity, (_, _) => Task.FromResult(HardwareOperations.Identity()));
         packages?.Register(registry, broker.RunAsync);
         broker.RegisterForwarders(registry);
+        // config.snapshot is composed here from the operations above (some answered here, some by the broker): it adds no privileged code.
+        var collector = Collector(registry, clock);
+        registry.Register<ConfigSnapshotParams, ConfigSnapshotOutput>(Catalog.ConfigSnapshot, (p, t) => collector.CollectAsync(p.Categories, t));
         return registry;
     }
 }

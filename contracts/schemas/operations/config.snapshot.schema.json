@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/config.snapshot.schema.json",
+  "title": "config.snapshot",
+  "description": "The cabinet's configuration, by category, built from the same sources as the individual read operations (network, services, drivers, updates, firewall, time, devices, installed software, the hosts file, scheduled tasks and startup items, hardware and identity). Read only: nothing on the cabinet is changed and no file content is read. The agent's background monitor runs the same collector and sends only the categories that changed; this operation reads them on demand.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 11,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/configCategory"
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "categories"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "categories": {
+          "type": "array",
+          "maxItems": 11,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/configSnapshotCategory"
+          }
+        }
+      }
+    }
+  }
+}

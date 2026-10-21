@@ -1,0 +1,21 @@
+{
+  "snapshots": [
+    {
+      "observedAt": "2026-10-12T09:10:04Z",
+      "category": "time",
+      "hash": "abc",
+      "truncated": false,
+      "items": [
+        {
+          "key": "time",
+          "values": {
+            "timeZoneId": "Eastern Standard Time",
+            "syncSource": "time.windows.com",
+            "timeService": "running",
+            "policyManaged": false
+          }
+        }
+      ]
+    }
+  ]
+}

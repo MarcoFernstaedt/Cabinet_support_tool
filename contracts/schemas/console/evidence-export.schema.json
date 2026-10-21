@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/evidence-export.schema.json",
+  "title": "evidence-export",
+  "description": "A request for an encrypted evidence package: how many days back and the passphrase it is encrypted with. The passphrase is used once to derive the key and is never stored or logged.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["days", "passphrase"],
+  "properties": {
+    "days": { "type": "string", "enum": ["1", "3", "7", "14", "30", "60", "90"] },
+    "passphrase": { "type": "string", "minLength": 12, "maxLength": 128, "pattern": "^[\\x20-\\x7E\\u00A0-\\uFFFF]+$" }
+  }
+}

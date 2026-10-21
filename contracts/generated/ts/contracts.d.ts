@@ -262,6 +262,49 @@ export interface DriveHealthReport {
   wearPercent: number | null;
 }
 
+export interface ConfigItem {
+  /**
+   * A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.
+   */
+  key: string;
+  values: {
+    /**
+     * One value of an item: short text, a whole number, true or false, nothing, or a short list of texts.
+     */
+    [k: string]: (string | number | boolean | null | string[]) | undefined;
+  };
+}
+
+export interface ConfigSnapshotCategory {
+  /**
+   * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+   */
+  category:
+    | "network"
+    | "services"
+    | "drivers"
+    | "updates"
+    | "firewall"
+    | "time"
+    | "devices"
+    | "applications"
+    | "hosts"
+    | "tasks"
+    | "system";
+  /**
+   * SHA-256 of the canonical JSON of a category's items sorted by key, as 64 lower-case hex digits. The server recomputes it and refuses a snapshot whose hash does not match.
+   */
+  hash: string;
+  /**
+   * True when the cabinet had more items than the cap and the rest were left out.
+   */
+  truncated: boolean;
+  /**
+   * @maxItems 2000
+   */
+  items: ConfigItem[];
+}
+
 /**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
@@ -415,6 +458,158 @@ export interface AuditFilter {
 }
 
 /**
+ * Makes a draft from what a cabinet reports now. Nothing is approved by capturing: the draft is reviewed, pruned and proposed like any other.
+ */
+export interface BaselineCapture {
+  cabinetId: string;
+  scope: BaselineScope;
+  description: string;
+  /**
+   * @minItems 1
+   * @maxItems 11
+   */
+  categories?: [
+    (
+      | "network"
+      | "services"
+      | "drivers"
+      | "updates"
+      | "firewall"
+      | "time"
+      | "devices"
+      | "applications"
+      | "hosts"
+      | "tasks"
+      | "system"
+    ),
+    ...(
+      | "network"
+      | "services"
+      | "drivers"
+      | "updates"
+      | "firewall"
+      | "time"
+      | "devices"
+      | "applications"
+      | "hosts"
+      | "tasks"
+      | "system"
+    )[]
+  ];
+}
+
+/**
+ * What a baseline expects: items by category and key, and what counts as healthy.
+ */
+export interface BaselineContent {
+  /**
+   * @maxItems 5000
+   */
+  items: {
+    /**
+     * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+     */
+    category:
+      | "network"
+      | "services"
+      | "drivers"
+      | "updates"
+      | "firewall"
+      | "time"
+      | "devices"
+      | "applications"
+      | "hosts"
+      | "tasks"
+      | "system";
+    /**
+     * A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.
+     */
+    key: string;
+    /**
+     * match: the listed fields must equal these values; present: the item must exist; absent: it must not; ignore: cancels an expectation inherited from a wider scope.
+     */
+    mode: "match" | "present" | "absent" | "ignore";
+    expect?: {
+      /**
+       * One value of an item: short text, a whole number, true or false, nothing, or a short list of texts.
+       */
+      [k: string]: (string | number | boolean | null | string[]) | undefined;
+    };
+    /**
+     * Health depends on this item meeting its expectation.
+     */
+    required?: boolean;
+    severity?: "minor" | "major";
+    note?: string;
+  }[];
+  health?: {
+    maxOfflineMinutes?: number;
+    requireRequiredItems?: boolean;
+    requireNoCriticalAlerts?: boolean;
+  };
+}
+
+/**
+ * An Admin approves or rejects a proposed baseline version, with the reason in writing; confirmed with an authenticator code bound to this note.
+ */
+export interface BaselineDecision {
+  note: string;
+  stepUpToken: string;
+}
+
+/**
+ * Creates a draft version of the baseline for a scope (the baseline itself is created with its first version).
+ */
+export interface BaselineDraft {
+  scope: BaselineScope;
+  description: string;
+  content: BaselineContent;
+  compat?: {
+    /**
+     * @maxItems 20
+     */
+    osBuilds?: string[];
+    /**
+     * @maxItems 20
+     */
+    models?: string[];
+  };
+}
+
+/**
+ * Copies the approved content of one scope's baseline into a draft for another scope.
+ */
+export interface BaselineImport {
+  from: BaselineScope;
+  to: BaselineScope;
+  description: string;
+}
+
+/**
+ * Where a baseline applies: the whole fleet, a cabinet model, a client, a site or one cabinet. A model is named by its text; the others by their ID.
+ */
+export interface BaselineScope {
+  kind: "global" | "model" | "client" | "site" | "cabinet";
+  id: null | string;
+}
+
+/**
+ * Edits a draft version: its description or its content.
+ */
+export interface BaselineUpdate {
+  description?: string;
+  content?: BaselineContent;
+}
+
+/**
+ * Which baselines the list shows.
+ */
+export interface BaselinesQuery {
+  scopeKind?: "global" | "model" | "client" | "site" | "cabinet";
+  scopeId?: string;
+}
+
+/**
  * Apply the client's firewall policy to every online, writable cabinet of one site or one client that differs from it (at most 200). Needs a password confirmation token for bulk.firewall_policy on that site or client, bound to these parameters ({scope, id}).
  */
 export interface BulkFirewallPolicy {
@@ -429,6 +624,31 @@ export interface BulkFirewallPolicy {
 export interface BulkScope {
   scope: "site" | "client";
   id: string;
+}
+
+/**
+ * The query string of a cabinet's configuration changes and history: how many days, which category, a text to look for, and whether to show only changes that go against the baseline.
+ */
+export interface CabinetHistoryQuery {
+  days?: string;
+  limit?: string;
+  /**
+   * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+   */
+  category?:
+    | "network"
+    | "services"
+    | "drivers"
+    | "updates"
+    | "firewall"
+    | "time"
+    | "devices"
+    | "applications"
+    | "hosts"
+    | "tasks"
+    | "system";
+  q?: string;
+  violations?: "true" | "false";
 }
 
 /**
@@ -543,7 +763,8 @@ export interface CommandRequest {
     | "power.set"
     | "system.hardware"
     | "system.identity"
-    | "network.hosts";
+    | "network.hosts"
+    | "config.snapshot";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -658,6 +879,14 @@ export interface EventLookup {
 }
 
 /**
+ * A request for an encrypted evidence package: how many days back and the passphrase it is encrypted with. The passphrase is used once to derive the key and is never stored or logged.
+ */
+export interface EvidenceExport {
+  days: "1" | "3" | "7" | "14" | "30" | "60" | "90";
+  passphrase: string;
+}
+
+/**
  * An Admin sets a client's (or the fleet default) firewall policy: each profile on or off. null for a client removes its own policy, so the fleet default applies.
  */
 export interface FirewallPolicy {
@@ -676,6 +905,42 @@ export interface FleetCabinetsQuery {
   clientId?: string;
   siteId?: string;
   problem?: "any" | "time_zone_wrong" | "clock_off" | "firewall_drift";
+}
+
+/**
+ * One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site.
+ */
+export interface FleetDifferenceGroupQuery {
+  /**
+   * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+   */
+  category:
+    | "network"
+    | "services"
+    | "drivers"
+    | "updates"
+    | "firewall"
+    | "time"
+    | "devices"
+    | "applications"
+    | "hosts"
+    | "tasks"
+    | "system";
+  /**
+   * A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.
+   */
+  itemKey: string;
+  field?: string;
+  clientId?: string;
+  siteId?: string;
+}
+
+/**
+ * Which cabinets the fleet's differences from their baselines are counted over: all, one client or one site.
+ */
+export interface FleetDifferencesQuery {
+  clientId?: string;
+  siteId?: string;
 }
 
 /**
@@ -1084,7 +1349,8 @@ export interface RunbookPropose {
           | "power.set"
           | "system.hardware"
           | "system.identity"
-          | "network.hosts";
+          | "network.hosts"
+          | "config.snapshot";
         params: {};
       };
       /**
@@ -1145,7 +1411,8 @@ export interface RunbookPropose {
           | "power.set"
           | "system.hardware"
           | "system.identity"
-          | "network.hosts";
+          | "network.hosts"
+          | "config.snapshot";
         params: {};
         label: string;
       };
@@ -1211,7 +1478,8 @@ export interface RunbookPropose {
           | "power.set"
           | "system.hardware"
           | "system.identity"
-          | "network.hosts";
+          | "network.hosts"
+          | "config.snapshot";
         params: {};
       };
       /**
@@ -1272,7 +1540,8 @@ export interface RunbookPropose {
           | "power.set"
           | "system.hardware"
           | "system.identity"
-          | "network.hosts";
+          | "network.hosts"
+          | "config.snapshot";
         params: {};
         label: string;
       };
@@ -1452,7 +1721,9 @@ export interface StepUpRequest {
     | "site.network_baseline"
     | "runbook.approve"
     | "runbook.reject"
-    | "runbook.retire";
+    | "runbook.retire"
+    | "baseline.approve"
+    | "baseline.reject";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -1646,7 +1917,8 @@ export interface Command {
     | "power.set"
     | "system.hardware"
     | "system.identity"
-    | "network.hosts";
+    | "network.hosts"
+    | "config.snapshot";
   params: {};
   issuedBy: string;
   /**
@@ -1679,6 +1951,86 @@ export interface CommandsResponse {
    * The server is shutting down or shedding load: wait this long (already randomised by the server) before the next request.
    */
   reconnectAfterMs?: number;
+}
+
+/**
+ * Configuration categories that changed since the agent last reported them (change-only), oldest first, each with when the agent looked. Up to 8 per request; a cabinet that was offline sends what it kept, and says when it had to drop older ones.
+ */
+export interface ConfigUpload {
+  /**
+   * @minItems 1
+   * @maxItems 8
+   */
+  snapshots: [
+    {
+      /**
+       * UTC time, ISO 8601, always ending in Z.
+       */
+      observedAt: string;
+      /**
+       * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+       */
+      category:
+        | "network"
+        | "services"
+        | "drivers"
+        | "updates"
+        | "firewall"
+        | "time"
+        | "devices"
+        | "applications"
+        | "hosts"
+        | "tasks"
+        | "system";
+      /**
+       * SHA-256 of the canonical JSON of a category's items sorted by key, as 64 lower-case hex digits. The server recomputes it and refuses a snapshot whose hash does not match.
+       */
+      hash: string;
+      truncated: boolean;
+      /**
+       * True when the agent dropped older snapshots of this category before this one (its queue was full), so changes in between are unknown.
+       */
+      gapBefore?: boolean;
+      /**
+       * @maxItems 2000
+       */
+      items: ConfigItem[];
+    },
+    ...{
+      /**
+       * UTC time, ISO 8601, always ending in Z.
+       */
+      observedAt: string;
+      /**
+       * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+       */
+      category:
+        | "network"
+        | "services"
+        | "drivers"
+        | "updates"
+        | "firewall"
+        | "time"
+        | "devices"
+        | "applications"
+        | "hosts"
+        | "tasks"
+        | "system";
+      /**
+       * SHA-256 of the canonical JSON of a category's items sorted by key, as 64 lower-case hex digits. The server recomputes it and refuses a snapshot whose hash does not match.
+       */
+      hash: string;
+      truncated: boolean;
+      /**
+       * True when the agent dropped older snapshots of this category before this one (its queue was full), so changes in between are unknown.
+       */
+      gapBefore?: boolean;
+      /**
+       * @maxItems 2000
+       */
+      items: ConfigItem[];
+    }[]
+  ];
 }
 
 /**
@@ -3866,6 +4218,52 @@ export interface NetworkHostsOutput {
   truncated: boolean;
 }
 
+export interface ConfigSnapshotParams {
+  /**
+   * @minItems 1
+   * @maxItems 11
+   */
+  categories?: [
+    (
+      | "network"
+      | "services"
+      | "drivers"
+      | "updates"
+      | "firewall"
+      | "time"
+      | "devices"
+      | "applications"
+      | "hosts"
+      | "tasks"
+      | "system"
+    ),
+    ...(
+      | "network"
+      | "services"
+      | "drivers"
+      | "updates"
+      | "firewall"
+      | "time"
+      | "devices"
+      | "applications"
+      | "hosts"
+      | "tasks"
+      | "system"
+    )[]
+  ];
+}
+
+export interface ConfigSnapshotOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 11
+   */
+  categories: ConfigSnapshotCategory[];
+}
+
 export interface SystemRestartParams {
   mode: "restart" | "shutdown" | "cancel";
   delaySeconds?: number;
@@ -3934,7 +4332,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -3990,6 +4388,7 @@ export interface OperationTypes {
   "system.hardware": { params: SystemHardwareParams; output: SystemHardwareOutput };
   "system.identity": { params: SystemIdentityParams; output: SystemIdentityOutput };
   "network.hosts": { params: NetworkHostsParams; output: NetworkHostsOutput };
+  "config.snapshot": { params: ConfigSnapshotParams; output: ConfigSnapshotOutput };
   "system.restart": { params: SystemRestartParams; output: SystemRestartOutput };
   "process.end": { params: ProcessEndParams; output: ProcessEndOutput };
   "system.checkHealth": { params: SystemCheckHealthParams; output: SystemCheckHealthOutput };

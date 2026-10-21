@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-content.schema.json",
+  "title": "baseline-content",
+  "description": "What a baseline expects: items by category and key, and what counts as healthy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "category",
+          "key",
+          "mode"
+        ],
+        "properties": {
+          "category": {
+            "$ref": "../common.schema.json#/$defs/configCategory"
+          },
+          "key": {
+            "$ref": "../common.schema.json#/$defs/configKey"
+          },
+          "mode": {
+            "description": "match: the listed fields must equal these values; present: the item must exist; absent: it must not; ignore: cancels an expectation inherited from a wider scope.",
+            "type": "string",
+            "enum": [
+              "match",
+              "present",
+              "absent",
+              "ignore"
+            ]
+          },
+          "expect": {
+            "type": "object",
+            "maxProperties": 24,
+            "propertyNames": {
+              "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
+            },
+            "additionalProperties": {
+              "$ref": "../common.schema.json#/$defs/configValue"
+            }
+          },
+          "required": {
+            "description": "Health depends on this item meeting its expectation.",
+            "type": "boolean"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f<>]*$"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "const": "match"
+                }
+              },
+              "type": "object"
+            },
+            "then": {
+              "required": [
+                "expect"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "mode": {
+                  "enum": [
+                    "present",
+                    "absent",
+                    "ignore"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "expect"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxOfflineMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 1440
+        },
+        "requireRequiredItems": {
+          "type": "boolean"
+        },
+        "requireNoCriticalAlerts": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

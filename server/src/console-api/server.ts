@@ -18,6 +18,7 @@ import { authRoutes } from "./auth-routes.js";
 import { fleetRoutes } from "./fleet-routes.js";
 import { adminRoutes } from "./admin-routes.js";
 import { alertRoutes } from "./alert-routes.js";
+import { baselineRoutes } from "./baseline-routes.js";
 import { writeRoutes } from "./write-routes.js";
 import { firewallRoutes } from "./firewall-routes.js";
 import { serviceRoutes } from "./service-routes.js";
@@ -165,6 +166,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(readingRoutes, { ...o, guards });
   await app.register(fleetOpsRoutes, { ...o, guards });
   await app.register(manageRoutes, { ...o, guards });
+  await app.register(baselineRoutes, { ...o, guards });
   await app.register(upgradeRoutes, { ...o, guards });
   app.get("/api/stream", async (request, reply) => {
     const user = await guards.role(request, "tier1");

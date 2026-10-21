@@ -27,6 +27,7 @@ export function AdminHome() {
         <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Install tokens and files</span></Link></li>
         <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Clients and sites</span></Link></li>
         <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Types and suppressions</span></Link></li>
+        <li><Link to="/admin/baselines"><strong>Baselines</strong><span>How cabinets should be set up</span></Link></li>
         <li><Link to="/admin/software"><strong>Software library</strong><span>Packages</span></Link></li>
         <li><Link to="/admin/upgrades"><strong>Agent upgrades</strong><span>Releases and rollouts</span></Link></li>
         <li><Link to="/admin/scanner"><strong>Device defaults</strong><span>Scanner IDs, sync ports</span></Link></li>

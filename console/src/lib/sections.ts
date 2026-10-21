@@ -1,6 +1,6 @@
 // The tabs of a cabinet, in the order they are shown. The welcome tour is tested against this list, so a new tab cannot be left out of it.
 export const SECTIONS = [
-  ["overview", "Overview"], ["standards", "Standards"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["alerts", "Alerts"],
+  ["overview", "Overview"], ["standards", "Standards"], ["troubleshoot", "Troubleshoot"], ["changes", "What changed"], ["compare", "Compare"], ["baseline", "Baseline"], ["alerts", "Alerts"],
   ["events", "Event logs"], ["services", "Services"], ["processes", "Processes"], ["files", "Files"], ["devices", "Devices and drivers"], ["drives", "Drive health"], ["updates", "Windows updates"], ["time", "Time"],
   ["network", "Network"], ["firewall", "Firewall"], ["scanner", "Fingerprint scanner"], ["crashes", "Crashes and restarts"],
   ["windows", "Windows"], ["software", "Software"], ["history", "Command history"],
@@ -9,7 +9,7 @@ export type SectionId = (typeof SECTIONS)[number][0];
 
 /** How the tabs are grouped in the cabinet's side menu. A tab that is in no group is listed under "More", so a new tab is never lost. */
 export const SECTION_GROUPS: { title: string | null; ids: readonly string[] }[] = [
-  { title: null, ids: ["overview", "troubleshoot", "alerts", "changes", "compare", "standards"] },
+  { title: null, ids: ["overview", "troubleshoot", "alerts", "changes", "compare", "baseline", "standards"] },
   { title: "Windows", ids: ["events", "services", "processes", "updates", "time", "windows", "software", "files"] },
   { title: "Hardware", ids: ["devices", "drives", "scanner"] },
   { title: "Network", ids: ["network", "firewall"] },

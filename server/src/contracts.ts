@@ -11,6 +11,7 @@ import type {
   WatchedServices,
   DemoMode,
   CrashQuery,
+  EvidenceExport,
   HealthQuery,
   SystemHealthQuery,
   DriveHealthReport,
@@ -90,6 +91,16 @@ import type {
   RunbookQuery,
   TriageQuery,
   ErrorTrendQuery,
+  BaselineCapture,
+  BaselineDecision,
+  BaselineDraft,
+  BaselineImport,
+  BaselineUpdate,
+  BaselinesQuery,
+  CabinetHistoryQuery,
+  ConfigUpload,
+  FleetDifferencesQuery,
+  FleetDifferenceGroupQuery,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -153,6 +164,7 @@ export const envelopes = {
   heartbeatResponse: validator<HeartbeatResponse>("heartbeat-response", envelope("heartbeat-response")),
   upgradeStatus: validator<UpgradeStatus>("upgrade-status", envelope("upgrade-status")),
   updateResponse: validator<UpdateResponse>("update-response", envelope("update-response")),
+  configUpload: validator<ConfigUpload>("config-upload", envelope("config-upload")),
 } as const;
 
 /** The release files (docs/spec/07-upgrade-channel.md) and the keys they are checked against. */
@@ -184,6 +196,7 @@ export const consoleBodies = {
   watchedServices: validator<WatchedServices>("watched-services", consoleBody("watched-services")),
   demoMode: validator<DemoMode>("demo-mode", consoleBody("demo-mode")),
   crashQuery: validator<CrashQuery>("crash-query", consoleBody("crash-query")),
+  evidenceExport: validator<EvidenceExport>("evidence-export", consoleBody("evidence-export")),
   readingSearch: validator<ReadingSearch>("reading-search", consoleBody("reading-search")),
   healthQuery: validator<HealthQuery>("health-query", consoleBody("health-query")),
   command: validator<CommandRequest>("command-request", consoleBody("command-request")),
@@ -237,6 +250,15 @@ export const consoleBodies = {
   runbookQuery: validator<RunbookQuery>("runbook-query", consoleBody("runbook-query")),
   triageQuery: validator<TriageQuery>("triage-query", consoleBody("triage-query")),
   errorTrendQuery: validator<ErrorTrendQuery>("error-trend-query", consoleBody("error-trend-query")),
+  baselineDraft: validator<BaselineDraft>("baseline-draft", consoleBody("baseline-draft")),
+  baselineCapture: validator<BaselineCapture>("baseline-capture", consoleBody("baseline-capture")),
+  baselineUpdate: validator<BaselineUpdate>("baseline-update", consoleBody("baseline-update")),
+  baselineImport: validator<BaselineImport>("baseline-import", consoleBody("baseline-import")),
+  baselineDecision: validator<BaselineDecision>("baseline-decision", consoleBody("baseline-decision")),
+  baselinesQuery: validator<BaselinesQuery>("baselines-query", consoleBody("baselines-query")),
+  cabinetHistoryQuery: validator<CabinetHistoryQuery>("cabinet-history-query", consoleBody("cabinet-history-query")),
+  fleetDifferencesQuery: validator<FleetDifferencesQuery>("fleet-differences-query", consoleBody("fleet-differences-query")),
+  fleetDifferenceGroupQuery: validator<FleetDifferenceGroupQuery>("fleet-difference-group-query", consoleBody("fleet-difference-group-query")),
 } as const;
 
 /** The compiled-in operation catalog, keyed by name. */

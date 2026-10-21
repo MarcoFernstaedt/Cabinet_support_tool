@@ -227,6 +227,12 @@ public sealed class AgentApiClient : IDisposable
         return output.ToArray();
     }
 
+    /// <summary>Posts configuration snapshots exactly as the queue checked and stored them (the body is the config-upload envelope).</summary>
+    public async Task PostConfigAsync(string body, CancellationToken token)
+    {
+        using JsonDocument _ = await SendBytesAsync(HttpMethod.Post, "/agent/v1/config", Encoding.UTF8.GetBytes(body), null, "server-ack", RequestTimeout, token).ConfigureAwait(false);
+    }
+
     public Task<ServerAck> PostResultAsync(Result result, CancellationToken token) =>
         SendAsync<ServerAck>(HttpMethod.Post, "/agent/v1/results", result, "server-ack", token);
 

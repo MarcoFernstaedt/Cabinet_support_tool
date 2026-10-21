@@ -1,0 +1,199 @@
+{
+ "description": "Shared by the agent and the server: SHA-256 of the canonical JSON (object keys sorted ordinally at every level, no spaces, items sorted by key, arrays keep their order) of each item list.",
+ "vectors": [
+  {
+   "name": "empty",
+   "items": [],
+   "hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+  },
+  {
+   "name": "services",
+   "items": [
+    {
+     "key": "service:Spooler",
+     "values": {
+      "startType": "automatic",
+      "state": "running"
+     }
+    },
+    {
+     "key": "service:BioScanSvc",
+     "values": {
+      "startType": "automatic",
+      "state": "stopped"
+     }
+    }
+   ],
+   "hash": "d686f125ce54cb21359a753ec4f1fc15db0ebb597a3ebd276d3ae50fc636b755"
+  },
+  {
+   "name": "network",
+   "items": [
+    {
+     "key": "adapter:Ethernet",
+     "values": {
+      "enabled": true,
+      "dhcp": true,
+      "addresses": [
+       "10.21.4.25/24"
+      ],
+      "gateways": [
+       "10.21.4.1"
+      ],
+      "dnsServers": [
+       "10.21.4.10",
+       "10.21.4.11"
+      ],
+      "linkSpeedMbps": 1000,
+      "metric": 25
+     }
+    },
+    {
+     "key": "route:0.0.0.0/0",
+     "values": {
+      "nextHop": "10.21.4.1",
+      "metric": 25,
+      "adapter": "Ethernet"
+     }
+    }
+   ],
+   "hash": "8547168b5312856685a82242b10532c44c3c5fbae0b2d7ab2e254f32e9feda41"
+  },
+  {
+   "name": "time",
+   "items": [
+    {
+     "key": "time",
+     "values": {
+      "timeZoneId": "Eastern Standard Time",
+      "syncSource": "time.windows.com",
+      "timeService": "running",
+      "policyManaged": false
+     }
+    }
+   ],
+   "hash": "87bcd48ce72c85fa5cb1747726ab174e53d743832fd61516c5cf9d99d6a1c51c"
+  },
+  {
+   "name": "unicode and quote",
+   "items": [
+    {
+     "key": "app:Café \"Pro\"",
+     "values": {
+      "version": "1.2.3",
+      "publisher": "Société \\ Ünï"
+     }
+    }
+   ],
+   "hash": "2f7731d387289022ed05bebc590dd3f9868f5cfb0cb5ccc6a333e67caf5da483"
+  },
+  {
+   "name": "key order does not matter",
+   "items": [
+    {
+     "key": "service:b",
+     "values": {
+      "z": 1,
+      "a": true,
+      "m": null
+     }
+    },
+    {
+     "key": "service:a",
+     "values": {
+      "list": [
+       "b",
+       "a"
+      ]
+     }
+    }
+   ],
+   "hash": "cb213407bf1c4c8328b586ff2a3359bad2eba36e7c12919c70a977c3146c2b0b"
+  },
+  {
+   "name": "system",
+   "items": [
+    {
+     "key": "hardware",
+     "values": {
+      "manufacturer": "Dell Inc.",
+      "model": "OptiPlex 7090",
+      "biosVersion": "1.18.0",
+      "cpu": "Intel(R) Core(TM) i5-11500",
+      "memoryMb": 16384,
+      "secureBoot": true
+     }
+    },
+    {
+     "key": "identity",
+     "values": {
+      "joinType": "workgroup",
+      "autoLogon": false,
+      "localAdministrators": [
+       "Administrator",
+       "SupportAdmin"
+      ]
+     }
+    }
+   ],
+   "hash": "e15b9261b0ea64ed8bb5ab5bc4b69b868aa11b616ec2440407b7d0e14121ca74"
+  },
+  {
+   "name": "hosts",
+   "items": [
+    {
+     "key": "host:127.0.0.1",
+     "values": {
+      "names": [
+       "localhost"
+      ]
+     }
+    },
+    {
+     "key": "host:10.21.4.20",
+     "values": {
+      "names": [
+       "sync-cabinet",
+       "pharmacy-sync"
+      ]
+     }
+    }
+   ],
+   "hash": "2f0596fbbb8802401861ad000333abf61eba44f8f2fb557d43240f1352e40da9"
+  },
+  {
+   "name": "tasks and startup",
+   "items": [
+    {
+     "key": "task:\\Mashura\\Nightly check",
+     "values": {
+      "state": "ready"
+     }
+    },
+    {
+     "key": "startup:Run/BioScan",
+     "values": {
+      "command": "C:\\Program Files\\BioScan\\scan.exe",
+      "location": "HKLM Run"
+     }
+    }
+   ],
+   "hash": "d80cc3d15f801413ea3c8671b399639071716f8793b187752e2d5e8f6b75037f"
+  },
+  {
+   "name": "non-ASCII and escapes",
+   "items": [
+    {
+     "key": "service:Café\ttab",
+     "values": {
+      "displayName": "Line\nbreak \"quoted\" \\ back",
+      "note": "日本語 😀",
+      "empty": "",
+      "list": []
+     }
+    }
+   ],
+   "hash": "cab8141c2a6cc06fbbea68bb18525eab57359528352b4d9b85b04fe3b91360d3"
+  }
+ ]
+}

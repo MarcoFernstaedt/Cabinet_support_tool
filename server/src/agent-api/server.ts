@@ -20,6 +20,7 @@ import { storeResult, takeLeasedCommands, LEASE_SECONDS, MAX_COMMANDS_PER_POLL }
 import { enrollmentStatus, submitEnrollment } from "../services/enrollment.js";
 import { Refused } from "../services/errors.js";
 import { storeEvents } from "../services/events.js";
+import { ingestAndEvaluate } from "../services/config-service.js";
 import { resolveOfflineFor } from "../services/alerts.js";
 import { evaluateTime } from "../services/time.js";
 import { evaluateDrift } from "../services/firewall-policy.js";
@@ -74,6 +75,8 @@ export interface AgentApiOptions {
   enrollPerHour?: number;
   /** How many events one cabinet may send in an hour before it is asked to slow down (its own queue holds the rest). */
   eventsPerHour?: number;
+  /** How many configuration snapshots one cabinet may send in an hour (default 240; a healthy cabinet sends almost none). */
+  configPerHour?: number;
   /** Where contact from polls is kept until the minute's batched write; made (and flushed every minute) here when not given. */
   presence?: Presence;
   /** How long a delivered command stays leased to a poll (shorter in tests). */
@@ -176,6 +179,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   // is refused with 429 and the agent keeps the events in its own bounded queue and sends them later.
   const eventsPerHour = o.eventsPerHour ?? 3000;
   const eventCounts = new Map<string, { hour: number; n: number }>();
+  const configPerHour = o.configPerHour ?? 240;
+  const configCounts = new Map<string, { hour: number; n: number }>();
   const enrollAttempts = new Map<string, number[]>();
   const refusedLogged = new Map<string, number>();
   const admission: Admission = { ...DEFAULT_ADMISSION, ...o.admission };
@@ -529,6 +534,20 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       eventCounts.set(request.cabinet!.id, { hour, n: used + batch.events.length });
       if (eventCounts.size > 50_000) for (const [k, v] of eventCounts) if (v.hour !== hour) eventCounts.delete(k);
       await storeEvents(o.pool, request.cabinet!.id, batch);
+      return { serverTime: serverTime() };
+    });
+
+    // Configuration snapshots, change-only: each category's hash is recomputed from its items and a snapshot that does not match is refused.
+    // A cabinet may send this many in an hour (a healthy one sends almost none); past it the agent keeps them in its own bounded queue.
+    scoped.post("/agent/v1/config", async (request, reply) => {
+      const upload = envelopes.configUpload.parse(request.body);
+      const hour = Math.floor(Date.now() / 3_600_000);
+      const count = configCounts.get(request.cabinet!.id);
+      const used = count && count.hour === hour ? count.n : 0;
+      if (used + upload.snapshots.length > configPerHour) return reply.code(429).header("retry-after", String(retryAfter())).send({ error: "rate_limited" });
+      configCounts.set(request.cabinet!.id, { hour, n: used + upload.snapshots.length });
+      if (configCounts.size > 50_000) for (const [k, v] of configCounts) if (v.hour !== hour) configCounts.delete(k);
+      await ingestAndEvaluate(o.pool, request.cabinet!.id, upload.snapshots, "agent");
       return { serverTime: serverTime() };
     });
 

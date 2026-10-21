@@ -79,7 +79,7 @@ Audited against the repository before any change. "Status" is what exists on `sq
 | # | Capability | Status today | Gap | Phase |
 |---|---|---|---|---|
 | 1 | Cross-component root cause | Findings carry certainty (confirmed, probable, possible); crash incidents compare crashed with healthy cabinets | Findings are not typed as symptom, contributing factor, suspected cause, confirmed cause; no dependency edges or timestamps joined across areas | 1, 6 |
-| 2 | Known-good baselines | Network baselines (site level) exist. **Config snapshots and baseline versions were built on the older `baseline-recovery` branch (phases 1 and 2) before the SQL Server port and are not on this branch** | Port that work, or rebuild on the SQL Server schema; extend to drivers, services, firewall, tasks, software | 5 |
+| 2 | Known-good baselines | Network baselines (site level) exist. **Config snapshots (11 categories), versioned baselines with inheritance and approval, drift, configuration health, last known healthy and a per-cabinet timeline are built (docs/spec/15-baselines-and-config.md)** | Not built: incidents and correlation, restore, fleet recovery, offline cache; registry values and scheduled-task allowlist. Windows readers need a run on a real cabinet | 5 |
 | 3 | Dependency mapping | Service list shows state and start type; watched services; protected remote-access services refuse changes | No dependency graph (services, drivers, network, Cabinet components); no downstream-impact check before a repair | 2, 4 |
 | 4 | Historical failure analysis | Error trends, reboot loops, scanner drop history, drive trends, triage queue | No per-component recurrence record or recurrence alert; no link to earlier remediation outcomes | 6 |
 | 5 | Boot and startup | Boot records, crash and unexpected-shutdown evidence, reboot-loop alert, crashes page | No startup-duration or failed-startup-service reading; no boot-configuration read; recovery events not collected | 5 |
@@ -112,7 +112,7 @@ Audited against the repository before any change. "Status" is what exists on `sq
 ## C. Decisions added by this expansion
 
 - **Tenant isolation:** keep one organization (recommended for a support team that serves all clients) or add per-client access?
-- **Baselines:** port the earlier `baseline-recovery` branch work onto SQL Server, or rebuild it as part of phase 5 (recommended: port its design, rebuild its queries)?
+- **Baselines:** done: the earlier `baseline-recovery` design was ported (phases 1 and 2) with rebuilt queries; see 15-baselines-and-config.md.
 - **Encryption at rest:** disk-level encryption at the host (free), or SQL Server Standard?
 
 ## D. Ordering

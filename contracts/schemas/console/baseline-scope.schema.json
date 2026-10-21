@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-scope.schema.json",
+  "title": "baseline-scope",
+  "description": "Where a baseline applies: the whole fleet, a cabinet model, a client, a site or one cabinet. A model is named by its text; the others by their ID.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "kind",
+    "id"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "global",
+        "model",
+        "client",
+        "site",
+        "cabinet"
+      ]
+    },
+    "id": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[A-Za-z0-9 ._()+-]+$"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "global"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "id": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "model"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9 ._()+-]+$"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "client",
+              "site",
+              "cabinet"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "id": {
+            "$ref": "../common.schema.json#/$defs/uuid"
+          }
+        }
+      }
+    }
+  ]
+}

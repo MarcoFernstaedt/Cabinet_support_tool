@@ -1,0 +1,115 @@
+{
+  "takenAt": "2026-10-12T09:10:04Z",
+  "categories": [
+    {
+      "category": "services",
+      "hash": "d686f125ce54cb21359a753ec4f1fc15db0ebb597a3ebd276d3ae50fc636b755",
+      "truncated": false,
+      "items": [
+        {
+          "key": "service:BioScanSvc",
+          "values": {
+            "startType": "automatic",
+            "state": "stopped"
+          }
+        },
+        {
+          "key": "service:Spooler",
+          "values": {
+            "startType": "automatic",
+            "state": "running"
+          }
+        }
+      ]
+    },
+    {
+      "category": "time",
+      "hash": "87bcd48ce72c85fa5cb1747726ab174e53d743832fd61516c5cf9d99d6a1c51c",
+      "truncated": false,
+      "items": [
+        {
+          "key": "time",
+          "values": {
+            "timeZoneId": "Eastern Standard Time",
+            "syncSource": "time.windows.com",
+            "timeService": "running",
+            "policyManaged": false
+          }
+        }
+      ]
+    },
+    {
+      "category": "system",
+      "hash": "e15b9261b0ea64ed8bb5ab5bc4b69b868aa11b616ec2440407b7d0e14121ca74",
+      "truncated": false,
+      "items": [
+        {
+          "key": "hardware",
+          "values": {
+            "manufacturer": "Dell Inc.",
+            "model": "OptiPlex 7090",
+            "biosVersion": "1.18.0",
+            "cpu": "Intel(R) Core(TM) i5-11500",
+            "memoryMb": 16384,
+            "secureBoot": true
+          }
+        },
+        {
+          "key": "identity",
+          "values": {
+            "joinType": "workgroup",
+            "autoLogon": false,
+            "localAdministrators": [
+              "Administrator",
+              "SupportAdmin"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "category": "hosts",
+      "hash": "2f0596fbbb8802401861ad000333abf61eba44f8f2fb557d43240f1352e40da9",
+      "truncated": false,
+      "items": [
+        {
+          "key": "host:127.0.0.1",
+          "values": {
+            "names": [
+              "localhost"
+            ]
+          }
+        },
+        {
+          "key": "host:10.21.4.20",
+          "values": {
+            "names": [
+              "sync-cabinet",
+              "pharmacy-sync"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "category": "tasks",
+      "hash": "d80cc3d15f801413ea3c8671b399639071716f8793b187752e2d5e8f6b75037f",
+      "truncated": false,
+      "items": [
+        {
+          "key": "task:\\Mashura\\Nightly check",
+          "values": {
+            "state": "ready"
+          }
+        },
+        {
+          "key": "startup:Run/BioScan",
+          "values": {
+            "command": "C:\\Program Files\\BioScan\\scan.exe",
+            "location": "HKLM Run"
+          }
+        }
+      ]
+    }
+  ]
+}

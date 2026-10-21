@@ -1,4 +1,5 @@
 using Cabinet.Agent.Contracts;
+using Cabinet.Agent.Core.Configuration;
 using Cabinet.Agent.Core.Helpers;
 
 namespace Cabinet.Agent.Core.Monitoring;
@@ -19,6 +20,8 @@ public sealed class MonitorSources
     /// The broker does the restarting; this side only reports what changed.
     /// </summary>
     public Func<IReadOnlyList<string>?, CancellationToken, Task<IReadOnlyList<WatchedServiceStatus>>>? Watch { get; init; }
+    /// <summary>The configuration collector (docs/spec/15-baselines-and-config.md): every category, from the same read operations a technician would run.</summary>
+    public Func<CancellationToken, Task<ConfigSnapshotOutput>>? Config { get; init; }
 }
 
 public sealed class MonitorIntervals
@@ -31,6 +34,9 @@ public sealed class MonitorIntervals
     public TimeSpan Drives { get; init; } = TimeSpan.FromDays(1);
     public TimeSpan FirstDriveCheck { get; init; } = TimeSpan.FromMinutes(10);
     public TimeSpan WatchedServices { get; init; } = TimeSpan.FromSeconds(60);
+    /// <summary>How often the configuration is collected; only categories that changed are sent (and every category once a day).</summary>
+    public TimeSpan Config { get; init; } = TimeSpan.FromMinutes(15);
+    public TimeSpan FirstConfigLook { get; init; } = TimeSpan.FromSeconds(90);
 }
 
 /// <summary>
@@ -39,7 +45,7 @@ public sealed class MonitorIntervals
 /// none takes instructions from the server beyond the data in <see cref="MonitorSettings"/>.
 /// </summary>
 public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings, EventQueue queue, string? stateDir, TimeProvider clock,
-    Action<string> log, MonitorIntervals? intervals = null)
+    Action<string> log, MonitorIntervals? intervals = null, ConfigQueue? configQueue = null)
 {
     private readonly MonitorIntervals _every = intervals ?? new MonitorIntervals();
     private readonly ScannerWatch _scanner = new();
@@ -107,6 +113,19 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         {
             var reporter = new Services.ServiceWatchReporter(new StateFile<Services.ServiceWatchReporter.Seen>(State("service-watch-reported.json")), clock);
             loops.Add(Loop("watched services", _every.WatchedServices, TimeSpan.FromSeconds(5), t => WatchedServicesOnceAsync(reporter, t), token));
+        }
+        if (sources.Config is not null && configQueue is not null)
+        {
+            var watch = new ConfigWatch(new StateFile<ConfigWatch.State>(State("config-state.json")), configQueue, clock, log);
+            // A snapshot the server refused is looked at again next time instead of being taken as sent.
+            configQueue.Discarded += watch.Forget;
+            // Cabinets do not all look at the same moment: the first look is spread over a minute.
+            TimeSpan first = _every.FirstConfigLook + TimeSpan.FromMilliseconds(Random.Shared.Next(0, (int)Math.Max(1, Math.Min(60_000, _every.Config.TotalMilliseconds / 4))));
+            loops.Add(Loop("configuration", _every.Config, first, async t =>
+            {
+                int queued = watch.Observe(await sources.Config(t).ConfigureAwait(false));
+                if (queued > 0) log($"Configuration: {queued} categor{(queued == 1 ? "y" : "ies")} queued for the server.");
+            }, token));
         }
         settings.Changed += () => log("New scanner hardware IDs from the console; the scanner watcher uses them from its next look.");
         return Task.WhenAll(loops);

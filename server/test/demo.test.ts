@@ -192,6 +192,72 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   assert.ok(!raw.includes("password"), "no password in any simulated answer");
 });
 
+test("every simulated cabinet reports its configuration through the server's own ingest, with approved baselines; one cabinet differs, and its history tells how", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const total = DEMO_FLEET.flatMap(c => c.sites.flatMap(s => s.cabinets)).length;
+  const one = async (sql: string, args: unknown[] = []) => (await db.app.query<any>(sql, args)).rows[0];
+  // All eleven categories for every simulated cabinet, and the machine's make and model remembered from them.
+  assert.equal(Number((await one("SELECT COUNT(DISTINCT cabinet_id) AS n FROM config_current c JOIN cabinets k ON k.id = c.cabinet_id WHERE k.demo_scenario IS NOT NULL")).n), total);
+  assert.equal(Number((await one("SELECT COUNT(*) AS n FROM config_current c JOIN cabinets k ON k.id = c.cabinet_id WHERE k.demo_scenario IS NOT NULL")).n), total * 11);
+  assert.equal(Number((await one("SELECT COUNT(*) AS n FROM cabinets WHERE demo_scenario IS NOT NULL AND model LIKE 'OptiPlex%'")).n), total);
+  assert.equal(Number((await one("SELECT COUNT(*) AS n FROM config_versions v JOIN cabinets k ON k.id = v.cabinet_id WHERE k.demo_scenario IS NULL")).n), 0, "the real cabinet got nothing from the demo");
+  // The baselines are tied to simulated clients and sites; the working cabinets they were taken from meet them.
+  const baselines = (await call("GET", "/api/baselines", undefined, t1)).body.baselines as { scope: { kind: string }; name: string; approvedVersion: number | null }[];
+  assert.deepEqual(baselines.map(b => b.scope.kind).sort(), ["client", "site", "site"]);
+  assert.ok(baselines.every(b => b.approvedVersion === 1));
+  const named = async (name: string) => (await db.app.query<{ id: string }>("SELECT k.id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.name = $1 AND k.demo_scenario IS NOT NULL", [name])).rows[0]!.id;
+  const examRoom = await named("Exam Room 1"), midtownSync = await named("Midtown Sync");
+  assert.equal((await call("GET", `/api/cabinets/${examRoom}/condition`, undefined, t1)).body.state, "healthy");
+  // The one that differs: its firewall was switched on after it was last seen well, and the baseline says the profiles are off.
+  const bad = (await call("GET", `/api/cabinets/${midtownSync}/condition`, undefined, t1)).body;
+  assert.equal(bad.state, "degraded");
+  assert.ok(bad.lastHealthyAt && bad.degradedSince && bad.lastHealthyAt < bad.degradedSince);
+  assert.match(bad.reasons.map((r: { text: string }) => r.text).join(" "), /profile:public \(enabled\) is not as the baseline requires/);
+  const drift = (await call("GET", `/api/cabinets/${midtownSync}/drift`, undefined, t1)).body.drift as { itemKey: string; field: string; expected: unknown; actual: unknown }[];
+  assert.deepEqual(drift.map(d => [d.itemKey, d.expected, d.actual]).sort(), [["profile:domain", false, true], ["profile:private", false, true], ["profile:public", false, true]]);
+  const changes = (await call("GET", `/api/cabinets/${midtownSync}/config-changes`, undefined, t1)).body.changes as { category: string; notBefore: string | null; observedAt: string; violatesBaseline: boolean }[];
+  const firewall = changes.filter(c => c.category === "firewall");
+  assert.equal(firewall.length, 3);
+  assert.ok(firewall.every(c => c.violatesBaseline && c.notBefore && c.notBefore < c.observedAt), "a window between two looks, going against the baseline");
+  // Windows also called the network a domain network once the domain profile was on: a change too, but not against any baseline.
+  assert.deepEqual(changes.filter(c => c.category !== "firewall").map(c => [c.category, c.violatesBaseline]), [["network", false]]);
+  const since = (await call("GET", `/api/cabinets/${midtownSync}/compare-healthy`, undefined, t1)).body;
+  assert.equal(since.changes.length, 4);
+  // Cabinets with no baseline are never called healthy; offline ones say so.
+  const unjudged = (await call("GET", `/api/cabinets/${await named("Central Sync")}/condition`, undefined, t1)).body;
+  assert.equal(unjudged.state, "unknown");
+  assert.equal(unjudged.reasons[0].code, "no_baseline");
+  assert.equal((await call("GET", `/api/cabinets/${await named("Step-down")}/condition`, undefined, t1)).body.state, "offline");
+  // The fleet view: the differences are where the scenarios put them (the three wrong time zones at the Upper East Side, the static address at the Lab, the firewall).
+  const fleet = (await call("GET", "/api/fleet/differences", undefined, t1)).body;
+  const group = (key: string, field: string) => fleet.groups.find((g: { itemKey: string; field: string }) => g.itemKey === key && g.field === field);
+  assert.equal(group("time", "timeZoneId").cabinets, 3);
+  assert.equal(group("profile:public", "enabled").cabinets, 2, "both sync cabinets whose firewall is on");
+  assert.ok(fleet.cabinetsJudged > 0 && fleet.cabinetsJudged < fleet.cabinetsReporting);
+  // A simulated cabinet answers config.snapshot like an agent: valid, with hashes the server accepts.
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const read = await call("POST", `/api/cabinets/${midtownSync}/commands`, { operation: "config.snapshot", params: { categories: ["firewall", "hosts"] } }, t1);
+    assert.equal(read.status, 202, JSON.stringify(read.body));
+    await until("the simulated snapshot", async () => (await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [read.body.commandId])).rows[0]?.status === "succeeded");
+    const out = (await db.app.query<{ result: { output: { categories: { category: string }[] } } }>("SELECT result FROM commands WHERE id = $1", [read.body.commandId])).rows[0]!.result.output;
+    assert.deepEqual(out.categories.map(c => c.category), ["firewall", "hosts"]);
+    // And the Tier 1 fix: applying the client's policy changes the configuration, and the next report says so as a change made through the platform.
+    const fix = await call("POST", `/api/cabinets/${midtownSync}/commands`, { operation: "firewall.applyPolicy", params: {} }, t1);
+    assert.equal(fix.status, 202, JSON.stringify(fix.body));
+    await until("the drift to clear", async () => (await call("GET", `/api/cabinets/${midtownSync}/drift`, undefined, t1)).body.drift.length === 0);
+    const after = (await call("GET", `/api/cabinets/${midtownSync}/config-changes`, undefined, t1)).body.changes as { category: string; viaPlatform: boolean; violatesBaseline: boolean }[];
+    const platform = after.filter(c => c.viaPlatform);
+    assert.equal(platform.length, 3, "the three profiles switched off by the platform");
+    assert.ok(platform.every(c => c.category === "firewall" && !c.violatesBaseline));
+    await until("the baseline's own requirement to be met again", async () => {
+      const now = (await call("GET", `/api/cabinets/${midtownSync}/condition`, undefined, t1)).body;
+      return !now.reasons.some((r: { code: string }) => r.code === "required_item");
+    });
+  } finally { sim.stop(); }
+});
+
 test("simulated cabinets answer commands, and a fix made on one takes effect", async () => {
   const t1 = await signIn(await account("tier1"));
   const t2 = await signIn(await account("tier2"));

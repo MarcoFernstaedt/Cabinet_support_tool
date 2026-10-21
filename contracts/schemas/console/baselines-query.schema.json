@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baselines-query.schema.json",
+  "title": "baselines-query",
+  "description": "Which baselines the list shows.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "scopeKind": {
+      "type": "string",
+      "enum": [
+        "global",
+        "model",
+        "client",
+        "site",
+        "cabinet"
+      ]
+    },
+    "scopeId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9 ._()+-]+$"
+    }
+  }
+}

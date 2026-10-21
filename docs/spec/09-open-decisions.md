@@ -587,3 +587,17 @@ Decided while building it, for the owner to confirm:
 - **Decision:** fleet search reaches the three new readings by plain text (model, manufacturer, BIOS version, processor; domain, workgroup or local administrator name; hosts name or address) and, for identity, by the keywords `workgroup`, `auto_logon` and `no_domain_controller`. No new alert rules: a hosts line or a workgroup cabinet is shown, not raised.
 
 - **Scanner IDs need no authenticator code (kept, reviewed).** A review pointed out that setting the fingerprint scanner IDs at fleet, client, site or cabinet level takes an optional step-up token. This is deliberate: it changes only which device the scanner checks look at, nothing on a cabinet; it is role-limited (Admin for the fleet, Tier 2 below) and audited. A token that is supplied is still verified. Say if the fleet-wide setting should require a code.
+
+## Baselines and configuration snapshots (October 2026)
+
+Built as phases 1 and 2 of the earlier design (see 15-baselines-and-config.md). Choices made where the spec was silent, for the owner to confirm:
+
+- **Eleven categories**, including the `hosts`, `tasks` and `system` reads that exist since the Windows coverage work. Startup commands are reduced to the program (arguments can hold secrets). No registry value or scheduled-task action text is collected beyond these readers.
+- **Who approves**: Tier 2 writes, an Admin approves with an authenticator code and a written reason; an Admin cannot approve their own proposal while another active Admin exists. *Say if a single Admin site should need a second person some other way.*
+- **A baseline that is not approved is never compared with**, and a cabinet with no approved baseline is `unknown`, never `healthy`.
+- **Capture leaves out per-cabinet values** (addresses, MAC addresses, interface indexes, update dates, the devices category) for scopes wider than one cabinet, and service state and link state always.
+- **Retention**: change rows and health transitions follow the events retention setting; versions are kept 20 per category (plus any a healthy mark points at); healthy marks 30 days plus the newest 10.
+- **Cabinet model** comes from Windows (`system.hardware`); an Admin override (a `model_override`) is **not built**. *Open question: is it needed, or is the model read from Windows always right?*
+- **Quota**: 240 configuration uploads an hour per cabinet (a setting in the agent API options).
+- **Windows code not run on a real cabinet**: the config collector and its registry, WMI and `pnputil` readers have mocked tests only. Run `config.snapshot` on a real cabinet and check each category before relying on it.
+- **Not built (later phases)**: incidents and correlation, playbooks, restoring a difference, fleet recovery, an offline cache, registry values, scheduled-task allowlist, driver and update rollback, service start type changes.

@@ -955,6 +955,24 @@
         },
         "type": "object"
       }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
+            "const": "config.snapshot"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/config.snapshot.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
     }
   ]
 }

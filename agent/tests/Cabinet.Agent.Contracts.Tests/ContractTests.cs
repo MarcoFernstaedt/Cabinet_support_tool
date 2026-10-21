@@ -115,6 +115,7 @@ public sealed class ContractTests
         new object[] { typeof(WatchState), "common.schema.json", "/$defs/watchedServiceStatus/properties/state/enum" },
         new object[] { typeof(ServiceAction), "operations/service.control.schema.json", "/$defs/params/properties/action/enum" },
         new object[] { typeof(RecoveryAction), "common.schema.json", "/$defs/serviceRecoveryAction/enum" },
+        new object[] { typeof(ConfigCategory), "common.schema.json", "/$defs/configCategory/enum" },
     };
 
     [Theory]

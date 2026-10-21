@@ -44,6 +44,7 @@ public static class ExampleData
             "result" => typeof(Result),
             "event" => typeof(AgentEvent),
             "event-batch" => typeof(EventBatch),
+            "config-upload" => typeof(ConfigUpload),
             "heartbeat" => typeof(Heartbeat),
             "server-ack" => typeof(ServerAck),
             "heartbeat-response" => typeof(HeartbeatResponse),

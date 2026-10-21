@@ -49,6 +49,7 @@
     {"name": "system.hardware", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "system.identity", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "network.hosts", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "config.snapshot", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
     {"name": "system.restart", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "process.end", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "system.checkHealth", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},

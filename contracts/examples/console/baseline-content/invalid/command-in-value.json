@@ -1,0 +1,14 @@
+{
+  "items": [
+    {
+      "category": "services",
+      "key": "service:x",
+      "mode": "match",
+      "expect": {
+        "startType": {
+          "run": "cmd"
+        }
+      }
+    }
+  ]
+}

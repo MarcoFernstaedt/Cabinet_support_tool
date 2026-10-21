@@ -1,0 +1,30 @@
+{
+  "snapshots": [
+    {
+      "observedAt": "2026-10-12T14:00:04Z",
+      "category": "hosts",
+      "hash": "2f0596fbbb8802401861ad000333abf61eba44f8f2fb557d43240f1352e40da9",
+      "truncated": false,
+      "gapBefore": true,
+      "items": [
+        {
+          "key": "host:127.0.0.1",
+          "values": {
+            "names": [
+              "localhost"
+            ]
+          }
+        },
+        {
+          "key": "host:10.21.4.20",
+          "values": {
+            "names": [
+              "sync-cabinet",
+              "pharmacy-sync"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

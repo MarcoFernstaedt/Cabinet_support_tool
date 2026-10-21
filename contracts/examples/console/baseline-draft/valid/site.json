@@ -1,0 +1,52 @@
+{
+  "scope": {
+    "kind": "site",
+    "id": "3f2504e0-4f89-41d3-9a0c-0305e82c3301"
+  },
+  "description": "Services and DNS for the Midtown site.",
+  "content": {
+    "items": [
+      {
+        "category": "network",
+        "key": "adapter:Ethernet",
+        "mode": "match",
+        "expect": {
+          "dnsServers": [
+            "10.21.4.10",
+            "10.21.4.11"
+          ],
+          "dhcp": true
+        },
+        "severity": "major"
+      },
+      {
+        "category": "services",
+        "key": "service:BioScanSvc",
+        "mode": "match",
+        "expect": {
+          "startType": "automatic",
+          "state": "running"
+        },
+        "required": true,
+        "severity": "major",
+        "note": "The fingerprint scanner's service."
+      },
+      {
+        "category": "applications",
+        "key": "app:Windows Defender Exclusions",
+        "mode": "absent"
+      }
+    ],
+    "health": {
+      "maxOfflineMinutes": 15
+    }
+  },
+  "compat": {
+    "osBuilds": [
+      "19044.5011"
+    ],
+    "models": [
+      "OptiPlex 7090"
+    ]
+  }
+}

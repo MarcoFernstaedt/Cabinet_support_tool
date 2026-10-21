@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/cabinet-history-query.schema.json",
+  "title": "cabinet-history-query",
+  "description": "The query string of a cabinet's configuration changes and history: how many days, which category, a text to look for, and whether to show only changes that go against the baseline.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "days": {
+      "type": "string",
+      "pattern": "^[0-9]{1,2}$"
+    },
+    "limit": {
+      "type": "string",
+      "pattern": "^[0-9]{1,3}$"
+    },
+    "category": {
+      "$ref": "../common.schema.json#/$defs/configCategory"
+    },
+    "q": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "violations": {
+      "type": "string",
+      "enum": [
+        "true",
+        "false"
+      ]
+    }
+  }
+}

@@ -13,6 +13,7 @@ import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { NotificationFeed } from "../src/db/notifications.js";
 import { opsMeter } from "../src/services/ops-meter.js";
+import { configHash } from "../src/services/config-canonical.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir, type TestKey } from "./helpers.js";
 
@@ -85,7 +86,7 @@ test("health answers without a certificate", async () => {
 
 test("a machine without a certificate is refused on every agent route", async () => {
   for (const [method, path, body] of [["GET", "/agent/v1/commands"], ["POST", "/agent/v1/heartbeat", heartbeat], ["POST", "/agent/v1/results", {}],
-    ["POST", "/agent/v1/events", { events: [] }], ["POST", "/agent/v1/renew", { csr: "x" }]] as const) {
+    ["POST", "/agent/v1/events", { events: [] }], ["POST", "/agent/v1/config", { snapshots: [] }], ["POST", "/agent/v1/renew", { csr: "x" }]] as const) {
     const r = await call(method, path, body);
     assert.equal(r.status, 401, `${method} ${path}`);
     assert.deepEqual(r.body, { error: "certificate_refused" });
@@ -275,6 +276,70 @@ test("each cabinet has an hourly event quota: over it, a batch is refused with 4
     assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM events WHERE event_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [over.map(e => e.eventId)])).rows[0]!.n, 0);
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev()] }, noisy)).status, 200, "what is left of the quota is still usable");
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev(), ev()] }, quiet)).status, 200);
+  } finally { port = saved; await limited.close(); }
+});
+
+const configItems = [{ key: "service:BioScanSvc", values: { startType: "automatic", state: "running" } }, { key: "service:Spooler", values: { startType: "automatic", state: "running" } }];
+/** A snapshot with the hash the agent would compute (items the agent could never make get a made-up hash). */
+const snapshotOf = (category: string, items: unknown[], observedAt = "2026-10-06T12:00:00Z", extra: Record<string, unknown> = {}) => {
+  let hash = "0".repeat(64);
+  try { hash = configHash(items as never); } catch { /* not a configuration */ }
+  return { observedAt, category, hash, truncated: false, items, ...extra };
+};
+
+test("configuration snapshots: the server recomputes every hash, stores only what changed, and refuses anything malformed or hostile before storing it", async () => {
+  const cab = await enrolledCabinet();
+  const send = (snapshots: unknown[]) => call("POST", "/agent/v1/config", { snapshots }, cab);
+  const versions = async () => Number((await db.app.query("SELECT COUNT(*) AS n FROM config_versions WHERE cabinet_id = $1", [cab.cabinetId])).rows[0]!.n);
+  assert.equal((await send([snapshotOf("services", configItems)])).status, 200);
+  assert.equal((await send([snapshotOf("services", configItems, "2026-10-06T12:10:00Z")])).status, 200);
+  assert.equal(await versions(), 1, "an unchanged category stores no new version");
+  const changed = [configItems[0]!, { key: "service:Spooler", values: { startType: "disabled", state: "stopped" } }];
+  assert.equal((await send([snapshotOf("services", changed, "2026-10-06T12:20:00Z")])).status, 200);
+  assert.equal(await versions(), 2);
+  assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM config_changes WHERE cabinet_id = $1", [cab.cabinetId])).rows[0]!.n), 1);
+  // Hostile shapes: wrong hash, unknown category, a key from another category, a duplicate key, extra fields, nested values, too many snapshots, a control character.
+  const before = await versions();
+  const hostile: [string, unknown[]][] = [
+    ["a hash that is not the items'", [{ ...snapshotOf("services", changed, "2026-10-06T12:30:00Z"), hash: "0".repeat(64) }]],
+    ["a short hash", [{ ...snapshotOf("services", changed), hash: "abc" }]],
+    ["an unknown category", [snapshotOf("registry", changed)]],
+    ["a key of another category", [snapshotOf("services", [{ key: "rule:Allow", values: { enabled: true } }])]],
+    ["a repeated key", [snapshotOf("services", [configItems[0], configItems[0]])]],
+    ["an extra field", [{ ...snapshotOf("services", changed), script: "x" }]],
+    ["a nested value", [snapshotOf("services", [{ key: "service:A", values: { a: { run: "cmd" } } }])]],
+    ["a fraction", [snapshotOf("services", [{ key: "service:A", values: { a: 1.5 } }])]],
+    ["a control character", [snapshotOf("services", [{ key: "service:A", values: { a: "x\u0007" } }])]],
+    ["nine snapshots", Array.from({ length: 9 }, () => snapshotOf("time", [{ key: "time", values: { timeZoneId: "UTC" } }]))],
+    ["none", []],
+  ];
+  for (const [why, snapshots] of hostile) assert.equal((await send(snapshots)).status, 400, why);
+  assert.equal((await call("POST", "/agent/v1/config", { snapshots: [snapshotOf("time", [{ key: "time", values: { timeZoneId: "UTC" } }])], extra: 1 }, cab)).status, 400);
+  assert.equal(await versions(), before, "nothing malformed was stored");
+  // A batch with one bad snapshot stores none of it.
+  const mixed = await send([snapshotOf("time", [{ key: "time", values: { timeZoneId: "UTC" } }], "2026-10-06T12:40:00Z"), { ...snapshotOf("services", changed), hash: "1".repeat(64) }]);
+  assert.equal(mixed.status, 400);
+  assert.equal(await versions(), before);
+  // A cabinet can only write its own configuration: the cabinet ID is its certificate's, never a field of the request.
+  const other = await enrolledCabinet();
+  assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM config_current WHERE cabinet_id = $1", [other.cabinetId])).rows[0]!.n), 0);
+  // The route takes nothing but JSON, and is audited by the system as the agent's own.
+  assert.equal((await call("POST", "/agent/v1/config", undefined, cab, { data: "snapshots=1", type: "application/x-www-form-urlencoded" })).status, 415);
+});
+
+test("each cabinet has an hourly quota of configuration snapshots: over it, an upload is refused with 429 and nothing of it is stored", async () => {
+  const limited = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, tempDir(), ["localhost"]), configPerHour: 3, logger: false });
+  await limited.listen({ host: "127.0.0.1", port: 0 });
+  const saved = port;
+  port = (limited.server.address() as { port: number }).port;
+  try {
+    const noisy = await enrolledCabinet(), quiet = await enrolledCabinet();
+    const one = (n: number) => snapshotOf("time", [{ key: "time", values: { timeZoneId: `Zone ${n}` } }], `2026-10-06T12:0${n}:00Z`);
+    assert.equal((await call("POST", "/agent/v1/config", { snapshots: [one(1), snapshotOf("services", configItems)] }, noisy)).status, 200);
+    assert.equal((await call("POST", "/agent/v1/config", { snapshots: [one(2), one(3)] }, noisy)).status, 429);
+    assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM config_versions WHERE cabinet_id = $1 AND category = 'time'", [noisy.cabinetId])).rows[0]!.n), 1);
+    assert.equal((await call("POST", "/agent/v1/config", { snapshots: [one(2)] }, noisy)).status, 200, "what is left of the quota is still usable");
+    assert.equal((await call("POST", "/agent/v1/config", { snapshots: [one(1), one(2), one(3)] }, quiet)).status, 200);
   } finally { port = saved; await limited.close(); }
 });
 

@@ -1,0 +1,10 @@
+{
+  "items": [
+    {
+      "category": "services",
+      "key": "service:x",
+      "mode": "present",
+      "note": "<script>alert(1)</script>"
+    }
+  ]
+}

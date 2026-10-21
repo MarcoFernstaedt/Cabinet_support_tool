@@ -5,6 +5,7 @@ import { useLoad } from "../../lib/useLoad";
 import { Pager, usePaged } from "../../components/Pager";
 import { Badge, Empty } from "../../components/ui";
 import { fullTime } from "../../lib/time";
+import { ConfigChanges } from "../../components/ConfigChanges";
 
 interface Item { at: string; category: string; title: string; detail?: string | null }
 const CHANGE = new Set(["update_installed", "update_started", "driver_installed", "service_installed", "software_installed", "software_removed", "firewall", "platform_change", "restart_requested"]);
@@ -23,7 +24,7 @@ export function Changes({ cabinetId }: { cabinetId: string }) {
   const asc = [...(data?.items ?? [])].sort((a, b) => a.at.localeCompare(b.at));
   const first = asc.find(i => PROBLEM.has(i.category));
   const before = first ? asc.filter(i => CHANGE.has(i.category) && i.at < first.at && new Date(first.at).getTime() - new Date(i.at).getTime() <= 86_400_000) : [];
-  return (
+  return (<>
     <section className="panel" aria-labelledby="changes-heading">
       <div className="panel-head">
         <h2 id="changes-heading">What changed</h2>
@@ -54,5 +55,6 @@ export function Changes({ cabinetId }: { cabinetId: string }) {
         </table>)}
       <Pager {...paged} label="changes" />
     </section>
-  );
+    <ConfigChanges cabinetId={cabinetId} />
+  </>);
 }

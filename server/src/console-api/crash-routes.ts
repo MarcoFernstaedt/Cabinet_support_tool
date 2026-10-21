@@ -6,6 +6,7 @@ import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { scannerHistory } from "../services/scanner-history.js";
 import { buildEvidence } from "../services/evidence.js";
+import { encryptEvidence } from "../services/evidence-crypto.js";
 import { audit, transaction } from "../db/db.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -59,6 +60,21 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
       outcome: "succeeded", details: { from: w.from.toISOString(), to: w.to.toISOString(), packageSha256: pkg.manifest.packageSha256 } }));
     const day = w.to.toISOString().slice(0, 10);
     return reply.header("content-disposition", `attachment; filename="evidence-${pkg.manifest.cabinetId}-${day}.json"`).send(pkg);
+  });
+
+  // The same package, encrypted with a passphrase the person chooses (POST, so the passphrase never appears in a URL or a log). The audit entry
+  // records that it was encrypted; the passphrase is neither stored nor logged.
+  app.post("/api/cabinets/:id/evidence/encrypted", async (request, reply) => {
+    const u = await o.guards.role(request, "tier1");
+    const body = consoleBodies.evidenceExport.parse(request.body);
+    const w = window({ days: body.days }, 30);
+    const pkg = await evidenceExports.run(u.userId, o.pool, db => buildEvidence(db, id(request), w.from, w.to, { userId: u.userId, name: u.name }));
+    if (!pkg) throw new Refused("not_found", 404, "no such cabinet");
+    await transaction(o.pool, c => audit(c, { actorKind: "user", actorId: u.userId, action: "evidence.export", targetKind: "cabinet", targetId: pkg.manifest.cabinetId,
+      outcome: "succeeded", details: { from: w.from.toISOString(), to: w.to.toISOString(), packageSha256: pkg.manifest.packageSha256, encrypted: true } }));
+    const day = w.to.toISOString().slice(0, 10);
+    return reply.header("content-type", "application/octet-stream").header("content-disposition", `attachment; filename="evidence-${pkg.manifest.cabinetId}-${day}.cabev"`)
+      .send(encryptEvidence(Buffer.from(JSON.stringify(pkg), "utf8"), body.passphrase));
   });
 
   app.get("/api/incidents/crashes", async request => {

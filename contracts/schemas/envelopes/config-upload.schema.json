@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/config-upload.schema.json",
+  "title": "config-upload",
+  "description": "Configuration categories that changed since the agent last reported them (change-only), oldest first, each with when the agent looked. Up to 8 per request; a cabinet that was offline sends what it kept, and says when it had to drop older ones.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshots"
+  ],
+  "properties": {
+    "snapshots": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observedAt",
+          "category",
+          "hash",
+          "truncated",
+          "items"
+        ],
+        "properties": {
+          "observedAt": {
+            "$ref": "../common.schema.json#/$defs/timestamp"
+          },
+          "category": {
+            "$ref": "../common.schema.json#/$defs/configCategory"
+          },
+          "hash": {
+            "$ref": "../common.schema.json#/$defs/configHash"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "gapBefore": {
+            "description": "True when the agent dropped older snapshots of this category before this one (its queue was full), so changes in between are unknown.",
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 2000,
+            "items": {
+              "$ref": "../common.schema.json#/$defs/configItem"
+            }
+          }
+        }
+      }
+    }
+  }
+}

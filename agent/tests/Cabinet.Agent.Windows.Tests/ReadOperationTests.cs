@@ -71,6 +71,21 @@ public sealed class ReadOperationTests
     }
 
     [Fact]
+    public async Task Config_snapshot_collects_the_cabinets_configuration_from_the_other_reads_with_hashes_the_server_will_accept()
+    {
+        JsonElement output = await Succeeds(Catalog.ConfigSnapshot);
+        var snapshot = output.Deserialize<ConfigSnapshotOutput>(ContractJson.Options)!;
+        Assert.NotEmpty(snapshot.Categories);
+        foreach (ConfigSnapshotCategory c in snapshot.Categories)
+        {
+            Assert.Equal(Core.Configuration.ConfigCanonical.Hash(c.Items), c.Hash);
+            Assert.True(c.Items.Count <= Core.Configuration.ConfigBuilders.MaxItems);
+        }
+        JsonElement one = await Succeeds(Catalog.ConfigSnapshot, new { categories = new[] { "time" } });
+        Assert.Single(one.GetProperty("categories").EnumerateArray());
+    }
+
+    [Fact]
     public async Task System_info() => Assert.False(string.IsNullOrEmpty((await Succeeds(Catalog.SystemInfo)).GetProperty("osBuild").GetString()));
 
     [Fact]

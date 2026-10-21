@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-draft.schema.json",
+  "title": "baseline-draft",
+  "description": "Creates a draft version of the baseline for a scope (the baseline itself is created with its first version).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scope",
+    "description",
+    "content"
+  ],
+  "properties": {
+    "scope": {
+      "$ref": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-scope.schema.json"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 500,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "content": {
+      "$ref": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-content.schema.json"
+    },
+    "compat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "osBuilds": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 32,
+            "pattern": "^[0-9A-Za-z._ -]+$"
+          }
+        },
+        "models": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9 ._()+-]+$"
+          }
+        }
+      }
+    }
+  }
+}

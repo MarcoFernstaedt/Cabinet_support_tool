@@ -269,7 +269,8 @@
         "power.set",
         "system.hardware",
         "system.identity",
-        "network.hosts"
+        "network.hosts",
+        "config.snapshot"
       ]
     },
     "rejectionCode": {
@@ -925,6 +926,117 @@
         "uncorrectableErrors",
         "wearPercent"
       ]
+    },
+    "configCategory": {
+      "description": "A part of a cabinet's configuration that is collected, compared with baselines and watched for change.",
+      "type": "string",
+      "enum": [
+        "network",
+        "services",
+        "drivers",
+        "updates",
+        "firewall",
+        "time",
+        "devices",
+        "applications",
+        "hosts",
+        "tasks",
+        "system"
+      ]
+    },
+    "configKey": {
+      "description": "A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[a-z]{2,12}(:[^\\u0000-\\u001f\\u007f<>]{1,180})?$"
+    },
+    "configValue": {
+      "description": "One value of an item: short text, a whole number, true or false, nothing, or a short list of texts.",
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 200,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+        },
+        {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "maxLength": 200,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+          }
+        }
+      ]
+    },
+    "configItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "values"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/configKey"
+        },
+        "values": {
+          "type": "object",
+          "maxProperties": 24,
+          "propertyNames": {
+            "pattern": "^[a-z][A-Za-z0-9]{0,31}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/configValue"
+          }
+        }
+      }
+    },
+    "configHash": {
+      "description": "SHA-256 of the canonical JSON of a category's items sorted by key, as 64 lower-case hex digits. The server recomputes it and refuses a snapshot whose hash does not match.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "configSnapshotCategory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "hash",
+        "truncated",
+        "items"
+      ],
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/configCategory"
+        },
+        "hash": {
+          "$ref": "#/$defs/configHash"
+        },
+        "truncated": {
+          "description": "True when the cabinet had more items than the cap and the rest were left out.",
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "#/$defs/configItem"
+          }
+        }
+      }
     }
   }
 }

@@ -30,9 +30,11 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
   const fw = useLoad<CabinetPolicy>(`/api/cabinets/${cabinet.id}/firewall-policy`);
   const time = useLoad<CabinetTime>(`/api/cabinets/${cabinet.id}/time`);
   const watched = useLoad<WatchLevels>(`/api/cabinets/${cabinet.id}/watched-services`);
+  const base = useLoad<{ scopes: { kind: string; name: string; version: number; baselineId: string }[] }>(`/api/cabinets/${cabinet.id}/baseline`);
+  const cond = useLoad<{ state: string; reasons: { text: string }[] }>(`/api/cabinets/${cabinet.id}/condition`);
   const diagnosis = useLoad<{ latest: { readings?: Reading } | null }>(`/api/cabinets/${cabinet.id}/diagnose/network`);
   const [open, setOpen] = useState<string | null>(null);
-  const reloadAll = () => { site.reload(); fw.reload(); time.reload(); watched.reload(); diagnosis.reload(); onChanged(); };
+  const reloadAll = () => { site.reload(); fw.reload(); time.reload(); watched.reload(); diagnosis.reload(); base.reload(); cond.reload(); onChanged(); };
   const s = site.data;
 
   const lines: Line[] = [];
@@ -77,6 +79,19 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
         <p className="muted small">Editing it needs an authenticator code: it decides which address the cabinets' connection tests, and the cabinet-side checks that follow them, are pointed at.</p>
         <SyncSettings siteId={s.id} sync={s.sync} editable={atLeast(me, "admin")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Test it from this cabinet's network</Link></p></>,
+    });
+  }
+  if (base.data) {
+    const sc0 = base.data.scopes;
+    lines.push({
+      key: "baseline", label: "Configuration baseline", source: sc0.length ? sc0.map(x => x.kind === "global" ? "All cabinets" : x.name).join(" → ") : SOURCE.none!,
+      standard: sc0.length ? `Approved, ${sc0.length === 1 ? "version " + sc0[0]!.version : sc0.length + " levels"}` : "No approved baseline",
+      actual: cond.data ? ({ healthy: "Meets it", degraded: "Differs from it", offline: "Out of contact", unknown: "Not judged yet" } as Record<string, string>)[cond.data.state] ?? "Not judged yet" : "Not read",
+      state: !sc0.length ? "unset" : cond.data?.state === "healthy" ? "matches" : cond.data?.state === "degraded" ? "differs" : "unknown",
+      detail: <>
+        <p>The approved baseline this cabinet's configuration is compared with. It is written and approved under Admin, Baselines, and comparing never changes the cabinet.</p>
+        {cond.data && cond.data.state === "degraded" && <ul className="plain">{cond.data.reasons.slice(0, 5).map((r, i) => <li key={i}>{r.text}</li>)}</ul>}
+        <p><Link to={`/cabinets/${cabinet.id}/baseline`}>Open this cabinet's baseline and drift</Link></p></>,
     });
   }
   const sc = cabinet.scanner;

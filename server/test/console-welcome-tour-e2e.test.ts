@@ -69,10 +69,10 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     await page.locator("#welcome-title", { hasText: "The main menu" }).waitFor();
     await shot(page, "menu");
     await axe(page, "a tour step");
-    const outlinedBy: Record<string, string | null> = { "The main menu": "Fleet", Fleet: "^Fleet$", "Jump to": "Jump", Search: "^Search$", Alerts: "^Alerts", Incidents: "^Incidents$", "Fleet operations": "^Fleet operations$",
+    const outlinedBy: Record<string, string | null> = { "The main menu": "Fleet", Fleet: "^Fleet$", "Jump to": "Jump", Search: "^Search$", Alerts: "^Alerts", Incidents: "^Incidents$", "Differences from baselines": "^Differences", "Fleet operations": "^Fleet operations$",
       Issues: "^Issues$", Fixes: "^Fixes", Admin: "^Admin", "Your account": "Ada Admin" };
     const first = await walk(page, { outlined: t => outlinedBy[t] ?? null });
-    assert.deepEqual(first.slice(0, 11), ["The main menu", "Fleet", "Jump to", "Search", "Alerts", "Incidents", "Fleet operations", "Issues", "Fixes", "Admin", "Cabinets"]);
+    assert.deepEqual(first.slice(0, 12), ["The main menu", "Fleet", "Jump to", "Search", "Alerts", "Incidents", "Differences from baselines", "Fleet operations", "Issues", "Fixes", "Admin", "Cabinets"]);
     assert.deepEqual(first.slice(-2), ["Your account", "That is the tour"]);
     assert.ok(!first.includes("Overview"), "no cabinet, so no tabs are shown");
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();

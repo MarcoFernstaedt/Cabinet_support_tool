@@ -27,6 +27,7 @@ public sealed class FakeServer
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Commands { get; set; } = async (_, t) => { await Task.Delay(100, t); return Json($$"""{"serverTime":"{{ServerTime}}","commands":[]}"""); };
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Results { get; set; } = (_, _) => Task.FromResult(Ack());
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Events { get; set; } = (_, _) => Task.FromResult(Ack());
+    public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Config { get; set; } = (_, _) => Task.FromResult(Ack());
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Renew { get; set; } = (_, _) => Task.FromResult(Status(HttpStatusCode.NotFound));
 
     public IEnumerable<SeenRequest> To(string path) => Requests.Where(r => r.Path == path);
@@ -76,6 +77,7 @@ public sealed class FakeServer
                 "/agent/v1/commands" => await server.Commands(seen, token),
                 "/agent/v1/results" => await server.Results(seen, token),
                 "/agent/v1/events" => await server.Events(seen, token),
+                "/agent/v1/config" => await server.Config(seen, token),
                 "/agent/v1/renew" => await server.Renew(seen, token),
                 _ => Status(HttpStatusCode.NotFound),
             };

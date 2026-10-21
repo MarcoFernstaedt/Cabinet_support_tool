@@ -6,6 +6,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, WriteLimitReached } from "./writes.js";
 import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
+import { ingestAndEvaluate } from "./config-service.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
@@ -154,7 +155,9 @@ export async function takeQueuedCommands(pool: Queryable, cabinetId: string): Pr
  * never the agent's say-so about which operation it ran.
  */
 export async function storeResult(pool: Pool, cabinetId: string, result: Result): Promise<void> {
+  let afterCommit: (() => Promise<unknown>) | null = null;
   await transaction(pool, async c => {
+    afterCommit = null;
     const command = (await c.query<{ operation: string; status: string; delivered: number }>(
       "SELECT operation, status, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered FROM commands WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND cabinet_id = $2", [result.commandId, cabinetId])).rows[0];
     if (!command) throw new Refused("unknown_command", 404, "no such command for this cabinet");
@@ -175,6 +178,18 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
         throw new Refused("invalid_output", 400, "the output does not match the operation's output schema");
     }
     await c.query("UPDATE commands SET status = $2, result = $3, result_at = SYSUTCDATETIME() WHERE id = $1", [result.commandId, result.status, safeJson(result)]);
+    // What the cabinet says about its make and model keeps the model baseline applying to it.
+    if (result.status === "succeeded" && command.operation === "system.hardware") {
+      const hw = result.output as { manufacturer?: string | null; model?: string | null };
+      await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1",
+        [cabinetId, hw.manufacturer?.trim().slice(0, 200) || null, hw.model?.trim().slice(0, 200) || null]);
+    }
+    // A configuration read on demand is stored like one the agent sent (verified, change-only), after this result is safely recorded.
+    if (result.status === "succeeded" && command.operation === "config.snapshot") {
+      const out = result.output as { takenAt: string; categories: { category: string; hash: string; truncated: boolean; items: unknown[] }[] };
+      if (out.categories.length > 0)
+        afterCommit = () => ingestAndEvaluate(pool, cabinetId, out.categories.map(k => ({ observedAt: out.takenAt, ...k })) as never, "refresh").catch(() => undefined);
+    }
     // The address a cabinet reports in its network settings is kept on the cabinet, so lists of cabinets can show it.
     if (result.status === "succeeded" && command.operation === "network.config") {
       const adapters = (result.output as { adapters?: { connected: boolean; ipv4: { addresses: { address: string }[] } }[] }).adapters ?? [];
@@ -199,6 +214,7 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
     await audit(c, { actorKind: "agent", actorId: cabinetId, action: "command.result", targetKind: "command", targetId: result.commandId, outcome: "succeeded",
       details: { operation: command.operation, status: result.status, ...(result.error ? { error: result.error.code } : {}) } });
   });
+  if (afterCommit) await (afterCommit as () => Promise<unknown>)();
 }
 
 export async function commandRecord(db: Queryable, commandId: string): Promise<{ status: string; operation: string; result: Result | null } | null> {

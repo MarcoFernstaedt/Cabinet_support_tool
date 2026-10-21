@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "category": "services",
+      "key": "service:x",
+      "mode": "present",
+      "expect": {
+        "state": "running"
+      }
+    }
+  ]
+}

@@ -24,7 +24,7 @@ Check with `lsblk -f` that the data volume's type is `crypto_LUKS` (or the provi
 
 ## Encrypted exports
 
-Evidence packages (what the platform holds about one cabinet for a period) can be exported encrypted with a passphrase the Admin or technician chooses, so the file is safe to email to a vendor or keep in a ticket. The export route records the export, the package hash and the fact that it was encrypted in the audit log; the passphrase is never stored or logged.
+Evidence packages (what the platform holds about one cabinet for a period) can be exported encrypted with a passphrase the Admin or technician chooses, so the file is safe to email to a vendor or keep in a ticket. On a cabinet's Crashes and restarts tab, **Download encrypted** asks for a passphrase of 12 to 128 characters and downloads a `.cabev` file (AES-256-GCM, key from the passphrase with scrypt, any changed byte makes it refuse to open). The export is recorded in the audit log with the package hash and the fact that it was encrypted; the passphrase is sent in the request body once and never stored or logged. To open a file: `EVIDENCE_PASSPHRASE=... node deploy/decrypt-evidence.mjs file.cabev > evidence.json` (needs only Node). Share the passphrase by another route than the file.
 
 ## What encryption does not do
 

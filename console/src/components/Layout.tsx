@@ -59,7 +59,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const { path } = useRouter();
   const main = useRef<HTMLElement>(null);
   const section = path.startsWith("/admin") ? "admin" : path.startsWith("/account") ? "account" : path.startsWith("/alerts") || path.startsWith("/triage") ? "alerts"
-    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : path.split("?")[0] === "/" || /^\/(clients|sites|cabinets)\//.test(path) ? "fleet" : "";
+    : path.startsWith("/issues") ? "issues" : path.startsWith("/fixes") ? "fixes" : path.startsWith("/incidents") ? "incidents" : path.startsWith("/search") ? "search" : path.startsWith("/fleet-operations") ? "operations" : path.startsWith("/fleet-differences") ? "differences" : path.split("?")[0] === "/" || /^\/(clients|sites|cabinets)\//.test(path) ? "fleet" : "";
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
@@ -71,6 +71,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <Link to="/search" aria-current={section === "search" ? "page" : undefined}>Search</Link>
           <Link to="/incidents" aria-current={section === "incidents" ? "page" : undefined}>Incidents</Link>
           <Link to="/fleet-operations" aria-current={section === "operations" ? "page" : undefined}>Fleet operations</Link>
+          <Link to="/fleet-differences" aria-current={section === "differences" ? "page" : undefined}>Differences</Link>
           <Link to="/issues" aria-current={section === "issues" ? "page" : undefined}>Issues</Link>
           {me.canApproveFixes && <FixesLink current={section === "fixes"} />}
           {atLeast(me, "admin") && <AdminLink current={section === "admin"} />}

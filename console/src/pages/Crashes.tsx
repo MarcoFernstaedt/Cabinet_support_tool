@@ -3,6 +3,7 @@
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
+import { EncryptedExport } from "../components/EncryptedExport";
 import { Link } from "../lib/router";
 import { fullTime, ago } from "../lib/time";
 import { useLoad } from "../lib/useLoad";
@@ -73,6 +74,7 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
           {["7", "30", "90"].map(d => <option key={d} value={d}>Last {d} days</option>)}</select></label>
         {/* Everything the platform holds about this cabinet for the period, hashed and with where each part came from; the download is audited. */}
         <a className="btn small" href={`/api/cabinets/${cabinetId}/evidence?days=${days}`} download>Download evidence package</a>
+        <EncryptedExport cabinetId={cabinetId} days={days} />
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>

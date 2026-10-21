@@ -139,7 +139,7 @@ export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: Batch
 }
 
 export interface RetentionRun { events: number; eventsCleared: number; opsCounters: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
-  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number }
+  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number; configChanges: number; healthTransitions: number }
 
 /**
  * Removes events, resolved alerts, firewall history, diagnoses, boot records and finished fleet jobs past their retention, and clears old command results
@@ -168,13 +168,16 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   const samples = await rollUpAndTrimSamples(pool, now, o);
   const notifications = await pruneNotifications(pool, o);
   const boots = await inBatches(pool, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cut(r.bootsDays)], o);
+  // The record of configuration changes and health transitions is kept as long as events are (the stored versions are bounded by count instead).
+  const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o);
+  const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o);
   // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
   await inBatches(pool, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
                            (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o);
   const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
                                         AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o);
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
-    driveSamples: samples.driveSamples, notifications };
+    driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
   // Counts for the System health page: that it ran, and how many rows it removed or cleared per table (numbers only).
   opsMeter.count("retention", "ok");

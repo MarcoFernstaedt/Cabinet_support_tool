@@ -75,7 +75,9 @@
         "site.network_baseline",
         "runbook.approve",
         "runbook.reject",
-        "runbook.retire"
+        "runbook.retire",
+        "baseline.approve",
+        "baseline.reject"
       ]
     },
     "target": {

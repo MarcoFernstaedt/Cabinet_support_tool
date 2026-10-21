@@ -23,6 +23,9 @@ import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
 import { seedDemoTroubleshooting } from "./troubleshooting.js";
 import { raiseBaselineAlert } from "../diagnose/network.js";
+import { evaluateBaselineDrift } from "../services/baseline-drift.js";
+import { evaluateHealth } from "../services/cabinet-health.js";
+import { seedDemoBaselines, uploadDemoConfig } from "./config.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
 
 const SETTING = "demo.enabled";
@@ -282,6 +285,7 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
   await seedHistory(pool, userId);
   await seedSubmittedFix(pool);
   await seedDemoTroubleshooting(pool, userId);
+  if (cabinets.length > 0) await seedDemoConfig(pool, userId);
   // What the platform's regular check of each cabinet against its site's baseline would have found.
   for (const a of netAlerts) await raiseBaselineAlert(pool, a.id, a.problems);
   await checkOffline(pool);
@@ -328,6 +332,11 @@ export async function disableDemo(pool: Pool, userId: string): Promise<number> {
     await c.query("DELETE FROM error_daily WHERE client_id IN (SELECT id FROM clients WHERE demo = 1); DELETE FROM issue_daily WHERE client_id IN (SELECT id FROM clients WHERE demo = 1)");
     await c.query("DELETE FROM sites WHERE client_id IN (SELECT id FROM clients WHERE demo = 1)");
     await c.query("DELETE FROM clients WHERE demo = 1");
+    // The baselines made for the simulated clients and sites go with them (the database allows deleting a baseline only once the client, site or cabinet it was for is gone).
+    const orphan = `scope_kind IN ('client', 'site', 'cabinet') AND NOT EXISTS (SELECT 1 FROM clients x WHERE scope_kind = 'client' AND x.id = TRY_CAST(scope_id AS uniqueidentifier))
+        AND NOT EXISTS (SELECT 1 FROM sites x WHERE scope_kind = 'site' AND x.id = TRY_CAST(scope_id AS uniqueidentifier)) AND NOT EXISTS (SELECT 1 FROM cabinets x WHERE scope_kind = 'cabinet' AND x.id = TRY_CAST(scope_id AS uniqueidentifier))`;
+    await c.query(`DELETE FROM baseline_versions WHERE baseline_id IN (SELECT id FROM baselines WHERE ${orphan})`);
+    await c.query(`DELETE FROM baselines WHERE ${orphan}`);
     await upsertSetting(c, SETTING, "false", userId);
     await audit(c, { actorKind: "user", actorId: userId, action: "demo.disable", outcome: "succeeded", details: { cabinets: ids.length } });
     return ids.length;
@@ -505,6 +514,46 @@ export async function answer(pool: Pool, cabinetId: string, command: { commandId
     await storeEvents(pool, cabinetId, { events: [{ eventId: randomUUID(), kind: "service", occurredAt: iso(Date.now()), severityHint: "minor",
       detail: { message: "BioScanSvc is running again.", fields: { service: "BioScanSvc", change: "recovered", restartsToday: "3" } } }] });
   }
+  // The cabinet's agent reports a changed configuration on its own (change-only): what the platform just changed shows up as a change made through it.
+  if (CONFIG_CHANGING.has(command.operation)) await reportConfig(pool, cabinetId);
+}
+
+/** The operations whose success changes what a cabinet's configuration reports. */
+const CONFIG_CHANGING = new Set(["firewall.applyPolicy", "firewall.setProfile", "network.setIp", "network.setDns", "network.renewLease", "service.setStartType", "service.control", "time.setZone", "time.sync"]);
+
+/** A simulated agent's configuration upload: the cabinet's configuration as it is now, stored change-only like a real one. */
+async function reportConfig(pool: Pool, cabinetId: string): Promise<void> {
+  const ctx = await context(pool, cabinetId);
+  if (ctx) await uploadDemoConfig(pool, cabinetId, ctx).catch(e => console.error(`demo configuration report failed: ${(e as Error).message}`));
+}
+
+/**
+ * The configuration every simulated cabinet has reported, and the approved baselines the demo starts with. The baselines are made from two
+ * working cabinets' own reports, so those two are uploaded first; a sync cabinet whose firewall was switched on yesterday is uploaded twice
+ * (it was fine, then it was not), which gives the history, the change window and "last known healthy" something real to show.
+ */
+async function seedDemoConfig(pool: Pool, adminId: string): Promise<void> {
+  const rows = (await pool.query<{ id: string; scenario: Scenario; name: string; heard: Date | null; site_id: string; site: string; client_id: string; client: string; zone: string | null }>(
+    `SELECT k.id, k.demo_scenario AS scenario, k.name, k.last_heartbeat_at AS heard, s.id AS site_id, s.name AS site, c.id AS client_id, c.name AS client, s.time_zone AS zone
+       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.demo_scenario IS NOT NULL ORDER BY c.name, s.name, k.name`)).rows;
+  const observedFor = (r: { heard: Date | null }) => Math.min(Date.now() - 5 * 60_000, (r.heard?.getTime() ?? Date.now()) - 60_000);
+  const upload = async (r: (typeof rows)[number], at = observedFor(r), profiles?: Profiles) => {
+    const ctx = await context(pool, r.id);
+    if (ctx) await uploadDemoConfig(pool, r.id, profiles ? { ...ctx, firewallProfiles: profiles } : ctx, at);
+  };
+  const sources = [["Midtown Manhattan", "Exam Room 1"], ["New York – Upper East Side", "Surgery"]] as const;
+  const picked = sources.map(([site, name]) => rows.find(r => r.site === site && r.name === name)).filter((r): r is (typeof rows)[number] => !!r);
+  for (const r of picked) await upload(r);
+  const riverside = rows.find(r => r.client.endsWith("Riverside Veterinary Group"));
+  await seedDemoBaselines(pool, adminId, riverside?.client_id ?? null, picked.map(r => ({ siteId: r.site_id, cabinetId: r.id, timeZone: r.zone ?? "Eastern Standard Time" })));
+  const report = async (r: (typeof rows)[number]) => {
+    if (picked.some(p => p.id === r.id)) { await evaluateBaselineDrift(pool, r.id); await evaluateHealth(pool, r.id); return; }
+    // Fine yesterday, switched on since: the earlier report is what "last known healthy" will point at.
+    if (r.scenario === "firewall_drift") await upload(r, observedFor(r) - 26 * 3_600_000, ALL_OFF);
+    await upload(r);
+  };
+  // A few cabinets at a time (each cabinet's own reports stay in order).
+  for (let i = 0; i < rows.length; i += 6) await Promise.all(rows.slice(i, i + 6).map(report));
 }
 
 /** Runs while the server runs: delivers commands to simulated cabinets and keeps their heartbeats coming. */

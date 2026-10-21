@@ -68,6 +68,7 @@ public static class Catalog
     public const string PowerSet = "power.set";
     public const string NetworkRenewLease = "network.renewLease";
     public const string NetworkFlushDns = "network.flushDns";
+    public const string ConfigSnapshot = "config.snapshot";
 
     private static CatalogEntry Read<TParams, TOutput>(string name, RateClass rate = RateClass.Read) =>
         new(name, OperationKind.Read, "tier1", Confirm.None, ExpirySeconds: 300, rate, SafetyNet: false, typeof(TParams), typeof(TOutput));
@@ -106,6 +107,7 @@ public static class Catalog
         Read<EmptyParams, SystemHardwareOutput>(SystemHardware),
         Read<EmptyParams, SystemIdentityOutput>(SystemIdentity),
         Read<EmptyParams, NetworkHostsOutput>(NetworkHosts),
+        Read<ConfigSnapshotParams, ConfigSnapshotOutput>(ConfigSnapshot),
         Read<EmptyParams, SystemCheckHealthOutput>(SystemCheckHealth),
         Read<EmptyParams, ServicesListOutput>(ServicesList),
         Read<EmptyParams, ProcessesListOutput>(ProcessesList),

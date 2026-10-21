@@ -16,6 +16,7 @@ import { CabinetCrashes } from "../Crashes";
 import { EventLogs } from "./EventLogs";
 import { Changes } from "./Changes";
 import { Compare } from "./Compare";
+import { Baseline, ConfigHealth } from "./Baseline";
 import { Troubleshoot } from "./Troubleshoot";
 import { DiagnoseCabinet } from "./DiagnoseCabinet";
 import { CabinetNotes } from "../../components/CabinetNotes";
@@ -34,7 +35,7 @@ import { WritePauseBanner } from "../../lib/writes";
 import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 
 export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null;
-  serialNumber: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
+  serialNumber: string | null; manufacturer?: string | null; model?: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
   site: { id: string; name: string }; client: { id: string; name: string };
   scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
     effective: string[] | null; source: "cabinet" | "site" | "client" | "fleet" | "automatic" };
@@ -102,6 +103,7 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "alerts": return <><CabinetAlerts cabinetId={cabinet.id} /><MonitorEvents cabinetId={cabinet.id} /></>;
     case "changes": return <Changes cabinetId={cabinet.id} />;
     case "compare": return <Compare cabinet={cabinet} />;
+    case "baseline": return <Baseline cabinet={cabinet} />;
     case "troubleshoot": return <><DiagnoseCabinet cabinetId={cabinet.id} cabinetName={cabinet.name} /><Troubleshoot cabinetId={cabinet.id} cabinetName={cabinet.name} /></>;
     case "events": return <EventLogs cabinetId={cabinet.id} />;
     case "standards": return <Standards cabinet={cabinet} onChanged={reload} />;
@@ -179,6 +181,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
         ["Clock difference", cabinet.clockSkewSeconds === null ? null : `${cabinet.clockSkewSeconds} s from the server`],
       ]} />
     </section>
+    <ConfigHealth cabinet={cabinet} />
     <TrendCharts cabinetId={cabinet.id} />
     <section className="panel" aria-label="Notes on this cabinet"><CabinetNotes cabinetId={cabinet.id} /></section>
     <CaseNotes cabinetId={cabinet.id} title="Activity summary for this cabinet" />

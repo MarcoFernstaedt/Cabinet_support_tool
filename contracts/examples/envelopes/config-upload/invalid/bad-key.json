@@ -1,0 +1,16 @@
+{
+  "snapshots": [
+    {
+      "observedAt": "2026-10-12T09:10:04Z",
+      "category": "time",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "truncated": false,
+      "items": [
+        {
+          "key": "Time Zone<script>",
+          "values": {}
+        }
+      ]
+    }
+  ]
+}

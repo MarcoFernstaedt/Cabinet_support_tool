@@ -143,10 +143,10 @@ legend { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s-1
 .secret { font-size: var(--fs-lg); letter-spacing: 1px; background: var(--bg); padding: 2px var(--s-2); border-radius: var(--r-sm); border: 1px solid var(--line); }
 
 /* Shell */
-.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: var(--s-3); min-height: var(--topbar-h); padding: 0 var(--s-4);
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: var(--s-2); min-height: var(--topbar-h); padding: 0 var(--s-3);
   background: var(--bg); border-bottom: 1px solid var(--line); }
-.topbar nav { display: flex; gap: var(--s-1); align-self: stretch; }
-.topbar nav a { display: inline-flex; align-items: center; white-space: nowrap; padding: 0 var(--s-2); color: var(--text-2); font-weight: 600; border-bottom: 2px solid transparent; }
+.topbar nav { display: flex; gap: 0; align-self: stretch; }
+.topbar nav a { display: inline-flex; align-items: center; white-space: nowrap; padding: 0 5px; color: var(--text-2); font-weight: 600; border-bottom: 2px solid transparent; }
 .topbar nav a:hover { color: var(--text); text-decoration: none; }
 .topbar nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
 .topbar .user { margin-left: auto; display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-sm); white-space: nowrap; }
@@ -418,3 +418,9 @@ html { scroll-behavior: smooth; }
 .btn, .table tbody tr, input, select, textarea { transition: background-color .15s ease, border-color .15s ease; }
 /* Dark, thin scrollbars to match the theme. */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+/* Configuration baselines and drift */
+.panel.health.degraded { border-left: 3px solid var(--crit); }
+.panel.health.healthy { border-left: 3px solid var(--ok); }
+.panel.health.offline { border-left: 3px solid var(--warn); }
+ol.timeline li.near { border-left: 3px solid var(--warn); padding-left: var(--s-2); }

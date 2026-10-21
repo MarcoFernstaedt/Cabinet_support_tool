@@ -31,7 +31,7 @@ test("every item of the main menu a person has is covered, and none they do not 
 });
 
 test("a menu step points at a link the menu really has", () => {
-  const hrefs = new Set(["/", "/search", "/alerts", "/incidents", "/fleet-operations", "/issues", "/fixes", "/admin"]);
+  const hrefs = new Set(["/", "/search", "/alerts", "/incidents", "/fleet-operations", "/fleet-differences", "/issues", "/fixes", "/admin"]);
   for (const s of welcomeSteps({ role: "admin", canApproveFixes: true }, CAB).filter(s => s.target?.selector.startsWith(".topbar nav a"))) {
     const href = /href="([^"]+)"/.exec(s.target!.selector)![1]!;
     assert.ok(hrefs.has(href), `${s.id}: ${href}`);

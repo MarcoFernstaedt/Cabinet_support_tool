@@ -72,10 +72,10 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
       client: (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM clients ORDER BY name")).rows[0]!.id,
       site: (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM sites ORDER BY name")).rows[0]!.id,
     };
-    const tabs = ["overview", "troubleshoot", "alerts", "events", "services", "processes", "files", "devices", "drives", "updates", "time", "network", "firewall", "scanner", "crashes", "software", "history"];
-    const pages = ["/", `/clients/${ids.client}`, `/sites/${ids.site}`, "/alerts", "/issues", "/incidents", "/fleet-operations", "/fixes", "/account", "/demo",
+    const tabs = ["overview", "troubleshoot", "baseline", "alerts", "events", "services", "processes", "files", "devices", "drives", "updates", "time", "network", "firewall", "scanner", "crashes", "software", "history"];
+    const pages = ["/", `/clients/${ids.client}`, `/sites/${ids.site}`, "/alerts", "/issues", "/incidents", "/fleet-operations", "/fleet-differences", "/fixes", "/account", "/demo",
       "/admin", "/admin/setup", "/admin/pending", "/admin/tokens", "/admin/scanner", "/admin/audit", "/admin/software", "/admin/upgrades", "/admin/users", "/admin/online",
-      "/admin/clients", "/admin/issues", "/admin/safety", "/admin/security", "/admin/settings", ...tabs.map(t => `/cabinets/${ids.cabinet}/${t}`)];
+      "/admin/clients", "/admin/issues", "/admin/safety", "/admin/security", "/admin/settings", "/admin/baselines", ...tabs.map(t => `/cabinets/${ids.cabinet}/${t}`)];
     const faults: string[] = [];
     for (const [label, size] of [["w1440", { width: 1440, height: 900 }], ["w1280", { width: 1280, height: 800 }]] as const) {
       await page.setViewportSize(size);

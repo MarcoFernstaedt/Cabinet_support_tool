@@ -1,0 +1,32 @@
+{
+  "items": [
+    {
+      "category": "hosts",
+      "key": "host:10.21.4.20",
+      "mode": "match",
+      "expect": {
+        "names": [
+          "sync-cabinet"
+        ]
+      }
+    },
+    {
+      "category": "tasks",
+      "key": "task:\\Mashura\\Nightly check",
+      "mode": "present"
+    },
+    {
+      "category": "system",
+      "key": "hardware",
+      "mode": "match",
+      "expect": {
+        "model": "OptiPlex 7090"
+      }
+    },
+    {
+      "category": "drivers",
+      "key": "driver:oem42.inf",
+      "mode": "ignore"
+    }
+  ]
+}

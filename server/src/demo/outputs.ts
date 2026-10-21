@@ -7,6 +7,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
 import type { Scenario } from "./fleet.js";
+import { demoConfigOutput } from "./config.js";
 
 const EXAMPLES = join(dirname(SCHEMA_DIR), "examples", "operations");
 
@@ -432,6 +433,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { name: "BioScan Fingerprint Driver", version: "3.1.0.7", publisher: "BioScan Systems", installedOn: "20260215" },
         { name: "Microsoft SQL Server 2019 Express LocalDB", version: "15.0.4382.1", publisher: "Microsoft Corporation", installedOn: "20260110" }] };
     }
+    case "config.snapshot": return demoConfigOutput(ctx, params.categories);
     default:
       return example(operation);
   }
