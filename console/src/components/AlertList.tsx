@@ -38,7 +38,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [asFix, setAsFix] = useState(false);
   const [confirmFix, setConfirmFix] = useState<Alert | null>(null);
   const [mapping, setMapping] = useState<Match | null>(null);
-  const paged = usePaged(alerts);
+  const paged = usePaged(alerts, 15);
   // Which issue types have a saved fix, so only those alerts look the fix up.
   const known = useLoad<{ fixes: { status: string; symptom: { kind: string; issueTypeId?: string } }[] }>("/api/known-fixes");
   // Approved fixes apply to every cabinet in the fleet: the alert's issue type is all that has to match.
