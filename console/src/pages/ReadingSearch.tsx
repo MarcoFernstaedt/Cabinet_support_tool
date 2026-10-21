@@ -52,6 +52,7 @@ export function ReadingSearch() {
         <button className="btn primary" type="submit" disabled={busy || !q}>{busy ? "Searching…" : "Search"}</button>
       </form>
       {problem && <p className="error" role="alert">{problem}</p>}
+      {!result && !problem && <p className="muted">Choose what to look for, then search. Matching cabinets are listed here with the value each one reported.</p>}
       {result && (<section className="panel" aria-label="Search results" aria-live="polite">
         <p>
           <strong>{result.matches.length}{result.truncated ? "+" : ""}</strong> {result.matches.length === 1 ? "cabinet" : "cabinets"} found among the <strong>{result.cabinetsRead}</strong> that have been read

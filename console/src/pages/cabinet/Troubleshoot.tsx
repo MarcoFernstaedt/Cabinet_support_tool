@@ -142,7 +142,7 @@ export function Troubleshoot({ cabinetId, cabinetName }: { cabinetId: string; ca
       </table>
       <p className="small row gap wrap">{playbook.next.map(x => <Link key={x.to} to={`/cabinets/${cabinetId}/${x.to}`}>{x.label}</Link>)}</p>
       <details>
-        <summary>Case notes</summary>
+        <summary>Write-up for the ticket</summary>
         <div className="stack">
           <label className="field"><span>Actions taken</span><textarea rows={2} value={actions} onChange={e => setActions(e.target.value.slice(0, 1000))} /></label>
           <label className="field"><span>Result</span><textarea rows={2} value={result} onChange={e => setResult(e.target.value.slice(0, 1000))} /></label>

@@ -412,3 +412,12 @@ tr.highlight > * { background: color-mix(in srgb, var(--accent, #22d3ee) 12%, tr
   .narrow-notice { display: grid; place-content: center; justify-items: center; min-height: 100vh; padding: var(--s-6); text-align: center; gap: var(--s-2); }
   .narrow-notice p { font-size: var(--fs-lg); max-width: 32em; }
 }
+
+/* Gentle motion: short fades on hover and focus, a brief page fade-in and smooth scrolling. Nothing moves or flashes. */
+html { scroll-behavior: smooth; }
+.btn, .topbar nav a, .sidebar a, .table tbody tr, .badge, input, select, textarea, a { transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+.page { animation: page-in .18s ease-out; }
+@keyframes page-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .page { animation: none; } }
+/* Dark, thin scrollbars to match the theme. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }

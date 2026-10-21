@@ -371,7 +371,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByRole("button", { name: "Run", exact: true }).click();
     await page.getByRole("button", { name: "Run again" }).waitFor({ timeout: 60_000 });
     await page.getByText(/memory .* GB free of/).waitFor();
-    await page.locator("summary", { hasText: "Case notes" }).click();
+    await page.locator("summary", { hasText: "Write-up for the ticket" }).click();
     await page.getByLabel("Actions taken").fill("Closed the extra programs");
     await page.getByRole("button", { name: "Copy case notes" }).click();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/troubleshoot.png`, fullPage: true });
