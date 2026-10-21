@@ -67,3 +67,54 @@ Plug and Play, SetupAPI, DISM, SFC and device restarts are Windows-only runtime 
 - Agent monitors are compiled in, so adding a diagnostic module needs an agent release (the update channel exists).
 - `diagnose/*` findings are code, so a rule change is a server deployment. Versioned module data would avoid this.
 - Two separate notions of "fixed" exist (alert resolved, fleet operation verified). The incident record in phase 1 unifies them.
+
+---
+
+# Expansion: advanced capabilities (items 1 to 20)
+
+Audited against the repository before any change. "Status" is what exists on `sqlserver` today.
+
+## A. Capability map
+
+| # | Capability | Status today | Gap | Phase |
+|---|---|---|---|---|
+| 1 | Cross-component root cause | Findings carry certainty (confirmed, probable, possible); crash incidents compare crashed with healthy cabinets | Findings are not typed as symptom, contributing factor, suspected cause, confirmed cause; no dependency edges or timestamps joined across areas | 1, 6 |
+| 2 | Known-good baselines | Network baselines (site level) exist. **Config snapshots and baseline versions were built on the older `baseline-recovery` branch (phases 1 and 2) before the SQL Server port and are not on this branch** | Port that work, or rebuild on the SQL Server schema; extend to drivers, services, firewall, tasks, software | 5 |
+| 3 | Dependency mapping | Service list shows state and start type; watched services; protected remote-access services refuse changes | No dependency graph (services, drivers, network, Cabinet components); no downstream-impact check before a repair | 2, 4 |
+| 4 | Historical failure analysis | Error trends, reboot loops, scanner drop history, drive trends, triage queue | No per-component recurrence record or recurrence alert; no link to earlier remediation outcomes | 6 |
+| 5 | Boot and startup | Boot records, crash and unexpected-shutdown evidence, reboot-loop alert, crashes page | No startup-duration or failed-startup-service reading; no boot-configuration read; recovery events not collected | 5 |
+| 6 | Diagnostic plugins | Runbooks (data only, Admin approved) and built-in findings code | Plugin contract (detect, diagnose, privileges, remediate, verify); **printers: you said none are used, so no printer plugin is built, the framework allows adding one later** | 1, 2 |
+| 7 | Synthetic tests | Packet and path tests, port check, DNS probe, drawer check, scanner checks, watch link | Functional tests of services, HTTP or API health and application response (outbound HTTP needs the existing no-arbitrary-target rule: tests only against configured targets) | 3 |
+| 8 | Change-impact | "What changed" tab, crash incident comparisons, change events with timeline | A unified timeline joining update, driver, service, firewall, network and task changes to each failure | 5, 6 |
+| 9 | Fleet intelligence | Incident view (common driver, update, site), fleet search over stored readings, triage queue | Failure rates per driver version, update, hardware model; needs the hardware-identity reading (in progress) | 6 |
+| 10 | Predictive | Drive failure prediction with stated limits; disk-full forecast | Other signals (recurring hardware errors, crash frequency); keep the "no exact dates" rule | 6 |
+| 11 | Remote diagnostics | Catalog reads from the console with role checks, timeouts, expiry, audit; offline cabinets refuse | Cancellation of an in-flight diagnostic; structured diagnostic runs as one object | 1 |
+| 12 | Support bundles | Evidence package per cabinet (sections with SHA-256, audited export, nothing collected on demand) | Include findings and incidents; redaction pass; encryption of the export; per-class retention is already configurable | 5 |
+| 13 | Privacy | Data classification document, retention by class, redaction of case-note text from the audit log, TLS everywhere, strict role checks | **No tenant isolation: the spec has one organization and every support person sees every client** (see decision 3). **SQL Server Express has no transparent data encryption**; encryption at rest needs Standard or disk-level encryption | decision |
+| 14 | Remediation campaigns | Fleet jobs: explicit authenticator confirmation, eligibility checks, batches, 200-cabinet cap, per-cabinet verify, write pause | No canary stage, no failure-threshold auto-suspend, no rollback record | 4 |
+| 15 | Health scoring | Per-cabinet signals (alerts, drives, load); no score | Explainable score with configurable weights and reasons shown | 6 |
+| 16 | Self-diagnostics | Agent self-check after update with rollback; ops health page and counters on the server; evidence queue is bounded | Agent-side reporting of its own queue backlog, scheduler and collector failures, restart loops | 2 |
+| 17 | Tamper-evident audit | Append-only, hash-chained audit log with a verification job; writes only through a signed procedure | None needed; extend actions recorded for the new operations | all |
+| 18 | Remote recovery safeguards | Firewall and network changes use a timed safety net that reverts on lost contact; remote-access services protected; write pause | Dependency check before a disruptive repair; rule for the scanner-device restart | 4 |
+| 19 | Capability registry | The operation catalog (`contracts/schemas/operations/catalog.json`) lists operations, roles, risk and limits | A registry above it: capability (detect, diagnose, repair, verify) with versions, supported hardware, dependencies and the workflow chain. Built as data validated by a JSON Schema | 1 |
+| 20 | Engineering requirements | Schema-validated inputs, bounded queues, tests with hostile input, audit | Applies to each phase | all |
+
+## B. Conflicts and constraints in this expansion
+
+1. **Receipt printers (item 6).** The owner said printers are never used here. The registry supports a printer plugin; none is written.
+2. **Tenant isolation (items 9, 13).** The existing security model is one organization with Tier 1, Tier 2 and Admin roles that see all clients. Per-client isolation would be a large change to every query and role. A cheaper, safe first step is the Admin-controlled client filter and keeping clients' data out of each other's evidence packages. Needs your decision.
+3. **Encryption at rest (item 13).** SQL Server Express cannot use transparent data encryption. Options: encrypt the disk (a hosting setting, no cost) or buy Standard. Export bundles can be encrypted with a passphrase regardless.
+4. **No Windows Security log (security module).** Unchanged.
+5. **HTTP and API synthetic tests (item 7).** Tests only reach targets an Admin configured, never a target supplied in the request.
+6. **Predictive maintenance (item 10).** Warnings carry confidence, evidence and limits; no exact failure dates (matches the existing drive-prediction rule).
+7. **Self-repair loops (item 16).** The agent only reports its own problems; it never restarts or rewrites itself except through the existing update-and-rollback path.
+
+## C. Decisions added by this expansion
+
+- **Tenant isolation:** keep one organization (recommended for a support team that serves all clients) or add per-client access?
+- **Baselines:** port the earlier `baseline-recovery` branch work onto SQL Server, or rebuild it as part of phase 5 (recommended: port its design, rebuild its queries)?
+- **Encryption at rest:** disk-level encryption at the host (free), or SQL Server Standard?
+
+## D. Ordering
+
+The plan in section 5 stands. Items 1, 6, 11, 17 and 19 are the shared core and belong to phase 1: the capability registry, the module contract, the incident record and structured diagnostic runs. Everything else plugs into that core. Nothing is merged to `main`.
