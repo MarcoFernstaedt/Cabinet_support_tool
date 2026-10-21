@@ -44,6 +44,7 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     await page.getByLabel("Text").fill("Practice Manager");
     await page.getByRole("button", { name: "Search", exact: true }).click();
     // Every demo cabinet has its software read; the offline one is opened by name.
+    await results.getByLabel("Filter cabinets").fill("Step-down");
     await results.getByRole("link", { name: /Step-down/ }).first().click();
 
     // The offline cabinet's Windows tab shows what it last reported, without asking it.

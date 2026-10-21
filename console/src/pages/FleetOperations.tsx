@@ -9,6 +9,7 @@ import { Link, useRouter } from "../lib/router";
 import { useLoad } from "../lib/useLoad";
 import { fullTime, ago } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
+import { Pager, usePaged } from "../components/Pager";
 import { Badge, Empty, OnlineBadge, PasswordDialog } from "../components/ui";
 import { DemoTag } from "../components/DemoBanner";
 import { ZONE_NAMES } from "./cabinet/Time";
@@ -59,6 +60,9 @@ export function FleetOperations() {
   useEffect(() => writeSelection(siteId, selected), [siteId, selected]);
   const rows = list.data?.cabinets ?? [];
   const site = siteList.data?.sites.find(x => x.id === siteId);
+  const rowsPaged = usePaged(rows);
+  const previewPaged = usePaged(preview?.cabinets ?? []);
+  const jobsPaged = usePaged(jobs.data?.jobs ?? []);
   const byClient = useMemo(() => {
     const m = new Map<string, SiteOption[]>();
     for (const x of siteList.data?.sites ?? []) m.set(x.client.name, [...(m.get(x.client.name) ?? []), x]);
@@ -116,7 +120,7 @@ export function FleetOperations() {
             <caption className="sr-only">Cabinets to choose from</caption>
             <thead><tr><th scope="col"><span className="sr-only">Selected</span></th><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">Status</th>
               <th scope="col">Time zone (site's)</th><th scope="col">Clock</th><th scope="col">Alerts</th></tr></thead>
-            <tbody>{rows.map(r => (
+            <tbody>{rowsPaged.rows.map(r => (
               <tr key={r.id}>
                 <td><input type="checkbox" checked={!!selected[r.id]} onChange={() => toggle(r)} aria-label={`Select ${r.name}`} /></td>
                 <th scope="row"><Link to={`/cabinets/${r.id}`}>{r.name}</Link>{r.demo && <> <DemoTag /></>}</th>
@@ -128,6 +132,7 @@ export function FleetOperations() {
               </tr>))}
             </tbody>
           </table></div>))}
+        <Pager {...rowsPaged} label="cabinets" />
       </section>
 
       <section className="panel" aria-labelledby="change">
@@ -147,12 +152,13 @@ export function FleetOperations() {
           <div className="table-wrap"><table className="table compact">
             <caption className="sr-only">What each cabinet would get</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">What happens</th></tr></thead>
-            <tbody>{preview.cabinets.map(c => (
+            <tbody>{previewPaged.rows.map(c => (
               <tr key={c.id}><th scope="row">{c.name}</th><td>{c.ipv4 ?? "—"}</td>
                 <td>{c.skip ? <><Badge tone="off">Skipped</Badge> {c.skip}</> : preview.operation === "time.setZone"
                   ? <>Set to {zone((c.params as { timeZoneId: string }).timeZoneId)}</> : preview.operation === "time.sync" ? "Sync the clock" : "Apply its client's policy"}</td></tr>))}
             </tbody>
           </table></div>
+          <Pager {...previewPaged} label="preview cabinets" />
           <p><button className="btn primary" disabled={preview.change === 0} onClick={() => setConfirming(true)}>{opLabel[1]} on {preview.change} {preview.change === 1 ? "cabinet" : "cabinets"}</button></p>
         </>)}
         {preview && <PasswordDialog open={confirming} action="fleet.job" target={preview.jobId} onClose={() => setConfirming(false)}
@@ -164,11 +170,12 @@ export function FleetOperations() {
       <section className="panel" aria-labelledby="recent">
         <h2 id="recent">Recent fleet operations</h2>
         {jobs.data && (jobs.data.jobs.length === 0 ? <Empty>None yet.</Empty> : (
-          <ul className="plain">{jobs.data.jobs.map(j => (
+          <ul className="plain">{jobsPaged.rows.map(j => (
             <li key={j.id}><Link to={`/fleet-operations/jobs/${j.id}`}>{OPERATIONS.find(o => o[0] === j.operation)?.[1] ?? JOB_NAMES[j.operation] ?? j.operation}</Link>
               {" "}<span className="muted small">{j.total} cabinets · {j.verified} verified{j.problems > 0 && <>, {j.problems} need a look</>} · by {j.startedBy} {ago(j.startedAt)}</span>
               {" "}<Badge tone={j.state === "running" ? "info" : "off"}>{j.state}</Badge></li>))}
           </ul>))}
+        <Pager {...jobsPaged} label="fleet operations" />
       </section>
     </div>
   );
@@ -185,6 +192,7 @@ interface Job { id: string; operation: Operation; state: string; startedBy: stri
 export function FleetJob({ id }: { id: string }) {
   const { data, problem, reload } = useLoad<Job>(`/api/fleet-operations/jobs/${id}`);
   const [error, setError] = useState<string | null>(null);
+  const cabinetsPaged = usePaged(data?.cabinets ?? []);
   useEffect(() => {
     if (data?.state !== "running") return;
     const t = setInterval(reload, 1500);
@@ -209,11 +217,12 @@ export function FleetJob({ id }: { id: string }) {
         <div className="table-wrap"><table className="table compact">
           <caption className="sr-only">Each cabinet's result</caption>
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">Result</th><th scope="col">Detail</th></tr></thead>
-          <tbody>{data.cabinets.map(c => (
+          <tbody>{cabinetsPaged.rows.map(c => (
             <tr key={c.id}><th scope="row"><Link to={`/cabinets/${c.id}/${data.operation.startsWith("time") ? "time" : data.operation.startsWith("network") ? "network" : "firewall"}`}>{c.name}</Link></th>
               <td>{c.client} / {c.site}</td><td><Badge tone={STATE[c.state]?.[0] ?? "off"}>{STATE[c.state]?.[1] ?? c.state}</Badge></td><td className="small">{c.detail ?? ""}</td></tr>))}
           </tbody>
         </table></div>
+        <Pager {...cabinetsPaged} label="cabinets" />
       </>)}
     </div>
   );

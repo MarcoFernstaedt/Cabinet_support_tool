@@ -8,6 +8,7 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 import { SEVERITY_LABEL } from "../../components/MapToIssue";
 
 interface ClientAdmin { id: string; name: string; writePaused: boolean; writePauseReason: string | null; sites: { id: string; name: string; cabinets: number }[]; }
@@ -29,6 +30,7 @@ function Rename({ label, value, onSave }: { label: string; value: string; onSave
 
 export function ClientsAndSites() {
   const { data, problem, reload } = useLoad<ClientAdmin[]>("/api/admin/clients");
+  const paged = usePaged(data ?? []);
   const step = useStepUp();
   const [newClient, setNewClient] = useState("");
   const [newSite, setNewSite] = useState<Record<string, string>>({});
@@ -48,7 +50,7 @@ export function ClientsAndSites() {
         <button className="btn primary" type="submit">Create client</button>
       </form>
       {problem && <p className="error" role="alert">{problem}</p>}
-      {data && (data.length === 0 ? <Empty>No clients yet.</Empty> : data.map(c => (
+      {data && (data.length === 0 ? <Empty>No clients yet.</Empty> : paged.rows.map(c => (
         <section key={c.id} className="panel" aria-label={`Client ${c.name}`}>
           <div className="panel-head">
             <h2><Rename label="client" value={c.name} onSave={name => run("client.rename", c.id, `Rename the client ${c.name} to ${name}.`,
@@ -78,6 +80,7 @@ export function ClientsAndSites() {
             <button className="btn" type="submit">Add site</button>
           </form>
         </section>)))}
+      <Pager {...paged} label="clients" />
       {step.dialog}
     </div>
   );
@@ -91,6 +94,8 @@ const matchText = (m: Record<string, unknown>) => Object.entries(m).map(([k, v])
 export function IssueTypesAndSuppressions() {
   const issues = useLoad<IssueRow[]>("/api/issues");
   const suppressions = useLoad<RuleRow[]>("/api/admin/suppressions");
+  const issuePaged = usePaged(issues.data ?? []);
+  const suppPaged = usePaged(suppressions.data ?? []);
   const step = useStepUp();
   const [done, setDone] = useState<string | null>(null);
   const empty = { name: "", severity: "minor" as "major" | "minor", description: "" };
@@ -141,12 +146,13 @@ export function IssueTypesAndSuppressions() {
           <table className="table compact">
             <caption className="sr-only">Issue types</caption>
             <thead><tr><th scope="col">Issue</th><th scope="col">Severity</th><th scope="col">Description</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{issues.data.map(i => (
+            <tbody>{issuePaged.rows.map(i => (
               <tr key={i.id}><th scope="row">{i.name} {i.builtIn && <Badge tone="info">Built in</Badge>}</th>
                 <td><Badge tone={i.severity === "major" ? "crit" : "warn"}>{i.severity}</Badge></td><td>{i.description}</td>
                 <td><button className="btn small" onClick={() => setEditing({ id: i.id, form: { name: i.name, severity: i.severity, description: i.description } })} aria-label={`Edit ${i.name}`}>Edit</button></td></tr>))}
             </tbody>
           </table>)}
+        <Pager {...issuePaged} label="issue types" />
       </section>
 
       <section className="panel" aria-labelledby="supps">
@@ -156,7 +162,7 @@ export function IssueTypesAndSuppressions() {
           <table className="table compact">
             <caption className="sr-only">Active suppressions, soonest to expire first</caption>
             <thead><tr><th scope="col">Ignores</th><th scope="col">Reason</th><th scope="col">Expires</th><th scope="col">Matched</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{suppressions.data.map(r => {
+            <tbody>{suppPaged.rows.map(r => {
               const days = r.expiresAt ? Math.ceil((new Date(r.expiresAt).getTime() - Date.now()) / 86_400_000) : null;
               return (
                 <tr key={r.id}><th scope="row"><code>{matchText(r.match)}</code><div className="muted small">by {r.approvedBy?.name ?? r.proposedBy?.name ?? "unknown"}</div></th>
@@ -172,6 +178,7 @@ export function IssueTypesAndSuppressions() {
                 </tr>);
             })}</tbody>
           </table>))}
+        <Pager {...suppPaged} label="suppressions" />
         <form className="form" aria-label="New suppression" onSubmit={e => { e.preventDefault(); suppress(); }}>
           <h3>New suppression</h3>
           <div className="row gap wrap">

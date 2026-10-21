@@ -6,7 +6,8 @@ import { PacketPath } from "../../components/PacketPath";
 import { DrawerCheck } from "./DrawerCheck";
 import { UsbPorts } from "../../components/UsbPorts";
 import { DiagnoseNetwork } from "./Diagnose";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Pager, usePaged } from "../../components/Pager";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
   NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
@@ -14,6 +15,12 @@ import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
 import { AdapterEdit, Countdown, FirewallHistory, FirewallPolicyPanel, ProfileControl, Snapshots, useAdapterWrites, useCanWrite, useDriverUninstall, useProfileWrite, useRuleWrites, useUpdateRollback, useFlushDns } from "./Writes";
+
+/** Pages a list of rows: the children draw the table for the rows of the current page. */
+function PagedRows<T>({ rows, label, children }: { rows: readonly T[]; label: string; children: (page: T[]) => ReactNode }) {
+  const paged = usePaged(rows);
+  return (<>{children(paged.rows)}<Pager {...paged} label={label} /></>);
+}
 
 export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
   const cabinetId = cabinet.id;
@@ -36,10 +43,10 @@ export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
             <label className="field inline"><span>Filter</span><input value={filter} onChange={e => setFilter(e.target.value)} /></label>
           </div>
           {rows.length === 0 ? <Empty>{problemsOnly ? "No device reports a problem." : "No devices match."}</Empty> : (
-            <table className="table compact">
+            <PagedRows rows={rows} label="devices">{page => (<table className="table compact">
               <caption className="sr-only">Devices</caption>
               <thead><tr><th scope="col">Device</th><th scope="col">Class</th><th scope="col">Status</th><th scope="col">Driver</th></tr></thead>
-              <tbody>{rows.map(d => (
+              <tbody>{page.map(d => (
                 <tr key={d.instanceId}>
                   <th scope="row">{d.name}<div className="muted small wrap">{d.instanceId}</div></th>
                   <td>{d.class ?? "—"}</td>
@@ -47,21 +54,21 @@ export function DevicesDrivers({ cabinet }: { cabinet: CabinetDetail }) {
                   <td>{d.driver ? `${d.driver.name} ${d.driver.version ?? ""}` : "—"}</td>
                 </tr>))}
               </tbody>
-            </table>)}
+            </table>)}</PagedRows>)}
           {out.truncated && <p className="muted small">Showing the first 5,000 devices.</p>}
         </>);
       }}
     </OperationPanel>
     <OperationPanel title="Installed drivers" run={drivers} onRun={() => void drivers.start()} buttonLabel="List drivers">
       {out => (
-        <table className="table compact">
+        <PagedRows rows={out.drivers} label="drivers">{page => (<table className="table compact">
           <caption className="sr-only">Drivers</caption>
           <thead><tr><th scope="col">Published name</th><th scope="col">Original name</th><th scope="col">Class</th><th scope="col">Version</th><th scope="col">Provider</th><th scope="col">Signer</th>{uninstall.allowed && <th scope="col"><span className="sr-only">Actions</span></th>}</tr></thead>
-          <tbody>{out.drivers.map(d => (
+          <tbody>{page.map(d => (
             <tr key={d.publishedName}><th scope="row">{d.publishedName}</th><td>{d.originalName ?? "—"}</td><td>{d.className ?? "—"}</td>
               <td>{d.version ?? "—"}</td><td>{d.provider ?? "—"}</td><td>{d.signer ?? <Badge tone="warn">Unsigned</Badge>}</td>{uninstall.allowed && <td>{uninstall.button(d)}</td>}</tr>))}
           </tbody>
-        </table>)}
+        </table>)}</PagedRows>)}
     </OperationPanel>
     {uninstall.outcome}{uninstall.dialog}
   </>);
@@ -88,12 +95,12 @@ export function Updates({ cabinet }: { cabinet: CabinetDetail }) {
         })()}
         <h3>History</h3>
         {out.installed.length === 0 ? <Empty>No update history.</Empty> : (
-          <table className="table compact">
+          <PagedRows rows={out.installed} label="installed updates">{page => (<table className="table compact">
             <caption className="sr-only">Installed updates</caption>
             <thead><tr><th scope="col">Installed</th><th scope="col">Update</th><th scope="col">Result</th>{rollback.allowed && <th scope="col"><span className="sr-only">Roll back</span></th>}</tr></thead>
-            <tbody>{out.installed.map((u, i) => <tr key={i}><td>{fullTime(u.installedAt)}</td><td>{u.title}</td>
+            <tbody>{page.map((u, i) => <tr key={i}><td>{fullTime(u.installedAt)}</td><td>{u.title}</td>
               <td><Badge tone={RESULT_TONE[u.result] ?? "off"}>{u.result.replaceAll("_", " ")}</Badge>{u.errorCode ? <span className="muted small"> 0x{(u.errorCode >>> 0).toString(16)}</span> : null}</td>{rollback.allowed && <td>{u.result === "succeeded" ? rollback.button(u) : null}</td>}</tr>)}</tbody>
-          </table>)}
+          </table>)}</PagedRows>)}
       </>)}
     </OperationPanel>
     {rollback.outcome}{rollback.dialog}
@@ -234,15 +241,15 @@ export function Firewall({ cabinet }: { cabinet: CabinetDetail }) {
                 </select></label>))}
             <span className="muted small">{shown.length} of {out.rules.length} rules</span>
           </div>
-          <ul className="rules" aria-label="Firewall rules">
-            {shown.slice(0, 500).map((r, i) => (
+          <PagedRows rows={shown} label="firewall rules">{page => (<ul className="rules" aria-label="Firewall rules">
+            {page.map((r, i) => (
               <li key={i}><strong>{r.name}</strong> {r.createdByPlatform && <Badge tone="info">Platform</Badge>}{" "}
                 <Badge tone={r.enabled ? "ok" : "off"}>{r.enabled ? "Enabled" : "Disabled"}</Badge>{" "}
                 <span>{r.direction === "in" ? "Inbound" : "Outbound"} · {r.action} · {r.protocol ?? "any"}{r.localPorts ? ` · local ${r.localPorts}` : ""}{r.remotePorts ? ` · remote ${r.remotePorts}` : ""}</span>
                 {r.programPath && <div className="muted small wrap">{r.programPath}</div>}
                 {allowed && rules.actions(r)}
               </li>))}
-          </ul>
+          </ul>)}</PagedRows>
           {shown.length > 500 && <p className="muted small">Showing the first 500 matches; narrow the filter to see more.</p>}
         </>);
       }}
@@ -277,10 +284,10 @@ export function Files({ cabinetId }: { cabinetId: string }) {
           <span className="muted small">{out.path}</span>
         </div>
         {out.entries.length === 0 ? <Empty>Empty folder.</Empty> : (
-          <table className="table compact">
+          <PagedRows rows={[...out.entries].filter(e => !filter || e.name.toLowerCase().includes(filter.toLowerCase())).sort((a, b) => (a.type === b.type ? 0 : a.type === "directory" ? -1 : 1) || (sort === "size" ? (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) : sort === "modified" ? String(b.modifiedAt ?? "").localeCompare(String(a.modifiedAt ?? "")) : a.name.localeCompare(b.name)))} label="files and folders">{page => (<table className="table compact">
             <caption className="sr-only">Contents of {out.path}</caption>
             <thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified</th></tr></thead>
-            <tbody>{[...out.entries].filter(e => !filter || e.name.toLowerCase().includes(filter.toLowerCase())).sort((a, b) => (a.type === b.type ? 0 : a.type === "directory" ? -1 : 1) || (sort === "size" ? (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0) : sort === "modified" ? String(b.modifiedAt ?? "").localeCompare(String(a.modifiedAt ?? "")) : a.name.localeCompare(b.name))).map(e => (
+            <tbody>{page.map(e => (
               <tr key={e.name}>
                 <th scope="row">{e.type === "directory"
                   ? <button className="linkish" onClick={() => open((out.path.endsWith("\\") ? out.path : out.path + "\\") + e.name)}>📁 {e.name}</button>
@@ -288,7 +295,7 @@ export function Files({ cabinetId }: { cabinetId: string }) {
                 <td>{e.type === "file" ? bytes(e.sizeBytes) : "—"}</td><td>{fullTime(e.modifiedAt)}</td>
               </tr>))}
             </tbody>
-          </table>)}
+          </table>)}</PagedRows>)}
         <div className="row gap">
           <button className="btn" disabled={out.page <= 1} onClick={() => open(out.path, out.page - 1)}>Previous</button>
           <button className="btn" disabled={!out.hasMore} onClick={() => open(out.path, out.page + 1)}>Next</button>

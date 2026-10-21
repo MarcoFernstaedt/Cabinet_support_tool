@@ -4,6 +4,7 @@ import { useLoad } from "../lib/useLoad";
 import { ago, fullTime } from "../lib/time";
 import { Link } from "../lib/router";
 import { Badge } from "./ui";
+import { Pager, usePaged } from "./Pager";
 
 type Level = "ok" | "watch" | "act" | "urgent";
 const LEVEL: Record<Level, { tone: "ok" | "info" | "warn" | "crit"; label: string; advice: string }> = {
@@ -69,6 +70,7 @@ interface AtRisk { cabinetId: string; cabinet: string; site: string; client: str
 /** Drives that are a concern anywhere in the fleet. Shows nothing at all when every drive is fine. */
 export function DrivesAtRisk() {
   const { data } = useLoad<{ drives: AtRisk[] }>("/api/fleet/drives-at-risk");
+  const paged = usePaged(data?.drives ?? []);
   if (!data || data.drives.length === 0) return null;
   return (
     <section className="panel" aria-labelledby="at-risk-heading">
@@ -77,12 +79,13 @@ export function DrivesAtRisk() {
       <table className="table compact">
         <caption className="sr-only">Drives at risk</caption>
         <thead><tr><th scope="col">Cabinet</th><th scope="col">Client · site</th><th scope="col">Drive</th><th scope="col">Level</th><th scope="col">Why</th><th scope="col">Judged</th></tr></thead>
-        <tbody>{data.drives.map((d, i) => (
+        <tbody>{paged.rows.map((d, i) => (
           <tr key={`${d.cabinetId}-${i}`}>
             <th scope="row"><Link to={`/cabinets/${d.cabinetId}/drives`}>{d.cabinet}</Link></th>
             <td>{d.client} · {d.site}</td><td>{d.model ?? "—"}</td><td>{levelBadge(d.level)}</td><td>{d.reasons.join(" ")}</td><td>{ago(d.assessedAt)}</td>
           </tr>))}</tbody>
       </table>
+      <Pager {...paged} label="drives to look at" />
     </section>
   );
 }

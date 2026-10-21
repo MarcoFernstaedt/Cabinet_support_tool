@@ -61,10 +61,11 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       `SELECT TOP (1) id, password_hash, role, totp_enabled, must_change_password, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
          FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [body.username])).rows[0];
     const ok = await verifyPassword(user?.password_hash ?? null, body.password);
-    if (user?.locked) return reply.code(429).send({ error: "account_locked" });
+    // A lock is shown only to someone who knows the password: a wrong password gets the same answer for every account.
+    if (user?.locked && ok) return reply.code(429).send({ error: "account_locked" });
     if (!user || !ok) {
       noteAddressFailure(request.ip);
-      if (user) await recordFailure(user.id, "failed_logins", request.ip);
+      if (user && !user.locked) await recordFailure(user.id, "failed_logins", request.ip);
       await transaction(o.pool, c => audit(c, { actorKind: user ? "user" : "system", actorId: user?.id ?? "console", action: "auth.login", outcome: "refused",
         details: { username: body.username, source: request.ip } }));
       return reply.code(401).send({ error: "invalid_credentials" });

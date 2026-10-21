@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { Badge, KeyValues } from "./ui";
 import { fullTime } from "../lib/time";
+import { Pager, usePaged } from "./Pager";
 
 export interface AdapterReading {
   interfaceIndex: number; name: string; description: string | null; type: string; connected: boolean; linkSpeedBps: number | null; macAddress: string | null;
@@ -68,25 +69,27 @@ export function ipconfigText(cabinet: string, adapters: AdapterReading[], proxy?
 }
 
 export function RoutesTable({ routes }: { routes: RouteReading[] }) {
+  const paged = usePaged(routes);
   if (routes.length === 0) return <p className="muted small">No routes were reported.</p>;
   return (
     <div className="table-wrap"><table className="table compact">
       <caption className="sr-only">Routes</caption>
       <thead><tr><th scope="col">Destination</th><th scope="col">Via</th><th scope="col">Metric</th><th scope="col">Adapter</th></tr></thead>
-      <tbody>{routes.map((r, i) => <tr key={i}><th scope="row">{r.prefixLength === 0 && r.destination === "0.0.0.0" ? "Everything else (default)" : `${r.destination}/${r.prefixLength}`}</th><td>{r.nextHop === "0.0.0.0" ? "directly connected" : r.nextHop}</td><td>{r.metric}</td><td>{r.interfaceIndex}</td></tr>)}</tbody>
-    </table></div>
+      <tbody>{paged.rows.map((r, i) => <tr key={i}><th scope="row">{r.prefixLength === 0 && r.destination === "0.0.0.0" ? "Everything else (default)" : `${r.destination}/${r.prefixLength}`}</th><td>{r.nextHop === "0.0.0.0" ? "directly connected" : r.nextHop}</td><td>{r.metric}</td><td>{r.interfaceIndex}</td></tr>)}</tbody>
+    </table><Pager {...paged} label="routes" /></div>
   );
 }
 
 export function NeighborsTable({ neighbors }: { neighbors: NeighborReading[] }) {
+  const paged = usePaged(neighbors);
   if (neighbors.length === 0) return <p className="muted small">The ARP table was empty or not reported.</p>;
   return (
     <div className="table-wrap"><table className="table compact">
       <caption className="sr-only">ARP table</caption>
       <thead><tr><th scope="col">Address</th><th scope="col">Hardware address</th><th scope="col">State</th></tr></thead>
-      <tbody>{neighbors.map((n, i) => <tr key={i}><th scope="row">{n.address}</th><td>{n.macAddress ?? <span className="muted">none</span>}</td>
+      <tbody>{paged.rows.map((n, i) => <tr key={i}><th scope="row">{n.address}</th><td>{n.macAddress ?? <span className="muted">none</span>}</td>
         <td><Badge tone={n.state === "reachable" ? "ok" : n.state === "stale" ? "off" : "warn"}>{n.state}</Badge></td></tr>)}</tbody>
-    </table></div>
+    </table><Pager {...paged} label="ARP entries" /></div>
   );
 }
 

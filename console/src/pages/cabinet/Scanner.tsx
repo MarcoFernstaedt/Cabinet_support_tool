@@ -13,6 +13,7 @@ import { CabinetAlerts, SCANNER_ISSUE } from "./CabinetAlerts";
 import { PackageList, type LibraryPackage } from "./Software";
 import { useLoad } from "../../lib/useLoad";
 import { SCANNER_SOURCE, ScannerIdsEditor } from "../../components/DeviceSettings";
+import { Pager, usePaged } from "../../components/Pager";
 import { UsbPorts } from "../../components/UsbPorts";
 
 interface History { drops24h: number; drops7d: number; offNow: boolean; lead: string | null; firstDropAt: string | null;
@@ -108,6 +109,7 @@ function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabi
   const [chosen, setChosen] = useState<string[] | null>(null);
   const [level, setLevel] = useState<"cabinet" | "site" | "client">("client");
   const [problem, setProblem] = useState<string | null>(null);
+  const paged = usePaged(out.candidates);
   const target = { cabinet: cabinet.id, site: cabinet.site.id, client: cabinet.client.id }[level];
   const what = { cabinet: <strong>{cabinet.name}</strong>, site: <>every cabinet at <strong>{cabinet.site.name}</strong></>, client: <>every cabinet of <strong>{cabinet.client.name}</strong></> }[level];
   return (
@@ -121,7 +123,7 @@ function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabi
       <table className="table compact">
         <caption className="sr-only">Biometric and fingerprint devices</caption>
         <thead><tr><th scope="col">Device</th><th scope="col">Connected</th><th scope="col">Hardware IDs</th>{atLeast(me, "tier2") && <th scope="col"><span className="sr-only">Action</span></th>}</tr></thead>
-        <tbody>{out.candidates.map(c => (
+        <tbody>{paged.rows.map(c => (
           <tr key={c.instanceId}>
             <th scope="row">{c.name}<div className="muted small">{c.class ?? ""}</div></th>
             <td>{c.connected ? <Badge tone="ok">Connected</Badge> : <Badge tone="off">Not connected</Badge>}</td>
@@ -133,6 +135,7 @@ function Candidates({ out, cabinet, onUse }: { out: PeripheralStatusOutput; cabi
           </tr>))}
         </tbody>
       </table>
+      <Pager {...paged} label="likely scanners" />
       {problem && <p className="error" role="alert">{problem}</p>}
       <StepUpDialog open={chosen !== null} action={`${level}.scanner`} target={target} onClose={() => setChosen(null)} params={{ hardwareIds: chosen }}
         description={<p>Use <code>{chosen?.join(", ")}</code> as the fingerprint scanner for {what}. This changes which device the scanner checks look at; nothing changes on the cabinets themselves.</p>}

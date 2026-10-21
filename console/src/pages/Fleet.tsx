@@ -1,3 +1,4 @@
+import { Pager, usePaged } from "../components/Pager";
 import { DrivesAtRisk } from "../components/DriveTrends";
 import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
@@ -32,6 +33,7 @@ export function FleetHome() {
   const { me } = useSession();
   const { data, problem, reload } = useLoad<ClientRow[]>("/api/fleet/clients");
   useAlertNews(reload);
+  const paged = usePaged(data ?? []);
   return (
     <div className="page">
       <h1>Fleet</h1>
@@ -44,7 +46,7 @@ export function FleetHome() {
         <table className="table">
           <caption className="sr-only">Clients</caption>
           <thead><tr><th scope="col">Client</th><th scope="col">Sites</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
-          <tbody>{data.map(c => (
+          <tbody>{paged.rows.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/clients/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}</th>
               <td>{c.sites}</td><td>{c.cabinets}</td>
@@ -54,6 +56,7 @@ export function FleetHome() {
           </tbody>
         </table>
       )}
+      <Pager {...paged} label="clients" />
     </div>
   );
 }
@@ -66,6 +69,7 @@ export function ClientPage({ id }: { id: string }) {
   const { me } = useSession();
   const { data, problem, reload } = useLoad<ClientDetail>(`/api/fleet/clients/${id}`);
   useAlertNews(reload);
+  const sitesPaged = usePaged(data?.sites ?? []);
   const total = data?.sites.reduce((n, s) => n + s.cabinets, 0) ?? 0;
   const offline = data?.sites.reduce((n, s) => n + s.offline, 0) ?? 0;
   const alerts = data?.sites.reduce((n, s) => n + s.openMajor, 0) ?? 0;
@@ -79,12 +83,13 @@ export function ClientPage({ id }: { id: string }) {
         <table className="table">
           <caption className="sr-only">Sites of {data.name}</caption>
           <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
-          <tbody>{data.sites.map(s => (
+          <tbody>{sitesPaged.rows.map(s => (
             <tr key={s.id}><th scope="row"><Link to={`/sites/${s.id}`}>{s.name}</Link></th><td>{s.cabinets}</td>
               <td>{s.offline > 0 ? <Badge tone="warn">{s.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td>
               <td><AlertCount open={s.openAlerts} major={s.openMajor} /></td></tr>))}
           </tbody>
         </table>
+        <Pager {...sitesPaged} label="sites" />
         <section className="panel" aria-labelledby="client-scanner">
           <h2 id="client-scanner">Fingerprint scanner for {data.name}</h2>
           <ScannerIdsEditor key={data.id} label="This client's scanner IDs" current={data.scanner.hardwareIds}
@@ -117,6 +122,7 @@ export function SitePage({ id }: { id: string }) {
   const { me } = useSession();
   const { data, problem, reload } = useLoad<SiteDetail>(`/api/fleet/sites/${id}`);
   useAlertNews(reload);
+  const cabinetsPaged = usePaged(data?.cabinets ?? []);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, ...(data ? [{ label: data.client.name, to: `/clients/${data.client.id}` }] : []), { label: data?.name ?? "Site" }]} />
@@ -126,7 +132,7 @@ export function SitePage({ id }: { id: string }) {
         <table className="table">
           <caption className="sr-only">Cabinets at {data.name}</caption>
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Alerts</th></tr></thead>
-          <tbody>{data.cabinets.map(c => (
+          <tbody>{cabinetsPaged.rows.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
               <td>{roleLabel(c.role)}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
@@ -135,6 +141,7 @@ export function SitePage({ id }: { id: string }) {
             </tr>))}
           </tbody>
         </table>
+        <Pager {...cabinetsPaged} label="cabinets" />
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />

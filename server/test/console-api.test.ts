@@ -319,7 +319,7 @@ test("live streams that end at once, or are cut off, leave no subscriber or time
   });
   // Some clients wait for the stream to open and then drop it; others give up before the server even attaches.
   const opened = await Promise.all(Array.from({ length: 10 }, open));
-  assert.equal(stream.count, 10);
+  assert.equal(stream.count, 5, "one person holds at most 5 streams: the oldest are closed");
   for (const drop of opened) drop();
   for (let i = 0; i < 10; i++) {
     const req = request({ host: "127.0.0.1", port, path: "/api/stream", headers: { cookie } });

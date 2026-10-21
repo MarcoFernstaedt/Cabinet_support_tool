@@ -3,6 +3,7 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues } from "../../components/ui";
 import { fullTime } from "../../lib/time";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 
 interface Health {
   generatedAt: string;
@@ -21,6 +22,7 @@ const size = (b: number): string => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed
 
 export function SystemHealth() {
   const { data: h, problem } = useLoad<Health>("/api/admin/system-health");
+  const counters = usePaged(h?.counters ?? []);
   if (problem) return <div className="page"><p className="error" role="alert">{problem}</p></div>;
   if (!h) return <div className="page"><p className="muted" role="status">Loading…</p></div>;
   const d = h.database;
@@ -61,8 +63,9 @@ export function SystemHealth() {
           <table>
             <caption className="small">Last 24 hours and last 7 days. Rows starting with g_ are the highest value seen, in milliseconds.</caption>
             <thead><tr><th scope="col">What</th><th scope="col">Where</th><th scope="col">24 hours</th><th scope="col">7 days</th></tr></thead>
-            <tbody>{h.counters.map(c => <tr key={`${c.kind}|${c.code}`}><td>{c.kind}</td><td>{c.code}</td><td>{c.last24h}</td><td>{c.last7d}</td></tr>)}</tbody>
+            <tbody>{counters.rows.map(c => <tr key={`${c.kind}|${c.code}`}><td>{c.kind}</td><td>{c.code}</td><td>{c.last24h}</td><td>{c.last7d}</td></tr>)}</tbody>
           </table>)}
+        <Pager {...counters} label="counters" />
       </section>
     </div>
   );

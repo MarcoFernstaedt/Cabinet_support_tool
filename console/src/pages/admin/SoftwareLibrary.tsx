@@ -8,6 +8,7 @@ import { bytes, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 import type { LibraryPackage } from "../cabinet/Software";
 
 const STATE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
@@ -20,6 +21,7 @@ const EMPTY: Draft = { name: "", version: "", vendor: "", packageType: "driver",
 export function SoftwareLibrary() {
   const { me } = useSession();
   const { data, problem, reload } = useLoad<LibraryPackage[]>("/api/admin/packages");
+  const paged = usePaged(data ?? []);
   const [draft, setDraft] = useState<Draft>(EMPTY);
   const [file, setFile] = useState<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -80,7 +82,7 @@ export function SoftwareLibrary() {
           <table className="table compact">
             <caption className="sr-only">Every package in the library</caption>
             <thead><tr><th scope="col">Package</th><th scope="col">State</th><th scope="col">Signer and hash</th><th scope="col">People</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{data.map(p => {
+            <tbody>{paged.rows.map(p => {
               const [tone, label] = STATE[p.state] ?? ["off", p.state];
               return (
                 <tr key={p.id}>
@@ -100,6 +102,7 @@ export function SoftwareLibrary() {
                 </tr>);
             })}</tbody>
           </table>)}
+        <Pager {...paged} label="packages" />
         <StepUpDialog open={action !== null} action={action?.kind === "retire" ? "package.retire" : "package.approve"} target={action?.p.id ?? ""} onClose={() => setAction(null)}
           description={action && (action.kind === "approve"
             ? <><p>Approve <strong>{action.p.name} {action.p.version}</strong> so Tier 2 and Admins can install it on cabinets.</p>

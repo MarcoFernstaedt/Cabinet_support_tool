@@ -5,6 +5,7 @@ import { describeMatch, KIND_LABEL, type Alert, type StoredEvent } from "../../l
 import { useAlertNews } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
 import { fullTime } from "../../lib/time";
+import { Pager, usePaged } from "../../components/Pager";
 import { AlertList, matchFor } from "../../components/AlertList";
 import { MapToIssue } from "../../components/MapToIssue";
 import { Badge, Empty } from "../../components/ui";
@@ -27,7 +28,7 @@ export function CabinetAlerts({ cabinetId, issueTypeId, title = "Alerts" }: { ca
       </div>
       {active.problem && <p className="error" role="alert">{active.problem}</p>}
       {active.data && <AlertList alerts={active.data} onChanged={reload} showCabinet={false} empty="No open alerts." />}
-      {resolved && done.data && (<><h3>Resolved</h3><AlertList alerts={done.data.slice(0, 50)} onChanged={reload} showCabinet={false} empty="Nothing resolved yet." /></>)}
+      {resolved && done.data && (<><h3>Resolved</h3><AlertList alerts={done.data} onChanged={reload} showCabinet={false} empty="Nothing resolved yet." /></>)}
     </section>
   );
 }
@@ -39,6 +40,7 @@ export function MonitorEvents({ cabinetId }: { cabinetId: string }) {
   const [mapping, setMapping] = useState<StoredEvent | null>(null);
   useAlertNews(n => { if (n.cabinet.id === cabinetId) reload(); });
   const events = (data ?? []).filter((e): e is StoredEvent => e !== null);
+  const paged = usePaged(events);
   return (
     <section className="panel" aria-labelledby="monitor-heading">
       <h2 id="monitor-heading">Reported by the cabinet</h2>
@@ -48,7 +50,7 @@ export function MonitorEvents({ cabinetId }: { cabinetId: string }) {
         <table className="table compact">
           <caption className="sr-only">Events reported by the cabinet</caption>
           <thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">Detail</th><th scope="col">Maps to</th></tr></thead>
-          <tbody>{events.map(e => (
+          <tbody>{paged.rows.map(e => (
             <tr key={e.eventId}>
               <td>{fullTime(e.occurredAt)}</td>
               <td>{KIND_LABEL[e.kind] ?? e.kind}{e.source && <div className="muted small">{e.source.source} · {e.source.eventId} · {e.source.log}</div>}
@@ -59,6 +61,7 @@ export function MonitorEvents({ cabinetId }: { cabinetId: string }) {
             </tr>))}
           </tbody>
         </table>)}
+      <Pager {...paged} label="reported events" />
       <MapToIssue open={mapping !== null} initial={mapping ? matchFor(mapping) : {}} onClose={() => { setMapping(null); reload(); }} />
       {mapping && <span className="sr-only">{describeMatch(matchFor(mapping))}</span>}
     </section>

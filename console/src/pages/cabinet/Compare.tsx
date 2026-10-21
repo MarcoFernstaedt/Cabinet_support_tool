@@ -1,6 +1,7 @@
 // Compare this cabinet with another at the same site: network, firewall, services, drivers and updates. The fastest way to find what is
 // different about the one that fails.
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Pager, usePaged } from "../../components/Pager";
 import { useRunner } from "../../lib/commands";
 import { compareReadings, MAX_DIFFERENCES, type Difference, type Reading } from "../../lib/compare";
 import { Badge, Empty } from "../../components/ui";
@@ -31,7 +32,11 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
       setDiffs(compareReadings(a.r, b.r));
     } finally { setBusy(false); }
   };
-  const areas = diffs ? [...new Set(diffs.map(d => d.area))] : [];
+  const flat = useMemo(() => {
+    const list = diffs ?? [];
+    return [...new Set(list.map(d => d.area))].flatMap(area => list.filter(d => d.area === area).map((d, i) => ({ area, d, first: i === 0 })));
+  }, [diffs]);
+  const paged = usePaged(flat);
   return (
     <section className="panel" aria-labelledby="compare-heading">
       <div className="panel-head">
@@ -54,9 +59,10 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
         <table className="table compact">
           <caption className="sr-only">Differences between {cabinet.name} and {otherName}</caption>
           <thead><tr><th scope="col">Area</th><th scope="col">What</th><th scope="col">{cabinet.name}</th><th scope="col">{otherName}</th></tr></thead>
-          <tbody>{areas.flatMap(area => diffs.filter(d => d.area === area).map((d, i) => (
-            <tr key={`${area}-${d.what}-${i}`}><th scope="row">{i === 0 ? area : ""}</th><td>{d.what}</td><td>{d.a}</td><td>{d.b}</td></tr>)))}</tbody>
+          <tbody>{paged.rows.map(({ area, d, first }, i) => (
+            <tr key={`${area}-${d.what}-${paged.page}-${i}`}><th scope="row">{first || i === 0 ? area : ""}</th><td>{d.what}</td><td>{d.a}</td><td>{d.b}</td></tr>))}</tbody>
         </table>))}
+      {diffs && diffs.length > 0 && <Pager {...paged} label="differences" />}
     </section>
   );
 }

@@ -9,6 +9,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { fullTime } from "../../lib/time";
 import { Badge, Empty, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 import { RunbookAdmin } from "../../components/RunbookAdmin";
 
 interface Rule {
@@ -27,6 +28,8 @@ export function IssuesPage() {
   const [state, setState] = useState<string>("proposed");
   const rules = useLoad<Rule[]>(`/api/rules?state=${state}`);
   const reload = () => { issues.reload(); rules.reload(); };
+  const issuesPaged = usePaged(issues.data ?? []);
+  const rulesPaged = usePaged(rules.data ?? []);
   return (
     <div className="page">
       <h1>Issues</h1>
@@ -35,7 +38,7 @@ export function IssuesPage() {
         <table className="table">
           <caption className="sr-only">Issue types</caption>
           <thead><tr><th scope="col">Issue</th><th scope="col">Severity</th><th scope="col">Open alerts</th><th scope="col">Live rules</th></tr></thead>
-          <tbody>{issues.data.map(i => (
+          <tbody>{issuesPaged.rows.map(i => (
             <tr key={i.id}>
               <th scope="row">{i.name}<div className="muted small">{i.description}</div></th>
               <td><Badge tone={i.severity === "major" ? "crit" : "info"}>{i.severity === "major" ? "Major" : "Minor"}</Badge></td>
@@ -44,6 +47,7 @@ export function IssuesPage() {
             </tr>))}
           </tbody>
         </table>)}
+      <Pager {...issuesPaged} label="issue types" />
       <section className="panel" aria-labelledby="rules-heading">
         <h2 id="rules-heading">Symptom rules</h2>
         <div className="subtabs" role="group" aria-label="Rule states">
@@ -51,7 +55,8 @@ export function IssuesPage() {
         </div>
         {rules.problem && <p className="error" role="alert">{rules.problem}</p>}
         {rules.data && rules.data.length === 0 && <Empty>{state === "proposed" ? "No rules are waiting for approval." : "No rules here."}</Empty>}
-        {rules.data && rules.data.length > 0 && <ul className="alert-list">{rules.data.map(r => <RuleRow key={r.id} rule={r} admin={atLeast(me, "admin")} onChanged={reload} />)}</ul>}
+        {rules.data && rules.data.length > 0 && <ul className="alert-list">{rulesPaged.rows.map(r => <RuleRow key={r.id} rule={r} admin={atLeast(me, "admin")} onChanged={reload} />)}</ul>}
+        <Pager {...rulesPaged} label="symptom rules" />
       </section>
       <RunbookAdmin />
     </div>

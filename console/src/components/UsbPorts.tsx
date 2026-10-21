@@ -5,6 +5,7 @@ import type { UsbPortsOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../lib/commands";
 import { analyseUsb, groupByClass, type UsbDevice, type UsbRow } from "../lib/usb";
 import { Badge, OperationPanel } from "./ui";
+import { Pager, usePaged } from "./Pager";
 
 export function UsbPorts({ cabinetId, scannerIds = [], scannerName = null }: { cabinetId: string; scannerIds?: string[]; scannerName?: string | null }) {
   const op = useOperation<UsbPortsOutput>(cabinetId, "usb.ports");
@@ -26,7 +27,9 @@ export function UsbPorts({ cabinetId, scannerIds = [], scannerName = null }: { c
   );
 }
 
-function PortTable({ rows, label }: { rows: UsbRow[]; label: string }) {
+function PortTable({ rows: all, label }: { rows: UsbRow[]; label: string }) {
+  const paged = usePaged(all);
+  const rows = paged.rows;
   return (
     <div className="table-wrap"><table className="table compact">
       <caption className="sr-only">{label}</caption>
@@ -38,6 +41,6 @@ function PortTable({ rows, label }: { rows: UsbRow[]; label: string }) {
           <td><Badge tone={r.tone === "crit" ? "crit" : r.tone === "warn" ? "warn" : r.tone === "ok" ? "ok" : "off"}>{r.state === "problem" ? "Problem" : r.state === "connected" ? "Connected" : "Not connected"}</Badge></td>
           <td>{r.note ?? ""}</td>
         </tr>))}</tbody>
-    </table></div>
+    </table><Pager {...paged} label={label} /></div>
   );
 }

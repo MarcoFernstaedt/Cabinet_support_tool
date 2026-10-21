@@ -1,6 +1,7 @@
 // Runbooks on the Issues page: the runbook in force for each issue type, proposals waiting for an Admin, and a form for Tier 2 and up to propose
 // one. A step can carry a read-only check and a one-click fix chosen from the lists below; the server accepts only catalog reads and
 // click-confirmed changes whatever is sent, and nothing is live until an Admin approves with an authenticator code.
+import { Pager, usePaged } from "./Pager";
 import { useState } from "react";
 import { api, describeError } from "../lib/api";
 import { useLoad } from "../lib/useLoad";
@@ -56,6 +57,8 @@ export function RunbookAdmin() {
   const [action, setAction] = useState<{ id: string; kind: "approve" | "reject" | "retire" } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const reload = () => { overview.reload(); proposals.reload(); };
+  const issuesPaged = usePaged(overview.data?.issues ?? []);
+  const proposalsPaged = usePaged(proposals.data?.runbooks ?? []);
   const decide = async (token: string) => { await api("POST", `/api/runbooks/${action!.id}/${action!.kind}`, { stepUpToken: token }); reload(); };
   const issueName = (r: Listed) => r.target.kind === "issue" ? (r.target.issueName ?? "an issue") : `finding ${r.target.key}`;
   return (
@@ -66,7 +69,7 @@ export function RunbookAdmin() {
       {overview.data && (
         <table className="table compact"><caption className="sr-only">The runbook in force for each issue type</caption>
           <thead><tr><th scope="col">Issue</th><th scope="col">Runbook</th><th scope="col">Waiting</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-          <tbody>{overview.data.issues.map(i => (
+          <tbody>{issuesPaged.rows.map(i => (
             <tr key={i.issueTypeId}>
               <th scope="row">{i.name}</th>
               <td>{i.runbook ? <>{i.runbook.title} {i.runbook.builtIn ? <Badge tone="info">Built in</Badge> : <Badge tone="ok">Version {i.runbook.version}</Badge>} <span className="muted small">{i.runbook.steps.length} steps</span>
@@ -77,10 +80,11 @@ export function RunbookAdmin() {
                 {atLeast(me, "admin") && i.runbook?.id && <button className="btn small" onClick={() => setAction({ id: i.runbook!.id!, kind: "retire" })}>Retire</button>}
               </td>
             </tr>))}</tbody></table>)}
+      <Pager {...issuesPaged} label="issue runbooks" />
       {atLeast(me, "tier2") && proposals.data && (<>
         <h3>Waiting for approval</h3>
         {proposals.data.runbooks.length === 0 ? <Empty>No runbooks are waiting.</Empty> : (
-          <ul className="alert-list">{proposals.data.runbooks.map(r => (
+          <ul className="alert-list">{proposalsPaged.rows.map(r => (
             <li key={r.id} className="alert-row minor"><div>
               <div className="row gap wrap"><Badge tone="warn">Waiting</Badge><span className="title">{r.title}</span><span className="muted small">for {issueName(r)} · version {r.version} · {r.proposedBy}, {fullTime(r.proposedAt)}</span></div>
               <Steps steps={r.steps} />
@@ -89,6 +93,7 @@ export function RunbookAdmin() {
               {atLeast(me, "admin") && <div className="actions"><button className="btn small primary" onClick={() => setAction({ id: r.id, kind: "approve" })}>Approve</button>
                 <button className="btn small danger" onClick={() => setAction({ id: r.id, kind: "reject" })}>Reject</button></div>}
             </li>))}</ul>)}
+        <Pager {...proposalsPaged} label="proposed runbooks" />
         <Propose issues={overview.data?.issues ?? []} onProposed={reload} onProblem={setProblem} />
       </>)}
       <StepUpDialog open={action !== null} action={`runbook.${action?.kind ?? "approve"}`} target={action?.id ?? ""} onClose={() => setAction(null)} onToken={decide}

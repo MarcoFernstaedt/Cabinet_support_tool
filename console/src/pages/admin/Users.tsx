@@ -9,6 +9,7 @@ import { ago, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
+import { Pager, usePaged } from "../../components/Pager";
 import { useLoad } from "../../lib/useLoad";
 import { AuditTable, type AuditRow } from "./Audit";
 
@@ -93,6 +94,7 @@ export function Users() {
   const { me } = useSession();
   const [showDeleted, setShowDeleted] = useState(false);
   const { data, problem, reload } = useLoad<UserRow[]>(`/api/admin/users${showDeleted ? "?deleted=true" : ""}`);
+  const paged = usePaged(data ?? []);
   const step = useStepUp();
   const [shown, setShown] = useState<{ who: string; password: string } | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -112,8 +114,9 @@ export function Users() {
         <table className="table">
           <caption className="sr-only">Accounts</caption>
           <thead><tr><th scope="col">Person</th><th scope="col">Username</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Changes per hour</th><th scope="col">Last sign-in</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-          <tbody>{data.map(u => <UserLine key={u.id} u={u} self={u.id === me.id} ask={step.ask} after={after} onPassword={(password) => setShown({ who: u.username, password })} />)}</tbody>
+          <tbody>{paged.rows.map(u => <UserLine key={u.id} u={u} self={u.id === me.id} ask={step.ask} after={after} onPassword={(password) => setShown({ who: u.username, password })} />)}</tbody>
         </table>))}
+      <Pager {...paged} label="accounts" />
       {step.dialog}
     </div>
   );
@@ -189,6 +192,8 @@ export function UserActivity({ id }: { id: string }) {
   const [range, setRange] = useState({ from: "", to: "" });
   const [query, setQuery] = useState("");
   const { data, problem } = useLoad<Activity>(`/api/admin/users/${id}/activity${query}`);
+  const viewed = usePaged(data?.cabinetsViewed ?? []);
+  const did = usePaged(data?.actions ?? []);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Users", to: "/admin/users" }, { label: data?.user.name ?? "Activity" }]} />
@@ -207,12 +212,14 @@ export function UserActivity({ id }: { id: string }) {
             <table className="table compact">
               <caption className="sr-only">Cabinets opened, most recent first</caption>
               <thead><tr><th scope="col">Cabinet</th><th scope="col">Times opened</th><th scope="col">Last opened</th></tr></thead>
-              <tbody>{data.cabinetsViewed.map(k => <tr key={k.id}><th scope="row"><Link to={`/cabinets/${k.id}`}>{k.name}</Link></th><td>{k.views}</td><td>{fullTime(k.lastViewedAt)}</td></tr>)}</tbody>
+              <tbody>{viewed.rows.map(k => <tr key={k.id}><th scope="row"><Link to={`/cabinets/${k.id}`}>{k.name}</Link></th><td>{k.views}</td><td>{fullTime(k.lastViewedAt)}</td></tr>)}</tbody>
             </table>)}
+          <Pager {...viewed} label="cabinets opened" />
         </section>
         <section className="panel" aria-labelledby="did">
           <h2 id="did">Everything they did</h2>
-          <AuditTable rows={data.actions} />
+          <AuditTable rows={did.rows} />
+          <Pager {...did} label="actions" />
         </section>
       </>}
     </div>

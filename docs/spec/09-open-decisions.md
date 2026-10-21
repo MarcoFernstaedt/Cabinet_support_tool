@@ -579,3 +579,9 @@ Decided while building it, for the owner to confirm:
 - **Diagnose this cabinet refuses an offline cabinet** instead of waiting for the reads to expire. The network diagnosis alone still waits.
 - **Open question:** should the triage queue also include the latest cabinet diagnoses' findings (for example "wrong gateway on 5 cabinets") as groups? Today its groups are alerts by issue type and unrecognized errors; the batch network diagnosis already groups fixes by cause.
 - **Open question:** the connection profile read, per-server DNS resolution and a per-hop traceroute are agent operations still to be written (Windows code, not testable on the Linux build machine).
+
+## Windows coverage (October 2026)
+
+- **Open question:** `docs/platform/windows-coverage-review.md` lists what the platform cannot yet read for common POS faults: printers and the print spooler, hardware identity (model, BIOS, TPM, Secure Boot), domain and group-policy state, COM ports and displays, the hosts file. Each is a new read-only catalog operation with a schema; which should be built first? Recommended: printers, hardware identity, domain state.
+
+- **Scanner IDs need no authenticator code (kept, reviewed).** A review pointed out that setting the fingerprint scanner IDs at fleet, client, site or cabinet level takes an optional step-up token. This is deliberate: it changes only which device the scanner checks look at, nothing on a cabinet; it is role-limited (Admin for the fleet, Tier 2 below) and audited. A token that is supplied is still verified. Say if the fleet-wide setting should require a code.

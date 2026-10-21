@@ -91,6 +91,8 @@ test("step-up tokens: bound to action, target and parameters; used once, even by
   const hash = "a".repeat(64);
   const bound = await token(u, "x.y", "t", hash);
   await assert.rejects(transaction(db.app, c => consumeStepUpToken(c, bound, u, "x.y", "t", { other: 1 })), Refused);
+  await assert.rejects(transaction(db.app, c => consumeStepUpToken(c, bound, u, "x.y", "t")), Refused, "a token confirmed for parameters cannot be used with the hash suffix dropped");
+  await assert.rejects(transaction(db.app, c => consumeStepUpToken(c, bound, u, "x.y", "t", undefined)), Refused);
   await asOwner(db, k => k.query("UPDATE step_up_tokens SET expires_at = DATEADD(second, -1, SYSUTCDATETIME())"));
   await assert.rejects(transaction(db.app, c => consumeStepUpToken(c, bound, u, "x.y", "t")), Refused, "expired");
   await assert.rejects(transaction(db.app, c => consumeStepUpToken(c, "' OR 1=1 --", u, "x.y", "t")), Refused);
@@ -348,11 +350,12 @@ test("watched services and device settings: levels, inheritance, JSON read back 
   await refused(setWatched(db.app, boss, "site", randomUUID(), ["a"]), "not_found");
   // scanner and sync ports
   assert.equal((await scannerLevels(db.app, w.cab)).source, "automatic");
-  await setScanner(db.app, boss, "client", w.client, ["USB\\VID_1"]);
+  await setScanner(db.app, boss, "client", w.client, ["USB\\VID_1"], await token(boss, "client.scanner", w.client));
   assert.deepEqual(await scannerLevels(db.app, w.cab), { cabinet: null, site: null, client: ["USB\\VID_1"], fleet: null, effective: ["USB\\VID_1"], source: "client" });
-  await setScanner(db.app, boss, "site", w.site, ["USB\\VID_2"]);
+  await setScanner(db.app, boss, "site", w.site, ["USB\\VID_2"], await token(boss, "site.scanner", w.site));
   assert.equal((await scannerLevels(db.app, w.cab)).source, "site");
-  await refused(setScanner(db.app, boss, "site", randomUUID(), null), "not_found");
+  const gone = randomUUID();
+  await refused(setScanner(db.app, boss, "site", gone, null, await token(boss, "site.scanner", gone)), "not_found");
   assert.deepEqual(await syncForSite(db.app, w.site), { address: null, site: null, client: null, fleet: null, effective: [], source: "none" });
   await setFleetSyncPorts(db.app, boss, [1433, 1434], await token(boss, "settings.sync", "fleet"));
   await setClientSyncPorts(db.app, boss, w.client, [], await token(boss, "client.sync", w.client));

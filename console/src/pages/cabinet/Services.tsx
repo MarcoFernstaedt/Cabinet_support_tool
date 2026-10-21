@@ -10,6 +10,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { useLoad } from "../../lib/useLoad";
 import { ago } from "../../lib/time";
 import { PerformanceStrip } from "../../components/PerformanceStrip";
+import { Pager, usePaged } from "../../components/Pager";
 import { Badge, ConfirmDialog, Empty, OperationPanel, WriteOutcome } from "../../components/ui";
 import { useCanWrite, useConfirmedWrite } from "./Writes";
 import type { CabinetDetail } from "./CabinetPage";
@@ -29,6 +30,12 @@ export const WATCH: Record<string, { label: string; tone: "ok" | "warn" | "crit"
   missing: { label: "Not on this cabinet", tone: "warn" }, disabled: { label: "Disabled", tone: "warn" }, refused: { label: "Never touched by the agent", tone: "off" },
   waiting: { label: "Not checked yet", tone: "off" },
 };
+/** Pages a list of rows: the children draw the table for the rows of the current page. */
+function PagedRows<T>({ rows, label, children }: { rows: readonly T[]; label: string; children: (page: T[]) => ReactNode }) {
+  const paged = usePaged(rows);
+  return (<>{children(paged.rows)}<Pager {...paged} label={label} /></>);
+}
+
 const SOURCE: Record<string, string> = { cabinet: "this cabinet's own list", site: "the site's list", client: "the client's list", fleet: "the fleet default", none: "no list anywhere" };
 
 /** The services the cabinet keeps running, where the list comes from, and each one's status. */
@@ -99,10 +106,10 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
               <option value="any">All</option><option value="running">Running</option><option value="stopped">Stopped</option><option value="watched">Watched</option></select></label>
             <span className="muted small">{shown.length} of {out.services.length} services</span>
           </div>
-          <table className="table">
+          <PagedRows rows={shown} label="services">{page => (<table className="table">
             <caption className="sr-only">Services on {cabinet.name}</caption>
             <thead><tr><th scope="col">Service</th><th scope="col">State</th><th scope="col">Start</th><th scope="col">Runs as</th><th scope="col">Program</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{shown.map(s => (
+            <tbody>{page.map(s => (
               <tr key={s.name}>
                 <th scope="row">{s.displayName}<div className="muted small"><code>{s.name}</code>{s.processId ? ` · PID ${s.processId}` : ""}{isWatched(s.name) && <> · <Badge tone="info">Watched</Badge></>}</div></th>
                 <td><Badge tone={STATE[s.state]!.tone}>{STATE[s.state]!.label}</Badge></td>
@@ -132,7 +139,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                 </div></td>
               </tr>))}
             </tbody>
-          </table>
+          </table>)}</PagedRows>
           {shown.length === 0 && <Empty>No service matches.</Empty>}
         </>);
       }}
@@ -191,10 +198,10 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
             <label className="field inline"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} /><span>Live</span></label>
             <span className="muted small">{shown.length} of {out.processes.length}{out.truncated ? " (first 2,000)" : ""}</span>
           </div>
-          <table className="table compact">
+          <PagedRows rows={shown} label="processes">{page => (<table className="table compact">
             <caption className="sr-only">Running processes</caption>
             <thead><tr><th scope="col">Process</th><th scope="col">PID</th><th scope="col">CPU</th><th scope="col">Memory</th><th scope="col">Threads</th><th scope="col">Handles</th><th scope="col">Account</th><th scope="col">Started</th>{canEnd && <th scope="col"><span className="sr-only">End</span></th>}</tr></thead>
-            <tbody>{shown.slice(0, 500).map(p => (
+            <tbody>{page.map(p => (
               <tr key={p.processId}>
                 <th scope="row">{p.name}{p.executablePath && <div className="muted small wrap">{p.executablePath}</div>}</th>
                 <td>{p.processId}</td><td>{p.cpuPercent.toFixed(1)}%</td><td>{megabytes(p.workingSetBytes)}</td><td>{p.threads}</td><td>{p.handles}</td>
@@ -203,7 +210,7 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
                   <><p>End <strong>{p.name}</strong> (process {p.processId}).</p><p className="muted small">Anything it has not saved is lost. The cabinet ends it only if the ID and the name still match.</p></>)}>End</button>}</td>}
               </tr>))}
             </tbody>
-          </table>
+          </table>)}</PagedRows>
         </>);
       }}
     </OperationPanel>

@@ -1,6 +1,7 @@
 // One list of alerts, used by the Alerts area, the cabinet view and the scanner section.
 // Clicking an unclaimed major alert claims it and opens its cabinet; if someone else got
 // there first, the list says who (docs/spec/06-console-spec.md "Alerts area").
+import { Pager, usePaged } from "./Pager";
 import { symptomForAlert } from "../lib/symptoms";
 import { useLoad } from "../lib/useLoad";
 import { KnownFixes, SaveFix } from "./KnownFixes";
@@ -37,7 +38,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   const [asFix, setAsFix] = useState(false);
   const [confirmFix, setConfirmFix] = useState<Alert | null>(null);
   const [mapping, setMapping] = useState<Match | null>(null);
-  const [shown, setShown] = useState(50);
+  const paged = usePaged(alerts);
   // Which issue types have a saved fix, so only those alerts look the fix up.
   const known = useLoad<{ fixes: { status: string; symptom: { kind: string; issueTypeId?: string } }[] }>("/api/known-fixes");
   // Approved fixes apply to every cabinet in the fleet: the alert's issue type is all that has to match.
@@ -72,7 +73,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
   if (alerts.length === 0) return <Empty>{empty}</Empty>;
   return (<>
     <ul className="alert-list">
-      {alerts.slice(0, shown).map(a => {
+      {paged.rows.map(a => {
         const mine = a.claimedBy?.id === me.id;
         return (
           <li key={a.id} data-cabinet={a.cabinet.name} className={`alert-row ${a.severity} ${a.state}`}>
@@ -114,7 +115,7 @@ export function AlertList({ alerts, onChanged, showCabinet = true, empty }: { al
           </li>);
       })}
     </ul>
-    {alerts.length > shown && <p className="row gap"><button className="btn" onClick={() => setShown(n => n + 50)}>Show {Math.min(50, alerts.length - shown)} more</button><span className="muted small" role="status">Showing {shown} of {alerts.length}</span></p>}
+    <Pager {...paged} label="alerts" />
     <ConfirmDialog open={confirmFix !== null} title="Save this as a fix too?" confirmLabel="Resolve and save the fix" onClose={() => setConfirmFix(null)} onConfirm={() => resolve(confirmFix!, true)}
       description={<p>“{resolution.trim()}” is written into the alert's resolution and kept as a possible fix for every cabinet. It needs no approval because you can approve fixes; it is logged under your name.</p>} />
     <MapToIssue open={mapping !== null} initial={mapping ?? {}} onClose={() => { setMapping(null); onChanged(); }} />

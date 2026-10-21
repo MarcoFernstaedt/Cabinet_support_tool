@@ -8,6 +8,7 @@ import { ago } from "../../lib/time";
 import { AlertList } from "../../components/AlertList";
 import { Badge, Empty } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 
 type View = "alerts" | "unrecognized" | "offline";
 interface Filters { state: string; issueTypeId: string; claimedBy: string; clientId: string; siteId: string }
@@ -76,6 +77,7 @@ interface OfflineLevel { level: "clients" | "sites" | "cabinets"; thresholdDays:
 function Offline({ clientId, siteId }: { clientId: string | null; siteId: string | null }) {
   const path = siteId ? `/api/alerts/offline?siteId=${encodeURIComponent(siteId)}` : clientId ? `/api/alerts/offline?clientId=${encodeURIComponent(clientId)}` : "/api/alerts/offline";
   const { data, problem } = useLoad<OfflineLevel>(path);
+  const paged = usePaged(data?.items ?? []);
   return (<>
     <p className="muted">A cabinet is offline after 5 minutes without a heartbeat. Past {data?.thresholdDays ?? 5} days it also becomes an alert, which resolves itself when the cabinet returns.</p>
     {(clientId || siteId) && <p><Link to="/alerts?view=offline">All clients</Link></p>}
@@ -86,7 +88,7 @@ function Offline({ clientId, siteId }: { clientId: string | null; siteId: string
         <caption className="sr-only">Offline {data.level}</caption>
         <thead><tr><th scope="col">{data.level === "clients" ? "Client" : data.level === "sites" ? "Site" : "Cabinet"}</th>
           <th scope="col">{data.level === "cabinets" ? "Last heard from" : "Offline"}</th>{data.level === "cabinets" && <th scope="col">Alert</th>}</tr></thead>
-        <tbody>{data.items.map(i => (
+        <tbody>{paged.rows.map(i => (
           <tr key={i.id}>
             <th scope="row">{data.level === "clients" ? <Link to={`/alerts?view=offline&clientId=${i.id}`}>{i.name}</Link>
               : data.level === "sites" ? <Link to={`/alerts?view=offline&siteId=${i.id}`}>{i.name}</Link> : <Link to={`/cabinets/${i.id}`}>{i.name}</Link>}</th>
@@ -95,5 +97,6 @@ function Offline({ clientId, siteId }: { clientId: string | null; siteId: string
           </tr>))}
         </tbody>
       </table>)}
+    <Pager {...paged} label={`offline ${data?.level ?? "items"}`} />
   </>);
 }

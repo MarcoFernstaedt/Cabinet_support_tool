@@ -1,7 +1,8 @@
 // Crash investigation (docs/spec/13-roadmap.md phase 2): on a cabinet, its blue screens, unexpected restarts and what changed
 // in the 72 hours before the first; on the Incidents page, a fleet crash incident with the cabinets that crashed compared
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { Pager, usePaged } from "../components/Pager";
 import { Link } from "../lib/router";
 import { fullTime, ago } from "../lib/time";
 import { useLoad } from "../lib/useLoad";
@@ -28,7 +29,6 @@ const CATEGORY: Record<string, { label: string; tone: "crit" | "warn" | "info" |
 const Cat = ({ c }: { c: string }) => { const x = CATEGORY[c] ?? { label: c, tone: "off" as const }; return <Badge tone={x.tone}>{x.label}</Badge>; };
 const CORRELATION = "Things that happened before a crash are evidence to check first, not proof of the cause.";
 
-const AFFECTED_SHOWN = 25;
 export function StopCodeLine({ s }: { s: StopCode }) {
   return <><code>{s.text}</code>{s.name && <> <strong>{s.name}</strong></>}{s.hint && <span className="muted small"> — {s.hint}</span>}</>;
 }
@@ -36,6 +36,7 @@ export function StopCodeLine({ s }: { s: StopCode }) {
 function TimelineTable({ items, label }: { items: TimelineItem[]; label: string }) {
   const [only, setOnly] = useState<"all" | "important">("important");
   const shown = only === "all" ? items : items.filter(i => !["boot", "shutdown", "update_started", "error"].includes(i.category));
+  const paged = usePaged(shown);
   return (<>
     <div className="row gap wrap filters">
       <label className="field inline"><span>Show</span><select value={only} onChange={e => setOnly(e.target.value as typeof only)}>
@@ -46,7 +47,7 @@ function TimelineTable({ items, label }: { items: TimelineItem[]; label: string 
       <table className="table compact">
         <caption className="sr-only">{label}</caption>
         <thead><tr><th scope="col">When</th><th scope="col">What</th><th scope="col">Details</th></tr></thead>
-        <tbody>{shown.map((i, n) => (
+        <tbody>{paged.rows.map((i, n) => (
           <tr key={n} className={i.category === "crash" ? "row-crit" : undefined}>
             <td className="small nowrap">{fullTime(i.at)}</td>
             <td><Cat c={i.category} /> {i.stopCode ? <StopCodeLine s={i.stopCode} /> : i.title}</td>
@@ -54,6 +55,7 @@ function TimelineTable({ items, label }: { items: TimelineItem[]; label: string 
           </tr>))}
         </tbody>
       </table>)}
+    <Pager {...paged} label="timeline entries" />
   </>);
 }
 
@@ -128,10 +130,11 @@ function summaryText(i: Incident): string {
 export function IncidentsPage() {
   const [range, setRange] = useState("3");
   const [clientId, setClientId] = useState("");
-  const [showAll, setShowAll] = useState(false);
   const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
   const { data, problem } = useLoad<Incident>(`/api/incidents/crashes?days=${range}${clientId ? `&clientId=${clientId}` : ""}`);
   const [copied, setCopied] = useState(false);
+  const sorted = useMemo(() => [...(data?.cabinetsAffected ?? [])].sort((a, b) => Number(a.online) - Number(b.online) || a.firstAt.localeCompare(b.firstAt)), [data]);
+  const affected = usePaged(sorted);
   const maxOnset = Math.max(1, ...(data?.onset.map(o => o.cabinets) ?? [1]));
   return (
     <div className="page">
@@ -202,7 +205,7 @@ export function IncidentsPage() {
           <table className="table compact">
             <caption className="sr-only">Cabinets affected</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">Status</th><th scope="col">First crash</th><th scope="col">Stop code</th><th scope="col">Blue screens</th><th scope="col">Starts</th></tr></thead>
-            <tbody>{[...data.cabinetsAffected].sort((a, b) => Number(a.online) - Number(b.online) || a.firstAt.localeCompare(b.firstAt)).slice(0, showAll ? undefined : AFFECTED_SHOWN).map(c => (
+            <tbody>{affected.rows.map(c => (
               <tr key={c.id}>
                 <th scope="row"><Link to={`/cabinets/${c.id}/crashes`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}<div className="muted small">{c.client} / {c.site}</div></th>
                 <td>{c.rebootLoop ? <Badge tone="crit">Restarting repeatedly</Badge> : c.online ? <Badge tone="ok">Back online</Badge> : <Badge tone="crit">Down</Badge>}
@@ -213,7 +216,7 @@ export function IncidentsPage() {
               </tr>))}
             </tbody>
           </table>
-          {data.cabinetsAffected.length > AFFECTED_SHOWN && <p><button className="btn" onClick={() => setShowAll(v => !v)}>{showAll ? "Show fewer" : `Show all ${data.cabinetsAffected.length}`}</button></p>}
+          <Pager {...affected} label="cabinets" />
         </section>
       </>)}
     </div>

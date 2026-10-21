@@ -10,6 +10,7 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 
 interface Release { version: string; minimumVersion: string; sha256: string; sizeBytes: number; releasedAt: string; notes: string | null; state: string; refusal: string | null;
   keyId: string; addedBy: { id: string; name: string }; addedAt: string }
@@ -47,6 +48,8 @@ export function Upgrades() {
   const releases = useLoad<Release[]>("/api/admin/releases");
   const rollouts = useLoad<Rollout[]>("/api/admin/rollouts");
   const candidates = useLoad<Candidate[]>("/api/admin/upgrade-candidates");
+  const rolloutsPaged = usePaged(rollouts.data ?? []);
+  const releasesPaged = usePaged(releases.data ?? []);
   const step = useStepUp();
   const [done, setDone] = useState<{ ok: boolean; text: string } | null>(null);
   const after = (text: string, ok = true) => { setDone({ ok, text }); releases.reload(); rollouts.reload(); candidates.reload(); };
@@ -72,7 +75,7 @@ export function Upgrades() {
           <table className="table">
             <caption className="sr-only">Rollouts, newest first</caption>
             <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Batches</th><th scope="col">Started</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
-            <tbody>{rollouts.data.map(r => (
+            <tbody>{rolloutsPaged.rows.map(r => (
               <tr key={r.id}>
                 <th scope="row"><Link to={`/admin/upgrades/${r.id}`}>{r.version}</Link></th>
                 <td><Badge tone={ROLLOUT_TONE[r.state][0]}>{ROLLOUT_TONE[r.state][1]}</Badge>{r.state === "running" && <span className="muted"> batch {r.currentBatch}: {BATCH[r.currentBatch]}</span>}
@@ -87,6 +90,7 @@ export function Upgrades() {
               </tr>))}
             </tbody>
           </table>))}
+        <Pager {...rolloutsPaged} label="rollouts" />
       </section>
 
       <StartRollout releases={releases.data ?? []} candidates={candidates.data ?? []} blocked={active} ask={step.ask} after={after} />
@@ -99,7 +103,7 @@ export function Upgrades() {
           <table className="table compact">
             <caption className="sr-only">Releases, newest first</caption>
             <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Upgrades from</th><th scope="col">Package</th><th scope="col">Added</th></tr></thead>
-            <tbody>{releases.data.map(r => (
+            <tbody>{releasesPaged.rows.map(r => (
               <tr key={r.version}>
                 <th scope="row">{r.version}{r.notes && <div className="small muted">{r.notes}</div>}</th>
                 <td><Badge tone={(RELEASE_TONE[r.state] ?? ["off", r.state])[0]}>{(RELEASE_TONE[r.state] ?? ["off", r.state])[1]}</Badge>{r.refusal && <div className="small">{r.refusal}</div>}</td>
@@ -109,6 +113,7 @@ export function Upgrades() {
               </tr>))}
             </tbody>
           </table>))}
+        <Pager {...releasesPaged} label="releases" />
       </section>
 
       <InOffice candidates={candidates.data} problem={candidates.problem} ask={step.ask} after={after} />
@@ -192,7 +197,8 @@ function StartRollout({ releases, candidates, blocked, ask, after }: { releases:
 
 function InOffice({ candidates, problem, ask, after }: { candidates: Candidate[] | null; problem: string | null; ask: Ask; after: (t: string) => void }) {
   const [filter, setFilter] = useState("");
-  const shown = (candidates ?? []).filter(c => c.inOffice || (filter.trim() && `${c.name} ${c.client} ${c.site}`.toLowerCase().includes(filter.trim().toLowerCase()))).slice(0, 50);
+  const shown = (candidates ?? []).filter(c => c.inOffice || (filter.trim() && `${c.name} ${c.client} ${c.site}`.toLowerCase().includes(filter.trim().toLowerCase())));
+  const paged = usePaged(shown);
   const toggle = (c: Candidate) => ask("cabinet.in_office", c.id, <p>{c.inOffice ? "Remove" : "Add"} <strong>{c.name}</strong> ({c.client} / {c.site}) {c.inOffice ? "from" : "to"} the in-office cabinets (batch 2 of every rollout).</p>,
     async token => { await api("PUT", `/api/admin/cabinets/${c.id}/in-office`, { inOffice: !c.inOffice, stepUpToken: token }); after(`${c.name} is ${c.inOffice ? "no longer" : "now"} an in-office cabinet.`); },
     { inOffice: !c.inOffice });
@@ -202,11 +208,12 @@ function InOffice({ candidates, problem, ask, after }: { candidates: Candidate[]
       {problem && <p className="error" role="alert">{problem}</p>}
       <label className="field inline"><span>Find a cabinet</span><input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name, client or site" /></label>
       {shown.length === 0 ? <Empty>No in-office cabinets yet.</Empty> : (
-        <ul className="plain">{shown.map(c => (
+        <ul className="plain">{paged.rows.map(c => (
           <li key={c.id} className="row gap wrap"><Link to={`/cabinets/${c.id}`}>{c.name}</Link> <span className="muted">{c.client} / {c.site} · agent {c.agentVersion ?? "unknown"}</span>
             {c.inOffice && <Badge tone="info">In office</Badge>}
             <button className="btn small" onClick={() => toggle(c)}>{c.inOffice ? "Remove" : "Add to office"}</button></li>))}
         </ul>)}
+      <Pager {...paged} label="cabinets" />
     </section>
   );
 }
@@ -216,6 +223,7 @@ export function RolloutDetail({ id }: { id: string }) {
   const { data, problem } = useLoad<Rollout & { targets: Target[] }>(`/api/admin/rollouts/${id}`);
   const [only, setOnly] = useState("all");
   const rows = (data?.targets ?? []).filter(t => only === "all" || t.state === only);
+  const paged = usePaged(rows);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Upgrades", to: "/admin/upgrades" }, { label: data ? `Rollout of ${data.version}` : "Rollout" }]} />
@@ -230,7 +238,7 @@ export function RolloutDetail({ id }: { id: string }) {
           <table className="table compact">
             <caption className="sr-only">Cabinets in this rollout</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">Batch</th><th scope="col">Result</th><th scope="col">Versions</th><th scope="col">When</th></tr></thead>
-            <tbody>{rows.map(t => (
+            <tbody>{paged.rows.map(t => (
               <tr key={t.cabinetId}>
                 <th scope="row"><Link to={`/cabinets/${t.cabinetId}`}>{t.cabinet}</Link> <span className="muted small">{t.client} / {t.site}</span></th>
                 <td>{t.batch}: {BATCH[t.batch]}</td>
@@ -241,6 +249,7 @@ export function RolloutDetail({ id }: { id: string }) {
               </tr>))}
             </tbody>
           </table>)}
+        <Pager {...paged} label="cabinets" />
       </>}
     </div>
   );

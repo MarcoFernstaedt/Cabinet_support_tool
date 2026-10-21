@@ -7,6 +7,7 @@ import { roleName, type Role } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty } from "../../components/ui";
+import { Pager, usePaged } from "../../components/Pager";
 import { useLoad } from "../../lib/useLoad";
 import type { UserRow } from "./Users";
 
@@ -134,6 +135,7 @@ interface OnlineRow { id: string; name: string; username: string; role: Role; la
 
 export function OnlineNow() {
   const { data, problem, reload } = useLoad<OnlineRow[]>("/api/admin/online");
+  const paged = usePaged(data ?? []);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Online now" }]} />
@@ -144,7 +146,7 @@ export function OnlineNow() {
         <table className="table">
           <caption className="sr-only">People online now</caption>
           <thead><tr><th scope="col">Person</th><th scope="col">Role</th><th scope="col">Last activity</th><th scope="col">Cabinet open</th><th scope="col">From</th></tr></thead>
-          <tbody>{data.map(u => (
+          <tbody>{paged.rows.map(u => (
             <tr key={u.id}>
               <th scope="row"><Link to={`/admin/users/${u.id}`}>{u.name}</Link> <span className="muted">({u.username})</span></th>
               <td>{roleName(u.role)}</td>
@@ -154,6 +156,7 @@ export function OnlineNow() {
             </tr>))}
           </tbody>
         </table>))}
+      <Pager {...paged} label="people online" />
     </div>
   );
 }

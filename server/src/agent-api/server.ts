@@ -399,6 +399,12 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  let refusedWindow = 0, refusedCount = 0;
+  const refusedAuditSlot = (): boolean => {
+    const minute = Math.floor(Date.now() / 60_000);
+    if (minute !== refusedWindow) { refusedWindow = minute; refusedCount = 0; }
+    return ++refusedCount <= 30;
+  };
   app.post("/agent/v1/enroll", async (request, reply) => {
     const now = Date.now();
     const recent = (enrollAttempts.get(request.ip) ?? []).filter(t => now - t < 3_600_000);
@@ -413,7 +419,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const requestId = await submitEnrollment(o.pool, body, request.ip);
       return reply.code(202).send(envelopes.enrollResponse.parse({ requestId, status: "pending", serverTime: serverTime() }));
     } catch (e) {
-      if (e instanceof Refused && e.code === "enrollment_refused")
+      // The audit log is kept forever, so refused enrollments are written at most 30 a minute for the whole server.
+      if (e instanceof Refused && e.code === "enrollment_refused" && refusedAuditSlot())
         await transaction(o.pool, c => audit(c, { actorKind: "agent", actorId: body.fingerprints.hostname, action: "enrollment.submit", outcome: "refused",
           details: { hostname: body.fingerprints.hostname, source: request.ip, reason: "bootstrap token not accepted" } })).catch(() => undefined);
       throw e;

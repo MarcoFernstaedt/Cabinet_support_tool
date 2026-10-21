@@ -10,6 +10,7 @@ import { Link } from "../lib/router";
 import { ago, fullTime } from "../lib/time";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, Empty, KeyValues } from "../components/ui";
+import { Pager, usePaged } from "../components/Pager";
 import { environmentRows, symptomLabel, type KnownFix } from "../components/KnownFixes";
 
 type Fix = KnownFix & { symptom: KnownFix["symptom"] & { issueName?: string | null } };
@@ -42,6 +43,8 @@ function Queue() {
   const approved = (inUse.data?.fixes ?? []).filter(f => f.status === "approved")
     .filter(f => !find.trim() || `${f.title} ${f.solution} ${symptomLabel(f.symptom)}`.toLowerCase().includes(find.trim().toLowerCase()))
     .sort((a, b) => by === "used" ? b.seenCount - a.seenCount || b.savedAt.localeCompare(a.savedAt) : b.savedAt.localeCompare(a.savedAt));
+  const approvedPaged = usePaged(approved);
+  const decidedPaged = usePaged(queue.data?.decided ?? []);
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Known fixes" }]} />
@@ -80,20 +83,22 @@ function Queue() {
         <div className="table-wrap">{approved.length > 0 && <table className="table compact">
           <caption className="sr-only">Approved known fixes</caption>
           <thead><tr><th scope="col">Fix</th><th scope="col">For</th><th scope="col">Saved by</th><th scope="col">Approved by</th><th scope="col">Shown</th><th scope="col"></th></tr></thead>
-          <tbody>{approved.map(f => (
+          <tbody>{approvedPaged.rows.map(f => (
             <tr key={f.id}><th scope="row">{f.title}<div className="muted small">{f.solution.length > 120 ? `${f.solution.slice(0, 120)}…` : f.solution}</div></th>
               <td>{symptomLabel(f.symptom)}</td><td>{f.savedBy}</td><td>{f.reviewedBy ?? "—"}</td><td>{f.seenCount}×</td>
               <td>{atLeast(me, "tier2") && <button className="btn small ghost" onClick={() => void remove(f)}>Remove</button>}</td></tr>))}</tbody>
         </table>}</div>
+        <Pager {...approvedPaged} label="approved fixes" />
       </section>
 
       <section className="panel" aria-labelledby="fix-decided">
         <h2 id="fix-decided">Recently decided</h2>
         {queue.data && queue.data.decided.length === 0 && <Empty>Nothing has been decided yet.</Empty>}
-        <ul className="plain">{queue.data?.decided.map(f => (
+        <ul className="plain">{decidedPaged.rows.map(f => (
           <li key={f.id}><Badge tone={f.status === "approved" ? "ok" : "crit"}>{f.status === "approved" ? "Approved" : "Rejected"}</Badge> <strong>{f.title}</strong>{" "}
             <span className="muted small">by {f.savedBy}, decided by {f.reviewedBy ?? "—"} {f.reviewedAt ? ago(f.reviewedAt) : ""}{f.reviewNote ? ` · ${f.reviewNote}` : ""}</span></li>))}
         </ul>
+        <Pager {...decidedPaged} label="decided fixes" />
       </section>
       <p className="muted small">Who may approve: Admins, and any Tier 2 an Admin allows under <Link to="/admin/users">Users</Link>.</p>
     </div>

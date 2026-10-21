@@ -2,6 +2,7 @@
 // next to the errors. The first thing to ask of a cabinet that has just started failing is what changed before it did.
 import { useMemo, useState } from "react";
 import { useLoad } from "../../lib/useLoad";
+import { Pager, usePaged } from "../../components/Pager";
 import { Badge, Empty } from "../../components/ui";
 import { fullTime } from "../../lib/time";
 
@@ -17,6 +18,7 @@ export function Changes({ cabinetId }: { cabinetId: string }) {
   const { data, problem } = useLoad<{ items: Item[] }>(`/api/cabinets/${cabinetId}/timeline?days=${days}`);
   const items = useMemo(() => [...(data?.items ?? [])].filter(i => i.category !== "boot" || only === "all").sort((a, b) => b.at.localeCompare(a.at)), [data, only]);
   const shown = items.filter(i => only === "all" || (only === "changes" ? CHANGE.has(i.category) : PROBLEM.has(i.category)));
+  const paged = usePaged(shown);
   // The first problem in the window, and every change in the day before it.
   const asc = [...(data?.items ?? [])].sort((a, b) => a.at.localeCompare(b.at));
   const first = asc.find(i => PROBLEM.has(i.category));
@@ -43,13 +45,14 @@ export function Changes({ cabinetId }: { cabinetId: string }) {
         <table className="table compact">
           <caption className="sr-only">Changes and problems on this cabinet</caption>
           <thead><tr><th scope="col">When</th><th scope="col">Type</th><th scope="col">What</th><th scope="col">Detail</th></tr></thead>
-          <tbody>{shown.slice(0, 300).map((i, n) => (
+          <tbody>{paged.rows.map((i, n) => (
             <tr key={`${i.at}-${n}`} className={first && i.at === first.at && i.title === first.title ? "warn" : undefined}>
               <td>{fullTime(i.at)}</td>
               <td><Badge tone={TONE[i.category] ?? (CHANGE.has(i.category) ? "info" : "off")}>{CHANGE.has(i.category) ? "Change" : PROBLEM.has(i.category) ? "Problem" : "Event"}</Badge></td>
               <th scope="row">{i.title}</th><td className="small">{i.detail ?? ""}</td>
             </tr>))}</tbody>
         </table>)}
+      <Pager {...paged} label="changes" />
     </section>
   );
 }

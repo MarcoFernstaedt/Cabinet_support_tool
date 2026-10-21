@@ -7,6 +7,7 @@ import { Link, useRouter } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
 import { ago, fullTime } from "../lib/time";
 import { Badge, Empty } from "../components/ui";
+import { Pager, usePaged } from "../components/Pager";
 
 interface Item {
   key: string; issueTypeId: string; title: string; cause: string; severity: "major" | "minor"; cabinets: number; sites: number; clients: number; alerts: number; unclaimed: number;
@@ -59,17 +60,19 @@ export function TriagePage() {
 
 function QueueView({ filter, unrecognizedOnly }: { filter: string; unrecognizedOnly: boolean }) {
   const { data, problem } = useLoad<Triage>(`/api/triage?${filter}`);
+  const itemsPaged = usePaged(data?.items ?? []);
+  const unrecPaged = usePaged(data?.unrecognized ?? []);
   return (<>
     {problem && <p className="error" role="alert">{problem}</p>}
     {!data && !problem && <p className="muted" role="status">Loading…</p>}
     {data && !unrecognizedOnly && (<>
       <p className="small muted" role="status">{data.totals.alerts} active alerts on {data.totals.cabinets} cabinets in {data.totals.groups} groups; {data.totals.unclaimedMajor} major not yet claimed. New and rising marks are from {data.trendsAsOf ? `the night of ${data.trendsAsOf}` : "no night yet"}.</p>
       {data.items.length === 0 && <Empty>Nothing needs attention in this period.</Empty>}
-      <ol className="alert-list">{data.items.map((i, n) => (
+      <ol className="alert-list">{itemsPaged.rows.map((i, n) => (
         <li key={i.key} className={`alert-row ${i.severity}`}>
           <div>
             <div className="row gap wrap">
-              <span className="muted small">#{n + 1}</span>
+              <span className="muted small">#{itemsPaged.page * itemsPaged.size + n + 1}</span>
               <Badge tone={i.severity === "major" ? "crit" : "info"}>{i.severity === "major" ? "Major" : "Minor"}</Badge>
               {i.mark && MARK[i.mark]}
               <Link className="title" to="/alerts">{i.title}</Link>
@@ -84,6 +87,7 @@ function QueueView({ filter, unrecognizedOnly }: { filter: string; unrecognizedO
           </div>
           <div className="actions"><span className="muted small" title="The score the order comes from">score {i.score}</span></div>
         </li>))}</ol>
+      <Pager {...itemsPaged} label="triage groups" />
     </>)}
     {data && (unrecognizedOnly || data.unrecognized.length > 0) && (
       <section className="panel" aria-labelledby="unrec-heading">
@@ -92,7 +96,7 @@ function QueueView({ filter, unrecognizedOnly }: { filter: string; unrecognizedO
         {data.unrecognized.length === 0 ? <Empty>No unrecognized errors in this period.</Empty> : (
           <table className="table compact"><caption className="sr-only">Unrecognized errors, by how many cabinets reported them</caption>
             <thead><tr><th scope="col">Error</th><th scope="col">Cabinets</th><th scope="col">Last seen</th><th scope="col">Sample message</th><th scope="col"><span className="sr-only">Action</span></th></tr></thead>
-            <tbody>{data.unrecognized.map(u => (
+            <tbody>{unrecPaged.rows.map(u => (
               <tr key={u.key}>
                 <th scope="row">{u.source} <span className="muted">event {u.eventId}</span> {u.mark && MARK[u.mark]}<div className="muted small">{u.log}</div></th>
                 <td>{u.cabinets} ({u.sites} {u.sites === 1 ? "site" : "sites"})</td>
@@ -100,6 +104,7 @@ function QueueView({ filter, unrecognizedOnly }: { filter: string; unrecognizedO
                 <td className="small">{u.sample ?? <span className="muted">not kept</span>}</td>
                 <td><Link className="btn small" to={`/alerts?view=unrecognized`}>Map to issue</Link></td>
               </tr>))}</tbody></table>)}
+        <Pager {...unrecPaged} label="unrecognized errors" />
       </section>)}
   </>);
 }
@@ -110,6 +115,8 @@ function TrendsView({ filter, clientId, days }: { filter: string; clientId: stri
   const [unrec, setUnrec] = useState(false);
   const { data, problem, reload } = useLoad<Trends>(`/api/trends/errors?${filter}&mark=${mark}${unrec ? "&unrecognized=true" : ""}`);
   const [refreshNote, setRefreshNote] = useState<string | null>(null);
+  const issuesPaged = usePaged(data?.issues ?? []);
+  const errorsPaged = usePaged(data?.errors ?? []);
   const refresh = async () => {
     setRefreshNote(null);
     try { const r = await api<{ started: boolean }>("POST", "/api/trends/refresh", {}); setRefreshNote(r.started ? "Started. It takes a little while; reload this page after a minute." : "It is already running."); setTimeout(reload, 5000); }
@@ -129,18 +136,19 @@ function TrendsView({ filter, clientId, days }: { filter: string; clientId: stri
       <section className="panel" aria-labelledby="issue-trends"><h2 id="issue-trends">Issue types</h2>
         <table className="table compact"><caption className="sr-only">Issue type trends</caption>
           <thead><tr><th scope="col">Issue</th><th scope="col">Cabinets</th><th scope="col">Events</th><th scope="col">Last 7 / before</th><th scope="col">Shape</th></tr></thead>
-          <tbody>{data.issues.map(t => <tr key={t.key}><th scope="row">{t.name} {t.mark && MARK[t.mark]}</th><td>{t.cabinets}</td><td>{t.events}</td><td>{t.last7} / {t.prev7}</td><td><Spark values={t.series.events} label={`${t.name}: events per day`} /></td></tr>)}</tbody></table></section>)}
+          <tbody>{issuesPaged.rows.map(t => <tr key={t.key}><th scope="row">{t.name} {t.mark && MARK[t.mark]}</th><td>{t.cabinets}</td><td>{t.events}</td><td>{t.last7} / {t.prev7}</td><td><Spark values={t.series.events} label={`${t.name}: events per day`} /></td></tr>)}</tbody></table><Pager {...issuesPaged} label="issue types" /></section>)}
     {data && (
       <section className="panel" aria-labelledby="error-trends"><h2 id="error-trends">Errors</h2>
         {data.errors.length === 0 ? <Empty>No errors match.</Empty> : (
           <table className="table compact"><caption className="sr-only">Error trends</caption>
             <thead><tr><th scope="col">Error</th><th scope="col">Cabinets</th><th scope="col">Events</th><th scope="col">Last 7 / before</th><th scope="col">Shape</th></tr></thead>
-            <tbody>{data.errors.map(t => (
+            <tbody>{errorsPaged.rows.map(t => (
               <tr key={t.key}>
                 <th scope="row">{t.source} <span className="muted">event {t.eventId}</span> {t.mark && MARK[t.mark]}
                   <div className="muted small">{t.log} · {t.unrecognized ? "not recognized" : t.issueName}{t.sample ? ` · ${t.sample}` : ""}</div></th>
                 <td>{t.cabinets}</td><td>{t.events}</td><td>{t.last7} / {t.prev7}</td><td><Spark values={t.series.events} label={`${t.source} ${t.eventId}: events per day`} /></td>
               </tr>))}</tbody></table>)}
+        <Pager {...errorsPaged} label="errors" />
       </section>)}
   </>);
 }

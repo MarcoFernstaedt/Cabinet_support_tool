@@ -9,6 +9,8 @@ import { alertById } from "../services/alerts.js";
 
 interface Subscriber { userId: string; role: SessionUser["role"]; reply: FastifyReply; close: () => void; }
 
+const MAX_STREAMS_PER_USER = 5;
+
 export class ResultStream {
   private readonly subscribers = new Set<Subscriber>();
   private unsubscribe: Array<() => void> = [];
@@ -70,6 +72,9 @@ export class ResultStream {
         reply.raw.write(": ping\n\n");
       }, () => reply.raw.end());
     }, 25_000);
+    // At most 5 streams per person: a sixth closes their oldest (a stolen or runaway session cannot hold thousands open).
+    const mine = [...this.subscribers].filter(x => x.userId === user.userId);
+    while (mine.length >= MAX_STREAMS_PER_USER) mine.shift()!.reply.raw.end();
     const subscriber = { userId: user.userId, role: user.role, reply, close: () => { clearInterval(ping); this.subscribers.delete(subscriber); } };
     this.subscribers.add(subscriber);
     // Every way the stream can end clears its timer, including a client that left before these listeners were attached.

@@ -60,10 +60,10 @@ export function ReadingSearch() {
         </p>
         {result.cabinetsRead === 0 && <Empty>No cabinet has been read for this yet. Open a cabinet's Windows tab and run the reading, and it will be searchable.</Empty>}
         {result.cabinetsRead > 0 && (
-          <DataTable label="cabinets" rows={result.matches} empty="No cabinet that has been read matches." filterable={false} columns={[
-            { header: "Cabinet", first: true, cell: m => <Link to={`/cabinets/${m.cabinetId}/windows`}>{m.name}</Link> },
-            { header: "Client · site", cell: m => <>{m.client} · {m.site}</> },
-            { header: "Found", cell: m => <ul className="plain">{m.found.map((f, i) => <li key={i}>{f}</li>)}</ul> },
+          <DataTable label="cabinets" rows={result.matches} empty="No cabinet that has been read matches." columns={[
+            { header: "Cabinet", first: true, text: m => m.name, cell: m => <Link to={`/cabinets/${m.cabinetId}/windows`}>{m.name}</Link> },
+            { header: "Client · site", text: m => `${m.client} ${m.site}`, cell: m => <>{m.client} · {m.site}</> },
+            { header: "Found", text: m => m.found.join(" "), cell: m => <ul className="plain">{m.found.map((f, i) => <li key={i}>{f}</li>)}</ul> },
             { header: "Read", cell: m => <span title={fullTime(m.readAt)}>{ago(m.readAt)}</span> }]} />)}
       </section>)}
     </div>
