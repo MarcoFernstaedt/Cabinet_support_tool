@@ -94,7 +94,7 @@ Server process memory peaked at **1.4 GB** (the 8,000 held connections are most 
 | 1,000 | about 290 MB (measured) | 1 | about 200 MB (estimated) |
 | 8,000 | about 1.4 GB (measured) | 2 | about 1.5 GB (estimated) |
 
-A **2 vCPU, 4 GB** virtual machine running the application and PostgreSQL together carries 8,000 cabinets as measured above, with room left over; 1,000 cabinets fit in 2 GB. Memory grows with the cabinets because each holds a connection open. PostgreSQL settings for such a machine: `shared_buffers` 1 GB, `effective_cache_size` 2 GB, `max_connections` 50 (the application keeps a small pool), and autovacuum left on, because load samples are deleted by the nightly retention job.
+The first measurements (above) were taken against PostgreSQL. For the current SQL Server design, plan a **4 vCPU, 8 GB** machine for 8,000 to 10,000 cabinets (see [cost.md](cost.md) and the 10,000-cabinet sections below); 1,000 cabinets fit in 2 vCPU and 4 GB. Memory grows with the cabinets because each holds a connection open. SQL Server Express is capped at 1.4 GB of buffer pool and 4 cores by the edition.
 
 ### What grows, and what keeps it small
 
