@@ -610,3 +610,11 @@ Built so the console can sit on a shared domain at a path (for a demo front, say
 - **Chosen because the router compares absolute paths**: a proxy that mounts the console under `/console` cannot work while the console believes it is at `/`, and the alternative (proxying every one of the console's page paths at a domain root) breaks silently whenever a page is added.
 - **The root deployment is unchanged**: with the default base the helpers are no-ops.
 - **Open question:** `CONSOLE_ORIGIN` accepts exactly one origin, so a console reachable by two addresses can only be signed in from the pinned one. Say if it should accept a list.
+
+## Open alerts of a removed cabinet (October 2026)
+
+Removing a cabinet revokes its certificate (02-security-model.md) and takes it out of every fleet view — the client, site, offline, differences and fleet-operations queries all require `status = 'active'`. The spec says nothing about the alerts it had already raised, and they stay open. The console's alerts area therefore still lists them against a cabinet that no longer exists, and each row links to that cabinet's page, which `fleet.cabinet` serves without a status check (so a removed cabinet's page still renders).
+
+- **Recommended, not built:** when a cabinet is removed, resolve its open alerts with a system-actor audit entry and a reason, so no fleet view can show a cabinet that is gone.
+- **Also say if** a removed cabinet's alert history should stay readable somewhere (an archive or a filter that shows retired cabinets on purpose), or whether resolving them is enough.
+- Found because two retired test cabinets (PetFolk / Scottsdale: `Exam Room (removed 2026-10-22)` and `Enrollment Test`) left twelve open alerts behind after their enrollment tests.
