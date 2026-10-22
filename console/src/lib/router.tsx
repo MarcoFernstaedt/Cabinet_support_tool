@@ -1,18 +1,20 @@
 // A small history-based router: the console needs only path matching and links.
+// Paths are app paths; the base (see lib/base.ts) is what the browser shows.
 import { createContext, useContext, useEffect, useState, type AnchorHTMLAttributes, type ReactNode } from "react";
+import { currentPath, withBase } from "./base";
 
 const RouterContext = createContext<{ path: string; navigate: (to: string) => void }>({ path: "/", navigate: () => {} });
 
 export function Router({ children }: { children: ReactNode }) {
-  const [path, setPath] = useState(window.location.pathname + window.location.search);
+  const [path, setPath] = useState(currentPath());
   useEffect(() => {
-    const onPop = () => setPath(window.location.pathname + window.location.search);
+    const onPop = () => setPath(currentPath());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
   const navigate = (to: string) => {
-    if (to === window.location.pathname + window.location.search) return;
-    window.history.pushState(null, "", to);
+    if (to === currentPath()) return;
+    window.history.pushState(null, "", withBase(to));
     setPath(to);
     window.scrollTo(0, 0);
   };
@@ -49,7 +51,7 @@ export function match(pattern: string, path: string): Record<string, string> | n
 export function Link({ to, children, ...rest }: { to: string; children: ReactNode } & AnchorHTMLAttributes<HTMLAnchorElement>) {
   const { navigate } = useRouter();
   return (
-    <a href={to} {...rest} onClick={e => {
+    <a href={withBase(to)} {...rest} onClick={e => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       navigate(to);

@@ -601,3 +601,12 @@ Built as phases 1 and 2 of the earlier design (see 15-baselines-and-config.md). 
 - **Quota**: 240 configuration uploads an hour per cabinet (a setting in the agent API options).
 - **Windows code not run on a real cabinet**: the config collector and its registry, WMI and `pnputil` readers have mocked tests only. Run `config.snapshot` on a real cabinet and check each category before relying on it.
 - **Not built (later phases)**: incidents and correlation, playbooks, restoring a difference, fleet recovery, an offline cache, registry values, scheduled-task allowlist, driver and update rollback, service start type changes.
+
+## Serving the console under a path (October 2026)
+
+Built so the console can sit on a shared domain at a path (for a demo front, say) instead of the root of its own origin:
+
+- **`CONSOLE_BASE`** (a build argument of `deploy/Dockerfile`, `/` by default) is passed to Vite as `--base`, so every asset URL is built under the prefix; `console/src/lib/base.ts` applies the same prefix to the console's own addresses: routes, links, API calls, the live stream and the "we are signed out" return. The router still matches plain app paths, so no page or step has to know about the prefix. Tests: `console/test/base.test.ts`.
+- **Chosen because the router compares absolute paths**: a proxy that mounts the console under `/console` cannot work while the console believes it is at `/`, and the alternative (proxying every one of the console's page paths at a domain root) breaks silently whenever a page is added.
+- **The root deployment is unchanged**: with the default base the helpers are no-ops.
+- **Open question:** `CONSOLE_ORIGIN` accepts exactly one origin, so a console reachable by two addresses can only be signed in from the pinned one. Say if it should accept a list.

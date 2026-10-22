@@ -32,11 +32,14 @@ COPY contracts/examples ./examples
 # ---------------------------------------------------------------- console
 FROM ${NODE_IMAGE} AS console-build
 WORKDIR /build
+# A deployment that serves the console under a path (a shared domain, say) sets CONSOLE_BASE to
+# "/console/"; the console then builds every address and asset URL under that prefix.
+ARG CONSOLE_BASE=/
 COPY --from=contracts /build/contracts ./contracts
 COPY console/package.json console/package-lock.json ./console/
 RUN cd console && npm ci --ignore-scripts --no-audit --no-fund
 COPY console/ ./console/
-RUN cd console && npm run build
+RUN cd console && npm run build -- --base="${CONSOLE_BASE}"
 
 # ---------------------------------------------------------------- server
 FROM ${NODE_IMAGE} AS server-build

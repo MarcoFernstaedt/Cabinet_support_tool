@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import { useRouter } from "../lib/router";
+import { currentPath } from "../lib/base";
 import { useSession } from "../lib/session";
 import { useSpotlight } from "../lib/spotlight";
 import { forMode, welcomeSteps } from "../lib/welcome-tour";
@@ -56,7 +57,7 @@ export function WelcomeTour() {
     const next = { mode, step: n };
     write(me.id, next); setPlace(next);
     const to = list?.[n]?.path;
-    if (to && to !== window.location.pathname) navigate(to);
+    if (to && to !== currentPath()) navigate(to);
   }, [all, navigate, me.id]);
   // Each step's heading takes the focus, so a keyboard or screen-reader user hears where they are.
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, [place?.mode, place?.step, step?.id]);
@@ -91,7 +92,7 @@ export function WelcomeTour() {
       ) : (
         <div className="row gap wrap">
           <button className="btn small" onClick={() => go(place.mode, Math.max(1, n - 1))} disabled={n <= 1}>Back</button>
-          {last ? <button className="btn small primary" onClick={() => { stop(); if (window.location.pathname !== "/") navigate("/"); }}>Finish</button> : <button className="btn small primary" onClick={() => go(place.mode, n + 1)}>Next</button>}
+          {last ? <button className="btn small primary" onClick={() => { stop(); if (currentPath() !== "/") navigate("/"); }}>Finish</button> : <button className="btn small primary" onClick={() => go(place.mode, n + 1)}>Next</button>}
           {found === "missing" && <button className="btn small ghost" onClick={lookAgain}>Look again</button>}
           <button className="btn small ghost" onClick={() => stop()}>Skip tour</button>
         </div>

@@ -1,6 +1,7 @@
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useCallback, useEffect, useState } from "react";
 import { api, onSignedOut } from "./lib/api";
+import { withBase } from "./lib/base";
 import { CommandStream } from "./lib/commands";
 import { WriteStatusProvider } from "./lib/writes";
 import { Link, Router, match, useRouter } from "./lib/router";
@@ -51,7 +52,7 @@ export function App() {
     try { await api("POST", "/api/auth/logout", {}); } catch { /* already signed out */ }
     setMe(null);
     setStage("signed_out");
-    window.history.replaceState(null, "", "/");
+    window.history.replaceState(null, "", withBase("/"));
   }, []);
   const advance = (s: Stage) => { if (s === "complete") void refresh(); else setStage(s); };
 

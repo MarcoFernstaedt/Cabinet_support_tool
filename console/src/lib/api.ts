@@ -1,6 +1,8 @@
 // The console's only path to the server. Same origin, cookie session; the server
 // checks every permission, so nothing here is a security boundary.
 
+import { withBase } from "./base";
+
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string, readonly data: Record<string, unknown> = {}) { super(code); }
 }
@@ -75,7 +77,7 @@ export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?
     (init.headers as Record<string, string>)["Content-Type"] = "application/json";
   }
   let response: Response;
-  try { response = await fetch(path, init); }
+  try { response = await fetch(withBase(path), init); }
   catch { throw new ApiError(0, "unreachable"); }
   const text = await response.text();
   let data: unknown = null;
@@ -91,7 +93,7 @@ export async function api<T>(method: "GET" | "POST" | "PUT", path: string, body?
 /** Sends a file as the raw request body (package uploads), with the same error handling as api(). */
 export async function upload<T>(path: string, file: Blob): Promise<T> {
   let response: Response;
-  try { response = await fetch(path, { method: "PUT", credentials: "same-origin", headers: { Accept: "application/json", "Content-Type": "application/octet-stream" }, body: file }); }
+  try { response = await fetch(withBase(path), { method: "PUT", credentials: "same-origin", headers: { Accept: "application/json", "Content-Type": "application/octet-stream" }, body: file }); }
   catch { throw new ApiError(0, "unreachable"); }
   let data: unknown = null;
   try { data = await response.json(); } catch { data = null; }

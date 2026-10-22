@@ -3,6 +3,7 @@
 // carries new major alerts and every alert's claim and resolution.
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, describeError } from "./api";
+import { withBase } from "./base";
 
 export interface CommandResult<T = unknown> {
   status: "succeeded" | "failed" | "rejected" | "expired";
@@ -33,7 +34,7 @@ export function CommandStream({ children }: { children: ReactNode }) {
   const alerts = useRef(new Set<AlertListener>()).current;
   const security = useRef(new Set<SecurityListener>()).current;
   useEffect(() => {
-    const source = new EventSource("/api/stream");
+    const source = new EventSource(withBase("/api/stream"));
     source.addEventListener("result", e => {
       try { const { commandId } = JSON.parse((e as MessageEvent<string>).data) as { commandId: string }; wake.get(commandId)?.(); } catch { /* ignore */ }
     });

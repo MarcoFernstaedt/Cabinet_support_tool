@@ -6,6 +6,7 @@ import { api, ApiError, describeError } from "../lib/api";
 import { useSession } from "../lib/session";
 import { StepUpDialog } from "./ui";
 import { useRouter } from "../lib/router";
+import { currentPath } from "../lib/base";
 import { useSpotlight, type Target } from "../lib/spotlight";
 
 interface Step {
@@ -22,7 +23,7 @@ type Scenarios = Record<string, { label: string; path: string }[]>;
 
 /** The whole-site check results: if the person skipped the click, run the check for them and open its page. */
 const siteCheck: Step["ensure"] = async ({ navigate, scenarios }) => {
-  if (window.location.pathname.startsWith("/network/diagnosis/")) return;
+  if (currentPath().startsWith("/network/diagnosis/")) return;
   const siteId = scenarios.midtown?.[0]?.path.split("/")[2];
   if (!siteId) return;
   for (let tries = 0; tries < 30; tries++) {
@@ -83,7 +84,7 @@ export function DemoTour() {
   const [notice, setNotice] = useState<string | null>(null);
   const start = useCallback((tour: string) => {
     try { for (const k of Object.keys(sessionStorage)) if (k.startsWith("demo-step-done:")) sessionStorage.removeItem(k); } catch { /* storage unavailable */ }
-    write({ tour, step: 0 }); setPlace({ tour, step: 0 }); setOpening(window.location.pathname + window.location.search);
+    write({ tour, step: 0 }); setPlace({ tour, step: 0 }); setOpening(currentPath());
   }, []);
   useEffect(() => {
     const on = async (e: Event) => {
@@ -121,7 +122,7 @@ export function DemoTour() {
     if (opening === null || place === null || Object.keys(scenarios).length === 0) return;
     setOpening(null);
     // Only if you are still where you started: if you have already clicked on, leave the page alone.
-    if (path === opening || window.location.pathname + window.location.search === opening) go(place.step);
+    if (path === opening || currentPath() === opening) go(place.step);
   }, [opening, place, scenarios, go, path]);
   const step = place?.step ?? null;
   const { found, el: targetEl, spot, pos, dim, panel, lookAgain } = useSpotlight(place ? steps[place.step]?.target : undefined, `${place?.tour}:${place?.step}:${path}`);
