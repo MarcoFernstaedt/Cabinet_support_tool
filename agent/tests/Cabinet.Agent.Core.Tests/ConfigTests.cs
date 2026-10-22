@@ -249,6 +249,31 @@ public class ConfigBuilderTests
     }
 
     [Fact]
+    public void Duplicate_firewall_names_at_the_key_limit_still_form_a_valid_upload()
+    {
+        // A real Windows resource-name exceeded the limit; numbering its duplicate used to exceed it again.
+        string longName = "SyntheticResource_" + new string('x', 200);
+        var state = new FirewallStateOutput
+        {
+            Rules = Enumerable.Range(0, 2).Select(_ => new ReportedFirewallRule
+            {
+                Name = longName, Direction = FirewallDirection.In, Action = FirewallAction.Allow,
+                Enabled = true, CreatedByPlatform = false,
+            }).ToList(),
+            RulesTruncated = false, Snapshots = [], Profiles = [],
+        };
+        var category = ConfigBuilders.Firewall(state);
+        Assert.Equal(2, category.Items.Count);
+        Assert.Equal(2, category.Items.Select(i => i.Key).Distinct().Count());
+        var queue = new ConfigQueue(null);
+        Assert.True(queue.Enqueue(new ConfigUploadSnapshot
+        {
+            ObservedAt = Fixtures.Start, Category = category.Category, Hash = category.Hash,
+            Truncated = category.Truncated, Items = category.Items,
+        }), queue.LastRefusal);
+    }
+
+    [Fact]
     public void Every_category_the_builders_make_is_a_valid_upload_and_a_valid_snapshot_answer()
     {
         var queue = new ConfigQueue(null);
@@ -490,6 +515,10 @@ public class ConfigQueueAndWatchTests
             Items = [new ConfigItem { Key = "time", Values = new Dictionary<string, object?> { ["v"] = JsonDocument.Parse("{\"run\":\"cmd\"}").RootElement.Clone() } }] };
         Assert.False(good.Enqueue(nested), "an object is not a configuration value");
         Assert.Equal(0, good.Count);
+        // The reason a refusal gives is there for the log, and a snapshot that is taken clears it again.
+        Assert.NotNull(good.LastRefusal);
+        Assert.True(good.Enqueue(new ConfigUploadSnapshot { ObservedAt = Fixtures.Start, Category = c.Category, Hash = c.Hash, Truncated = false, Items = c.Items }));
+        Assert.Null(good.LastRefusal);
         // A file far larger than the queue may be is not read at all.
         File.WriteAllText(dir.File("huge.jsonl"), new string('x', 9 * 1024 * 1024));
         Assert.Equal(0, new ConfigQueue(dir.File("huge.jsonl")).Count);

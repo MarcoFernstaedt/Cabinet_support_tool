@@ -154,26 +154,13 @@
                 "updates.uninstall",
                 "service.control",
                 "service.setStartType",
-                "service.setStartType",
                 "time.setZone",
                 "time.sync",
                 "network.renewLease",
                 "network.flushDns",
-                "system.security",
-                "software.list",
-                "startup.list",
-                "sessions.list",
-                "shares.list",
-                "reliability.list",
-                "disk.folders",
-                "dns.cache",
-                "power.status",
                 "system.restart",
                 "process.end",
-                "system.checkHealth",
-                "power.set",
-                "system.hardware",
-                "network.hosts"
+                "power.set"
               ]
             }
           },

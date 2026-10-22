@@ -74,6 +74,24 @@ public sealed class ContractSchemas
         return issues;
     }
 
+    /// <summary>
+    /// The issue worth putting in a log or an error: the deepest one, with the branch noise a oneOf that
+    /// passed leaves behind left out. Each branch it rejected is reported once, so several type problems at
+    /// one path are that noise while a lone type problem is the real field; a oneOf beside them failed for real.
+    /// </summary>
+    public static string? Refusal(IReadOnlyList<SchemaIssue> issues)
+    {
+        if (issues.Count == 0) return null;
+        var real = issues
+            .Where(i => i.Rule != "type"
+                        || issues.Count(o => o.Rule == "type" && o.Path == i.Path) == 1
+                        || issues.Any(o => o.Rule == "oneOf" && o.Path == i.Path))
+            .ToList();
+        if (real.Count == 0) real = [.. issues];
+        SchemaIssue worst = real.OrderByDescending(i => i.Path.Length).First();
+        return $"{worst.Path} (rule {worst.Rule})";
+    }
+
     public bool IsValid(string schemaRef, JsonElement instance) => Validate(schemaRef, instance).Count == 0;
 }
 

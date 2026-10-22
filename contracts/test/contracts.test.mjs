@@ -77,6 +77,19 @@ test("the broker accepts only catalog operations, every write goes through it, a
   assert.ok(!JSON.stringify(request).includes('"path"'), "a broker request never carries a file path");
 });
 
+test("a broker request demands a commandId only for writes and confirm", () => {
+  const request = JSON.parse(readFileSync(join(SCHEMA_DIR, "agent", "broker-request.schema.json"), "utf8"));
+  const dispatch = request.allOf.find(c => c.if?.properties?.kind?.const === "confirm");
+  assert.ok(dispatch, "the broker request dispatches on kind");
+  assert.ok(dispatch.then?.required?.includes("commandId"), "confirm carries the command it answers");
+  const needsCommand = dispatch.else?.if?.properties?.operation?.enum ?? [];
+  const writes = catalog.operations.filter(o => o.kind === "write").map(o => o.name);
+  assert.deepEqual([...needsCommand].sort(), [...writes].sort(),
+    "a read never carries a commandId: the broker needs it only to attribute a change, and a reader that sends none must still be accepted");
+  assert.deepEqual(dispatch.else?.else?.not?.required, ["commandId"],
+    "every other kind of request, and every read, must leave commandId out");
+});
+
 test("the trusted publisher list is valid, short, and pins roots whose files match their hashes", async () => {
   const { createHash, X509Certificate } = await import("node:crypto");
   const trustDir = join(SCHEMA_DIR, "..", "trust");

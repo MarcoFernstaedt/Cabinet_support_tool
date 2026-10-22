@@ -125,8 +125,14 @@ public static class OperationRunner
                 return (null, new ResultError { Code = "timeout", Message = "The operation did not finish within its time limit." });
             }
             JsonElement output = await work.ConfigureAwait(false);
-            if (!ContractSchemas.Instance.IsValid(ContractSchemas.Output(operation), output))
-                return (null, new ResultError { Code = "execution_failed", Message = "The operation produced output that does not match its contract." });
+            IReadOnlyList<SchemaIssue> issues = ContractSchemas.Instance.Validate(ContractSchemas.Output(operation), output);
+            if (issues.Count > 0)
+                // Naming the field and the rule, never the value, is what turns "does not match its contract" into a report someone can act on.
+                return (null, new ResultError
+                {
+                    Code = "execution_failed",
+                    Message = $"The operation produced output that does not match its contract at {ContractSchemas.Refusal(issues)}.",
+                });
             return (output, null);
         }
         catch (OperationFailedException e)

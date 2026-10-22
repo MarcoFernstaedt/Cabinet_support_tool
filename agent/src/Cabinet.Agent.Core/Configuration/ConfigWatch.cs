@@ -38,7 +38,7 @@ public sealed class ConfigWatch(StateFile<ConfigWatch.State> store, ConfigQueue 
             bool due = !state.SentAt.TryGetValue(name, out DateTimeOffset at) || now - at >= Refresh || at > now;
             if (!changed && !due) continue;
             var upload = new ConfigUploadSnapshot { ObservedAt = snapshot.TakenAt, Category = c.Category, Hash = c.Hash, Truncated = c.Truncated, Items = c.Items };
-            if (!queue.Enqueue(upload)) { log($"Configuration: the {name.ToLowerInvariant()} snapshot did not match its contract and was not queued."); continue; }
+            if (!queue.Enqueue(upload)) { log($"Configuration: the {name.ToLowerInvariant()} snapshot did not match its contract at {queue.LastRefusal} and was not queued."); continue; }
             state.Hashes[name] = c.Hash;
             state.SentAt[name] = now;
             queued++;

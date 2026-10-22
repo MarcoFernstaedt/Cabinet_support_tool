@@ -32,6 +32,39 @@ public sealed class CommandProcessorTests
     }
 
     [Fact]
+    public async Task An_output_that_breaks_its_contract_names_the_field_and_the_rule()
+    {
+        // A handler that answers with an empty object: hostname is required, so the refusal must say where and why.
+        var registry = new OperationRegistry().RegisterRaw(Catalog.SystemInfo,
+            (_, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { }, ContractJson.Options)));
+        var (output, error) = await OperationRunner.RunAsync(registry, Catalog.SystemInfo,
+            JsonSerializer.SerializeToElement(new EmptyParams(), ContractJson.Options), TimeSpan.FromSeconds(5), default);
+        Assert.Null(output);
+        Assert.Equal("execution_failed", error!.Code);
+        Assert.StartsWith("The operation produced output that does not match its contract at /", error.Message);
+        Assert.Contains("rule required", error.Message);
+    }
+
+    [Fact]
+    public void A_refusal_names_the_real_field_and_not_the_branches_a_oneOf_rejected()
+    {
+        // One branch per kind of value it refused, all at one path: noise from a oneOf that passed.
+        var noise = new SchemaIssue("/snapshots/0/items/0/values/enabled", "type");
+        var issues = new List<SchemaIssue> { new("/properties", "properties"), noise, noise, noise, noise };
+        Assert.Equal("/properties (rule properties)", ContractSchemas.Refusal(issues));
+
+        // A field the contract wanted as one kind of value and got another is reported on its own.
+        Assert.Equal("/values/enabled (rule type)", ContractSchemas.Refusal([new SchemaIssue("/values/enabled", "type")]));
+
+        // A oneOf that really failed reports itself beside its branches.
+        Assert.Equal("/snapshots/0/items/0/values/enabled (rule oneOf)", ContractSchemas.Refusal([
+            new SchemaIssue("/snapshots/0/items/0/values/enabled", "oneOf"), noise, noise, noise, noise,
+        ]));
+
+        Assert.Null(ContractSchemas.Refusal([]));
+    }
+
+    [Fact]
     public async Task A_rejected_command_never_reaches_the_handler()
     {
         bool ran = false;

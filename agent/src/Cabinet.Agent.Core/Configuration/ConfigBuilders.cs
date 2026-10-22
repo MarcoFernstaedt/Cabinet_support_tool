@@ -20,6 +20,8 @@ public static class ConfigBuilders
     /// <summary>The most one answer to config.snapshot may hold in all (the result is a request body too).</summary>
     public const int MaxSnapshotBytes = 900 * 1024;
     private const int MaxList = 32;
+    /// <summary>How much of a name a key may carry: the contract's limit for the part after the prefix.</summary>
+    private const int KeyNameMax = 180;
 
     public static string Snake(Enum value) => System.Text.Json.JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
 
@@ -43,8 +45,22 @@ public static class ConfigBuilders
     /// <summary>A key made of a prefix and a name; null when the name leaves nothing usable. Angle brackets are not allowed in a key.</summary>
     private static string? Key(string prefix, string? name)
     {
-        string? clean = Text(name?.Replace('<', ' ').Replace('>', ' '), 180);
+        string? clean = Text(name?.Replace('<', ' ').Replace('>', ' '), KeyNameMax);
         return clean is null ? null : prefix + ":" + clean;
+    }
+
+    /// <summary>
+    /// The same key with a number that makes it unique, still inside the contract: the name gives up the room the
+    /// suffix needs, so a name that arrived at the limit does not leave the schema when it is made unique.
+    /// </summary>
+    private static string Numbered(string key, int n)
+    {
+        string suffix = "#" + n.ToString(CultureInfo.InvariantCulture);
+        int at = key.IndexOf(':');
+        if (at < 0) return Text(key, KeyNameMax - suffix.Length) + suffix;
+        string name = key[(at + 1)..];
+        int keep = KeyNameMax - suffix.Length;
+        return key[..(at + 1)] + (name.Length <= keep ? name : name[..keep]) + suffix;
     }
 
     private static ConfigItem? Item(string? key, params (string Name, object? Value)[] values) => key is null ? null : new ConfigItem
@@ -65,7 +81,7 @@ public static class ConfigBuilders
         foreach (ConfigItem? item in items.Where(i => i is not null).OrderBy(i => i!.Key, StringComparer.Ordinal))
         {
             string key = item!.Key;
-            for (int n = 2; !seen.Add(key); n++) key = $"{item.Key}#{n}";
+            for (int n = 2; !seen.Add(key); n++) key = Numbered(item.Key, n);
             unique.Add(key == item.Key ? item : item with { Key = key });
         }
         bool truncated = unique.Count > MaxItems;

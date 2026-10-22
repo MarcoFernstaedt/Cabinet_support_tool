@@ -62,15 +62,23 @@ public sealed class ConfigQueue
     private static string Line(ConfigUploadSnapshot s) => JsonSerializer.Serialize(s, ContractJson.Options);
 
     /// <summary>One snapshot is valid when an upload holding only it matches the config-upload contract.</summary>
-    private static bool Valid(string snapshotJson)
+    private static bool Valid(string snapshotJson) => Valid(snapshotJson, out _);
+
+    /// <summary>The refusal names the field and the rule, never the value, so a rejected category can be fixed.</summary>
+    private static bool Valid(string snapshotJson, out string? refusal)
     {
         try
         {
             using JsonDocument doc = JsonDocument.Parse("{\"snapshots\":[" + snapshotJson + "]}");
-            return ContractSchemas.Instance.IsValid(ContractSchemas.Envelope("config-upload"), doc.RootElement);
+            IReadOnlyList<SchemaIssue> issues = ContractSchemas.Instance.Validate(ContractSchemas.Envelope("config-upload"), doc.RootElement);
+            refusal = ContractSchemas.Refusal(issues);
+            return refusal is null;
         }
-        catch (JsonException) { return false; }
+        catch (JsonException) { refusal = "unparseable"; return false; }
     }
+
+    /// <summary>Why the last snapshot was refused, in schema terms. Null when nothing was refused.</summary>
+    public string? LastRefusal { get; private set; }
 
     /// <returns>False when the snapshot does not match its contract (it is not kept).</returns>
     public bool Enqueue(ConfigUploadSnapshot snapshot)
@@ -79,7 +87,8 @@ public sealed class ConfigQueue
         {
             if (_gap.Contains(snapshot.Category)) snapshot = snapshot with { GapBefore = true };
             string line = Line(snapshot);
-            if (!Valid(line)) return false;
+            if (!Valid(line, out string? refusal)) { LastRefusal = refusal; return false; }
+            LastRefusal = null;
             _gap.Remove(snapshot.Category);
             _entries.AddLast(new Entry { Category = snapshot.Category, Json = line });
             Trim();

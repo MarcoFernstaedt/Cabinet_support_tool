@@ -68,3 +68,7 @@ data/
 deploy/.env
 !deploy/.env.example
 .claude/worktrees/
+
+# Personal, per-host deployment files; nothing personal goes in the repo.
+deploy/Caddyfile.gate
+deploy/compose.local.yaml
