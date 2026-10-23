@@ -72,6 +72,17 @@ Save the token line in `token.txt`. Copy the three files to the laptop (for exam
 
 The agent is a developer build and is not signed. Windows SmartScreen or Defender may warn about it.
 
+### Development cabinet updates — never use on a production cabinet
+
+A normal agent without a pinned code-signing publisher refuses upgrades even when the release manifest is signed. For a
+disposable test fleet, build its initial agent with `--build-arg ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES=true` and an explicit
+`AGENT_VERSION` (or `-p:AllowUnsignedDevelopmentUpgrades=true` for each `dotnet publish`). Install this build manually
+once: a previously installed strict agent cannot be switched remotely. Every subsequent package still needs a manifest
+signed with the release key compiled into the agent, plus the matching whole-ZIP SHA-256, a higher version, an allowed
+archive layout and the required programs. Only the Authenticode publisher check is relaxed when there is no publisher.
+The server and heartbeat cannot enable this mode, and the build default is false. Test an update and a failed update
+with a pilot before relying on remote recovery; retain physical access until then.
+
 ## Everyday commands
 
 Run these in the `deploy` folder.

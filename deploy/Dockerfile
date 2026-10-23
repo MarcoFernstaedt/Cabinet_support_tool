@@ -60,6 +60,9 @@ RUN cd server && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 # ---------------------------------------------------------------- Windows agent
 FROM ${DOTNET_SDK_IMAGE} AS agent-build
 ARG AGENT_VERSION=
+# Explicit development-only build option. The broker still verifies the release-key signature, ZIP hash,
+# versions and paths; only Authenticode is skipped when no publisher is pinned. Production default: false.
+ARG ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES=false
 RUN apt-get update && apt-get install -y --no-install-recommends zip && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 # The agent compiles in the contract schemas and the trust lists (agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj).
@@ -77,6 +80,7 @@ RUN set -eu; \
       dotnet restore "agent/src/$project/$project.csproj" --runtime win-x64 --locked-mode; \
       dotnet publish "agent/src/$project/$project.csproj" --no-restore --configuration Release \
         --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableWindowsTargeting=true \
+        -p:AllowUnsignedDevelopmentUpgrades="$ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES" \
         ${AGENT_VERSION:+-p:Version=$AGENT_VERSION} \
         --output "$pkg/out/$project"; \
     done; \

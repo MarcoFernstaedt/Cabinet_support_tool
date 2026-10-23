@@ -72,7 +72,10 @@ public sealed class ReleaseVerifier(UpgradeTrust trust, IAuthenticode authentico
             if (running < minimum)
                 throw new UpgradeRefusedException(UpgradeCheck.Version, "verification_failed", $"{offered} upgrades only from {minimum} or later; this agent is {running}.");
 
-            // 4. Authenticode on every binary, by the agent's own publisher.
+            // 4. Every agent binary must carry the pinned publisher's signature in production. An explicitly built
+            // development agent with no pinned publisher may use a release signed by its compiled release key: the
+            // signed manifest still binds the full ZIP hash, exact version and all extracted paths. There is no
+            // server-side switch or command parameter that can opt a strict agent into this mode.
             string files = Path.Combine(staging, "files");
             IReadOnlyList<string> entries;
             try { entries = DriverPackage.Extract(zip, files); }
@@ -81,16 +84,17 @@ public sealed class ReleaseVerifier(UpgradeTrust trust, IAuthenticode authentico
             foreach (string required in AgentLayout.RequiredPrograms)
                 if (!File.Exists(Path.Combine(files, required)))
                     throw new UpgradeRefusedException(UpgradeCheck.Install, "verification_failed", $"The release does not contain {required.Replace('\\', '/')}.");
-            if (!trust.HasPublisher)
+            if (!trust.HasPublisher && !UpgradeTrust.AllowsUnsignedDevelopmentUpgrades)
                 throw new UpgradeRefusedException(UpgradeCheck.Authenticode, "publisher_not_trusted", "This agent has no code-signing publisher compiled in, so it cannot check the release's binaries.");
-            foreach (string entry in entries)
-            {
-                string path = Path.Combine(files, entry);
-                if (!AgentLayout.IsBinary(path)) continue;
-                if (AgentSignatures.Problem(path, trust, authenticode) is { } why)
-                    throw new UpgradeRefusedException(UpgradeCheck.Authenticode, why.StartsWith("It is signed by", StringComparison.Ordinal) ? "publisher_not_trusted" : "signature_invalid",
-                        $"{entry}: {why}");
-            }
+            if (trust.HasPublisher)
+                foreach (string entry in entries)
+                {
+                    string path = Path.Combine(files, entry);
+                    if (!AgentLayout.IsBinary(path)) continue;
+                    if (AgentSignatures.Problem(path, trust, authenticode) is { } why)
+                        throw new UpgradeRefusedException(UpgradeCheck.Authenticode, why.StartsWith("It is signed by", StringComparison.Ordinal) ? "publisher_not_trusted" : "signature_invalid",
+                            $"{entry}: {why}");
+                }
             return new VerifiedRelease(manifest, files);
         }
         catch

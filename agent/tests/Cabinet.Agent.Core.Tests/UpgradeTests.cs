@@ -358,14 +358,29 @@ public class ReleaseVerifierTests : IDisposable
     }
 
     [Fact]
-    public void A_build_without_keys_or_publisher_accepts_nothing()
+    public void No_release_key_is_always_refused_and_an_unsigned_dev_release_still_needs_a_valid_signed_manifest()
     {
         using var noKeys = new ReleaseFixture(withKeys: false);
         noKeys.PlaceGood("0.2.0");
         Assert.Equal(UpgradeCheck.ManifestSignature, Assert.Throws<UpgradeRefusedException>(() => noKeys.Verifier().Verify(noKeys.Downloads, "0.2.0", "0.1.0", noKeys.Staging)).Check);
         using var noPublisher = new ReleaseFixture(withPublisher: false);
-        noPublisher.PlaceGood("0.2.0");
-        Assert.Equal(UpgradeCheck.Authenticode, Assert.Throws<UpgradeRefusedException>(() => noPublisher.Verifier().Verify(noPublisher.Downloads, "0.2.0", "0.1.0", noPublisher.Staging)).Check);
+        var unsigned = ReleaseFixture.Programs();
+        unsigned["Cabinet.Agent.Network/Cabinet.Agent.Network.exe"] = "MZ|unsigned";
+        noPublisher.PlaceGood("0.2.0", unsigned);
+        if (UpgradeTrust.AllowsUnsignedDevelopmentUpgrades)
+        {
+            Assert.Equal("0.2.0", noPublisher.Verifier().Verify(noPublisher.Downloads, "0.2.0", "0.1.0", noPublisher.Staging).Manifest.Version);
+            noPublisher.PlaceGood("0.2.0", unsigned);
+            string package = Path.Combine(ReleaseVerifier.DownloadFolder(noPublisher.Downloads, "0.2.0"), ReleaseVerifier.PackageFile);
+            byte[] tampered = File.ReadAllBytes(package);
+            tampered[tampered.Length / 2] ^= 0xFF;
+            File.WriteAllBytes(package, tampered);
+            Assert.Equal(UpgradeCheck.PackageHash, Assert.Throws<UpgradeRefusedException>(() => noPublisher.Verifier().Verify(noPublisher.Downloads, "0.2.0", "0.1.0", noPublisher.Staging)).Check);
+            noPublisher.PlaceGood("0.2.0", unsigned);
+            Assert.Equal(UpgradeCheck.Version, Assert.Throws<UpgradeRefusedException>(() => noPublisher.Verifier().Verify(noPublisher.Downloads, "0.2.0", "0.2.0", noPublisher.Staging)).Check);
+        }
+        else
+            Assert.Equal(UpgradeCheck.Authenticode, Assert.Throws<UpgradeRefusedException>(() => noPublisher.Verifier().Verify(noPublisher.Downloads, "0.2.0", "0.1.0", noPublisher.Staging)).Check);
     }
 
     [Theory]

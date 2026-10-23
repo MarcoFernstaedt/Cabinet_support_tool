@@ -24,6 +24,12 @@ public sealed class UpgradeTrust : IDisposable
     public UpgradeKeys List { get; }
     public bool HasKeys => _keys.Count > 0;
     public bool HasPublisher => _publishers.Count > 0;
+    // Only present in an explicitly built development agent. The server cannot turn this on after enrollment.
+#if ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES
+    public static readonly bool AllowsUnsignedDevelopmentUpgrades = true;
+#else
+    public static readonly bool AllowsUnsignedDevelopmentUpgrades = false;
+#endif
 
     private static readonly Lazy<UpgradeTrust> CompiledTrust = new(() => Load(name =>
     {

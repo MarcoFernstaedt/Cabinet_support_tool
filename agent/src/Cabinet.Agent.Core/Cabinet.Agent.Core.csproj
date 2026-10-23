@@ -9,6 +9,11 @@
     <RootNamespace>Cabinet.Agent.Core</RootNamespace>
     <UpgradeTrustDir Condition="'$(UpgradeTrustDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\contracts\trust\upgrade</UpgradeTrustDir>
   </PropertyGroup>
+  <!-- Opt-in for a disposable development fleet. The manifest signature, package hash, version and path checks remain mandatory.
+       Never pass this property to a production build: it permits unsigned agent executables when no publisher is pinned. -->
+  <PropertyGroup Condition="'$(AllowUnsignedDevelopmentUpgrades)' == 'true'">
+    <DefineConstants>$(DefineConstants);ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <!-- JsonSchema.Net: .NET has no JSON Schema validator, and every input must be
          validated against the shared draft 2020-12 schemas before anything else
