@@ -69,8 +69,8 @@ export function welcomeSteps(me: TourPerson, cabinetId: string | null): TourStep
     { id: "issues", title: "Issues", path: "/issues", target: nav("/issues"), quick: false, body: ["The kinds of problem the platform recognises and the rules that match them. Rules use fields and plain phrases, never patterns. This is where an unknown error becomes a known one."] },
     ...(me.canApproveFixes ? [{ id: "fixes", title: "Fixes", path: "/fixes", target: nav("/fixes"), quick: false, body: ["Fixes a teammate saved (\"this solved it\") wait here for approval. Once approved, a fix is offered to everyone when the same problem comes back on any cabinet."] } satisfies TourStep] : []),
     ...(admin ? [{ id: "admin", title: "Admin", path: "/admin", target: nav("/admin"), quick: true, body: [
-      "Set up and demo adds the support team and installs the agent on a computer. Pending cabinets are approved here before they can be used. Users, the audit log, the software library, agent upgrades, clients and sites, and platform settings are all under Admin.",
-      "Start with Set up and demo if this is a new installation."], needs: "Only Admins see this menu." } satisfies TourStep] : []),
+      "Setup adds the support team and installs the agent on a cabinet. Pending cabinets are approved here before they can be used. Users, the audit log, the software library, agent upgrades, clients and sites, and platform settings are all under Admin.",
+      "Start with Setup if this is a new installation."], needs: "Only Admins see this menu." } satisfies TourStep] : []),
   ];
   if (cabinetId) {
     const path = (k: SectionId) => `/cabinets/${cabinetId}/${k}`;
@@ -91,7 +91,7 @@ export function welcomeSteps(me: TourPerson, cabinetId: string | null): TourStep
     "Every change you confirm with a code or your password is recorded under your name."] });
   steps.push({ id: "done", title: "That is the tour", path: null, quick: true, body: [
     "Next time a client calls: type their name in Jump to, open the cabinet, and use Troubleshoot or Alerts. Every reading says when it was taken.",
-    ...(admin ? ["If this is a new installation, go to Admin → Set up and demo next: add your team and install the agent on the first cabinet."] : [])] });
+    ...(admin ? ["If this is a new installation, go to Admin → Setup next: add the team and install the agent on the first cabinet."] : [])] });
   return steps;
 }
 

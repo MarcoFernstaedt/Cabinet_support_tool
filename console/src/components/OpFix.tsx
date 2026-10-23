@@ -17,7 +17,7 @@ export function OpFix({ cabinetId, cabinetName, operation, params, label, onDone
   const need = minimumRoleFor(operation);
   if (!atLeast(me, need)) return <span className="muted small">Needs {roleName(need)} to make this change.</span>;
   const after = (r: { status: string }) => { if (r.status === "succeeded") onDone?.(); };
-  const what = <p><strong>{label}</strong> on {cabinetName}. {operation.startsWith("firewall") || operation.startsWith("network") ? "It goes through the safety net: if the cabinet cannot reach the platform afterwards, it goes back to its old settings by itself." : "You can run the diagnosis again afterwards to confirm it worked."}</p>;
+  const what = <p><strong>{label}</strong> on {cabinetName}. {operation.startsWith("firewall") || operation.startsWith("network") ? "It goes through the safety net: if the cabinet cannot reach the platform afterwards, it goes back to its old settings by itself." : "Run the diagnosis again afterwards to confirm the change."}</p>;
   return (
     <span className="fix-action">
       <button className="btn small primary" onClick={() => setAsking(true)} disabled={write.state === "running"} aria-busy={write.state === "running"}>{write.state === "running" ? "Working…" : label}</button>

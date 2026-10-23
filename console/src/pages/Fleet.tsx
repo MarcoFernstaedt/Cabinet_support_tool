@@ -40,7 +40,7 @@ export function FleetHome() {
       {problem && <p className="error" role="alert">{problem}</p>}
       <DrivesAtRisk />
       {data && data.length === 0 && <Empty>No cabinets have been approved yet. {atLeast(me, "admin")
-        ? <>Start with <Link to="/admin/setup">Admin → Set up and demo</Link>: add your team, install the agent on a computer, or turn on demo mode.</>
+        ? <>Set up from <Link to="/admin/setup">Admin → Setup</Link>: create your team, install the agent on a cabinet, then approve it.</>
         : "An admin approves new cabinets under Admin → Pending cabinets."}</Empty>}
       {data && data.length > 0 && (
         <table className="table">

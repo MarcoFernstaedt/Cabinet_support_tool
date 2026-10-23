@@ -30,7 +30,7 @@ const DISCOVERED_CODES = [
   "writes_paused_for_you", "wrong_category", "wrong_stage",
 ] as const;
 
-const GENERIC_TITLE = "That didn't work";
+const GENERIC_TITLE = "Request failed";
 const STATUSES = [400, 401, 403, 404, 409, 413, 429, 500, 502, 503, 504];
 
 /** Sentence boundaries only count when a capital starts the next one, so "TLS 1.2" is not split. */
@@ -50,7 +50,7 @@ test("every code the server can refuse with gets its own explanation", () => {
 
 test("a code wins over the raw message that came with it", () => {
   const explained = explainFailure({ code: "cabinet_offline", status: 409, message: "ECONNREFUSED 10.0.0.4:8443" });
-  assert.equal(explained.title, "That cabinet is not connected", "the message must not override a known code");
+  assert.equal(explained.title, "Cabinet is not connected", "the message must not override a known code");
 });
 
 test("an unknown code keeps the raw text and admits it does not know", () => {
@@ -95,8 +95,8 @@ test("network failures before any server answers are explained as network failur
     ["The operation timed out after 30000ms", /did not answer in time/],
     ["ETIMEDOUT", /did not answer in time/],
     ["AbortError: The user aborted a request.", /did not answer in time/],
-    ["self-signed certificate in certificate chain", /could not be trusted/],
-    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", /could not be trusted/],
+    ["self-signed certificate in certificate chain", /not trusted/],
+    ["UNABLE_TO_VERIFY_LEAF_SIGNATURE", /not trusted/],
   ] as const;
   for (const [message, expected] of samples) {
     const explained = explainFailure({ message });
@@ -155,9 +155,9 @@ test("normaliseFailure accepts a code, a status, a message, an Error and the obj
 });
 
 test("bare strings the caller already has are explained, not rejected", () => {
-  assert.equal(explainFailure("already_claimed").title, "This cabinet is already set up");
+  assert.equal(explainFailure("already_claimed").title, "Cabinet already set up");
   assert.match(explainFailure("ENOTFOUND").title, /name could not be found/);
-  assert.equal(explainFailure(404).title, "That page or item does not exist");
+  assert.equal(explainFailure(404).title, "Page or item not found");
 });
 
 test("no explanation is empty, is a wall of text, or uses more than two sentences per field", () => {

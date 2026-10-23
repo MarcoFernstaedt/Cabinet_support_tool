@@ -1,4 +1,4 @@
-// Set up and demo (docs/platform/demo.md): the Admin's path from an empty platform to a working one. Add the support
+// Setup (docs/platform/demo.md): the Admin's path from an empty platform to a working one. Add the support
 // team, install the agent on a computer, approve it, see it work, and turn demo mode on to show the platform at fleet
 // scale. Every step is an existing, server-checked action; this page only puts them in order.
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -40,8 +40,8 @@ export function Setup() {
   const s = state.data;
   return (
     <div className="page narrow">
-      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Set up and demo" }]} />
-      <h1>Set up and demo</h1>
+      <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Setup" }]} />
+      <h1>Setup</h1>
       <p className="muted">Add your team, enroll a cabinet's agent, approve it and check its readings. Demo mode adds simulated cabinets for practice.</p>
       {done && <p className="notice ok" role="status">{done}</p>}
       {state.problem && <p className="error" role="alert">{state.problem}</p>}

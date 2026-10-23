@@ -197,7 +197,7 @@ function CaptureBaseline({ cabinet }: { cabinet: CabinetDetail }) {
   return (
     <section className="panel" aria-labelledby="capture-heading">
       <h2 id="capture-heading">Capture a baseline from this cabinet</h2>
-      <p className="muted">Records what this cabinet reports now as a draft. You review and trim it, then propose it; an Admin approves it before it is used for anything. Values that differ from cabinet to cabinet (its own address, its update dates) are left out of a baseline for more than this cabinet.</p>
+      <p className="muted">Records what this cabinet reports now as a draft. Review and trim it, then propose it; an Admin approves it before it is used for anything. Values that differ from cabinet to cabinet (its own address, its update dates) are left out of a baseline that covers more than this cabinet.</p>
       <form className="stack" onSubmit={e => { e.preventDefault(); void go(); }}>
         <label className="field"><span>Applies to</span><select value={scope} onChange={e => setScope(e.target.value)}>{scopes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
         <label className="field"><span>What this version is for</span><input required minLength={3} maxLength={500} value={description} onChange={e => setDescription(e.target.value)} /></label>
