@@ -8,12 +8,16 @@
   - The local configuration is written to C:\ProgramData\Mashura\CabinetAgent, which only
     SYSTEM and Administrators can change. The network service can read it, and can write only
     its own state and log folders.
+  - Running this again on an installed cabinet keeps its identity: the cabinet ID, the platform
+    server it talks to, the scanner and sync settings and the bootstrap token already on the
+    machine are kept unless this run gives them. Give -CabinetId to replace the identity.
   Run from an elevated PowerShell, after Publish-CabinetAgent.ps1.
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -EnableLocalHarness
 .EXAMPLE
-  .\Install-CabinetAgent.ps1 -PlatformServerHost diag.mashura.example -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -BootstrapTokenFile .\bootstrap-token.txt
+  .\Install-CabinetAgent.ps1 -PlatformServerHost diag.mashura.example -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -PlatformCaSha256 3F... -BootstrapTokenFile .\bootstrap-token.txt
   Connects to the platform server. The token comes from platform-admin token create; it works once and is deleted after use.
+  The SHA-256 is the one the console shows for the CA file; the installer refuses the file without it.
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -ScannerHardwareId 'USB\VID_1234&PID_5678' -SyncCabinetAddress 10.20.0.15 -AllowedTcpPort 1433 -ReadOnly
 #>
@@ -24,7 +28,8 @@ param(
     # $PSScriptRoot is empty when the script is started with -File and the script dies with 'Cannot bind argument to
     # parameter Path' instead of installing anything.
     [string] $SourceDir,
-    [guid] $CabinetId = [guid]::NewGuid(),
+    # Not given: the cabinet keeps the ID it is already enrolled with, and a cabinet that has none gets a new one.
+    [guid] $CabinetId,
     [switch] $ReadOnly,
     [ValidateSet('sync', 'satellite', 'standalone')] [string] $CabinetRole,
     [string[]] $ScannerHardwareId = @(),
@@ -37,7 +42,8 @@ param(
     [string] $BootstrapTokenFile,
     [ValidateRange(1, 65535)] [int[]] $AllowedTcpPort = @(),
     [switch] $EnableLocalHarness,
-    # The SHA-256 of the platform CA file as the console shows it: the installer refuses a CA file that does not match.
+    # The SHA-256 of the platform CA file as the console shows it: the installer refuses a CA file that does not match,
+    # and refuses to install a CA file or a platform server without it.
     [ValidatePattern('^[0-9A-Fa-f]{64}$')] [string] $PlatformCaSha256,
     # Development and demo builds are not code-signed. Production builds are, and are refused unless every program is.
     [switch] $AllowUnsigned,
@@ -83,12 +89,17 @@ if ($unsigned) {
     if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
     Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
 }
-#  - The platform CA must be the one the console showed.
-if ($PlatformCaFile -and $PlatformCaSha256) {
+#  - The platform CA must be the one the console showed. A CA file pinned without its fingerprint is a trust anchor the
+#    installer cannot vouch for, so it is refused rather than warned about: nothing may quietly become the cabinet's
+#    trust anchor unchecked.
+if ($PlatformCaFile -or $PlatformServerHost) {
+    if (-not $PlatformCaSha256) {
+        throw 'Give -PlatformCaSha256 (the CA file''s SHA-256 exactly as the console shows it). Without it the platform CA cannot be checked against the console, and an unchecked CA file would become the cabinet''s trust anchor. Get it from the console and run again.'
+    }
+}
+if ($PlatformCaFile) {
     $caHash = (Get-FileHash -LiteralPath $PlatformCaFile -Algorithm SHA256).Hash
     if ($caHash -ne $PlatformCaSha256.ToUpperInvariant()) { throw "platform-ca.pem does not match the console (its SHA-256 is $caHash). Download it again from the console." }
-} elseif ($PlatformCaFile) {
-    Write-Warning 'No -PlatformCaSha256 given: the platform CA file was not checked against the console.'
 }
 
 $broker = 'CabinetAgentBroker'
@@ -132,6 +143,7 @@ foreach ($name in $broker, $network) { Invoke-Sc @('failure', $name, 'reset=', '
 
 # The cabinet's private key: generated here, on the cabinet, in the machine key store, non-exportable.
 # Only the network service (and SYSTEM and administrators) may use it; the service cannot create machine keys itself.
+# An installed machine key is kept: this only creates one when there is none, and re-states who may use it.
 & (Join-Path $programDir 'Cabinet.Agent.Harness\cabinet-harness.exe') provision-key
 if ($LASTEXITCODE -ne 0) { throw 'Creating the cabinet key failed.' }
 
@@ -170,19 +182,39 @@ Set-FolderAcl (Join-Path $dataDir 'harness\inbox') @((New-Rule $networkAccount '
 Set-FolderAcl (Join-Path $dataDir 'harness\outbox') @((New-Rule $networkAccount 'Modify'))
 
 # 4. Local configuration. The agent validates it against agent-config.schema.json and refuses to start if it does not match.
+# Installing again on an enrolled cabinet must not strand it: the cabinet ID it is enrolled with, the server it talks to
+# and the settings nobody named this time are all kept, and only a parameter given now replaces one. -CabinetId replaces
+# the identity outright.
 $configPath = Join-Path $dataDir 'agent-config.json'
+$installed = $null
+$configItem = Get-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+if ($configItem) {
+    if ($configItem.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "$configPath is a link, not a file. Remove it and install again." }
+    # A configuration the agent accepted, so every field below is in it (agent-config.schema.json).
+    $installed = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+}
+# A parameter that was not given is $null, not [guid]::Empty, so both have to be treated as 'no ID given'.
+if (-not $CabinetId -or $CabinetId -eq [guid]::Empty) {
+    $CabinetId = if ($installed -and $installed.cabinetId) { [guid]$installed.cabinetId } else { [guid]::NewGuid() }
+}
+# An empty array written as an if/else expression collapses to nothing in Windows PowerShell 5.1, and ConvertTo-Json then
+# writes it as an object ('{}'), which agent-config.schema.json refuses as 'type' for both of these: build them first.
+$hardwareIds = @($ScannerHardwareId | Where-Object { $_ })
+if ($hardwareIds.Count -eq 0 -and $installed) { $hardwareIds = @($installed.scanner.hardwareIds | Where-Object { $_ }) }
+$tcpPorts = @($AllowedTcpPort | Where-Object { $_ })
+if ($tcpPorts.Count -eq 0 -and $installed) { $tcpPorts = @($installed.allowedTcpPorts | Where-Object { $_ }) }
 $config = [ordered]@{
     cabinetId       = $CabinetId.ToString()
-    readOnlyMode    = [bool]$ReadOnly
-    cabinetRole     = if ($CabinetRole) { $CabinetRole } else { $null }
-    scanner         = [ordered]@{ hardwareIds = @($ScannerHardwareId) }
-    syncCabinet     = [ordered]@{ address = if ($SyncCabinetAddress) { $SyncCabinetAddress } else { $null } }
+    readOnlyMode    = if ($ReadOnly) { $true } elseif ($installed) { [bool]$installed.readOnlyMode } else { $false }
+    cabinetRole     = if ($CabinetRole) { $CabinetRole } elseif ($installed) { $installed.cabinetRole } else { $null }
+    scanner         = [ordered]@{ hardwareIds = @($hardwareIds) }
+    syncCabinet     = [ordered]@{ address = if ($SyncCabinetAddress) { $SyncCabinetAddress } elseif ($installed) { $installed.syncCabinet.address } else { $null } }
     platformServer  = [ordered]@{
-        host = if ($PlatformServerHost) { $PlatformServerHost } else { $null }
-        port = if ($PlatformServerPort) { $PlatformServerPort } else { $null }
+        host = if ($PlatformServerHost) { $PlatformServerHost } elseif ($installed) { $installed.platformServer.host } else { $null }
+        port = if ($PlatformServerPort) { $PlatformServerPort } elseif ($installed) { $installed.platformServer.port } else { $null }
     }
-    allowedTcpPorts = @($AllowedTcpPort)
-    localHarness    = [bool]$EnableLocalHarness
+    allowedTcpPorts = @($tcpPorts)
+    localHarness    = if ($EnableLocalHarness) { $true } elseif ($installed) { [bool]$installed.localHarness } else { $false }
 }
 $json = ConvertTo-Json -InputObject $config -Depth 4
 [IO.File]::WriteAllText($configPath, $json, (New-Object Text.UTF8Encoding($false)))
@@ -205,6 +237,10 @@ if ($BootstrapToken) {
     # The copy the administrator downloaded is no longer needed and must not be left where other people can read it.
     if ($BootstrapTokenFile) { Remove-Item -LiteralPath $BootstrapTokenFile -Force }
 }
+elseif (Test-Path -LiteralPath (Join-Path $dataDir 'state\bootstrap-token')) {
+    # Enrolling again is what -BootstrapToken is for; this run gives none, so the one already waiting is left to be used.
+    Write-Host 'A bootstrap token is already waiting in the state folder; it is kept.'
+}
 
 # 6. Start.
 Start-Service -Name $broker
@@ -214,5 +250,6 @@ Write-Host "Cabinet ID: $CabinetId"
 # Both engines install the same agent; this line is what the console's help and a support call read back.
 Write-Host "PowerShell used: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 Write-Host "Configuration: $configPath"
+if ($installed) { Write-Host 'Kept the cabinet ID and every setting not given in this run from the existing configuration.' }
 Write-Host "Logs: $(Join-Path $dataDir 'logs')"
 if ($EnableLocalHarness) { Write-Host "Local harness inbox: $(Join-Path $dataDir 'harness\inbox')" }
