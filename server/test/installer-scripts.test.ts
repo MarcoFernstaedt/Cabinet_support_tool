@@ -44,15 +44,27 @@ test("each script that installs or removes the agent ends in one funnel and exit
   }
 });
 
+// The code part of a PowerShell line: everything before the first # that is not inside a quoted string, so a trailing
+// comment cannot be mistaken for code (and a # inside a message is not mistaken for a comment).
+function codePart(line: string): string {
+  let inSingle = false;
+  let inDouble = false;
+  for (let index = 0; index < line.length; index++) {
+    const character = line[index]!;
+    if (character === "'" && !inDouble) inSingle = !inSingle;
+    else if (character === '"' && !inSingle) inDouble = !inDouble;
+    else if (character === "#" && !inSingle && !inDouble) return line.slice(0, index);
+  }
+  return line;
+}
+
 test("no throw in these scripts is left without a message to show the operator", () => {
   for (const name of scripts) {
     const text = readFileSync(join(installDir, name), "utf8");
     const lines = text.split("\n");
     for (const [index, line] of lines.entries()) {
-      if (line.trimStart().startsWith("#")) continue;
-      for (const match of line.matchAll(/\bthrow\b/g)) {
+      for (const match of codePart(line).matchAll(/\bthrow\b/g)) {
         const after = line.slice(match.index! + "throw".length).trimStart();
-        if (after.startsWith("#")) continue; // the word only appears in a trailing comment
         assert.match(after, /^["'($]/, `${name}:${index + 1} throws without a message: ${line.trim()}`);
       }
     }
