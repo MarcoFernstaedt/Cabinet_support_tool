@@ -158,14 +158,20 @@ public class SemVersionTests
 public class UpgradeTrustTests
 {
     [Fact]
-    public void The_compiled_in_file_loads_and_holds_no_key_until_production_keys_exist()
+    public void The_compiled_in_file_holds_the_provisioned_release_key_and_refuses_others()
     {
-        // contracts/trust/upgrade holds no key until the production KMS key exists (docs/spec/09-open-decisions.md):
-        // such a build accepts no upgrade at all.
+        // contracts/trust/upgrade/upgrade-keys.json holds the operator's release key: the public half only, P-256, which
+        // Load checks as it reads it. A build with no keys would accept no upgrade at all; this build accepts exactly the
+        // releases signed by this key, and names any other key it does not hold rather than pretending it holds none.
         UpgradeTrust t = UpgradeTrust.Compiled;
-        Assert.False(t.HasKeys);
+        Assert.True(t.HasKeys);
+        UpgradeKey key = Assert.Single(t.List.Keys);
+        Assert.Equal(64, key.KeyId.Length);
+        using ECDsa publicKey = ECDsa.Create();
+        publicKey.ImportSubjectPublicKeyInfo(Convert.FromBase64String(key.PublicKey), out _);
+        Assert.Equal(256, publicKey.KeySize);
         Assert.False(t.VerifyManifest("{}"u8, new UpgradeSignature { KeyId = new string('a', 64), Algorithm = UpgradeTrust.Algorithm, Signature = "AAAA" }, out string why));
-        Assert.Contains("no release key", why);
+        Assert.Contains("does not hold", why);
     }
 
     [Fact]

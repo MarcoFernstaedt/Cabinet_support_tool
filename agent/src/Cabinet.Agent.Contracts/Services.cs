@@ -116,3 +116,31 @@ public sealed record HeartbeatWatchedServices
 {
     public required IReadOnlyList<string> Names { get; init; }
 }
+
+/// <summary>
+/// The heartbeat response's approved-applications list (milestone 10): the programs this cabinet may be asked to start,
+/// stop or restart, resolved by the server for it. The agent keeps its own copy and acts only on these.
+/// </summary>
+public sealed record HeartbeatApprovedApps
+{
+    public required IReadOnlyList<ApprovedAppEntry> Entries { get; init; }
+}
+
+public enum ApprovedAppKind { Application, Service }
+
+/// <summary>
+/// One program a cabinet may be asked to start, stop or restart: an application, or a service with its key name. The path
+/// is the whole executable path, never a command line, and it is what the cabinet checks the running program against,
+/// exactly, before it acts on it.
+/// </summary>
+public sealed record ApprovedAppEntry
+{
+    /// <summary>How a request names this entry: app: followed by the entry's short name.</summary>
+    public required string Key { get; init; }
+    public required ApprovedAppKind Kind { get; init; }
+    /// <summary>What the operator called it (a display name, never the thing that is matched on).</summary>
+    public required string Name { get; init; }
+    public required string Path { get; init; }
+    /// <summary>The service's key name; present for a service entry, absent for an application (the contract's rule).</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? ServiceName { get; init; }
+}

@@ -14,11 +14,16 @@ public sealed class FakeServices : IServicePlatform
         ["CabinetAgentNetwork"] = (ServiceState.Running, ServiceStartType.Automatic),
     };
     public HashSet<string> WillNotStart { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The program each service's registered path points at, as Windows reports it; null for a service it will not say.</summary>
+    public Dictionary<string, string?> Programs { get; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["BioScanSvc"] = ApprovedLists.Dispenser,
+    };
     public List<string> Calls { get; } = [];
 
     public IReadOnlyList<ServiceInfo> List() => Services.Select(s => new ServiceInfo
     {
-        Name = s.Key, DisplayName = s.Key, State = s.Value.State, StartType = s.Value.Start, Account = null, ProcessId = null, ExecutablePath = null, Description = null, Recovery = null,
+        Name = s.Key, DisplayName = s.Key, State = s.Value.State, StartType = s.Value.Start, Account = null, ProcessId = null, ExecutablePath = Programs.GetValueOrDefault(s.Key), Description = null, Recovery = null,
     }).ToList();
 
     public (ServiceState State, ServiceStartType StartType)? Query(string name) => Services.TryGetValue(name, out var s) ? s : null;
@@ -93,7 +98,8 @@ public class ServiceRuleTests
     public void Restart_stops_then_starts_and_reports_before_and_after()
     {
         var fake = new FakeServices();
-        var output = new ServiceControl(fake, _ => { }).Run(new ServiceControlParams { Name = "BioScanSvc", Action = ServiceAction.Restart });
+        var control = new ServiceControl(fake, _ => { }) { Approved = () => ApprovedLists.Scanner() };
+        var output = control.Run(new ServiceControlParams { Name = "BioScanSvc", Action = ServiceAction.Restart });
         Assert.Equal(["stop BioScanSvc", "start BioScanSvc"], fake.Calls);
         Assert.Equal((ServiceState.Running, ServiceState.Running), (output.Before, output.After));
     }
@@ -104,7 +110,8 @@ public class ServiceRuleTests
         var fake = new FakeServices();
         fake.Services["BioScanSvc"] = (ServiceState.Stopped, ServiceStartType.Automatic);
         fake.WillNotStart.Add("BioScanSvc");
-        var e = Assert.Throws<OperationFailedException>(() => new ServiceControl(fake, _ => { }).Run(new ServiceControlParams { Name = "BioScanSvc", Action = ServiceAction.Start }));
+        var control = new ServiceControl(fake, _ => { }) { Approved = () => ApprovedLists.Scanner() };
+        var e = Assert.Throws<OperationFailedException>(() => control.Run(new ServiceControlParams { Name = "BioScanSvc", Action = ServiceAction.Start }));
         Assert.Equal("execution_failed", e.Code);
         Assert.Contains("1053", e.Message);
     }

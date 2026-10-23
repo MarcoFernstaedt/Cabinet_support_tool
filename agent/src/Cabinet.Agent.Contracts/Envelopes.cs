@@ -128,6 +128,8 @@ public sealed record HeartbeatResponse
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public UpgradeOffer? Upgrade { get; init; }
     /// <summary>The services this cabinet keeps running (milestone 10); absent from servers before it.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HeartbeatWatchedServices? WatchedServices { get; init; }
+    /// <summary>The programs this cabinet may be asked to start, stop or restart (milestone 10); absent from servers before it.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HeartbeatApprovedApps? ApprovedApps { get; init; }
     /// <summary>Server-directed pacing (protocol 1.1); the agent clamps each value to its range and uses its defaults when absent.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ServerIntervals? Intervals { get; init; }
 }

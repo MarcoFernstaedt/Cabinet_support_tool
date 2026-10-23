@@ -61,6 +61,13 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
     /// <summary>The watcher whose status services.list reports; set by the broker when it starts.</summary>
     public ServiceWatcher? Watcher { get; set; }
 
+    /// <summary>
+    /// The approved list in force (milestone 10): the programs this cabinet may be asked to start, stop or restart. The
+    /// broker sets it to the cabinet's own copy, read again for every request; left unset, nothing is approved and
+    /// nothing is controlled.
+    /// </summary>
+    public Func<ApprovedApps> Approved { get; set; } = static () => ApprovedApps.None;
+
     public ServicesListOutput List() => new()
     {
         Services = platform.List().OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase).Take(1000).ToList(),
@@ -99,6 +106,9 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
         var facts = platform.Query(key) ?? throw new OperationFailedException("not_found", "No service has that name.");
         if (facts.StartType == ServiceStartType.Disabled && p.Action != ServiceAction.Stop)
             throw new OperationFailedException("execution_failed", "The service is disabled; the agent never changes a start type.");
+        // The approved list, checked against the program the service's registered path points at now: nothing that is not
+        // on it is started, stopped or restarted, and a service whose program has been pointed elsewhere is not approved for.
+        Approved().RefuseServiceControl(key, RegisteredProgram(key));
         try
         {
             if (p.Action is ServiceAction.Stop or ServiceAction.Restart) platform.Stop(key);
@@ -112,5 +122,22 @@ public sealed class ServiceControl(IServicePlatform platform, Action<string> log
         var after = platform.Query(key)?.State ?? ServiceState.Unknown;
         log($"Service {p.Name}: {p.Action.ToString().ToLowerInvariant()} done; now {after}.");
         return new ServiceControlOutput { Name = p.Name, Action = p.Action, Before = facts.State, After = after };
+    }
+
+    /// <summary>
+    /// The program a service's registered path points at, as Windows reports it now, or null when Windows will not say.
+    /// The approved list names a program, so a service whose registered program cannot be read is never controlled.
+    /// </summary>
+    private string? RegisteredProgram(string key)
+    {
+        try
+        {
+            return platform.List().FirstOrDefault(s => string.Equals(s.Name, key, StringComparison.OrdinalIgnoreCase))?.ExecutablePath;
+        }
+        catch (Exception e)
+        {
+            log($"Service {key}: its registered program could not be read ({e.GetType().Name}).");
+            return null;
+        }
     }
 }

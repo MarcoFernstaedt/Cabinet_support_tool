@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.ServiceProcess;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core;
 using Cabinet.Agent.Core.Packages;
 using Cabinet.Agent.Core.Upgrades;
@@ -48,10 +50,21 @@ public sealed class BrokerService : ServiceBase
         // Services (milestone 10): services.list, service.control, processes.list, and the watcher that keeps the watched services running.
         var servicePlatform = new WindowsServicePlatform();
         var serviceWatcher = new ServiceWatcher(servicePlatform, new StateFile<ServiceWatcher.Saved>(AgentPaths.ServiceWatch), clock, _log.Write);
-        var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher };
+        // The approved list (milestone 10): the programs this cabinet may be asked to start, stop or restart. It is the
+        // cabinet's own copy — the one the network service keeps from the heartbeat answer in the state folder
+        // (Network/Program.cs) and this process reads from disk, because the broker never touches the network — and it is
+        // read again for every request, so a list the console changes takes effect without a restart. Nothing on the
+        // machine is controlled unless the server has sent an entry for it.
+        var approved = new ApprovedAppsFile(Path.Combine(AgentPaths.State, "monitor-settings.json"), _log.Write);
+        var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher, Approved = () => approved.Current };
         // Time zone and clock (module 21): time.status, time.setZone, time.sync.
         var time = new TimeOperations(new WindowsTimePlatform(), _log.Write);
+        // The support actions, with process.end put behind the approved list: ActionOperations registers it as it always
+        // has, then ApprovedProcessEnd replaces that handler with one that reads the program running under the process ID
+        // and checks it first. The check belongs in the process that holds the administrator rights, and replacing rather
+        // than re-listing the registrations here means an action added to ActionOperations cannot be lost by this file.
         var registry = ActionOperations.Register(InventoryOperations.Register(time.Register(WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry())))))));
+        ApprovedProcessEnd.Register(registry, () => approved.Current, ProgramOf, ActionOperations.EndProcess, _log.Write);
         // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
         var authenticode = new WindowsAuthenticode();
         var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),
@@ -141,6 +154,23 @@ public sealed class BrokerService : ServiceBase
             _log.Write($"The downloads folder was not re-created ({e.GetType().Name}); keeping it.");
             downloads.Refresh();
             if (downloads.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("The downloads folder is a link; refusing to start.");
+        }
+    }
+
+    /// <summary>
+    /// The whole program path of a running process, or null when Windows will not say. Used only to check a process
+    /// against the approved list: a process whose program cannot be read is refused, never assumed approved.
+    /// </summary>
+    private static string? ProgramOf(long processId)
+    {
+        try
+        {
+            using var process = Process.GetProcessById(checked((int)processId));
+            return process.MainModule?.FileName;
+        }
+        catch (Exception e) when (e is ArgumentException or OverflowException or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
+        {
+            return null;
         }
     }
 

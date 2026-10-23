@@ -342,13 +342,14 @@ public class BrokerOwnChecksTests
         var platform = new Cabinet.Agent.Core.Tests.FakeServices();
         using var dir = new TempDir();
         var clock = new ManualClock(Fixtures.Start);
-        var handler = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => false,
+        // The cabinet has approved its scanner, as a console-configured cabinet has.
+        var handler = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }) { Approved = () => ApprovedLists.Scanner() }.Register(new OperationRegistry()), readOnly: () => false,
             writeLimit: new RateLimiter(Path.Combine(dir.Path, "w.log"), clock), clock: clock);
         for (int i = 0; i < 20; i++) Assert.Equal(BrokerStatus.Succeeded, Response(await handler.HandleAsync(Restart(i), default)).Status);
         var r = Response(await handler.HandleAsync(Restart(21), default));
         Assert.Equal("rate_limited", r.Error!.Code);
         // The limit is kept on disk: a restarted broker still counts the hour's writes.
-        var again = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }).Register(new OperationRegistry()), readOnly: () => false,
+        var again = new BrokerRequestHandler(new Cabinet.Agent.Core.Services.ServiceControl(platform, _ => { }) { Approved = () => ApprovedLists.Scanner() }.Register(new OperationRegistry()), readOnly: () => false,
             writeLimit: new RateLimiter(Path.Combine(dir.Path, "w.log"), clock), clock: clock);
         Assert.Equal("rate_limited", Response(await again.HandleAsync(Restart(22), default)).Error!.Code);
     }

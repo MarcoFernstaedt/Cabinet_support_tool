@@ -265,6 +265,11 @@ Decided here, open to change:
 - **Suppressions** are created on the Issue types and suppressions screen: match fields plus a written reason of at least 10 characters. A job checks every minute and marks expired ones, with history.
 - **"Who opened this cabinet"** is a link on the cabinet page for Admins. It opens the audit log filtered to that cabinet's views. The audit search also takes a family of actions such as `user.`.
 - **Cabinet role** (sync, satellite, standalone) is changed by an Admin on the cabinet's overview.
+  - The role is chosen when the request is approved, together with what that role needs to work, so a cabinet is not approved into a state it cannot use and then fixed afterwards.
+  - **A satellite is refused (409, `satellite_needs_sync`) when its site has no sync cabinet address.** This tightens what used to be allowed: an approval that would have left a satellite with nothing to reach now says to enter the sync cabinet's private IPv4 address with the approval, or to approve the sync cabinet first. The address may be given in the same approval, so a site's first satellite does not need a second screen.
+  - **A site has one live sync cabinet** (`status <> 'removed'`), enforced when the cabinet is approved: a second one is refused (409, `sync_exists`), under the same transaction's lock, so two approvals at the same moment leave exactly one. Changing a cabinet's role on its overview is still how an existing sync cabinet becomes a satellite or standalone.
+  - A **sync** cabinet is the endpoint its satellites and their network checks reach, so it is not given a sync address: an approval that carries one is refused (400, `sync_not_allowed`), rather than the address being ignored.
+  - The address the approval writes is the site's own setting (`sites.sync_address`, `sites.sync_ports`, the pair the Device defaults screen writes), validated by the same rule: a private IPv4 address, and at most four whole ports. It is written in the approving transaction, so a refused or failed approval leaves neither a cabinet nor an address behind.
 
 ## Choices made for the alert changes (confirm or change)
 
@@ -627,4 +632,12 @@ The control half of milestone 10 (`docs/spec/13-roadmap.md`: `process.end` and `
 - **An empty list is a level of its own**: it approves nothing at that level and still wins over the level above. `entries null` instead removes the level's list, so the level above applies. The spec does not distinguish the two, and the console's editor needs to show them differently.
 - **A request will name the entry's key** (`app:<name>`), never a raw PID, a service name alone or a command line. A PID may point at the thing (to read its image path) but cannot be the stored identity, because Windows reuses PID numbers.
 - **Built, not yet enforced end to end:** the list is stored, resolved and audited; pushing it to the cabinet, the broker refusing anything not on its own copy, and the console page that edits it are the next slice.
+
+### The cabinet's own copy is now the gate, and three things about it are deliberate (October 2026)
+
+The list reaches the cabinet on the heartbeat and the cabinet now refuses before Windows is asked: `agent/src/Cabinet.Agent.Core/Services/ApprovedApps.cs` re-validates every entry it is sent, `ServiceRules` re-reads the service's registered program on each request, and `ApprovedProcessEnd` reads the program running under a process ID inside the broker — the process that holds the administrator rights. It arrives through the settings file the network service already writes, which the broker re-reads when its length or write time changes, so a console change takes effect without restarting the broker and no new pipe carries it.
+
+- **The watcher acts on the watched list, not on this one.** `ServiceControl.Watcher` keeps the watched services running on its own schedule without asking whether they are approved. Both lists are platform-set and audited, and gating the watcher would change milestone 9's supervisor rather than narrow what an administrator can ask for. Say if a service that is watched but not approved should instead be refused and shown in the console as a configuration mistake.
+- **An application is pinned by its path, not by its publisher.** The entry has no field for a signing certificate, so a program whose file is replaced at the same path still matches. An optional publisher thumbprint, checked with `X509Certificate.CreateFromSignedFile`, is the next step if that gap matters; it also has to answer for the in-house programs nobody signed.
+- **A settings file that is missing, corrupt or contract-invalid keeps the last good list.** Failure to read narrows, never widens; a cabinet that cannot reach the platform keeps working with what it was last sent, and an answer that carries no list at all leaves it touching nothing.
 

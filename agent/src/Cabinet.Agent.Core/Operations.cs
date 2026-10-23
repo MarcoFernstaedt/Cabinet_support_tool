@@ -60,6 +60,17 @@ public sealed class OperationRegistry
         return this;
     }
 
+    /// <summary>
+    /// Replaces a handler already registered. The broker puts the approved list in front of process.end this way, so the
+    /// rest of what <see cref="ActionOperations"/> registers stays registered and an action added there cannot be lost.
+    /// Only a catalog operation can be registered, exactly as with <see cref="Register"/>.
+    /// </summary>
+    public OperationRegistry Replace<TParams, TOutput>(string operation, Func<TParams, CancellationToken, Task<TOutput>> handler)
+    {
+        _handlers.Remove(operation);
+        return Register(operation, handler);
+    }
+
     /// <summary>Forward an operation to another handler that already returns JSON (the broker client).</summary>
     public OperationRegistry RegisterRaw(string operation, Func<JsonElement, CancellationToken, Task<JsonElement>> handler)
     {
