@@ -1,0 +1,13 @@
+{
+  "level": "cabinet",
+  "id": "0f1c8f0e-0000-4000-8000-000000000001",
+  "entries": [
+    {
+      "key": "app:spooler",
+      "kind": "service",
+      "name": "Print Spooler",
+      "path": "C:\\Windows\\System32\\spoolsv.exe"
+    }
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

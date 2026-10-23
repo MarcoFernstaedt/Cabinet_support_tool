@@ -1,0 +1,13 @@
+{
+  "level": "cabinet",
+  "id": "0f1c8f0e-0000-4000-8000-000000000001",
+  "entries": [
+    {
+      "key": "app:dispenser",
+      "kind": "application",
+      "name": "Dispenser",
+      "path": "\\\\server\\share\\dispenser.exe"
+    }
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

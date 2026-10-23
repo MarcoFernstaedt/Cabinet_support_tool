@@ -439,6 +439,51 @@ export interface ApproveEnrollment {
 }
 
 /**
+ * The applications and services a cabinet may be asked to control (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). One entry pins the exact program: the executable path is written by an owner and never by a Tier 1 or Tier 2 account, by the console's write path or by the agent. A server administrator sets the list for the fleet, a client, a site or a cabinet through the device-settings route, with step-up and an audit entry. entries null removes that level's list so the level above applies; an empty list means control nothing at this level.
+ */
+export interface ApprovedApps {
+  /**
+   * The level the list is set for. The most specific level with a list wins whole for a cabinet.
+   */
+  level: "fleet" | "client" | "site" | "cabinet";
+  /**
+   * The client, site or cabinet id; null for the fleet (level fleet).
+   */
+  id: string | null;
+  /**
+   * At most 32 approved programs. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake.
+   */
+  entries:
+    | {
+        /**
+         * The baseline item key this program stands for, in the applications category (app:<name>), so its version can be compared with the site's baseline. No separators, no control characters.
+         */
+        key: string;
+        /**
+         * application: started by its path (app.restart). service: controlled through the service control manager (service.control, and process.end of the process it runs as).
+         */
+        kind: "application" | "service";
+        /**
+         * What the owner calls it, shown in the console. Text only: it is never a path and never an argument.
+         */
+        name: string;
+        /**
+         * Absolute local path to a program file. No relative segments, UNC, device or wildcard paths.
+         */
+        path: string;
+        /**
+         * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+         */
+        serviceName?: string;
+      }[]
+    | null;
+  /**
+   * A one-time step-up token bound to this exact action, level and these exact entries.
+   */
+  stepUpToken: string;
+}
+
+/**
  * The audit log search, from the query string: by user, cabinet, action and date range, newest first.
  */
 export interface AuditFilter {

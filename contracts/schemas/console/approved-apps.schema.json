@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approved-apps.schema.json",
+  "title": "approved-apps",
+  "description": "The applications and services a cabinet may be asked to control (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). One entry pins the exact program: the executable path is written by an owner and never by a Tier 1 or Tier 2 account, by the console's write path or by the agent. A server administrator sets the list for the fleet, a client, a site or a cabinet through the device-settings route, with step-up and an audit entry. entries null removes that level's list so the level above applies; an empty list means control nothing at this level.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["level", "id", "entries", "stepUpToken"],
+  "properties": {
+    "level": {
+      "description": "The level the list is set for. The most specific level with a list wins whole for a cabinet.",
+      "enum": ["fleet", "client", "site", "cabinet"]
+    },
+    "id": {
+      "description": "The client, site or cabinet id; null for the fleet (level fleet).",
+      "anyOf": [{"$ref": "../common.schema.json#/$defs/uuid"}, {"type": "null"}]
+    },
+    "entries": {
+      "description": "At most 32 approved programs. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake.",
+      "anyOf": [
+        {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key", "kind", "name", "path"],
+            "properties": {
+              "key": {
+                "description": "The baseline item key this program stands for, in the applications category (app:<name>), so its version can be compared with the site's baseline. No separators, no control characters.",
+                "type": "string",
+                "minLength": 5,
+                "maxLength": 128,
+                "pattern": "^app:[^\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]+$"
+              },
+              "kind": {
+                "description": "application: started by its path (app.restart). service: controlled through the service control manager (service.control, and process.end of the process it runs as).",
+                "enum": ["application", "service"]
+              },
+              "name": {
+                "description": "What the owner calls it, shown in the console. Text only: it is never a path and never an argument.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]+$"
+              },
+              "path": {"$ref": "../common.schema.json#/$defs/windowsProgramPath"},
+              "serviceName": {"$ref": "../common.schema.json#/$defs/serviceName"}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"kind": {"const": "service"}}, "required": ["kind"]},
+                "then": {"required": ["serviceName"]}
+              }
+            ]
+          }
+        },
+        {"type": "null"}
+      ]
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action, level and these exact entries.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}
