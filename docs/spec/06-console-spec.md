@@ -28,7 +28,7 @@
 
 ## Screen size
 
-- The console is for desktop computers only, designed for 1280 px wide and up. Below 1200 px every page, the sign-in page included, shows a plain notice ("This console is for desktop computers. Open it on a computer with a wider screen.") instead of the console. There is no phone or tablet layout.
+- The console works on desktop and compact laptop displays, with a usable sign-in and all navigation and actions on tablet and phone widths. Navigation wraps or scrolls within its own region; wide data tables scroll within their containers rather than hiding the whole console. The cabinet menu becomes a horizontal section list on narrow screens.
 
 ## Cabinet view
 

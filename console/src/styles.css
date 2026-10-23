@@ -405,12 +405,37 @@ tr.highlight > * { background: color-mix(in srgb, var(--accent, #22d3ee) 12%, tr
 .welcome-tour.centered { right: auto; bottom: auto; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100vw - var(--s-8))); box-shadow: 0 0 0 100vmax rgba(4, 9, 16, .62), var(--shadow-3, 0 12px 40px rgba(0,0,0,.5)); }
 .welcome-tour h2:focus { outline: none; }
 
-/* Desktop only: below 1200 px a plain notice replaces the console (the sign-in page included). */
-.narrow-notice { display: none; }
+/* Compact laptop, tablet, and phone layouts keep every action available. Wide tables scroll inside their own region. */
 @media (max-width: 1199px) {
-  #root { display: none; }
-  .narrow-notice { display: grid; place-content: center; justify-items: center; min-height: 100vh; padding: var(--s-6); text-align: center; gap: var(--s-2); }
-  .narrow-notice p { font-size: var(--fs-lg); max-width: 32em; }
+  .topbar { flex-wrap: wrap; height: auto; padding: var(--s-2) var(--s-3); }
+  .topbar .brand { min-width: 0; white-space: normal; }
+  .topbar nav { order: 3; flex: 1 0 100%; overflow-x: auto; scrollbar-width: thin; }
+  .topbar nav a { min-height: 40px; flex-shrink: 0; padding: 0 var(--s-2); }
+  .topbar .jump { order: 2; flex: 1 1 180px; max-width: none; }
+  .topbar .user { order: 1; }
+  .page { padding: var(--s-4); }
+  .cabinet-layout { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: static; max-height: none; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: var(--s-2); }
+  .sidebar nav + nav { margin-top: var(--s-2); padding-top: var(--s-2); }
+  .sidebar ul { display: flex; width: max-content; gap: var(--s-1); }
+  .sidebar a { white-space: nowrap; min-height: 36px; }
+  .cabinet-main { padding: 0 var(--s-4) var(--s-6); }
+  .cabinet-header { position: static; }
+  .entry { grid-template-columns: minmax(120px, 1fr) minmax(80px, 1fr); }
+  .entry .line { white-space: normal; overflow-wrap: anywhere; }
+  .table-wrap { overflow-x: auto; }
+}
+@media (max-width: 700px) {
+  .topbar .user { flex: 1 0 100%; order: 3; margin: 0; justify-content: space-between; }
+  .topbar .jump { order: 2; flex: 1 0 100%; }
+  .topbar nav { order: 4; }
+  .page, .cabinet-main { padding-left: var(--s-3); padding-right: var(--s-3); }
+  .cards, .tiles, .log-list, .trends { grid-template-columns: minmax(0, 1fr); }
+  .kv, .summary-grid { grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr)); }
+  .panel-head, .totals { flex-wrap: wrap; }
+  .field.grow { min-width: min(220px, 100%); }
+  .btn { white-space: normal; }
+  .dialog { max-width: calc(100vw - var(--s-4)); max-height: calc(100dvh - var(--s-4)); overflow: auto; }
 }
 
 /* Gentle motion: short colour fades on hover and focus, and smooth scrolling. Nothing moves or flashes. */
