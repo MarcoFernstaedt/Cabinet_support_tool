@@ -109,7 +109,7 @@ function InstallAgent({ setup }: { setup: SetupState }) {
               <a className="btn" href={files.ca} download="platform-ca.pem">Download platform-ca.pem</a></p>
           </div>)}
       </li>
-      <li>On the cabinet, unzip the agent into <code>Downloads</code> and add <code>token.txt</code> and <code>platform-ca.pem</code> to the <code>CabinetAgent</code> folder. In an administrator PowerShell, run:
+      <li>On the cabinet, unzip the agent into <code>Downloads</code>. In an administrator PowerShell, paste all three lines: the first puts <code>token.txt</code> and <code>platform-ca.pem</code> where the installer reads them, the last two install the agent.
         <fieldset>
           <legend>Which PowerShell is on that computer?</legend>
           <div className="row gap wrap">

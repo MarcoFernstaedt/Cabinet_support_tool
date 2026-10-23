@@ -119,7 +119,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     // Windows PowerShell 5.1 is on every machine, PowerShell 7 only sometimes, and the help reads back the version
     // number the operator sees instead of leaving them to guess.
     const line = async (): Promise<string> => (await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText()).replace(/\s+/g, " ");
-    assert.match(await line(), /^cd \$HOME\\Downloads\\CabinetAgent powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost/, "Windows PowerShell is offered first, because every machine has it");
+    assert.match(await line(), /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent cd \$HOME\\Downloads\\CabinetAgent powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost/, "Windows PowerShell is offered first, because every machine has it, and the block moves the downloads the operator just took");
     await p.getByRole("radio", { name: "PowerShell 7" }).check();
     assert.match(await line(), / pwsh\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
     assert.doesNotMatch(await line(), /powershell\.exe/);

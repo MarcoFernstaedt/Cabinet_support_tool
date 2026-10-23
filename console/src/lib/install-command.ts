@@ -40,7 +40,12 @@ export function installCommand(o: { host?: string | null; port?: number | null; 
     "-BootstrapTokenFile .\\token.txt",
   ];
   if (o.unsigned) args.push("-AllowUnsigned");
+  // One paste does the whole handover. The browser drops the agent zip, token.txt and platform-ca.pem in the same
+  // Downloads folder, so the first line puts the two files the installer reads next to the installer itself and the
+  // operator never moves them by hand. A file that is not there says so and the rest still runs, which is the failure
+  // they can act on.
   return [
+    "Move-Item -Force $HOME\\Downloads\\token.txt, $HOME\\Downloads\\platform-ca.pem -Destination $HOME\\Downloads\\CabinetAgent",
     "cd $HOME\\Downloads\\CabinetAgent",
     `${engineInfo(o.engine).exe} -NoProfile -ExecutionPolicy Bypass -File .\\install\\Install-CabinetAgent.ps1 ${args.join(" ")}`,
   ].join("\n");

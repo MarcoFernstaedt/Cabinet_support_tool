@@ -9,11 +9,11 @@ import { DEFAULT_INSTALL_ENGINE, INSTALL_ENGINES, VERSION_HELP, engineFromVersio
 
 const full = { host: "cab.example.com", port: 8443, caSha256: "a".repeat(64), unsigned: true };
 
-test("the pasted line starts the engine the operator picked and finishes the same installer", () => {
+test("the pasted block moves both downloads next to the installer and then runs it", () => {
   const windows = installCommand({ ...full, engine: "windows" });
   const pwsh = installCommand({ ...full, engine: "pwsh" });
-  assert.match(windows, /^cd \$HOME\\Downloads\\CabinetAgent\npowershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
-  assert.match(pwsh, /^cd \$HOME\\Downloads\\CabinetAgent\npwsh\.exe /);
+  assert.match(windows, /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent\ncd \$HOME\\Downloads\\CabinetAgent\npowershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
+  assert.match(pwsh, /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent\ncd \$HOME\\Downloads\\CabinetAgent\npwsh\.exe /);
   assert.equal(pwsh.replace("pwsh.exe", "powershell.exe"), windows, "only the program that starts it may differ between the two engines");
 });
 

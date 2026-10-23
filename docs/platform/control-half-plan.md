@@ -19,6 +19,12 @@ Marco spends on the two cabinet machines themselves.
 4. **Failures in words.** 95 platform refusals, every HTTP status a console can meet, the network failures, and the
    installer failures this project actually hit — each with what happened, what it means, and the next action, naming
    Admin or Tier 2 when the action needs a permission. An unknown failure is never guessed at.
+5. **The test data out of the live platform.** The `PetFolk` client and its `Scottsdale` site are soft-removed
+   (`removed_at`), the way `admin.removeClient` does it; its three cabinets were already `status = 'removed'` with their
+   certificates revoked. What is left is one real cabinet — Home / North Phoenix / `deviceb` — which every remaining
+   session needs. The console already excludes removed rows (`k.status <> 'removed'`, `removed_at IS NULL`), so the
+   platform now lists only that one. Cleanup was done at the database layer, so it left no audit row; `audit-verify`
+   passes at 1934 entries.
 
 ## Left, in order
 
@@ -48,7 +54,52 @@ default, satellite → satellite on request, and results that store transitions 
 the demo confirmation step, and run the whole thing on the two real machines: enroll, approve, control, break it on
 purpose, and watch the console explain it.
 
+**Session 7 — the platform stays dynamic without losing the boundary.** Two things Marco asked for. Audit history gets
+real time windows — 15 minutes, 1 hour, 6 hours, 24 hours and a custom range down to the minute — alongside the actor,
+action, cabinet and version filters, filtered in SQL with pagination and scoped to what the signed-in operator may see.
+And the Setup page's PowerShell picker stops being only about the installer: next to the engine (Windows PowerShell 5.1
+or PowerShell 7) sits the **unattended monitoring profile** — which read-only checks the agent runs on its own schedule
+and how the watchdog behaves. That is where "which scripts the agent uses to watch things when we are not around" lands
+without giving the agent a script engine, which would break the rule that it may only run catalog operations.
+
+**Session 8 — the second Windows architecture.** Some cabinets are 32-bit. The probe says the code itself is fine:
+publishing all four programs for `win-x86` succeeds with no source change, and the four executables come out i386
+(`machine 0x014c`), single-file and self-contained. What is missing is everything around the build, and each piece is
+load-bearing:
+
+- `RuntimeIdentifiers` is `win-x64` only (`agent/Directory.Build.props`), and the release pipeline builds and publishes
+  one archive. Two architectures means two archives per version, built and hashed together.
+- Nothing knows a cabinet's architecture. `check-in.schema.json` carries `version` and `at`; enrollment does not carry
+  it either. Add it to the check-in (and enrollment), store it, show it in the console's fleet views.
+- **The upgrade manifest has no architecture field** (`product`, `version`, `minimumVersion`, `sha256`, `sizeBytes`,
+  `releasedAt`, `notes`), and a rollout hands a version to every cabinet in the batch. Without an architecture on the
+  manifest and a match against the cabinet's own, a rollout stamps the x64 archive onto a 32-bit cabinet — the one
+  failure mode that can leave a machine unable to start, on a machine we would then have to fix by hand. This is the
+  reason the session exists, not the build.
+- The console's install command and the Setup page must hand out the archive for the machine in front of the operator.
+- The installer and the updater must read the 64-bit registry view explicitly (`HKLM\SOFTWARE`, not the redirected
+  `WOW6432Node`), so a 32-bit PowerShell and a 64-bit one find the same installation.
+- The P/Invoke used for hardware and services is already pointer-size correct — the structs use `IntPtr` and
+  `Marshal.SizeOf<T>`, not fixed-width stand-ins — so nothing there needs rewriting. That is a reading of the code, not
+  a measurement on a 32-bit machine.
+
+**Session 9 — a 32-bit cabinet, for real.** Enroll one of the 32-bit machines and run the same acceptance as Session 6:
+install, approve, read, control, then push an update and watch it land and report the right architecture. This is the
+only step that turns Session 8 from "publishes" into "works", and it needs a real 32-bit cabinet on the network the
+cabinets use.
+
+**Windows 7 or 8.1 would change the answer, and that is a decision, not a task.** .NET 10 supports Windows 10 1607 and
+later on x86 and x64 (Microsoft's own table lists `Arm64, x64, x86` for Windows 10 and 11). Windows 7 SP1 and 8.1 are
+outside that table: no .NET 10 build runs there at all, so a 32-bit cabinet on those versions needs a separate
+.NET Framework build of the agent — a second target framework, a WMF 5.1 requirement for PowerShell, TLS 1.2 turned on
+by hand, and another acceptance pass. Worth knowing before Session 8 is built rather than after.
+
 ## Reachability, which has to be settled first because the cabinets are on another network
+
+**Settled:** Marco chose the second option — the port made public — because the cabinets are on their own network and
+will not join the tailnet. It is committed as `27077c6`: `deploy/compose.public.yaml` publishes `0.0.0.0:8443` with
+mutual TLS intact, and the port answers `/health` from outside the VPS. The tailnet option is kept below for a fleet
+that could join it.
 
 The agent API listens on port 8443 and terminates mutual TLS itself — the cabinet presents the certificate the platform
 issued it, and nothing else gets in. It is bound to the tailnet address today, so a cabinet outside the tailnet cannot
