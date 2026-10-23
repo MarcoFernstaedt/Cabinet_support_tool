@@ -455,13 +455,26 @@ export interface AlertResolve {
 }
 
 /**
- * Approve a pending cabinet: where it belongs and what it is called.
+ * Approve a pending cabinet: where it belongs, what it is called, and the configuration its role needs. A satellite is given the site's sync cabinet here; a sync cabinet is the endpoint itself and is never given one.
  */
 export interface ApproveEnrollment {
   client: string;
   site: string;
   cabinet: string;
   role: "sync" | "satellite" | "standalone";
+  /**
+   * The site's sync cabinet, captured with the approval: a private IPv4 address (RFC 1918, the same rule the site sync settings use), and optionally the site's own TCP ports. ports left out means the client's default ports, else the fleet's.
+   */
+  sync?: {
+    /**
+     * The sync cabinet's address on the site's own network. The dotted-quad form is checked by $defs/ipv4; the pattern keeps it to the private ranges.
+     */
+    address: string;
+    /**
+     * @maxItems 4
+     */
+    ports?: number[];
+  };
   /**
    * A one-time step-up token bound to this exact action.
    */

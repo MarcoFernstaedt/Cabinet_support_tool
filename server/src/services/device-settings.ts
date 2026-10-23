@@ -8,7 +8,7 @@
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { isPrivateIpv4, parseJson, upsertSetting } from "./settings.js";
 
 export type ScannerSource = "cabinet" | "site" | "client" | "fleet" | "automatic";
 export type PortsSource = "site" | "client" | "fleet" | "none";
@@ -64,6 +64,36 @@ export async function syncForSite(db: Queryable, siteId: string): Promise<SyncLe
   // A site or client with an explicit empty list means "no ports here", which still overrides what is above it.
   const pick = r.s !== null ? [r.s, "site"] : r.c !== null ? [r.c, "client"] : fleet !== null ? [fleet, "fleet"] : [[], "none"];
   return { address: r.address, site: r.s, client: r.c, fleet, effective: pick[0] as number[], source: pick[1] as PortsSource };
+}
+
+/** The most sync ports a site may be given: the same limit pathhealth-targets.ts and the agent's own validator use. */
+export const SITE_SYNC_PORTS_MAX = 4;
+
+export interface SiteSync { address: string; ports: number[] | null }
+
+/**
+ * Validates and writes a site's sync cabinet in the caller's transaction, into the same columns `syncForSite` reads
+ * (`sites.sync_address`, `sites.sync_ports`). The address rule is settings.ts's own (`setSiteSync` uses it too), so the
+ * console's site settings and an approval cannot disagree about what a sync cabinet address is.
+ *
+ * This runs inside the caller's transaction on purpose: an approval that fails after it (a duplicated cabinet name, a
+ * certificate that cannot be issued) leaves no sync address behind.
+ */
+export async function writeSiteSync(c: Queryable, userId: string, siteId: string, sync: SiteSync): Promise<void> {
+  // A sync cabinet is reached on the site's own network, so only RFC 1918 addresses are accepted; each cabinet checks again
+  // that the address is on one of its own networks before it connects.
+  if (!isPrivateIpv4(sync.address)) {
+    throw new Refused("invalid_address", 400, "the sync cabinet's address must be a private IPv4 address: 10.x.x.x, 172.16-31.x.x or 192.168.x.x");
+  }
+  const ports = sync.ports ?? null;
+  if (ports !== null) {
+    if (ports.length > SITE_SYNC_PORTS_MAX) throw new Refused("invalid_ports", 400, `a site can have at most ${SITE_SYNC_PORTS_MAX} sync ports`);
+    for (const port of ports) if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Refused("invalid_ports", 400, "a sync port must be a whole number from 1 to 65535");
+    if (new Set(ports).size !== ports.length) throw new Refused("invalid_ports", 400, "the same sync port is listed twice");
+  }
+  const r = await c.query("UPDATE sites SET sync_address = $2, sync_ports = $3 WHERE id = $1 AND removed_at IS NULL", [siteId, sync.address, ports]);
+  if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
+  await audit(c, { actorKind: "user", actorId: userId, action: "site.sync", targetKind: "site", targetId: siteId, outcome: "succeeded", details: { address: sync.address, ports } });
 }
 
 export async function syncForCabinet(db: Queryable, cabinetId: string): Promise<SyncLevels | null> {
