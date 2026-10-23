@@ -1,6 +1,6 @@
 # The control half, to production
 
-Where this stands on 2026-10-23, what is left, and the order it is done in. Six focused working sessions, plus the time
+Where this stands on 2026-10-23, what is left, and the order it is done in. Nine focused working sessions, plus the time
 Marco spends on the two cabinet machines themselves.
 
 ## Done
@@ -21,10 +21,18 @@ Marco spends on the two cabinet machines themselves.
    Admin or Tier 2 when the action needs a permission. An unknown failure is never guessed at.
 5. **The test data out of the live platform.** The `PetFolk` client and its `Scottsdale` site are soft-removed
    (`removed_at`), the way `admin.removeClient` does it; its three cabinets were already `status = 'removed'` with their
-   certificates revoked. What is left is one real cabinet — Home / North Phoenix / `deviceb` — which every remaining
-   session needs. The console already excludes removed rows (`k.status <> 'removed'`, `removed_at IS NULL`), so the
-   platform now lists only that one. Cleanup was done at the database layer, so it left no audit row; `audit-verify`
-   passes at 1934 entries.
+   certificates revoked. The `Home` client, its `North Phoenix` site and the `deviceb` cabinet followed on 2026-10-23, so
+   the platform now lists nothing: every cabinet from here is a real one Marco enrolls by hand on the cabinets' own
+   network and approves himself. Cleanup is at the database layer, so it leaves no audit row; `audit-verify` passes.
+6. **The console owns the domain root.** `https://marcofernstaedt.com` serves the console (built with `CONSOLE_BASE=/`),
+   `/console*` redirects to the root so links already sent keep working, and the apex is answered by a Vercel project
+   that only routes to the console's front. Marco's portfolio keeps its repository and its own address.
+7. **Installing an agent is a generated launcher.** A cabinet is `Download agent` → `Create token` → `Download`
+   (`token.txt`, `platform-ca.pem`) → `Copy commands` into an administrator PowerShell, and the pasted block unpacks the
+   package itself, puts the two files where the installer reads them, and installs. The setup page also hands out
+   `Install-CabinetAgent.cmd`, which does those three steps on a double-click; it carries no secret.
+8. **The 32-bit answer, measured.** Publishing all four programs for `win-x86` succeeds with no source change and the
+   executables come out i386, single-file and self-contained. What is missing is everything around the build (Session 8).
 
 ## Left, in order
 
@@ -115,3 +123,21 @@ reach it at all. Two ways to fix that, in the order I would pick them:
   `168.231.67.178` — a record Marco has to add himself.
 
 Funnel is not an option for this port: it terminates TLS, which is where the cabinet's certificate is checked.
+
+## Loose ends that are not sessions
+
+- **Production signing is unproven end to end.** A development cabinet accepts an unsigned upgrade
+  (`AllowUnsignedDevelopmentUpgrades=true`) and 0.2.1 → 0.2.2 landed that way; a signed rollout from the release key has
+  never been pushed to a real cabinet.
+- **`Cabinet.Agent.TestAgent` does not build in Release** (exit 2); only `-c Debug` builds. Any release pipeline that
+  runs the agent's tests hits this first.
+- **Two suite failures reproduce against sibling work in the tree**, not against the committed tree
+  (`upgrades.test.js` "release store", `ResultOutboxTests.Results_survive`). Confirm before treating them as real bugs.
+- **`ServiceWatcher` starts watched services without consulting the approved list.** Watching is not approving; decide
+  whether a watch implies a start or only observation, because that decides what the approved list has to cover.
+- **The guided-demo browser test stalls on the demo confirmation step** (Session 6 clears it).
+- **Windows 7 or 8.1 on a 32-bit cabinet would need a second target framework.** .NET 10 starts at Windows 10 1607; if a
+  cabinet is older than that, Section 8 grows a .NET Framework build and another acceptance pass.
+- **The agent API's certificate names an IP, not a name.** `AGENT_API_HOSTNAMES` covers the addresses the cabinets dial
+  and works from outside the tailnet, but a DNS name pointing at `168.231.67.178` would survive a renumber and read
+  better in the installer.
