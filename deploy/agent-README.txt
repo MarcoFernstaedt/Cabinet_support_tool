@@ -25,6 +25,18 @@ Install:
   5. In the console, approve the enrollment request (Administration).
      The agent picks up its certificate within a minute.
 
+If the install stops:
+  Nothing fails silently. The last lines say what happened, the script line, the log / state / configuration folders on
+  this machine, whether the agent's services were left stopped (and how to start them again), and what to do next.
+  Copy those lines into the support thread and attach the newest file in the log folder above; the "What happened" line
+  is the one that matters. A cabinet that was already enrolled keeps its identity, so repairing it is another install.
+
+  The installer refuses, in one sentence that says why, when token.txt or platform-ca.pem is not beside it, when
+  platform-ca.pem does not match the SHA-256 the console shows, when this machine is older than Windows 10 version 1607,
+  when the archive is for the other architecture (a 32-bit archive on a 64-bit cabinet, or the 64-bit archive on a
+  32-bit cabinet), when the programs are unsigned and -AllowUnsigned was not given, or when the folder they are unpacked
+  in is one ordinary users can change.
+
 The server name or IP must be exactly the one the server's certificate was made for (AGENT_API_HOSTNAMES on the server).
 
 Logs: C:\ProgramData\Mashura\CabinetAgent\logs
