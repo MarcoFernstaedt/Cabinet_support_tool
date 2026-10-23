@@ -618,3 +618,13 @@ Removing a cabinet revokes its certificate (02-security-model.md) and takes it o
 - **Recommended, not built:** when a cabinet is removed, resolve its open alerts with a system-actor audit entry and a reason, so no fleet view can show a cabinet that is gone.
 - **Also say if** a removed cabinet's alert history should stay readable somewhere (an archive or a filter that shows retired cabinets on purpose), or whether resolving them is enough.
 - Found because two retired test cabinets (PetFolk / Scottsdale: `Exam Room (removed 2026-10-22)` and `Enrollment Test`) left twelve open alerts behind after their enrollment tests.
+
+## Approved applications: who approves, and what an empty list means (October 2026)
+
+The control half of milestone 10 (`docs/spec/13-roadmap.md`: `process.end` and `app.restart` "with a per-client allowlist") needs a list of exact programs per scope. `contracts/schemas/console/approved-apps.schema.json`, migration `0006_approved_apps.sql` and `server/src/services/approved-apps.ts` build it as a scope setting beside the watched services and the file-facts paths: one JSON column per level, the fleet default as one settings row, the most specific level with a list winning whole.
+
+- **Server administrators only**, not Tier 2 and up, although the spec's milestone 10 wording is "an admin". Everywhere else, changing a client's, site's or cabinet's own list is a Tier 2 action with a confirmation click; the fleet default is Admin only. A program the platform may start, stop or restart is an owner's decision, and the list is the thing a lost Tier 2 session would most want to widen. Say if a Tier 2 account should be able to propose a list that an Admin approves.
+- **An empty list is a level of its own**: it approves nothing at that level and still wins over the level above. `entries null` instead removes the level's list, so the level above applies. The spec does not distinguish the two, and the console's editor needs to show them differently.
+- **A request will name the entry's key** (`app:<name>`), never a raw PID, a service name alone or a command line. A PID may point at the thing (to read its image path) but cannot be the stored identity, because Windows reuses PID numbers.
+- **Built, not yet enforced end to end:** the list is stored, resolved and audited; pushing it to the cabinet, the broker refusing anything not on its own copy, and the console page that edits it are the next slice.
+
