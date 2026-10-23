@@ -1,5 +1,11 @@
 {
   "version": 1,
-  "keys": [],
+  "keys": [
+    {
+      "keyId": "631c0270c5a8e67441f9019c8c9a9284d5b665d3ffdc5571103401ad3d070f70",
+      "name": "Release key (operator, October 2026)",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERtZoCmr4JzgIgbVZLNGiUDt6ftyDMa2D2HfvRwZlAHzW8EVxeODNww3UP4UuGKB/8JJtaDZjnGGN02OwpNGEgw=="
+    }
+  ],
   "publishers": []
 }
