@@ -1,0 +1,30 @@
+# Non-Tailscale deployment override (LOCAL — this checkout, not upstream).
+#
+# Why this file exists: the cabinets live on a separate network and do not join the tailnet, so the agent API has
+# to be reachable over the public internet. Nothing else about the deployment changes: the console keeps its
+# Tailscale front, and the two ports Tailscale holds stay untouched.
+#
+# The agent API is published on every interface (0.0.0.0:8443). That port is the only part of the platform exposed
+# to the open internet, and it is mutual TLS: the server presents the certificate below and refuses every
+# connection that does not carry a client certificate signed by the platform's issuing CA, so an agent that was
+# never enrolled cannot get past the handshake. Nothing on this port is authenticated by a password, a shared
+# secret in a header, or a source address, and no source address is trusted.
+#
+# AGENT_API_HOSTNAMES is the list of names the certificate has to cover: each name above has to be one a cabinet
+# can actually dial. The public address comes first because the enrollment page hands the operator the first entry
+# to type into the installer (AGENT_PUBLIC_HOST falls back to it).
+#
+# Apply:  cabinet-compose-local -f compose.yaml -f compose.public.yaml config
+#         cabinet-compose-local -f compose.yaml -f compose.public.yaml up -d server
+# Revert: cabinet-compose-local -f compose.yaml up -d server   (publishes the tailnet address again)
+services:
+  server:
+    environment:
+      AGENT_API_HOSTNAMES: "168.231.67.178,srv1522777.tail72f980.ts.net,100.119.218.113,localhost"
+      # Told to cabinets in the install commands, so the console's copy-paste line works from outside the tailnet.
+      AGENT_PUBLIC_HOST: "168.231.67.178"
+      AGENT_PUBLIC_PORT: "8443"
+    ports: !override
+      # Public. Mutual TLS only — see the header above before changing this to 0.0.0.0 on any other port.
+      # 0.0.0.0 covers the tailnet address too, so the base file's entry is replaced rather than added.
+      - "0.0.0.0:8443:8443"
