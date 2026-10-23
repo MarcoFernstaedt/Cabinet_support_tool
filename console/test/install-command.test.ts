@@ -9,12 +9,25 @@ import { DEFAULT_INSTALL_ENGINE, INSTALL_ENGINES, VERSION_HELP, engineFromVersio
 
 const full = { host: "cab.example.com", port: 8443, caSha256: "a".repeat(64), unsigned: true };
 
-test("the pasted block moves both downloads next to the installer and then runs it", () => {
+test("the pasted block unpacks the package itself, puts the token and CA beside it, and runs the installer", () => {
   const windows = installCommand({ ...full, engine: "windows" });
   const pwsh = installCommand({ ...full, engine: "pwsh" });
-  assert.match(windows, /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent\ncd \$HOME\\Downloads\\CabinetAgent\npowershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
-  assert.match(pwsh, /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent\ncd \$HOME\\Downloads\\CabinetAgent\npwsh\.exe /);
+  assert.equal(windows.split("\n").length, 3, "one step per line, so a paste that loses a line fails where it lost it");
+  assert.match(windows, /^\$p="\$HOME\\Downloads\\CabinetAgent-win-x64\.zip"; \$s="\$env:TEMP\\CabinetAgent-install";/);
+  assert.match(windows, /\[IO\.Compression\.ZipFile\]::ExtractToDirectory\(\$p,\$s\)/);
+  assert.match(windows, /Copy-Item -Force "\$HOME\\Downloads\\token\.txt","\$HOME\\Downloads\\platform-ca\.pem" \$s/);
+  assert.match(windows, /\ncd \$s\n/);
+  assert.match(windows, /\npowershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
   assert.equal(pwsh.replace("pwsh.exe", "powershell.exe"), windows, "only the program that starts it may differ between the two engines");
+  // Nothing in the block may depend on the operator having unzipped anything or made a folder first.
+  assert.doesNotMatch(windows, /Move-Item|Expand-Archive [^)]*DestinationPath \$HOME\\Downloads\\CabinetAgent\b/);
+});
+
+test("the block names the package the console is serving", () => {
+  const named = installCommand({ ...full, engine: "windows", packageName: "CabinetAgent-win-x86.zip" });
+  assert.match(named, /CabinetAgent-win-x86\.zip/);
+  assert.doesNotMatch(named, /win-x64/, "a 32-bit cabinet must not be handed the 64-bit package name");
+  assert.match(installCommand({ ...full, engine: "windows" }), /CabinetAgent-win-x64\.zip/);
 });
 
 test("every value the installer needs is on both lines", () => {

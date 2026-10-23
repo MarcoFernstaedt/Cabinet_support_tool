@@ -30,8 +30,16 @@ export function engineInfo(engine: InstallEngine): EngineInfo {
   return INSTALL_ENGINES.find(e => e.id === engine) ?? INSTALL_ENGINES[0]!;
 }
 
-/** The exact line to paste, for one engine. Both are the same installer with the same arguments. */
-export function installCommand(o: { host?: string | null; port?: number | null; caSha256?: string | null; engine: InstallEngine; unsigned?: boolean }): string {
+/**
+ * The exact line to paste, for one engine. Both engines are the same installer with the same arguments.
+ *
+ * One paste does the whole handover, including the parts that used to be manual. The browser drops the package,
+ * `token.txt` and `platform-ca.pem` in Downloads, and the operator has not unzipped anything: the first line unpacks
+ * the package into a temp folder and puts the two files the installer reads beside it, the second goes there, and the
+ * third runs the installer. Each step is its own line, so a paste that loses one fails at the step it lost instead of
+ * half-installing.
+ */
+export function installCommand(o: { host?: string | null; port?: number | null; caSha256?: string | null; engine: InstallEngine; unsigned?: boolean; packageName?: string | null }): string {
   const args = [
     `-PlatformServerHost ${o.host || "<server>"}`,
     `-PlatformServerPort ${o.port ?? 8443}`,
@@ -40,13 +48,10 @@ export function installCommand(o: { host?: string | null; port?: number | null; 
     "-BootstrapTokenFile .\\token.txt",
   ];
   if (o.unsigned) args.push("-AllowUnsigned");
-  // One paste does the whole handover. The browser drops the agent zip, token.txt and platform-ca.pem in the same
-  // Downloads folder, so the first line puts the two files the installer reads next to the installer itself and the
-  // operator never moves them by hand. A file that is not there says so and the rest still runs, which is the failure
-  // they can act on.
+  const packageName = o.packageName || "CabinetAgent-win-x64.zip";
   return [
-    "Move-Item -Force $HOME\\Downloads\\token.txt, $HOME\\Downloads\\platform-ca.pem -Destination $HOME\\Downloads\\CabinetAgent",
-    "cd $HOME\\Downloads\\CabinetAgent",
+    `$p="$HOME\\Downloads\\${packageName}"; $s="$env:TEMP\\CabinetAgent-install"; Remove-Item -Recurse -Force $s -ErrorAction SilentlyContinue; Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory($p,$s); Copy-Item -Force "$HOME\\Downloads\\token.txt","$HOME\\Downloads\\platform-ca.pem" $s`,
+    "cd $s",
     `${engineInfo(o.engine).exe} -NoProfile -ExecutionPolicy Bypass -File .\\install\\Install-CabinetAgent.ps1 ${args.join(" ")}`,
   ].join("\n");
 }
