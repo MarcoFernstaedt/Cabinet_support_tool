@@ -88,6 +88,10 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
         (!process.env.ONLY || p.includes(process.env.ONLY) || process.env.ONLY.split(",").some(o => p.includes(o))))) {
         await page.goto(`${origin}${path}`);
         await page.locator("#main, main").first().waitFor();
+        if (label === "w1100" && path === `/cabinets/${ids.cabinet}/overview`) {
+          const columns = await page.locator(".cabinet-layout").evaluate(el => getComputedStyle(el).gridTemplateColumns);
+          assert.equal(columns.split(" ").length, 2, "compact laptops retain the desktop cabinet sidebar");
+        }
         await page.waitForTimeout(2200);
         const check = await page.evaluate(() => ({
           text: document.body.innerText,

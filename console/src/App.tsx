@@ -1,5 +1,5 @@
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { api, onSignedOut } from "./lib/api";
 import { withBase } from "./lib/base";
 import { CommandStream } from "./lib/commands";
@@ -10,15 +10,12 @@ import { Layout } from "./components/Layout";
 import { WelcomeTour, startWelcomeTour } from "./components/WelcomeTour";
 import { PasswordChange, SignIn, TotpSetup, TotpStep, type Stage } from "./pages/SignIn";
 import { ClientPage, FleetHome, SitePage } from "./pages/Fleet";
-import { CabinetPage } from "./pages/cabinet/CabinetPage";
 import { AdminHome, InstallTokens, PendingCabinets, ScannerDefault } from "./pages/admin/Admin";
 import { AuditLog, OnlineNow } from "./pages/admin/Audit";
 import { UserActivity, Users } from "./pages/admin/Users";
 import { ClientsAndSites, IssueTypesAndSuppressions } from "./pages/admin/Organization";
 import { FleetSafety, PlatformSettings, SecurityAlerts } from "./pages/admin/Safety";
 import { SoftwareLibrary } from "./pages/admin/SoftwareLibrary";
-import { RolloutDetail, Upgrades } from "./pages/admin/Upgrades";
-import { Setup } from "./pages/admin/Setup";
 import { SystemHealth } from "./pages/admin/SystemHealth";
 import { BaselineDetail, Baselines, VersionReview } from "./pages/admin/Baselines";
 import { FleetDifferenceGroup, FleetDifferences } from "./pages/FleetDifferences";
@@ -33,6 +30,12 @@ import { FleetJob, FleetOperations } from "./pages/FleetOperations";
 import { NetworkDiagnosisPage } from "./pages/NetworkDiagnosis";
 import { DemoGuide } from "./pages/DemoGuide";
 import { DemoTour } from "./components/DemoTour";
+
+// Route-level chunks keep cabinet diagnostics and release tooling out of the initial bundle.
+const CabinetPage = lazy(() => import("./pages/cabinet/CabinetPage").then(m => ({ default: m.CabinetPage })));
+const Setup = lazy(() => import("./pages/admin/Setup").then(m => ({ default: m.Setup })));
+const Upgrades = lazy(() => import("./pages/admin/Upgrades").then(m => ({ default: m.Upgrades })));
+const RolloutDetail = lazy(() => import("./pages/admin/Upgrades").then(m => ({ default: m.RolloutDetail })));
 
 export function App() {
   const [stage, setStage] = useState<Stage | "loading">("loading");
@@ -80,7 +83,7 @@ export function App() {
 /** Each page inside its own error boundary, reset when the path changes. */
 function RoutedPages({ onTour }: { onTour: () => void }) {
   const { path } = useRouter();
-  return <ErrorBoundary key={path.split("?")[0]}><Pages onTour={onTour} /></ErrorBoundary>;
+  return <ErrorBoundary key={path.split("?")[0]}><Suspense fallback={<p className="muted center" role="status">Loading page…</p>}><Pages onTour={onTour} /></Suspense></ErrorBoundary>;
 }
 
 function Pages({ onTour }: { onTour: () => void }) {

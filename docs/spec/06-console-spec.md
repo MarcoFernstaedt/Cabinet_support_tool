@@ -28,7 +28,7 @@
 
 ## Screen size
 
-- The console works on desktop and compact laptop displays, with a usable sign-in and all navigation and actions on tablet and phone widths. Navigation wraps or scrolls within its own region; wide data tables scroll within their containers rather than hiding the whole console. The cabinet menu becomes a horizontal section list on narrow screens.
+- The console works on desktop and compact laptop displays, with a usable sign-in and all navigation and actions on tablet and phone widths. Compact laptops retain the vertical cabinet menu; only tablet and phone widths turn it into a horizontal section list. Navigation wraps or scrolls within its own region; wide data tables scroll within their containers rather than hiding the whole console.
 
 ## Cabinet view
 

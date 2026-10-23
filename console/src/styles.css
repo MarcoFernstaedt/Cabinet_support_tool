@@ -414,16 +414,20 @@ tr.highlight > * { background: color-mix(in srgb, var(--accent, #22d3ee) 12%, tr
   .topbar .jump { order: 2; flex: 1 1 180px; max-width: none; }
   .topbar .user { order: 1; }
   .page { padding: var(--s-4); }
+  .cabinet-layout { grid-template-columns: 200px minmax(0, 1fr); }
+  .sidebar { position: static; max-height: none; }
+  .cabinet-main { padding: 0 var(--s-4) var(--s-6); }
+  .cabinet-header { position: static; }
+  .table-wrap { overflow-x: auto; }
+}
+@media (max-width: 899px) {
   .cabinet-layout { grid-template-columns: minmax(0, 1fr); }
   .sidebar { position: static; max-height: none; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: var(--s-2); }
   .sidebar nav + nav { margin-top: var(--s-2); padding-top: var(--s-2); }
   .sidebar ul { display: flex; width: max-content; gap: var(--s-1); }
   .sidebar a { white-space: nowrap; min-height: 36px; }
-  .cabinet-main { padding: 0 var(--s-4) var(--s-6); }
-  .cabinet-header { position: static; }
   .entry { grid-template-columns: minmax(120px, 1fr) minmax(80px, 1fr); }
   .entry .line { white-space: normal; overflow-wrap: anywhere; }
-  .table-wrap { overflow-x: auto; }
 }
 @media (max-width: 700px) {
   .topbar .user { flex: 1 0 100%; order: 3; margin: 0; justify-content: space-between; }

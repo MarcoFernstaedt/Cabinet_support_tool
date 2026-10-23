@@ -1,6 +1,6 @@
 // Fleet safety (pause writes fleet-wide or per client; people paused by their limit), security
 // alerts, and platform settings — docs/spec/06-console-spec.md "Admin screens".
-import { DemoMode } from "./Setup";
+import { DemoMode } from "./DemoMode";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { useSecurityNews } from "../../lib/commands";
