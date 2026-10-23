@@ -26,12 +26,14 @@ x-platform-image: &platform-image
     context: ..
     dockerfile: deploy/Dockerfile
     # LOCAL OVERRIDE (load-bearing): the console is published under /console on the domain, so every
-    # asset and API address it builds has to start with /console. The Dockerfile defaults CONSOLE_BASE
-    # to "/" (a console served from a host's own root); a console built that way advertises
-    # /assets/index-*.js, which nothing serves on the domain, so the browser fetches the HTML and then
-    # a 404 for every asset: a blank page with no error anywhere. Keep this line across pulls.
+    # CONSOLE_BASE is the path the console's own addresses and assets start with. LOCAL OVERRIDE: the console is
+    # served at the domain's ROOT -- the site at marcofernstaedt.com asks the console's front for everything under
+    # /console-proxy and the front strips that marker, so the console answers at /, /assets/..., /api/... and the
+    # router sits at the root. A console built under /console instead advertises /console/assets/index-*.js, which
+    # nothing serves at the root, so the browser fetches the HTML and then a 404 for every asset: a blank page with
+    # no error anywhere. Keep this line across pulls.
     args:
-      CONSOLE_BASE: /console/
+      CONSOLE_BASE: /
 
 services:
   # Microsoft SQL Server 2022 for Linux. MSSQL_PID chooses the edition: Express is free (databases up to 10 GB, 1 GB of memory for the
