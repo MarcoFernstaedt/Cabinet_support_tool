@@ -7,14 +7,18 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $Output = (Join-Path $PSScriptRoot '..\out'),
+    [string] $Output,
     # The version every program reports (release builds come from the pipeline, which sets it).
     [string] $Version,
     # A test build only: an upgrade trust folder from New-UpgradeTrust.ps1 (a throwaway release key and test code-signing root).
     [string] $UpgradeTrustDir
 )
 $ErrorActionPreference = 'Stop'
-$root = Resolve-Path (Join-Path $PSScriptRoot '..')
+# Resolved in the body rather than in the parameter default: Windows PowerShell 5.1 binds the default before the
+# script's own scope exists, so a -Output default built from $PSScriptRoot is empty under -File.
+$here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+if (-not $Output) { $Output = Join-Path $here '..\out' }
+$root = Resolve-Path (Join-Path $here '..')
 $dotnet = (Get-Command dotnet -CommandType Application).Source
 
 $extra = @()

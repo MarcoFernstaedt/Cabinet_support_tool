@@ -115,6 +115,22 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await (await caDownload).saveAs(caFile);
     assert.match(await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText(), new RegExp(`-PlatformServerPort ${agentPort}`));
 
+    // The pasted line is built for the PowerShell that is on the computer, and the page works out which one that is:
+    // Windows PowerShell 5.1 is on every machine, PowerShell 7 only sometimes, and the help reads back the version
+    // number the operator sees instead of leaving them to guess.
+    const line = async (): Promise<string> => (await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText()).replace(/\s+/g, " ");
+    assert.match(await line(), /^cd \$HOME\\Downloads\\CabinetAgent powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost/, "Windows PowerShell is offered first, because every machine has it");
+    await p.getByRole("radio", { name: "PowerShell 7" }).check();
+    assert.match(await line(), / pwsh\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
+    assert.doesNotMatch(await line(), /powershell\.exe/);
+    await p.getByRole("button", { name: "What PowerShell version am I on?" }).click();
+    const help = p.getByRole("dialog", { name: "What PowerShell version am I on?" });
+    await help.getByText(/\$PSVersionTable\.PSVersion/).waitFor();
+    await help.getByLabel("Type the number it showed").fill("5.1.26100.9711");
+    await help.getByRole("status").filter({ hasText: /That is Windows PowerShell 5\.1/ }).waitFor();
+    await help.getByRole("button", { name: "Use Windows PowerShell 5.1" }).click();
+    assert.match(await line(), / powershell\.exe -NoProfile -ExecutionPolicy Bypass /, "choosing the engine in the help changes the line");
+
     // The computer: the real agent connection code, with the token and CA the page gave.
     const state = join(dir, "agent-state");
     mkdirSync(state);

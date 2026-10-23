@@ -48,8 +48,8 @@ You can run it again at any time. It keeps `deploy/.env` and the data.
 
 ## Install the agent on a Windows laptop
 
-1. In the console, as an Admin, open **Admin → Set up and demo**. Step 2 there downloads the three things the laptop needs: the agent zip (`CabinetAgent-win-x64.zip`), a one-time install token (`token.txt`) and the platform CA certificate (`platform-ca.pem`). It also shows the exact PowerShell commands, with this server's address filled in.
-2. Follow `README.txt` inside the zip. In short, in PowerShell as Administrator:
+1. In the console, as an Admin, open **Admin → Set up and demo**. Step 2 there downloads the three things the laptop needs: the agent zip (`CabinetAgent-win-x64.zip`), a one-time install token (`token.txt`) and the platform CA certificate (`platform-ca.pem`). It also shows the exact PowerShell commands, with this server's address filled in, for the PowerShell that is on the laptop: Windows PowerShell 5.1 (on every Windows machine) or PowerShell 7. Its **What PowerShell version am I on?** button gives the operator the two steps to look, and reads back the number they see.
+2. Follow `README.txt` inside the zip. Both engines install the same agent, so in short, in PowerShell as Administrator:
    ```powershell
    cd $HOME\Downloads\CabinetAgent
    Get-ChildItem -Recurse | Unblock-File

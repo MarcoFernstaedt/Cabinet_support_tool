@@ -19,7 +19,11 @@
 #>
 [CmdletBinding()]
 param(
-    [string] $SourceDir = (Join-Path $PSScriptRoot '..\out'),
+    # Where the published programs are. Not given: <this script's folder>\..\out. It is worked out in the body, not here:
+    # Windows PowerShell 5.1 fills in a parameter default before the script's own scope exists, so a default built from
+    # $PSScriptRoot is empty when the script is started with -File and the script dies with 'Cannot bind argument to
+    # parameter Path' instead of installing anything.
+    [string] $SourceDir,
     [guid] $CabinetId = [guid]::NewGuid(),
     [switch] $ReadOnly,
     [ValidateSet('sync', 'satellite', 'standalone')] [string] $CabinetRole,
@@ -49,6 +53,14 @@ if ($BootstrapTokenFile) {
 
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell.' }
+
+# The default source folder, resolved where $PSScriptRoot and $PSCommandPath are certainly set (see the note on the
+# parameter): the same command then works whether it is typed in a window, run with -File, or run with -Command, on
+# Windows PowerShell 5.1 and on PowerShell 7.
+if (-not $SourceDir) {
+    $scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+    $SourceDir = Join-Path $scriptRoot '..\out'
+}
 
 # 0. What is about to be installed as LocalSystem must be what was published.
 #  - The source folder must not be writable by ordinary users (a folder made under C:\ is, by default): someone could swap a program.
@@ -199,6 +211,8 @@ Start-Service -Name $broker
 Start-Service -Name $network
 Get-Service -Name $broker, $network | Format-Table -AutoSize Name, Status, StartType
 Write-Host "Cabinet ID: $CabinetId"
+# Both engines install the same agent; this line is what the console's help and a support call read back.
+Write-Host "PowerShell used: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 Write-Host "Configuration: $configPath"
 Write-Host "Logs: $(Join-Path $dataDir 'logs')"
 if ($EnableLocalHarness) { Write-Host "Local harness inbox: $(Join-Path $dataDir 'harness\inbox')" }

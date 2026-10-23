@@ -129,7 +129,8 @@ export function InstallTokens() {
         <li>On the cabinet, save the token in a file, then in an elevated PowerShell run the installer with the server's agent address and port
           (8443 unless your server was set up with another <code>AGENT_API_PORT</code>), the platform CA file and the token file:<br />
           <code>./Install-CabinetAgent.ps1 -PlatformServerHost &lt;server&gt; -PlatformServerPort &lt;port&gt; -PlatformCaFile platform-ca.pem -BootstrapTokenFile token.txt</code><br />
-          <span className="muted small">A token file keeps the token out of the command line, which Windows can record. Delete the file once the cabinet is approved.</span></li>
+          <span className="muted small">A token file keeps the token out of the command line, which Windows can record. Delete the file once the cabinet is approved.
+            The installer runs the same way in Windows PowerShell 5.1 and in PowerShell 7; <Link to="/admin/setup">Set up and demo</Link> shows the exact line and works out which one the machine has.</span></li>
         <li>The cabinet then appears under <Link to="/admin/pending">Pending cabinets</Link> for approval.</li>
       </ol>
       <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>

@@ -28,6 +28,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+# Windows PowerShell 5.1 does not have the key and certificate APIs below (ImportFromPem, [Convert]::ToHexString,
+# AsnWriter). It would get part-way through and fail after -NewDevKey had written a private key, so refuse here,
+# before anything is written. Installing an agent on a cabinet does not need this script and works on 5.1.
+if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) {
+    throw "Run this script with PowerShell 7 or later: Windows PowerShell 5.1 cannot write an upgrade trust folder. Install it with 'winget install --id Microsoft.PowerShell', then run this again in pwsh."
+}
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 
 function Assert-OutsideRepo([string] $Path) {
