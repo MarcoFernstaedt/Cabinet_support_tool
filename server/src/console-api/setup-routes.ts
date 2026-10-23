@@ -6,6 +6,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Refused } from "../services/errors.js";
+import { LAUNCHER_NAME, launcherScript } from "./installer-launcher.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
 export const AGENT_PACKAGE = "CabinetAgent-win-x64.zip";
@@ -23,6 +24,10 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return { path, name: AGENT_PACKAGE, bytes: st.size, sha256: hashed.sha256 };
   };
 
+  // The CA file the operator downloads and the value the installer checks it against are the same bytes, so both
+  // routes read them from one place.
+  const caSha256 = () => createHash("sha256").update(o.issuingKey.certificatePem, "utf8").digest("hex").toUpperCase();
+
   app.get("/api/admin/setup", async request => {
     const u = await o.guards.role(request, "admin");
     const r = (await o.pool.query<{ others: string; cabinets: string; pending: string; newest: string | null; newest_name: string | null }>(
@@ -35,7 +40,26 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return { otherUsers: Number(r.others), realCabinets: Number(r.cabinets), pendingCabinets: Number(r.pending), newestCabinetId: r.newest, newestCabinetName: r.newest_name,
       agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, package: pkg && { name: pkg.name, bytes: pkg.bytes, sha256: pkg.sha256 },
         // The installer checks the CA file it is given against this (Get-FileHash), so a swapped CA file is refused.
-        caSha256: createHash("sha256").update(o.issuingKey.certificatePem, "utf8").digest("hex").toUpperCase() } };
+        caSha256: caSha256() } };
+  });
+
+  // The launcher the operator saves and double-clicks: it finds the package they downloaded, proves its hash, unpacks
+  // it and runs the installer. Generated per request so the host, the port, the CA hash and the package hash always
+  // match what this server is serving right now; it never contains a token (see installer-launcher.ts).
+  app.get("/api/admin/installer", async (request, reply) => {
+    await o.guards.role(request, "admin");
+    const pkg = await packageInfo();
+    if (!pkg) throw new Refused("not_found", 404, "no agent package is available on this server");
+    const script = launcherScript({
+      packageName: pkg.name, packageSha256: pkg.sha256,
+      host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null,
+      caSha256: caSha256(),
+      unsigned: (request.query as { unsigned?: string } | undefined)?.unsigned === "1",
+    });
+    return reply.header("Content-Type", "text/plain; charset=utf-8")
+      .header("Content-Disposition", `attachment; filename="${LAUNCHER_NAME}"`)
+      .header("Content-Length", String(Buffer.byteLength(script, "utf8")))
+      .header("Cache-Control", "no-store").send(script);
   });
 
   app.get("/api/admin/agent-package", async (request, reply) => {
