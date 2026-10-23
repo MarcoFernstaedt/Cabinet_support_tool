@@ -498,8 +498,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     scoped.post("/agent/v1/heartbeat", async request => {
       const cabinetId = request.cabinet!.id;
       const heartbeat = envelopes.heartbeat.parse(request.body);
-      // One round trip records it (and its load sample) and reads the scanner and watched-services settings the answer carries.
-      const { wasOffline, firewallChanged, timeCheck, scannerIds, watched } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
+      // One round trip records it (and its load sample) and reads the scanner, watched-services and approved-applications settings the answer carries.
+      const { wasOffline, firewallChanged, timeCheck, scannerIds, watched, approved } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
       if (wasOffline) await resolveOfflineFor(o.pool, cabinetId);
       // Compared with the client's firewall policy only when the profiles changed (or were first reported).
       if (firewallChanged) await evaluateDrift(o.pool, { cabinetId });
@@ -512,6 +512,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const eventsPaceMs = overloaded() || o.pool.pending > 0 ? Math.min(60_000, Math.max(p.eventsPaceMs * 4, 10_000)) : p.eventsPaceMs;
       // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.
       return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: scannerIds }, watchedServices: { names: watched },
+        approvedApps: { entries: approved },
         intervals: { heartbeatSeconds: p.heartbeatSeconds, pollSeconds: reportedPollSeconds(await holdMs()), eventsPaceMs },
         ...(upgrade ? { upgrade: { version: upgrade } } : {}) });
     });

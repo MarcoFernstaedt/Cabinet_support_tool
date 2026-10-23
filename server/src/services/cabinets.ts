@@ -8,6 +8,7 @@ import { Refused } from "./errors.js";
 import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
+import { rawEntry, resolveLevels, type ApprovedAppEntry } from "./approved-apps.js";
 import { parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
@@ -47,8 +48,8 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
 export interface HeartbeatOutcome {
   /** It had been silent past the offline threshold and has an open offline alert to resolve. */
   wasOffline: boolean; firewallChanged: boolean; timeCheck: boolean;
-  /** The scanner hardware IDs the agent's watcher looks for (null: find it automatically), and the services it keeps running. */
-  scannerIds: string[] | null; watched: string[];
+  /** The scanner hardware IDs the agent's watcher looks for (null: find it automatically), the services it keeps running, and the programs it may be asked to control. */
+  scannerIds: string[] | null; watched: string[]; approved: ApprovedAppEntry[];
 }
 
 /**
@@ -61,7 +62,8 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   // prev_at is when the previous uptime was reported (uptime_at), not the last contact: polls move last_heartbeat_at too.
   // The settings columns are named ks, ss, … here, which the data layer does not parse as JSON, so they are parsed below.
   const r = (await db.query<{ was_offline: number; offline_open: number; firewall_changed: number; prev_uptime: string | null; prev_at: Date | null; time_check: number;
-    ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null }>(
+    ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null;
+    ka: string | null; sa: string | null; ca: string | null; fa: string | null }>(
     // No table variable: on SQL Server each one declared by an ad-hoc batch is created in tempdb, and at 10,000 cabinets those creations
     // queued on tempdb's metadata pages. The previous values are read into scalar variables under an update lock instead, in one short
     // transaction (TRY/CATCH, not XACT_ABORT, so nothing is left set on the pooled connection).
@@ -88,7 +90,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
      END CATCH;
      -- Whether an offline alert is open, so the heartbeat after a silence resolves it only when there is one to resolve.
      SELECT r.was_offline, CAST(CASE WHEN r.was_offline = 1 AND EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND issue_type_id = $13 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS offline_open,
-            r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw
+            r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw, x.ka, x.sa, x.ca, x.fa
        FROM (SELECT CAST(CASE WHEN @hb IS NULL OR @hb < DATEADD(second, -$6, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS bit) AS was_offline,
                     CAST(CASE WHEN CAST($7 AS nvarchar(max)) IS NOT NULL AND @fw IS DISTINCT FROM CAST($7 AS nvarchar(max)) THEN 1 ELSE 0 END AS bit) AS firewall_changed,
                     @up AS prev_uptime, @upat AS prev_at,
@@ -99,7 +101,9 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
          SELECT k.scanner_hardware_ids AS ks, s.scanner_hardware_ids AS ss, c.scanner_hardware_ids AS cs,
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'scanner.hardwareIds') AS fs,
                 k.watched_services AS kw, s.watched_services AS sw, c.watched_services AS cw,
-                (SELECT TOP (1) [value] FROM settings WHERE [key] = 'services.watched') AS fw
+                (SELECT TOP (1) [value] FROM settings WHERE [key] = 'services.watched') AS fw,
+                k.approved_apps AS ka, s.approved_apps AS sa, c.approved_apps AS ca,
+                (SELECT TOP (1) [value] FROM settings WHERE [key] = 'apps.approved') AS fa
            FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1) x;`,
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
      h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE,
@@ -111,8 +115,12 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   const fleetWatched = r ? parseJson<unknown>(r.fw) : null;
   const watched = r ? effectiveWatched({ cabinet: parseJson<string[]>(r.kw), site: parseJson<string[]>(r.sw), client: parseJson<string[]>(r.cw),
     fleet: Array.isArray(fleetWatched) ? fleetWatched as string[] : null }).effective : [];
+  // The same levels resolve the approved programs the broker may control. A level whose stored list fails its own fingerprint, or does not
+  // read as a list, is skipped for the level above it, so a column edited outside the platform can only narrow what the cabinet may do.
+  const apps = r ? resolveLevels({ cabinet: parseJson(r.ka), site: parseJson(r.sa), client: parseJson(r.ca), fleet: parseJson(r.fa) }) : null;
   return { wasOffline: !!r?.was_offline && !!r?.offline_open, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
-    scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched };
+    scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched,
+    approved: (apps?.effective?.entries ?? []).map(rawEntry) };
 }
 
 /**

@@ -681,6 +681,76 @@
       "maxLength": 80,
       "pattern": "^[A-Za-z0-9_.$-](?:[A-Za-z0-9_.$ -]{0,78}[A-Za-z0-9_.$-])?$"
     },
+    "approvedAppKey": {
+      "description": "How a request names one entry of an approved-applications list: app: followed by the entry's short name. Never a PID, a service name alone or a command line (a PID points at a running program but cannot be stored: Windows reuses them).",
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 64,
+      "pattern": "^app:[^\\\\/:*?\"<>|]{1,59}$"
+    },
+    "approvedAppEntry": {
+      "description": "One program a cabinet may be asked to start, stop or restart (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). An application, or a service with its key name. The path is the whole executable path: it is what the cabinet checks the running program against, exactly, before it acts on it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "kind",
+        "name",
+        "path"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/approvedAppKey"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "application",
+            "service"
+          ]
+        },
+        "name": {
+          "description": "What the operator called it (a display name, never the thing that is matched on).",
+          "$ref": "#/$defs/nonEmptyShortText"
+        },
+        "path": {
+          "$ref": "#/$defs/windowsProgramPath"
+        },
+        "serviceName": {
+          "$ref": "#/$defs/serviceName"
+        }
+      },
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "service"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "serviceName"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "serviceName"
+          ]
+        }
+      }
+    },
+    "approvedAppEntries": {
+      "description": "An approved-applications list: at most 32 entries, one per key. Empty means this level approves nothing; the level above applies only when no list is set at all.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/approvedAppEntry"
+      }
+    },
     "serviceState": {
       "type": "string",
       "enum": [

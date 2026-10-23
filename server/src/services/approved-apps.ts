@@ -87,10 +87,15 @@ export const entryPath = (e: ApprovedApp): string => `${e.root}\\${e.file}`;
  * into a root and one file name, which is what the checks work on; storing the path whole keeps the column readable by any other
  * tool and gives the agent a path it can compare against what Windows reports.
  */
-export const rawEntry = (e: ApprovedApp): Record<string, unknown> =>
+export const rawEntry = (e: ApprovedApp): ApprovedAppEntry =>
   e.serviceName === null
     ? { key: e.key, kind: e.kind, name: e.name, path: entryPath(e) }
     : { key: e.key, kind: e.kind, name: e.name, path: entryPath(e), serviceName: e.serviceName };
+
+/** One entry as it travels: to the console, and to the cabinet on a heartbeat. The path is the whole executable path the cabinet checks the running program against. */
+export interface ApprovedAppEntry {
+  key: string; kind: ApprovedApp["kind"]; name: string; path: string; serviceName?: string;
+}
 
 /** Setting this list is an owner action: no Tier 1 or Tier 2 account and no cabinet agent ever chooses a program. */
 export function assertOwner(role: string): void {
@@ -256,6 +261,6 @@ export async function setApprovedApps(pool: Pool, user: { userId: string; role: 
 }
 
 /** What one level's column holds: the entries in the owner's form, their fingerprint, the version and who set them. */
-function storedValue(entries: readonly ApprovedApp[], by: string, previous: number): { version: number; entries: Record<string, unknown>[]; hash: string; setBy: string; setAt: string } {
+function storedValue(entries: readonly ApprovedApp[], by: string, previous: number): { version: number; entries: ApprovedAppEntry[]; hash: string; setBy: string; setAt: string } {
   return { version: previous + 1, entries: entries.map(rawEntry), hash: appsHash(entries), setBy: by, setAt: new Date().toISOString() };
 }

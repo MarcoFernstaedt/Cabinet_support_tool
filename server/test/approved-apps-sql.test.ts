@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { APPS_SET_ACTION, appLevels, normalizeEntries, readLevel, setApprovedApps, type ApprovedApp } from "../src/services/approved-apps.js";
 import { paramsHash } from "../src/auth/canonical.js";
+import { recordHeartbeat } from "../src/services/cabinets.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import { Refused } from "../src/services/errors.js";
 
@@ -95,9 +96,22 @@ test("approved applications: stored per level, the most specific wins, and what 
   assert.equal((await appLevels(db.app, id.cabinet)).source, "client");
   assert.equal(await readLevel(db.app, "cabinet", id.cabinet), null);
 
+  // The cabinet is told this same list on its heartbeat, by the same statement that records it: the cabinet level was rejected above,
+  // so what leaves the server is the resolved list, with the whole path and the service name the broker checks a program against.
+  const beat = async () => (await recordHeartbeat(db.app, id.cabinet, { agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false })).approved;
+  assert.deepEqual((await beat()).map(e => e.key), ["app:spooler"]);
+  assert.equal((await beat())[0]?.path, "C:\\Windows\\System32\\spoolsv.exe");
+  assert.equal((await beat())[0]?.serviceName, "Spooler");
+  // With the client's list gone as well, the fleet default is what reaches it; with nothing set anywhere, an empty list, which is
+  // what leaves the broker unable to control anything.
+  assert.equal(await set("client", id.client, null), null);
+  assert.deepEqual((await beat()).map(e => e.key), ["app:dispenser"]);
+  assert.equal(await set("fleet", null, null), null);
+  assert.deepEqual(await beat(), []);
+
   // Every write is audited with the keys, never with the paths a second time.
   const rows = (await db.app.query<{ action: string; details: { keys?: string[]; removed?: boolean } }>(`SELECT action, details FROM audit_log WHERE action IN ('settings.apps','client.apps','cabinet.apps') ORDER BY seq`)).rows;
-  assert.deepEqual(rows.map(r => r.action), ["settings.apps", "client.apps", "cabinet.apps", "cabinet.apps", "cabinet.apps"]);
+  assert.deepEqual(rows.map(r => r.action), ["settings.apps", "client.apps", "cabinet.apps", "cabinet.apps", "cabinet.apps", "client.apps", "settings.apps"]);
   assert.deepEqual(rows[2]?.details.keys, ["app:dispenser", "app:spooler"]);
   assert.equal(rows[4]?.details.removed, true);
 });

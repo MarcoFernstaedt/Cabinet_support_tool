@@ -1,0 +1,18 @@
+{
+  "serverTime": "2026-10-23T15:40:00Z",
+  "scanner": {
+    "hardwareIds": null
+  },
+  "approvedApps": {
+    "entries": [
+      {
+        "key": "app:dispenser",
+        "kind": "service",
+        "name": "Dispenser service",
+        "path": "C:\\Program Files\\Dispenser\\dispenser.exe",
+        "serviceName": "DispenserSvc",
+        "arguments": "--stop-after-start"
+      }
+    ]
+  }
+}

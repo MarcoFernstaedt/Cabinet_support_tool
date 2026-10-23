@@ -65,6 +65,19 @@
         }
       }
     },
+    "approvedApps": {
+      "description": "The programs this cabinet may be asked to start, stop or restart: the cabinet's own list, else its site's, else its client's, else the fleet's. Empty when none is set. The agent keeps its own copy and acts only on these, re-checking the program it finds at the entry's exact path. Absent from an older server's answer, which leaves the agent with an empty list.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries"
+      ],
+      "properties": {
+        "entries": {
+          "$ref": "../common.schema.json#/$defs/approvedAppEntries"
+        }
+      }
+    },
     "intervals": {
       "description": "Server-directed pacing. The server raises these under load or for cabinets on poor links; the agent clamps them to the given ranges and uses its defaults when absent.",
       "type": "object",

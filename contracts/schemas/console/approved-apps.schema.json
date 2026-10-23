@@ -16,46 +16,14 @@
       "anyOf": [{"$ref": "../common.schema.json#/$defs/uuid"}, {"type": "null"}]
     },
     "entries": {
-      "description": "At most 32 approved programs. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake.",
+      "description": "At most 32 approved programs, one per key. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake. null removes this level's list so the level above applies; an empty list means control nothing at this level.",
       "anyOf": [
         {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["key", "kind", "name", "path"],
-            "properties": {
-              "key": {
-                "description": "The baseline item key this program stands for, in the applications category (app:<name>), so its version can be compared with the site's baseline. No separators, no control characters.",
-                "type": "string",
-                "minLength": 5,
-                "maxLength": 128,
-                "pattern": "^app:[^\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]+$"
-              },
-              "kind": {
-                "description": "application: started by its path (app.restart). service: controlled through the service control manager (service.control, and process.end of the process it runs as).",
-                "enum": ["application", "service"]
-              },
-              "name": {
-                "description": "What the owner calls it, shown in the console. Text only: it is never a path and never an argument.",
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 128,
-                "pattern": "^[^\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]+$"
-              },
-              "path": {"$ref": "../common.schema.json#/$defs/windowsProgramPath"},
-              "serviceName": {"$ref": "../common.schema.json#/$defs/serviceName"}
-            },
-            "allOf": [
-              {
-                "if": {"properties": {"kind": {"const": "service"}}, "required": ["kind"]},
-                "then": {"required": ["serviceName"]}
-              }
-            ]
-          }
+          "$ref": "../common.schema.json#/$defs/approvedAppEntries"
         },
-        {"type": "null"}
+        {
+          "type": "null"
+        }
       ]
     },
     "stepUpToken": {

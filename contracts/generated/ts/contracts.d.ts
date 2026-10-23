@@ -192,6 +192,36 @@ export interface FirewallProfileSwitches {
 }
 
 /**
+ * One program a cabinet may be asked to start, stop or restart (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). An application, or a service with its key name. The path is the whole executable path: it is what the cabinet checks the running program against, exactly, before it acts on it.
+ */
+export interface ApprovedAppEntry {
+  /**
+   * How a request names one entry of an approved-applications list: app: followed by the entry's short name. Never a PID, a service name alone or a command line (a PID points at a running program but cannot be stored: Windows reuses them).
+   */
+  key: string;
+  kind: "application" | "service";
+  /**
+   * What the operator called it (a display name, never the thing that is matched on).
+   */
+  name: string;
+  /**
+   * Absolute local path to a program file. No relative segments, UNC, device or wildcard paths.
+   */
+  path: string;
+  /**
+   * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
+   */
+  serviceName?: string;
+}
+
+/**
+ * An approved-applications list: at most 32 entries, one per key. Empty means this level approves nothing; the level above applies only when no list is set at all.
+ *
+ * @maxItems 32
+ */
+export type ApprovedAppEntries = ApprovedAppEntry[];
+
+/**
  * One watched service as the broker's watcher sees it (docs/spec/12-milestones-8-to-12.md).
  */
 export interface WatchedServiceStatus {
@@ -451,32 +481,9 @@ export interface ApprovedApps {
    */
   id: string | null;
   /**
-   * At most 32 approved programs. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake.
+   * At most 32 approved programs, one per key. An application is pinned by its executable path alone; a service is pinned by its registered executable path AND its service name, so a service that has been replaced by something else of the same name is not controlled by mistake. null removes this level's list so the level above applies; an empty list means control nothing at this level.
    */
-  entries:
-    | {
-        /**
-         * The baseline item key this program stands for, in the applications category (app:<name>), so its version can be compared with the site's baseline. No separators, no control characters.
-         */
-        key: string;
-        /**
-         * application: started by its path (app.restart). service: controlled through the service control manager (service.control, and process.end of the process it runs as).
-         */
-        kind: "application" | "service";
-        /**
-         * What the owner calls it, shown in the console. Text only: it is never a path and never an argument.
-         */
-        name: string;
-        /**
-         * Absolute local path to a program file. No relative segments, UNC, device or wildcard paths.
-         */
-        path: string;
-        /**
-         * A Windows service's key name (not its display name). Letters, digits, _ . $ - and inner spaces; SQL Server's MSSQL$NAME form included.
-         */
-        serviceName?: string;
-      }[]
-    | null;
+  entries: ApprovedAppEntries | null;
   /**
    * A one-time step-up token bound to this exact action, level and these exact entries.
    */
@@ -2274,6 +2281,12 @@ export interface HeartbeatResponse {
    */
   watchedServices?: {
     names: WatchedServiceNames;
+  };
+  /**
+   * The programs this cabinet may be asked to start, stop or restart: the cabinet's own list, else its site's, else its client's, else the fleet's. Empty when none is set. The agent keeps its own copy and acts only on these, re-checking the program it finds at the entry's exact path. Absent from an older server's answer, which leaves the agent with an empty list.
+   */
+  approvedApps?: {
+    entries: ApprovedAppEntries;
   };
   /**
    * Server-directed pacing. The server raises these under load or for cabinets on poor links; the agent clamps them to the given ranges and uses its defaults when absent.
