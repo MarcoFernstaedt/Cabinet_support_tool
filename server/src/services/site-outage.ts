@@ -5,12 +5,15 @@
 // kept up to date by the fold). The alerts close as soon as any cabinet at the site is heard from again. While the fleet's contact is in
 // doubt (alerts.ts FleetContact: the server or database was away, or contact fell fleet-wide) no new outage is raised, except at sites
 // whose cabinets are all simulated demo cabinets.
-import type { Queryable } from "../db/db.js";
+import { auditMany, type Queryable } from "../db/db.js";
 import { fleetContact, foldAlert, inTransaction, readFleetContact, type FleetContact } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { ISSUE } from "./rules.js";
 
 export const TOGETHER_MINUTES = 10;
+
+/** The note an automatic closure carries; the audit entry names the same text. */
+export const RESOLUTION = "A cabinet at the site is reporting again.";
 
 export async function checkSiteOutages(db: Queryable, guard: FleetContact = fleetContact): Promise<{ raised: number; resolved: number }> {
   const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [ISSUE.siteOutage])).rows[0];
@@ -47,10 +50,24 @@ export async function checkSiteOutages(db: Queryable, guard: FleetContact = flee
     let resolved = 0;
     for (let i = 0; i < closing.length; i += 500) {
       const ids = closing.slice(i, i + 500).map(r => r.id);
-      const r = await tx.query(
-        `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'A cabinet at the site is reporting again.'
-          WHERE state <> 'resolved' AND id IN (${ids.map((_, n) => `$${n + 1}`).join(",")})`, ids);
-      resolved += r.rowCount ?? 0;
+      // The cabinet's liveness is checked again here, in the update itself: between the snapshot read above and this statement a heartbeat
+      // can have arrived (or gone stale), and closing an alert that is no longer about a live site is exactly what must not happen.
+      // The rows it changed come back, so every closure this automatic step makes leaves its own audit entry, in the same transaction.
+      // alerts carries the alert_notify trigger, and SQL Server refuses OUTPUT without INTO on a table that has an enabled trigger: the
+      // changed ids are collected into a table variable and read back, as the alert fold and the alert insert do.
+      const changed = (await tx.query<{ id: string }>(
+        `DECLARE @o TABLE (id uniqueidentifier);
+         UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $${ids.length + 2}
+          OUTPUT inserted.id INTO @o (id)
+           FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
+          WHERE a.state <> 'resolved' AND a.id IN (${ids.map((_, n) => `$${n + 1}`).join(", ")})
+            AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$${ids.length + 1}, SYSUTCDATETIME()));
+         SELECT id FROM @o;`,
+        [...ids, secs, RESOLUTION])).rows;
+      resolved += changed.length;
+      if (changed.length > 0)
+        await auditMany(tx, changed.map(r => ({ actorKind: "system", actorId: "site-outage", action: "alert.resolve", targetKind: "alert", targetId: r.id,
+          outcome: "succeeded", details: { issueTypeId: ISSUE.siteOutage, resolution: RESOLUTION, automatic: true } })));
     }
     return { raised, resolved };
   });

@@ -2,27 +2,77 @@
 // and remove what is past its retention period. Retention never runs as one big transaction: every table is trimmed in small autocommit
 // batches (BATCH rows each, with a pause between them and a time limit on each), so the log, the locks and the buffer pool of a 10,000-cabinet
 // database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
-import { advanceAuditCheckpoint, audit, auditCheckpoint, transaction, verifyAuditChain, type ChainCheck, type Pool, type Queryable } from "../db/db.js";
+import { advanceAuditCheckpoint, audit, auditChainHeadAnchor, auditCheckpoint, Pool, transaction, verifyAuditChain, type ChainCheck, type ChainCheckpoint, type Queryable } from "../db/db.js";
 import { platformSettings, upsertSetting } from "./settings.js";
 import { raiseSecurityAlert } from "./security.js";
 import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
 
+/** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
+export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
+
+let chainCheckInFlight: Promise<ChainCheck> | null = null;
+let chainCheckRecent: { at: number; check: ChainCheck } | null = null;
+/** Where a bounded full walk stopped, so the next check a person asks for goes on from there (null: the walk reached the end of the log). */
+let chainSweep: ChainCheckpoint | null = null;
+
+/** What the checks are doing, for the System health page: whether one is running now, and how the last one ended. */
+export function chainCheckState(): { running: boolean; lastAt: number | null; lastOk: boolean | null; lastEntries: number | null } {
+  return { running: chainCheckInFlight !== null, lastAt: chainCheckRecent?.at ?? null, lastOk: chainCheckRecent?.check.ok ?? null,
+    lastEntries: chainCheckRecent?.check.entries ?? null };
+}
+
 /**
  * Checks the audit chain: the whole of it ("full"), or only what was added since the last successful check ("incremental", from the
  * checkpoint). A break raises a security alert; the check itself is audited either way. A successful check moves the checkpoint forward.
+ *
+ * Every check is anchored: the last entry it reached is compared with the high-water mark the append path keeps for itself
+ * (audit_chain_head, which the application's role may not read), so a chain whose entries at the end were deleted cannot come back clean.
+ *
+ * A check a person asks for is bounded and shared: it walks the log in steps of ON_DEMAND_CHAIN_ENTRIES, and each step goes on from where
+ * the one before it stopped, so no single request walks a large log. A step that reaches the end of the log clears the step, so the next
+ * check a person asks for starts from the beginning of it again and a break in an old entry is still found. A second request while one is
+ * running gets that one's answer instead of starting a walk of its own. The whole log is walked by the nightly job (mode "full", the weekly
+ * run) when nothing else is going on; the daily run goes on from the checkpoint.
  */
-export async function verifyChainAndAlert(pool: Pool, by: { userId: string } | "daily" | "weekly", mode: "full" | "incremental" = "full"): Promise<ChainCheck> {
-  const from = mode === "incremental" ? await auditCheckpoint(pool) : undefined;
-  const check = await verifyAuditChain(pool, 10_000, from);
+export async function verifyChainAndAlert(pool: Pool, by: { userId: string } | "daily" | "weekly", mode: "full" | "incremental" = "full",
+  o: { maxEntries?: number } = {}): Promise<ChainCheck> {
+  if (by !== "daily" && by !== "weekly") {
+    // Two people pressing the button at once cause one walk. Asking again after something changed is a new walk, never the last answer.
+    if (chainCheckInFlight) return { ...(await chainCheckInFlight), reused: true };
+    const run = checkChain(pool, by, "full", o.maxEntries ?? ON_DEMAND_CHAIN_ENTRIES, chainSweep ?? undefined);
+    chainCheckInFlight = run;
+    try {
+      const check = await run;
+      chainCheckRecent = { at: Date.now(), check };
+      return check;
+    } finally {
+      if (chainCheckInFlight === run) chainCheckInFlight = null;
+    }
+  }
+  return checkChain(pool, by, mode, o.maxEntries);
+}
+
+async function checkChain(pool: Pool, by: { userId: string } | "daily" | "weekly", mode: "full" | "incremental", maxEntries?: number,
+  resume?: ChainCheckpoint): Promise<ChainCheck> {
+  const from = resume ?? (mode === "incremental" ? await auditCheckpoint(pool) : undefined);
+  // No anchor (a database not yet migrated to audit_head) is not a failure by itself; the check says so in its audit entry.
+  const head = await auditChainHeadAnchor(pool);
+  const check = await verifyAuditChain(pool, 10_000, from, { ...(maxEntries === undefined ? {} : { maxEntries }), head });
+  // A full walk that stopped at the limit is continued by the next check a person asks for; one that reached the end clears the step, so
+  // the following check starts from the beginning of the log again.
+  if (mode === "full")
+    chainSweep = check.more === true && check.lastSeq !== undefined && check.lastHash !== undefined ? { seq: check.lastSeq, hash: check.lastHash } : null;
   if (check.ok && check.lastSeq !== undefined && check.lastHash !== undefined && check.lastSeq > 0)
     await advanceAuditCheckpoint(pool, { seq: check.lastSeq, hash: check.lastHash });
   await transaction(pool, async c => {
     if (!check.ok)
       await raiseSecurityAlert(c, { kind: "audit_chain", signature: `audit_chain|${check.firstBadSeq}`,
-        title: `The audit log's hash chain is broken at entry ${check.firstBadSeq}`, detail: { firstBadSeq: check.firstBadSeq, entries: check.entries } });
+        title: check.behindHead ? `The audit log ends before the entry the append path last wrote (${check.headSeq})` : `The audit log's hash chain is broken at entry ${check.firstBadSeq}`,
+        detail: { firstBadSeq: check.firstBadSeq, entries: check.entries, headSeq: check.headSeq ?? null, behindHead: check.behindHead ?? false, anchored: head !== null } });
     await audit(c, { actorKind: by === "daily" || by === "weekly" ? "system" : "user", actorId: by === "daily" ? "daily-check" : by === "weekly" ? "weekly-check" : by.userId,
-      action: "audit.verify", outcome: check.ok ? "succeeded" : "failed", details: { entries: check.entries, firstBadSeq: check.firstBadSeq ?? null, mode, fromSeq: check.fromSeq ?? 1 } });
+      action: "audit.verify", outcome: check.ok ? "succeeded" : "failed", details: { entries: check.entries, firstBadSeq: check.firstBadSeq ?? null, mode, fromSeq: check.fromSeq ?? 1,
+        maxEntries: maxEntries ?? null, more: check.more ?? false, headSeq: check.headSeq ?? null, behindHead: check.behindHead ?? false, anchored: head !== null } });
   });
   const { lastHash: _hash, ...shown } = check;
   return shown;
@@ -40,14 +90,33 @@ export const RETENTION_BATCH: BatchOptions = { batch: 4_000, pauseMs: 200, timeo
 
 const sleep = (ms: number) => (ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve());
 
+/** What a destructive batch leaves in the audit log beside the statement it just made (docs/spec/05-server-spec.md "Retention"). */
+export interface BatchAudit {
+  /** The table the statement changes, as the log entry names it. */
+  table: string;
+  /** The cut-off the batch used, so the entry says what it considered old. */
+  cutoff?: unknown;
+  /** The audit action; a retention batch by default. */
+  action?: string;
+}
+
 /**
  * Runs one statement that changes at most `TOP (@batch)` rows (it must say `TOP ($1)`; its own parameters follow from $2) again and again,
  * each in its own autocommit transaction, until a run changes fewer rows than a batch. Returns how many rows it changed in all.
+ * With `each`, a batch that changes anything runs in one transaction together with its own audit entry, so a run that stops half way (or is
+ * killed) has left the log saying what it had already removed; a batch that changes nothing writes nothing.
  */
-export async function inBatches(db: Queryable, statement: string, params: readonly unknown[], o: BatchOptions = RETENTION_BATCH): Promise<number> {
+export async function inBatches(db: Queryable, statement: string, params: readonly unknown[], o: BatchOptions = RETENTION_BATCH, each?: BatchAudit): Promise<number> {
+  const one = async (c: Queryable): Promise<number> => {
+    const n = (await c.query(statement, [o.batch, ...params], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    if (each && n > 0)
+      await audit(c, { actorKind: "system", actorId: "retention", action: each.action ?? "retention.batch", outcome: "succeeded",
+        details: { table: each.table, rows: n, ...(each.cutoff === undefined ? {} : { cutoff: each.cutoff }) } });
+    return n;
+  };
   let total = 0;
   for (;;) {
-    const n = (await db.query(statement, [o.batch, ...params], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    const n = each === undefined ? await one(db) : db instanceof Pool ? await transaction(db, one) : await one(db);
     total += n;
     if (n < o.batch) return total;
     await sleep(o.pauseMs);
@@ -99,8 +168,10 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
       return (await c.query(
         "DELETE FROM health_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND [at] < $2", [chunk, cut], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
     });
-    await inBatches(pool, "DELETE TOP ($1) FROM health_hourly WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [hour] < $3", [chunk, healthCut], o);
-    driveSamples += await inBatches(pool, "DELETE TOP ($1) FROM drive_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [at] < $3", [chunk, driveCut], o);
+    await inBatches(pool, "DELETE TOP ($1) FROM health_hourly WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [hour] < $3", [chunk, healthCut], o,
+      { table: "health_hourly", cutoff: healthCut });
+    driveSamples += await inBatches(pool, "DELETE TOP ($1) FROM drive_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [at] < $3", [chunk, driveCut], o,
+      { table: "drive_samples", cutoff: driveCut });
     await sleep(o.pauseMs);
   }
   return { rolledUp, driveSamples };
@@ -127,12 +198,21 @@ export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: Batch
     const hi = (await pool.query<{ hi: string | number | null }>(
       "SELECT MAX(seq) AS hi FROM (SELECT TOP ($1) seq FROM events WHERE seq > $2 AND received_at < $3 ORDER BY seq) x", [o.batch, last, cut], { timeoutMs: o.timeoutMs })).rows[0]?.hi;
     if (hi === null || hi === undefined) break;
-    cleared += (await pool.query(
-      `UPDATE events SET detail = NULL, source = NULL
-        WHERE seq > $1 AND seq <= $2 AND received_at < $3 AND alert_id IS NULL AND (detail IS NOT NULL OR source IS NOT NULL) AND kind <> 'security'
-          AND NOT ${crashPredicate("events", 4)}`, [last, Number(hi), cut, ...crashArgs], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
-    last = Number(hi);
-    await transaction(pool, c => upsertSetting(c, DETAIL_CURSOR, last, null));
+    // The clearing and the cursor that accounts for it are one transaction: a run that stops here cannot leave cleared rows that no cursor
+    // ever marked. Every batch that cleared anything leaves its own audit entry, in that same transaction.
+    let batch = 0;
+    await transaction(pool, async c => {
+      batch = (await c.query(
+        `UPDATE events SET detail = NULL, source = NULL
+          WHERE seq > $1 AND seq <= $2 AND received_at < $3 AND alert_id IS NULL AND (detail IS NOT NULL OR source IS NOT NULL) AND kind <> 'security'
+            AND NOT ${crashPredicate("events", 4)}`, [last, Number(hi), cut, ...crashArgs], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+      last = Number(hi);
+      await upsertSetting(c, DETAIL_CURSOR, last, null);
+      if (batch > 0)
+        await audit(c, { actorKind: "system", actorId: "retention", action: "retention.batch", outcome: "succeeded",
+          details: { table: "events.detail", rows: batch, cutoff: cut, to: last } });
+    });
+    cleared += batch;
     await sleep(o.pauseMs);
   }
   return cleared;
@@ -150,32 +230,35 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   const r = (await platformSettings(pool)).retention;
   const now = Date.now();
   const cut = (days: number) => daysAgo(days, now);
-  const events = await inBatches(pool, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cut(r.eventsDays)], o);
+  // Every destructive step names the table it trims and the cut-off it used, so each batch it removes leaves an audit entry of its own
+  // (the run's own entry below says how much was removed in all).
+  const events = await inBatches(pool, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cut(r.eventsDays)], o, { table: "events", cutoff: cut(r.eventsDays) });
   const eventsCleared = r.eventsDays > EVENT_DETAIL_DAYS ? await clearOldEventDetail(pool, now, o) : 0;
   // The cleared rows only free space inside their pages; compacting the index gives it back (incremental: a stopped run is not lost).
   if (eventsCleared > 0) await pool.query("EXEC reorganize_events", [], { timeoutMs: 20 * 60_000 });
   const opsCounters = await pruneOpsCounters(pool, now);
-  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o);
+  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o,
+    { table: "commands.result", cutoff: cut(r.commandsDays) });
   // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
   await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
-                          WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cut(r.alertsDays)], o);
+                          WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cut(r.alertsDays)], o, { table: "events.alert_id", cutoff: cut(r.alertsDays) });
   const alerts = await inBatches(pool, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
-                                          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o);
-  const firewallChanges = await inBatches(pool, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cut(r.firewallDays)], o);
-  const sessions = await inBatches(pool, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cut(1)], o);
-  const stepUpTokens = await inBatches(pool, "DELETE TOP ($1) FROM step_up_tokens WHERE expires_at < $2", [cut(1)], o);
-  const diagnoses = await inBatches(pool, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cut(r.diagnosesDays)], o);
+                                          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o, { table: "alerts", cutoff: cut(r.alertsDays) });
+  const firewallChanges = await inBatches(pool, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cut(r.firewallDays)], o, { table: "firewall_changes", cutoff: cut(r.firewallDays) });
+  const sessions = await inBatches(pool, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cut(1)], o, { table: "sessions", cutoff: cut(1) });
+  const stepUpTokens = await inBatches(pool, "DELETE TOP ($1) FROM step_up_tokens WHERE expires_at < $2", [cut(1)], o, { table: "step_up_tokens", cutoff: cut(1) });
+  const diagnoses = await inBatches(pool, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cut(r.diagnosesDays)], o, { table: "diagnoses", cutoff: cut(r.diagnosesDays) });
   const samples = await rollUpAndTrimSamples(pool, now, o);
   const notifications = await pruneNotifications(pool, o);
-  const boots = await inBatches(pool, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cut(r.bootsDays)], o);
+  const boots = await inBatches(pool, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cut(r.bootsDays)], o, { table: "cabinet_boots", cutoff: cut(r.bootsDays) });
   // The record of configuration changes and health transitions is kept as long as events are (the stored versions are bounded by count instead).
-  const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o);
-  const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o);
+  const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o, { table: "config_changes", cutoff: cut(r.eventsDays) });
+  const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o, { table: "health_transitions", cutoff: cut(r.eventsDays) });
   // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
   await inBatches(pool, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
-                           (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o);
+                           (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o, { table: "fleet_job_targets", cutoff: cut(r.jobsDays) });
   const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
-                                        AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o);
+                                        AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o, { table: "fleet_jobs", cutoff: cut(r.jobsDays) });
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
     driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
