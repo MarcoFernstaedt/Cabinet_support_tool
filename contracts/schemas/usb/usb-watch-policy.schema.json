@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/usb/usb-watch-policy.schema.json",
+  "title": "usb-watch-policy",
+  "description": "The USB watch policy one scope sets: which identity to watch, how long an absence must last before it is an incident, how many reconnects in how long count as flapping, the hours in which a minor alert waits until the morning, the severity of each of the three rules, and whether the platform may start a stopped dependency again (off unless set). Stored per scope (fleet, client, site, cabinet, most specific wins) and answered to a cabinet with a version; a cabinet that cannot reach the server keeps the last policy it was given that validated. Proposals and bounds per field: docs/platform/research/2026-10/usb-design-research.md (section 4).",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "key": {
+      "description": "A normalized identity key computed by the cabinet: a hardware ID's character set plus :, ;, / and parentheses, so a location path such as PCIROOT(0)#USBROOT(0)#USB(1) fits. Same character set as a report's unitKey and portKey, which is what a policy is matched against. The server treats it as opaque text that is stored and compared, never parsed.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^[A-Za-z0-9\\\\&_.#{}=,:;/() -]+$"
+    },
+    "minuteOfDay": {
+      "description": "Minutes after local midnight: 0 is 00:00 and 1439 is 23:59.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1439
+    },
+    "severityLevel": {
+      "description": "The platform's alert severities: migrations/0001_baseline.sql allows only these two (alerts_severity_check). The research proposes informational and critical as well; the platform has neither, so a policy cannot ask for one (docs/spec/09-open-decisions.md).",
+      "type": "string",
+      "enum": ["major", "minor"]
+    }
+  },
+  "properties": {
+    "identityKey": {
+      "description": "The one device or slot this policy watches. A 'device' key names the physical unit (a credible USB serial, else a container ID, else the instance ID with its port segments removed) so it is still watched on another port; the matching field in a report is that unit's unitKey. A 'port' key names the slot (root controller, hub chain and port), so it warns when anything leaves that slot; the matching field in a report is that unit's portKey. 'Port_#0002.Hub_#0003' is display text, never a key. Which of the two wins when both match is an open question (docs/spec/09-open-decisions.md); this contract does not decide it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "value", "confidence"],
+      "properties": {
+        "kind": {
+          "description": "'device': the physical unit wherever it is plugged in. 'port': the slot, whatever is plugged into it.",
+          "type": "string",
+          "enum": ["device", "port"]
+        },
+        "value": {
+          "description": "The key itself, as the cabinet computed it.",
+          "$ref": "#/$defs/key"
+        },
+        "confidence": {
+          "description": "How much the key can be trusted: 'high' only for a credible serial or a container ID that is neither inherited nor randomly generated, 'low' for a slot expectation built from the location path, VID/PID and a prior assignment, 'unknown' when the cabinet could not tell. The rules do not depend on it; it is shown with the policy so a person can see when a watch is resting on a weak identity.",
+          "type": "string",
+          "enum": ["high", "low", "unknown"]
+        }
+      }
+    },
+    "enabled": {
+      "description": "Off means the rules for this identity are not evaluated at all: nothing is opened and nothing is resolved, because switching watch off is not evidence that a device came back. An incident already open stays open for a person to close.",
+      "type": "boolean"
+    },
+    "absentForMinutes": {
+      "description": "How long a device or slot that was known (it has been seen at least once) must be continuously absent before the absence rule opens an incident. null turns the rule off for this policy. Proposal: 5 minutes, off for a device nobody asked to watch.",
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1440
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reconnect": {
+      "description": "How many completed present -> absent -> present cycles (N) in how many minutes (Y) count as flapping. Proposal: 3 in 60 minutes. A cabinet that cannot count exactly reports a lower bound or unknown, and the server never opens the flap incident from a lower bound.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "windowMinutes"],
+      "properties": {
+        "count": {
+          "description": "N, cycles that count. 2 is the least that can be called a pattern; 20 is the cap (research section 4).",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20
+        },
+        "windowMinutes": {
+          "description": "Y, the window the cycles must fall in. A report whose counting window is longer than this is a weaker claim than the rule asks for, and the server does not open the incident from it.",
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 1440
+        }
+      }
+    },
+    "settle": {
+      "description": "How long the cabinet waits before it believes a change: after a device-change hint, after Windows resumes, and the most it may wait in total. Left out, the cabinet's own defaults apply (15 s, 30 s, 120 s). Proposal: 2-60 s after a hint, 15-300 s after resume, at most 120 s in total.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["afterHintSeconds", "afterResumeSeconds", "maxSettleSeconds"],
+      "properties": {
+        "afterHintSeconds": {
+          "description": "Quiet time after a device-change hint before the topology is read. A hint is never itself a transition: it carries no identity, and mixed changes coalesce.",
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 60
+        },
+        "afterResumeSeconds": {
+          "description": "Quiet time after sleep, resume or boot before absence is evaluated.",
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 300
+        },
+        "maxSettleSeconds": {
+          "description": "The most the cabinet may wait for a change to settle before it reports what it has, with the state still marked unsettled.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
+      }
+    },
+    "quietHours": {
+      "description": "A window in which a minor alert is delivered after it ends: it is still opened, still counted and still in the list, only the notification waits. A major alert is always delivered. Read against the site's local wall clock, so the window keeps its local times across a daylight-saving change; a window whose start is after its end runs over midnight (22:00 to 06:00). null: no window, notifications as they happen.",
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["timeZone", "startMinute", "endMinute", "weekdays"],
+          "properties": {
+            "timeZone": {
+              "description": "An IANA time zone name, for example America/New_York. A name the server does not know is refused when the policy is saved; on the read path an unknown name means the window is not applied, because delivery is never held back by a zone the server cannot read.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$"
+            },
+            "startMinute": {
+              "description": "Minutes after local midnight the window begins: 1320 is 22:00.",
+              "$ref": "#/$defs/minuteOfDay"
+            },
+            "endMinute": {
+              "description": "Minutes after local midnight the window ends: the first minute back outside it, so 360 is 06:00.",
+              "$ref": "#/$defs/minuteOfDay"
+            },
+            "weekdays": {
+              "description": "The local days the window applies to, 1 Monday to 7 Sunday (ISO 8601). At least one day and no day twice: a window that applies to no day would silently mean 'always deliver'.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 7
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "severity": {
+      "description": "The severity of each rule. A rule left out here uses the severity of its issue type (usb_missing is minor, migrations/0001_baseline.sql): the platform keeps one severity per issue type, and the server does not invent another. Note that a rule set to major is delivered even during quiet hours.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "absent": {
+          "description": "The absence rule. Proposal: major for a pinned device somebody depends on.",
+          "$ref": "#/$defs/severityLevel"
+        },
+        "reconnect": {
+          "description": "The reconnect flap rule. Proposal: minor.",
+          "$ref": "#/$defs/severityLevel"
+        },
+        "dependency": {
+          "description": "The dependency detached rule.",
+          "$ref": "#/$defs/severityLevel"
+        }
+      }
+    },
+    "autoRestart": {
+      "description": "Whether the platform may start a stopped dependency again. Off unless set. Even when on, this layer only records the wish on the incident as restartRequested for an application dependency: it never restarts a USB controller or hub, a disk, network, boot or security driver, the biometric stack, svchost, the agent or the broker, never a driver service, and never a service name taken from rule text (research sections 3 and 4).",
+      "type": "boolean"
+    }
+  },
+  "required": ["identityKey", "enabled", "absentForMinutes", "reconnect", "quietHours", "severity", "autoRestart"]
+}

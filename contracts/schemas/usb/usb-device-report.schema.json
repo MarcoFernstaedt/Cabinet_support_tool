@@ -1,0 +1,400 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/usb/usb-device-report.schema.json",
+  "title": "usb-device-report",
+  "description": "One reconciled USB snapshot from a cabinet: for each physical unit it watches, the identity it was given, where Windows sees it attached, its state, when it was first and last seen, how many times it has come back, and the state of the services, processes and probes that depend on it. The server draws alert conclusions from this and can start nothing; a report says how complete its own evidence is (settled, eventHistoryComplete, cyclesAreLowerBound) instead of presenting a guess as a count. The unitKey and portKey here are the same key space as usb-watch-policy's identityKey, so a report cannot address a unit or slot the policy does not name. Design input: docs/platform/research/2026-10/usb-design-research.md (sections 1, 2, 3, 5).",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "key": {
+      "description": "A normalized identity key computed by the cabinet: a hardware ID's character set plus : ; / and parentheses, so a location path such as PCIROOT(0)#USBROOT(0)#USB(1) fits. Opaque to the server, which stores and compares it, never parses it. Same character set as the policy's identityKey.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 400,
+      "pattern": "^[A-Za-z0-9\\\\&_.#{}=,:;/() -]+$"
+    },
+    "nullableKey": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/key"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "text": {
+      "description": "Display text for a person: printable, no control characters. Never used to decide anything.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "device": {
+      "description": "One physical USB unit as the watch sees it now.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unitKey": {
+          "description": "The device key: the cabinet's normalization of the physical unit (a credible serial, else a container ID, else the instance ID with its port segments removed), so the unit is still recognised in another socket. A policy watches it with identityKey.kind 'device'.",
+          "$ref": "#/$defs/key"
+        },
+        "portKey": {
+          "description": "The slot key: the cabinet's normalization of the attachment (root controller, hub chain and port). It changes when a device is moved, and for every descendant when a dock is plugged into another socket. A policy watches it with identityKey.kind 'port'. null when the unit could not be placed (never enumerated, or the monitor is degraded).",
+          "$ref": "#/$defs/nullableKey"
+        },
+        "parentKey": {
+          "description": "The identity of the hub, dock or controller this unit hangs off, when known: what a group of simultaneous losses is grouped by, so a dock disappearing is one incident and not one per child. null when the unit is attached directly to a root. Only meaningful together with parentRootCause.",
+          "$ref": "#/$defs/nullableKey"
+        },
+        "parentRootCause": {
+          "description": "When a hub, dock or controller is the shared cause of several losses, what that shared cause is, so the server can group them as one parent incident with a bounded affected-child list. 'none' when this unit's loss has no such parent (or when the cause is not yet known).",
+          "type": "string",
+          "enum": [
+            "none",
+            "usb-hub",
+            "usb-controller",
+            "dock",
+            "power"
+          ]
+        },
+        "identity": {
+          "description": "What the key was built from, so a reader can see how strong the identity is. Not a second key: the key above is what is compared.",
+          "type": "string",
+          "enum": [
+            "instanceId",
+            "serial",
+            "vidPid",
+            "hardwareId",
+            "containerId"
+          ]
+        },
+        "identityConfidence": {
+          "description": "high only when a credible serial or a container ID that is neither inherited nor random backs the key; low for a slot expectation built from the location path, VID/PID and a prior assignment; none when the cabinet could not tell. low or none makes every count for this unit a lower bound and forbids a device-scoped conclusion, because a reused random ID or a bare VID/PID match is not proof of the same physical unit.",
+          "type": "string",
+          "enum": [
+            "high",
+            "low",
+            "none"
+          ]
+        },
+        "instanceId": {
+          "description": "The PnP instance ID. System-supplied and only locally unique, so it is not by itself proof of the same physical unit across ports or reinstalls.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/deviceInstanceId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "containerId": {
+          "description": "A grouping clue, never proof of the same physical unit: it can be vendor-supplied, a hash of the serial, randomly generated, or inherited from the parent.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "vid": {
+          "description": "USB vendor ID as four hex digits.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{4}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pid": {
+          "description": "USB product ID as four hex digits.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9A-Fa-f]{4}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "serialHash": {
+          "description": "SHA-256 of the USB serial, never the serial itself: the platform keeps a serial's identity but not the serial. null when the device has no credible serial (empty, all-zero or a known default), in which case identityConfidence cannot be high.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "portDisplay": {
+          "description": "The hub and port coordinate Windows shows a technician, such as Port_#0002.Hub_#0003. Display text only: it is never a key, and never the thing compared.",
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[A-Za-z0-9_.# -]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "description": "The unit's reconciled state. problem is orthogonal to absence (a unit can be present with a problem code) and queryRemove is a pending state, not an absence: neither is evidence that a unit vanished. absent means a unit or slot that was known is gone now.",
+          "type": "string",
+          "enum": [
+            "present",
+            "suspectAbsent",
+            "absent",
+            "recovering",
+            "problem",
+            "queryRemove",
+            "unknown"
+          ]
+        },
+        "problemCode": {
+          "description": "The Windows problem code when state is problem: 21 removal in progress, 24 uncertain, 28 no driver, 43 reported failure, 45 disconnected, 52 signature failure. A presence with a problem code is not an absence and not a healthy sample.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "firstSeenAt": {
+          "description": "When this unit was first seen by the watch in this boot. null means it has never been enumerated, which is what keeps a device nobody configured from alerting when it is not there: an absence rule starts only for a unit or slot that was known.",
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "lastSeenAt": {
+          "description": "When this unit was last observed present (or present with a problem). null when it has never been seen. The absence rule is timed from here, so an old timestamp is what shows a long absence rather than a fresh one.",
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "firstAbsentAt": {
+          "description": "When this unit started the absence it is in now, so the timer is the cabinet's and not restarted by every report. null while the unit is present.",
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "reconnectCount": {
+          "description": "How many completed present -> absent -> present cycles this unit has made inside the window below. A first enumeration, a boot or resume replay, a function-child duplicate and Kernel-PnP event 410 alone are not cycles, and the cabinet counts them out.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "reconnectWindowMinutes": {
+          "description": "The window reconnectCount was counted over. The server compares it with the policy's reconnect.windowMinutes (Y) and will not open a flap incident from a count taken over a longer window, because that count cannot show N cycles within Y. null when the cabinet could not say.",
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1440
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cyclesAreLowerBound": {
+          "description": "Explicit: true when this unit's cycle count may have missed transitions (event history incomplete, or an identity too weak to be sure the same unit came back). The server records such a count but never opens the flap incident from it.",
+          "type": "boolean"
+        },
+        "healthySamples": {
+          "description": "How many healthy samples this unit has given since it came back. A recovering unit is not healthy until it has given two: a single reading is the same moment seen once, and the sweep interval keeps the two apart. A presence with a problem code does not count as healthy.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "transitions": {
+          "description": "The transitions the cabinet recorded in this boot, newest last, each with an immutable id so a retried report is not counted twice. Evidence for a person reading an incident; the counts above are what the rules use.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/transition"
+          }
+        },
+        "workload": {
+          "description": "The services, applications and probes this unit depends on, as the cabinet found them. Evidence only: from this the platform starts nothing. An empty list is not 'nothing depends on it' unless the probe below says the check ran.",
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/workload"
+          }
+        },
+        "workloadProbe": {
+          "description": "Whether the dependency check ran at all: 'none' when the cabinet is not configured to look, 'service' when it read service states only, 'application' when it also asked the dependent application. Without this a list of running services would read as proof of attachment, which it is not.",
+          "type": "string",
+          "enum": [
+            "none",
+            "service",
+            "application"
+          ]
+        }
+      },
+      "required": [
+        "unitKey",
+        "portKey",
+        "parentKey",
+        "parentRootCause",
+        "identity",
+        "identityConfidence",
+        "state",
+        "firstSeenAt",
+        "lastSeenAt",
+        "firstAbsentAt",
+        "reconnectCount",
+        "reconnectWindowMinutes",
+        "cyclesAreLowerBound",
+        "healthySamples",
+        "workload",
+        "workloadProbe"
+      ]
+    },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transitionId": {
+          "description": "Immutable per transition: a repeated transitionId is a retry of the same observation and is counted once, which is what keeps a resent report from inventing cycles.",
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "at": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "kind": {
+          "description": "Only a removal followed by an arrival is a completed cycle. enumeration is the first sight of a device, boot and resume are replays of the past, functionChild is an interface of a device already counted.",
+          "type": "string",
+          "enum": [
+            "arrival",
+            "removal",
+            "enumeration",
+            "boot",
+            "resume",
+            "functionChild"
+          ]
+        }
+      },
+      "required": [
+        "transitionId",
+        "at",
+        "kind"
+      ]
+    },
+    "workload": {
+      "description": "One thing this unit depends on, at the layer the cabinet could check. A running service is not attachment: SCM state says a process is up, not that it holds the device's interface.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "service: an SCM service. process: an approved application the cabinet supervises. probe: a declared check whose result the cabinet reports as attached or detached.",
+          "type": "string",
+          "enum": [
+            "service",
+            "process",
+            "probe"
+          ]
+        },
+        "name": {
+          "description": "A service name, an approved application's exact name, or a declared probe name. Never a command line, a script or a path to run, and never something the server may start.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9_.$: -]+$"
+        },
+        "state": {
+          "description": "attached or detached is the answer to a check bound to this unit's interface; running, stopped and missing are SCM states. unknown means the layer could not be read, which is not the same as healthy.",
+          "type": "string",
+          "enum": [
+            "running",
+            "stopped",
+            "missing",
+            "attached",
+            "detached",
+            "unknown"
+          ]
+        },
+        "isDeviceDriver": {
+          "description": "True when this is the unit's own driver service (DEVPKEY_Device_Service). Its state alone still does not prove the interface is bound, and it is one of the things the platform never restarts.",
+          "type": "boolean"
+        },
+        "checkedAt": {
+          "description": "When this entry was last checked, so a stale reading is visible as stale.",
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "state"
+      ]
+    }
+  },
+  "properties": {
+    "cabinetId": {
+      "description": "The cabinet the snapshot came from, so a report that reaches the wrong cabinet's record is refused rather than merged.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "bootId": {
+      "description": "The boot epoch this snapshot belongs to (the cabinet's boot ID). A report from an older boot is a replay of the past and is discarded rather than read as fresh transitions.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "reportedAt": {
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "monitorState": {
+      "description": "The USB monitor's own state. unknown or degraded means its source of truth is unavailable, so no absence conclusion may be drawn from this snapshot: the server neither opens nor resolves on it. degrade is reported rather than passed on as a healthy reading.",
+      "type": "string",
+      "enum": [
+        "unknown",
+        "present",
+        "suspectAbsent",
+        "absent",
+        "recovering",
+        "degraded"
+      ]
+    },
+    "settled": {
+      "description": "Explicit: false while the topology is still settling, after boot or resume. Until it is true a missing device proves nothing, so the server holds what it has and does not time absence from this snapshot.",
+      "type": "boolean"
+    },
+    "eventHistoryComplete": {
+      "description": "Explicit: false when the cabinet's event cursor was lost (the channel rolled, was cleared, or records were missed), which makes every count in this snapshot a lower bound rather than a number.",
+      "type": "boolean"
+    },
+    "sweepSeconds": {
+      "description": "The periodic full sweep interval this snapshot was taken under, so a reader knows how far apart two samples are. Not sent for an on-demand read.",
+      "type": "integer",
+      "minimum": 60,
+      "maximum": 3600
+    },
+    "devices": {
+      "description": "The physical units this snapshot covers. A hub or dock is one entry and its functions (the MI_ interfaces of a composite device) are not separate entries: counting them separately is how one disappearance becomes several alerts.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/device"
+      }
+    }
+  },
+  "required": [
+    "cabinetId",
+    "bootId",
+    "reportedAt",
+    "monitorState",
+    "settled",
+    "eventHistoryComplete",
+    "devices"
+  ]
+}
