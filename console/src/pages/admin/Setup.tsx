@@ -97,22 +97,25 @@ function InstallAgent({ setup }: { setup: SetupState }) {
   const pkg = setup.agent.package;
   return (
     <ol className="steps">
-      <li>Download the agent and the installer{pkg ? <> (<span className="muted small">{(pkg.bytes / 1024 / 1024).toFixed(0)} MB, SHA-256 <code className="hash">{pkg.sha256.slice(0, 16)}…</code></span>)</> : null}:{" "}
-        {pkg ? <><a className="btn" href={withBase("/api/admin/agent-package")} download={pkg.name}>Download {pkg.name}</a>{" "}
-          <a className="btn primary" href={withBase("/api/admin/installer?unsigned=1")} download="Install-CabinetAgent.cmd">Download the installer</a>
-          <p className="muted small">The installer is a small script this server generates for this machine: it finds the package, checks it against the SHA-256 above, unpacks it and runs the install. Keep it in <code>Downloads</code> beside the package.</p></>
+      <li>Download the agent{pkg ? <> (<span className="muted small">{(pkg.bytes / 1024 / 1024).toFixed(0)} MB, SHA-256 <code className="hash">{pkg.sha256.slice(0, 16)}…</code></span>)</> : null}:{" "}
+        {pkg ? <>
+          <p className="row gap wrap"><a className="btn primary" data-tour="download-agent" href={withBase("/api/admin/agent-package")} download={pkg.name}>Download {pkg.name}</a>{" "}
+            <a className="btn" href={withBase("/api/admin/installer?unsigned=1")} download="Install-CabinetAgent.cmd">Download the installer instead</a></p>
+          <p className="muted small">Keep it in <code>Downloads</code>. The installer is a small script this server generates for this machine: it finds the package, checks it against the SHA-256 above, unpacks it and runs it, so it does step 4 for you in one double-click.</p></>
           : <span className="muted">no package on this server yet. Build one with agent/install/Publish-CabinetAgent.ps1 (see deploy/README.md).</span>}</li>
       <li>Create a one-time install token (valid for 7 days).{" "}
         <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
-        {problem && <p className="error" role="alert">{problem}</p>}
-        {issued && files && (
+        {problem && <p className="error" role="alert">{problem}</p>}</li>
+      <li>Download the token and the platform certificate.{" "}
+        {issued && files ? (
           <div className="notice warn" aria-live="polite">
             <p>Download both files now: the token is shown only once. Valid until {fullTime(issued.expiresAt)}.</p>
             <p className="row gap wrap"><a className="btn" href={files.token} download="token.txt">Download token.txt</a>
               <a className="btn" href={files.ca} download="platform-ca.pem">Download platform-ca.pem</a></p>
-          </div>)}
-      </li>
-      <li>On the cabinet, in an <strong>administrator PowerShell</strong>: keep the package, <code>token.txt</code> and <code>platform-ca.pem</code> together in <code>Downloads</code>, paste the three lines below and press Enter. The first unpacks the package and puts the two files where the installer reads them; the last installs the agent, which then shows up below waiting for your approval. (Or skip the paste and double-click <code>Install-CabinetAgent.cmd</code> from step 1, which runs exactly these lines.)
+            <p className="muted small">Save both in <code>Downloads</code>, beside the package. <code>token.txt</code> is that computer's one-time pass to ask to join; <code>platform-ca.pem</code> is the certificate it must trust, and step 4 checks it against its SHA-256 before anything is installed.</p>
+          </div>
+        ) : <span className="muted">nothing to download yet: create the token in step 2 first.</span>}</li>
+      <li>On the cabinet, in an <strong>administrator PowerShell</strong>: keep the package, <code>token.txt</code> and <code>platform-ca.pem</code> together in <code>Downloads</code>, paste the three lines below and press Enter. The first unpacks the package and puts the two files where the installer reads them; the last installs the agent, which then comes online and waits for your approval below. Or double-click <code>Install-CabinetAgent.cmd</code> from step 1, which runs exactly these lines. The block holds no secret: it reads <code>token.txt</code> from your Downloads, so a copied block is not a copied pass.
         <fieldset>
           <legend>Which PowerShell is on that computer?</legend>
           <div className="row gap wrap">
@@ -125,7 +128,7 @@ function InstallAgent({ setup }: { setup: SetupState }) {
           <p className="muted small">{engineInfo(engine).note} Either engine installs the same agent; your choice only changes which program the line below starts.</p>
         </fieldset>
         <pre className="code" tabIndex={0}>{command}</pre>
-        <button className="btn small" onClick={() => void navigator.clipboard?.writeText(command)}>Copy commands</button>
+        <button className="btn small" data-tour="copy-commands" onClick={() => void navigator.clipboard?.writeText(command)}>Copy commands</button>
         <p className="muted small">The agent connects out to <code>{host}:{port}</code> only; nothing connects in. The installer verifies <code>platform-ca.pem</code>, refuses a folder other users can change, and deletes <code>token.txt</code> after use.
           <code>-AllowUnsigned</code> is needed only for this unsigned demo build; production builds are signed.</p></li>
       <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)}
