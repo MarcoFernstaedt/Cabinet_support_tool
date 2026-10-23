@@ -2,13 +2,13 @@
 .SYNOPSIS
   Installs the cabinet agent's two services on this machine (milestone 1: no server connection yet).
 .DESCRIPTION
-  - CabinetAgentBroker runs as LocalSystem and never opens a network connection.
-  - CabinetAgentNetwork runs as its own virtual account (NT SERVICE\CabinetAgentNetwork),
+ - CabinetAgentBroker runs as LocalSystem and never opens a network connection.
+ - CabinetAgentNetwork runs as its own virtual account (NT SERVICE\CabinetAgentNetwork),
     with no administrator rights and only the privileges it needs.
-  - The local configuration is written to C:\ProgramData\Mashura\CabinetAgent, which only
+ - The local configuration is written to C:\ProgramData\Mashura\CabinetAgent, which only
     SYSTEM and Administrators can change. The network service can read it, and can write only
     its own state and log folders.
-  - Running this again on an installed cabinet keeps its identity: the cabinet ID, the platform
+ - Running this again on an installed cabinet keeps its identity: the cabinet ID, the platform
     server it talks to, the scanner and sync settings and the bootstrap token already on the
     machine are kept unless this run gives them. Give -CabinetId to replace the identity.
   Run from an elevated PowerShell, after Publish-CabinetAgent.ps1.
@@ -73,14 +73,20 @@ try {
 
 function Get-PeMachine([string] $Path) {
     # The Machine field of the PE header: 0x014c is 32-bit, 0x8664 is 64-bit, 0xAA64 is ARM64. Reading it is the only
-    # way to know what a published program is really built for (the file name says nothing).
+    # way to know what a published program is really built for (the file name says nothing). A file that cannot be read
+    # as a program is reported as the damaged archive it is, rather than as a .NET read error.
     $stream = [IO.File]::OpenRead($Path)
     try {
         $reader = New-Object IO.BinaryReader($stream)
+        if ($stream.Length -lt 0x40) { throw "it is only $($stream.Length) bytes long" }
         $stream.Position = 0x3C
         $peOffset = $reader.ReadInt32()
-        $stream.Position = $peOffset + 4
+        if ($peOffset -lt 0x40 -or ($peOffset + 6) -gt $stream.Length) { throw "its header points at offset $peOffset in a $($stream.Length) byte file" }
+        $stream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550) { throw 'it does not start with a Windows program header' }
         return $reader.ReadUInt16()
+    } catch {
+        throw "The agent program '$Path' could not be read: $($_.Exception.Message). The archive is incomplete or damaged - download it again from the console's Setup page and unpack it fresh."
     } finally { $stream.Dispose() }
 }
 
@@ -141,7 +147,7 @@ if ($packageMachine -notin @(0x14c, 0x8664)) {
 }
 
 # 0. What is about to be installed as LocalSystem must be what was published.
-#  - The source folder must not be writable by ordinary users (a folder made under C:\ is, by default): someone could swap a program.
+# - The source folder must not be writable by ordinary users (a folder made under C:\ is, by default): someone could swap a program.
 $sourceFull = (Resolve-Path -LiteralPath $SourceDir).Path
 $looseRights = [Security.AccessControl.FileSystemRights]'Write, Modify, FullControl, CreateFiles, AppendData, Delete'
 $broad = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')   # Everyone, Authenticated Users, Users
@@ -153,7 +159,7 @@ if (-not $SkipSourceFolderCheck) { foreach ($folder in @($sourceFull) + @(Get-Ch
         }
     }
 } }
-#  - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
+# - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
 # -File is required: on Windows PowerShell 5.1, -Include also returns matching *directories*,
 # and Get-AuthenticodeSignature cannot take a directory.
 $unsigned = Get-ChildItem -LiteralPath $sourceFull -Recurse -File -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
@@ -161,7 +167,7 @@ if ($unsigned) {
     if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
     Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
 }
-#  - The platform CA must be the one the console showed. A CA file pinned without its fingerprint is a trust anchor the
+# - The platform CA must be the one the console showed. A CA file pinned without its fingerprint is a trust anchor the
 #    installer cannot vouch for, so it is refused rather than warned about: nothing may quietly become the cabinet's
 #    trust anchor unchecked.
 if ($PlatformCaFile -or $PlatformServerHost) {
@@ -203,7 +209,7 @@ foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ N
     try {
         Copy-Item -Path (Join-Path $from '*') -Destination $to -Recurse -Force
     } catch {
-        throw "The agent's files could not be copied into '$to': $($_.Exception.Message) Something is holding a file open — stop the $($service.Name) service (and any agent window left open) and run again."
+        throw "The agent's files could not be copied into '$to': $($_.Exception.Message) Something is holding a file open - stop the $($service.Name) service (and any agent window left open) and run again."
     }
 }
 
@@ -285,7 +291,7 @@ if ($configItem) {
     try {
         $installed = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     } catch {
-        throw "The agent configuration already on this cabinet ('$configPath') cannot be read: $($_.Exception.Message) Repair that file, or delete it and run this script again with a fresh token from the console's Setup page — deleting it also discards this cabinet's identity, so the platform then sees this cabinet as a new one."
+        throw "The agent configuration already on this cabinet ('$configPath') cannot be read: $($_.Exception.Message) Repair that file, or delete it and run this script again with a fresh token from the console's Setup page -  deleting it also discards this cabinet's identity, so the platform then sees this cabinet as a new one."
     }
 }
 # A parameter that was not given is $null, not [guid]::Empty, so both have to be treated as 'no ID given'.
@@ -343,7 +349,7 @@ foreach ($name in $broker, $network) {
     try {
         Start-Service -Name $name
     } catch {
-        throw "The $name service did not start: $($_.Exception.Message) The agent writes its own reason to '$logDir' — read the newest file there (Get-ChildItem '$logDir' | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Tail 40). If the service starts and stops again immediately, the usual causes are a configuration it refuses and a token that has already been used; both are named in that log."
+        throw "The $name service did not start: $($_.Exception.Message) The agent writes its own reason to '$logDir' -  read the newest file there (Get-ChildItem '$logDir' | Sort-Object LastWriteTime | Select-Object -Last 1 | Get-Content -Tail 40). If the service starts and stops again immediately, the usual causes are a configuration it refuses and a token that has already been used; both are named in that log."
     }
     if ((Get-Service -Name $name).Status -ne 'Running') {
         throw "The $name service did not reach the Running state (it is $((Get-Service -Name $name).Status)). Read the newest file in '$logDir' for the agent's own reason, and check the service's own record with 'sc.exe query $name'."
@@ -372,7 +378,7 @@ catch {
         Write-Host "                  Start-Service $broker, $network"
         Write-Host '                  or reinstall the agent: a cabinet that is already enrolled keeps its identity.'
     }
-    Write-Host '  Next step     : send the "What happened" line and the newest log file to support — the log names the cause in plain words.'
+    Write-Host '  Next step     : send the "What happened" line and the newest log file to support - the log names the cause in plain words.'
     Write-Host ''
     exit 1
 }

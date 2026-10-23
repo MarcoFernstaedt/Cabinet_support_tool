@@ -25,7 +25,7 @@ function Remove-Path([string] $Path) {
     if (Test-Path -LiteralPath $Path) { throw "$Path could not be removed. Stop whatever is using it (a service, an open log file) and run again." }
 }
 
-# One failure funnel, the same shape as the installer's: what happened, and what to do about it — never a stack trace.
+# One failure funnel, the same shape as the installer's: what happened, and what to do about it -  never a stack trace.
 try {
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell: right-click Windows PowerShell (or PowerShell 7) and choose Run as administrator, then run the same command again.' }
