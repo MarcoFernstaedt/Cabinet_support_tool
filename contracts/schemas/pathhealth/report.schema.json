@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/pathhealth/report.schema.json",
+  "title": "Sync-path health report",
+  "description": "What the platform makes of one cabinet's sync-path samples over a window: what was measured per target, whether loss or timeouts fell inside a failed-sync window, and the findings with their evidence and confidence. The report never decides the cause: an ICMP series with no reply while a TCP connect succeeded is reported as filtering, and a refused connect is reported as an application or listener matter rather than as packet loss.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cabinetId",
+    "siteId",
+    "window",
+    "syncFailureWindow",
+    "targets",
+    "correlation",
+    "findings"
+  ],
+  "properties": {
+    "cabinetId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "siteId": {
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "window": {
+      "description": "The part of the stored samples this report covers, and how many were dropped by retention.",
+      "$ref": "#/$defs/window"
+    },
+    "syncFailureWindow": {
+      "description": "The failed-sync or missed-heartbeat window the samples were correlated against; null when nothing failed.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/failureWindow"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "targets": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/targetSummary"
+      }
+    },
+    "correlation": {
+      "$ref": "#/$defs/correlation"
+    },
+    "findings": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/$defs/finding"
+      }
+    }
+  },
+  "$defs": {
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "samples",
+        "dropped"
+      ],
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "samples": {
+          "description": "How many samples the report covers.",
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "dropped": {
+          "description": "How many samples retention removed. A missing sample is never read as health.",
+          "$ref": "../common.schema.json#/$defs/count"
+        }
+      }
+    },
+    "failureWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "failedChecks"
+      ],
+      "properties": {
+        "from": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "failedChecks": {
+          "description": "How many failed sync checks or missed heartbeats fell in the window.",
+          "$ref": "../common.schema.json#/$defs/count"
+        }
+      }
+    },
+    "targetSummary": {
+      "description": "One destination, added up over the window. A layer that was not measured is null, never empty and never zero.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "address",
+        "port",
+        "samples",
+        "icmp",
+        "tcp",
+        "state"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "sync_cabinet",
+            "platform_server"
+          ]
+        },
+        "address": {
+          "$ref": "../common.schema.json#/$defs/ipv4"
+        },
+        "port": {
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/port"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "samples": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "icmp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/icmpTotal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tcp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/tcpTotal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "description": "How the target looks over the window. \"filtering\" means ICMP was silent while a TCP connect succeeded; it is never reported as loss.",
+          "type": "string",
+          "enum": [
+            "ok",
+            "loss",
+            "loss_and_timeouts",
+            "timeouts",
+            "refused",
+            "filtering",
+            "not_measured"
+          ]
+        }
+      }
+    },
+    "icmpTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sent",
+        "received",
+        "lossPercent",
+        "maxLossPercent",
+        "minMs",
+        "avgMs",
+        "maxMs",
+        "jitterMs"
+      ],
+      "properties": {
+        "sent": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "received": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "lossPercent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "maxLossPercent": {
+          "description": "The worst single series in the window.",
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "minMs": {
+          "$ref": "#/$defs/nullableMs"
+        },
+        "avgMs": {
+          "$ref": "#/$defs/nullableMs"
+        },
+        "maxMs": {
+          "$ref": "#/$defs/nullableMs"
+        },
+        "jitterMs": {
+          "$ref": "#/$defs/nullableMs"
+        }
+      }
+    },
+    "tcpTotal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempts",
+        "connected",
+        "refused",
+        "timedOut"
+      ],
+      "properties": {
+        "attempts": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "connected": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "refused": {
+          "$ref": "../common.schema.json#/$defs/count"
+        },
+        "timedOut": {
+          "$ref": "../common.schema.json#/$defs/count"
+        }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "measured",
+        "lossDuringWindow",
+        "timeoutsDuringWindow",
+        "refusalsDuringWindow",
+        "icmpFiltered",
+        "interpretation",
+        "confidence"
+      ],
+      "properties": {
+        "measured": {
+          "description": "Whether any sample covers the failed-sync window at all.",
+          "type": "boolean"
+        },
+        "lossDuringWindow": {
+          "description": "Partial ICMP loss (above the threshold) or a TCP timeout inside the window. ICMP silence while a TCP connect succeeded does not set this.",
+          "type": "boolean"
+        },
+        "timeoutsDuringWindow": {
+          "type": "boolean"
+        },
+        "refusalsDuringWindow": {
+          "type": "boolean"
+        },
+        "icmpFiltered": {
+          "description": "ICMP was silent while a TCP connect succeeded: filtering, not loss.",
+          "type": "boolean"
+        },
+        "interpretation": {
+          "type": "string",
+          "enum": [
+            "loss_during_window",
+            "packet_filtering",
+            "application_or_listener",
+            "path_clean",
+            "not_measured"
+          ]
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "probable",
+            "possible",
+            "not_checked"
+          ]
+        }
+      }
+    },
+    "finding": {
+      "description": "One line of the diagnosis, in the same shape the network diagnosis uses, so the console can merge them.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "layer",
+        "severity",
+        "certainty",
+        "title",
+        "evidence",
+        "fix"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^pathhealth-[a-z0-9-]{1,40}$"
+        },
+        "layer": {
+          "type": "string",
+          "enum": [
+            "link",
+            "address",
+            "gateway",
+            "dns",
+            "platform",
+            "sync",
+            "firewall"
+          ]
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "problem",
+            "warning",
+            "info",
+            "ok"
+          ]
+        },
+        "certainty": {
+          "type": "string",
+          "enum": [
+            "confirmed",
+            "probable",
+            "possible",
+            "not_checked"
+          ]
+        },
+        "title": {
+          "$ref": "../common.schema.json#/$defs/shortText"
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/longText"
+          }
+        },
+        "fix": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "causedBy": {
+          "description": "The id of the network finding that probably explains this one, when the console merges both lists. A path-health finding proposes no automatic fix of its own, so it carries no action.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(pathhealth|network)-[a-z0-9-]{1,40}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "nullableMs": {
+      "anyOf": [
+        {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 600000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  }
+}

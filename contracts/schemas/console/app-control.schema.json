@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/app-control.schema.json",
+  "title": "app-control",
+  "description": "Asks one cabinet to start, stop or restart a service, or to end one process, by naming an entry of that cabinet's approved-applications list and an action (docs/spec/13-roadmap.md milestone 10). The service name, the program's path and the command line are never in the request: the server looks them up from the entry it was given, so what a caller names and what runs cannot drift apart. A process is named by the ID the cabinet itself reported last, which the server resolves to the program running under it and matches against the entry's own path before anything is issued; the ID is a pointer, never the thing that is checked. The step-up token is bound to this exact entry, this action and this cabinet: the canonical hash of everything below except the token itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cabinetId", "entryKey", "action", "stepUpToken"],
+  "properties": {
+    "cabinetId": {
+      "description": "The cabinet to ask.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "entryKey": {
+      "description": "One entry of this cabinet's approved list, exactly as it is stored. Its most specific level's list is the only list consulted, so an entry approved for another level or another cabinet is not found here.",
+      "$ref": "../common.schema.json#/$defs/approvedAppKey"
+    },
+    "action": {
+      "description": "What to ask for. Deliberately not an enum: the server decides what the entry's kind allows and refuses the rest with a code and a sentence a Tier 2 can act on, so a later change (restarting an application) needs no new body.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-z]+$"
+    },
+    "processId": {
+      "description": "Only with action end: the process ID from the cabinet's own last processes.list reading, never one the caller picked. The server refuses an ID the cabinet never reported, and refuses a program that is not the entry's own path.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4294967295
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token, bound to the action named here, this cabinet, and the canonical hash of the rest of this body.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

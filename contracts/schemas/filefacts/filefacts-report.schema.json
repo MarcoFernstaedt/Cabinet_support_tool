@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/filefacts/filefacts-report.schema.json",
+  "title": "filefacts-report",
+  "description": "What one file-facts read returns for a cabinet: the version metadata of the named paths the owner configured, and nothing else. Metadata only, never file content: the product and file version, the company, the version resource's description, the size, the last-write and creation times, the signature status and, when the allowlist asked for it, the SHA-256. Every value here is untrusted telemetry from the authenticated cabinet: the server cleans it, re-checks it against the plan it issued and reports only the smaller of what was asked for and what came back.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "takenAt",
+    "allowlistVersion",
+    "files",
+    "fileCount",
+    "totalBytes",
+    "elapsedMs",
+    "truncated"
+  ],
+  "properties": {
+    "takenAt": {
+      "description": "When the cabinet read the files, in its own words: a clock far from the platform's is a finding, not a correction.",
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "allowlistVersion": {
+      "description": "The allowlist version the cabinet was given, so an answer to an older list is recognizable.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "files": {
+      "description": "One entry per path the platform asked for. A path the cabinet did not report is missing from here, never invented.",
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "$ref": "#/$defs/fileFacts"
+      }
+    },
+    "fileCount": {
+      "description": "How many of the asked-for files the cabinet opened. The server counts the entries it admits itself and never trusts this number.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 32
+    },
+    "totalBytes": {
+      "description": "The total size of those files. Capped: a larger number is refused outright.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 67108864
+    },
+    "elapsedMs": {
+      "description": "How long the read took on the cabinet. Capped: a longer read is refused outright.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 60000
+    },
+    "truncated": {
+      "description": "True when the cabinet stopped early (its own size, count or time limit), so a missing entry is not read as a missing file.",
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "fileFacts": {
+      "description": "One path's metadata. status ok means the file was opened and its version resource read; every other status explains why not, and carries no metadata.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "status",
+        "signatureStatus",
+        "openedPath",
+        "reparsePoint",
+        "observedAt"
+      ],
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/itemKey"
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "missing",
+            "access_denied",
+            "too_large",
+            "timeout",
+            "refused",
+            "reparse_point",
+            "outside_root",
+            "invalid_path",
+            "error"
+          ]
+        },
+        "productVersion": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "fileVersion": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "companyName": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "description": {
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "sizeBytes": {
+          "$ref": "../common.schema.json#/$defs/nullableCount"
+        },
+        "modifiedAt": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "createdAt": {
+          "$ref": "../common.schema.json#/$defs/nullableTimestamp"
+        },
+        "signatureStatus": {
+          "description": "Authenticode status. unknown is the honest answer for a file that was not opened, and for a cabinet that cannot check.",
+          "enum": [
+            "valid",
+            "unsigned",
+            "invalid",
+            "unknown"
+          ]
+        },
+        "sha256": {
+          "description": "Lower-case hex SHA-256, present only when the allowlist asked for it. The server drops it otherwise.",
+          "anyOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "openedPath": {
+          "description": "The full path of the handle the cabinet actually opened, as Windows resolved it. The server refuses the entry unless it is exactly the configured root plus the configured file name.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/windowsPath"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reparsePoint": {
+          "description": "True when the opened handle traversed a reparse point, junction or symbolic link. The server refuses such an entry: a version resource read through a link is not the file the owner named.",
+          "type": "boolean"
+        },
+        "detail": {
+          "description": "One short bounded line about a status that is not ok. Never file content, never a path outside the allowlist.",
+          "$ref": "../common.schema.json#/$defs/nullableShortText"
+        },
+        "observedAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        }
+      }
+    },
+    "itemKey": {
+      "description": "The allowlist entry this result belongs to (app:<name>). A result for a key the plan never issued is dropped.",
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 128,
+      "pattern": "^app:[^\\u0000-\\u001f\\u007f\\\\/:*?\"<>|]+$"
+    },
+    "windowsPath": {
+      "description": "An absolute local path with a drive letter, with no relative segment and no UNC, device or alternate-stream form.",
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 260,
+      "pattern": "^[A-Za-z]:\\\\(?!.*(^|\\\\)\\.{1,2}(\\\\|$))[^\\u0000-\\u001f\\u007f<>:\"/|?*]+$"
+    }
+  }
+}

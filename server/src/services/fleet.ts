@@ -25,6 +25,37 @@ function cabinetRow(r: CabinetDbRow): CabinetRow {
 
 const OPEN_ALERTS = "(SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved')";
 const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.read_only, k.hostname, k.demo_scenario, ${OPEN_ALERTS} AS open_alerts`;
+/** The columns a cabinet row is built from, without the open-alert count: a page of them has its counts read once, in one grouped query. */
+const CABINET_FIELDS = "k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.read_only, k.hostname, k.demo_scenario";
+
+/** How many cabinets of a site one page holds, and the most a caller may ask for: a site of thousands is read a page at a time. */
+export const SITE_CABINET_PAGE = 200;
+export const MAX_CABINET_PAGE = 500;
+
+export interface Page { limit?: number; offset?: number }
+
+const pageWindow = (page: Page): { limit: number; offset: number } => ({
+  limit: Math.min(Math.max(Math.trunc(page.limit ?? SITE_CABINET_PAGE) || SITE_CABINET_PAGE, 1), MAX_CABINET_PAGE),
+  offset: Math.max(Math.trunc(page.offset ?? 0) || 0, 0),
+});
+
+/**
+ * One page of cabinet rows with their open-alert counts. The counts come from a single grouped query over that page's cabinets, instead of a
+ * correlated count per row: the count is what makes a fleet-wide list grow with the site, and it is read once, for what is shown.
+ */
+async function pageRows(db: Queryable, rows: readonly CabinetDbRow[]): Promise<CabinetRow[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map(r => r.id);
+  const counts = (await db.query<{ cabinet_id: string; n: string }>(
+    `SELECT cabinet_id, COUNT(*) AS n FROM alerts WHERE state <> 'resolved' AND cabinet_id IN (${ids.map((_, i) => `$${i + 1}`).join(", ")}) GROUP BY cabinet_id`, ids)).rows;
+  const openAlerts = new Map(counts.map(c => [c.cabinet_id, Number(c.n)]));
+  return rows.map(r => cabinetRow({ ...r, open_alerts: openAlerts.get(r.id) ?? 0 }));
+}
+
+/** How many cabinets a site has: the page says what it is a page of, so a truncated list is never taken for the whole one. */
+async function cabinetCount(db: Queryable, siteId: string): Promise<number> {
+  return Number((await db.query<{ n: string }>("SELECT COUNT(*) AS n FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed'", [siteId])).rows[0]!.n);
+}
 
 export async function clients(db: Queryable) {
   const rows = (await db.query<{ id: string; name: string; demo: boolean; sites: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
@@ -57,17 +88,25 @@ export async function client(db: Queryable, id: string) {
     openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
 }
 
-export async function site(db: Queryable, id: string) {
+/**
+ * A site, with one page of its cabinets. `cabinetCount` says how many cabinets the site has and `cabinetsPage.hasMore` whether this page is
+ * the whole list, so a site with more cabinets than a page still answers quickly and says so.
+ */
+export async function site(db: Queryable, id: string, page: Page = {}) {
   const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; network_baseline: unknown }>(
     `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, s.network_baseline
        FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
-  const cabinets = (await db.query<CabinetDbRow>(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [id])).rows;
+  const { limit, offset } = pageWindow(page);
+  const cabinets = (await db.query<CabinetDbRow>(
+    `SELECT ${CABINET_FIELDS}, 0 AS open_alerts FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name OFFSET $2 ROWS FETCH NEXT $3 ROWS ONLY`,
+    [id, offset, limit])).rows;
+  const count = await cabinetCount(db, id);
   const sync = (await syncForSite(db, id))!;
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
     sync: { address: sync.address, ports: sync.site, effectivePorts: sync.effective, portsSource: sync.source },
     scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: parseJson<string[]>(s.client_scanner), fleetHardwareIds: await fleetScannerIds(db) },
-    cabinets: cabinets.map(cabinetRow) };
+    cabinets: await pageRows(db, cabinets), cabinetCount: count, cabinetsPage: { limit, offset, hasMore: offset + cabinets.length < count } };
 }
 
 /** The scanner hardware IDs a cabinet's watcher should look for (cabinet, else site, else client, else fleet); null means find it automatically. */
@@ -76,12 +115,17 @@ export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<s
   return ids && ids.length > 0 ? [...new Set(ids)].slice(0, 16) : null;
 }
 
-export async function cabinet(db: Queryable, id: string) {
+export async function cabinet(db: Queryable, id: string, page: Page = {}) {
   const k = (await db.query<CabinetDbRow & { serial_number: string | null; manufacturer: string | null; model: string | null; uptime_seconds: string | null; clock_skew_seconds: number | null; site_id: string; site_name: string; client_id: string; client_name: string }>(`SELECT ${CABINET_COLUMNS}, k.serial_number, k.manufacturer, k.model, k.uptime_seconds, k.clock_skew_seconds, k.scanner_hardware_ids, k.site_id,
                                     s.name AS site_name, c.id AS client_id, c.name AS client_name
                                FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1`, [id])).rows[0];
   if (!k) return null;
-  const siblings = (await db.query<CabinetDbRow>(`SELECT ${CABINET_COLUMNS} FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name`, [k.site_id])).rows;
+  // The cabinets of the same site, one page at a time: a site of thousands does not make opening one cabinet read them all.
+  const { limit, offset } = pageWindow(page);
+  const siblings = (await db.query<CabinetDbRow>(
+    `SELECT ${CABINET_FIELDS}, 0 AS open_alerts FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name OFFSET $2 ROWS FETCH NEXT $3 ROWS ONLY`,
+    [k.site_id, offset, limit])).rows;
+  const siblingCount = await cabinetCount(db, k.site_id);
   const levels = await scannerLevels(db, id);
   // The last moment nothing was wrong: before the oldest open alert began; with none open, now if the cabinet is online, else when it was last heard from.
   const oldestOpen = (await db.query<{ since: Date | null }>("SELECT MIN(first_seen) AS since FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND state <> 'resolved'", [id])).rows[0]?.since ?? null;
@@ -92,7 +136,7 @@ export async function cabinet(db: Queryable, id: string) {
     site: { id: k.site_id, name: k.site_name }, client: { id: k.client_id, name: k.client_name },
     scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
       effective: levels.effective, source: levels.source },
-    siblings: siblings.map(cabinetRow),
+    siblings: await pageRows(db, siblings), siblingCount, siblingsPage: { limit, offset, hasMore: offset + siblings.length < siblingCount },
   };
 }
 

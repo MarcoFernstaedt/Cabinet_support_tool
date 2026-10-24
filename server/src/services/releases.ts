@@ -3,7 +3,7 @@
 // signature against the release keys it knows of and the zip against the manifest, so a broken or forged release is
 // refused at the door, but none of this is the protection: the server never holds the signing key, and every agent
 // checks everything again with the key compiled into it.
-import { createHash, createPublicKey, verify, type KeyObject } from "node:crypto";
+import { createHash, createPublicKey, randomUUID, verify, type KeyObject } from "node:crypto";
 import { createWriteStream, readFileSync } from "node:fs";
 import { chmod, mkdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -153,15 +153,66 @@ export async function addRelease(pool: Pool, keys: ReleaseKeys, adminId: string,
   });
 }
 
+/** The temporary file one upload writes to: named for that upload alone, so two uploads of one release never share a file. */
+export function uploadTempName(version: string, nonce: string): string {
+  return `agent-${version}.${nonce}.zip`;
+}
+
+/** The lock that makes publishing one release's package single-writer (adding a release takes the wider "agent_releases" lock). */
+export function releaseLock(version: string): string {
+  return `agent_release:${version}`;
+}
+
+/**
+ * Publishes a finished upload. Under the release's own lock the row is read again, and the statement that makes it ready names every
+ * condition once more (still waiting for its package, still the uploader's, the same hash and size) and must change exactly one row:
+ * however the world looked when the upload began, only this caller's own, unchanged release can be published here. The file is put in place
+ * inside that same lock, so an upload that started earlier cannot land on top of one that has just been published.
+ */
+async function publishReleasePackage(pool: Pool, store: ReleaseStore, o: { adminId: string; version: string; sha256: string; size: number; temp: string }): Promise<void> {
+  const final = packagePath(store, o.version);
+  let renamed = false;
+  try {
+    await transaction(pool, async c => {
+      await lock(c, releaseLock(o.version));
+      const current = (await c.query<{ state: string; added_by: string; sha256: string; size_bytes: string }>(
+        "SELECT state, added_by, sha256, size_bytes FROM agent_releases WITH (UPDLOCK) WHERE version = $1", [o.version])).rows[0];
+      if (!current) throw new Refused("not_found", 404, "no such release");
+      if (current.added_by !== o.adminId) throw new Refused("not_yours", 403, "only the Admin who added this release can upload its package");
+      if (current.state !== "awaiting_package") throw new Refused("not_awaiting_package", 409, "this release is not waiting for its package");
+      if (current.sha256 !== o.sha256 || Number(current.size_bytes) !== o.size) throw new Refused("release_changed", 409, "the signed manifest changed while the package was uploading");
+      const changed = await c.query(
+        `UPDATE agent_releases SET state = 'ready', package_at = SYSUTCDATETIME()
+          WHERE version = $1 AND state = 'awaiting_package' AND added_by = $2 AND sha256 = $3 AND size_bytes = $4`,
+        [o.version, o.adminId, o.sha256, o.size]);
+      if ((changed.rowCount ?? 0) !== 1) throw new Refused("release_changed", 409, "the release changed while the package was uploading");
+      await rename(o.temp, final);
+      renamed = true;
+      await chmod(final, 0o444); // stored read-only, never changed
+      await audit(c, { actorKind: "user", actorId: o.adminId, action: "release.package", targetKind: "release", targetId: o.version, outcome: "succeeded",
+        details: { version: o.version, sha256: o.sha256, size: o.size } });
+    });
+  } catch (e) {
+    // The row went back with its transaction, so the file must not stay where a reader could take it for this release's package.
+    if (renamed) await rm(final, { force: true });
+    throw e;
+  }
+}
+
 /** Step 2: the package zip, streamed with a size cap and hashed on the way; it must be exactly what the manifest names. */
 export async function receiveReleasePackage(pool: Pool, store: ReleaseStore, adminId: string, version: string, body: Readable) {
   if (!isVersion(version)) throw new Refused("not_found", 404, "no such release");
-  const row = (await pool.query<{ state: string; sha256: string; size_bytes: string }>("SELECT state, sha256, size_bytes FROM agent_releases WHERE version = $1", [version])).rows[0];
+  const row = (await pool.query<{ state: string; sha256: string; size_bytes: string; added_by: string }>(
+    "SELECT state, sha256, size_bytes, added_by FROM agent_releases WHERE version = $1", [version])).rows[0];
   if (!row) throw new Refused("not_found", 404, "no such release");
+  // Checked here before a byte is read (the route checks it too) and once more, with the row count, when the package is published.
+  if (row.added_by !== adminId) throw new Refused("not_yours", 403, "only the Admin who added this release can upload its package");
   if (row.state !== "awaiting_package") throw new Refused("not_awaiting_package", 409, "this release is not waiting for its package");
   const expected = Number(row.size_bytes);
   await mkdir(join(store.dir, ".incoming"), { recursive: true, mode: 0o700 });
-  const temp = join(store.dir, ".incoming", `agent-${version}.zip`);
+  // A file of this upload's own, created with O_EXCL: a leftover of an interrupted run, or another upload of the same release, can never be
+  // mistaken for this upload's bytes, and a half-written file is never read as a package.
+  const temp = join(store.dir, ".incoming", uploadTempName(version, randomUUID()));
   const hash = createHash("sha256");
   let size = 0;
   const cap = new Transform({
@@ -172,16 +223,12 @@ export async function receiveReleasePackage(pool: Pool, store: ReleaseStore, adm
     },
   });
   try {
-    await pipeline(body, cap, createWriteStream(temp, { mode: 0o600 }));
+    await pipeline(body, cap, createWriteStream(temp, { flags: "wx", mode: 0o600 }));
     const digest = hash.digest("hex");
     if (size !== expected || digest !== row.sha256) throw new Refused("hash_mismatch", 422, "the package does not match the signed manifest's hash and size");
-    const final = packagePath(store, version);
-    await rename(temp, final);
-    await chmod(final, 0o444); // stored read-only, never changed
-    await transaction(pool, async c => {
-      await c.query("UPDATE agent_releases SET state = 'ready', package_at = SYSUTCDATETIME() WHERE version = $1 AND state = 'awaiting_package'", [version]);
-      await audit(c, { actorKind: "user", actorId: adminId, action: "release.package", targetKind: "release", targetId: version, outcome: "succeeded", details: { version, sha256: digest, size } });
-    });
+    // What is on disk is what was hashed, before anything is published.
+    if ((await stat(temp)).size !== size) throw new Refused("hash_mismatch", 422, "the package on disk is not the one that was uploaded");
+    await publishReleasePackage(pool, store, { adminId, version, sha256: digest, size, temp });
   } catch (e) {
     await rm(temp, { force: true });
     const reason = e instanceof Refused ? `${e.code}: ${e.message}` : "the upload did not complete";

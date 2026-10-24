@@ -138,6 +138,29 @@ const MAX_MATCHES = 200;
  * The cabinets whose latest stored reading of one kind matches. Only cabinets that have been read are searched, and the answer says how many
  * of those in scope that is, so "no match" is never mistaken for "no cabinet has it".
  */
+/**
+ * How many fleet-wide searches may run at once, and how many may wait for their turn. A search walks the newest stored result of every
+ * cabinet in the fleet, so an unbounded number of them at once is what makes the server slow for everyone; a search that cannot get a slot
+ * in a moment is refused (429) rather than added to the load.
+ */
+export const SEARCH_CONCURRENCY = 2;
+export const SEARCH_QUEUE = 4;
+let searchesRunning = 0;
+const searchWaiters: Array<() => void> = [];
+
+function releaseSearchSlot(): void {
+  searchesRunning -= 1;
+  const next = searchWaiters.shift();
+  if (next) { searchesRunning += 1; next(); }
+}
+
+async function searchSlot(): Promise<() => void> {
+  if (searchesRunning < SEARCH_CONCURRENCY) { searchesRunning += 1; return releaseSearchSlot; }
+  if (searchWaiters.length >= SEARCH_QUEUE) throw new Refused("busy", 429, "the fleet is already being searched; try again in a moment");
+  await new Promise<void>(resolve => { searchWaiters.push(resolve); });
+  return releaseSearchSlot;
+}
+
 export async function searchReadings(db: Queryable, operation: string, q: string, scope: { clientId?: string; siteId?: string }, limitMs?: number): Promise<SearchResult> {
   const started = Date.now();
   const left = () => (limitMs === undefined ? undefined : { timeoutMs: Math.max(1, limitMs - (Date.now() - started)) });
@@ -150,27 +173,39 @@ export async function searchReadings(db: Queryable, operation: string, q: string
   const condition = keywords ? KEYWORD_WHERE[text]! : NAMES[operation]!.where;
   const inScope = `k.status = 'active' AND (CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))`;
   const params = [scope.clientId ?? null, scope.siteId ?? null, keywords ? "" : text, operation];
-  // `output` is not one of the columns the data layer parses, so it comes back as JSON text.
-  const rows = (await db.query<{ id: string; name: string; role: string; site: string; client: string; demo: boolean; read_at: Date; output: string | null }>(
-    `WITH latest AS (
+  /** The cabinets of the scope that have a stored result for this operation; the page and its counts are read from it together. */
+  const latest = `latest AS (
        SELECT x.cabinet_id, x.result_at, x.result FROM (
          SELECT cm.cabinet_id, cm.result_at, cm.result, ROW_NUMBER() OVER (PARTITION BY cm.cabinet_id ORDER BY cm.result_at DESC) AS rn
            FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
           WHERE cm.operation = $4 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}) x
-        WHERE x.rn = 1)
-     SELECT TOP (${MAX_MATCHES + 1}) k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, JSON_QUERY(cm.result, '$.output') AS output
+        WHERE x.rn = 1)`;
+  const released = await searchSlot();
+  try {
+    // `output` is not one of the columns the data layer parses, so it comes back as JSON text. The counts travel with the rows: the page
+    // and what it was drawn from are read in one round trip, and neither re-reads the stored results a second time.
+    const rows = (await db.query<{ id: string; name: string; role: string; site: string; client: string; demo: boolean; read_at: Date; output: string | null; cabinets_read: string; total: string }>(
+      `WITH ${latest},
+       counted AS (SELECT COUNT(*) AS cabinets_read FROM latest),
+       inscope AS (SELECT COUNT(*) AS total FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope})
+     SELECT TOP (${MAX_MATCHES + 1}) k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, JSON_QUERY(cm.result, '$.output') AS output,
+            (SELECT cabinets_read FROM counted) AS cabinets_read, (SELECT total FROM inscope) AS total
        FROM latest cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE (${condition}) ORDER BY c.name, s.name, k.name`, params, left())).rows;
-  const counts = (await db.query<{ cabinets_read: string; total: string }>(
-    `SELECT COUNT(DISTINCT cm.cabinet_id) AS cabinets_read, (SELECT COUNT(*) FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope}) AS total
-       FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
-      WHERE cm.operation = $3 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}`, [params[0], params[1], operation], left())).rows[0]!;
-  const found = (o: Out) => keywords ? KEYWORD_FOUND[text]!(o) : NAMES[operation]!.found(o, text);
-  return {
-    operation, q: text,
-    matches: rows.slice(0, MAX_MATCHES).map(r => ({ cabinetId: r.id, name: r.name, role: r.role, site: r.site, client: r.client, demo: r.demo, readAt: r.read_at.toISOString(), found: found(JSON.parse(r.output ?? "{}") as Out) })),
-    cabinetsRead: Number(counts.cabinets_read), cabinetsInScope: Number(counts.total), truncated: rows.length > MAX_MATCHES,
-  };
+    // Nothing matched, so no row carried the counts; they are asked for on their own (a search that finds nothing is the rare case).
+    const counts = rows[0] ?? (await db.query<{ cabinets_read: string; total: string }>(
+      `WITH ${latest.replace("$4", "$3")}
+     SELECT (SELECT COUNT(*) FROM latest) AS cabinets_read, (SELECT COUNT(*) FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope}) AS total`,
+      [params[0], params[1], operation], left())).rows[0]!;
+    const found = (o: Out) => keywords ? KEYWORD_FOUND[text]!(o) : NAMES[operation]!.found(o, text);
+    return {
+      operation, q: text,
+      matches: rows.slice(0, MAX_MATCHES).map(r => ({ cabinetId: r.id, name: r.name, role: r.role, site: r.site, client: r.client, demo: r.demo, readAt: r.read_at.toISOString(), found: found(JSON.parse(r.output ?? "{}") as Out) })),
+      cabinetsRead: Number(counts.cabinets_read), cabinetsInScope: Number(counts.total), truncated: rows.length > MAX_MATCHES,
+    };
+  } finally {
+    released();
+  }
 }
 
 // ---- Load samples -------------------------------------------------------------------------------------------------------------------

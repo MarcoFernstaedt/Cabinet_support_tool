@@ -32,9 +32,10 @@ export async function raiseSecurityAlert(db: Queryable, a: SecurityAlertInput): 
       OUTPUT inserted.id, CAST(CASE WHEN $action = 'INSERT' THEN 1 ELSE 0 END AS bit) AS created;`,
     [a.kind, a.signature.slice(0, 256), a.title.slice(0, 256), safeJson(a.detail ?? {}), a.userId ?? null, a.cabinetId ?? null]);
   const r = (await upsert().catch(e => { if (!isUniqueViolation(e)) throw e; return upsert(); })).rows[0]!;
-  if (r.created)
-    await audit(db, { actorKind: "system", actorId: "security", action: "security.alert", targetKind: "security_alert", targetId: r.id, outcome: "succeeded",
-      details: { kind: a.kind, title: a.title, userId: a.userId ?? null, cabinetId: a.cabinetId ?? null } });
+  // Every change to a security alert is auditworthy, not only the first: a repeat that overwrites the stored title and detail is a change
+  // to security evidence, and the count it adds is what the alert shows. `added` says which of the two it was.
+  await audit(db, { actorKind: "system", actorId: "security", action: "security.alert", targetKind: "security_alert", targetId: r.id, outcome: "succeeded",
+    details: { kind: a.kind, title: a.title, userId: a.userId ?? null, cabinetId: a.cabinetId ?? null, added: r.created } });
   // The payload column holds 450 characters; a long title is left out rather than cutting the JSON in half.
   const payload = { id: r.id, created: r.created, kind: a.kind, title: a.title.slice(0, 256) };
   await notify(db, "security_alerts", JSON.stringify(payload).length <= 450 ? JSON.stringify(payload) : JSON.stringify({ id: r.id, created: r.created, kind: a.kind }));

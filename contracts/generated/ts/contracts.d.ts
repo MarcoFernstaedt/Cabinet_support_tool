@@ -455,6 +455,32 @@ export interface AlertResolve {
 }
 
 /**
+ * Asks one cabinet to start, stop or restart a service, or to end one process, by naming an entry of that cabinet's approved-applications list and an action (docs/spec/13-roadmap.md milestone 10). The service name, the program's path and the command line are never in the request: the server looks them up from the entry it was given, so what a caller names and what runs cannot drift apart. A process is named by the ID the cabinet itself reported last, which the server resolves to the program running under it and matches against the entry's own path before anything is issued; the ID is a pointer, never the thing that is checked. The step-up token is bound to this exact entry, this action and this cabinet: the canonical hash of everything below except the token itself.
+ */
+export interface AppControl {
+  /**
+   * The cabinet to ask.
+   */
+  cabinetId: string;
+  /**
+   * One entry of this cabinet's approved list, exactly as it is stored. Its most specific level's list is the only list consulted, so an entry approved for another level or another cabinet is not found here.
+   */
+  entryKey: string;
+  /**
+   * What to ask for. Deliberately not an enum: the server decides what the entry's kind allows and refuses the rest with a code and a sentence a Tier 2 can act on, so a later change (restarting an application) needs no new body.
+   */
+  action: string;
+  /**
+   * Only with action end: the process ID from the cabinet's own last processes.list reading, never one the caller picked. The server refuses an ID the cabinet never reported, and refuses a program that is not the entry's own path.
+   */
+  processId?: number;
+  /**
+   * A one-time step-up token, bound to the action named here, this cabinet, and the canonical hash of the rest of this body.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Approve a pending cabinet: where it belongs, what it is called, and the configuration its role needs. A satellite is given the site's sync cabinet here; a sync cabinet is the endpoint itself and is never given one.
  */
 export interface ApproveEnrollment {
@@ -1746,6 +1772,7 @@ export interface StepUpRequest {
     | "updates.uninstall"
     | "system.restart"
     | "process.end"
+    | "service.control"
     | "package.upload"
     | "package.approve"
     | "package.retire"

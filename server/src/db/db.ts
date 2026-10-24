@@ -341,12 +341,34 @@ export function safeJson(value: unknown): string {
 
 /**
  * firstBadSeq is the earliest broken entry; badSeqs lists up to 100 of them, so damage after the first break is still found. A check that
- * went on from a checkpoint says from which entry (fromSeq) it started; entries counts what it checked.
+ * went on from a checkpoint says from which entry (fromSeq) it started; entries counts what it checked. A check stopped by maxEntries says
+ * so with more: true, and its lastSeq/lastHash are the tail it reached. behindHead says the chain ends before the anchored high-water mark:
+ * entries at the end of the log are gone (deleted, or the log was restored from an older copy), which the chain's own hashes cannot show.
  */
-export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; badSeqs?: number[]; fromSeq?: number; lastSeq?: number; lastHash?: string; }
+export interface ChainCheck { ok: boolean; entries: number; firstBadSeq?: number; badSeqs?: number[]; fromSeq?: number; lastSeq?: number; lastHash?: string; more?: boolean; behindHead?: boolean; headSeq?: number;
+  /** An answer that was not a new walk: it comes from a check that was already running, or from the one that just ran. */
+  reused?: boolean; }
 
 /** Where the last successful check ended (seq 0 and the all-zero hash before any). */
 export interface ChainCheckpoint { seq: number; hash: string; }
+
+/** The high-water mark the append path keeps, independent of the log: nothing the application's role does can move it back. */
+export type ChainHead = ChainCheckpoint;
+
+/**
+ * Reads the anchored high-water mark. It lives in audit_chain_head, which the application's role may not read, so the only way to it is the
+ * audit_head procedure (same owner, ownership chaining). A database that has not been migrated to it yet has no such procedure: the
+ * statement then returns no row and null comes back, so verification goes on as before and the caller can see that there is no anchor.
+ */
+export async function auditChainHeadAnchor(db: Queryable): Promise<ChainHead | null> {
+  const r = (await db.query<{ seq: string | null; hash: string | null }>(
+    `IF OBJECT_ID('audit_head', 'P') IS NULL
+       SELECT CAST(NULL AS bigint) AS [seq], CAST(NULL AS nvarchar(64)) AS [hash];
+     ELSE
+       EXEC audit_head;`, [], { raw: true })).rows[0];
+  return r?.seq !== null && r?.seq !== undefined && typeof r.hash === "string" ? { seq: Number(r.seq), hash: r.hash } : null;
+}
+
 
 export async function auditCheckpoint(db: Queryable): Promise<ChainCheckpoint> {
   const r = (await db.query<{ seq: string; hash: string }>("SELECT [seq], [hash] FROM audit_checkpoint WHERE id = 1", [], { raw: true })).rows[0];
@@ -363,12 +385,24 @@ export function auditHashInput(prev: string, r: { seq: string | number; at_text:
   return [prev, String(r.seq), r.at_text, r.actor_kind, r.actor_id, r.action, r.target_kind ?? "", r.target_id ?? "", r.outcome, r.details_raw].join("\u001f");
 }
 
+/** How a check is bounded and anchored; both are optional, so a plain check is the whole-log one it always was. */
+export interface ChainVerifyOptions {
+  /** Stops after this many entries, so one request never walks a large log in one go; the result then says more: true. */
+  maxEntries?: number;
+  /** The anchored high-water mark (auditChainHeadAnchor) to compare the tail reached with; null when there is none. */
+  head?: ChainHead | null;
+}
+
 /**
  * Recomputes every entry's hash from its stored fields and the previous hash. With `from` (a checkpoint), only the entries after it are
- * checked, starting from the checkpoint's hash; the checkpoint entry itself must still carry that hash.
+ * checked, starting from the checkpoint's hash; the checkpoint entry itself must still carry that hash. With `maxEntries` the walk stops
+ * there and says more: true, so a large log is never walked in one go. With `head` the tail reached is compared with the append path's own
+ * high-water mark: a hash chain that ends before it is a chain whose last entries are gone, which its own hashes cannot show.
  */
-export async function verifyAuditChain(db: Queryable, batch = 10_000, from?: ChainCheckpoint): Promise<ChainCheck> {
+export async function verifyAuditChain(db: Queryable, batch = 10_000, from?: ChainCheckpoint, o: ChainVerifyOptions = {}): Promise<ChainCheck> {
   // The log is kept forever, so it is read in batches rather than all at once.
+  const max = o.maxEntries !== undefined && o.maxEntries > 0 ? Math.trunc(o.maxEntries) : undefined;
+  const head = o.head ?? null;
   let previous = from?.hash ?? "0".repeat(64);
   let expectedSeq = (from?.seq ?? 0) + 1;
   let entries = 0;
@@ -377,15 +411,23 @@ export async function verifyAuditChain(db: Queryable, batch = 10_000, from?: Cha
     const anchor = (await db.query<{ hash: string }>("SELECT [hash] FROM audit_log WHERE seq = $1", [from.seq], { raw: true })).rows[0];
     if (anchor?.hash !== from.hash) bad.push(from.seq);
   }
-  const done = (): ChainCheck => {
+  const done = (more = false): ChainCheck => {
     const tail = { fromSeq: (from?.seq ?? 0) + 1, lastSeq: expectedSeq - 1, lastHash: previous };
-    return bad.length ? { ok: false, entries, firstBadSeq: bad[0]!, badSeqs: bad, ...tail } : { ok: true, entries, ...tail };
+    // A walk that stopped at the limit has not reached the end of the log, so the anchored mark says nothing about where it did stop.
+    const behindHead = !more && head !== null && tail.lastSeq < head.seq;
+    const check: ChainCheck = { ok: bad.length === 0 && !behindHead, entries, ...tail };
+    if (more) check.more = true;
+    if (head !== null) check.headSeq = head.seq;
+    if (behindHead) check.behindHead = true;
+    if (bad.length || behindHead) { check.firstBadSeq = bad[0] ?? tail.lastSeq + 1; check.badSeqs = bad; }
+    return check;
   };
   for (;;) {
     const rows = (await db.query<{ seq: string; at_text: string; actor_kind: string; actor_id: string; action: string; target_kind: string | null; target_id: string | null; outcome: string; details_raw: string; prev_hash: string; hash: string }>(
       `SELECT TOP (${Math.trunc(batch)}) seq, CONVERT(varchar(27), at, 126) AS at_text, actor_kind, actor_id, action, target_kind, target_id, outcome, details AS details_raw, prev_hash, hash
          FROM audit_log WHERE seq >= $1 ORDER BY seq`, [expectedSeq], { raw: true })).rows;
     for (const row of rows) {
+      if (max !== undefined && entries >= max) return done(true);
       const seq = Number(row.seq);
       entries++;
       // SQL Server hashes the UTF-16 bytes of the text, so the same is done here.
@@ -395,6 +437,7 @@ export async function verifyAuditChain(db: Queryable, batch = 10_000, from?: Cha
       previous = row.hash;
       expectedSeq = seq + 1;
     }
-    if (rows.length < batch) return done();
+    if (rows.length < batch) return done(false);
+    if (max !== undefined && entries >= max) return done(true);
   }
 }
