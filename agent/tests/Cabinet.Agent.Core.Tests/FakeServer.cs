@@ -25,6 +25,9 @@ public sealed class FakeServer
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Heartbeat { get; set; } = (_, _) => Task.FromResult(Json($$$"""{"serverTime":"{{{ServerTime}}}","scanner":{"hardwareIds":null}}"""));
     /// <summary>Default: hold the poll a little, then answer with nothing.</summary>
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Commands { get; set; } = async (_, t) => { await Task.Delay(100, t); return Json($$"""{"serverTime":"{{ServerTime}}","commands":[]}"""); };
+    /// <summary>Default: accept the enrollment as pending, the way the platform does while an administrator decides.</summary>
+    public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Enroll { get; set; } =
+        (_, _) => Task.FromResult(Json($$"""{"requestId":"{{Guid.NewGuid():D}}","status":"pending","serverTime":"{{ServerTime}}"}"""));
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Results { get; set; } = (_, _) => Task.FromResult(Ack());
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Events { get; set; } = (_, _) => Task.FromResult(Ack());
     public Func<SeenRequest, CancellationToken, Task<HttpResponseMessage>> Config { get; set; } = (_, _) => Task.FromResult(Ack());
@@ -74,6 +77,7 @@ public sealed class FakeServer
             return uri.AbsolutePath switch
             {
                 "/agent/v1/heartbeat" => await server.Heartbeat(seen, token),
+                "/agent/v1/enroll" => await server.Enroll(seen, token),
                 "/agent/v1/commands" => await server.Commands(seen, token),
                 "/agent/v1/results" => await server.Results(seen, token),
                 "/agent/v1/events" => await server.Events(seen, token),

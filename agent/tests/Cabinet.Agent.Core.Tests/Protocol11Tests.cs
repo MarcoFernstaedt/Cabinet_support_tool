@@ -457,6 +457,42 @@ public sealed class ResultOutboxTests
     }
 
     [Fact]
+    public void A_delivery_that_cannot_be_set_aside_leaves_the_result_in_the_outbox()
+    {
+        using var dir = new TempDir();
+        var a = Ok();
+        var outbox = new ResultOutbox(dir.Path, TimeProvider.System, _ => { });
+        outbox.Add(a);
+        // The done path is not free, so the delivery cannot be recorded as done.
+        string blocker = Path.Combine(dir.Path, "done", $"{a.CommandId:D}.json");
+        Directory.CreateDirectory(blocker);
+        File.WriteAllText(Path.Combine(blocker, "in the way"), "x");
+        outbox.Delivered(a.CommandId);
+        Assert.Equal(ResultOutbox.State.Pending, outbox.StateOf(a.CommandId));
+        Assert.Equal(a.CommandId, outbox.Next()!.Value.Id); // still there, to be posted again and taken again
+        Directory.Delete(blocker, true);
+        outbox.Delivered(a.CommandId);
+        Assert.Equal(ResultOutbox.State.Delivered, outbox.StateOf(a.CommandId));
+    }
+
+    [Fact]
+    public void A_repeat_offer_that_cannot_be_queued_again_still_answers_from_the_delivered_copy()
+    {
+        using var dir = new TempDir();
+        var a = Ok();
+        var outbox = new ResultOutbox(dir.Path, TimeProvider.System, _ => { });
+        outbox.Add(a);
+        outbox.Delivered(a.CommandId);
+        // The pending path is not free, so the result cannot be queued again; the delivered copy must stay, because it
+        // is the only answer a repeat offer of this command can get.
+        string blocker = Path.Combine(dir.Path, "pending", $"{a.CommandId:D}.json");
+        Directory.CreateDirectory(blocker);
+        File.WriteAllText(Path.Combine(blocker, "in the way"), "x");
+        Assert.False(outbox.Requeue(a.CommandId));
+        Assert.Equal(ResultOutbox.State.Delivered, outbox.StateOf(a.CommandId));
+    }
+
+    [Fact]
     public void Planted_damaged_and_mismatched_files_are_never_sent()
     {
         using var dir = new TempDir();

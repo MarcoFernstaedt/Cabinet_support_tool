@@ -98,16 +98,14 @@ public sealed class FirewallStore
 
     public IReadOnlyList<Timer> TimersList() { lock (_gate) return _timers.Load().Items.ToList(); }
 
-    /// <summary>Takes the timers that are due, removing them.</summary>
+    /// <summary>
+    /// The timers that are due. They stay on disk until the profile really is on again (see the upkeep's
+    /// <see cref="ClearTimer"/>): while a re-enable can still fail, the file is the only record that the profile
+    /// must come back on, so a crash or a failure here cannot drop the timer.
+    /// </summary>
     public IReadOnlyList<Timer> TakeDue(DateTimeOffset now)
     {
-        lock (_gate)
-        {
-            Timers t = _timers.Load();
-            var due = t.Items.Where(i => i.ReenableAt <= now).ToList();
-            if (due.Count > 0) { t.Items.RemoveAll(i => i.ReenableAt <= now); _timers.Save(t); }
-            return due;
-        }
+        lock (_gate) return _timers.Load().Items.Where(i => i.ReenableAt <= now).ToList();
     }
 
     /// <summary>Remembers that the firewall now looks the way this command left it.</summary>

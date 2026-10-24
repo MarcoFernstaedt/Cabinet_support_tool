@@ -8,6 +8,8 @@ namespace Cabinet.Agent.Core.Server;
 /// it is posted; a sender posts it until the server accepts it, across outages and restarts. Delivered
 /// results stay a while longer so a command the server offers again (its lease ran out because the
 /// answer to a poll was lost) is answered from here instead of being refused as a replay.
+/// A result is only ever forgotten once its file has really been moved: a transition that fails leaves
+/// it in the outbox, where posting it again is harmless and losing it is not.
 /// Lives under the agent's state folder, so it has that folder's access list (SYSTEM, Administrators
 /// and the network service's account). Files are named only by command ID; what is read back is checked
 /// against the result contract again before it is sent.
@@ -97,9 +99,11 @@ public sealed class ResultOutbox
     {
         lock (_gate)
         {
-            if (!_delivered.Remove(commandId)) return false;
+            if (!_delivered.ContainsKey(commandId)) return false;
             try { File.Move(DonePath(commandId), PendingPath(commandId), overwrite: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+            // The file is moved first: until it has been, the delivered copy is the only answer the offer can get.
+            _delivered.Remove(commandId);
             _queue.Add(commandId);
             _sizes[commandId] = new FileInfo(PendingPath(commandId)).Length;
             Interlocked.Exchange(ref _added, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
@@ -131,15 +135,22 @@ public sealed class ResultOutbox
         lock (_gate)
         {
             if (!_sizes.ContainsKey(commandId)) return;
-            Forget(commandId);
             DateTimeOffset now = _clock.GetUtcNow();
             try
             {
                 File.Move(PendingPath(commandId), DonePath(commandId), overwrite: true);
                 File.SetLastWriteTimeUtc(DonePath(commandId), now.UtcDateTime);
-                _delivered[commandId] = now;
             }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { TryDelete(PendingPath(commandId)); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // The result stays in the outbox rather than being dropped: the server taking it once more is
+                // harmless, whereas losing it would leave the server without an answer it is waiting for.
+                _log($"The delivered result for {commandId} could not be set aside ({e.GetType().Name}); it stays in the outbox.");
+                return;
+            }
+            // Only now is it forgotten as pending and remembered as delivered.
+            Forget(commandId);
+            _delivered[commandId] = now;
             Prune(now);
         }
     }

@@ -4,9 +4,11 @@ namespace Cabinet.Agent.Core.Writes;
 
 /// <summary>
 /// The network and firewall writes, as the broker runs them (docs/spec/04-agent-spec.md):
-/// read the "before", snapshot the firewall, make the one change, read the "after", arm
-/// the safety net, and record the firewall's new fingerprint so the change detector can
-/// attribute it to this command. The Windows specifics sit behind the two control interfaces.
+/// read the "before", snapshot the firewall, arm the safety net with it, make the one change, read
+/// the "after", and record the firewall's new fingerprint so the change detector can attribute it
+/// to this command. The undo record is durable before Windows is asked to change anything, so a
+/// crash cannot leave an applied change with no record of how to undo it. The Windows specifics
+/// sit behind the two control interfaces.
 /// </summary>
 public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl network, SafetyNet safetyNet, FirewallStore store, TimeProvider clock, Action<string> log, Action<TimeSpan>? pause = null)
 {
@@ -101,6 +103,8 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
         lock (_gate)
         {
             var (ip, dns) = network.Read(p.InterfaceIndex);
+            // The undo record goes on disk before the resolver settings are touched.
+            safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Network, InterfaceIndex = p.InterfaceIndex, IpBefore = ip, DnsBefore = dns });
             network.SetDns(p.InterfaceIndex, p.Mode == DnsMode.Automatic
                 ? new DnsSettings { Automatic = true, Servers = [] }
                 : new DnsSettings { Automatic = false, Servers = p.Servers! });
@@ -111,18 +115,14 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
 
     /// <summary>
     /// Makes a change that Windows may apply only in part (an address set but its gateway refused, a rule half
-    /// written). If it throws, the safety net is armed with the state from before, and the failed command is never
-    /// confirmed, so the cabinet goes back to that state at the deadline instead of staying half-changed.
+    /// written). The safety net is armed with the state from before first, then the change is made: if the change
+    /// throws, if the process is killed or if the disk fails afterwards, the cabinet still has the record it needs to
+    /// go back to that state at the deadline, and the failed command is never confirmed.
     /// </summary>
     private void ArmIfPartlyApplied(SafetyNet.Entry before, Action change)
     {
-        try { change(); }
-        catch
-        {
-            try { safetyNet.Arm(before); }
-            catch (Exception e) { log($"Arming the safety net after a failed change: {e.GetType().Name}."); }
-            throw;
-        }
+        safetyNet.Arm(before);
+        change();
     }
 
     // ---- Firewall -----------------------------------------------------------------------
@@ -236,6 +236,8 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             if (!store.HasSnapshot(p.SnapshotId)) throw new OperationFailedException("not_found", "This cabinet has no snapshot with that ID.");
             DateTimeOffset now = clock.GetUtcNow();
             Guid pre = store.TakeSnapshot(firewall, command, now);
+            // The undo record (the snapshot of this moment) is durable before the import is asked for.
+            safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = pre });
             firewall.Import(store.SnapshotPath(p.SnapshotId));
             store.Record(command, firewall.Read(), now);
             DateTimeOffset deadline = safetyNet.Arm(new SafetyNet.Entry { CommandId = command, What = SafetyNet.Kind.Firewall, SnapshotId = pre });
@@ -260,7 +262,7 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
     {
         lock (_gate)
         {
-            safetyNet.Expire(Rollback, log);
+            safetyNet.Expire(Rollback, log, RollbackFailed);
             foreach (FirewallStore.Timer due in store.TakeDue(clock.GetUtcNow()))
             {
                 try
@@ -268,6 +270,9 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
                     FirewallProfileState now = firewall.Read().Profiles.Single(s => s.Profile == due.Profile);
                     firewall.SetProfile(due.Profile, true, now.DefaultInbound, now.DefaultOutbound);
                     store.Record(due.CommandId, firewall.Read(), clock.GetUtcNow());
+                    // Only now, with the profile really on again: until this the timer on disk is the only record
+                    // that it must come back on, so a failure here cannot drop it.
+                    store.ClearTimer(due.Profile);
                     log($"Firewall: the {due.Profile} profile's time limit ended; it is on again.");
                 }
                 catch (Exception e)
@@ -279,6 +284,10 @@ public sealed class BrokerWrites(IFirewallControl firewall, INetworkControl netw
             }
         }
     }
+
+    /// <summary>A change whose time ran out could not be put back: it is still in place, so this is a security event and the safety net keeps trying.</summary>
+    private void RollbackFailed(Guid commandId) =>
+        log($"SECURITY: command {commandId} was not put back (the change is still in place) and no confirmation had reached the broker; the safety net will try again.");
 
     private void Rollback(SafetyNet.Entry e)
     {

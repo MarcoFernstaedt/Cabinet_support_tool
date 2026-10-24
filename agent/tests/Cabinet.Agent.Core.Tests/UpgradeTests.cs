@@ -63,21 +63,41 @@ public sealed class ReleaseFixture : IDisposable
         Publishers = withPublisher ? [new UpgradePublisher { CommonName = "Mashura Agent Code Signing", Organization = "Mashura", Root = Pki.RootSha, RootFile = "root.pem" }] : [],
     }, new Dictionary<string, X509Certificate2> { ["root.pem"] = Pki.Root });
 
-    public static Dictionary<string, string> Programs(string signedBy = "Agent Publisher") => new()
+    /// <summary>
+    /// The four programs and one settings file a release carries, laid out as the pipeline lays them out. The
+    /// programs are real (if tiny) Windows programs built for this cabinet's architecture, because the updater reads
+    /// their PE machine, and each carries the marker text the fake signature check reads.
+    /// </summary>
+    public static Dictionary<string, string> Programs(string signedBy = "Agent Publisher", string? architecture = null) => new()
     {
-        ["Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe"] = $"MZ|signed:{signedBy}",
-        ["Cabinet.Agent.Network/Cabinet.Agent.Network.exe"] = $"MZ|signed:{signedBy}",
-        ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe"] = $"MZ|signed:{signedBy}",
-        ["Cabinet.Agent.Harness/cabinet-harness.exe"] = $"MZ|signed:{signedBy}",
+        ["Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe"] = Program(signedBy, architecture),
+        ["Cabinet.Agent.Network/Cabinet.Agent.Network.exe"] = Program(signedBy, architecture),
+        ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe"] = Program(signedBy, architecture),
+        ["Cabinet.Agent.Harness/cabinet-harness.exe"] = Program(signedBy, architecture),
         ["Cabinet.Agent.Network/appsettings.json"] = "{}",
     };
+
+    /// <summary>
+    /// One program: a real PE header whose Machine field says which architecture it is built for, followed by the
+    /// "|signed:" marker the fake signature check reads. Latin-1 is deliberate — every byte of the header is then
+    /// exactly one character, and Zip writes it back byte for byte, so the machine survives the trip into the zip.
+    /// </summary>
+    public static string Program(string signedBy, string? architecture = null)
+    {
+        byte[] image = new byte[0x48];
+        image[0] = (byte)'M'; image[1] = (byte)'Z';
+        BitConverter.GetBytes(0x40).CopyTo(image, 0x3C); // where the "PE\0\0" header starts
+        image[0x40] = (byte)'P'; image[0x41] = (byte)'E';
+        BitConverter.GetBytes((ushort)((architecture ?? AgentArchitecture.Current) == AgentArchitecture.X86 ? 0x14C : 0x8664)).CopyTo(image, 0x44);
+        return Encoding.Latin1.GetString(image) + $"\n|signed:{signedBy}";
+    }
 
     public static byte[] Zip(Dictionary<string, string> files)
     {
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, true))
             foreach (var (name, content) in files)
-                using (var w = new StreamWriter(zip.CreateEntry(name).Open())) w.Write(content);
+                using (var w = new StreamWriter(zip.CreateEntry(name).Open(), Encoding.Latin1)) w.Write(content);
         return ms.ToArray();
     }
 
@@ -243,6 +263,9 @@ public class ReleaseVerifierTests : IDisposable
 
     private void AssertStagingEmpty() => Assert.Empty(Directory.EnumerateFileSystemEntries(_f.Staging));
 
+    /// <summary>The other of the two architectures the agent is published for: a release built for it must never be installed here.</summary>
+    private static string Other => AgentArchitecture.Current == AgentArchitecture.X64 ? AgentArchitecture.X86 : AgentArchitecture.X64;
+
     [Fact]
     public void A_good_release_passes_every_check_and_is_staged()
     {
@@ -355,6 +378,55 @@ public class ReleaseVerifierTests : IDisposable
         files.Remove("Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe");
         _f.PlaceGood("0.2.0", files);
         Assert.Equal(UpgradeCheck.Install, Refused().Check);
+    }
+
+    [Fact]
+    public void A_release_built_for_the_architecture_this_cabinet_runs_is_accepted()
+    {
+        _f.PlaceGood("0.2.0", ReleaseFixture.Programs(architecture: AgentArchitecture.Current));
+        VerifiedRelease r = _f.Verifier().Verify(_f.Downloads, "0.2.0", "0.1.0", _f.Staging);
+        // The programs really are that architecture, so the acceptance above is the check passing, not the check missing.
+        Assert.Equal(AgentArchitecture.Current,
+            AgentArchitecture.FromPeMachine(PeImage.Machine(Path.Combine(r.Files, "Cabinet.Agent.Broker", "Cabinet.Agent.Broker.exe"))));
+    }
+
+    [Fact]
+    public void A_release_built_for_the_other_architecture_is_refused_and_leaves_nothing_staged()
+    {
+        _f.PlaceGood("0.2.0", ReleaseFixture.Programs(architecture: Other));
+        var e = Refused();
+        Assert.Equal(UpgradeCheck.Install, e.Check);
+        Assert.Equal("verification_failed", e.Code);
+        Assert.Contains(Other, e.Message);
+        Assert.Contains(AgentArchitecture.Current, e.Message);
+        Assert.True(e.Message.Length <= 256, "the operator only sees what fits the contract's short text");
+        AssertStagingEmpty();
+    }
+
+    [Fact]
+    public void Every_program_in_the_release_must_be_built_for_this_cabinet_not_only_the_three_the_updater_installs()
+    {
+        var files = ReleaseFixture.Programs();
+        files["Cabinet.Agent.Harness/cabinet-harness.exe"] = ReleaseFixture.Program("Agent Publisher", Other);
+        _f.PlaceGood("0.2.0", files);
+        var e = Refused();
+        Assert.Equal(UpgradeCheck.Install, e.Check);
+        Assert.Contains("cabinet-harness.exe", e.Message);
+        Assert.Contains(Other, e.Message);
+        AssertStagingEmpty();
+    }
+
+    [Fact]
+    public void A_program_carrying_no_readable_PE_header_is_refused_as_uninstallable()
+    {
+        var files = ReleaseFixture.Programs();
+        files["Cabinet.Agent.Network/Cabinet.Agent.Network.exe"] = "MZ|signed:Agent Publisher"; // correctly signed, but not a program
+        _f.PlaceGood("0.2.0", files);
+        var e = Refused();
+        Assert.Equal(UpgradeCheck.Install, e.Check);
+        Assert.Equal("verification_failed", e.Code);
+        Assert.Contains("PE machine unreadable", e.Message);
+        AssertStagingEmpty();
     }
 
     [Fact]
@@ -572,6 +644,25 @@ public class UpdaterTests : IDisposable
     }
 
     [Fact]
+    public void A_restore_with_no_backup_to_put_back_is_not_reported_as_rolled_back()
+    {
+        Verified(UpgradePhase.Installing);
+        // The set-aside copy is not there (failed before it was made, or removed by hand), so nothing can be put back.
+        Assert.False(Directory.Exists(_paths.Backup));
+        Write(_paths.Install, "0.2.0"); // the new version is in place, only half copied
+        var platform = new FakeUpdaterPlatform(_paths.CheckIn, () => null);
+        UpgradeJournal j = Make(platform).Resume()!;
+        // Not a rollback: the restore failed. It is also not final, so the next start of the broker tries again
+        // rather than leaving a half-installed agent that nothing repairs.
+        Assert.Equal(UpgradePhase.Installing, j.Phase);
+        Assert.False(j.Final);
+        Assert.NotNull(j.Message);
+        Assert.Contains("needs a visit", j.Message!);
+        Assert.Equal("0.2.0", Installed);
+        Assert.Contains("start", platform.Calls); // the agent is not left with its services stopped
+    }
+
+    [Fact]
     public void An_upgrade_cut_short_while_waiting_keeps_waiting_then_decides()
     {
         Verified(UpgradePhase.Waiting);
@@ -665,6 +756,22 @@ public class UpgradeBrokerTests : IDisposable
         Assert.Empty(_launcher.Launched);
         Assert.Null(_journal.Read());
         Assert.True(error.Message.Length <= 256);
+    }
+
+    [Fact]
+    public void A_release_of_the_other_architecture_is_answered_with_a_code_and_a_message_an_operator_can_act_on()
+    {
+        string other = AgentArchitecture.Current == AgentArchitecture.X64 ? AgentArchitecture.X86 : AgentArchitecture.X64;
+        _f.PlaceGood("0.2.0", ReleaseFixture.Programs(architecture: other));
+        var (output, error) = _broker.Start("0.2.0");
+        Assert.Null(output);
+        Assert.Equal(UpgradeCheck.Install, error!.Check);
+        Assert.Equal("verification_failed", error.Code);
+        Assert.Contains(other, error.Message);                       // what the package is
+        Assert.Contains(AgentArchitecture.Current, error.Message);   // and what this cabinet is, so the operator knows which release to install
+        Assert.True(error.Message.Length <= 256);
+        Assert.Empty(_launcher.Launched);                            // nothing was swapped: the updater that would copy the files never ran
+        Assert.Null(_journal.Read());
     }
 
     [Fact]

@@ -161,7 +161,11 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     waitingForToken = false;
                     EnrollResponse sent = await api.EnrollAsync(new EnrollRequest
                     {
-                        Csr = o.Keys.CreateSigningRequestPem(), BootstrapToken = bootstrap, Fingerprints = o.Fingerprints(),
+                        Csr = o.Keys.CreateSigningRequestPem(), BootstrapToken = bootstrap,
+                        // Stamped here rather than left to whoever builds the fingerprints, so every enrollment request
+                        // names the architecture of the build that sends it. Optional in the contract, so a request from
+                        // an agent built before the second architecture stays valid without it.
+                        Fingerprints = o.Fingerprints() with { Architecture = AgentArchitecture.Current },
                     }, token).ConfigureAwait(false);
                     o.Store.SaveRequestId(sent.RequestId);
                     o.Store.DeleteToken(); // the server has consumed it
@@ -350,6 +354,10 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     HealthSample? health = o.Health?.Invoke();
                     HeartbeatResponse answer = await s.Api.HeartbeatAsync(new Heartbeat
                     {
+                        // Which architecture this cabinet runs, from the process's own bitness: the platform records it
+                        // and offers only the releases that match. Optional in the contract, so an agent built before
+                        // the second architecture — which sends nothing here — stays valid.
+                        Architecture = AgentArchitecture.Current,
                         AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
                         FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(), Health = health,
                     }, token).ConfigureAwait(false);
@@ -703,52 +711,97 @@ public sealed class AgentConnection(AgentConnectionOptions o)
 
     /// <summary>
     /// The safety net, network side: the change stays only if this agent reaches the server within the window.
-    /// Delivering the result is that proof, so it is posted directly, every 3 seconds, ignoring the shared backoff;
-    /// only then is the broker told to keep the change. If the server cannot be reached in time the broker rolls the
-    /// change back by itself, and the rolled-back result goes to the outbox, to be delivered once the agent is back.
+    /// Delivering the result is that proof, so it is posted directly, every 3 seconds, ignoring the shared backoff.
+    /// Only a result the server has taken, and a broker that then answers that the change is kept, leave it in place:
+    /// a refused result (400, 404, 409), an answer that never comes and a confirmation the broker refuses all leave the
+    /// change under the safety net, and what the broker reports decides the result, so a rollback that failed is never
+    /// reported as one that happened.
     /// </summary>
     private async Task DeliverUnderSafetyNetAsync(Session s, Result result, DateTimeOffset deadline, CancellationToken token)
     {
-        bool reached = false;
+        bool accepted = false;
+        HttpStatusCode? refused = null;
         while (!token.IsCancellationRequested && DateTimeOffset.UtcNow < deadline - TimeSpan.FromSeconds(3))
         {
-            try { await s.Api.PostResultAsync(result, token).ConfigureAwait(false); reached = true; break; }
+            try { await s.Api.PostResultAsync(result, token).ConfigureAwait(false); accepted = true; break; }
             catch (AgentApiException e) when (e.CertificateRefused) { break; }
             catch (AgentApiException e) when (e.Status is HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.Conflict)
             {
-                reached = true; // the server answered, so it is reachable; it just did not want this result
+                // The server answered but would not take this result. That proves it is reachable, not that the change
+                // may stay, so the change is not confirmed and stays under the safety net.
+                refused = e.Status;
                 break;
             }
             catch (AgentApiException) { await Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false); }
         }
+        if (refused is not null) s.Link.Reached();
 
-        if (reached)
+        if (accepted)
         {
             s.Link.Reached();
-            // Kept as delivered, so a repeat offer of this command is answered with this result.
+            // Stored before the broker is asked, so a connection cut here cannot leave the server without an answer,
+            // and set aside as delivered only once the broker has settled the change.
             s.Outbox.Add(result);
-            s.Outbox.Delivered(result.CommandId);
-            SafetyNetStatus? status = null;
-            for (int attempt = 0; attempt < 5 && status is null && !token.IsCancellationRequested; attempt++)
+            SafetyNetStatus? status = await ConfirmSafetyNetAsync(result.CommandId, token).ConfigureAwait(false);
+            if (status?.State == SafetyNetState.Kept)
             {
-                try { status = await o.ConfirmSafetyNet!(result.CommandId, token).ConfigureAwait(false); }
-                catch (OperationFailedException) { await Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false); }
+                // Kept as delivered, so a repeat offer of this command is answered with this result.
+                s.Outbox.Delivered(result.CommandId);
+                o.Log($"Command {result.CommandId}: the server took its result and the broker kept the change.");
+                return;
             }
-            if (status?.State == SafetyNetState.RolledBack)
-                SafetyNetEvent(result.CommandId, "The server was reached too late: the change had already been rolled back by the safety net.");
-            else o.Log($"Command {result.CommandId}: the server was reached; the change is kept.");
+            ReportRolledBack(s, result, status?.State == SafetyNetState.RolledBack, status?.State == SafetyNetState.RolledBack
+                ? "The server was reached after the safety-net window had run out: the change had already been rolled back."
+                : "The broker did not confirm this change as kept, so it may still be rolled back by the safety net.");
             return;
         }
 
-        // Not reached in time: the broker rolls back at the deadline (and again at start-up, if it was not running).
-        o.Log($"Command {result.CommandId}: the server was not reached in time; the safety net rolls the change back.");
+        // Not accepted in time: the broker rolls the change back at the deadline (and again at start-up, if it was not running).
+        o.Log($"Command {result.CommandId}: {(refused is { } code ? $"the server refused its result ({(int)code}), so the change is not confirmed" : "the server was not reached in time")}; the safety net rolls the change back.");
         TimeSpan wait = deadline + TimeSpan.FromSeconds(15) - DateTimeOffset.UtcNow;
         if (wait > TimeSpan.Zero) await Delay(wait, token).ConfigureAwait(false);
-        SafetyNetEvent(result.CommandId, "The cabinet could not reach the server within the safety-net window after this change, so the change was rolled back.");
+        SafetyNetStatus? settled = await ConfirmSafetyNetAsync(result.CommandId, token).ConfigureAwait(false);
+        if (settled?.State == SafetyNetState.Kept)
+        {
+            s.Outbox.Add(result);
+            s.Outbox.Delivered(result.CommandId);
+            o.Log($"Command {result.CommandId}: the server took the result after all; the change is kept.");
+            return;
+        }
+        ReportRolledBack(s, result, settled?.State == SafetyNetState.RolledBack, settled?.State == SafetyNetState.RolledBack
+            ? "The cabinet could not reach the server within the safety-net window after this change, so the change was rolled back."
+            : "The cabinet could not reach the server within the safety-net window, and the broker could not confirm the change was rolled back: it may still be in place and the cabinet may need a visit.");
+    }
+
+    /// <summary>Asks the broker to keep a change; null when the broker could not be asked at all, so the change is not treated as kept.</summary>
+    private async Task<SafetyNetStatus?> ConfirmSafetyNetAsync(Guid commandId, CancellationToken token)
+    {
+        SafetyNetStatus? status = null;
+        for (int attempt = 0; attempt < 5 && status is null && !token.IsCancellationRequested; attempt++)
+        {
+            try { status = await o.ConfirmSafetyNet!(commandId, token).ConfigureAwait(false); }
+            catch (OperationFailedException) { await Delay(TimeSpan.FromSeconds(1), token).ConfigureAwait(false); }
+        }
+        return status;
+    }
+
+    /// <summary>
+    /// The change did not survive the safety net: a security event says what the broker reported, and the result left
+    /// for the server says the command failed, because the change that result reported is not in place.
+    /// </summary>
+    private void ReportRolledBack(Session s, Result result, bool confirmed, string message)
+    {
+        SafetyNetEvent(result.CommandId, message);
         s.Outbox.Add(result with
         {
             Status = ResultStatus.Failed, Output = null, FinishedAt = DateTimeOffset.UtcNow,
-            Error = new ResultError { Code = "safety_net_rollback", Message = "The change was rolled back because the cabinet could not reach the server within the safety-net window." },
+            Error = new ResultError
+            {
+                Code = "safety_net_rollback",
+                Message = confirmed
+                    ? "The change was rolled back: the cabinet could not reach the server, or the result took too long to be taken."
+                    : "The change may still be in place: the cabinet could not reach the server within the safety-net window and the rollback was not confirmed.",
+            },
         });
     }
 

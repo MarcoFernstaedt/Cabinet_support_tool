@@ -182,17 +182,21 @@ public sealed class Updater(UpdaterPaths paths, UpgradeJournalStore journal, IUp
         try
         {
             try { platform.StopServices(); } catch (Exception e) { log($"Stopping the new version: {e.GetType().Name}."); }
-            if (Directory.Exists(paths.Backup))
-            {
-                Retry(() => { if (Directory.Exists(paths.Install)) Directory.Delete(paths.Install, recursive: true); });
-                Retry(() => Directory.Move(paths.Backup, paths.Install));
-            }
+            // The set-aside copy is what makes this the rollback it is called: without it there is nothing to put back,
+            // so this is a failure to restore rather than a restore that was skipped.
+            if (!Directory.Exists(paths.Backup)) throw new InvalidOperationException("The set-aside copy of the running version is gone.");
+            Retry(() => { if (Directory.Exists(paths.Install)) Directory.Delete(paths.Install, recursive: true); });
+            Retry(() => Directory.Move(paths.Backup, paths.Install));
             platform.StartServices();
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
             log($"Restoring {j.FromVersion} failed ({e.GetType().Name}).");
-            return journal.Write(j with { Phase = UpgradePhase.Failed, Check = check, FinishedAt = clock.GetUtcNow(),
+            // Deliberately not final and left as installing: the next start of the broker runs Resume and tries the
+            // restore again, instead of leaving a half-installed agent that nothing repairs (spec 07). The services are
+            // asked to start as well, so a retry does not begin with them stopped.
+            try { platform.StartServices(); } catch (Exception start) { log($"Starting the services after the failed restore: {start.GetType().Name}."); }
+            return journal.Write(j with { Phase = UpgradePhase.Installing, Check = check, FinishedAt = clock.GetUtcNow(),
                 Message = Short($"{why} Restoring {j.FromVersion} also failed ({e.GetType().Name}); the cabinet needs a visit.") });
         }
         TryDelete(paths.Staged);

@@ -15,7 +15,13 @@ public sealed class FakeFirewall : IFirewallControl
     public int Imports;
 
     public FirewallStateOutput Read() => new() { Profiles = Profiles.Values.OrderBy(p => p.Profile).ToList(), Rules = Rules.ToList(), RulesTruncated = false, Snapshots = [] };
-    public void SetProfile(FirewallProfile p, bool enabled, FirewallAction i, FirewallAction o) => Profiles[p] = Profiles[p] with { Enabled = enabled, DefaultInbound = i, DefaultOutbound = o };
+    /// <summary>Like Windows when it refuses the change: the profile is left as it was.</summary>
+    public bool ProfileFails;
+    public void SetProfile(FirewallProfile p, bool enabled, FirewallAction i, FirewallAction o)
+    {
+        if (ProfileFails) throw new IOException("SetProfile failed");
+        Profiles[p] = Profiles[p] with { Enabled = enabled, DefaultInbound = i, DefaultOutbound = o };
+    }
     public int CountRules(string name) => Rules.Count(r => r.Name == name);
     public ReportedFirewallRule? ReadRule(string name) => Rules.FirstOrDefault(r => r.Name == name);
     public void CreateRule(FirewallRule r) => Rules.Add(Report(r));
@@ -128,16 +134,71 @@ public class SafetyNetTests
     }
 
     [Fact]
-    public void A_failed_rollback_is_still_recorded_and_logged()
+    public void A_confirmation_after_the_deadline_cannot_keep_the_change()
     {
         var clock = new ManualClock(Fixtures.Start);
         var net = new SafetyNet(null, clock);
         net.Arm(new SafetyNet.Entry { CommandId = A, What = SafetyNet.Kind.Firewall, SnapshotId = Guid.NewGuid() });
-        clock.Advance(TimeSpan.FromMinutes(3));
-        var log = new List<string>();
-        net.Expire(_ => throw new IOException("snapshot missing"), log.Add);
-        Assert.Contains(log, l => l.Contains("failed"));
+        clock.Advance(TimeSpan.FromMinutes(2));
+        // The window has run out, so the answer is not "kept": a confirmation that arrives late cannot hold the change.
+        Assert.Equal(SafetyNetState.Unknown, net.Confirm(A).State);
+        var undone = new List<Guid>();
+        Assert.Equal(new[] { A }, net.Expire(e => undone.Add(e.CommandId), _ => { }));
         Assert.Equal(SafetyNetState.RolledBack, net.Confirm(A).State);
+    }
+
+    [Fact]
+    public void A_rollback_that_fails_is_kept_and_tried_again_rather_than_recorded_as_done()
+    {
+        var clock = new ManualClock(Fixtures.Start);
+        var net = new SafetyNet(null, clock);
+        var log = new List<string>();
+        var alerts = new List<Guid>();
+        net.Arm(new SafetyNet.Entry { CommandId = A, What = SafetyNet.Kind.Firewall, SnapshotId = Guid.NewGuid() });
+        clock.Advance(TimeSpan.FromMinutes(3));
+
+        Assert.Empty(net.Expire(_ => throw new IOException("snapshot missing"), log.Add, alerts.Add));
+        Assert.Contains(log, l => l.Contains("failed"));
+        Assert.Equal(new[] { A }, alerts);                              // reported on its own, for a security event
+        Assert.Equal(SafetyNetState.Unknown, net.Confirm(A).State);      // not kept, and not rolled back either
+        Assert.Equal(A, Assert.Single(net.Pending).CommandId);           // still in place, still to be put back
+        Assert.Equal(1, net.Pending[0].RollbackFailures);
+        Assert.NotNull(net.Pending[0].RollbackFailedAt);
+
+        var undone = new List<Guid>();
+        clock.Advance(TimeSpan.FromMinutes(1));
+        Assert.Equal(new[] { A }, net.Expire(e => undone.Add(e.CommandId), log.Add, alerts.Add));
+        Assert.Equal(new[] { A }, undone);                               // the second attempt worked
+        Assert.Empty(net.Pending);
+        Assert.Equal(SafetyNetState.RolledBack, net.Confirm(A).State);
+        Assert.Single(alerts);                                          // only the failure was reported
+    }
+
+    [Fact]
+    public void A_state_file_that_cannot_be_read_is_not_taken_for_an_empty_safety_net()
+    {
+        using var dir = new TempDir();
+        string file = dir.File("safety-net.json");
+        File.WriteAllText(file, "{ this is not json");
+        var net = new SafetyNet(file, new ManualClock(Fixtures.Start));
+        // Nothing can be said to have been kept when the record of pending changes cannot be read…
+        Assert.Equal(SafetyNetState.Unknown, net.Confirm(A).State);
+        // …and nothing new is armed over it, so no change is made that the broker could not put back.
+        Assert.Throws<OperationFailedException>(() => net.Arm(new SafetyNet.Entry { CommandId = B, What = SafetyNet.Kind.Firewall, SnapshotId = Guid.NewGuid() }));
+    }
+
+    [Fact]
+    public void The_copy_kept_before_the_last_write_stands_in_when_the_state_file_cannot_be_read()
+    {
+        using var dir = new TempDir();
+        string file = dir.File("safety-net.json");
+        var clock = new ManualClock(Fixtures.Start);
+        var net = new SafetyNet(file, clock);
+        net.Arm(new SafetyNet.Entry { CommandId = A, What = SafetyNet.Kind.Firewall, SnapshotId = Guid.NewGuid() });
+        net.Arm(new SafetyNet.Entry { CommandId = B, What = SafetyNet.Kind.Firewall, SnapshotId = Guid.NewGuid() }); // keeps a copy of the first write
+        File.WriteAllText(file, "{ this is not json");
+        // The copy kept before the last write is used, so the change armed a moment ago is still known and put back.
+        Assert.Equal(new[] { A }, new SafetyNet(file, clock).Pending.Select(e => e.CommandId));
     }
 }
 
@@ -309,6 +370,58 @@ public class BrokerWriteTests
         Assert.Empty(new FirewallStore(dir.Path).TimersList());
         // The re-enable is attributed to the command that turned it off.
         Assert.Equal(cmd, new FirewallStore(dir.Path).CommandFor(FirewallWatch.Hash(_fw.Read())));
+    }
+
+    [Fact]
+    public void A_profile_that_cannot_be_turned_on_yet_keeps_its_timer()
+    {
+        using var dir = new TempDir();
+        var safety = new SafetyNet(dir.File("safety.json"), _clock);
+        var writes = new BrokerWrites(_fw, _net, safety, new FirewallStore(dir.Path), _clock, _log.Add);
+        Guid cmd = Guid.NewGuid();
+        As(cmd, () => writes.SetProfile(new FirewallSetProfileParams
+        {
+            Profile = FirewallProfile.Public, Enabled = false, DefaultInbound = FirewallAction.Block, DefaultOutbound = FirewallAction.Allow, DurationMinutes = 5,
+        }));
+        safety.Confirm(cmd);
+        _clock.Advance(TimeSpan.FromMinutes(5));
+
+        // Windows refuses the re-enable. The timer must stay on disk: while it can still fail, it is the only record
+        // that the profile has to come back on, so consuming it here would leave the profile off for good.
+        _fw.ProfileFails = true;
+        writes.Tick();
+        Assert.False(_fw.Profiles[FirewallProfile.Public].Enabled);
+        Assert.Equal(FirewallProfile.Public, Assert.Single(new FirewallStore(dir.Path).TimersList()).Profile);
+        Assert.Contains(_log, l => l.Contains("retrying"));
+
+        _fw.ProfileFails = false;
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        writes.Tick();
+        Assert.True(_fw.Profiles[FirewallProfile.Public].Enabled);
+        Assert.Empty(new FirewallStore(dir.Path).TimersList());
+    }
+
+    [Fact]
+    public void A_change_Windows_refuses_half_way_was_already_on_disk_as_pending()
+    {
+        using var dir = new TempDir();
+        var safety = new SafetyNet(dir.File("safety.json"), _clock);
+        var writes = new BrokerWrites(_fw, _net, safety, new FirewallStore(dir.Path), _clock, _log.Add);
+        _net.GatewayFails = true;
+        Guid cmd = Guid.NewGuid();
+        Assert.Throws<IOException>(() => As(cmd, () => writes.SetIp(new NetworkSetIpParams
+        {
+            InterfaceIndex = 12, Mode = IpMode.Static, Address = "172.20.1.10", PrefixLength = 24, Gateway = "172.20.1.1",
+        })));
+        // Half the change is applied, and the record that undoes it was durable before Windows was asked to make it.
+        Assert.Equal("172.20.1.10", _net.Ip.Addresses[0].Address);
+        Assert.Equal(cmd, Assert.Single(safety.Pending).CommandId);
+
+        // The broker stops and starts again (the crash this protects against), and puts the address back from the record.
+        var restarted = new BrokerWrites(_fw, _net, new SafetyNet(dir.File("safety.json"), _clock), new FirewallStore(dir.Path), _clock, _log.Add);
+        _clock.Advance(TimeSpan.FromMinutes(2));
+        restarted.Tick();
+        Assert.True(_net.Ip.Dhcp);
     }
 
     [Fact]

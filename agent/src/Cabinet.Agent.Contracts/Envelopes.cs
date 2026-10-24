@@ -98,6 +98,12 @@ public sealed record Heartbeat
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public FirewallProfileSwitches? FirewallProfiles { get; init; }
     /// <summary>How loaded the cabinet is, for the trend charts; absent until two readings can be compared.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public HealthSample? Health { get; init; }
+    /// <summary>
+    /// Which Windows the agent's own programs are built for (contracts/schemas/envelopes/heartbeat.schema.json), so
+    /// the platform records one architecture per cabinet and offers only the releases that match it. Optional in the
+    /// contract precisely so an agent built before the second architecture — which never sends it — stays valid.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Architecture { get; init; }
 }
 
 public sealed record HealthSample
@@ -165,6 +171,12 @@ public sealed record EnrollFingerprints
     public required DateTimeOffset OnlineSince { get; init; }
     public required string OsVersion { get; init; }
     public required string AgentVersion { get; init; }
+    /// <summary>
+    /// Which Windows this build's programs are, so the administrator approving the enrollment sees the cabinet's
+    /// architecture from the start (contracts/schemas/envelopes/enroll-request.schema.json, under fingerprints).
+    /// Optional in the contract precisely so an agent built before the second architecture stays valid.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Architecture { get; init; }
 }
 
 public sealed record EnrollRequest

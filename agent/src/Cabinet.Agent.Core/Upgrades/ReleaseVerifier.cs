@@ -18,7 +18,8 @@ public sealed record VerifiedRelease(UpgradeManifest Manifest, string Files);
 /// The broker's check of a downloaded release (docs/spec/07-upgrade-channel.md step 6), in the spec's order:
 /// the manifest's signature against the compiled-in key; the zip's hash against the manifest; the version newer
 /// than the running one (and the running one not older than the release's minimum); the Authenticode signature on
-/// every binary. The network process only downloaded the files; the broker reads the manifest and signature once
+/// every binary; and, last, that every program in the release is built for the architecture this cabinet's agent is.
+/// The network process only downloaded the files; the broker reads the manifest and signature once
 /// into memory and copies the zip into its own staging folder before checking anything, so nothing can change
 /// between the check and the install. Staging is emptied whenever a check fails.
 /// </summary>
@@ -95,6 +96,26 @@ public sealed class ReleaseVerifier(UpgradeTrust trust, IAuthenticode authentico
                         throw new UpgradeRefusedException(UpgradeCheck.Authenticode, why.StartsWith("It is signed by", StringComparison.Ordinal) ? "publisher_not_trusted" : "signature_invalid",
                             $"{entry}: {why}");
                 }
+
+            // 5. Every program in the release must be built for the architecture this cabinet's agent is, read from the
+            // program's own PE header rather than from anything the platform said. A 32-bit agent cannot be replaced by
+            // a 64-bit one (nor the other way round) without the cabinet becoming a different machine to the platform
+            // and to the next update, so this refuses a release of the other architecture here, on the extracted copy
+            // the broker owns — the paths are built from that staging folder, never from the process's working
+            // directory, which belongs to whoever started the broker. Nothing has been swapped when this throws: the
+            // installation is untouched and this staging folder is emptied by the caller's catch.
+            foreach (string program in AgentLayout.ReleasePrograms)
+            {
+                string path = Path.Combine(files, program);
+                if (!File.Exists(path)) continue; // the three the updater installs are required above; the rest are read when the release carries them
+                int? machine = PeImage.Machine(path);
+                if (AgentArchitecture.FromPeMachine(machine) is not { } built)
+                    throw new UpgradeRefusedException(UpgradeCheck.Install, "verification_failed",
+                        $"{program.Replace('\\', '/')} is not a Windows program (PE machine {Machine(machine)}), so this release cannot be installed. Download the release again; if it keeps happening, send this line to support.");
+                if (built != AgentArchitecture.Current)
+                    throw new UpgradeRefusedException(UpgradeCheck.Install, "verification_failed",
+                        $"The release's {program.Replace('\\', '/')} is built for {built} and this cabinet runs the {AgentArchitecture.Current} agent, so nothing was installed. Install the {AgentArchitecture.Current} release here: an upgrade never crosses architectures.");
+            }
             return new VerifiedRelease(manifest, files);
         }
         catch
@@ -103,6 +124,8 @@ public sealed class ReleaseVerifier(UpgradeTrust trust, IAuthenticode authentico
             throw;
         }
     }
+
+    private static string Machine(int? machine) => machine is { } m ? $"0x{m:X4}" : "unreadable";
 
     private static byte[] ReadSmall(string path, int max, UpgradeCheck check)
     {

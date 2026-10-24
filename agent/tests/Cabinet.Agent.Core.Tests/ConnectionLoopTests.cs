@@ -45,10 +45,11 @@ public sealed class ConnectionLoopTests : IDisposable
 
     private bool Logged(string text) { lock (_log) return _log.Any(l => l.Contains(text)); }
 
-    private AgentConnection Connection(FakeServer server, EventQueue? events = null, Func<HealthSample?>? health = null, TimeSpan? validFor = null)
+    private AgentConnection Connection(FakeServer server, EventQueue? events = null, Func<HealthSample?>? health = null, TimeSpan? validFor = null,
+        bool enrolled = true, Func<EnrollFingerprints>? fingerprints = null)
     {
         var store = new IdentityStore(_dir.Path);
-        store.SaveIdentity(new AgentIdentity(Fixtures.Cabinet, Issue(validFor ?? TimeSpan.FromDays(365))));
+        if (enrolled) store.SaveIdentity(new AgentIdentity(Fixtures.Cabinet, Issue(validFor ?? TimeSpan.FromDays(365))));
         var registry = new OperationRegistry().Register<EmptyParams, SystemInfoOutput>(Catalog.SystemInfo, async (_, t) =>
         {
             Interlocked.Increment(ref _runs);
@@ -59,7 +60,7 @@ public sealed class ConnectionLoopTests : IDisposable
         return new AgentConnection(new AgentConnectionOptions
         {
             ServerUri = new Uri("https://platform.test:8443"), PlatformCa = _ca, Keys = _keys, Store = store, Config = Fixtures.Config(),
-            ProcessorFor = _ => processor, Fingerprints = () => throw new NotSupportedException(), AgentVersion = "0.2.0", UptimeSeconds = () => 1,
+            ProcessorFor = _ => processor, Fingerprints = fingerprints ?? (() => throw new NotSupportedException()), AgentVersion = "0.2.0", UptimeSeconds = () => 1,
             Log = m => { lock (_log) _log.Add(m); }, Events = events, Health = health, HandlerFactory = server.Handler,
             EventSendInterval = TimeSpan.FromMilliseconds(50), HeartbeatInterval = TimeSpan.FromMilliseconds(300), HeartbeatInterval11 = TimeSpan.FromMilliseconds(300),
             MinHeartbeat = TimeSpan.FromMilliseconds(300), MaxHeartbeat = TimeSpan.FromMilliseconds(300), ReconnectFlushJitter = TimeSpan.Zero,
@@ -472,5 +473,38 @@ public sealed class ConnectionLoopTests : IDisposable
         Assert.True(Logged("Renewed the cabinet's certificate; new connections use it."));
         lock (_log) Assert.Single(_log, l => l.Contains("Connected to the platform server."));
         Assert.Equal(1, _runs);
+    }
+
+    [Fact]
+    public async Task Every_heartbeat_reports_the_architecture_of_this_build()
+    {
+        var server = new FakeServer();
+        await Run(Connection(server), async _ => await Until(() => server.To("/agent/v1/heartbeat").Any(), "a heartbeat"));
+        // The build under test is the process running it: a 64-bit agent is windows-x64, a 32-bit one windows-x86.
+        // The value is on every heartbeat, so the platform knows which releases this cabinet can be offered.
+        SeenRequest beat = server.To("/agent/v1/heartbeat").First();
+        using JsonDocument doc = JsonDocument.Parse(beat.Body);
+        Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Envelope("heartbeat"), doc.RootElement));
+        Assert.Equal(Environment.Is64BitProcess ? "windows-x64" : "windows-x86", beat.Json!["architecture"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task The_enrollment_request_reports_the_architecture_of_this_build()
+    {
+        var server = new FakeServer();
+        // The installer left a bootstrap token and no certificate, so the agent has to enroll before anything else.
+        File.WriteAllText(new IdentityStore(_dir.Path).TokenPath, new string('t', 40));
+        // The fingerprints the caller hands in say nothing about architecture; stamping it is the request builder's job.
+        Func<EnrollFingerprints> fingerprints = () => new EnrollFingerprints
+        {
+            Hostname = "CAB-1", SerialNumber = null, MacAddresses = [], ProvisionedClient = null, ProvisionedSite = null,
+            OnlineSince = Fixtures.Start, OsVersion = "10.0.19045", AgentVersion = "0.2.0",
+        };
+        await Run(Connection(server, enrolled: false, fingerprints: fingerprints),
+            async _ => await Until(() => server.To("/agent/v1/enroll").Any(), "the enrollment request"));
+        SeenRequest enroll = Assert.Single(server.To("/agent/v1/enroll"));
+        using JsonDocument doc = JsonDocument.Parse(enroll.Body);
+        Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Envelope("enroll-request"), doc.RootElement));
+        Assert.Equal(Environment.Is64BitProcess ? "windows-x64" : "windows-x86", enroll.Json!["fingerprints"]?["architecture"]?.GetValue<string>());
     }
 }

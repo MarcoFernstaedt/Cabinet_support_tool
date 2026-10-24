@@ -24,6 +24,17 @@ public static class AgentLayout
         Path.Combine("Cabinet.Agent.Updater", "Cabinet.Agent.Updater.exe"),
     ];
 
+    /// <summary>
+    /// Every program a release carries: the three above, plus the local harness the installer deploys. The
+    /// architecture check reads the PE machine of each of these that the package holds, so a release assembled for
+    /// the other architecture is refused whichever of its programs is looked at first.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ReleasePrograms =
+    [
+        .. RequiredPrograms,
+        Path.Combine("Cabinet.Agent.Harness", "cabinet-harness.exe"),
+    ];
+
     private static readonly HashSet<string> BinaryExtensions = new(StringComparer.OrdinalIgnoreCase) { ".exe", ".dll", ".sys", ".ocx", ".cpl", ".scr", ".drv", ".efi", ".mui", ".winmd" };
 
     /// <summary>A file that must carry the agent's Authenticode signature: anything Windows could load as code (by name, or because it starts with "MZ").</summary>

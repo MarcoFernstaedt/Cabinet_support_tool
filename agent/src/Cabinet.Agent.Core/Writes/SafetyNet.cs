@@ -10,10 +10,15 @@ namespace Cabinet.Agent.Core.Writes;
 /// command's result; if no confirmation arrives in time the broker puts the old settings back on
 /// its own. Pending changes are kept on disk in the broker's folder, so a restart or a reboot
 /// inside the window still ends in a rollback.
+/// A change that could not be put back is not forgotten: it stays pending with its failure on disk
+/// and is tried again, so "rolled back" is only ever recorded for a rollback that worked.
 /// </summary>
 public sealed class SafetyNet
 {
     public static readonly TimeSpan DefaultWindow = TimeSpan.FromMinutes(2);
+
+    /// <summary>How long after a failed rollback the next attempt is made: often enough to recover by itself, rarely enough not to spin.</summary>
+    public static readonly TimeSpan RetryFailedAfter = TimeSpan.FromMinutes(1);
 
     public enum Kind { Network, Firewall }
 
@@ -28,6 +33,10 @@ public sealed class SafetyNet
         public DnsSettings? DnsBefore { get; set; }
         /// <summary>The snapshot taken just before a firewall change.</summary>
         public Guid? SnapshotId { get; set; }
+        /// <summary>How many times putting this change back has failed (0 while none has). The change is not trusted until an attempt works.</summary>
+        public int RollbackFailures { get; set; }
+        /// <summary>When putting this change back last failed, or null. A change with this set is still in place and is tried again.</summary>
+        public DateTimeOffset? RollbackFailedAt { get; set; }
     }
 
     public sealed class Outcome
@@ -50,20 +59,30 @@ public sealed class SafetyNet
 
     public SafetyNet(string? path, TimeProvider clock, TimeSpan? window = null)
     {
-        _store = new StateFile<State>(path);
+        // Critical: a change that is waiting to be put back must not be lost to a file that cannot be read.
+        _store = new StateFile<State>(path, critical: path is not null);
         _clock = clock;
         Window = window ?? DefaultWindow;
     }
 
-    /// <summary>Starts the window for a change. Returns its deadline.</summary>
+    /// <summary>
+    /// Starts the window for a change. Returns its deadline. Called before the change is made, never after:
+    /// the broker must have a record of how to undo a change before Windows is asked to make it.
+    /// </summary>
     public DateTimeOffset Arm(Entry entry)
     {
         lock (_gate)
         {
             DateTimeOffset now = _clock.GetUtcNow();
+            State s = _store.Load();
+            if (_store.LastLoadFailed)
+            {
+                // The record of changes waiting to be put back cannot be read, so nothing new may be armed: an
+                // unknown change could still be covered by it. No change was made, and a visit is needed.
+                throw new OperationFailedException("execution_failed", "The broker's record of changes waiting to be put back cannot be read, so this change was not made. The cabinet needs a visit.");
+            }
             entry.ArmedAt = now;
             entry.Deadline = now + Window;
-            State s = _store.Load();
             s.Pending.RemoveAll(p => p.CommandId == entry.CommandId);
             s.Pending.Add(entry);
             _store.Save(s);
@@ -71,15 +90,28 @@ public sealed class SafetyNet
         }
     }
 
-    /// <summary>The server was reached: keep the change, unless it has already been rolled back.</summary>
+    /// <summary>
+    /// The server was reached: keep the change, unless its window has run out or it has already been rolled back.
+    /// A confirmation that arrives after the deadline cannot keep the change, because the broker is already putting
+    /// it back.
+    /// </summary>
     public SafetyNetStatus Confirm(Guid commandId)
     {
         lock (_gate)
         {
+            DateTimeOffset now = _clock.GetUtcNow();
             State s = _store.Load();
+            if (_store.LastLoadFailed)
+            {
+                // Nothing can be said to have been kept while the record of pending changes cannot be read, so the
+                // change stays under the safety net rather than being answered for as if it were safe.
+                return new SafetyNetStatus { CommandId = commandId, State = SafetyNetState.Unknown };
+            }
             Entry? pending = s.Pending.FirstOrDefault(p => p.CommandId == commandId);
             if (pending is not null)
             {
+                if (pending.Deadline <= now)
+                    return new SafetyNetStatus { CommandId = commandId, State = SafetyNetState.Unknown };
                 s.Pending.Remove(pending);
                 Record(s, commandId, SafetyNetState.Kept);
                 _store.Save(s);
@@ -98,31 +130,49 @@ public sealed class SafetyNet
     /// Rolls back every change whose time ran out, and every later change still waiting, newest first,
     /// so the settings end as they were before the oldest unconfirmed change.
     /// </summary>
-    /// <returns>The commands that were rolled back.</returns>
-    public IReadOnlyList<Guid> Expire(Action<Entry> rollback, Action<string> log)
+    /// <param name="rollback">Puts one change's saved settings back; it throws when Windows refuses.</param>
+    /// <param name="log">Where every attempt is reported.</param>
+    /// <param name="rollbackFailed">Called with the command ID of a change that could not be put back, so a security event can say so.</param>
+    /// <returns>The commands whose change was put back.</returns>
+    public IReadOnlyList<Guid> Expire(Action<Entry> rollback, Action<string> log, Action<Guid>? rollbackFailed = null)
     {
         lock (_gate)
         {
             DateTimeOffset now = _clock.GetUtcNow();
             State s = _store.Load();
+            if (_store.LastLoadFailed)
+            {
+                log("Safety net: the record of changes waiting to be put back cannot be read, so no change could be put back and none is being armed until it can be.");
+                return Array.Empty<Guid>();
+            }
             // Pending is kept in the order changes were made, which also settles two changes made in the same instant.
             int first = s.Pending.FindIndex(p => p.Deadline <= now);
             if (first < 0) return Array.Empty<Guid>();
             var undo = s.Pending.Skip(first).Reverse().ToList();
+            var undone = new List<Guid>();
             foreach (Entry e in undo)
             {
+                if (e.RollbackFailedAt is { } failed && now - failed < RetryFailedAfter) continue;
                 try { rollback(e); }
                 catch (Exception ex)
                 {
-                    // Recorded as rolled back either way: the change is no longer trusted, and a security event reports it.
-                    log($"Safety net: rolling back command {e.CommandId} failed ({ex.GetType().Name}: {OperationRunner.Truncate(ex.Message)}).");
+                    // The change is still in place: it keeps its place on disk with the failure noted, is reported as a
+                    // security event, and is tried again. Only a rollback that worked is ever recorded as one.
+                    e.RollbackFailures++;
+                    e.RollbackFailedAt = now;
+                    log($"Safety net: putting command {e.CommandId}'s change back failed ({ex.GetType().Name}: {OperationRunner.Truncate(ex.Message)}); the change is still in place and the next attempt is {RetryFailedAfter.TotalSeconds:0} s away.");
+                    rollbackFailed?.Invoke(e.CommandId);
+                    continue;
                 }
+                e.RollbackFailures = 0;
+                e.RollbackFailedAt = null;
                 s.Pending.Remove(e);
+                undone.Add(e.CommandId);
                 Record(s, e.CommandId, SafetyNetState.RolledBack);
                 log($"Safety net: the server was not reached within {Window.TotalSeconds:0} s of command {e.CommandId}; its change was rolled back.");
             }
             _store.Save(s);
-            return undo.Select(e => e.CommandId).ToList();
+            return undone;
         }
     }
 
