@@ -56,6 +56,10 @@
         },
         "agentVersion": {
           "$ref": "../common.schema.json#/$defs/agentVersion"
+        },
+        "architecture": {
+          "description": "Which Windows this installer's agent programs are built for: what the cabinet is approved and later updated as. Absent from agents built before the second architecture, which are all win-x64.",
+          "$ref": "../common.schema.json#/$defs/architecture"
         }
       },
       "required": [

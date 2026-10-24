@@ -114,11 +114,12 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     // A cabinet name is unique within its site (removed cabinets keep theirs), and a site has at most one live sync cabinet.
     // Both are checked in the insert itself with a lock on the rows it reads, so two approvals at the same moment cannot
     // both pass: one inserts, the other sees the row and is refused.
-    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version)
-                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7
+    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture)
+                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8
                    WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)
                    ${approval.role === "sync" ? "AND NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND role = 'sync' AND status <> 'removed')" : ""}`,
-      [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion]);
+      [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion,
+       request.fingerprints.architecture ?? null]);
     if (insert.rowCount !== 1) {
       // Say which rule refused it: the two need different fixes.
       if (approval.role === "sync" && (await c.query("SELECT 1 FROM cabinets WHERE site_id = $1 AND role = 'sync' AND status <> 'removed'", [site.id])).rows[0]) throw syncExists();

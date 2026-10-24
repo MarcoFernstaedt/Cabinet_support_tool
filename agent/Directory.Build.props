@@ -15,8 +15,9 @@
     <!-- Lets the Windows projects compile on Linux CI, so build errors are caught everywhere. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-    <!-- The published agent is win-x64: every lock file also pins its runtime packs, so the publish restore can be locked too. -->
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- The published agent is built for both Windows architectures: every lock file also pins their runtime packs, so
+         each publish restore can be locked too. win-x64 is the default everything unqualified gets. -->
+    <RuntimeIdentifiers>win-x64;win-x86</RuntimeIdentifiers>
     <!-- On CI a restore that would change a lock file fails instead. -->
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
   </PropertyGroup>

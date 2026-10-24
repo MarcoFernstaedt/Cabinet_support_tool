@@ -9,6 +9,10 @@
     "agentVersion": {
       "$ref": "../common.schema.json#/$defs/agentVersion"
     },
+    "architecture": {
+      "description": "Which Windows the installed agent programs are built for, so an update is offered for the same one and never for the other. Absent from agents built before the second architecture, which are all win-x64.",
+      "$ref": "../common.schema.json#/$defs/architecture"
+    },
     "uptimeSeconds": {
       "$ref": "../common.schema.json#/$defs/count"
     },

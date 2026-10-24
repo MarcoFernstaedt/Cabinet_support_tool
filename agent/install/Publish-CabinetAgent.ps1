@@ -10,6 +10,9 @@ param(
     [string] $Output,
     # The version every program reports (release builds come from the pipeline, which sets it).
     [string] $Version,
+    # Which Windows architecture to publish for. A 32-bit cabinet needs the win-x86 programs; everything else is win-x64.
+    [ValidateSet('win-x64', 'win-x86')]
+    [string] $Architecture = 'win-x64',
     # A test build only: an upgrade trust folder from New-UpgradeTrust.ps1 (a throwaway release key and test code-signing root).
     [string] $UpgradeTrustDir
 )
@@ -28,13 +31,15 @@ if ($UpgradeTrustDir) {
     $extra += "-p:UpgradeTrustDir=$((Resolve-Path $UpgradeTrustDir).Path)"
 }
 foreach ($project in 'Cabinet.Agent.Broker', 'Cabinet.Agent.Network', 'Cabinet.Agent.Harness', 'Cabinet.Agent.Updater') {
-    $target = Join-Path $Output $project
-    # The committed lock files pin the win-x64 runtime packs too (agent/Directory.Build.props), so the restore is locked: the published
-    # programs are built from exactly the reviewed, signed packages (agent/nuget.config).
-    & $dotnet @('restore', (Join-Path $root "src\$project\$project.csproj"), '--runtime', 'win-x64', '--locked-mode')
+    $target = Join-Path $Output "$project-$Architecture"
+    # The committed lock files pin the runtime packs of both architectures (agent/Directory.Build.props), so the restore is
+    # locked: the published programs are built from exactly the reviewed, signed packages (agent/nuget.config).
+    # No --runtime here: it narrows the project's runtime identifiers to the one asked for, which a lock file listing both
+    # then refuses (NU1004). The graph RuntimeIdentifiers produces already carries both, and publish picks its own.
+    & $dotnet @('restore', (Join-Path $root "src\$project\$project.csproj"), '--locked-mode')
     if ($LASTEXITCODE -ne 0) { throw "Restoring $project failed (a lock file is out of date?)." }
     & $dotnet @('publish', (Join-Path $root "src\$project\$project.csproj"), '--no-restore', '--configuration', 'Release',
-        '--runtime', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '--output', $target) @extra
-    if ($LASTEXITCODE -ne 0) { throw "Publishing $project failed." }
+        '--runtime', $Architecture, '--self-contained', 'true', '-p:PublishSingleFile=true', '--output', $target) @extra
+    if ($LASTEXITCODE -ne 0) { throw "Publishing $project for $Architecture failed." }
 }
-Write-Host "Published to $Output"
+Write-Host "Published $Architecture to $Output"

@@ -2155,6 +2155,10 @@ export interface EnrollRequest {
      * Semantic version of the agent.
      */
     agentVersion: string;
+    /**
+     * Which Windows this installer's agent programs are built for: what the cabinet is approved and later updated as. Absent from agents built before the second architecture, which are all win-x64.
+     */
+    architecture?: "windows-x64" | "windows-x86";
   };
 }
 
@@ -2355,6 +2359,10 @@ export interface Heartbeat {
    * Semantic version of the agent.
    */
   agentVersion: string;
+  /**
+   * Which Windows the installed agent programs are built for, so an update is offered for the same one and never for the other. Absent from agents built before the second architecture, which are all win-x64.
+   */
+  architecture?: "windows-x64" | "windows-x86";
   uptimeSeconds: number;
   readOnlyMode: boolean;
   /**

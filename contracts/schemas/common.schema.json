@@ -119,6 +119,14 @@
       "maxLength": 64,
       "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z.-]{1,32})?$"
     },
+    "architecture": {
+      "description": "Which Windows the agent's programs are built for. Windows cannot run a 64-bit program on 32-bit Windows, so a cabinet runs the one it can, and an update has to be for that same one.",
+      "type": "string",
+      "enum": [
+        "windows-x64",
+        "windows-x86"
+      ]
+    },
     "hostname": {
       "description": "Windows computer name or DNS host name.",
       "type": "string",
