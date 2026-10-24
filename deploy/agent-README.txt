@@ -1,4 +1,12 @@
-Mashura Cabinet Agent - demo build for Windows 10/11 (x64)
+Mashura Cabinet Agent - demo build for Windows 10/11 (64-bit and 32-bit)
+
+Two archives are published, one per Windows architecture: CabinetAgent-win-x64.zip for 64-bit Windows and
+CabinetAgent-win-x86.zip for 32-bit Windows. Take the one the machine is. In an Administrator PowerShell:
+
+    (Get-CimInstance Win32_OperatingSystem).OSArchitecture
+
+says "64-bit" or "32-bit". Do not read $env:PROCESSOR_ARCHITECTURE instead: a 32-bit PowerShell on a 64-bit machine
+answers "x86", which would put the wrong archive on the machine.
 
 This is a developer build for a test machine. It is not signed. Never install it on a production cabinet.
 

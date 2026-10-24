@@ -69,26 +69,37 @@ WORKDIR /build
 COPY contracts/schemas ./contracts/schemas
 COPY contracts/trust ./contracts/trust
 COPY agent/ ./agent/
-# The same publish as agent/install/Publish-CabinetAgent.ps1: four programs, self-contained single files for win-x64.
-# The restore is locked (packages.lock.json, including the win-x64 runtime packs) and agent/nuget.config allows nuget.org only and requires
-# every package to be signed by nuget.org, so the shipped broker and network service are built from exactly the reviewed packages.
+# The same publish as agent/install/Publish-CabinetAgent.ps1: four programs, self-contained single files, for each Windows
+# architecture the agent is built for (docs/platform/second-architecture.md). Windows cannot run a 64-bit program on 32-bit
+# Windows, so both builds come out of this one source and ship as their own archive, named for the architecture.
+# The restore is locked (packages.lock.json, which now pins the runtime packs of both architectures) and agent/nuget.config
+# allows nuget.org only and requires every package to be signed by nuget.org, so the shipped broker and network service are
+# built from exactly the reviewed packages. The restore is deliberately given no --runtime: passing one narrows the project's
+# runtime identifiers to it, which a lock file listing both then fails (NU1004).
 # EnableWindowsTargeting (also set in agent/Directory.Build.props) lets the Windows projects build on Linux.
-# The zip's layout is what Install-CabinetAgent.ps1 expects: its default -SourceDir is <script folder>\..\out.
+# Each zip's layout is what Install-CabinetAgent.ps1 expects: its default -SourceDir is <script folder>\..\out.
 RUN set -eu; \
-    pkg=/pkg/CabinetAgent; mkdir -p "$pkg/out" "$pkg/install"; \
     for project in Cabinet.Agent.Broker Cabinet.Agent.Network Cabinet.Agent.Harness Cabinet.Agent.Updater; do \
-      dotnet restore "agent/src/$project/$project.csproj" --runtime win-x64 --locked-mode; \
-      dotnet publish "agent/src/$project/$project.csproj" --no-restore --configuration Release \
-        --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableWindowsTargeting=true \
-        -p:AllowUnsignedDevelopmentUpgrades="$ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES" \
-        ${AGENT_VERSION:+-p:Version=$AGENT_VERSION} \
-        --output "$pkg/out/$project"; \
+      dotnet restore "agent/src/$project/$project.csproj" --locked-mode; \
     done; \
-    find "$pkg/out" -name '*.pdb' -delete; \
-    cp agent/install/Install-CabinetAgent.ps1 agent/install/Uninstall-CabinetAgent.ps1 "$pkg/install/"
-COPY deploy/agent-README.txt /pkg/CabinetAgent/README.txt
-RUN mkdir -p /agent-download && cd /pkg && zip -r -X -q /agent-download/CabinetAgent-win-x64.zip CabinetAgent \
-    && sha256sum /agent-download/CabinetAgent-win-x64.zip | cut -d' ' -f1 > /agent-download/CabinetAgent-win-x64.zip.sha256
+    for architecture in win-x64 win-x86; do \
+      pkg="/pkg/$architecture/CabinetAgent"; mkdir -p "$pkg/out" "$pkg/install"; \
+      for project in Cabinet.Agent.Broker Cabinet.Agent.Network Cabinet.Agent.Harness Cabinet.Agent.Updater; do \
+        dotnet publish "agent/src/$project/$project.csproj" --no-restore --configuration Release \
+          --runtime "$architecture" --self-contained true -p:PublishSingleFile=true -p:EnableWindowsTargeting=true \
+          -p:AllowUnsignedDevelopmentUpgrades="$ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES" \
+          ${AGENT_VERSION:+-p:Version=$AGENT_VERSION} \
+          --output "$pkg/out/$project"; \
+      done; \
+      find "$pkg/out" -name '*.pdb' -delete; \
+      cp agent/install/Install-CabinetAgent.ps1 agent/install/Uninstall-CabinetAgent.ps1 "$pkg/install/"; \
+      cp deploy/agent-README.txt "$pkg/README.txt"; \
+    done
+RUN mkdir -p /agent-download && set -eu; \
+    for architecture in win-x64 win-x86; do \
+      cd "/pkg/$architecture" && zip -r -X -q "/agent-download/CabinetAgent-$architecture.zip" CabinetAgent; \
+      sha256sum "/agent-download/CabinetAgent-$architecture.zip" | cut -d' ' -f1 > "/agent-download/CabinetAgent-$architecture.zip.sha256"; \
+    done
 
 # ---------------------------------------------------------------- runtime
 FROM ${NODE_IMAGE} AS runtime
