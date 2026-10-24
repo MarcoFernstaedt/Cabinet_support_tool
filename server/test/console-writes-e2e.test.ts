@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,8 +22,10 @@ import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
+import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests } from "../src/services/enrollment.js";
+import { APPS_SET_ACTION, normalizeEntries, setApprovedApps } from "../src/services/approved-apps.js";
 import { setFleetPause } from "../src/services/writes.js";
 import { TrustList } from "../src/packages/trust.js";
 import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
@@ -143,6 +145,24 @@ test("writes in the console: library upload and two-person approval, install, fi
       assert.equal(unnamed, 0, `${where}: every button has a name`);
     };
     const section = (p: Page, name: string) => p.goto(`${origin}/cabinets/${cabinetId}/${name}`);
+    /**
+     * A write whose outcome never arrives: say which side is silent. The panel shows whether the console is still waiting,
+     * the command rows show what the server recorded, and the agent's own log shows what it was doing.
+     */
+    const why = async (p: Page, what: string) => {
+      const panel = (await p.locator(".write-outcome").count()) > 0 ? (await p.locator(".write-outcome").first().innerText()).trim() : "(nothing was sent: no write panel)";
+      const rows = (await db.app.query<{ id: string; operation: string; status: string; result_status: string | null; error_code: string | null; result_at: string | null }>(
+        `SELECT TOP (6) id, operation, status, JSON_VALUE(result, '$.status') AS result_status, JSON_VALUE(result, '$.error.code') AS error_code, result_at
+         FROM commands WHERE cabinet_id = $1 ORDER BY issued_at DESC`, [cabinetId])).rows;
+      const alive = agent.exitCode === null ? "alive" : `exited with code ${agent.exitCode}`;
+      // Anything the server handed to the agent and never got an answer for: does the agent's own log mention it at all?
+      const stuck = rows.filter(r => r.status !== "succeeded" && r.status !== "failed").map(r => r.id);
+      const log = agentLog.join("");
+      const mentions = stuck.flatMap(id => log.split("\n").filter(l => l.includes(id)));
+      const tail = log.split("\n").filter(l => l.trim()).slice(-14).join("\n");
+      return `${what} never arrived.\nThe console showed: ${panel}\nThe agent process is ${alive}.\nThe last commands were: ${JSON.stringify(rows)}\n` +
+        `The agent never answered ${stuck.length} of them; its log says about those: ${mentions.length ? mentions.slice(-6).join(" | ") : "(nothing)"}\nThe agent's last lines:\n${tail}`;
+    };
 
     // ---- Ada uploads: the good package passes the server's checks, the tampered one is refused ----
     const ada = await signIn("ada");
@@ -219,7 +239,11 @@ test("writes in the console: library upload and two-person approval, install, fi
 
     // ---- Network: Edit DNS, with current and new values side by side and the safety-net warning ----
     await section(tess, "network");
-    await tess.getByRole("button", { name: "Edit DNS" }).click();
+    try {
+      await tess.getByRole("button", { name: "Edit DNS" }).click({ timeout: 30_000 });
+    } catch {
+      throw new Error(await why(tess, "the network section's Edit DNS button"));
+    }
     await tess.getByLabel("Set by hand").check();
     await tess.getByLabel(/Up to 4 servers/).fill("10.20.0.53, 10.20.0.54");
     await tess.getByRole("button", { name: "Review the change" }).click();
@@ -261,13 +285,32 @@ test("writes in the console: library upload and two-person approval, install, fi
     await sam.getByText(/Service DisabledSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
     await disabledRow.getByRole("cell", { name: /^Manual/ }).waitFor({ timeout: 60_000 });
 
+    // ---- The approved list (milestone 10): the platform sends it in its heartbeat answer and the agent refuses
+    // everything else, so nothing on the machine is controlled until an owner puts it on a list. Print Spooler goes on
+    // this cabinet's list here: the restart below is then a change the cabinet will make.
+    const spooler = { key: "app:spooler", kind: "service", name: "Print Spooler", path: "C:\\Program Files\\Simulated\\Spooler.exe", serviceName: "Spooler" };
+    const asList = normalizeEntries([spooler]);
+    assert.equal(asList.ok, true, `expected an approved list: ${JSON.stringify(asList)}`);
+    await setApprovedApps(db.app, { userId: people.ada.id, role: "admin" }, "cabinet", cabinetId, [spooler],
+      await issueStepUpToken(db.app, people.ada.id, APPS_SET_ACTION.cabinet, cabinetId,
+        paramsHash({ level: "cabinet", id: cabinetId, entries: asList.ok ? asList.entries : [] })));
+    // The agent works from its own copy of the list, refreshed on its next heartbeat (every two seconds here).
+    await until("the cabinet's approved list", async () => {
+      try { return readFileSync(join(state, "monitor-settings.json"), "utf8").includes("app:spooler"); } catch { return false; }
+    });
+
     // ---- Services: Tess restarts the print spooler (one click) and watches the scanner service ----
     await section(tess, "services");
     const scannerRow = tess.getByRole("row", { name: /Biometric Scanner Service/ });
     await scannerRow.getByText("Running", { exact: true }).waitFor({ timeout: 60_000 });
     await tess.getByRole("row", { name: /Print Spooler/ }).getByRole("button", { name: "Restart" }).click();
     await click(tess, /Restart the service Print Spooler/);
-    await tess.getByText(/Service Spooler: restart done; it is now running\./).waitFor({ timeout: 60_000 });
+    const restarted = tess.getByText(/Service Spooler: restart done; it is now running\./);
+    try {
+      await restarted.waitFor({ timeout: 60_000 });
+    } catch {
+      throw new Error(await why(tess, "the restart outcome"));
+    }
     await scannerRow.getByRole("button", { name: "Watch" }).click();
     await tess.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
     await tess.getByRole("region", { name: "Watched services" }).getByRole("rowheader", { name: "BioScanSvc" }).waitFor();

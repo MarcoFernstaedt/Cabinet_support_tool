@@ -60,7 +60,10 @@ var settings = new MonitorSettings(Path.Combine(state, "monitor-settings.json"))
 Directory.CreateDirectory(Path.Combine(state, "broker"));
 var services = new SimulatedServices(simulate, Log);
 var serviceWatcher = new Cabinet.Agent.Core.Services.ServiceWatcher(services, new StateFile<Cabinet.Agent.Core.Services.ServiceWatcher.Saved>(Path.Combine(state, "broker", "service-watch.json")), clock, Log);
-var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher };
+// The approved list the platform sends in its heartbeat answer, read from this double's own copy of it and read again for
+// every request, exactly as the broker does: the list decides which services may be started, stopped or restarted.
+var approved = new Cabinet.Agent.Core.Services.ApprovedAppsFile(Path.Combine(state, "monitor-settings.json"), Log);
+var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher, Approved = () => approved.Current };
 // Time zone and clock: the broker's real time logic over a simulated tzutil and w32tm.
 var simulatedTime = new SimulatedTime(Log);
 var timeOperations = new Cabinet.Agent.Core.Clock.TimeOperations(simulatedTime, Log, System.Globalization.CultureInfo.GetCultureInfo("en-US"));
@@ -76,7 +79,10 @@ var connection = new AgentConnection(new AgentConnectionOptions
                 Hostname = "TEST-AGENT", OsVersion = Environment.OSVersion.VersionString, OsBuild = Environment.OSVersion.Version.Build.ToString(),
                 UptimeSeconds = Environment.TickCount64 / 1000, AgentVersion = agentVersion, ReadOnlyMode = c.ReadOnlyMode, CabinetRole = c.CabinetRole, SerialNumber = null,
             }))
-            .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, new NetworkTester(c).RunAsync)
+            // network.test is left to the contract examples below: this double must not do real network I/O. A real ping
+            // from the test machine answers whenever it likes (5 s DNS and 2 s ping timeouts when nothing replies), and
+            // the console's Network section runs a ping and a trace as soon as it opens, so the one-at-a-time worker
+            // parks the reads behind it and the section never renders.
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, (_, _) => Task.FromResult(firewall.Read() with
             {
                 Profiles = firewall.Read().Profiles.Select(p => p with { ReenableAt = firewallStore.TimersList().FirstOrDefault(t => t.Profile == p.Profile)?.ReenableAt }).ToList(),
