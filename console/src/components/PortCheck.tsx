@@ -36,6 +36,7 @@ export function PortCheck({ cabinetId, firewall }: { cabinetId: string; firewall
       {result && (<div aria-live="polite">
         {result.incomplete.map(t => <p key={t} className="small"><Badge tone="warn">Incomplete</Badge> {t}</p>)}
         <p><Badge tone={result.summary.tone}>{result.summary.tone === "ok" ? "Reachable" : result.summary.tone === "warn" ? "Check" : "Not reachable"}</Badge> {result.summary.text}</p>
+        <div className="table-wrap">
         <table className="table compact">
           <caption className="sr-only">Port {result.port}</caption>
           <thead><tr><th scope="col">Where</th><th scope="col">Result</th><th scope="col">Why</th></tr></thead>
@@ -47,7 +48,7 @@ export function PortCheck({ cabinetId, firewall }: { cabinetId: string; firewall
                 <td><Badge tone={v.outcome === "allowed" ? "ok" : v.outcome === "conditional" ? "warn" : "crit"}>{v.outcome === "allowed" ? "Allowed" : v.outcome === "conditional" ? "Limited" : "Blocked"}</Badge></td>
                 <td>{v.because}{v.rules.length > 0 && <>: {v.rules.map((r, i) => <span key={r}>{i > 0 && ", "}<code>{r}</code></span>)}</>}</td></tr>))}
           </tbody>
-        </table>
+        </table></div>
       </div>)}
     </section>
   );

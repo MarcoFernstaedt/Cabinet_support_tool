@@ -78,12 +78,13 @@ export function WatchLink({ cabinetId, label, ping, tcp }: { cabinetId: string; 
               {bad && <rect x={i * 20 + 3} y="0" width="14" height="3" fill="var(--crit, #ef4444)" />}</g>;
           })}
         </svg>
+        <div className="table-wrap">
         <table className="table compact">
           <caption className="sr-only">Samples</caption>
           <thead><tr><th scope="col">Time</th><th scope="col">Ping</th><th scope="col">Average</th><th scope="col">Slowest</th>{tcp && <th scope="col">TCP</th>}</tr></thead>
           <tbody>{[...samples].reverse().slice(0, 12).map((s, i) => (
             <tr key={i}><th scope="row">{s.at.toISOString().slice(11, 19)}</th><td>{s.failure ?? `${s.received} of ${s.sent}`}</td><td>{s.avg ?? "—"}</td><td>{s.max ?? "—"}</td>{tcp && <td>{s.tcpSent ? `${s.tcpReceived} of ${s.tcpSent}` : "—"}</td>}</tr>))}</tbody>
-        </table>
+        </table></div>
       </>)}
     </div>
   );

@@ -6,7 +6,7 @@
 // and holds the fallback to never inventing a cause.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PLATFORM_CODES, explainFailure, normaliseFailure } from "../src/lib/error-explanations.ts";
+import { PLATFORM_CODES, explainFailure, formatExplanation, normaliseFailure } from "../src/lib/error-explanations.ts";
 
 /** Every refusal code the server can send, straight from the grep in the task. */
 const DISCOVERED_CODES = [
@@ -185,4 +185,32 @@ test("the fix says who can act when the failure is permission-bound", () => {
   for (const input of [{ code: "forbidden", message: "" }, { status: 403, message: "" }, { code: "not_approved", message: "" }]) {
     assert.match(explainFailure(input).fix, /Admin|Tier 2/, `no one to ask in the fix for ${JSON.stringify(input)}`);
   }
+});
+
+test("the one line a screen shows carries the title, what happened, and the fix", () => {
+  const explained = explainFailure({ code: "forbidden", message: "" });
+  const line = formatExplanation(explained);
+  assert.ok(line.startsWith(`${explained.title}.`), "the line starts with the title");
+  assert.ok(line.includes(explained.detail), "the line says what happened");
+  assert.ok(line.endsWith(explained.fix), "the line ends with what to do next");
+  assert.equal(/\s\s/.test(line), false, "no double spaces when a part is missing");
+  assert.equal(/undefined|NaN|\[object/.test(line), false, "no raw value reaches a technician");
+});
+
+test("a known code never renders the hand-it-to-a-person line", () => {
+  const known = formatExplanation(explainFailure({ code: "forbidden", message: "" }));
+  const unknown = formatExplanation(explainFailure({ code: "some_future_code", message: "the sparkle module refused" }));
+  assert.notEqual(known, unknown, "a code with its own entry must not fall through");
+  assert.equal(known.includes("Copy this text"), false);
+});
+
+test("the line names the fields a contract check refused and the server's reason once", () => {
+  const explained = explainFailure({ code: "weak_password", message: "" });
+  assert.ok(formatExplanation(explained, { issues: ["password (minLength)", "password (notTheOldOne)"] }).includes("Check: password (minLength), password (notTheOldOne)."));
+
+  const raw = "0.2.2 is already published";
+  assert.equal(formatExplanation(explained, { reason: raw }).includes(raw), true, "the reason is shown");
+  const generic = explainFailure({ message: raw });
+  const line = formatExplanation(generic, { reason: raw });
+  assert.equal(line.split(raw).length - 1, 1, "the reason is not repeated when it is already the detail");
 });

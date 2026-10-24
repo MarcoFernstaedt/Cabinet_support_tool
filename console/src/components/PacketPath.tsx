@@ -59,6 +59,7 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
           <button className="btn" disabled={busy} onClick={() => void start(targets)}>All targets</button>
         </div>
       </div>
+      <div className="table-wrap">
       <table className="table compact">
         <caption className="sr-only">Last result per target</caption>
         <thead><tr><th scope="col">Target</th><th scope="col">Loss</th><th scope="col">Min</th><th scope="col">Avg</th><th scope="col">Max</th><th scope="col">Jitter</th><th scope="col">Hops</th><th scope="col">Path</th></tr></thead>
@@ -73,7 +74,7 @@ export function PacketPath({ cabinetId, dnsCount }: { cabinetId: string; dnsCoun
               <td>{!r ? "—" : !r.trace ? <Badge tone="off">No trace</Badge> : !r.trace.reached ? <Badge tone="crit">{flagged ? `Stops after hop ${Math.max(0, ...r.trace.hops.filter(h => h.address).map(h => h.hop))}` : "Not reached"}</Badge> : flagged ? <Badge tone="warn">{flagged.flag === "loss" ? "Loss" : "Latency"} at hop {flagged.hop}</Badge> : <Badge tone="ok">Clean</Badge>}</td>
             </tr>);
         })}</tbody>
-      </table>
+      </table></div>
       {current.ping && (<>
         {current.key === "sync" && (
           <label className="field inline"><span>Sync TCP port (optional)</span>

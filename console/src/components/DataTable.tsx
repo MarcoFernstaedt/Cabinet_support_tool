@@ -20,13 +20,14 @@ export function DataTable<R>({ label, rows, columns, empty, filterable = true, t
       {filterable && <input type="search" aria-label={`Filter ${label}`} placeholder="Filter" value={filter} onChange={e => setFilter(e.target.value)} />}
       <span className="muted small">{shown.length === rows.length ? `${rows.length} ${label}` : `${shown.length} of ${rows.length} ${label}`}{truncated ? " (the cabinet sent its first part only)" : ""}</span>
     </div>
+    <div className="table-wrap">
     <table className="table compact">
       <caption className="sr-only">{label}</caption>
       <thead><tr>{columns.map(c => <th key={c.header} scope="col">{c.header}</th>)}</tr></thead>
       <tbody>{paged.rows.map((r, i) => (
         <tr key={i}>{columns.map(c => c.first ? <th key={c.header} scope="row">{c.cell(r)}</th> : <td key={c.header}>{c.cell(r)}</td>)}</tr>))}
       </tbody>
-    </table>
+    </table></div>
     <Pager {...paged} label={label} />
   </>);
 }

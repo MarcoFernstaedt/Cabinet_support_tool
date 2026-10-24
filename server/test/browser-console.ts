@@ -76,7 +76,7 @@ export async function startConsole(staticDir: string): Promise<Console> {
     confirmWithCode,
     async startDemo(page) {
       await page.getByRole("link", { name: "Admin", exact: true }).click();
-      await page.getByRole("link", { name: /Set up and demo/ }).click();
+      await page.locator("ul.tiles").getByRole("link", { name: /Setup/ }).click();
       await page.getByRole("button", { name: "Start the guided demo" }).click();
       await confirmWithCode(page);
       await page.locator("aside.demo-tour").getByRole("heading", { name: "Site overview" }).waitFor({ timeout: 60_000 });

@@ -71,7 +71,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
 
     // The only navigation the test does: from the Admin page, where a new Admin looks for it, to the button that starts the demo.
     await page.getByRole("link", { name: "Admin", exact: true }).click();
-    await page.getByRole("link", { name: /Set up and demo/ }).click();
+    await page.locator("ul.tiles").getByRole("link", { name: /Setup/ }).click();
     await page.getByRole("button", { name: "Start the guided demo" }).click();
     await page.getByRole("dialog").getByText(/The guided demo needs the simulated fleet\. This adds it/).waitFor();
     await confirmWithCode();
@@ -217,7 +217,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     // The story is used up. Starting the guided demo again resets the demo to its starting state first.
     assert.equal(await storyReady(db.app), false);
     await page.getByRole("link", { name: "Admin", exact: true }).click();
-    await page.getByRole("link", { name: /Set up and demo/ }).click();
+    await page.locator("ul.tiles").getByRole("link", { name: /Setup/ }).click();
     await page.getByLabel("Demo mode").getByRole("button", { name: "Start the guided demo" }).click();
     resetting = true;
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();

@@ -693,6 +693,22 @@ const generic = (raw: string): Explanation => ({
 });
 
 /**
+ * The three fields as one line, for alerts and form problems, with anything the caller
+ * knows about the request appended: which fields a contract check refused, and the
+ * server's own reason for a refusal that carries one.
+ */
+export function formatExplanation(explanation: Explanation, extra: { issues?: string[]; reason?: string } = {}): string {
+  const { issues = [], reason = "" } = extra;
+  return [
+    `${explanation.title}.`,
+    explanation.detail,
+    issues.length ? `Check: ${issues.join(", ")}.` : "",
+    reason && !explanation.detail.includes(reason) ? reason : "",
+    explanation.fix,
+  ].filter(Boolean).join(" ");
+}
+
+/**
  * Flattens whatever the caller has into `{ code?, status?, message }`.
  * A single word is read as a code only when the platform uses it; anything else is kept as the message
  * so that `"ECONNREFUSED"` still reaches the network rules instead of dying as an unknown code.

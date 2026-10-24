@@ -37,7 +37,7 @@ export function DemoGuide() {
         </li>))}
       </ul>
       <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>A live agent too</h2>
-      <p>To show real Windows data, install the agent on a test computer from <Link to="/admin/setup">Admin → Set up and demo</Link>. You don't need demo mode for that, and its data is always live.</p>
+      <p>To show real Windows data, install the agent on a test computer from <Link to="/admin/setup">Admin → Setup</Link>. You don't need demo mode for that, and its data is always live.</p>
     </div>
   );
 }

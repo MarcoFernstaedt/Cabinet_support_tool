@@ -45,7 +45,7 @@ export function Account({ onTour }: { onTour: () => void }) {
       <section className="panel">
         <h2>Tour</h2>
         <p>The guided tour of the console.</p>
-        <button className="btn" onClick={onTour}>Run the tour</button>
+        <button className="btn" onClick={onTour}>Run the tour again</button>
       </section>
     </div>
   );

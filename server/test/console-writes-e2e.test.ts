@@ -161,7 +161,7 @@ test("writes in the console: library upload and two-person approval, install, fi
     await uploadPackage("Scanner driver", goodFile);
     await ada.getByText(/passed the server's checks \(signed by Scanner Vendor Inc\)/).waitFor();
     await uploadPackage("Tampered driver", tamperedFile);
-    await ada.getByText(/The server refused the package\. Refused: the package is unsigned, or was changed after it was signed/).waitFor();
+    await ada.getByText(/The server refused the package\. Package signature not valid\./).waitFor();
     const goodRow = ada.getByRole("row", { name: /Scanner driver 2\.1/ });
     await goodRow.getByText("Another Admin must approve", { exact: true }).waitFor();
     await ada.getByRole("row", { name: /Tampered driver 2\.1/ }).getByText("Refused", { exact: true }).waitFor();

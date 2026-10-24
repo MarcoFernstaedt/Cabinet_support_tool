@@ -43,6 +43,7 @@ export function FleetHome() {
         ? <>Set up from <Link to="/admin/setup">Admin → Setup</Link>: create your team, install the agent on a cabinet, then approve it.</>
         : "An admin approves new cabinets under Admin → Pending cabinets."}</Empty>}
       {data && data.length > 0 && (
+        <div className="table-wrap">
         <table className="table">
           <caption className="sr-only">Clients</caption>
           <thead><tr><th scope="col">Client</th><th scope="col">Sites</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
@@ -54,7 +55,7 @@ export function FleetHome() {
               <td><AlertCount open={c.openAlerts} major={c.openMajor} /></td>
             </tr>))}
           </tbody>
-        </table>
+        </table></div>
       )}
       <Pager {...paged} label="clients" />
     </div>
@@ -80,6 +81,7 @@ export function ClientPage({ id }: { id: string }) {
       {data && (<>
         <h1>{data.name}</h1>
         <div className="totals"><span><strong>{data.sites.length}</strong> sites</span><span><strong>{total}</strong> cabinets</span><span><strong>{offline}</strong> offline</span><span><strong>{alerts}</strong> major {alerts === 1 ? "alert" : "alerts"}</span></div>
+        <div className="table-wrap">
         <table className="table">
           <caption className="sr-only">Sites of {data.name}</caption>
           <thead><tr><th scope="col">Site</th><th scope="col">Cabinets</th><th scope="col">Offline</th><th scope="col">Alerts</th></tr></thead>
@@ -88,7 +90,7 @@ export function ClientPage({ id }: { id: string }) {
               <td>{s.offline > 0 ? <Badge tone="warn">{s.offline} offline</Badge> : <Badge tone="ok">All online</Badge>}</td>
               <td><AlertCount open={s.openAlerts} major={s.openMajor} /></td></tr>))}
           </tbody>
-        </table>
+        </table></div>
         <Pager {...sitesPaged} label="sites" />
         <section className="panel" aria-labelledby="client-scanner">
           <h2 id="client-scanner">Fingerprint scanner for {data.name}</h2>
@@ -129,6 +131,7 @@ export function SitePage({ id }: { id: string }) {
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
         <h1>{data.name}</h1>
+        <div className="table-wrap">
         <table className="table">
           <caption className="sr-only">Cabinets at {data.name}</caption>
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Alerts</th></tr></thead>
@@ -140,7 +143,7 @@ export function SitePage({ id }: { id: string }) {
               <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>
             </tr>))}
           </tbody>
-        </table>
+        </table></div>
         <Pager {...cabinetsPaged} label="cabinets" />
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />

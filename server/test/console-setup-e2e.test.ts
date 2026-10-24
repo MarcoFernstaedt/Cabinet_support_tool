@@ -1,4 +1,4 @@
-// The demo journey in a real browser (docs/platform/demo.md): an Admin opens Set up and demo, adds a support member,
+// The demo journey in a real browser (docs/platform/demo.md): an Admin opens Setup, adds a support member,
 // creates an install token there, a real agent (the agent's own connection code) enrols with it, the Admin approves it on
 // the same page, opens its event logs, then turns demo mode on: the simulated clients appear next to the real one, marked
 // Demo, and a simulated cabinet answers. Runs when TEST_AGENT_DLL is set and the console is built.
@@ -87,8 +87,8 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.getByRole("button", { name: "Continue" }).click();
     await p.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
     // An empty platform points the Admin to the setup page.
-    await p.getByRole("link", { name: "Admin → Set up and demo" }).click();
-    await p.getByRole("heading", { name: "Set up and demo", level: 1 }).waitFor();
+    await p.getByRole("link", { name: "Admin → Setup" }).click();
+    await p.getByRole("heading", { name: "Setup", level: 1 }).waitFor();
 
     // 1. A support member, with a temporary password shown once.
     await p.getByLabel("Username").fill("sam.support");
@@ -118,8 +118,11 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     // The pasted line is built for the PowerShell that is on the computer, and the page works out which one that is:
     // Windows PowerShell 5.1 is on every machine, PowerShell 7 only sometimes, and the help reads back the version
     // number the operator sees instead of leaving them to guess.
+    // One paste: the first line unpacks the package the page just downloaded and puts token.txt and
+    // platform-ca.pem beside the installer, the second goes there, the third runs it.
     const line = async (): Promise<string> => (await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText()).replace(/\s+/g, " ");
-    assert.match(await line(), /^Move-Item -Force \$HOME\\Downloads\\token\.txt, \$HOME\\Downloads\\platform-ca\.pem -Destination \$HOME\\Downloads\\CabinetAgent cd \$HOME\\Downloads\\CabinetAgent powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost/, "Windows PowerShell is offered first, because every machine has it, and the block moves the downloads the operator just took");
+    assert.match(await line(), /^\$p="\$HOME\\Downloads\\CabinetAgent-win-x64\.zip"; \$s="\$env:TEMP\\CabinetAgent-install"; .*\[IO\.Compression\.ZipFile\]::ExtractToDirectory\(\$p,\$s\);/, "the pasted line unpacks the package the operator just downloaded");
+    assert.match(await line(), /Copy-Item -Force "\$HOME\\Downloads\\token\.txt","\$HOME\\Downloads\\platform-ca\.pem" \$s cd \$s powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost -PlatformServerPort \d+/, "the token and CA land beside the installer, which the line runs from there");
     await p.getByRole("radio", { name: "PowerShell 7" }).check();
     assert.match(await line(), / pwsh\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
     assert.doesNotMatch(await line(), /powershell\.exe/);

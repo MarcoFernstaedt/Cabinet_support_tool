@@ -76,6 +76,7 @@ export function DrivesAtRisk() {
     <section className="panel" aria-labelledby="at-risk-heading">
       <h2 id="at-risk-heading">Drives to look at</h2>
       <p className="muted small">Judged from each drive's own reports over time. Replace before they fail.</p>
+      <div className="table-wrap">
       <table className="table compact">
         <caption className="sr-only">Drives at risk</caption>
         <thead><tr><th scope="col">Cabinet</th><th scope="col">Client · site</th><th scope="col">Drive</th><th scope="col">Level</th><th scope="col">Why</th><th scope="col">Judged</th></tr></thead>
@@ -84,7 +85,7 @@ export function DrivesAtRisk() {
             <th scope="row"><Link to={`/cabinets/${d.cabinetId}/drives`}>{d.cabinet}</Link></th>
             <td>{d.client} · {d.site}</td><td>{d.model ?? "—"}</td><td>{levelBadge(d.level)}</td><td>{d.reasons.join(" ")}</td><td>{ago(d.assessedAt)}</td>
           </tr>))}</tbody>
-      </table>
+      </table></div>
       <Pager {...paged} label="drives to look at" />
     </section>
   );
