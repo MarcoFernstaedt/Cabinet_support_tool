@@ -23,3 +23,12 @@ export function architectureDetail(value: string | null | undefined): string {
   if (value === "windows-x86") return "32-bit Windows (windows-x86)";
   return "not reported — this agent was built before cabinets reported one, which means 64-bit Windows";
 }
+
+/**
+ * One line for a table cell or a list: "64-bit Windows", "32-bit Windows", or a plain statement that nobody has
+ * recorded one. It never falls back to a claim: an operator reading the wrong architecture here is exactly how the
+ * wrong package ends up on a machine.
+ */
+export function architectureLine(value: string | null | undefined): string {
+  return architectureLabel(value) ? `${architectureLabel(value)} Windows` : "architecture not recorded";
+}
