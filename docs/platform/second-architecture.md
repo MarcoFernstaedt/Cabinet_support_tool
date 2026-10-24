@@ -29,21 +29,43 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    `Publish-CabinetAgent.ps1` takes the architecture and publishes one program set; `New-AgentRelease.ps1` publishes both and
    signs one manifest per architecture, each carrying its own SHA-256. A release is not complete until both archives exist
    for the same version.
-2. **The architecture on the wire.** `contracts/schemas/agent/check-in.schema.json` carries `version` and `at` today; it gains
-   `architecture` (`windows-x64` / `windows-x86`), and the enrollment request carries it too, so the platform knows a
-   cabinet's architecture from the moment it appears. One migration adds `cabinets.architecture`; the cabinet page, the fleet
-   view and the activity report show it. The value means exactly one thing: **the architecture of the agent programs
-   installed on that cabinet** — the one an update has to match — never a guess from the OS name or the machine model.
-3. **An update can never cross architectures.** `contracts/schemas/agent/upgrade-manifest.schema.json` gains `architecture`
-   (today: product, version, minimumVersion, sha256, sizeBytes, releasedAt, notes). `startRollout` and `offerFor`
-   (`server/src/services/rollouts.ts`) skip cabinets whose architecture does not match the release, and report how many they
-   left out next to the "below the minimum version" count that already exists. **And the cabinet checks for itself:** before
-   the swap, the updater reads the PE machine of the programs in the downloaded archive and refuses a mismatch as a failed
-   update with its own reason (`agent/src/Cabinet.Agent.Core/Upgrades/ReleaseVerifier.cs`). The server-side match is
-   convenience; the cabinet-side check is the protection — the same division of labour as everywhere else in this platform.
+   **Done** (commit `face016`): both runtimes, all seven lock files, and `Publish-CabinetAgent.ps1 -Architecture`. Both
+   publishes verified here — `win-x86` gives four i386 programs, `win-x64` four AMD64, every one single-file and
+   self-contained. One trap is recorded in the script: `dotnet restore --runtime` narrows the project's runtime identifiers
+   to the one asked for, which a lock file listing both then fails (NU1004), so the restore takes no `--runtime` and the
+   publish picks its own. Still to do: `New-AgentRelease.ps1`, and the image build that zips both.
+2. **The architecture on the wire.** It belongs on `contracts/schemas/envelopes/heartbeat.schema.json` and on
+   `contracts/schemas/envelopes/enroll-request.schema.json` (under `fingerprints`), as `common.schema.json#/$defs/architecture`
+   — `windows-x64` / `windows-x86`, and nothing else. (Not `agent/check-in.schema.json`: that is the agent's own file for
+   the update path, not a message.) Both are optional, because an agent built before this work sends neither, and they mean
+   exactly one thing: **the architecture of the agent programs installed on that cabinet** — the one an update has to match —
+   never a guess from the OS name or the machine model. One migration adds `cabinets.architecture`; the cabinet page, the
+   fleet view and the activity report show it.
+   **Part done** (commit `face016`): schemas, generated types, migration `0007_architecture.sql`, the check-in write
+   (`services/cabinets.ts`) and the enrollment write (`services/enrollment.ts`). Still to do: the agent sends the value, and
+   the console shows it.
+3. **An update can never cross architectures.** The architecture does **not** go on the signed manifest, and this is the
+   correction to the first draft of this plan: the manifest's schema is closed (`additionalProperties: false`) and the agent
+   validates the manifest with the copy it was built with, so an *older* agent would refuse a manifest carrying a field it
+   has never heard of — and then no older cabinet could ever be updated. The signed bytes stay exactly as they are (product,
+   version, minimumVersion, sha256, sizeBytes, releasedAt, notes), one manifest per architecture and version, each hashing
+   its own archive. The architecture lives on the **release record** instead, and the platform derives it from the archive's
+   own programs when the package is uploaded (the PE machine of `Cabinet.Agent.*.exe` inside the zip), refusing an upload
+   whose programs contradict what the release was added as. `startRollout` and `offerFor` (`server/src/services/rollouts.ts`)
+   then skip cabinets whose architecture does not match the release, and report how many they left out next to the "below
+   the minimum version" count that already exists; a cabinet that has never reported an architecture is counted as 64-bit,
+   because that is the only agent that has ever shipped. **And the cabinet checks for itself:** before the swap, the updater
+   reads the PE machine of the programs in the downloaded archive and refuses a mismatch as a failed update with its own
+   reason (`agent/src/Cabinet.Agent.Core/Upgrades/ReleaseVerifier.cs`). The server-side match is convenience; the
+   cabinet-side check is the protection — the same division of labour as everywhere else in this platform.
 4. **Setup: choose the install the way the engine is chosen.** An architecture picker beside the PowerShell engine picker; the
    page then offers that architecture's archive, and the launcher and the pasted commands carry that archive's name and hash.
    The default stays 64-bit. The install steps page says which machine takes which archive, in one line.
+   **Done**: `INSTALL_ARCHITECTURES` and `ARCHITECTURE_HELP` in `console/src/lib/install-command.ts`, the picker and the
+   "Which Windows am I on?" help on `Setup.tsx`, both packages listed by `setup-routes.ts` with a download route that serves
+   exactly the architecture asked for and refuses one that is not built for, and tests for all of it. The help asks the
+   machine rather than the shell on purpose: `$env:PROCESSOR_ARCHITECTURE` answers `x86` from a 32-bit PowerShell on 64-bit
+   Windows, which is the wrong answer to this question.
 5. **Installer and updater read the 64-bit registry view.** `HKLM\SOFTWARE` explicitly rather than the `WOW6432Node`
    redirection, so a 32-bit PowerShell and a 64-bit one find the same installation and the same service.
 6. **Tests.** A check-in carrying an architecture the contracts do not name is refused, not guessed; a rollout never offers an

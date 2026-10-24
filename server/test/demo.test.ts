@@ -43,6 +43,8 @@ let realCabinet: string;
 let key: Awaited<ReturnType<typeof developmentIssuingKey>>;
 const downloadDir = tempDir();
 const agentZip = Buffer.from("PK\u0003\u0004 not really a zip, but the server only serves the bytes");
+// The 32-bit build is its own file with its own hash, and the setup page must never hand it over as the 64-bit one.
+const agentZipX86 = Buffer.from("PK\u0003\u0004 the 32-bit build is a different file, and the server says so");
 
 interface Account { id: string; username: string; password: string; secret: Buffer; }
 async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
@@ -87,6 +89,7 @@ test.before(async () => {
   stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
   writeFileSync(join(downloadDir, "CabinetAgent-win-x64.zip"), agentZip);
+  writeFileSync(join(downloadDir, "CabinetAgent-win-x86.zip"), agentZipX86);
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock,
     agentSetup: { host: "cabinets.example.com", port: 8443, downloadDir } });
   const admin = await account("admin");
@@ -461,21 +464,36 @@ test("turning demo mode off deletes every simulated record and leaves the real c
   assert.deepEqual(audited, ["demo.enable", "demo.disable"]);
 });
 
-test("the setup page: Admin only; it says where cabinets connect and serves the one agent package, never another path", async () => {
+test("the setup page: Admin only; it says where cabinets connect and serves an agent package per architecture, never another path", async () => {
   const t2 = await signIn(await account("tier2"));
   const ca = await signIn(await account("admin"));
   assert.equal((await call("GET", "/api/admin/setup", undefined, t2)).status, 403);
   assert.equal((await call("GET", "/api/admin/agent-package", undefined, t2)).status, 403);
   const setup = (await call("GET", "/api/admin/setup", undefined, ca)).body;
+  // Both architectures are listed with their own file and hash, so the operator can see which one this server can
+  // hand over before walking to a 32-bit machine.
   assert.deepEqual({ ...setup.agent, caSha256: undefined }, { host: "cabinets.example.com", port: 8443, caSha256: undefined,
-    package: { name: "CabinetAgent-win-x64.zip", bytes: agentZip.length, sha256: createHash("sha256").update(agentZip).digest("hex") } });
+    packages: [
+      { architecture: "windows-x64", name: "CabinetAgent-win-x64.zip", bytes: agentZip.length, sha256: createHash("sha256").update(agentZip).digest("hex") },
+      { architecture: "windows-x86", name: "CabinetAgent-win-x86.zip", bytes: agentZipX86.length, sha256: createHash("sha256").update(agentZipX86).digest("hex") },
+    ] });
   assert.match(setup.agent.caSha256, /^[0-9A-F]{64}$/, "the installer checks the CA file against this");
   assert.equal(setup.realCabinets, 1);
   assert.equal(setup.newestCabinetId, realCabinet);
   const r = await app.inject({ method: "GET", url: "/api/admin/agent-package", headers: { origin: ORIGIN, cookie: ca } });
   assert.equal(r.statusCode, 200);
-  assert.equal(r.headers["content-disposition"], 'attachment; filename="CabinetAgent-win-x64.zip"');
+  assert.equal(r.headers["content-disposition"], 'attachment; filename="CabinetAgent-win-x64.zip"', "a request that names no architecture gets the 64-bit package");
   assert.deepEqual(r.rawPayload, agentZip);
+  // A 32-bit machine is handed the 32-bit build: the 64-bit one cannot install there at all, so serving it would be a
+  // setup that fails on the machine rather than on the page.
+  const x86 = await app.inject({ method: "GET", url: "/api/admin/agent-package?architecture=windows-x86", headers: { origin: ORIGIN, cookie: ca } });
+  assert.equal(x86.statusCode, 200);
+  assert.equal(x86.headers["content-disposition"], 'attachment; filename="CabinetAgent-win-x86.zip"');
+  assert.deepEqual(x86.rawPayload, agentZipX86);
+  assert.notDeepEqual(x86.rawPayload, agentZip);
+  // And an architecture nobody builds for is refused rather than quietly served something else.
+  const bogus = await app.inject({ method: "GET", url: "/api/admin/agent-package?architecture=win-arm64", headers: { origin: ORIGIN, cookie: ca } });
+  assert.equal(bogus.statusCode, 400);
   for (const url of ["/api/admin/agent-package/../../etc/passwd", "/api/admin/agent-package?name=../../etc/passwd", "/api/admin/agent-package%2f..%2f..%2fetc%2fpasswd"]) {
     const h = await app.inject({ method: "GET", url, headers: { origin: ORIGIN, cookie: ca } });
     assert.ok(h.statusCode === 404 || !h.rawPayload.toString().includes("root:"), url);

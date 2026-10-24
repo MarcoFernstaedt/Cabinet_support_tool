@@ -197,10 +197,10 @@ export interface CabinetSummary {
 
 export async function listCabinets(db: Queryable): Promise<CabinetSummary[]> {
   return (await db.query<{ id: string; client: string; site: string; name: string; role: string; status: string; last_heartbeat_at: Date | null;
-    agent_version: string | null; hostname: string | null; read_only: boolean | null }>(
-    `SELECT k.id, cl.name AS client, s.name AS site, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.hostname, k.read_only
+    agent_version: string | null; architecture: string | null; hostname: string | null; read_only: boolean | null }>(
+    `SELECT k.id, cl.name AS client, s.name AS site, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.hostname, k.read_only
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id ORDER BY cl.name, s.name, k.name`)).rows
     .map(r => ({ id: r.id, client: r.client, site: r.site, name: r.name, role: r.role, status: r.status,
       online: r.status === "active" && r.last_heartbeat_at !== null && Date.now() - r.last_heartbeat_at.getTime() < OFFLINE_AFTER_MS,
-      lastHeartbeatAt: r.last_heartbeat_at, agentVersion: r.agent_version, hostname: r.hostname, readOnly: r.read_only }));
+      lastHeartbeatAt: r.last_heartbeat_at, agentVersion: r.agent_version, architecture: r.architecture, hostname: r.hostname, readOnly: r.read_only }));
 }

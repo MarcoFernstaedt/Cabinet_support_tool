@@ -10,6 +10,7 @@ import { parseSyncPorts, SYNC_PORTS_RULE } from "../lib/ports";
 import { Link } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
 import { ago } from "../lib/time";
+import { architectureLabel } from "../lib/architecture";
 import { Breadcrumbs } from "../components/Layout";
 import { Badge, ConfirmDialog, Empty, OnlineBadge, StepUpDialog } from "../components/ui";
 import { useAlertNews } from "../lib/commands";
@@ -112,7 +113,7 @@ export function ClientPage({ id }: { id: string }) {
   );
 }
 
-export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
+export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; architecture: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; }
 export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
   sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
@@ -139,7 +140,7 @@ export function SitePage({ id }: { id: string }) {
             <tr key={c.id}>
               <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
               <td>{roleLabel(c.role)}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
-              <td>{c.agentVersion ?? "unknown"}</td><td>{c.readOnly ? "Yes" : "No"}</td>
+              <td>{c.agentVersion ?? "unknown"}{architectureLabel(c.architecture) && <div className="muted small">{architectureLabel(c.architecture)}</div>}</td><td>{c.readOnly ? "Yes" : "No"}</td>
               <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>
             </tr>))}
           </tbody>

@@ -5,12 +5,18 @@ import { api, describeError } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
 import { atLeast, useSession } from "../lib/session";
+import { architectureDetail } from "../lib/architecture";
 import { fullTime } from "../lib/time";
 import { Link } from "../lib/router";
 import { Badge, ConfirmDialog } from "./ui";
 
 interface Environment {
   client: string; site: string; role: string; agentVersion: string | null; timeZone: string | null;
+  /**
+   * Which Windows the installed agent was built for, when the record says (docs/platform/second-architecture.md).
+   * Optional because a fix saved by an agent built before cabinets reported one has no value to show.
+   */
+  architecture?: string | null;
   firewall: { domain: boolean; private: boolean; public: boolean } | null;
   network: { addressing: "dhcp" | "static"; gateway: string | null; dnsServers: string[]; linkSpeedMbps: number | null; adapter: string | null; mtu: number | null } | null;
 }
@@ -39,7 +45,7 @@ const profiles = (f: Environment["firewall"]) => f ? (["domain", "private", "pub
 
 /** The setup a fix was saved from, as labelled rows. */
 export const environmentRows = (e: Environment): [string, string][] => [
-  ["Site", `${e.client} / ${e.site} (${e.role})`], ["Agent", e.agentVersion ?? "unknown"], ["Time zone", e.timeZone ?? "unknown"], ["Firewall", profiles(e.firewall)],
+  ["Site", `${e.client} / ${e.site} (${e.role})`], ["Agent", e.agentVersion ?? "unknown"], ["Architecture", architectureDetail(e.architecture)], ["Time zone", e.timeZone ?? "unknown"], ["Firewall", profiles(e.firewall)],
   ["Network", e.network ? `${e.network.addressing === "dhcp" ? "DHCP" : "Fixed"}, gateway ${e.network.gateway ?? "none"}, DNS ${e.network.dnsServers.join(", ") || "none"}${e.network.linkSpeedMbps ? `, ${e.network.linkSpeedMbps} Mbps` : ""}${e.network.adapter ? `, ${e.network.adapter}` : ""}` : "Not read"],
 ];
 

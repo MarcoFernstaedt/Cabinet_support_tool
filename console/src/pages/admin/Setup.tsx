@@ -13,11 +13,11 @@ import { NewAccount } from "./Users";
 import { PendingCard, type KnownClient, type Pending } from "./Admin";
 import { LiveCheck } from "../../components/LiveCheck";
 import { DemoMode } from "./DemoMode";
-import { DEFAULT_INSTALL_ENGINE, INSTALL_ENGINES, VERSION_HELP, engineFromVersionText, engineInfo, installCommand, type InstallEngine } from "../../lib/install-command";
+import { ARCHITECTURE_HELP, DEFAULT_INSTALL_ARCHITECTURE, DEFAULT_INSTALL_ENGINE, INSTALL_ARCHITECTURES, INSTALL_ENGINES, VERSION_HELP, architectureFromText, architectureInfo, engineFromVersionText, engineInfo, installCommand, type InstallArchitecture, type InstallEngine } from "../../lib/install-command";
 
 interface SetupState {
   otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null; newestCabinetName: string | null;
-  agent: { host: string | null; port: number | null; package: { name: string; bytes: number; sha256: string } | null; caSha256: string };
+  agent: { host: string | null; port: number | null; packages: { architecture: InstallArchitecture; name: string; bytes: number | null; sha256: string | null }[]; caSha256: string };
 }
 
 const Step = ({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) => (
@@ -83,7 +83,13 @@ function InstallAgent({ setup }: { setup: SetupState }) {
   // only sometimes, so the pasted line is built for the engine the operator picks, and the help below finds it for
   // them rather than leaving them to read a version number off a screenshot.
   const [engine, setEngine] = useState<InstallEngine>(DEFAULT_INSTALL_ENGINE);
+  // Which Windows the computer being set up runs. This one is not a preference the way the engine is: the agent is
+  // built once per architecture and the other package cannot install there at all, because Windows cannot run a
+  // 64-bit program on 32-bit Windows (docs/platform/second-architecture.md). It is offered like the engine, with the
+  // same kind of "which one am I?" help.
+  const [architecture, setArchitecture] = useState<InstallArchitecture>(DEFAULT_INSTALL_ARCHITECTURE);
   const [help, setHelp] = useState(false);
+  const [archHelp, setArchHelp] = useState(false);
   const [issued, setIssued] = useState<{ token: string; expiresAt: string; platformCaPem: string } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const files = useMemo(() => issued ? {
@@ -93,16 +99,30 @@ function InstallAgent({ setup }: { setup: SetupState }) {
   useEffect(() => () => { if (files) { URL.revokeObjectURL(files.ca); URL.revokeObjectURL(files.token); } }, [files]);
   const host = setup.agent.host ?? "<server>";
   const port = setup.agent.port ?? 8443;
-  const command = installCommand({ host: setup.agent.host, port: setup.agent.port, caSha256: setup.agent.caSha256, engine, unsigned: true, packageName: setup.agent.package?.name });
-  const pkg = setup.agent.package;
+  // The package for the architecture the operator picked, and only that one: the page never falls back to the other
+  // architecture's package, because that one cannot install on the machine being set up.
+  const pkg = setup.agent.packages.find(p => p.architecture === architecture) ?? null;
+  const installed = pkg && pkg.bytes !== null && pkg.sha256 !== null ? { name: pkg.name, bytes: pkg.bytes, sha256: pkg.sha256 } : null;
+  const command = installCommand({ host: setup.agent.host, port: setup.agent.port, caSha256: setup.agent.caSha256, engine, architecture, unsigned: true, packageName: installed?.name });
   return (
     <ol className="steps">
-      <li>Download the agent{pkg ? <> (<span className="muted small">{(pkg.bytes / 1024 / 1024).toFixed(0)} MB, SHA-256 <code className="hash">{pkg.sha256.slice(0, 16)}…</code></span>)</> : null}:{" "}
-        {pkg ? <>
-          <p className="row gap wrap"><a className="btn primary" data-tour="download-agent" href={withBase("/api/admin/agent-package")} download={pkg.name}>Download {pkg.name}</a>{" "}
-            <a className="btn" href={withBase("/api/admin/installer?unsigned=1")} download="Install-CabinetAgent.cmd">Download the installer instead</a></p>
+      <li>Download the agent{installed ? <> (<span className="muted small">{(installed.bytes / 1024 / 1024).toFixed(0)} MB, SHA-256 <code className="hash">{installed.sha256.slice(0, 16)}…</code></span>)</> : null}:{" "}
+        <fieldset>
+          <legend>Which Windows is on that computer?</legend>
+          <div className="row gap wrap">
+            {INSTALL_ARCHITECTURES.map(a => (
+              <label key={a.id} className="check">
+                <input type="radio" name="install-architecture" checked={architecture === a.id} onChange={() => setArchitecture(a.id)} /> {a.label}
+              </label>))}
+            <button type="button" className="btn small" onClick={() => setArchHelp(true)}>Which Windows am I on?</button>
+          </div>
+          <p className="muted small">{architectureInfo(architecture).note} The other package cannot be installed on it: Windows cannot run a 64-bit program on 32-bit Windows, and the installer says so rather than half-installing.</p>
+        </fieldset>
+        {installed ? <>
+          <p className="row gap wrap"><a className="btn primary" data-tour="download-agent" href={withBase(`/api/admin/agent-package?architecture=${architecture}`)} download={installed.name}>Download {installed.name}</a>{" "}
+            <a className="btn" href={withBase(`/api/admin/installer?unsigned=1&architecture=${architecture}`)} download="Install-CabinetAgent.cmd">Download the installer instead</a></p>
           <p className="muted small">Keep it in <code>Downloads</code>. The installer is a small script this server generates for this machine: it finds the package, checks it against the SHA-256 above, unpacks it and runs it, so it does step 4 for you in one double-click.</p></>
-          : <span className="muted">no package on this server yet. Build one with agent/install/Publish-CabinetAgent.ps1 (see deploy/README.md).</span>}</li>
+          : <span className="muted">this server has no {architectureInfo(architecture).label} package yet. Build one with <code>agent/install/Publish-CabinetAgent.ps1 -Architecture {architecture}</code> (see deploy/README.md).</span>}</li>
       <li>Create a one-time install token (valid for 7 days).{" "}
         <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
         {problem && <p className="error" role="alert">{problem}</p>}</li>
@@ -137,6 +157,7 @@ function InstallAgent({ setup }: { setup: SetupState }) {
           try { setIssued(await api("POST", "/api/admin/bootstrap-tokens", { stepUpToken: token })); } catch (e) { setProblem(describeError(e)); }
         }} />
       <VersionHelpDialog open={help} engine={engine} onUse={e => { setEngine(e); setHelp(false); }} onClose={() => setHelp(false)} />
+      <ArchitectureHelpDialog open={archHelp} architecture={architecture} onUse={a => { setArchitecture(a); setArchHelp(false); }} onClose={() => setArchHelp(false)} />
     </ol>
   );
 }
@@ -168,6 +189,40 @@ function VersionHelpDialog({ open, engine, onUse, onClose }: { open: boolean; en
               {found !== engine && <button type="button" className="btn small" onClick={() => onUse(found)}>Use {engineInfo(found).label}</button>}</p>
           : <p className="notice warn" role="status">That is not a PowerShell version. The window shows a number starting with 5.1 (Windows PowerShell) or 7 (PowerShell 7).</p>)}
         {VERSION_HELP.notes.map(n => <p className="muted small" key={n}>{n}</p>)}
+        <div className="row gap end"><button type="button" className="btn" onClick={onClose}>Close</button></div>
+      </div>
+    </dialog>
+  );
+}
+
+/** The help behind "Which Windows am I on?": the line to run, how to read its answer, and a box that takes that answer
+ *  straight off the operator's screen and says which architecture it is — the same shape as the PowerShell help, because
+ *  it is the same kind of question. */
+function ArchitectureHelpDialog({ open, architecture, onUse, onClose }: { open: boolean; architecture: InstallArchitecture; onUse: (a: InstallArchitecture) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [seen, setSeen] = useState("");
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) { setSeen(""); d.showModal(); }
+    if (!open && d.open) d.close();
+  }, [open]);
+  const found = architectureFromText(seen);
+  return (
+    <dialog ref={ref} className="dialog" aria-labelledby="arch-help-title" onClose={onClose}>
+      <div className="dialog-body">
+        <h2 id="arch-help-title">{ARCHITECTURE_HELP.title}</h2>
+        <ol>{ARCHITECTURE_HELP.steps.map(s => <li key={s}>{s}</li>)}</ol>
+        <ul>{ARCHITECTURE_HELP.read.map(r => <li key={r.when}><code>{r.when}</code> {r.means}</li>)}</ul>
+        <label className="field">
+          <span>Type what it showed</span>
+          <input autoFocus value={seen} onChange={e => setSeen(e.target.value)} placeholder="64-bit" />
+        </label>
+        {seen.trim() !== "" && (found
+          ? <p className="notice ok" role="status">That is {architectureInfo(found).label}.{found === architecture ? " The page is already set to it." : " "}
+              {found !== architecture && <button type="button" className="btn small" onClick={() => onUse(found)}>Use {architectureInfo(found).label}</button>}</p>
+          : <p className="notice warn" role="status">That does not name either. Windows answers 64-bit or 32-bit; x86 is what a 32-bit shell says about a 64-bit machine, so it is not the answer here.</p>)}
+        {ARCHITECTURE_HELP.notes.map(n => <p className="muted small" key={n}>{n}</p>)}
         <div className="row gap end"><button type="button" className="btn" onClick={onClose}>Close</button></div>
       </div>
     </dialog>
