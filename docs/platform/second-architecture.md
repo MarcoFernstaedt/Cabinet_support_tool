@@ -33,7 +33,10 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    publishes verified here — `win-x86` gives four i386 programs, `win-x64` four AMD64, every one single-file and
    self-contained. One trap is recorded in the script: `dotnet restore --runtime` narrows the project's runtime identifiers
    to the one asked for, which a lock file listing both then fails (NU1004), so the restore takes no `--runtime` and the
-   publish picks its own. Still to do: `New-AgentRelease.ps1`, and the image build that zips both.
+   publish picks its own. **Done**: `New-AgentRelease.ps1` takes `-Architecture` and refuses a build whose programs are not
+   that architecture (it reads each program's PE machine rather than trusting the folder), `deploy/Dockerfile` publishes and
+   ships `CabinetAgent-win-x64.zip` and `CabinetAgent-win-x86.zip` with a SHA-256 beside each, and the archive README tells
+   the operator to ask the machine which Windows it is.
 2. **The architecture on the wire.** It belongs on `contracts/schemas/envelopes/heartbeat.schema.json` and on
    `contracts/schemas/envelopes/enroll-request.schema.json` (under `fingerprints`), as `common.schema.json#/$defs/architecture`
    — `windows-x64` / `windows-x86`, and nothing else. (Not `agent/check-in.schema.json`: that is the agent's own file for
@@ -42,8 +45,8 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    never a guess from the OS name or the machine model. One migration adds `cabinets.architecture`; the cabinet page, the
    fleet view and the activity report show it.
    **Part done** (commit `face016`): schemas, generated types, migration `0007_architecture.sql`, the check-in write
-   (`services/cabinets.ts`) and the enrollment write (`services/enrollment.ts`). Still to do: the agent sends the value, and
-   the console shows it.
+   (`services/cabinets.ts`) and the enrollment write (`services/enrollment.ts`). The console shows it (`ebb2003`): the fleet
+   view under each cabinet's agent version, and a saved fix's environment. Still to do: the agent sends the value.
 3. **An update can never cross architectures.** The architecture does **not** go on the signed manifest, and this is the
    correction to the first draft of this plan: the manifest's schema is closed (`additionalProperties: false`) and the agent
    validates the manifest with the copy it was built with, so an *older* agent would refuse a manifest carrying a field it
