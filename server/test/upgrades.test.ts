@@ -81,8 +81,9 @@ test("the update store takes only releases signed by a release key, with the exa
   const bad = keysFolder([key]);
   writeFileSync(join(bad, "upgrade-keys.json"), JSON.stringify({ version: 1, publishers: [], keys: [{ keyId: "0".repeat(64), name: "liar", publicKey: key.spki.toString("base64") }] }));
   assert.throws(() => ReleaseKeys.fromFolder(bad), /keyId/);
-  // The repository's own file holds no key until the production KMS key exists: such a server accepts no release.
-  assert.equal(ReleaseKeys.fromFolder().count, 0);
+  // A server whose trust file lists no key accepts no release. The repository's own file has held the operator's release
+  // key since it was provisioned, so this asks the question of a folder with no keys, not of whatever the repository ships.
+  assert.equal(ReleaseKeys.fromFolder(keysFolder([])).count, 0);
 
   const before = (await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0]!.n;
   // Signed by a key the agents do not hold.
