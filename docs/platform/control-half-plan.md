@@ -32,7 +32,8 @@ Marco spends on the two cabinet machines themselves.
    package itself, puts the two files where the installer reads them, and installs. The setup page also hands out
    `Install-CabinetAgent.cmd`, which does those three steps on a double-click; it carries no secret.
 8. **The 32-bit answer, measured.** Publishing all four programs for `win-x86` succeeds with no source change and the
-   executables come out i386, single-file and self-contained. What is missing is everything around the build (Session 8).
+   executables come out i386, single-file and self-contained. What is missing is everything around the build (Session 8);
+   the plan for it, with the decisions it needs, is in [second-architecture.md](second-architecture.md).
 
 ## Left, in order
 
