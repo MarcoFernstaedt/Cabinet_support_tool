@@ -2,10 +2,8 @@
 // to the update store, start a staged rollout with step-up, pause, resume or stop it, and see each cabinet's result.
 // A rollback is a new signed release with a higher version, rolled out the same way. The server enforces every rule
 // shown here, and each cabinet checks every release again with its own compiled-in key before it installs anything.
-//
-// A release is one version for one Windows architecture, and a rollout only ever offers it to cabinets built for that
-// same one (docs/platform/second-architecture.md). The architecture is chosen here and never guessed from a cabinet:
-// a cabinet that has not reported one is a 64-bit agent, because 64-bit is the only build that has ever shipped.
+// A release is one version for one Windows architecture and is only ever offered to cabinets built for it
+// (docs/platform/second-architecture.md): the architecture is chosen here and never guessed from a cabinet's name.
 import { useState } from "react";
 import { api, describeError, upload } from "../../lib/api";
 import { Link } from "../../lib/router";
@@ -15,8 +13,8 @@ import { Badge, Empty } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
 import { useLoad } from "../../lib/useLoad";
 import { Pager, usePaged } from "../../components/Pager";
-import { architectureLine, architectureLabel } from "../../lib/architecture";
 import { DEFAULT_INSTALL_ARCHITECTURE, INSTALL_ARCHITECTURES, architectureInfo, type InstallArchitecture } from "../../lib/install-command";
+import { architectureLabel, architectureLine } from "../../lib/architecture";
 
 interface Release { version: string; architecture: string | null; minimumVersion: string; sha256: string; sizeBytes: number; releasedAt: string; notes: string | null; state: string; refusal: string | null;
   keyId: string; addedBy: { id: string; name: string }; addedAt: string }
@@ -62,7 +60,7 @@ export function Upgrades() {
   const active = rollouts.data?.find(r => r.state === "running" || r.state === "paused") ?? null;
 
   const change = (r: Rollout, action: "pause" | "resume" | "stop") => step.ask(`rollout.${action}`, r.id,
-    <><p>{action === "pause" ? "Pause" : action === "resume" ? "Resume" : "Stop"} the rollout of agent <strong>{r.version}</strong> ({architectureLine(r.architecture)}).</p>
+    <><p>{action === "pause" ? "Pause" : action === "resume" ? "Resume" : "Stop"} the rollout of agent <strong>{r.version}</strong>.</p>
       {action === "resume" && r.pausedReason && <p className="notice warn">{r.pausedReason} Resuming accepts the failures so far; new ones above the limit pause it again.</p>}
       {action === "stop" && <p className="muted">No more cabinets are offered this version. Cabinets already upgraded keep it; to go back, publish the older code as a new release with a higher version.</p>}</>,
     async token => { await api("POST", `/api/admin/rollouts/${r.id}/${action}`, { stepUpToken: token }); after(`Rollout of ${r.version} ${action === "stop" ? "stopped" : action + "d"}.`); });
@@ -71,7 +69,7 @@ export function Upgrades() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Upgrades" }]} />
       <h1>Agent upgrades</h1>
-      <p className="muted">Releases are signed outside this server; cabinets verify signature, hash and version. A release is one version for one Windows architecture, and an upgrade never crosses to the other one.</p>
+      <p className="muted">Releases are signed outside this server; cabinets verify signature, hash and version.</p>
       {done && <p className={`notice ${done.ok ? "ok" : "error"}`} role="status">{done.text}</p>}
 
       <section className="panel" aria-labelledby="rollouts">
@@ -83,8 +81,7 @@ export function Upgrades() {
             <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Batches</th><th scope="col">Started</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>{rolloutsPaged.rows.map(r => (
               <tr key={r.id}>
-                <th scope="row"><Link to={`/admin/upgrades/${r.id}`}>{r.version}</Link>
-                  <div className="small muted">{architectureLine(r.architecture)}</div></th>
+                <th scope="row"><Link to={`/admin/upgrades/${r.id}`}>{r.version}</Link><div className="small muted">{architectureLine(r.architecture)}</div></th>
                 <td><Badge tone={ROLLOUT_TONE[r.state][0]}>{ROLLOUT_TONE[r.state][1]}</Badge>{r.state === "running" && <span className="muted"> batch {r.currentBatch}: {BATCH[r.currentBatch]}</span>}
                   {r.pausedReason && r.state === "paused" && <div className="small">{r.pausedReason}</div>}</td>
                 <td><ul className="plain small">{r.batches.map(b => <li key={b.batch}>{BATCH[b.batch]}: {b.succeeded} of {b.total} upgraded{b.failed ? `, ${b.failed} failed` : ""}{b.offered ? `, ${b.offered} in progress` : ""}{b.skipped ? `, ${b.skipped} skipped` : ""}</li>)}</ul></td>
@@ -112,8 +109,7 @@ export function Upgrades() {
             <thead><tr><th scope="col">Version</th><th scope="col">State</th><th scope="col">Upgrades from</th><th scope="col">Package</th><th scope="col">Added</th></tr></thead>
             <tbody>{releasesPaged.rows.map(r => (
               <tr key={`${r.version}-${r.architecture ?? "none"}`}>
-                <th scope="row">{r.version}{r.notes && <div className="small muted">{r.notes}</div>}
-                  <div className="small muted">{architectureLine(r.architecture)}</div></th>
+                <th scope="row">{r.version}{r.notes && <div className="small muted">{r.notes}</div>}<div className="small muted">{architectureLine(r.architecture)}</div></th>
                 <td><Badge tone={(RELEASE_TONE[r.state] ?? ["off", r.state])[0]}>{(RELEASE_TONE[r.state] ?? ["off", r.state])[1]}</Badge>{r.refusal && <div className="small">{r.refusal}</div>}</td>
                 <td>{r.minimumVersion} or later</td>
                 <td>{bytes(r.sizeBytes)} <code className="small" title={r.sha256}>{r.sha256.slice(0, 12)}…</code></td>
@@ -134,9 +130,9 @@ type Ask = ReturnType<typeof useStepUp>["ask"];
 
 function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean) => void }) {
   const [files, setFiles] = useState<{ manifest: File | null; signature: File | null; pkg: File | null }>({ manifest: null, signature: null, pkg: null });
-  const [architecture, setArchitecture] = useState<InstallArchitecture>(DEFAULT_INSTALL_ARCHITECTURE);
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState(0);
+  const [architecture, setArchitecture] = useState<InstallArchitecture>(DEFAULT_INSTALL_ARCHITECTURE);
   const chosen = architectureInfo(architecture);
   const submit = async () => {
     let manifest: string, signature: unknown, version: string;
@@ -145,16 +141,14 @@ function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean)
       signature = JSON.parse(await files.signature!.text());
       version = String((JSON.parse(await files.manifest!.text()) as { version?: unknown }).version ?? "");
     } catch { after("The manifest and signature must be the JSON files the build pipeline produced.", false); return; }
-    ask("release.add", "fleet",
-      <><p>Add agent release <strong>{version}</strong> for <strong>{chosen.label}</strong> to the update store. Nothing is installed until you start a rollout.</p>
-        <p className="muted">The package you upload has to be the one built for that Windows — {chosen.packageName}. The server reads the programs inside the zip and refuses a release that does not match.</p></>,
-      async token => {
-        const r = await api<{ version: string }>("POST", "/api/admin/releases", { manifest, signature, architecture, stepUpToken: token });
-        setBusy(true);
-        upload<Release>(`/api/admin/releases/${r.version}/package`, files.pkg!).then(
-          p => { after(`Release ${p.version} for ${chosen.label} is ready: its signature and package hash check out.`); setFiles({ manifest: null, signature: null, pkg: null }); setKey(k => k + 1); },
-          e => after(`The server refused the package. ${describeError(e)}`, false)).finally(() => setBusy(false));
-      }, { manifest, signature: signature as Record<string, unknown>, architecture });
+    ask("release.add", "fleet", <><p>Add agent release <strong>{version}</strong> for <strong>{chosen.label}</strong> to the update store. Nothing is installed until you start a rollout.</p>
+      <p className="muted">The package has to be the one built for that Windows — {chosen.packageName}. The server reads the programs inside the zip and refuses a release that does not match.</p></>, async token => {
+      const r = await api<{ version: string }>("POST", "/api/admin/releases", { manifest, signature, architecture, stepUpToken: token });
+      setBusy(true);
+      upload<Release>(`/api/admin/releases/${r.version}/package?architecture=${encodeURIComponent(architecture)}`, files.pkg!).then(
+        p => { after(`Release ${p.version} for ${chosen.label} is ready: its signature and package hash check out.`); setFiles({ manifest: null, signature: null, pkg: null }); setKey(k => k + 1); },
+        e => after(`The server refused the package. ${describeError(e)}`, false)).finally(() => setBusy(false));
+    }, { manifest, signature: signature as Record<string, unknown>, architecture });
   };
   return (
     <section className="panel" aria-labelledby="add-release">
@@ -174,9 +168,11 @@ function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean)
 
 function StartRollout({ releases, candidates, blocked, ask, after }: { releases: Release[]; candidates: Candidate[]; blocked: Rollout | null; ask: Ask; after: (t: string) => void }) {
   const ready = releases.filter(r => r.state === "ready");
-  const [draft, setDraft] = useState({ version: "", pilot: "", success: "95", failure: "5" });
-  const version = draft.version || ready[0]?.version || "";
-  const release = ready.find(r => r.version === version) ?? null;
+  const [draft, setDraft] = useState({ pick: "", pilot: "", success: "95", failure: "5" });
+  const pairs = ready.map(r => ({ key: `${r.version}|${r.architecture ?? "none"}`, release: r }));
+  const picked = draft.pick || pairs[0]?.key || "";
+  const release = pairs.find(p => p.key === picked)?.release ?? null;
+  const version = release?.version ?? "";
   const architecture = release?.architecture ?? null;
   // Only cabinets of the release's own Windows can be offered it, and a cabinet that has never reported one is a
   // 64-bit agent: 64-bit is the only build that has ever shipped (docs/platform/second-architecture.md).
@@ -207,8 +203,8 @@ function StartRollout({ releases, candidates, blocked, ask, after }: { releases:
               after(`Rollout of ${version} for ${architectureLabel(architecture)} Windows started with ${pilot?.name}.`);
             }, body);
         }}>
-          <label className="field inline"><span>Release</span><select value={version} onChange={e => setDraft(d => ({ ...d, version: e.target.value }))}>
-            {ready.map(r => <option key={`${r.version}-${r.architecture ?? "none"}`} value={r.version}>{r.version} · {architectureLabel(r.architecture) ?? "architecture not recorded"}</option>)}</select></label>
+          <label className="field inline"><span>Release</span><select value={picked} onChange={e => setDraft(d => ({ ...d, pick: e.target.value }))}>
+            {pairs.map(p => <option key={p.key} value={p.key}>{p.release.version} · {architectureLabel(p.release.architecture) ?? "architecture not recorded"}</option>)}</select></label>
           <label className="field inline"><span>First cabinet (batch 1)</span><select required value={draft.pilot} onChange={e => setDraft(d => ({ ...d, pilot: e.target.value }))}>
             <option value="">Choose an online cabinet…</option>
             {pilots.map(c => <option key={c.id} value={c.id}>{c.name} · {c.client} / {c.site} · {c.agentVersion ?? "unknown"}{c.inOffice ? " · in office" : ""}</option>)}</select></label>
@@ -257,7 +253,7 @@ export function RolloutDetail({ id }: { id: string }) {
       <h1>{data ? `Rollout of agent ${data.version}` : "Rollout"}</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && <>
-        <p><Badge tone={ROLLOUT_TONE[data.state][0]}>{ROLLOUT_TONE[data.state][1]}</Badge> <span className="muted">{architectureLine(data.architecture)}; started {fullTime(data.startedAt)} by {data.startedBy.name}; success rate {data.successRatePercent}%, failure limit {data.failureLimitPercent}%</span></p>
+        <p><Badge tone={ROLLOUT_TONE[data.state][0]}>{ROLLOUT_TONE[data.state][1]}</Badge> <span className="muted">{architectureLine(data.architecture)} · started {fullTime(data.startedAt)} by {data.startedBy.name}; success rate {data.successRatePercent}%, failure limit {data.failureLimitPercent}%</span></p>
         {data.pausedReason && data.state === "paused" && <p className="notice warn">{data.pausedReason}</p>}
         <label className="field inline"><span>Show</span><select value={only} onChange={e => setOnly(e.target.value)}>
           <option value="all">Every cabinet</option>{Object.entries(TARGET_TONE).map(([k, [, label]]) => <option key={k} value={k}>{label}</option>)}</select></label>

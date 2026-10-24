@@ -4,7 +4,8 @@ import { createHash, generateKeyPairSync, sign, type KeyObject } from "node:cryp
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tempDir } from "./helpers.js";
-import { type Identity, TestPki, zip } from "./package-pki.js";
+import { machineFor, packageArchitecture, type Architecture } from "../src/services/package-architecture.js";
+import { type Identity, TestPki, pe, zip } from "./package-pki.js";
 
 export interface ReleaseKey { privateKey: KeyObject; spki: Buffer; keyId: string }
 
@@ -30,23 +31,29 @@ export function keysFolder(keys: ReleaseKey[], pki?: TestPki, signer?: Identity)
   return dir;
 }
 
-/** The agent's programs as test binaries the test agent's simulated Authenticode understands. */
-export function agentPackage(marker = "MZ|signed:agent-signer", extra: [string, Buffer][] = []): Buffer {
+/** The agent's programs as test binaries the test agent's simulated Authenticode understands, all built for one Windows: the
+ *  server reads the machine out of every .exe, so a kit package has to be one the derivation really can read. */
+export function agentPackage(architecture: Architecture = "windows-x64", extra: [string, Buffer][] = [], marker = "MZ|signed:agent-signer"): Buffer {
+  const program = pe(marker, machineFor(architecture));
   return zip([
-    ["Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe", Buffer.from(marker)],
-    ["Cabinet.Agent.Network/Cabinet.Agent.Network.exe", Buffer.from(marker)],
-    ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe", Buffer.from(marker)],
+    ["Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe", program],
+    ["Cabinet.Agent.Harness/cabinet-harness.exe", program],
+    ["Cabinet.Agent.Network/Cabinet.Agent.Network.exe", program],
+    ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe", program],
     ["Cabinet.Agent.Network/notes.json", Buffer.from("{}")],
     ...extra,
   ]);
 }
 
-export interface Release { version: string; manifest: string; manifestBytes: Buffer; signature: { keyId: string; algorithm: "ecdsa-p256-sha256"; signature: string }; zip: Buffer }
+export interface Release { version: string; architecture: Architecture; manifest: string; manifestBytes: Buffer; signature: { keyId: string; algorithm: "ecdsa-p256-sha256"; signature: string }; zip: Buffer }
 
-export function makeRelease(key: ReleaseKey, version: string, pkg: Buffer = agentPackage(), over: Record<string, unknown> = {}): Release {
+/** A release as the pipeline makes it: the architecture the caller declares defaults to the one the package's own programs
+ *  are built for, which is what the server checks the declaration against - a test that means a mismatch names it. */
+export function makeRelease(key: ReleaseKey, version: string, pkg: Buffer = agentPackage(), over: Record<string, unknown> = {},
+  architecture: Architecture = packageArchitecture(pkg)): Release {
   const manifest = { product: "mashura-cabinet-agent", version, minimumVersion: "0.0.1", sha256: createHash("sha256").update(pkg).digest("hex"),
     sizeBytes: pkg.length, releasedAt: "2026-10-08T12:00:00Z", ...over };
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2));
-  return { version, manifest: manifestBytes.toString("base64"), manifestBytes, zip: pkg,
+  return { version, architecture, manifest: manifestBytes.toString("base64"), manifestBytes, zip: pkg,
     signature: { keyId: key.keyId, algorithm: "ecdsa-p256-sha256", signature: sign("sha256", manifestBytes, { key: key.privateKey, dsaEncoding: "der" }).toString("base64") } };
 }

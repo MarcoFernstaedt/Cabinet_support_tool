@@ -1270,7 +1270,7 @@ export interface ReadingSearch {
 }
 
 /**
- * Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key.
+ * Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key. A release is one version for one Windows architecture (docs/platform/second-architecture.md): the architecture is declared here, and the package's own programs are read to make sure it really is that one, because it cannot live in the signed manifest - that schema is closed and every already-installed agent validates it.
  */
 export interface ReleaseCreate {
   /**
@@ -1279,19 +1279,27 @@ export interface ReleaseCreate {
   manifest: string;
   signature: UpgradeSignature;
   /**
+   * Which Windows this release's programs are built for. The package that follows must really be built for it - the server reads the .exe programs inside the zip - and the release is only ever offered to cabinets of this same architecture.
+   */
+  architecture: "windows-x64" | "windows-x86";
+  /**
    * A one-time step-up token bound to this exact action.
    */
   stepUpToken: string;
 }
 
 /**
- * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own.
+ * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/platform/second-architecture.md), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.
  */
 export interface RolloutStart {
   /**
    * Semantic version of the agent.
    */
   version: string;
+  /**
+   * Which Windows the release being rolled out is for. Cabinets of the other architecture are left out of every batch and counted in the audit as wrongArchitecture, so a rollout can never offer a package a cabinet cannot run.
+   */
+  architecture: "windows-x64" | "windows-x86";
   /**
    * The one cabinet in batch 1.
    */

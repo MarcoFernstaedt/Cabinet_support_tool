@@ -3,7 +3,7 @@
 import { createHash, generateKeyPairSync, randomBytes, sign, X509Certificate, type KeyObject } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { crc32 } from "node:zlib";
+import { crc32, deflateRawSync } from "node:zlib";
 import * as der from "../src/pki/der.js";
 import { fileDigests } from "../src/packages/pe.js";
 import { OID } from "../src/packages/signed-data.js";
@@ -93,31 +93,33 @@ export function ctl(digests: Buffer[]): Buffer {
     der.sequence(der.oid("1.3.6.1.4.1.311.12.1.2"), der.nullValue()), der.sequence(...digests.map(member)));
 }
 
-/** A minimal 64-bit Windows executable: just enough headers for the Authenticode hash. */
-export function pe(body: string): Buffer {
+/** A minimal Windows executable: just enough headers for the Authenticode hash, and a real machine word so the architecture
+ *  of a package can be read out of its programs. The optional-header magic follows the machine, as it does in a real file. */
+export function pe(body: string, machine = 0x8664): Buffer {
   const b = Buffer.alloc(0x200);
   b.write("MZ", 0, "ascii");
   b.writeInt32LE(0x80, 0x3c);
   b.write("PE\0\0", 0x80, "latin1");
-  b.writeUInt16LE(0x8664, 0x84);
+  b.writeUInt16LE(machine, 0x84);
   b.writeUInt16LE(240, 0x94);
-  b.writeUInt16LE(0x20b, 0x98);
+  b.writeUInt16LE(machine === 0x14c ? 0x10b : 0x20b, 0x98);
   return Buffer.concat([b, Buffer.from(body)]);
 }
 
-/** A zip with stored entries (names as given, so hostile names can be tested). */
-export function zip(files: [string, Buffer][]): Buffer {
+/** A zip with entries (names as given, so hostile names can be tested); deflated entries exercise a reader's inflate. */
+export function zip(files: [string, Buffer][], deflate = false): Buffer {
   const locals: Buffer[] = [], central: Buffer[] = [];
   let offset = 0;
   for (const [name, data] of files) {
     const n = Buffer.from(name, "utf8");
     const crc = crc32(data);
-    const l = Buffer.alloc(30); l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt16LE(0x800, 6);
-    l.writeUInt32LE(crc, 14); l.writeUInt32LE(data.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(n.length, 26);
-    const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x800, 8);
-    c.writeUInt32LE(crc, 16); c.writeUInt32LE(data.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(n.length, 28); c.writeUInt32LE(offset, 42);
-    locals.push(l, n, data); central.push(c, n);
-    offset += 30 + n.length + data.length;
+    const body = deflate ? deflateRawSync(data) : data;
+    const l = Buffer.alloc(30); l.writeUInt32LE(0x04034b50, 0); l.writeUInt16LE(20, 4); l.writeUInt16LE(0x800, 6); l.writeUInt16LE(deflate ? 8 : 0, 8);
+    l.writeUInt32LE(crc, 14); l.writeUInt32LE(body.length, 18); l.writeUInt32LE(data.length, 22); l.writeUInt16LE(n.length, 26);
+    const c = Buffer.alloc(46); c.writeUInt32LE(0x02014b50, 0); c.writeUInt16LE(20, 4); c.writeUInt16LE(20, 6); c.writeUInt16LE(0x800, 8); c.writeUInt16LE(deflate ? 8 : 0, 10);
+    c.writeUInt32LE(crc, 16); c.writeUInt32LE(body.length, 20); c.writeUInt32LE(data.length, 24); c.writeUInt16LE(n.length, 28); c.writeUInt32LE(offset, 42);
+    locals.push(l, n, body); central.push(c, n);
+    offset += 30 + n.length + body.length;
   }
   const cd = Buffer.concat(central);
   const e = Buffer.alloc(22); e.writeUInt32LE(0x06054b50, 0); e.writeUInt16LE(files.length, 8); e.writeUInt16LE(files.length, 10);

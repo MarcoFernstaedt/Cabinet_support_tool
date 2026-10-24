@@ -2,12 +2,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/rollout-start.schema.json",
   "title": "rollout-start",
-  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own.",
+  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/platform/second-architecture.md), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "version": {
       "$ref": "../common.schema.json#/$defs/agentVersion"
+    },
+    "architecture": {
+      "description": "Which Windows the release being rolled out is for. Cabinets of the other architecture are left out of every batch and counted in the audit as wrongArchitecture, so a rollout can never offer a package a cabinet cannot run.",
+      "$ref": "../common.schema.json#/$defs/architecture"
     },
     "pilotCabinetId": {
       "description": "The one cabinet in batch 1.",
@@ -31,6 +35,7 @@
   },
   "required": [
     "version",
+    "architecture",
     "pilotCabinetId",
     "successRatePercent",
     "failureLimitPercent",

@@ -5,5 +5,6 @@
     "algorithm": "ecdsa-p256-sha256",
     "signature": "MEUCIQDmtyghZi/0kPBIkP/bnL8sYgONIiXn+MOwyJ+WQeHB/AIgQzkMmGSucsx9R6tpJzZRjK+CAcobLib13BDdkDdK3Yk="
   },
+  "architecture": "windows-x64",
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

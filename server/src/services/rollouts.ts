@@ -1,15 +1,20 @@
 // Staged rollouts (docs/spec/07-upgrade-channel.md "Staged rollout"): an Admin starts one, with step-up, for one
-// ready release. Batch 1 is one cabinet the Admin names, batch 2 the in-office cabinets, batch 3 about 5 percent of
-// the rest, batch 4 everyone else. The server offers the version in its heartbeat answer to cabinets in the batches
-// reached so far; each agent reports how its upgrade ended. A batch must reach the success rate before the next
-// starts, and failures above the limit pause the rollout on their own. Offers are data: the agent installs only a
-// release that passes its own checks against keys the server never holds.
+// ready release, which is one version of one Windows architecture (docs/platform/second-architecture.md). Batch 1 is
+// one cabinet the Admin names, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest, batch 4 everyone
+// else. The server offers the version in its heartbeat answer to cabinets in the batches reached so far; each agent
+// reports how its upgrade ended. A batch must reach the success rate before the next starts, and failures above the
+// limit pause the rollout on their own. Offers are data: the agent installs only a release that passes its own checks
+// against keys the server never holds.
+//
+// Only cabinets that can run the release are targets: an x86 package is never offered to an x64 cabinet, which Windows
+// could not run, and the ones left out are counted in the audit next to the cabinets that are too old for it.
 import { randomInt, randomUUID } from "node:crypto";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import type { UpgradeStatus } from "../contracts.js";
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
+import type { Architecture } from "./package-architecture.js";
 import { compareVersions, isVersion } from "./releases.js";
 
 export const BATCH_NAMES = ["", "One cabinet", "In-office cabinets", "About 5% of the field", "Everyone else"] as const;
@@ -21,7 +26,7 @@ export const OFFLINE_SKIP_HOURS = 24;
 type Authority = string | null;
 const viaCli = (a: Authority) => (a === null ? { via: "cli" } : {});
 
-export interface RolloutRequest { version: string; pilotCabinetId: string; successRatePercent: number; failureLimitPercent: number }
+export interface RolloutRequest { version: string; architecture: Architecture; pilotCabinetId: string; successRatePercent: number; failureLimitPercent: number }
 
 /** Fisher-Yates with a cryptographic source, so nobody can predict or steer which cabinets land in batch 3. */
 function shuffle<T>(items: T[]): T[] {
@@ -32,25 +37,32 @@ function shuffle<T>(items: T[]): T[] {
 export async function startRollout(pool: Pool, adminId: string, req: RolloutRequest, stepUpToken: Authority): Promise<string> {
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "rollout.start", "fleet");
-    const release = (await c.query<{ state: string; minimum_version: string }>("SELECT state, minimum_version FROM agent_releases WHERE version = $1", [req.version])).rows[0];
-    if (!release) throw new Refused("not_found", 404, "no such release");
+    const release = (await c.query<{ state: string; minimum_version: string }>("SELECT state, minimum_version FROM agent_releases WHERE version = $1 AND architecture = $2", [req.version, req.architecture])).rows[0];
+    if (!release) throw new Refused("not_found", 404, `no ${req.architecture} release ${req.version}`);
     if (release.state !== "ready") throw new Refused("release_not_ready", 409, "this release has no verified package yet");
     if ((await c.query("SELECT 1 FROM rollouts WHERE state IN ('running', 'paused')")).rows[0])
       throw new Refused("rollout_active", 409, "another rollout is running or paused; finish or stop it first");
 
     // Every active cabinet whose agent is older than the release (or has not reported a version yet), except those older
     // than the release's minimum version: they would refuse it, and those refusals would pause the rollout for nothing.
+    // Neither are cabinets built for the other architecture, which cannot run this package at all; a cabinet whose agent
+    // never reported an architecture is treated as windows-x64, which is what it is (see releases.ts cabinetArchitecture).
     // No row locks: holding them would stall every heartbeat while the rollout is written.
-    const older = (await c.query<{ id: string; agent_version: string | null; in_office: boolean }>(
-      "SELECT id, agent_version, in_office FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL")).rows
+    const older = (await c.query<{ id: string; agent_version: string | null; in_office: boolean; architecture: string }>(
+      "SELECT id, agent_version, in_office, COALESCE(architecture, 'windows-x64') AS architecture FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL")).rows
       .filter(k => k.agent_version === null || !isVersion(k.agent_version) || compareVersions(k.agent_version, req.version) < 0);
     const belowMinimum = (k: { agent_version: string | null }): boolean =>
       k.agent_version !== null && isVersion(k.agent_version) && isVersion(release.minimum_version) && compareVersions(k.agent_version, release.minimum_version) < 0;
-    const cabinets = older.filter(k => !belowMinimum(k));
+    const sameArchitecture = older.filter(k => k.architecture === req.architecture);
+    const wrongArchitecture = older.length - sameArchitecture.length;
+    const cabinets = sameArchitecture.filter(k => !belowMinimum(k));
     const pilot = cabinets.find(k => k.id === req.pilotCabinetId);
-    if (!pilot) throw new Refused("pilot_not_eligible", 409, older.some(k => k.id === req.pilotCabinetId)
-      ? `the first cabinet runs an agent older than this release's minimum version (${release.minimum_version})`
-      : "the first cabinet must be an active cabinet running an older agent");
+    const rejected = older.find(k => k.id === req.pilotCabinetId);
+    if (!pilot) throw new Refused("pilot_not_eligible", 409, rejected && rejected.architecture !== req.architecture
+      ? `the first cabinet's agent is built for ${rejected.architecture}, not ${req.architecture}`
+      : rejected
+        ? `the first cabinet runs an agent older than this release's minimum version (${release.minimum_version})`
+        : "the first cabinet must be an active cabinet running an older agent");
     const rest = cabinets.filter(k => k.id !== pilot.id);
     const office = rest.filter(k => k.in_office);
     const field = shuffle(rest.filter(k => !k.in_office));
@@ -58,8 +70,8 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
     const batches: [number, typeof cabinets][] = [[1, [pilot]], [2, office], [3, field.slice(0, slice)], [4, field.slice(slice)]];
 
     const id = randomUUID();
-    await c.query(`INSERT INTO rollouts (id, version, state, current_batch, success_rate_percent, failure_limit_percent, started_by)
-                   VALUES ($1, $2, 'running', 1, $3, $4, $5)`, [id, req.version, req.successRatePercent, req.failureLimitPercent, adminId]);
+    await c.query(`INSERT INTO rollouts (id, version, architecture, state, current_batch, success_rate_percent, failure_limit_percent, started_by)
+                   VALUES ($1, $2, $3, 'running', 1, $4, $5, $6)`, [id, req.version, req.architecture, req.successRatePercent, req.failureLimitPercent, adminId]);
     const targets = batches.flatMap(([batch, members]) => members.map(k => ({ batch, id: k.id, from: k.agent_version })));
     await c.query(`INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state, from_version)
                    SELECT $1, t.cabinet_id, t.batch, 'pending', t.from_version
@@ -67,8 +79,8 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
       [id, targets.map(t => ({ id: t.id, batch: t.batch, from: t.from }))]);
     // Audited on its own (docs/spec/07-upgrade-channel.md step 4).
     await audit(c, { actorKind: "user", actorId: adminId, action: "rollout.start", targetKind: "rollout", targetId: id, outcome: "succeeded",
-      details: { rolloutId: id, version: req.version, pilotCabinetId: pilot.id, successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent,
-        batches: batches.map(([b, m]) => ({ batch: b, cabinets: m.length })), belowMinimumVersion: older.length - cabinets.length, ...viaCli(stepUpToken) } });
+      details: { rolloutId: id, version: req.version, architecture: req.architecture, pilotCabinetId: pilot.id, successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent,
+        batches: batches.map(([b, m]) => ({ batch: b, cabinets: m.length })), belowMinimumVersion: sameArchitecture.length - cabinets.length, wrongArchitecture, ...viaCli(stepUpToken) } });
     return id;
   });
 }
@@ -215,9 +227,9 @@ export async function checkRollouts(pool: Pool): Promise<void> {
 }
 
 export async function listRollouts(db: Queryable) {
-  const rows = (await db.query<{ id: string; version: string; state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number;
+  const rows = (await db.query<{ id: string; version: string; architecture: string; state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number;
     started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string }>(
-    `SELECT TOP (100) r.id, r.version, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
+    `SELECT TOP (100) r.id, r.version, r.architecture, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
             r.paused_reason, r.finished_at,
             COALESCE((SELECT x.batch, COUNT(*) AS total, SUM(CASE WHEN x.state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, SUM(CASE WHEN x.state = 'failed' THEN 1 ELSE 0 END) AS failed,
                              SUM(CASE WHEN x.state = 'offered' THEN 1 ELSE 0 END) AS offered, SUM(CASE WHEN x.state = 'pending' THEN 1 ELSE 0 END) AS pending,
@@ -225,7 +237,7 @@ export async function listRollouts(db: Queryable) {
                         FROM rollout_targets x WHERE x.rollout_id = r.id GROUP BY x.batch ORDER BY x.batch FOR JSON PATH), '[]') AS counts
        FROM rollouts r JOIN users u ON u.id = r.started_by ORDER BY r.started_at DESC`)).rows;
   return rows.map(r => ({
-    id: r.id, version: r.version, state: r.state, currentBatch: r.current_batch, successRatePercent: r.success_rate_percent, failureLimitPercent: r.failure_limit_percent,
+    id: r.id, version: r.version, architecture: r.architecture, state: r.state, currentBatch: r.current_batch, successRatePercent: r.success_rate_percent, failureLimitPercent: r.failure_limit_percent,
     startedBy: { id: r.started_by, name: r.started_by_name }, startedAt: r.started_at.toISOString(), pausedReason: r.paused_reason, finishedAt: r.finished_at?.toISOString() ?? null,
     batches: JSON.parse(r.counts) as Record<string, number>[],
   }));
@@ -255,13 +267,13 @@ export async function setInOffice(pool: Pool, adminId: string, cabinetId: string
   });
 }
 
-/** Active cabinets with their agent version and in-office flag, for choosing batch 1. */
+/** Active cabinets with their agent version, architecture and in-office flag, for choosing batch 1. */
 export async function upgradeCandidates(db: Queryable) {
-  return (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; in_office: boolean; last_heartbeat_at: Date | null }>(
-    `SELECT TOP (20000) k.id, k.name, s.name AS site, cl.name AS client, k.agent_version, k.in_office, k.last_heartbeat_at
+  return (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; architecture: string; in_office: boolean; last_heartbeat_at: Date | null }>(
+    `SELECT TOP (20000) k.id, k.name, s.name AS site, cl.name AS client, k.agent_version, COALESCE(k.architecture, 'windows-x64') AS architecture, k.in_office, k.last_heartbeat_at
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
       WHERE k.status = 'active' ORDER BY k.in_office DESC, cl.name, s.name, k.name`)).rows.map(r => ({
-    id: r.id, name: r.name, site: r.site, client: r.client, agentVersion: r.agent_version, inOffice: r.in_office,
+    id: r.id, name: r.name, site: r.site, client: r.client, agentVersion: r.agent_version, architecture: r.architecture, inOffice: r.in_office,
     online: r.last_heartbeat_at !== null && Date.now() - r.last_heartbeat_at.getTime() < OFFLINE_AFTER_MS,
   }));
 }

@@ -10,10 +10,20 @@ import { Readable } from "node:stream";
 import { describe, it } from "node:test";
 import type { Pool, QueryResult, Queryable } from "../src/db/db.js";
 import { receiveReleasePackage, type ReleaseStore } from "../src/services/releases.js";
+import { pe, zip } from "./package-pki.js";
 
 const VERSION = "1.2.3";
-const PAYLOAD = Buffer.from("package bytes, exactly the ones the signed manifest hashes");
-const SHA = createHash("sha256").update(PAYLOAD).digest("hex");
+const ARCHITECTURE = "windows-x64";
+// The package is a real zip whose programs are readable Windows programs: the server reads the architecture out of them before
+// it publishes anything, so bytes that are not a package at all can no longer reach the store (its own case is below).
+const programs = (architecture: "windows-x64" | "windows-x86"): Buffer => zip([
+  ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe", pe("MZ|signed:agent-signer", architecture === "windows-x86" ? 0x14c : 0x8664)],
+]);
+const PAYLOAD = programs("windows-x64");
+const OTHER_ARCHITECTURE = programs("windows-x86");
+const NOT_A_PACKAGE = Buffer.from("these are not the bytes of any package");
+const sha = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
+const SHA = sha(PAYLOAD);
 const OWNER = "11111111-1111-1111-1111-111111111111";
 const OTHER = "22222222-2222-2222-2222-222222222222";
 
@@ -59,19 +69,28 @@ class FakeDb implements Queryable {
   }
 }
 
-const listRow = (state: string) => ({ version: VERSION, minimum_version: "1.0.0", sha256: SHA, size_bytes: String(PAYLOAD.length), released_at: new Date(), notes: null,
+const listRow = (state: string) => ({ version: VERSION, architecture: ARCHITECTURE, minimum_version: "1.0.0", sha256: SHA, size_bytes: String(PAYLOAD.length), released_at: new Date(), notes: null,
   state, refusal: null, key_id: "test-key", added_by: OWNER, added_by_name: "Admin", added_at: new Date(), package_at: null });
 
 const storeIn = async (): Promise<ReleaseStore> => ({ dir: await mkdtemp(join(tmpdir(), "cabinet-release-")), maxBytes: 10_000_000, keys: {} as ReleaseStore["keys"] });
-const packageFile = (s: ReleaseStore): string => join(s.dir, `agent-${VERSION}.zip`);
+const packageFile = (s: ReleaseStore): string => join(s.dir, `agent-${VERSION}-${ARCHITECTURE}.zip`);
 const inIncoming = (s: ReleaseStore): Promise<string[]> => readdir(join(s.dir, ".incoming")).catch(() => []);
 const exists = (p: string): Promise<boolean> => readFile(p).then(() => true, () => false);
 const refused = (code: string) => (e: unknown): boolean => {
   assert.equal((e as { code?: string }).code, code);
   return true;
 };
+/** The refusal itself, so a test can read the message a human would be shown. */
+const failed = async (run: Promise<unknown>): Promise<{ code?: string; message?: string }> => {
+  try {
+    await run;
+  } catch (e) {
+    return e as { code?: string; message?: string };
+  }
+  throw new Error("this upload was expected to be refused, and was not");
+};
 const upload = (db: FakeDb, s: ReleaseStore, admin = OWNER, body: Readable = Readable.from([PAYLOAD])) =>
-  receiveReleasePackage(db as unknown as Pool, s, admin, VERSION, body);
+  receiveReleasePackage(db as unknown as Pool, s, admin, VERSION, ARCHITECTURE, body);
 
 const waitFor = async (done: () => Promise<boolean>, ms: number): Promise<void> => {
   const until = Date.now() + ms;
@@ -135,6 +154,32 @@ describe("release package upload", () => {
     assert.equal(db.audits.filter(a => a.action === "release.package" && a.outcome === "succeeded").length, 1);
   });
 
+  // The architecture a release was added under is a declaration by the pipeline; the programs inside the package are what it
+  // really is. They have to agree, or a cabinet would be handed a package it cannot run (docs/platform/second-architecture.md).
+  it("refuses a package whose programs are built for the other Windows architecture, and stores nothing", async () => {
+    const s = await storeIn();
+    const db = new FakeDb();
+    db.state = { state: "awaiting_package", added_by: OWNER, sha256: sha(OTHER_ARCHITECTURE), size_bytes: String(OTHER_ARCHITECTURE.length) };
+    const e = await failed(upload(db, s, OWNER, Readable.from([OTHER_ARCHITECTURE])));
+    assert.equal(e.code, "architecture_mismatch");
+    assert.match(e.message!, /windows-x86/, "the message names what the programs really are");
+    assert.match(e.message!, /windows-x64/, "and what the release claimed");
+    assert.equal(await exists(packageFile(s)), false, "the other architecture's package is never published");
+    assert.deepEqual(await inIncoming(s), [], "and its bytes are not kept either");
+    assert.equal(db.state.state, "refused", "the release goes back with the reason, so the right package can be added");
+  });
+
+  it("refuses bytes that are not a package at all, rather than guessing what they are", async () => {
+    const s = await storeIn();
+    const db = new FakeDb();
+    db.state = { state: "awaiting_package", added_by: OWNER, sha256: sha(NOT_A_PACKAGE), size_bytes: String(NOT_A_PACKAGE.length) };
+    const e = await failed(upload(db, s, OWNER, Readable.from([NOT_A_PACKAGE])));
+    assert.equal(e.code, "package_architecture_unknown");
+    assert.match(e.message!, /not a zip/, "the message says what could not be read");
+    assert.equal(await exists(packageFile(s)), false);
+    assert.equal(db.state.state, "refused");
+  });
+
   it("streams to a temporary file of its own, named for that upload", async () => {
     const s = await storeIn();
     const db = new FakeDb();
@@ -143,7 +188,7 @@ describe("release package upload", () => {
     await waitFor(async () => (await inIncoming(s)).length === 1, 2_000);
     const files = await inIncoming(s);
     assert.equal(files.length, 1);
-    assert.match(files[0]!, /^agent-1\.2\.3\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$/);
+    assert.match(files[0]!, /^agent-1\.2\.3-windows-x64\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.zip$/);
     assert.equal(await exists(packageFile(s)), false, "nothing is published before the upload is complete");
     body.push(PAYLOAD);
     body.push(null);

@@ -45,8 +45,10 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    never a guess from the OS name or the machine model. One migration adds `cabinets.architecture`; the cabinet page, the
    fleet view and the activity report show it.
    **Part done** (commit `face016`): schemas, generated types, migration `0007_architecture.sql`, the check-in write
-   (`services/cabinets.ts`) and the enrollment write (`services/enrollment.ts`). The console shows it (`ebb2003`): the fleet
-   view under each cabinet's agent version, and a saved fix's environment. Still to do: the agent sends the value.
+   (`services/cabinets.ts`) and the enrollment write (`services/enrollment.ts`). The console shows it: the fleet view
+   under each cabinet's agent version and a saved fix's environment (`ebb2003`), and rollouts, releases and in-office
+   cabinets (`453c92d`). **Done**: the agent sends the value (`9fe801f`) — the architecture of *its own build*, which is
+   the one an update has to match, reported on check-in and at enrollment.
 3. **An update can never cross architectures.** The architecture does **not** go on the signed manifest, and this is the
    correction to the first draft of this plan: the manifest's schema is closed (`additionalProperties: false`) and the agent
    validates the manifest with the copy it was built with, so an *older* agent would refuse a manifest carrying a field it
@@ -61,6 +63,10 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    reads the PE machine of the programs in the downloaded archive and refuses a mismatch as a failed update with its own
    reason (`agent/src/Cabinet.Agent.Core/Upgrades/ReleaseVerifier.cs`). The server-side match is convenience; the
    cabinet-side check is the protection — the same division of labour as everywhere else in this platform.
+   **Done**: `server/src/services/package-architecture.ts` reads a package's own programs (a zip central directory and PE
+   headers, no new dependency: `node:zlib` inflates the one entry) and refuses a package that is mixed, unreadable or
+   built for another machine, so the declared architecture cannot be a lie; migration `0008_release_architecture.sql`, the
+   release record, `startRollout`/`offerFor`, the console (`453c92d`) and the cabinet-side refusal (`9fe801f`) follow it.
 4. **Setup: choose the install the way the engine is chosen.** An architecture picker beside the PowerShell engine picker; the
    page then offers that architecture's archive, and the launcher and the pasted commands carry that archive's name and hash.
    The default stays 64-bit. The install steps page says which machine takes which archive, in one line.

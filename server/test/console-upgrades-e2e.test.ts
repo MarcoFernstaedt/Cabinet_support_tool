@@ -94,7 +94,8 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
     await page.getByLabel("Package (.zip)").setInputFiles(join(dir, "agent-0.2.0.zip"));
     await page.getByRole("button", { name: "Add release" }).click();
     await confirm(/Add agent release 0\.2\.0/);
-    await page.getByText("Release 0.2.0 is ready").waitFor();
+    // A release is one version for one Windows, and the console says which one it took from the picker.
+    await page.getByText("Release 0.2.0 for 64-bit Windows is ready").waitFor();
 
     // Front desk joins the in-office cabinets (batch 2).
     await page.getByLabel("Find a cabinet").fill("front");
@@ -105,8 +106,8 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
     // Start the rollout with the pilot cabinet as batch 1.
     await page.getByLabel("First cabinet (batch 1)").selectOption({ label: "Pilot cabinet · Acme Health / North · 0.1.0" });
     await page.getByRole("button", { name: "Start rollout" }).click();
-    await confirm(/Roll out agent 0\.2\.0, first to Pilot cabinet/);
-    await page.getByText("Rollout of 0.2.0 started with Pilot cabinet.").waitFor();
+    await confirm(/Roll out agent 0\.2\.0 for 64-bit Windows, first to Pilot cabinet/);
+    await page.getByText("Rollout of 0.2.0 for 64-bit Windows started with Pilot cabinet.").waitFor();
     await shot("m7-1-upgrades");
 
     // The pilot upgrades; Front desk's upgrade is refused at the hash check: the rollout pauses on its own.

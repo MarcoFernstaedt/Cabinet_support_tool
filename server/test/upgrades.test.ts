@@ -6,7 +6,7 @@ import { paramsHash } from "../src/auth/canonical.js";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
@@ -31,6 +31,10 @@ import { agentPackage, keysFolder, makeRelease, releaseKey, type Release } from 
 import { TestPki } from "./package-pki.js";
 
 const ORIGIN = "https://console.test";
+/** The two Windows the store knows (docs/platform/second-architecture.md): a release, a rollout and the cabinets it may reach
+ *  are all one of these. x64 is the one the fleet runs today, so it is what every test means unless it says otherwise. */
+const X64 = "windows-x64";
+const X86 = "windows-x86";
 const key = releaseKey();
 const otherKey = releaseKey();
 let db: TestDatabase;
@@ -38,8 +42,8 @@ let store: ReleaseStore;
 let admin: string;
 
 const refusedWith = (code: string) => (e: unknown) => { assert.ok(e instanceof Refused, String(e)); assert.equal(e.code, code, e.message); return true; };
-const upload = (r: Release, by = admin) => addRelease(db.app, store.keys, by, r.manifest, r.signature, null);
-const ready = async (r: Release) => { await upload(r); await receiveReleasePackage(db.app, store, admin, r.version, Readable.from([r.zip])); };
+const upload = (r: Release, by = admin) => addRelease(db.app, store.keys, by, r.manifest, r.signature, r.architecture, null);
+const ready = async (r: Release) => { await upload(r); await receiveReleasePackage(db.app, store, admin, r.version, r.architecture, Readable.from([r.zip])); };
 
 /** A client with cabinets: name → { version, inOffice, online }. */
 async function fleet(spec: { name: string; version: string | null; inOffice?: boolean; online?: boolean }[]): Promise<Record<string, string>> {
@@ -91,28 +95,28 @@ test("the update store takes only releases signed by a release key, with the exa
   // A manifest changed after signing.
   const good = makeRelease(key, "0.2.0");
   const changed = Buffer.from(good.manifestBytes.toString().replace("0.0.1", "0.0.0"));
-  await assert.rejects(addRelease(db.app, store.keys, admin, changed.toString("base64"), good.signature, null), refusedWith("signature_invalid"));
+  await assert.rejects(addRelease(db.app, store.keys, admin, changed.toString("base64"), good.signature, X64, null), refusedWith("signature_invalid"));
   assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'signature_failure'")).rows[0]!.n, before + 2, "one open alert per key, each attempt folded into it");
   // Signed, but not a manifest the agent would read.
   await assert.rejects(upload(makeRelease(key, "0.2.0", agentPackage(), { product: "other" })), refusedWith("invalid_manifest"));
   await assert.rejects(upload(makeRelease(key, "0.2.0", agentPackage(), { postInstall: "cmd /c calc" })), refusedWith("invalid_manifest"));
   await assert.rejects(upload(makeRelease(key, "0.2.0", agentPackage(), { minimumVersion: "0.2.0" })), refusedWith("invalid_manifest"));
-  await assert.rejects(addRelease(db.app, store.keys, admin, good.manifest.replace(/=*$/, "") + "@@", good.signature, null), refusedWith("invalid_manifest"));
-  await assert.rejects(addRelease(db.app, store.keys, admin, Buffer.alloc(5000, 32).toString("base64"), good.signature, null), refusedWith("invalid_manifest"));
+  await assert.rejects(addRelease(db.app, store.keys, admin, good.manifest.replace(/=*$/, "") + "@@", good.signature, X64, null), refusedWith("invalid_manifest"));
+  await assert.rejects(addRelease(db.app, store.keys, admin, Buffer.alloc(5000, 32).toString("base64"), good.signature, X64, null), refusedWith("invalid_manifest"));
 
   // The right manifest, then a package that is not the one it names: refused, and the version may be added again.
   await upload(good);
   const wrong = Buffer.from(good.zip); wrong[wrong.length >> 1]! ^= 0xff;
-  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", Readable.from([wrong])), refusedWith("hash_mismatch"));
-  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", Readable.from([good.zip, Buffer.from("x")])), refusedWith("not_awaiting_package"));
+  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", X64, Readable.from([wrong])), refusedWith("hash_mismatch"));
+  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", X64, Readable.from([good.zip, Buffer.from("x")])), refusedWith("not_awaiting_package"));
   assert.equal((await listReleases(db.app)).find(r => r.version === "0.2.0")!.state, "refused");
   await upload(good);
   const larger = Buffer.concat([good.zip, Buffer.from("trailing")]);
-  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", Readable.from([larger])), refusedWith("hash_mismatch"));
+  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", X64, Readable.from([larger])), refusedWith("hash_mismatch"));
   await upload(good);
-  await receiveReleasePackage(db.app, store, admin, "0.2.0", Readable.from([good.zip]));
+  await receiveReleasePackage(db.app, store, admin, "0.2.0", X64, Readable.from([good.zip]));
   assert.equal((await listReleases(db.app)).find(r => r.version === "0.2.0")!.state, "ready");
-  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", Readable.from([good.zip])), refusedWith("not_awaiting_package"));
+  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.2.0", X64, Readable.from([good.zip])), refusedWith("not_awaiting_package"));
 
   // No reuse and no going back: a rollback is a new release with a higher version.
   await assert.rejects(upload(makeRelease(key, "0.2.0")), refusedWith("version_exists"));
@@ -128,10 +132,10 @@ test("a staged rollout: one cabinet, then the office, then about 5 percent, then
     { name: "current", version: "0.3.0" }, { name: "newer", version: "0.4.0", inOffice: true }, { name: "unknown", version: null },
     ...Array.from({ length: 39 }, (_, i) => ({ name: `field-${i}`, version: "0.1.0" }))];
   const ids = await fleet(spec);
-  await assert.rejects(startRollout(db.app, admin, { version: "0.3.0", pilotCabinetId: ids.current!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("pilot_not_eligible"));
-  await assert.rejects(startRollout(db.app, admin, { version: "9.9.9", pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("not_found"));
-  const id = await startRollout(db.app, admin, { version: "0.3.0", pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null);
-  await assert.rejects(startRollout(db.app, admin, { version: "0.3.0", pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("rollout_active"));
+  await assert.rejects(startRollout(db.app, admin, { version: "0.3.0", architecture: X64, pilotCabinetId: ids.current!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("pilot_not_eligible"));
+  await assert.rejects(startRollout(db.app, admin, { version: "9.9.9", architecture: X64, pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("not_found"));
+  const id = await startRollout(db.app, admin, { version: "0.3.0", architecture: X64, pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  await assert.rejects(startRollout(db.app, admin, { version: "0.3.0", architecture: X64, pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null), refusedWith("rollout_active"));
 
   const targets = await rolloutTargets(db.app, id);
   const byBatch = (b: number) => targets.filter(t => t.batch === b).map(t => t.cabinet).sort();
@@ -185,7 +189,7 @@ test("a failure above the limit pauses the rollout on its own; resuming accepts 
   const r = makeRelease(key, "0.4.0");
   await ready(r);
   const ids = await fleet([{ name: "p", version: "0.3.0" }, { name: "f", version: "0.3.0" }, ...Array.from({ length: 4 }, (_, i) => ({ name: `o${i}`, version: "0.3.0", inOffice: true }))]);
-  const id = await startRollout(db.app, admin, { version: "0.4.0", pilotCabinetId: ids.p!, successRatePercent: 75, failureLimitPercent: 20 }, null);
+  const id = await startRollout(db.app, admin, { version: "0.4.0", architecture: X64, pilotCabinetId: ids.p!, successRatePercent: 75, failureLimitPercent: 20 }, null);
   await offerFor(db.app, ids.p!, "0.3.0");
   await report(ids.p!, "0.4.0", "succeeded");
   assert.equal((await rolloutOf(id)).currentBatch, 2);
@@ -223,7 +227,7 @@ test("an offered cabinet that never reports counts as failed after 30 minutes, a
   const r = makeRelease(key, "0.5.0");
   await ready(r);
   const ids = await fleet([{ name: "silent", version: "0.4.0" }, { name: "x", version: "0.4.0", inOffice: true }, { name: "y", version: "0.4.0", inOffice: true }]);
-  const id = await startRollout(db.app, admin, { version: "0.5.0", pilotCabinetId: ids.silent!, successRatePercent: 95, failureLimitPercent: 50 }, null);
+  const id = await startRollout(db.app, admin, { version: "0.5.0", architecture: X64, pilotCabinetId: ids.silent!, successRatePercent: 95, failureLimitPercent: 50 }, null);
   await offerFor(db.app, ids.silent!, "0.4.0");
   await checkRollouts(db.app);
   assert.equal((await targetOf(id, ids.silent!)).state, "offered");
@@ -277,18 +281,18 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
     // Tier 2 cannot see or do any of it, even with a token.
     for (const [m, u] of [["GET", "/api/admin/releases"], ["GET", "/api/admin/rollouts"], ["GET", "/api/admin/upgrade-candidates"]] as const)
       assert.equal((await call(m, u, undefined, tc)).status, 403, u);
-    assert.equal((await call("POST", "/api/admin/rollouts", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5, stepUpToken: "A".repeat(43) }, tc)).status, 403);
+    assert.equal((await call("POST", "/api/admin/rollouts", { version: "0.6.0", architecture: X64, pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5, stepUpToken: "A".repeat(43) }, tc)).status, 403);
 
     const r = makeRelease(key, "0.6.0");
     // A token for another action is refused; hostile bodies are refused before anything reads them.
-    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { manifest: r.manifest, signature: r.signature }) }, bc)).status, 403);
-    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: { ...r.signature, path: "C:/x" }, stepUpToken: "A".repeat(43) }, bc)).status, 400);
-    const added = await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, stepUpToken: await stepUp(boss, bc, "release.add", "fleet", { manifest: r.manifest, signature: r.signature }) }, bc);
+    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, architecture: X64, stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { manifest: r.manifest, signature: r.signature, architecture: X64 }) }, bc)).status, 403);
+    assert.equal((await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: { ...r.signature, path: "C:/x" }, architecture: X64, stepUpToken: "A".repeat(43) }, bc)).status, 400);
+    const added = await call("POST", "/api/admin/releases", { manifest: r.manifest, signature: r.signature, architecture: X64, stepUpToken: await stepUp(boss, bc, "release.add", "fleet", { manifest: r.manifest, signature: r.signature, architecture: X64 }) }, bc);
     assert.equal(added.status, 201, JSON.stringify(added.body));
-    assert.equal((await call("PUT", "/api/admin/releases/0.6.0/package", undefined, oc, r.zip)).status, 403, "only the Admin who added it uploads its package");
-    assert.equal((await call("PUT", "/api/admin/releases/..%2F..%2Fx/package", undefined, bc, r.zip)).status, 404);
-    assert.equal((await call("PUT", "/api/admin/releases/0.6.0/package", { x: 1 }, bc)).status, 415);
-    const pkg = await call("PUT", "/api/admin/releases/0.6.0/package", undefined, bc, r.zip);
+    assert.equal((await call("PUT", "/api/admin/releases/0.6.0/package?architecture=windows-x64", undefined, oc, r.zip)).status, 403, "only the Admin who added it uploads its package");
+    assert.equal((await call("PUT", "/api/admin/releases/..%2F..%2Fx/package?architecture=windows-x64", undefined, bc, r.zip)).status, 404);
+    assert.equal((await call("PUT", "/api/admin/releases/0.6.0/package?architecture=windows-x64", { x: 1 }, bc)).status, 415);
+    const pkg = await call("PUT", "/api/admin/releases/0.6.0/package?architecture=windows-x64", undefined, bc, r.zip);
     assert.equal(pkg.body.state, "ready", JSON.stringify(pkg.body));
 
     // In office, with a step-up bound to the cabinet.
@@ -297,9 +301,9 @@ test("the console's Upgrades routes: Admin only, step-up bound to each action an
     assert.equal((await call("GET", "/api/admin/upgrade-candidates", undefined, bc)).body.find((c: { id: string }) => c.id === ids.c1).inOffice, true);
 
     // Start, then pause, resume and stop, each with its own token for this rollout.
-    assert.equal((await call("POST", "/api/admin/rollouts", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 10, failureLimitPercent: 5, stepUpToken: "A".repeat(43) }, bc)).status, 400, "no success bar below 50%");
-    const started = await call("POST", "/api/admin/rollouts", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5,
-      stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { version: "0.6.0", pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5 }) }, bc);
+    assert.equal((await call("POST", "/api/admin/rollouts", { version: "0.6.0", architecture: X64, pilotCabinetId: ids.c1, successRatePercent: 10, failureLimitPercent: 5, stepUpToken: "A".repeat(43) }, bc)).status, 400, "no success bar below 50%");
+    const started = await call("POST", "/api/admin/rollouts", { version: "0.6.0", architecture: X64, pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5,
+      stepUpToken: await stepUp(boss, bc, "rollout.start", "fleet", { version: "0.6.0", architecture: X64, pilotCabinetId: ids.c1, successRatePercent: 95, failureLimitPercent: 5 }) }, bc);
     assert.equal(started.status, 201, JSON.stringify(started.body));
     const rid = started.body.rolloutId as string;
     assert.equal((await call("POST", `/api/admin/rollouts/${rid}/pause`, { stepUpToken: await stepUp(boss, bc, "rollout.pause", randomUUID()) }, bc)).status, 403);
@@ -367,9 +371,9 @@ test("cabinets older than a release's minimum version are left out of its rollou
   const r = makeRelease(key, "0.7.0", agentPackage(), { minimumVersion: "0.5.0" });
   await ready(r);
   const ids = await fleet([{ name: "ok", version: "0.5.0" }, { name: "too-old", version: "0.2.0" }, { name: "office", version: "0.5.1", inOffice: true }]);
-  await assert.rejects(startRollout(db.app, admin, { version: "0.7.0", pilotCabinetId: ids["too-old"]!, successRatePercent: 95, failureLimitPercent: 5 }, null),
+  await assert.rejects(startRollout(db.app, admin, { version: "0.7.0", architecture: X64, pilotCabinetId: ids["too-old"]!, successRatePercent: 95, failureLimitPercent: 5 }, null),
     refusedWith("pilot_not_eligible"));
-  const id = await startRollout(db.app, admin, { version: "0.7.0", pilotCabinetId: ids.ok!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  const id = await startRollout(db.app, admin, { version: "0.7.0", architecture: X64, pilotCabinetId: ids.ok!, successRatePercent: 95, failureLimitPercent: 5 }, null);
   assert.deepEqual((await rolloutTargets(db.app, id)).map(t => t.cabinet).sort(), ["office", "ok"]);
   const audited = (await db.app.query<{ details: { belowMinimumVersion: number } }>("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [id])).rows[0]!;
   assert.equal(audited.details.belowMinimumVersion, 1);
@@ -383,9 +387,9 @@ test("done-when on the real agent code: a signed upgrade rolls out to a test bat
   const trustDir = keysFolder([key], pki, signer);
   await withAgent({ TEST_UPGRADE_TRUST_DIR: trustDir, TEST_AGENT_VERSION: "0.1.0" }, async ({ cabinetId, lines, until, db: d, store: s, admin: a }) => {
     const ok = makeRelease(key, "0.1.1");
-    await addRelease(d.app, s.keys, a, ok.manifest, ok.signature, null);
-    await receiveReleasePackage(d.app, s, a, "0.1.1", Readable.from([ok.zip]));
-    const id = await startRollout(d.app, a, { version: "0.1.1", pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
+    await addRelease(d.app, s.keys, a, ok.manifest, ok.signature, X64, null);
+    await receiveReleasePackage(d.app, s, a, "0.1.1", X64, Readable.from([ok.zip]));
+    const id = await startRollout(d.app, a, { version: "0.1.1", architecture: X64, pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
     await until("the upgrade to succeed", async () => (await rolloutTargets(d.app, id))[0]!.state === "succeeded");
     assert.ok(lines.some(l => l.includes("passed every check")), lines.join("\n"));
     assert.equal((await listRollouts(d.app)).find(r => r.id === id)!.state, "completed", "the test batch was the only batch");
@@ -394,12 +398,12 @@ test("done-when on the real agent code: a signed upgrade rolls out to a test bat
 
     // The next release, then someone with access to the server's store swaps its package for one of the same size.
     const next = makeRelease(key, "0.1.2");
-    await addRelease(d.app, s.keys, a, next.manifest, next.signature, null);
-    await receiveReleasePackage(d.app, s, a, "0.1.2", Readable.from([next.zip]));
-    const file = join(s.dir, "agent-0.1.2.zip");
+    await addRelease(d.app, s.keys, a, next.manifest, next.signature, X64, null);
+    await receiveReleasePackage(d.app, s, a, "0.1.2", X64, Readable.from([next.zip]));
+    const file = join(s.dir, "agent-0.1.2-windows-x64.zip");
     const tampered = Buffer.from(next.zip); tampered[tampered.length >> 1]! ^= 0xff;
     chmodSync(file, 0o644); writeFileSync(file, tampered);
-    const id2 = await startRollout(d.app, a, { version: "0.1.2", pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
+    const id2 = await startRollout(d.app, a, { version: "0.1.2", architecture: X64, pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
     await until("the refusal", async () => (await rolloutTargets(d.app, id2))[0]!.state === "failed");
     const t = (await rolloutTargets(d.app, id2))[0]!;
     assert.deepEqual([t.outcome, t.check], ["refused", "package_hash"]);
@@ -415,22 +419,107 @@ test("done-when on the real agent code: a release that fails Authenticode is ref
   const trustDir = keysFolder([key], pki, signer);
   await withAgent({ TEST_UPGRADE_TRUST_DIR: trustDir, TEST_AGENT_VERSION: "0.1.0", TEST_UPGRADE_OUTCOME: "rollback" }, async ({ cabinetId, until, db: d, store: s, admin: a }) => {
     // Properly signed manifest over a package whose network service binary is unsigned.
-    const unsigned = makeRelease(key, "0.1.1", agentPackage("MZ|signed:agent-signer", [["Cabinet.Agent.Network/extra.dll", Buffer.from("MZ|unsigned")]]));
-    await addRelease(d.app, s.keys, a, unsigned.manifest, unsigned.signature, null);
-    await receiveReleasePackage(d.app, s, a, "0.1.1", Readable.from([unsigned.zip]));
-    const id = await startRollout(d.app, a, { version: "0.1.1", pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
+    const unsigned = makeRelease(key, "0.1.1", agentPackage(X64, [["Cabinet.Agent.Network/extra.dll", Buffer.from("MZ|unsigned")]]));
+    await addRelease(d.app, s.keys, a, unsigned.manifest, unsigned.signature, X64, null);
+    await receiveReleasePackage(d.app, s, a, "0.1.1", X64, Readable.from([unsigned.zip]));
+    const id = await startRollout(d.app, a, { version: "0.1.1", architecture: X64, pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
     await until("the Authenticode refusal", async () => (await rolloutTargets(d.app, id))[0]!.state === "failed");
     assert.deepEqual([(await rolloutTargets(d.app, id))[0]!.outcome, (await rolloutTargets(d.app, id))[0]!.check], ["refused", "authenticode"]);
     await until("the signature alert", async () => (await d.app.query("SELECT 1 FROM security_alerts WHERE kind = 'signature_failure' AND cabinet_id = $1", [cabinetId])).rows.length === 1);
     await changeRollout(d.app, a, id, "stop", null);
 
     const good = makeRelease(key, "0.1.2");
-    await addRelease(d.app, s.keys, a, good.manifest, good.signature, null);
-    await receiveReleasePackage(d.app, s, a, "0.1.2", Readable.from([good.zip]));
-    const id2 = await startRollout(d.app, a, { version: "0.1.2", pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
+    await addRelease(d.app, s.keys, a, good.manifest, good.signature, X64, null);
+    await receiveReleasePackage(d.app, s, a, "0.1.2", X64, Readable.from([good.zip]));
+    const id2 = await startRollout(d.app, a, { version: "0.1.2", architecture: X64, pilotCabinetId: cabinetId, successRatePercent: 95, failureLimitPercent: 5 }, null);
     await until("the rolled-back report", async () => (await rolloutTargets(d.app, id2))[0]!.state === "failed");
     const t = (await rolloutTargets(d.app, id2))[0]!;
     assert.deepEqual([t.outcome, t.check], ["rolled_back", "check_in"]);
     assert.match(t.message!, /0\.1\.0 was restored/);
   });
+});
+
+// ---- The second architecture (docs/platform/second-architecture.md) -----------------------------------------------
+
+test("a release is one version for one architecture: each architecture has its own versions, and they only go up on their own", async () => {
+  // The x86 line is empty: nothing has ever been built for it, so its first release can be any version.
+  await ready(makeRelease(key, "0.9.0", agentPackage(X86), {}, X86));
+  // The same version for x64 is a different release, not a duplicate of it.
+  await ready(makeRelease(key, "0.9.0"));
+  assert.deepEqual((await listReleases(db.app)).filter(r => r.version === "0.9.0").map(r => `${r.version} ${r.architecture}`).sort(),
+    ["0.9.0 windows-x64", "0.9.0 windows-x86"]);
+  // The x64 line moves ahead of the x86 one, and the x86 line's next version is still an increase for it...
+  await ready(makeRelease(key, "0.9.3"));
+  await ready(makeRelease(key, "0.9.1", agentPackage(X86), {}, X86));
+  assert.equal((await listReleases(db.app)).find(r => r.version === "0.9.1" && r.architecture === X86)!.state, "ready");
+  // ...while the same version is below the x64 line's newest, so it is refused there and the refusal names the architecture.
+  await assert.rejects(upload(makeRelease(key, "0.9.1")), (e: unknown) => {
+    assert.equal((e as Refused).code, "version_not_newer");
+    assert.match((e as Error).message, /windows-x64/);
+    return true;
+  });
+  // Inside one line the old rules hold: no reuse of a version, and no going back.
+  await assert.rejects(upload(makeRelease(key, "0.9.0", agentPackage(X86), {}, X86)), refusedWith("version_exists"));
+  await assert.rejects(upload(makeRelease(key, "0.9.0-rc.1", agentPackage(X86), {}, X86)), refusedWith("version_not_newer"));
+});
+
+test("a package whose programs are built for the other architecture is refused when its bytes arrive, and is not stored", async () => {
+  // The pipeline declares x64 and signs a manifest over the x86 build. The manifest and its hash are honest, so only the
+  // programs inside the package can catch it - which is exactly why the store reads them (releases.ts receiveReleasePackage).
+  const lying = makeRelease(key, "0.9.5", agentPackage(X86), {}, X64);
+  await upload(lying);
+  await assert.rejects(receiveReleasePackage(db.app, store, admin, "0.9.5", X64, Readable.from([lying.zip])), (e: unknown) => {
+    assert.equal((e as Refused).code, "architecture_mismatch");
+    assert.match((e as Error).message, /built for windows-x86/);
+    return true;
+  });
+  assert.equal((await listReleases(db.app)).find(r => r.version === "0.9.5" && r.architecture === X64)!.state, "refused",
+    "the release goes back with the reason, so the right package can be added to it");
+  assert.equal(existsSync(join(store.dir, "agent-0.9.5-windows-x64.zip")), false, "the other architecture's package is never kept");
+  // The x86 package is the x86 release's package, and arrives there without complaint.
+  await ready(makeRelease(key, "0.9.4", agentPackage(X86), {}, X86));
+  // And the release that was refused takes the package that really is its own.
+  const right = makeRelease(key, "0.9.5");
+  await upload(right);
+  await receiveReleasePackage(db.app, store, admin, "0.9.5", X64, Readable.from([right.zip]));
+  assert.equal((await listReleases(db.app)).find(r => r.version === "0.9.5" && r.architecture === X64)!.state, "ready");
+});
+
+test("a rollout offers its release only to cabinets that can run it, counts the ones it leaves out, and never hands out the other architecture's package", async () => {
+  const ids = await fleet([{ name: "x64-pilot", version: "0.1.0" }, { name: "x64-office", version: "0.1.0", inOffice: true },
+    { name: "x86-office", version: "0.1.0", inOffice: true }, { name: "quiet-office", version: "0.1.0", inOffice: true }]);
+  // One cabinet's agent reported the second architecture; one has never reported an architecture at all.
+  await db.app.query("UPDATE cabinets SET architecture = 'windows-x86' WHERE id = $1", [ids["x86-office"]]);
+  assert.deepEqual((await db.app.query<{ architecture: string | null }>("SELECT architecture FROM cabinets WHERE id = $1", [ids["quiet-office"]])).rows, [{ architecture: null }]);
+
+  await ready(makeRelease(key, "0.9.6", agentPackage(X86), {}, X86));
+  // A cabinet whose agent is built for x64 cannot be the first cabinet of an x86 rollout, and is told why.
+  await assert.rejects(startRollout(db.app, admin, { version: "0.9.6", architecture: X86, pilotCabinetId: ids["x64-pilot"]!, successRatePercent: 95, failureLimitPercent: 5 }, null), (e: unknown) => {
+    assert.equal((e as Refused).code, "pilot_not_eligible");
+    assert.match((e as Error).message, /built for windows-x64, not windows-x86/);
+    return true;
+  });
+  const x86Run = await startRollout(db.app, admin, { version: "0.9.6", architecture: X86, pilotCabinetId: ids["x86-office"]!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  assert.deepEqual((await rolloutTargets(db.app, x86Run)).map(t => t.cabinet), ["x86-office"], "an x86 release reaches only the x86 cabinet");
+  const started = (await db.app.query<{ details: { wrongArchitecture: number; belowMinimumVersion: number } }>("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [x86Run])).rows[0]!;
+  assert.deepEqual([started.details.wrongArchitecture, started.details.belowMinimumVersion], [3, 0],
+    "the three cabinets that cannot run an x86 program are counted apart, and none of them is offered it");
+  await changeRollout(db.app, admin, x86Run, "stop", null);
+
+  // The other way round: the x64 release reaches the x64 cabinets and the one cabinet whose agent reported x86 is left out.
+  await ready(makeRelease(key, "0.9.7"));
+  const x64Run = await startRollout(db.app, admin, { version: "0.9.7", architecture: X64, pilotCabinetId: ids["x64-pilot"]!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  assert.deepEqual((await rolloutTargets(db.app, x64Run)).map(t => t.cabinet).sort(), ["quiet-office", "x64-office", "x64-pilot"]);
+  const x64Started = (await db.app.query<{ details: { wrongArchitecture: number } }>("SELECT details FROM audit_log WHERE action = 'rollout.start' AND target_id = $1", [x64Run])).rows[0]!;
+  assert.equal(x64Started.details.wrongArchitecture, 1, "only the cabinet whose agent reported x86 is left out of it");
+  // A cabinet whose agent has never reported an architecture is a win-x64 one by construction (only that build ever shipped),
+  // so it keeps updating exactly as before: it can be offered this release, and is served both manifest and package.
+  assert.equal(await offerFor(db.app, ids["x64-pilot"]!, "0.1.0"), "0.9.7");
+  assert.ok(await releaseForAgent(db.app, ids["x64-pilot"]!, "0.9.7"), "a cabinet with no architecture yet is served the x64 release");
+  assert.equal((await releasePackageForAgent(db.app, store, ids["x64-pilot"]!, "0.9.7"))!.path, join(store.dir, "agent-0.9.7-windows-x64.zip"));
+  // And the x86 cabinet is never offered the x64 release, nor handed it or its package.
+  assert.equal(await offerFor(db.app, ids["x86-office"]!, "0.1.0"), null);
+  assert.equal(await releaseForAgent(db.app, ids["x86-office"]!, "0.9.7"), null);
+  assert.equal(await releasePackageForAgent(db.app, store, ids["x86-office"]!, "0.9.7"), null);
+  await changeRollout(db.app, admin, x64Run, "stop", null);
 });

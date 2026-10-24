@@ -22,6 +22,7 @@ import { PackageRefused, verifyPackage } from "./packages/verify.js";
 import { approvePackage, receiveUpload, retirePackage, startUpload } from "./services/packages.js";
 import { catalog, isOperationName, releaseFiles } from "./contracts.js";
 import { addRelease, checkManifest, listReleases, receiveReleasePackage, ReleaseKeys } from "./services/releases.js";
+import { isArchitecture, type Architecture } from "./services/package-architecture.js";
 import { changeRollout, listRollouts, rolloutTargets, setInOffice, startRollout } from "./services/rollouts.js";
 import { createHash } from "node:crypto";
 
@@ -44,9 +45,9 @@ const USAGE = `platform-admin <command> [options]
   writes pause|resume [--client <clientId>] [--reason R] --as <admin>
   user resume-writes --username u --as <admin>               after a user went over their write limit
   release check --manifest m.json --signature s.json --package p.zip   the server's checks of a signed release (no database needed)
-  release add --manifest m.json --signature s.json --package p.zip --as <admin>   put a signed release in the update store
+  release add --manifest m.json --signature s.json --package p.zip --architecture windows-x64|windows-x86 --as <admin>   put a signed release in the update store
   release list
-  rollout start <version> --pilot <cabinetId> [--success 95] [--failure 5] --as <admin>
+  rollout start <version> --architecture windows-x64|windows-x86 --pilot <cabinetId> [--success 95] [--failure 5] --as <admin>
   rollout list                              rollouts, newest first, with per-batch counts
   rollout show <rolloutId>                  per-cabinet results
   rollout pause|resume|stop <rolloutId> --as <admin>
@@ -71,7 +72,8 @@ async function main(argv: string[]): Promise<void> {
     options: { as: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
       client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
       version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" },
-      manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" } },
+      manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" },
+      architecture: { type: "string" } },
   });
   const [command, ...rest] = positionals;
   if (!command) { console.log(USAGE); return; }
@@ -105,6 +107,12 @@ async function main(argv: string[]): Promise<void> {
     return { manifest, signature, packagePath: values.package };
   };
 
+  /** A release is one version for one Windows architecture, so every command that names a release names which one. */
+  const architecture = (): Architecture => {
+    if (!isArchitecture(values.architecture)) throw new Refused("usage", 2, "--architecture windows-x64|windows-x86 is required");
+    return values.architecture;
+  };
+
   if (command === "release" && rest[0] === "check") {
     const r = await releaseInput();
     const keys = ReleaseKeys.fromFolder(process.env.UPGRADE_KEYS_DIR || undefined);
@@ -128,27 +136,28 @@ async function main(argv: string[]): Promise<void> {
     switch (["user", "token", "package", "writes", "release", "rollout", "cabinet"].includes(command) ? `${command} ${rest.shift()}` : command) {
       case "release add": {
         const r = await releaseInput();
+        const a = architecture();
         const adminId = await userId(pool, values.as, "admin");
         mkdirSync(config.releases.dir, { recursive: true, mode: 0o700 });
         const store = { dir: config.releases.dir, maxBytes: config.releases.maxBytes, keys: ReleaseKeys.fromFolder(config.releases.keysDir) };
-        const version = await addRelease(pool, store.keys, adminId, r.manifest, r.signature, null);
-        const added = await receiveReleasePackage(pool, store, adminId, version, createReadStream(r.packagePath));
-        console.log(`${added.version}  ${added.state}  sha256 ${added.sha256}`);
+        const version = await addRelease(pool, store.keys, adminId, r.manifest, r.signature, a, null);
+        const added = await receiveReleasePackage(pool, store, adminId, version, a, createReadStream(r.packagePath));
+        console.log(`${added.version}  ${added.architecture}  ${added.state}  sha256 ${added.sha256}`);
         return;
       }
       case "release list":
-        for (const r of await listReleases(pool)) console.log(`${r.version}  ${r.state}  from ${r.minimumVersion}  ${r.sizeBytes} bytes  added ${r.addedAt} by ${r.addedBy.name}`);
+        for (const r of await listReleases(pool)) console.log(`${r.version}  ${r.architecture}  ${r.state}  from ${r.minimumVersion}  ${r.sizeBytes} bytes  added ${r.addedAt} by ${r.addedBy.name}`);
         return;
       case "rollout start": {
         if (!rest[0] || !values.pilot) throw new Refused("usage", 2, USAGE);
-        const id = await startRollout(pool, await userId(pool, values.as, "admin"), { version: rest[0], pilotCabinetId: values.pilot.toLowerCase(),
+        const id = await startRollout(pool, await userId(pool, values.as, "admin"), { version: rest[0], architecture: architecture(), pilotCabinetId: values.pilot.toLowerCase(),
           successRatePercent: Number(values.success ?? "95"), failureLimitPercent: Number(values.failure ?? "5") }, null);
         console.log(id);
         return;
       }
       case "rollout list":
         for (const r of await listRollouts(pool))
-          console.log(`${r.id}  ${r.version}  ${r.state}  batch ${r.currentBatch}  ${r.batches.map(b => `[${b.batch}: ${b.succeeded}/${b.total} ok, ${b.failed} failed]`).join(" ")}${r.pausedReason ? `  ${r.pausedReason}` : ""}`);
+          console.log(`${r.id}  ${r.version}  ${r.architecture}  ${r.state}  batch ${r.currentBatch}  ${r.batches.map(b => `[${b.batch}: ${b.succeeded}/${b.total} ok, ${b.failed} failed]`).join(" ")}${r.pausedReason ? `  ${r.pausedReason}` : ""}`);
         return;
       case "rollout show": {
         if (!rest[0]) throw new Refused("usage", 2, USAGE);

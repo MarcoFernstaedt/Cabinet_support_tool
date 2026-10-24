@@ -2,11 +2,16 @@
 // per-cabinet results). Admin only; every change needs a step-up token for that exact action and target, and every
 // body is checked against its contract first. A rollback is a new signed release with a higher version, started as
 // its own rollout (docs/spec/07-upgrade-channel.md "Downgrades").
+//
+// Since a release is one version for one Windows architecture (docs/platform/second-architecture.md), every call that
+// names a release names the pair: a body field when there is a JSON body, and the query string when the call is the
+// package itself - those bytes are the whole body, so there is no field to put it in.
 import { boundTo } from "../auth/stepup.js";
 import type { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
+import { isArchitecture, type Architecture } from "../services/package-architecture.js";
 import { addRelease, isVersion, listReleases, receiveReleasePackage } from "../services/releases.js";
 import { changeRollout, listRollouts, rolloutTargets, setInOffice, startRollout, upgradeCandidates } from "../services/rollouts.js";
 import { id } from "./fleet-routes.js";
@@ -20,6 +25,11 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     if (!isVersion(v)) throw new Refused("not_found", 404, "no such release");
     return v;
   };
+  const architecture = (request: { query: unknown }): Architecture => {
+    const a = (request.query as { architecture?: unknown }).architecture;
+    if (!isArchitecture(a)) throw new Refused("invalid_request", 400, "architecture must be windows-x64 or windows-x86");
+    return a;
+  };
 
   app.get("/api/admin/releases", async request => { await asAdmin(request); return listReleases(o.pool); });
 
@@ -27,7 +37,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const u = await asAdmin(request);
     if (!o.releases) throw new Refused("unavailable", 503, "no update store is configured");
     const b = consoleBodies.releaseCreate.parse(request.body);
-    return reply.code(201).send({ version: await addRelease(o.pool, o.releases.keys, u.userId, b.manifest, b.signature, boundTo(b.stepUpToken, b)) });
+    return reply.code(201).send({ version: await addRelease(o.pool, o.releases.keys, u.userId, b.manifest, b.signature, b.architecture, boundTo(b.stepUpToken, b)) });
   });
 
   // The package zip for a release just added: no second step-up, but only the release's own Admin, only once, and only the exact bytes the signed manifest names.
@@ -36,10 +46,11 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     if (!o.releases) throw new Refused("unavailable", 503, "no update store is configured");
     if (request.headers["content-type"] !== "application/octet-stream") throw new Refused("invalid_request", 415, "send the file as application/octet-stream");
     const v = version(request);
-    const owner = (await o.pool.query<{ added_by: string }>("SELECT added_by FROM agent_releases WHERE version = $1", [v])).rows[0];
+    const a = architecture(request);
+    const owner = (await o.pool.query<{ added_by: string }>("SELECT added_by FROM agent_releases WHERE version = $1 AND architecture = $2", [v, a])).rows[0];
     if (owner && owner.added_by !== u.userId) throw new Refused("not_yours", 403, "only the Admin who added this release can upload its package");
     if (Number(request.headers["content-length"] ?? "0") > o.releases.maxBytes) throw new Refused("too_large", 413, "the package is larger than any release may be");
-    return receiveReleasePackage(o.pool, o.releases, u.userId, v, request.body as Readable);
+    return receiveReleasePackage(o.pool, o.releases, u.userId, v, a, request.body as Readable);
   });
 
   app.get("/api/admin/rollouts", async request => { await asAdmin(request); return listRollouts(o.pool); });
@@ -54,7 +65,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   app.post("/api/admin/rollouts", async (request, reply) => {
     const u = await asAdmin(request);
     const b = consoleBodies.rolloutStart.parse(request.body);
-    const rolloutId = await startRollout(o.pool, u.userId, { version: b.version, pilotCabinetId: b.pilotCabinetId.toLowerCase(),
+    const rolloutId = await startRollout(o.pool, u.userId, { version: b.version, architecture: b.architecture, pilotCabinetId: b.pilotCabinetId.toLowerCase(),
       successRatePercent: b.successRatePercent, failureLimitPercent: b.failureLimitPercent }, boundTo(b.stepUpToken, b));
     return reply.code(201).send({ rolloutId });
   });
