@@ -47,10 +47,13 @@ async function realCabinet(client: string, site: string, name: string, scenario:
   return r;
 }
 
-/** Stands in for the agent: takes what the server queued for each real cabinet and stores a schema-valid answer, as the agent API does. */
 let answering: NodeJS.Timeout | undefined;
+let inFlight: Promise<void> = Promise.resolve();
+/** Stands in for the agent: takes what the server queued for each real cabinet and stores a schema-valid answer, as the agent API does. */
 function startAgents() {
-  answering = setInterval(() => { void (async () => {
+  // The tick's promise is kept so teardown can wait for the one that is already running: a query left in flight when the
+  // pool closes is an unhandled rejection that fails this whole file, not the test that was running.
+  answering = setInterval(() => { inFlight = (async () => {
     for (const c of real) {
       for (const cmd of await takeQueuedCommands(db.app, c.id)) {
         const subnet = "10.77.1", baseline = baselineFor(subnet);
@@ -74,7 +77,11 @@ test.before(async () => {
   h.db = db; h.app = app;
   startAgents();
 });
-test.after(async () => { clearInterval(answering); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
+test.after(async () => {
+  clearInterval(answering);   // no new tick starts
+  await inFlight;             // and the tick already running finishes before the pool closes
+  await app.close(); await stream.stop(); feed.stop(); await db.drop();
+});
 
 async function diagnose(a: Account, cabinetId: string) {
   const started = await call("POST", `/api/cabinets/${cabinetId}/diagnose/network`, {}, a);

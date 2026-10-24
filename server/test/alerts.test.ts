@@ -52,7 +52,9 @@ async function call(method: "GET" | "POST", url: string, body?: unknown, cookie?
 }
 async function signIn(a: Account): Promise<string> {
   const r = await call("POST", "/api/auth/login", { username: a.username, password: a.password });
-  assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, r.cookie)).body.stage, "complete");
+  // The body is in the message so a refusal here says which one it was, rather than leaving a bare undefined behind.
+  const step = await call("POST", "/api/auth/totp", { code: nextCode(a) }, r.cookie);
+  assert.equal(step.body.stage, "complete", JSON.stringify(step.body));
   return r.cookie!;
 }
 async function stepUp(a: Account, cookie: string, action: string, target: string, params?: unknown): Promise<string> {
