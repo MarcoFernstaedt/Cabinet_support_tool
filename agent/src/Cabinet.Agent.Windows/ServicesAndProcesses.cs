@@ -119,20 +119,8 @@ public sealed class WindowsServicePlatform : IServicePlatform
         "Boot" => ServiceStartType.Boot, "System" => ServiceStartType.System, _ => ServiceStartType.Unknown,
     };
 
-    /// <summary>The program of a service's image path, without arguments: "C:\x\y.exe" -k foo → C:\x\y.exe.</summary>
-    public static string? ProgramOnly(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return null;
-        path = path.Trim();
-        string program;
-        if (path.StartsWith('"')) { int end = path.IndexOf('"', 1); program = end > 1 ? path[1..end] : path.Trim('"'); }
-        else
-        {
-            int exe = path.IndexOf(".exe", StringComparison.OrdinalIgnoreCase);
-            program = exe > 0 ? path[..(exe + 4)] : path.Split(' ', 2)[0];
-        }
-        return Clean(program, 520);
-    }
+    /// <summary>The program of a service's image path, without arguments (ServiceRules.ProgramOnly, tested in Core).</summary>
+    public static string? ProgramOnly(string? path) => ServiceRules.ProgramOnly(path);
 
     private static string? Clean(string? text, int max)
     {

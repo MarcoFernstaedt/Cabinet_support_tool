@@ -63,6 +63,7 @@ var serviceWatcher = new Cabinet.Agent.Core.Services.ServiceWatcher(services, ne
 // The approved list the platform sends in its heartbeat answer, read from this double's own copy of it and read again for
 // every request, exactly as the broker does: the list decides which services may be started, stopped or restarted.
 var approved = new Cabinet.Agent.Core.Services.ApprovedAppsFile(Path.Combine(state, "monitor-settings.json"), Log);
+serviceWatcher.Approved = () => approved.Current;
 var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher, Approved = () => approved.Current };
 // Time zone and clock: the broker's real time logic over a simulated tzutil and w32tm.
 var simulatedTime = new SimulatedTime(Log);

@@ -3,6 +3,7 @@
 // test agent; CI sets it. Milestone 2 is done when the first test passes; the second
 // is milestone 4's done-when, driven through the agent's real monitors and event queue.
 import { setWatched } from "../src/services/watched-services.js";
+import { appsHash, normalizeEntries, rawEntry } from "../src/services/approved-apps.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -373,6 +374,14 @@ test("watched services on the real agent code: a stopped service is started agai
   try {
     const a = await startAgent({ db, api, port, key, dir, admin, name: "svc" });
     agents.push(a.agent);
+    // The watcher starts only services that are also on the cabinet's approved list, so the owner approves the two it is
+    // meant to keep running (the simulated service manager reports C:\Program Files\Simulated\<name>.exe for each).
+    const approvedEntries = normalizeEntries(["BioScanSvc", "FlakySvc"].map(name => ({
+      key: `app:${name}`, kind: "service", name, path: `C:\\Program Files\\Simulated\\${name}.exe`, serviceName: name })));
+    assert.equal(approvedEntries.ok, true, JSON.stringify(approvedEntries));
+    const entries = approvedEntries.ok ? approvedEntries.entries : [];
+    await asOwner(db, c => c.query("UPDATE cabinets SET approved_apps = $1 WHERE id = $2", [JSON.stringify({
+      version: 1, entries: entries.map(rawEntry), hash: appsHash(entries), setBy: admin, setAt: new Date().toISOString() }), a.cabinetId]));
     // Tess watches the scanner service and a service that will not start, on this cabinet.
     await setWatched(db.app, tier2, "cabinet", a.cabinetId, ["BioScanSvc", "FlakySvc", "NoSuchSvc"]);
     await a.until("the watch list to reach the broker", () => a.lines.some(l => l.includes("Watching 3 services: BioScanSvc, FlakySvc, NoSuchSvc.")), 20_000);

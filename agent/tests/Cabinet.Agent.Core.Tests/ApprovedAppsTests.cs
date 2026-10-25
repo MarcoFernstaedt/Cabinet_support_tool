@@ -199,26 +199,33 @@ public class ApprovedProcessEndTests
 {
     private static ProcessEndParams Request(string name = "dispenser") => new() { ProcessId = 4242, Name = name };
 
-    private sealed class Ended
+    /// <summary>One opened process: the program it reports and the end both belong to this one object, as with one handle.</summary>
+    private sealed class Opened(string? program) : IOpenedProcess
     {
-        public int Count { get; private set; }
-        public ProcessEndOutput? Output { get; private set; }
+        public int Ends { get; private set; }
+        public int Reads { get; private set; }
+        public bool Disposed { get; private set; }
+        public string? Program { get { Reads++; return program; } }
 
         public ProcessEndOutput End(ProcessEndParams p)
         {
-            Count++;
-            Output = new ProcessEndOutput { ProcessId = p.ProcessId, Name = p.Name, Ended = true };
-            return Output;
+            Assert.False(Disposed, "the end must go through the handle the check was made on");
+            Ends++;
+            return new ProcessEndOutput { ProcessId = p.ProcessId, Name = p.Name, Ended = true };
         }
+
+        public void Dispose() => Disposed = true;
     }
 
     [Fact]
-    public void A_process_on_the_list_is_ended()
+    public void A_process_on_the_list_is_ended_through_the_handle_its_program_was_read_from()
     {
-        var ended = new Ended();
+        var opened = new Opened(ApprovedLists.Dispenser);
+        int opens = 0;
         var log = new List<string>();
-        ProcessEndOutput output = ApprovedProcessEnd.Run(Request(), ApprovedLists.Application(ApprovedLists.Dispenser), _ => ApprovedLists.Dispenser, ended.End, log.Add);
-        Assert.Equal(1, ended.Count);
+        ProcessEndOutput output = ApprovedProcessEnd.Run(Request(), ApprovedLists.Application(ApprovedLists.Dispenser), _ => { opens++; return opened; }, log.Add);
+        Assert.Equal((1, 1, 1), (opens, opened.Ends, opened.Reads));
+        Assert.True(opened.Disposed);
         Assert.Equal(4242, output.ProcessId);
         Assert.Contains(log, line => line.Contains("on the approved list", StringComparison.Ordinal));
     }
@@ -226,43 +233,48 @@ public class ApprovedProcessEndTests
     [Fact]
     public void A_process_off_the_list_is_refused_and_never_ended()
     {
-        var ended = new Ended();
-        var e = Assert.Throws<OperationFailedException>(() =>
-            ApprovedProcessEnd.Run(Request(), ApprovedApps.None, _ => ApprovedLists.Dispenser, ended.End, _ => { }));
+        var opened = new Opened(ApprovedLists.Dispenser);
+        var e = Assert.Throws<OperationFailedException>(() => ApprovedProcessEnd.Run(Request(), ApprovedApps.None, _ => opened, _ => { }));
         Assert.Equal("execution_failed", e.Code);
         Assert.Contains("not on this cabinet's approved list", e.Message);
-        Assert.Equal(0, ended.Count);
+        Assert.Equal(0, opened.Ends);
+        Assert.True(opened.Disposed, "the handle is closed on a refusal too");
     }
 
     [Fact]
     public void A_process_whose_program_cannot_be_read_is_refused_and_never_ended()
     {
-        var ended = new Ended();
-        var e = Assert.Throws<OperationFailedException>(() =>
-            ApprovedProcessEnd.Run(Request(), ApprovedLists.Application(ApprovedLists.Dispenser), _ => null, ended.End, _ => { }));
+        var opened = new Opened(null);
+        var e = Assert.Throws<OperationFailedException>(() => ApprovedProcessEnd.Run(Request(), ApprovedLists.Application(ApprovedLists.Dispenser), _ => opened, _ => { }));
         Assert.Contains("could not read which program", e.Message);
-        Assert.Equal(0, ended.Count);
+        Assert.Equal(0, opened.Ends);
+    }
+
+    [Fact]
+    public void A_process_that_is_gone_is_not_found()
+    {
+        var e = Assert.Throws<OperationFailedException>(() => ApprovedProcessEnd.Run(Request(), ApprovedLists.Application(ApprovedLists.Dispenser), _ => null, _ => { }));
+        Assert.Equal("not_found", e.Code);
     }
 
     [Fact]
     public void A_process_running_a_lookalike_program_is_refused_even_when_its_name_matches()
     {
-        var ended = new Ended();
-        var e = Assert.Throws<OperationFailedException>(() =>
-            ApprovedProcessEnd.Run(Request("dispenser"), ApprovedLists.Application(ApprovedLists.Dispenser), _ => @"C:\Temp\dispenser.exe", ended.End, _ => { }));
+        var opened = new Opened(@"C:\Temp\dispenser.exe");
+        var e = Assert.Throws<OperationFailedException>(() => ApprovedProcessEnd.Run(Request("dispenser"), ApprovedLists.Application(ApprovedLists.Dispenser), _ => opened, _ => { }));
         Assert.Contains("not on this cabinet's approved list", e.Message);
-        Assert.Equal(0, ended.Count);
+        Assert.Equal(0, opened.Ends);
     }
 
     [Fact]
     public async Task The_registered_operation_refuses_an_unapproved_process()
     {
-        var ended = new Ended();
-        OperationRegistry registry = ApprovedProcessEnd.Register(new OperationRegistry(), () => ApprovedApps.None, _ => ApprovedLists.Dispenser, ended.End, _ => { });
+        var opened = new Opened(ApprovedLists.Dispenser);
+        OperationRegistry registry = ApprovedProcessEnd.Register(new OperationRegistry(), () => ApprovedApps.None, _ => opened, _ => { });
         Assert.True(registry.TryGet(Catalog.ProcessEnd, out var handler));
         JsonElement parameters = JsonSerializer.SerializeToElement(Request(), ContractJson.Options);
         await Assert.ThrowsAsync<OperationFailedException>(() => handler(parameters, default));
-        Assert.Equal(0, ended.Count);
+        Assert.Equal(0, opened.Ends);
     }
 }
 
@@ -307,6 +319,69 @@ public class ApprovedAppsOnDiskTests
         Assert.Equal("app:scanner", Assert.Single(new ApprovedAppsFile(file, _ => { }).Current.Entries).Key);
         Assert.Single(new MonitorSettings(file).ApprovedApps);
         Assert.Contains(log, line => line.Contains("Approved list in force: 1 program(s)", StringComparison.Ordinal));
+    }
+
+    private static (string File, MonitorSettings Settings, ApprovedAppsFile Broker, List<string> Log) WithGoodList(TempDir dir)
+    {
+        var file = Path.Combine(dir.Path, "monitor-settings.json");
+        var settings = new MonitorSettings(file);
+        settings.Apply(Answer(ApprovedLists.Entry()));
+        var log = new List<string>();
+        var broker = new ApprovedAppsFile(file, log.Add);
+        Assert.Single(broker.Current.Entries);
+        return (file, settings, broker, log);
+    }
+
+    [Fact]
+    public void A_good_list_whose_file_disappears_leaves_nothing_approved()
+    {
+        using var dir = new TempDir();
+        var (file, _, broker, log) = WithGoodList(dir);
+        File.Delete(file);
+        Assert.True(broker.Current.IsEmpty);
+        Assert.Contains(log, l => l.Contains("is not there; nothing is approved", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("{\"serverTime\":")]
+    [InlineData("")]
+    [InlineData("{\"approvedApps\":{\"entries\":[]}}")]
+    public void A_good_list_whose_file_is_corrupted_leaves_nothing_approved(string corrupt)
+    {
+        using var dir = new TempDir();
+        var (file, _, broker, _) = WithGoodList(dir);
+        File.WriteAllText(file, corrupt);
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(7));
+        Assert.True(broker.Current.IsEmpty);
+    }
+
+    [Fact]
+    public void An_oversized_file_leaves_nothing_approved_and_is_not_read()
+    {
+        using var dir = new TempDir();
+        var (file, _, broker, log) = WithGoodList(dir);
+        // 2 GB: reading it would take seconds and the memory to hold it. The size is checked first, so it is never read.
+        using (var stream = new FileStream(file, FileMode.Open, FileAccess.Write)) stream.SetLength(2L * 1024 * 1024 * 1024);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        Assert.True(broker.Current.IsEmpty);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"took {clock.Elapsed}");
+        Assert.Contains(log, l => l.Contains("it was not read", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_file_just_over_the_limit_is_refused_and_one_at_the_limit_is_read()
+    {
+        using var dir = new TempDir();
+        var (file, _, broker, _) = WithGoodList(dir);
+        string json = File.ReadAllText(file).TrimEnd();
+        File.WriteAllText(file, json + new string(' ', ApprovedAppsFile.MostBytes - System.Text.Encoding.UTF8.GetByteCount(json)));
+        Assert.Equal(ApprovedAppsFile.MostBytes, new FileInfo(file).Length);
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(8));
+        Assert.Single(broker.Current.Entries);
+        File.AppendAllText(file, " ");
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(9));
+        Assert.True(broker.Current.IsEmpty);
     }
 
     [Fact]
