@@ -3,6 +3,28 @@
 Where this stands on 2026-10-23, what is left, and the order it is done in. Nine focused working sessions, plus the time
 Marco spends on the two cabinet machines themselves.
 
+## Status on 2026-10-25
+
+**Done since this plan was written.** Session 1 (the server's side of a control request: the console's control routes gate
+on the entry key, step-up is bound to it, one audit row per request — `server/src/console-api/control-routes.ts`).
+Session 3 (the console's Services and Processes pages: watched services per cabinet, site, client and fleet, start/stop,
+before and after state on every control action). Session 4 (errors and before/after snapshots only — the row is written
+before the refusal is thrown, and a change that moved nothing stores nothing). Session 8 (the second Windows
+architecture: both archives built, hashed and published; architecture reported at enrollment and on every check-in,
+stored, and shown in the fleet views; a release carries the architecture of the programs inside it, and a
+cross-architecture rollout is refused before any row is created).
+
+**Five sessions left — 2, 5, 6, 7 and 9.** `app.restart` is still absent from the catalog (Session 2). `network.test`
+takes a count and returns loss and jitter, but the 30-minute loop with a named peer and a platform-set duration is not
+built (Session 5). Session 6 is part done: the read-only install and the read path were proven on real hardware, but the
+full acceptance (enroll, approve, control, deliberately break it, watch the console explain it) has not run. Session 7's
+audit windows and unattended monitoring profile are not built. Session 9 still waits on a real 32-bit cabinet on the
+cabinets' own network.
+
+The guided-demo browser test that stalls on the demo confirmation step still belongs to Session 6; it passes on a clean
+run and fails when the suite is run alongside other work, so it is a flake to fix, not a broken feature.
+
+
 ## Done
 
 1. **The list, on the platform.** `contracts/schemas/console/approved-apps.schema.json`, migration `0006_approved_apps.sql`,
