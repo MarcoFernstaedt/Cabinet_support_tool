@@ -1,4 +1,4 @@
-// Network diagnosis of several cabinets or a whole site (docs/spec/14-network-troubleshooting.md): what is wrong across them,
+// Network diagnosis of several cabinets or a whole site (docs/spec/16-network-troubleshooting.md): what is wrong across them,
 // grouped so the same problem on many cabinets is one row with the fix, and each cabinet's path from the link up to the
 // firewall. Read only to run; the fixes are confirmed like any change (a code for one cabinet, the password for many).
 import { Fragment, useEffect, useRef, useState } from "react";

@@ -1,4 +1,4 @@
-// A site's network baseline (docs/spec/14-network-troubleshooting.md): what its network should look like. Setting it changes
+// A site's network baseline (docs/spec/16-network-troubleshooting.md): what its network should look like. Setting it changes
 // nothing on a cabinet; the network diagnosis compares each cabinet with it and offers the fixes. Tier 2 and up, with an
 // authenticator code bound to the exact baseline.
 import { audit, safeJson, transaction, type Pool } from "../db/db.js";

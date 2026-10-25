@@ -6,6 +6,7 @@
 // and guessing from the operating system's name is exactly the mistake that would put the wrong package on a machine.
 export type CabinetArchitecture = "windows-x64" | "windows-x86";
 
+/** Whether a value from outside the console is one of the two architectures it knows about. */
 export function isCabinetArchitecture(value: unknown): value is CabinetArchitecture {
   return value === "windows-x64" || value === "windows-x86";
 }

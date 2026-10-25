@@ -1,4 +1,4 @@
-// The review queue for known fixes (docs/spec/14-network-troubleshooting.md). Members submit what fixed a problem; an Admin, or a Tier 2 who
+// The review queue for known fixes (docs/spec/16-network-troubleshooting.md). Members submit what fixed a problem; an Admin, or a Tier 2 who
 // has been granted it, approves or rejects. An approved fix is shown to everyone wherever the same problem comes up. The server checks the
 // permission on every request; this page only hides what the person cannot use.
 import { useState } from "react";

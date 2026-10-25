@@ -169,5 +169,4 @@ export async function runbookOverview(db: Queryable) {
   });
 }
 
-export const builtInFor = builtIn;
 export type { RunbookBody };

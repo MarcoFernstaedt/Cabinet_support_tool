@@ -1,7 +1,6 @@
-// What changed between two versions of a category, item by item (docs/spec/15-baselines-and-recovery.md). Pure.
+// What changed between two versions of a category, item by item (docs/spec/15-baselines-and-config.md). Pure.
 import { valueText, type Item } from "./config-canonical.js";
 
-export type ItemValues = Item["values"];
 export interface ItemChange {
   key: string;
   change: "added" | "removed" | "changed";

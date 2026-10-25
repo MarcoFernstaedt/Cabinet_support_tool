@@ -1,4 +1,4 @@
-// What the full network read says even when everything matches its baseline (docs/spec/14-network-troubleshooting.md): the DHCP lease,
+// What the full network read says even when everything matches its baseline (docs/spec/16-network-troubleshooting.md): the DHCP lease,
 // the size limit, errors on the network card, packet loss and delay to the gateway, the route to the sync cabinet and the platform,
 // and what the ARP table says about the gateway. Nothing here is a verdict: each line states what was read and why it may matter, and
 // an observation that needs a person at the site says so. Pure; no regular expressions.

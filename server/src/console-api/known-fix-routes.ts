@@ -1,4 +1,4 @@
-// Known fixes: what solved a problem, saved with its environment and shown when the problem comes back (docs/spec/14-network-troubleshooting.md).
+// Known fixes: what solved a problem, saved with its environment and shown when the problem comes back (docs/spec/16-network-troubleshooting.md).
 // Anyone from Tier 1 submits one; an Admin, or a Tier 2 who has been granted it, approves or rejects; Tier 2 and up remove one. Every body and query is checked against its contract.
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";

@@ -244,8 +244,6 @@ export async function createPool(connectionString: string, options: number | Poo
 const numberOf = (e: unknown): number | undefined => (e as { number?: number } | null)?.number;
 /** A UNIQUE or PRIMARY KEY rule refused the row (PostgreSQL's 23505). */
 export const isUniqueViolation = (e: unknown): boolean => numberOf(e) === 2601 || numberOf(e) === 2627;
-/** A FOREIGN KEY or CHECK rule refused the row (23503 and 23514). */
-export const isConstraintViolation = (e: unknown): boolean => numberOf(e) === 547;
 export const isDeadlock = (e: unknown): boolean => numberOf(e) === 1205;
 /** What may be logged about an error: its kind, the driver's code and SQL Server's error number. Never the message, which can carry data. */
 export function errorInfo(e: unknown): { type: string; code?: string; number?: number } {

@@ -46,16 +46,6 @@ function unrecognizedTitle(e: Pick<Event, "kind" | "source">): string {
 /** What one batch led to: an outcome per event, and how often each rule matched (counted into memory once the batch committed). */
 export interface Processed { outcomes: Outcome[]; ruleHits: Map<string, number> }
 
-/**
- * Runs the engine over newly stored events, inside the transaction that stored them. Rule matches are counted at once (callers that may
- * run the transaction again use processBatch and count after the commit).
- */
-export async function processEvents(c: Tx, cabinetId: string, events: readonly Event[]): Promise<Outcome[]> {
-  const r = await processBatch(c, cabinetId, events);
-  countRuleHits(c, r.ruleHits);
-  return r.outcomes;
-}
-
 // One step of a batch, in event order. Alert writes between two resolves are folded per signature and written together.
 type Step =
   | { kind: "write"; index: number; write: AlertWrite; outcome: "issue" | "unrecognized"; issueTypeId: string | null; sitePattern: boolean }

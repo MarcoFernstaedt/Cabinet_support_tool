@@ -120,9 +120,6 @@ export interface RuleConfig { version: string | null; loadedAt: number; rules: (
 export const RULE_CACHE_TTL_MS = 60_000;
 let ruleCache: RuleConfig | null = null;
 
-/** Forgets the rules held in memory (the next batch loads them again). */
-export function invalidateRuleCache(): void { ruleCache = null; }
-
 /**
  * The live rules and issue types. With `version` (as read in the same statement that stored the events), the copy in memory is used only if it
  * was loaded at that version; without it, a copy younger than the TTL is used.

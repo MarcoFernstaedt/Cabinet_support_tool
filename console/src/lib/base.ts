@@ -33,7 +33,6 @@ export function stripBaseAt(base: string, address: string): string {
 export const BASE: string = normalizeBase(import.meta.env?.BASE_URL);
 
 export const withBase = (to: string): string => withBaseAt(BASE, to);
-export const stripBase = (address: string): string => stripBaseAt(BASE, address);
 
 /** Where the console is now, as an app path rather than the address in the browser. */
 export function currentPath(): string {

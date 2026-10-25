@@ -1,4 +1,4 @@
-// The fingerprint of a configuration category (docs/spec/15-baselines-and-recovery.md): SHA-256 of the canonical JSON of its items sorted
+// The fingerprint of a configuration category (docs/spec/15-baselines-and-config.md): SHA-256 of the canonical JSON of its items sorted
 // by key. The agent computes the same thing (agent/src/Cabinet.Agent.Core/Configuration/ConfigCanonical.cs); contracts/vectors holds the
 // shared test vectors. Items are sorted by key (UTF-16 code units, as the agent's ordinal sort), object keys sorted the same way at
 // every level, no spaces, arrays in their own order, strings escaped as JSON.stringify does. The server recomputes every hash from the
@@ -6,7 +6,6 @@
 import { createHash } from "node:crypto";
 import type { ConfigItem } from "@mashura/cabinet-contracts/types";
 
-export type ConfigValue = string | number | boolean | null | string[];
 export type Item = ConfigItem;
 
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);

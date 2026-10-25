@@ -16,12 +16,6 @@ let chainCheckRecent: { at: number; check: ChainCheck } | null = null;
 /** Where a bounded full walk stopped, so the next check a person asks for goes on from there (null: the walk reached the end of the log). */
 let chainSweep: ChainCheckpoint | null = null;
 
-/** What the checks are doing, for the System health page: whether one is running now, and how the last one ended. */
-export function chainCheckState(): { running: boolean; lastAt: number | null; lastOk: boolean | null; lastEntries: number | null } {
-  return { running: chainCheckInFlight !== null, lastAt: chainCheckRecent?.at ?? null, lastOk: chainCheckRecent?.check.ok ?? null,
-    lastEntries: chainCheckRecent?.check.entries ?? null };
-}
-
 /**
  * Checks the audit chain: the whole of it ("full"), or only what was added since the last successful check ("incremental", from the
  * checkpoint). A break raises a security alert; the check itself is audited either way. A successful check moves the checkpoint forward.

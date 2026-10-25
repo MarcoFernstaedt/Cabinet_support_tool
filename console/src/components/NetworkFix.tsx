@@ -1,4 +1,4 @@
-// Network fixes the diagnosis offers (docs/spec/14-network-troubleshooting.md): renew DHCP, set the DNS servers, set a fixed
+// Network fixes the diagnosis offers (docs/spec/16-network-troubleshooting.md): renew DHCP, set the DNS servers, set a fixed
 // address and gateway, apply the firewall policy. A fix for one cabinet is confirmed the way the operation says (a click for the
 // firewall; an authenticator code bound to the exact change for the network), and says what happened. Many cabinets at once go
 // through a fleet operation with the password. The server and the agent check the role and the confirmation again.
