@@ -21,12 +21,13 @@ import type { Pool, Queryable } from "../db/db.js";
 import { audit, transaction } from "../db/db.js";
 import type { AuditEntry } from "../db/db.js";
 import type { Command } from "../contracts.js";
-import { consumeStepUpToken } from "../auth/stepup.js";
 import { appLevels, rawEntry, type AppLevels } from "./approved-apps.js";
 import { issueFromConsole, type Role } from "./console-commands.js";
 import { Refused } from "./errors.js";
 import { keyProblem } from "./filefacts-path.js";
-import { latestReading } from "./readings.js";
+import { reportedProcesses, reportedServices } from "./controlled-targets.js";
+
+export { reportedProcesses, reportedServices, type ReportedProcess, type ReportedService } from "./controlled-targets.js";
 
 /**
  * The refusals one control request can get, as codes a Tier 2 can act on. Each says what to do next, not just that something
@@ -76,19 +77,6 @@ export interface ControlRequest {
   stepUpToken: string;
 }
 
-/** One process as the cabinet itself last reported it (operations/processes.list.schema.json). The path may be missing: Windows does not give one for every process. */
-export interface ReportedProcess {
-  processId: number;
-  name: string;
-  executablePath: string | null;
-}
-
-/** One service as the cabinet itself last reported it (operations/services.list.schema.json). */
-export interface ReportedService {
-  name: string;
-  state: string;
-}
-
 /** What the platform will act on, as it was resolved here: never anything the caller wrote. */
 export interface ControlTarget {
   operation: string;
@@ -117,14 +105,12 @@ export interface ControlOutcome {
 
 /**
  * Everything a control request does to the outside world, in one place: the single audit row, the token, and the issue. The
- * real ones are the platform's own (audit, consumeStepUpToken, issueFromConsole); tests stand in for them, so the decisions
+ * real ones are the platform's own (audit, issueFromConsole, which spends the token); tests stand in for them, so the decisions
  * above can be exercised without a database while the route still goes through exactly these calls.
  */
 export interface ControlEffects {
   /** One row per request, refusals included. */
   record(entry: AuditEntry): Promise<void>;
-  /** Spends the one-time token for this exact action, cabinet and parameters; refuses when it was confirmed for anything else. */
-  consume(token: string, userId: string, action: string, cabinetId: string, params: unknown): Promise<void>;
   /** Issues the operation through the one path every console command takes. `confirmed` is what the token was confirmed for. */
   issue(user: { userId: string; role: Role }, cabinetId: string, operation: string, params: Record<string, unknown>,
     token: string | undefined, confirmed: unknown): Promise<Command>;
@@ -133,7 +119,6 @@ export interface ControlEffects {
 export function controlEffects(pool: Pool): ControlEffects {
   return {
     record: (entry: AuditEntry) => transaction(pool, c => audit(c, entry)).then(() => undefined),
-    consume: (token, userId, action, cabinetId, params) => transaction(pool, c => consumeStepUpToken(c, token, userId, action, cabinetId, params)),
     issue: (user, cabinetId, operation, params, token, confirmed) => issueFromConsole(pool, user, cabinetId, operation, params, token, false, confirmed),
   };
 }
@@ -149,37 +134,6 @@ export const boundParams = (body: ControlRequest): Record<string, unknown> => {
   const { stepUpToken: _token, ...rest } = body;
   return rest;
 };
-
-/** The process list this cabinet last reported, or null when it has never reported one. Rows that are not a process at all are dropped, so a hand-edited reading cannot steer a pid. */
-export async function reportedProcesses(db: Queryable, cabinetId: string): Promise<{ at: string; processes: ReportedProcess[] } | null> {
-  const reading = await latestReading(db, cabinetId, "processes.list");
-  if (!reading) return null;
-  const rows = (reading.output as { processes?: unknown }).processes;
-  if (!Array.isArray(rows)) return { at: reading.at, processes: [] };
-  const processes: ReportedProcess[] = [];
-  for (const raw of rows) {
-    const p = raw as { processId?: unknown; name?: unknown; executablePath?: unknown };
-    if (typeof p.processId !== "number" || !Number.isInteger(p.processId) || p.processId < 1) continue;
-    if (typeof p.name !== "string" || p.name.length === 0) continue;
-    processes.push({ processId: p.processId, name: p.name, executablePath: typeof p.executablePath === "string" ? p.executablePath : null });
-  }
-  return { at: reading.at, processes };
-}
-
-/** The service list this cabinet last reported, or null when it has never reported one. */
-export async function reportedServices(db: Queryable, cabinetId: string): Promise<{ at: string; services: ReportedService[] } | null> {
-  const reading = await latestReading(db, cabinetId, "services.list");
-  if (!reading) return null;
-  const rows = (reading.output as { services?: unknown }).services;
-  if (!Array.isArray(rows)) return { at: reading.at, services: [] };
-  const services: ReportedService[] = [];
-  for (const raw of rows) {
-    const s = raw as { name?: unknown; state?: unknown };
-    if (typeof s.name !== "string" || s.name.length === 0) continue;
-    services.push({ name: s.name, state: typeof s.state === "string" ? s.state : "unknown" });
-  }
-  return { at: reading.at, services };
-}
 
 /**
  * One control request, start to finish. The entry is resolved from the list that applies to this cabinet (its most specific
@@ -277,18 +231,10 @@ export async function controlApproved(db: Queryable, user: { userId: string; rol
 
   let command: Command;
   try {
-    if (target.operation === "service.control") {
-      // A service control is a click-level operation and takes no token of its own, so the request's token is spent here, on
-      // its own, before anything is issued. Spending it inside the command's transaction is not possible without widening
-      // what issueCommand accepts, which is a check this route must not be able to loosen.
-      await effects.consume(body.stepUpToken, user.userId, SERVICE_CONTROL_STEP_UP, body.cabinetId, bound);
-      command = await effects.issue(user, body.cabinetId, target.operation, target.params, undefined, undefined);
-    } else {
-      // process.end is a code-level write, so its own token is spent inside the command's transaction: the command and the
-      // token's use commit together. The token was bought for this entry and action (the entry key is part of the body the
-      // hash covers), so a token bought for another entry cannot be spent here.
-      command = await effects.issue(user, body.cabinetId, target.operation, target.params, body.stepUpToken, bound);
-    }
+    // Both operations spend the request's token inside the command's own transaction, so the command and the token's use commit
+    // together. The token was bought for this entry, action and cabinet (the body the hash covers), so a token bought for another
+    // entry, or for the generic command route's {name, action} or {processId, name}, is not spendable here.
+    command = await effects.issue(user, body.cabinetId, target.operation, target.params, body.stepUpToken, bound);
   } catch (e) {
     if (e instanceof Refused && e.code === "step_up_required")
       throw await refusal(CONTROL_CODES.stepUpWrongScope, 403, `the confirmation was not for exactly this entry and action, or it has expired, or it was already used: confirm ${asSent.action} on ${asSent.entryKey} again`,

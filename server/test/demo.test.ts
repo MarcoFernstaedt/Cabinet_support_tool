@@ -263,7 +263,8 @@ test("every simulated cabinet reports its configuration through the server's own
 
 test("simulated cabinets answer commands, and a fix made on one takes effect", async () => {
   const t1 = await signIn(await account("tier1"));
-  const t2 = await signIn(await account("tier2"));
+  const tier2 = await account("tier2");
+  const t2 = await signIn(tier2);
   const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
   sim.start();
   try {
@@ -282,8 +283,13 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
 
     // Tier 2 restarts the failing scanner service: it recovers and its major alert resolves.
     const failing = await demoCabinet("service_failing");
-    const restart = await call("POST", `/api/cabinets/${failing}/commands`, { operation: "service.control", params: { name: "BioScanSvc", action: "restart" } }, t2);
-    assert.equal(restart.status, 202);
+    // The scanner service is on the demo clients' approved-applications list; controlling a service needs a code bound to the parameters.
+    const restartParams = { name: "BioScanSvc", action: "restart" };
+    clock += 30_000;
+    const code = await call("POST", "/api/auth/step-up", { code: totp.code(tier2.secret, totp.stepAt(clock)), action: "service.control", target: failing, paramsHash: paramsHash(restartParams) }, t2);
+    assert.equal(code.status, 200, JSON.stringify(code.body));
+    const restart = await call("POST", `/api/cabinets/${failing}/commands`, { operation: "service.control", params: restartParams, stepUpToken: code.body.token }, t2);
+    assert.equal(restart.status, 202, JSON.stringify(restart.body));
     await until("the service alert to resolve", async () => !(await openAlert(failing, ISSUE.serviceFailing)));
 
     // The offline cabinet never answers: its command stays queued, never falsely succeeds.

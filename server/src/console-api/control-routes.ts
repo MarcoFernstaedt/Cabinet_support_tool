@@ -10,12 +10,15 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { controlApproved, controlEffects } from "../services/app-control.js";
 import { id } from "./fleet-routes.js";
+import { Refused } from "../services/errors.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
 export async function controlRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   app.post("/api/cabinets/:id/app-control", async (request, reply) => {
     const u = await o.guards.role(request, "tier2");
     const b = consoleBodies.appControl.parse(request.body);
+    // The body names the cabinet the person confirmed; a body naming another cabinet than the address is refused, never re-aimed.
+    if (b.cabinetId.toLowerCase() !== id(request)) throw new Refused("invalid_request", 400, "the body names another cabinet than the address");
     const outcome = await controlApproved(o.pool, u, { cabinetId: id(request), entryKey: b.entryKey, action: b.action, stepUpToken: b.stepUpToken,
       ...(b.processId === undefined ? {} : { processId: b.processId }) }, controlEffects(o.pool));
     // 202: the command is recorded and waiting for the cabinet's next heartbeat, exactly like every other console command.

@@ -82,8 +82,16 @@ test("power settings need only Tier 1 and a click; ending a process needs Tier 2
   const power = { setting: "usb_selective_suspend", enabled: false };
   const ok = await send(id, "power.set", power, t1);
   assert.equal(ok.status, 202, JSON.stringify(ok.body));
-  const end = { processId: 4821, name: "notepad.exe" };
+  // The cabinet's own last process list: the scanner service (on the demo client's approved list) and an unapproved program.
+  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
+                      VALUES ($1, $2, 'processes.list', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'succeeded', $4, SYSUTCDATETIME())`,
+    [randomUUID(), id, t2.id, JSON.stringify({ output: { processes: [
+      { processId: 4821, name: "BioScanSvc.exe", executablePath: "C:\\Program Files\\BioScan\\BioScanSvc.exe" },
+      { processId: 4822, name: "notepad.exe", executablePath: "C:\\Windows\\System32\\notepad.exe" }] } })]);
+  const end = { processId: 4821, name: "BioScanSvc.exe" };
   assert.equal((await send(id, "process.end", end, t1)).status, 403);
+  const unapproved = { processId: 4822, name: "notepad.exe" };
+  assert.equal((await send(id, "process.end", unapproved, t2, await h.codeToken(t2, "process.end", id, unapproved))).body.error, "control_process_not_approved");
   assert.equal((await send(id, "process.end", end, t2, await h.codeToken(t2, "process.end", id, end))).status, 202);
 });
 

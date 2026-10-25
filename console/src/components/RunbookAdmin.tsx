@@ -25,7 +25,8 @@ const CHECKS: { id: string; label: string; operation: string; params: Record<str
 type FixKind = "time.sync" | "network.flushDns" | "firewall.applyPolicy" | "service.control" | "service.setStartType" | "power.set";
 const FIXES: { id: FixKind; label: string }[] = [
   { id: "time.sync", label: "Sync the clock" }, { id: "network.flushDns", label: "Flush the DNS cache" }, { id: "firewall.applyPolicy", label: "Apply the client firewall policy" },
-  { id: "service.control", label: "Start, stop or restart a service" }, { id: "service.setStartType", label: "Set a service's start type" }, { id: "power.set", label: "Change a power setting" },
+  // service.control is not offered: the server asks for a code for it (an approved program only), and a runbook fix is one click.
+  { id: "service.setStartType", label: "Set a service's start type" }, { id: "power.set", label: "Change a power setting" },
 ];
 
 interface Draft { title: string; detail: string; check: string; fix: "" | FixKind; fixLabel: string; name: string; action: string; startType: string; setting: string; enabled: boolean }

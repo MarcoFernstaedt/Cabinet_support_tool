@@ -15,7 +15,9 @@ import { storeEvents } from "../src/services/events.js";
 import { watchLevels } from "../src/services/watched-services.js";
 import { ISSUE } from "../src/services/rules.js";
 import type { Event } from "../src/contracts.js";
-import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
+import { paramsHash } from "../src/auth/canonical.js";
+import { storedApprovedApps } from "../src/services/approved-apps.js";
+import { asOwner, createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const ORIGIN = "https://console.test";
@@ -47,6 +49,11 @@ async function signIn(a: Account): Promise<string> {
   const cookie = String(login.headers["set-cookie"]).split(";")[0]!;
   assert.equal((await call("POST", "/api/auth/totp", { code: nextCode(a) }, cookie)).body.stage, "complete");
   return cookie;
+}
+async function stepUpToken(a: Account, cookie: string, action: string, target: string, params: unknown): Promise<string> {
+  const r = await call("POST", "/api/auth/step-up", { code: nextCode(a), action, target, paramsHash: paramsHash(params) }, cookie);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  return r.body.token;
 }
 const serviceEvent = (service: string, change: string, extra: Record<string, string> = {}): Event => ({
   eventId: randomUUID(), kind: "service", occurredAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), severityHint: change === "failing" ? "major" : "minor",
@@ -121,13 +128,21 @@ test("service events: an automatic restart opens a minor alert per service, 3 fa
     [cabinetId, ISSUE.serviceRestarted, ISSUE.serviceFailing, ISSUE.serviceWatch])).rows[0].n, 3);
 });
 
-test("service.control is a click for Tier 2 and refused for Tier 1; services.list and processes.list are reads for everyone", async () => {
+test("service.control needs Tier 2, an approved service and a code; services.list and processes.list are reads for everyone", async () => {
   const t1 = await account("tier1"); const c1 = await signIn(t1);
   const t2 = await account("tier2"); const c2 = await signIn(t2);
   const send = (body: unknown, cookie: string) => call("POST", `/api/cabinets/${cabinetId}/commands`, body, cookie);
-  assert.equal((await send({ operation: "service.control", params: { name: "BioScanSvc", action: "restart" } }, c1)).status, 403);
-  assert.equal((await send({ operation: "service.control", params: { name: "BioScanSvc", action: "restart" } }, c2)).status, 202);
-  assert.equal((await send({ operation: "service.control", params: { name: "BioScanSvc", action: "restart" }, stepUpToken: "A".repeat(43) }, c2)).status, 400, "no code for a click");
+  const restart = { name: "BioScanSvc", action: "restart" };
+  assert.equal((await send({ operation: "service.control", params: restart }, c1)).status, 403);
+  // Not on an approved list yet: refused even with a code (an older agent would run it, so the server refuses it).
+  const unlisted = await send({ operation: "service.control", params: restart, stepUpToken: await stepUpToken(t2, c2, "service.control", cabinetId, restart) }, c2);
+  assert.deepEqual([unlisted.status, unlisted.body.error], [403, "control_entry_not_approved"]);
+  await asOwner(db, c => c.query("UPDATE clients SET approved_apps = $2 WHERE id = $1", [clientId,
+    storedApprovedApps([{ key: "app:bioscan", kind: "service", name: "BioScan", path: "C:\\Program Files\\BioScan\\BioScanSvc.exe", serviceName: "BioScanSvc" }], t2.id)]));
+  // Approved: still no click-only control (a code is required), and a code for other parameters does not do.
+  assert.equal((await send({ operation: "service.control", params: restart }, c2)).status, 403, "a click is not enough");
+  assert.equal((await send({ operation: "service.control", params: restart, stepUpToken: await stepUpToken(t2, c2, "service.control", cabinetId, { ...restart, action: "stop" }) }, c2)).status, 403);
+  assert.equal((await send({ operation: "service.control", params: restart, stepUpToken: await stepUpToken(t2, c2, "service.control", cabinetId, restart) }, c2)).status, 202);
   for (const params of [{ name: "x & net user", action: "start" }, { name: "BioScanSvc", action: "disable" }, { name: "BioScanSvc", action: "start", startType: "automatic" }])
     assert.equal((await send({ operation: "service.control", params }, c2)).status, 400, JSON.stringify(params));
   assert.equal((await send({ operation: "services.list", params: {} }, c1)).status, 202);

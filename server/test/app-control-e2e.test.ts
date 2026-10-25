@@ -33,7 +33,7 @@ let outside: string;
 const secrets = new SecretBox(randomBytes(32).toString("base64"));
 
 interface Account { id: string; username: string; password: string; secret?: Buffer }
-async function account(role: "tier1" | "tier2"): Promise<Account> {
+async function account(role: "tier1" | "tier2" | "admin"): Promise<Account> {
   const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple" };
   a.secret = totp.newSecret();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc)
@@ -41,7 +41,7 @@ async function account(role: "tier1" | "tier2"): Promise<Account> {
   return a;
 }
 function nextCode(a: Account): string { clock += 30_000; return totp.code(a.secret!, totp.stepAt(clock)); }
-async function call(method: "GET" | "POST", url: string, body?: unknown, cookie?: string): Promise<{ status: number; body: any; cookie?: string }> {
+async function call(method: "GET" | "POST" | "PUT", url: string, body?: unknown, cookie?: string): Promise<{ status: number; body: any; cookie?: string }> {
   const headers: Record<string, string> = { origin: ORIGIN };
   if (body !== undefined) headers["content-type"] = "application/json";
   if (cookie) headers.cookie = cookie;
@@ -180,4 +180,132 @@ test("Tier 1 and a body the contract refuses never reach the decision", async ()
   }
   assert.equal((await commandsFor(cabinetId)).length, queued);
   assert.equal((await auditRows(cabinetId)).length, rows, "nothing the contract refused is audited as an attempt");
+});
+
+// ---- process.end through the control route, and the generic command route's own rule --------------------------------------------
+// Before this, issueFromConsole bound every write's token to the parameters it issued ({processId, name}), not to the request the
+// person confirmed, so a control-route end never matched its own token. And the generic route issued service.control and process.end
+// for any target: an agent built before the approved list enforces nothing, so the server must.
+
+const DISPENSER_PID = 4242;
+async function reportProcesses(cabinet: string, issuer: string): Promise<void> {
+  await asOwner(db, c => c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
+                   VALUES ($1, $2, 'processes.list', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'succeeded', $4, SYSUTCDATETIME())`,
+    [randomUUID(), cabinet, issuer, JSON.stringify({ output: { processes: [
+      { processId: DISPENSER_PID, name: "dispenser", executablePath: DISPENSER.path },
+      { processId: 77, name: "notepad", executablePath: "C:\\Windows\\System32\\notepad.exe" },
+    ] } })]));
+}
+
+test("process.end through the control route is issued with a real token over the request the person confirmed", async () => {
+  const user = await account("tier2");
+  const cookie = await signIn(user);
+  await reportProcesses(cabinetId, user.id);
+  const sent = { cabinetId, entryKey: "app:dispenser", action: "end", processId: DISPENSER_PID };
+  const token = await stepUp(user, cookie, "process.end", cabinetId, sent);
+  const r = await call("POST", `/api/cabinets/${cabinetId}/app-control`, { ...sent, stepUpToken: token }, cookie);
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  assert.deepEqual([r.body.operation, r.body.target], ["process.end", { processId: DISPENSER_PID, name: "dispenser" }]);
+  const queued = (await commandsFor(cabinetId)).filter(c => c.id === r.body.commandId);
+  assert.deepEqual(queued.map(c => [c.operation, asJson(c.params), c.status]), [["process.end", { processId: DISPENSER_PID, name: "dispenser" }, "queued"]]);
+  // The token is spent: the same request again is refused and queues nothing.
+  const before = (await commandsFor(cabinetId)).length;
+  const again = await call("POST", `/api/cabinets/${cabinetId}/app-control`, { ...sent, stepUpToken: token }, cookie);
+  assert.deepEqual([again.status, again.body], [403, { error: "step_up_wrong_scope" }]);
+  assert.equal((await commandsFor(cabinetId)).length, before);
+});
+
+test("a token bought for the generic {processId, name} body is refused on the control route, and the reverse", async () => {
+  const user = await account("tier2");
+  const cookie = await signIn(user);
+  await reportProcesses(cabinetId, user.id);
+  const before = (await commandsFor(cabinetId)).length;
+  const generic = { processId: DISPENSER_PID, name: "dispenser" };
+  const genericToken = await stepUp(user, cookie, "process.end", cabinetId, generic);
+  const viaControl = await call("POST", `/api/cabinets/${cabinetId}/app-control`,
+    { cabinetId, entryKey: "app:dispenser", action: "end", processId: DISPENSER_PID, stepUpToken: genericToken }, cookie);
+  assert.deepEqual([viaControl.status, viaControl.body], [403, { error: "step_up_wrong_scope" }]);
+  // A control-route token on the generic route.
+  const controlToken = await stepUp(user, cookie, "process.end", cabinetId, { cabinetId, entryKey: "app:dispenser", action: "end", processId: DISPENSER_PID });
+  const viaGeneric = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "process.end", params: generic, stepUpToken: controlToken }, cookie);
+  assert.deepEqual([viaGeneric.status, viaGeneric.body.error], [403, "step_up_required"]);
+  assert.equal((await commandsFor(cabinetId)).length, before, "neither mismatch queued a command");
+});
+
+test("the generic route issues service.control and process.end only for approved targets, and only with a code", async () => {
+  const user = await account("tier2");
+  const cookie = await signIn(user);
+  await reportProcesses(cabinetId, user.id);
+  const send = (operation: string, params: Record<string, unknown>, stepUpToken?: string) =>
+    call("POST", `/api/cabinets/${cabinetId}/commands`, { operation, params, ...(stepUpToken ? { stepUpToken } : {}) }, cookie);
+  const before = (await commandsFor(cabinetId)).length;
+
+  // service.control: a click in the catalog, but the server asks for a code bound to the parameters.
+  assert.equal((await send("service.control", { name: "Spooler", action: "stop" })).status, 403);
+  // A service the list does not name (remote access, the agent's own, security software, near-misses) is refused even with a valid code.
+  for (const name of ["TermService", "CabinetAgent", "WinDefend", "Spooler2", "Spooler\u0000"]) {
+    const params = { name, action: "stop" };
+    const token = await stepUp(user, cookie, "service.control", cabinetId, params);
+    const r = await send("service.control", params, token);
+    assert.ok(r.status === 403 || r.status === 400, `${JSON.stringify(name)} -> ${r.status} ${JSON.stringify(r.body)}`);
+  }
+  // The approved service, in the case Windows ignores, with its own code: issued.
+  const ok = { name: "spooler", action: "restart" };
+  const issued = await send("service.control", ok, await stepUp(user, cookie, "service.control", cabinetId, ok));
+  assert.equal(issued.status, 202, JSON.stringify(issued.body));
+
+  // process.end: an ID running an unapproved program, a name that does not match the ID, an ID never reported.
+  for (const [params, code] of [
+    [{ processId: 77, name: "notepad" }, "control_process_not_approved"],
+    [{ processId: DISPENSER_PID, name: "notepad" }, "control_process_unreported"],
+    [{ processId: 99999, name: "dispenser" }, "control_process_unreported"],
+  ] as const) {
+    const r = await send("process.end", params, await stepUp(user, cookie, "process.end", cabinetId, params));
+    assert.equal(r.body.error, code, `${JSON.stringify(params)} -> ${r.status} ${JSON.stringify(r.body)}`);
+  }
+  const end = { processId: DISPENSER_PID, name: "dispenser" };
+  assert.equal((await send("process.end", end, await stepUp(user, cookie, "process.end", cabinetId, end))).status, 202);
+  assert.equal((await commandsFor(cabinetId)).length, before + 2, "only the two approved targets were queued");
+
+  // The other cabinet's list approves only the dispenser, so it controls no service at all.
+  const outsideParams = { name: "Spooler", action: "stop" };
+  const r = await call("POST", `/api/cabinets/${outside}/commands`,
+    { operation: "service.control", params: outsideParams, stepUpToken: await stepUp(user, cookie, "service.control", outside, outsideParams) }, cookie);
+  assert.deepEqual([r.status, r.body.error], [403, "control_entry_not_approved"]);
+
+  // A control body naming another cabinet than the address is refused, never re-aimed at either.
+  const mismatch = { cabinetId: outside, entryKey: "app:dispenser", action: "end", processId: DISPENSER_PID };
+  const crossed = await call("POST", `/api/cabinets/${cabinetId}/app-control`, { ...mismatch, stepUpToken: await stepUp(user, cookie, "process.end", cabinetId, mismatch) }, cookie);
+  assert.deepEqual([crossed.status, crossed.body.error], [400, "invalid_request"]);
+});
+
+test("an approved-applications write is bound to the body as sent, and a body naming another level or scope is refused", async () => {
+  const owner = await account("admin");
+  const cookie = await signIn(owner);
+  const tier2 = await account("tier2");
+  const tier2Cookie = await signIn(tier2);
+  const entries = [DISPENSER, SPOOLER];
+  const put = (body: Record<string, unknown>, who = cookie) => call("PUT", `/api/cabinets/${outside}/approved-apps`, body, who);
+  const tokenFor = (action: string, target: string, params: unknown, who = owner, c = cookie) => stepUp(who, c, action, target, params);
+
+  // Tier 2 never sets a list, whatever it holds.
+  const t2body = { level: "cabinet", id: outside, entries };
+  assert.equal((await put({ ...t2body, stepUpToken: "A".repeat(43) }, tier2Cookie)).status, 403);
+  // The body names another level, or another scope, than the address: refused before the token is looked at.
+  for (const body of [{ level: "client", id: outside, entries }, { level: "cabinet", id: cabinetId, entries }, { level: "fleet", id: null, entries }]) {
+    const r = await put({ ...body, stepUpToken: await tokenFor("cabinet.apps", outside, body) });
+    assert.deepEqual([r.status, r.body.error], [400, "invalid_request"], JSON.stringify(body));
+  }
+  // A token bought for the server's normalised entries rather than the body as sent does not match.
+  const sent = { level: "cabinet", id: outside, entries };
+  const normalised = normalizeEntries(entries);
+  const wrong = await put({ ...sent, stepUpToken: await tokenFor("cabinet.apps", outside, { level: "cabinet", id: outside, entries: normalised.ok ? normalised.entries : [] }) });
+  assert.equal(wrong.status, 403);
+  // Bound to exactly what is sent: accepted, and the cabinet's list now names both.
+  const ok = await put({ ...sent, stepUpToken: await tokenFor("cabinet.apps", outside, sent) });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.effective.entries.map((e: { key: string }) => e.key), ["app:dispenser", "app:spooler"]);
+  // Put back what the earlier tests expect.
+  const restore = { level: "cabinet", id: outside, entries: [DISPENSER] };
+  assert.equal((await put({ ...restore, stepUpToken: await tokenFor("cabinet.apps", outside, restore) })).status, 200);
 });
