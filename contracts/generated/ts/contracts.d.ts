@@ -1823,7 +1823,19 @@ export interface StepUpRequest {
     | "runbook.reject"
     | "runbook.retire"
     | "baseline.approve"
-    | "baseline.reject";
+    | "baseline.reject"
+    | "settings.apps"
+    | "client.apps"
+    | "site.apps"
+    | "cabinet.apps"
+    | "settings.usb-policy"
+    | "client.usb-policy"
+    | "site.usb-policy"
+    | "cabinet.usb-policy"
+    | "settings.filefacts"
+    | "client.filefacts"
+    | "site.filefacts"
+    | "cabinet.filefacts";
   /**
    * The ID the action applies to, or 'fleet'.
    */

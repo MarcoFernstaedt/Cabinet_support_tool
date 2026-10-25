@@ -26,11 +26,11 @@ const canon = (raw: unknown[]): ApprovedApp[] => {
   assert.equal(one.ok, true, `expected a list: ${JSON.stringify(one)}`);
   return one.ok ? one.entries : [];
 };
-/** A step-up token for a level's write, bound to exactly the parameters the service will pass on. */
-const tokenFor = async (level: "fleet" | "client" | "cabinet", target: string, entries: ApprovedApp[] | null): Promise<string> =>
-  issueStepUpToken(db.app, admin.userId, APPS_SET_ACTION[level], level === "fleet" ? "fleet" : target, paramsHash({ level, id: target, entries }));
+/** A step-up token for a level's write, bound to the request exactly as it is sent: {level, id, entries}. */
+const tokenFor = async (level: "fleet" | "client" | "cabinet", target: string | null, entries: unknown[] | null): Promise<string> =>
+  issueStepUpToken(db.app, admin.userId, APPS_SET_ACTION[level], level === "fleet" ? "fleet" : target!, paramsHash({ level, id: target, entries }));
 const set = async (level: "fleet" | "client" | "cabinet", target: string | null, entries: unknown[] | null) =>
-  setApprovedApps(db.app, admin, level, target, entries, await tokenFor(level, target ?? "", entries === null ? null : canon(entries)));
+  setApprovedApps(db.app, admin, level, target, entries, await tokenFor(level, target, entries));
 /** The service called with a list exactly as it arrived, without the test's own normalisation: for the refusals, which the service
  *  reaches before it looks at the token. */
 const setRaw = (level: "fleet" | "client" | "cabinet", target: string | null, entries: unknown[] | null) =>
@@ -75,28 +75,30 @@ test("approved applications: stored per level, the most specific wins, and what 
   // Saving again steps the version up rather than replacing it silently.
   assert.equal((await set("cabinet", id.cabinet, [DISPENSER]))?.version, 2);
 
-  // A value edited outside the platform does not describe its own entries, so the level is not used, the level above applies, and
-  // the console is told which level was rejected.
+  // A value edited outside the platform does not describe its own entries, so the level resolves to an empty list (deny) rather than
+  // to the level above, and the console is told which level was rejected.
   await asOwner(db, c => c.query(`UPDATE cabinets SET approved_apps = $2 WHERE id = $1`,
     [id.cabinet, JSON.stringify({ version: 9, entries: [DISPENSER], hash: "0".repeat(64), setBy: "someone", setAt: "2026-10-01T00:00:00.000Z" })]));
   const tampered = await appLevels(db.app, id.cabinet);
-  assert.equal(tampered.source, "client");
+  assert.equal(tampered.source, "cabinet");
   assert.deepEqual(tampered.rejected, ["cabinet"]);
-  assert.deepEqual(tampered.effective?.entries.map(e => e.key), ["app:spooler"]);
+  assert.deepEqual(tampered.effective?.entries, []);
   // And values that are JSON objects of the wrong shape are treated the same way, not as a crash.
   await asOwner(db, c => c.query(`UPDATE cabinets SET approved_apps = $2 WHERE id = $1`, [id.cabinet, JSON.stringify({ version: 1, entries: "not a list" })]));
   assert.deepEqual((await appLevels(db.app, id.cabinet)).rejected, ["cabinet"]);
   await asOwner(db, c => c.query(`UPDATE cabinets SET approved_apps = $2 WHERE id = $1`, [id.cabinet, JSON.stringify({ version: 1, entries: [DISPENSER] })]));
   const noHash = await appLevels(db.app, id.cabinet);
   assert.deepEqual(noHash.rejected, ["cabinet"]);
-  assert.equal(noHash.effective?.entries[0]?.key, "app:spooler");
+  assert.deepEqual(noHash.effective?.entries, []);
+  // The heartbeat answer carries the deny too, and still passes its own contract.
+  assert.deepEqual((await recordHeartbeat(db.app, id.cabinet, { agentVersion: "1.4.2", uptimeSeconds: 50, readOnlyMode: false })).approved, []);
 
   // Removing the cabinet's list hands it back to the level above, which is what entries null means.
   assert.equal(await set("cabinet", id.cabinet, null), null);
   assert.equal((await appLevels(db.app, id.cabinet)).source, "client");
   assert.equal(await readLevel(db.app, "cabinet", id.cabinet), null);
 
-  // The cabinet is told this same list on its heartbeat, by the same statement that records it: the cabinet level was rejected above,
+  // The cabinet is told this same list on its heartbeat, by the same statement that records it: the cabinet's list was removed above,
   // so what leaves the server is the resolved list, with the whole path and the service name the broker checks a program against.
   const beat = async () => (await recordHeartbeat(db.app, id.cabinet, { agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false })).approved;
   assert.deepEqual((await beat()).map(e => e.key), ["app:spooler"]);
@@ -130,7 +132,10 @@ test("approved applications: who may set a list, and what the list refuses befor
   };
 
   // A Tier 2 account does not approve programs, and a token issued to someone else is not a token.
-  const token = await issueStepUpToken(db.app, admin.userId, APPS_SET_ACTION.cabinet, id.cabinet, paramsHash({ level: "cabinet", id: id.cabinet, entries }));
+  const token = await issueStepUpToken(db.app, admin.userId, APPS_SET_ACTION.cabinet, id.cabinet, paramsHash({ level: "cabinet", id: id.cabinet, entries: [DISPENSER] }));
+  // A token bought for the server's normalised form, not for what is sent, does not match: the binding is to the request as sent.
+  const normalisedToken = await issueStepUpToken(db.app, admin.userId, APPS_SET_ACTION.cabinet, id.cabinet, paramsHash({ level: "cabinet", id: id.cabinet, entries }));
+  assert.equal(await code(() => setApprovedApps(db.app, admin, "cabinet", id.cabinet, [DISPENSER], normalisedToken)), "step_up_required");
   assert.equal(await code(() => setApprovedApps(db.app, tier2, "cabinet", id.cabinet, [DISPENSER], token)), "forbidden");
   assert.equal(await code(() => setApprovedApps(db.app, admin, "cabinet", id.cabinet, [DISPENSER], "A".repeat(43))), "step_up_required");
   // A token confirmed for one list does not cover a different one.

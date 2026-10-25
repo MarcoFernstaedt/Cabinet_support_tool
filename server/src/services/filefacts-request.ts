@@ -8,7 +8,7 @@
 // much work is diagnosed, not scolded for its JSON.
 import type { Queryable } from "../db/db.js";
 import { audit } from "../db/db.js";
-import { ROLE_RANK, type Role } from "./console-commands.js";
+import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
 import { MAX_ELAPSED_MS, MAX_FILES, MAX_FILE_BYTES, MAX_TOTAL_BYTES } from "./filefacts-path.js";
 import { READ_ACTION, normalizeEntry, type AllowlistContent, type AllowlistLevels, type AllowlistEntry, allowlistLevels } from "./filefacts-allowlist.js";

@@ -117,8 +117,9 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   const fleetWatched = r ? parseJson<unknown>(r.fw) : null;
   const watched = r ? effectiveWatched({ cabinet: parseJson<string[]>(r.kw), site: parseJson<string[]>(r.sw), client: parseJson<string[]>(r.cw),
     fleet: Array.isArray(fleetWatched) ? fleetWatched as string[] : null }).effective : [];
-  // The same levels resolve the approved programs the broker may control. A level whose stored list fails its own fingerprint, or does not
-  // read as a list, is skipped for the level above it, so a column edited outside the platform can only narrow what the cabinet may do.
+  // The same levels resolve the approved programs the broker may control. A level whose stored list fails its own fingerprint, the
+  // heartbeat contract's shape, or does not read as a list, resolves to an empty list (deny) rather than to the level above it, so a
+  // damaged column can only narrow what the cabinet may do, and it cannot make the heartbeat answer fail its own contract.
   const apps = r ? resolveLevels({ cabinet: parseJson(r.ka), site: parseJson(r.sa), client: parseJson(r.ca), fleet: parseJson(r.fa) }) : null;
   return { wasOffline: !!r?.was_offline && !!r?.offline_open, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
     scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched,

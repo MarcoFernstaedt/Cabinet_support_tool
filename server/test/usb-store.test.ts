@@ -12,13 +12,17 @@ import assert from "node:assert/strict";
 import type { Pool } from "../src/db/db.js";
 import { USB_POLICY_SETTING_KEY, parseUsbWatchPolicy, usbPolicySettingKey, usbStepUpAction } from "../src/services/usb-policy.js";
 import { USB_RESOLUTION_TEXT, usbIncidentKey } from "../src/services/usb-rules.js";
-import { applyUsbReport, clearUsbPolicy, setUsbPolicy } from "../src/services/usb-store.js";
+import { applyUsbReport, clearUsbPolicy, setUsbPolicy, usbPolicyConfirmed } from "../src/services/usb-store.js";
+import { paramsHash } from "../src/auth/canonical.js";
 
 const CABINET = "6f1d1f9e-3d3a-4a5b-8f0e-1b2c3d4e5f60";
 const SITE = "1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d";
 const CLIENT = "9f8e7d6c-5b4a-4938-8271-6a5b4c3d2e1f";
 const USER = "7c6b5a49-3827-4615-a4b3-c2d1e0f9a8b7";
 const TOKEN_HASH = "a".repeat(64);
+/** Every write is an Admin's, with a step-up token. */
+const ADMIN = { userId: USER, role: "admin" };
+const TOKEN = "T".repeat(43);
 const UNIT = "UNIT-1";
 
 /** One statement the store issued, with the parameters it carried. */
@@ -50,6 +54,7 @@ const base: Router = (sql, _params, calls) => {
   if (/FROM cabinets cab/.test(sql)) return { rows: [levelsRow(null)] };
   if (/EXEC audit_append\b/.test(sql)) return { rows: [{ seq: String(calls.filter(c => /audit_append/.test(c.sql)).length) }] };
   if (/sp_getapplock/.test(sql)) return { rowCount: 0 };
+  if (/step_up_tokens/.test(sql)) return { rowCount: 1 };
   return null;
 };
 
@@ -106,7 +111,7 @@ const writeStatements = (calls: readonly Called[]): Called[] => calls.filter(c =
 
 test("a valid policy is stored under the scope's key, versioned, with one audit entry and nothing else written", async () => {
   const { pool, calls } = fake(route());
-  const policy = await setUsbPolicy(pool, USER, "cabinet", CABINET, policyInput());
+  const policy = await setUsbPolicy(pool, ADMIN, "cabinet", CABINET, policyInput(), TOKEN);
 
   assert.equal(policy.enabled, true, issued(calls));
   const existence = calls.find(c => /FROM cabinets WHERE/.test(c.sql));
@@ -131,7 +136,7 @@ test("a valid policy is stored under the scope's key, versioned, with one audit 
 
 test("a policy already stored at version 4 is written at 5, and the audit entry carries what it replaced", async () => {
   const { pool, calls } = fake(route(sql => (/SELECT \[value\] FROM settings/.test(sql) ? { rows: [{ value: stored(4) }] } : null)));
-  await setUsbPolicy(pool, USER, "site", SITE, policyInput({ absentForMinutes: 30 }));
+  await setUsbPolicy(pool, ADMIN, "site", SITE, policyInput({ absentForMinutes: 30 }), TOKEN);
   const write = calls.find(c => /UPDATE settings SET/.test(c.sql));
   assert.ok(write, `nothing was written:\n${issued(calls)}`);
   const written = JSON.parse(String(write.params[1]));
@@ -144,15 +149,15 @@ test("a policy already stored at version 4 is written at 5, and the audit entry 
 
   // A site policy also refuses a missing id, before it goes looking for anything.
   const empty = fake();
-  await assert.rejects(() => setUsbPolicy(empty.pool, USER, "site", null, policyInput()), /needs an id/);
+  await assert.rejects(() => setUsbPolicy(empty.pool, ADMIN, "site", null, policyInput(), TOKEN), /needs an id/);
   assert.equal(empty.calls.length, 0, "a refusal still ran statements");
 });
 
 test("a policy that fails the contract is refused before a single statement runs", async () => {
   const { pool, calls } = fake();
-  await assert.rejects(() => setUsbPolicy(pool, USER, "cabinet", CABINET, { ...policyInput(), absentForMinutes: -1 }), /usb policy/);
-  await assert.rejects(() => setUsbPolicy(pool, USER, "cabinet", CABINET, { ...policyInput(), nonsense: true }), /usb policy/);
-  await assert.rejects(() => setUsbPolicy(pool, USER, "cabinet", CABINET, { ...policyInput(), identityKey: { kind: "device" } }), /usb policy/);
+  await assert.rejects(() => setUsbPolicy(pool, ADMIN, "cabinet", CABINET, { ...policyInput(), absentForMinutes: -1 }, TOKEN), /usb policy/);
+  await assert.rejects(() => setUsbPolicy(pool, ADMIN, "cabinet", CABINET, { ...policyInput(), nonsense: true }, TOKEN), /usb policy/);
+  await assert.rejects(() => setUsbPolicy(pool, ADMIN, "cabinet", CABINET, { ...policyInput(), identityKey: { kind: "device" } }, TOKEN), /usb policy/);
   assert.deepEqual(calls, [], `a refused request must not reach the database:\n${issued(calls)}`);
 });
 
@@ -162,13 +167,13 @@ test("a policy for a scope that is not there is refused; clearing a row that is 
       : /EXEC audit_append\b/.test(sql) ? { rows: [{ seq: "1" }] }
         : /FROM cabinets cab/.test(sql) ? { rows: [levelsRow(null)] }
           : null));
-  await assert.rejects(() => setUsbPolicy(gone.pool, USER, "cabinet", CABINET, policyInput()), /no such cabinet/);
+  await assert.rejects(() => setUsbPolicy(gone.pool, ADMIN, "cabinet", CABINET, policyInput(), TOKEN), /no such cabinet/);
   assert.equal(gone.calls.filter(c => /settings|audit_append/.test(c.sql)).length, 0, `something was written for a cabinet that is gone:\n${issued(gone.calls)}`);
-  await assert.rejects(() => setUsbPolicy(gone.pool, USER, "client", CLIENT, policyInput()), /no such client/);
+  await assert.rejects(() => setUsbPolicy(gone.pool, ADMIN, "client", CLIENT, policyInput(), TOKEN), /no such client/);
 
   // Clearing is the one write that does not need the scope to still exist: a row left by a retired scope can go.
   const clearing = fake(route());
-  await clearUsbPolicy(clearing.pool, USER, "cabinet", CABINET);
+  await clearUsbPolicy(clearing.pool, ADMIN, "cabinet", CABINET, TOKEN);
   assert.equal(clearing.calls.filter(c => /FROM cabinets WHERE/.test(c.sql)).length, 0, `clearing a policy looked the scope up:\n${issued(clearing.calls)}`);
   assert.deepEqual(clearing.calls.find(c => /DELETE FROM settings/.test(c.sql))!.params, [usbPolicySettingKey("cabinet", CABINET)]);
 });
@@ -177,27 +182,28 @@ test("the step-up token is consumed for this exact action and target, before any
   // A token is spent as a digest of the token the console collected, carrying the hash it was bound to, for this exact
   // action and target, and only while it is unused and unexpired (the update carries those conditions itself).
   const ok = fake(route(sql => (/step_up_tokens/.test(sql) ? { rowCount: 1 } : null)));
-  await setUsbPolicy(ok.pool, USER, "cabinet", CABINET, policyInput(), `${TOKEN_HASH}.${"b".repeat(64)}`);
+  await setUsbPolicy(ok.pool, ADMIN, "cabinet", CABINET, policyInput(), `${TOKEN_HASH}.${"b".repeat(64)}`);
   const consumed = ok.calls.find(c => /step_up_tokens/.test(c.sql));
   assert.ok(consumed, `the token was never spent:\n${issued(ok.calls)}`);
   assert.equal(consumed.params[1], USER);
   assert.equal(consumed.params[2], usbStepUpAction("cabinet"));
   assert.equal(consumed.params[3], CABINET);
   assert.ok(Buffer.isBuffer(consumed.params[0]) && (consumed.params[0] as Buffer).length === 32, `the token is not looked up as a sha256 digest: ${String(consumed.params[0])}`);
-  assert.equal(consumed.params[4], "b".repeat(64), "the hash the token was bound to is not the one it carried");
+  // The hash required is the one of {level, scopeId, policy} as sent, whatever suffix the token carried.
+  assert.equal(consumed.params[4], paramsHash(usbPolicyConfirmed("cabinet", CABINET, policyInput())), "the token is not bound to this level, scope and policy");
   const order = ok.calls.map(c => (/step_up_tokens/.test(c.sql) ? "token" : /UPDATE settings SET/.test(c.sql) ? "write" : "other"));
   assert.ok(order.indexOf("token") < order.indexOf("write"), `the token has to be spent before the write:\n${issued(ok.calls)}`);
 
   // A token that does not match (already used, expired, or another operator's) stops the write. The read that decides
   // the next version happens first — the version has to be known — but nothing is written or audited.
   const stale = fake(route(sql => (/step_up_tokens/.test(sql) ? { rowCount: 0 } : null)));
-  await assert.rejects(() => setUsbPolicy(stale.pool, USER, "cabinet", CABINET, policyInput(), TOKEN_HASH), /step-up token/);
+  await assert.rejects(() => setUsbPolicy(stale.pool, ADMIN, "cabinet", CABINET, policyInput(), TOKEN_HASH), /step-up token/);
   assert.equal(stale.calls.filter(c => /UPDATE settings SET|INSERT INTO settings|EXEC audit_append/.test(c.sql)).length, 0, `a policy was written without a valid token:\n${issued(stale.calls)}`);
 });
 
 test("clearing a policy deletes exactly one row and audits what was removed", async () => {
   const { pool, calls } = fake(route(sql => (/SELECT \[value\] FROM settings/.test(sql) ? { rows: [{ value: stored(2) }] } : null)));
-  await clearUsbPolicy(pool, USER, "cabinet", CABINET);
+  await clearUsbPolicy(pool, ADMIN, "cabinet", CABINET, TOKEN);
   const deletes = calls.filter(c => /DELETE FROM settings/.test(c.sql));
   assert.equal(deletes.length, 1, issued(calls));
   assert.deepEqual(deletes[0]!.params, [usbPolicySettingKey("cabinet", CABINET)]);
@@ -207,7 +213,7 @@ test("clearing a policy deletes exactly one row and audits what was removed", as
 
   // The fleet policy is the one level that has no id of its own.
   const fleet = fake(route());
-  await clearUsbPolicy(fleet.pool, USER, "fleet", null);
+  await clearUsbPolicy(fleet.pool, ADMIN, "fleet", null, TOKEN);
   assert.deepEqual(fleet.calls.find(c => /DELETE FROM settings/.test(c.sql))!.params, [USB_POLICY_SETTING_KEY]);
 });
 
@@ -218,7 +224,7 @@ test("a policy the layer cannot use never becomes the 'before' of an audit entry
     sql => (/FROM cabinets cab/.test(sql) ? { rows: [levelsRow(JSON.stringify({ version: 99, policy: { identityKey: { kind: "device", value: "UNIT-9" } } }))] } : null),
     sql => (/SELECT \[value\] FROM settings/.test(sql) ? { rows: [{ value: "{ this is not json" }] } : null),
   ));
-  await setUsbPolicy(pool, USER, "cabinet", CABINET, policyInput());
+  await setUsbPolicy(pool, ADMIN, "cabinet", CABINET, policyInput(), TOKEN);
   const write = calls.find(c => /UPDATE settings SET/.test(c.sql));
   assert.ok(write, `the write did not happen:\n${issued(calls)}`);
   assert.equal(JSON.parse(String(write.params[1])).version, 1, "a document the layer cannot read is not a version to move past");
@@ -320,4 +326,28 @@ test("a unit no level watches is reported as unwatched and writes nothing", asyn
   const counts = await applyUsbReport(pool, CABINET, report([device({ unitKey: "NOBODY-WATCHES-ME" })]));
   assert.equal(counts.decisions, 0, `an unwatched unit produced a decision:\n${issued(calls)}\n${JSON.stringify(counts)}`);
   assert.deepEqual(writeStatements(calls), [], issued(calls));
+});
+
+test("only an Admin with a token changes a USB policy, and the token covers this level, scope and policy only", async () => {
+  for (const role of ["tier1", "tier2", "owner", ""]) {
+    const { pool, calls } = fake(route());
+    await assert.rejects(() => setUsbPolicy(pool, { userId: USER, role }, "cabinet", CABINET, policyInput(), TOKEN), /only an Admin/);
+    await assert.rejects(() => clearUsbPolicy(pool, { userId: USER, role }, "cabinet", CABINET, TOKEN), /only an Admin/);
+    assert.equal(calls.length, 0, `a ${role} reached the database`);
+  }
+  for (const missing of ["", undefined as unknown as string]) {
+    const { pool, calls } = fake(route());
+    await assert.rejects(() => setUsbPolicy(pool, ADMIN, "cabinet", CABINET, policyInput(), missing), /authenticator code/);
+    await assert.rejects(() => clearUsbPolicy(pool, ADMIN, "cabinet", CABINET, missing), /authenticator code/);
+    assert.equal(calls.length, 0);
+  }
+  // The binding differs for another level, another scope (case does not matter) and another policy, and a clear binds policy null.
+  const a = paramsHash(usbPolicyConfirmed("cabinet", CABINET, policyInput()));
+  assert.notEqual(a, paramsHash(usbPolicyConfirmed("site", CABINET, policyInput())));
+  assert.notEqual(a, paramsHash(usbPolicyConfirmed("cabinet", SITE, policyInput())));
+  assert.notEqual(a, paramsHash(usbPolicyConfirmed("cabinet", CABINET, policyInput({ absentForMinutes: 6 }))));
+  assert.equal(a, paramsHash(usbPolicyConfirmed("cabinet", CABINET.toUpperCase(), policyInput())));
+  const { pool, calls } = fake(route(sql => (/SELECT \[value\] FROM settings/.test(sql) ? { rows: [{ value: stored(2) }] } : null)));
+  await clearUsbPolicy(pool, ADMIN, "cabinet", CABINET, TOKEN);
+  assert.equal(calls.find(c => /step_up_tokens/.test(c.sql))!.params[4], paramsHash(usbPolicyConfirmed("cabinet", CABINET, null)));
 });
