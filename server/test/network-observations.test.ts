@@ -1,4 +1,4 @@
-// The full network read (docs/spec/14-network-troubleshooting.md): what the checks say about a cabinet that matches its baseline but
+// The full network read (docs/spec/16-network-troubleshooting.md): what the checks say about a cabinet that matches its baseline but
 // has a lease about to end, errors on its network card, packet loss to the gateway, a path that stops, or a gateway that does not answer
 // ARP. Pure functions: no database, no network. Older agents (no details, no traces) must produce no observations and no errors.
 import test from "node:test";

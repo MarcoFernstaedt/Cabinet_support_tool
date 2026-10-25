@@ -1,7 +1,7 @@
 // Approving a cabinet captures what its role needs (docs/spec/09-open-decisions.md "Cabinet role"):
 // a site has one live sync cabinet, a satellite needs a sync address to reach, and a sync cabinet is never
 // given one. The address is written in the approving transaction, so a refusal or a failure leaves no
-// half-applied setting behind (docs/spec/14-network-troubleshooting.md: the site's sync cabinet is what a
+// half-applied setting behind (docs/spec/16-network-troubleshooting.md: the site's sync cabinet is what a
 // satellite's network checks target).
 import test from "node:test";
 import assert from "node:assert/strict";

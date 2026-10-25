@@ -1,4 +1,4 @@
-// Network troubleshooting end to end (docs/spec/14-network-troubleshooting.md): the site baseline, the diagnosis on one cabinet,
+// Network troubleshooting end to end (docs/spec/16-network-troubleshooting.md): the site baseline, the diagnosis on one cabinet,
 // several, or a whole site, what it finds from the baseline, and the fixes: one cabinet with an authenticator code, many with
 // the password, each checked by reading the settings back. The simulated cabinets keep their own network state, so a fix
 // really changes what the next check sees.

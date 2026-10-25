@@ -10,7 +10,7 @@ Nothing had been deployed on PostgreSQL, so `server/migrations/0001_baseline.sql
 - `transaction(pool, async tx => …)` runs one transaction. A deadlock victim is run again (up to 3 times), so the function must change nothing outside the database.
 - `lock(tx, name)` serializes a section by name until the transaction ends (it replaces PostgreSQL advisory locks). It waits at most 5 s; a deadlock between named locks (`sp_getapplock` returns -3) is reported as a deadlock (`LockDeadlock`, number 1205), so `transaction()` runs the work again.
 - `notify(tx, channel, payload)` writes a row to the `notifications` table; triggers do the same for new commands, command results and alert changes. Server processes poll the table (`src/db/notifications.ts`); each poll also re-reads a short window below the newest id it saw, because IDENTITY values can commit out of order, and the feed reports itself down after 3 failed polls.
-- `isUniqueViolation(e)`, `isConstraintViolation(e)`, `isDeadlock(e)` replace PostgreSQL error codes.
+- `isUniqueViolation(e)` and `isDeadlock(e)` replace the PostgreSQL error codes the code checked before.
 - `audit(tx, entry)` calls the `audit_append` procedure; `auditMany(tx, entries)` calls `audit_append_many`, which chains several entries in one call with the same hash. The application's role cannot write the audit tables itself.
 - `verifyAuditChain(db, batch, from?)` checks the whole chain, or only what follows a checkpoint (`auditCheckpoint`, `advanceAuditCheckpoint`; the nightly check is incremental, the Sunday one whole).
 

@@ -416,7 +416,7 @@ Design: [14-emergency-access.md](14-emergency-access.md). To decide before it is
 
 ## Network troubleshooting (October 2026)
 
-Built as described in [14-network-troubleshooting.md](14-network-troubleshooting.md). To confirm:
+Built as described in [16-network-troubleshooting.md](16-network-troubleshooting.md). To confirm:
 
 1. **Confirmation for network fixes.** Changing a DNS server or an address keeps the authenticator code for one cabinet (a mistake can cut a cabinet off; the safety net rolls it back). The same change on several cabinets uses the password, as other bulk changes do. If you want a single click for DNS fixes, say so: the safety net is what makes that reasonable.
 2. **Fixed-address sites.** A site whose cabinets have fixed addresses can have its gateway corrected remotely, but a wrong address cannot: the platform does not know which address each cabinet should have. An address list per site would allow that.
@@ -425,7 +425,7 @@ Built as described in [14-network-troubleshooting.md](14-network-troubleshooting
 
 ### Full network read, site standards and known fixes (October 2026)
 
-All of this is built on `main`; the design is in [14-network-troubleshooting.md](14-network-troubleshooting.md). Still to confirm:
+All of this is built on `main`; the design is in [16-network-troubleshooting.md](16-network-troubleshooting.md). Still to confirm:
 
 5. **`network.trace`.** A new read-only operation (Tier 1, 12 a minute per cabinet) that sends ICMP probes with a rising time-to-live from the unprivileged network service, with no external program. Some firewalls drop those probes, so silent hops are shown as silent, not as failures. Keep it or leave it out.
 6. **Bigger network reads.** `network.config` now returns each card's DHCP server, lease times, MTU and counters, plus up to 128 routes and 64 ARP entries. `network.test` takes a ping `count` (1 to 10) and returns loss and jitter. Cabinets need the 0.2.0 agent for these. The Windows readers haven't run on Windows yet.

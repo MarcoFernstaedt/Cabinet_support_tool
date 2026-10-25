@@ -57,12 +57,14 @@ Do not install the agent on a production cabinet from a developer build. Release
 
 ## Where it stands
 
-Everything in the build plan is built: the agent, both APIs, the console, signed upgrades, the firewall policy, services, network diagnosis with the full read and path trace, crash investigation, time zones, fleet operations, evidence packages, known fixes with approval, and demo mode. The Midnight Navy and Electric Cyan design system is used throughout.
+The build plan's milestones 0 to 12 are built: the agent, both APIs, the console, signed upgrades, the firewall policy, services, network diagnosis with the full read and path trace, crash investigation, time zones, fleet operations, evidence packages, known fixes with approval, and demo mode. The Midnight Navy and Electric Cyan design system is used throughout. **Five phases are left** — what each one contains, and how the diagnostic engine's own six-phase plan maps onto them, is in [phases left](docs/platform/remaining-phases.md).
+
+The platform is live on the VPS, and a real Windows machine has run the read-only agent: it self-updated to 0.2.5 and answered 19 of the 34 read operations before it was removed and its cabinet revoked. **No write has ever run on real hardware**, and the agent's own read-only mode — not operator discipline — is what refuses them. [Testing a live agent](docs/platform/live-test.md) has the results, including the 15 reads that reported themselves unavailable.
 
 Still to do before a field rollout:
 
-- Run the agent on a real cabinet. The Windows-only readers (leases, routes, ARP, card counters) compile and have unit tests but haven't run on Windows yet. [Testing a live agent](docs/platform/live-test.md) explains how to check.
-- Put the release signing key in a KMS and get the production code-signing certificate.
+- A writable test on real cabinet hardware, and a 32-bit install on a real 32-bit machine (the x86 build and its cross-architecture refusal are proven live).
+- Put the release signing key in a KMS and get the production code-signing certificate; the installer still needs `-AllowUnsigned` because releases carry the development key.
 - Repeat the load test on production hosting, get an independent security test, and write the incident-response steps and a database restore test.
 
 Decisions made and still open are in [open decisions](docs/spec/09-open-decisions.md). What comes next, module by module, is in the [roadmap](docs/spec/13-roadmap.md).

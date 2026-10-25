@@ -4,6 +4,11 @@ How fast the platform answers, how many cabinets one server carries, how it was 
 The spec asks for "a load test of the agent API with 8,000 simulated agents polling before going wide"
 ([build plan](../spec/08-build-plan.md), "Testing to keep throughout").
 
+> **Which database these numbers came from.** The runs in this document were taken while the platform still used
+> PostgreSQL 16; the platform now runs Microsoft SQL Server 2022 ([sqlserver-port.md](sqlserver-port.md)). The capacity
+> guidance at the end of the document is for the SQL Server design. Re-measure before quoting any of these figures as
+> current.
+
 ## What a cabinet does, and what that costs the server
 
 Each cabinet's agent makes these calls (see [protocol](../spec/03-protocol.md) "Timing and limits"):

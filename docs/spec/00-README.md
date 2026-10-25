@@ -4,7 +4,9 @@ These files are the build specification for the Mashura cabinet diagnostics plat
 
 ## Order to go through them
 
-Read them in number order. Files 01 and 02 give the shape and the security rules everything else follows; 03 through 07 are the component specs; 08 is the build order; 09 lists choices to confirm; 11 is the summary for your head of development. 12 and 13 are the later milestone specifications, and 14 and 15 cover work specified after them.
+Read them in number order. Files 01 and 02 give the shape and the security rules everything else follows; 03 through 07 are the component specs; 08 is the build order; 09 lists choices to confirm; 11 is the summary for your head of development. 12 and 13 are the later milestone specifications, and 14, 15 and 16 cover work specified after them.
+
+The platform as it actually is — what is proven, what is left, and how it runs — is documented separately, starting at [../platform/README.md](../platform/README.md). **The phase count lives in [../platform/remaining-phases.md](../platform/remaining-phases.md).**
 
 ## Files
 
@@ -21,8 +23,8 @@ Read them in number order. Files 01 and 02 give the shape and the security rules
 - 12-milestones-8-to-12.md: confirmation levels, the client firewall policy and bulk apply, services and watched services, network diagnostics and automatic diagnosis, health snapshots, trends, triage, runbooks and resolution notes
 - 13-roadmap.md: the October 2026 module list (modules 1 to 47) mapped to what exists, the phase that builds the rest, and how each fits the security rules
 - 14-emergency-access.md: the local console on the cabinet for when it cannot reach the platform, and the short single-use authorization that unlocks it (milestone 14, not built yet)
-- 14-network-troubleshooting.md: finding a network problem on one cabinet, several, or a whole site, and fixing it
 - 15-baselines-and-config.md: configuration baselines and snapshots, and how a cabinet's settings are compared against them
+- 16-network-troubleshooting.md: finding a network problem on one cabinet, several, or a whole site, and fixing it
 
 ## Stack
 

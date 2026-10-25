@@ -1,4 +1,4 @@
-// Known fixes (docs/spec/14-network-troubleshooting.md): what solved a problem is saved with the cabinet's environment, shown when the same
+// Known fixes (docs/spec/16-network-troubleshooting.md): what solved a problem is saved with the cabinet's environment, shown when the same
 // problem is looked up again, matched exactly (never by pattern), and every request is checked.
 // several, or a whole site, what it finds from the baseline, and the fixes: one cabinet with an authenticator code, many with
 // the password, each checked by reading the settings back. The simulated cabinets keep their own network state, so a fix

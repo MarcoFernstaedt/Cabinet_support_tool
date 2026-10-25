@@ -28,6 +28,26 @@ Use this after you install the agent on a real computer, to check that what the 
 
 Things to know:
 
-- The agent is version 0.2.0. A 0.1.x agent doesn't have `network.trace` and returns a smaller network read, so those rows fail or show less. The diagnosis says "not traced".
+- The agent is version 0.2.5 or later. A 0.1.x agent doesn't have `network.trace` and returns a smaller network read, so those rows fail or show less. The diagnosis says "not traced".
 - Firewalls and routers often drop the probes a path trace uses. Silent hops are normal.
 - The Windows-only readers for leases, routes, ARP and card counters are the least tested part. They compile and their logic has unit tests, but they hadn't run on Windows when this was written. If a row fails there, copy the report.
+
+## What the real-machine test found (2026-10-25)
+
+The agent was installed **read-only** on a real Windows machine, self-updated from 0.2.4 to 0.2.5, and left running long
+enough to answer the reads. Then it was uninstalled (services, program files, data, machine key) and its cabinet revoked.
+
+- **19 of the 34 read operations answered** with the machine's own data, including the Windows-only readers: leases,
+  routes, ARP, card counters, services, firewall profiles, event logs, performance, USB ports and listeners.
+- **15 read operations answered `unavailable`**: `services.list`, `processes.list`, `time.status`, `system.security`,
+  `software.list`, `startup.list`, `sessions.list`, `shares.list`, `reliability.list`, `disk.folders`, `power.status`,
+  `system.identity`, `network.hosts`, `config.snapshot` and `system.checkHealth`. On a real cabinet, each one has to be
+  checked: they are the reads whose implementations live outside the broker's network registrar, so this is the first thing
+  to work through on the next real machine.
+- **No write ran.** Read-only mode refused the one write that was tried (`network.flushDns`), which proves the guard, not
+  the writes. Nothing about the write path has been tested on real hardware.
+- **The cross-architecture refusal held**: a package built for the other architecture was refused by the cabinet, and the
+  console reported `pilot_not_eligible`.
+- **A self-update works end to end on a live cabinet**: the console showed the network service on 0.2.5 in read-only mode
+  afterwards.
+

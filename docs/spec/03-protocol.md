@@ -71,7 +71,7 @@ Security events cover a failed self-check of the agent's own files, a refused pa
 
 ## Protocol 1.1: delivery, pacing and bad networks (October 2026)
 
-Added after the scale and resilience review (docs/platform/reviews.md). Backward compatible: every new field is optional, and an agent or server that ignores them behaves as 1.0.
+Added after the scale and resilience review (docs/platform/performance.md). Backward compatible: every new field is optional, and an agent or server that ignores them behaves as 1.0.
 
 - **One connection per agent.** The agent keeps one long-lived TLS connection (HTTP/2 where the server offers it, otherwise HTTP/1.1 keep-alive with TCP keepalives every 20 s), so polls, heartbeats, events and results share it and a full TLS handshake happens about once a day instead of on most requests.
 - **Leased command delivery.** `GET /agent/v1/commands?ack=<id>,<id>` acknowledges commands the agent received on the previous poll. A command handed to a poll is leased for 30 seconds; if neither the acknowledgement nor its result arrives, the next poll offers it again (the agent's replay store and result outbox make a repeat harmless: it answers with the stored result). A command is never lost to a poll whose answer went into a dead connection.

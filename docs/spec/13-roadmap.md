@@ -4,6 +4,9 @@ In October 2026 the product owner listed modules 1 to 47, plus the fleet time zo
 
 Decisions taken with the owner are in [09-open-decisions.md](09-open-decisions.md), under "Demo and the module list".
 
+**Five phases are left — items 2 to 6 below.** The one place that count lives, with everything in each phase and the
+reason it is five rather than six, is [../platform/remaining-phases.md](../platform/remaining-phases.md).
+
 Order, as chosen by the owner:
 
 1. The demo (done).
@@ -114,7 +117,7 @@ Built (October 2026):
 - **Cabinet alerts.** An issue type can have the scope "cabinet": its alerts show on that cabinet's page (and its logs) but not in the fleet alert list, the badge count or the client and site counts. The first is "Expected USB device not detected" (a minor alert: the cabinet has USB ports, a fingerprint scanner is expected on one, and nothing is detected on any).
   - **Differs from what the real agent does today:** the agent's scanner monitor reports a scanner that disconnected, with its port. Reporting "nothing is detected on any USB port although a device is expected" (from the cabinet's USB port count and the device list) is an agent monitor still to be written; the platform side (the rule, the scope, the alert and its logs) is built and the demo shows it.
 - **Low disk space** (Windows event 2013) is a built-in minor issue type.
-- **Bulk changes cover one site** (see [14-network-troubleshooting.md](14-network-troubleshooting.md)).
+- **Bulk changes cover one site** (see [16-network-troubleshooting.md](16-network-troubleshooting.md)).
 
 ## Accounts and sign-in (October 2026)
 

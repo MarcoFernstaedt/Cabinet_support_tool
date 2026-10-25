@@ -18,6 +18,6 @@ Rules that never bend:
 How to work:
 
 - Build only the milestone you were asked for. Do not start the next one.
-- If the spec does not answer something, stop and ask rather than guessing, and note the question in docs/09-open-decisions.md.
+- If the spec does not answer something, stop and ask rather than guessing, and note the question in docs/spec/09-open-decisions.md.
 - Write tests alongside the code, including tests that feed malformed and hostile input.
 - At the end, report what was built, what was tested, and anything that differs from the spec, with the reason.

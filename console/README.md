@@ -69,7 +69,7 @@ npm run dev        # http://localhost:5173, proxying /api to a server on :8080 s
 npm run build      # strict type-check, then dist/
 ```
 
-The browser end-to-end tests live in `server/test/console-*-e2e.test.ts`: the main flow, alerts, writes, administration, upgrades and device settings. They run the built console in Chromium against the real server, PostgreSQL and (where needed) the agent code.
+The browser end-to-end tests live in `server/test/console-*-e2e.test.ts`: the main flow, alerts, writes, administration, upgrades and device settings. They run the built console in Chromium against the real server, Microsoft SQL Server and (where needed) the agent code.
 
 ## Accessibility
 

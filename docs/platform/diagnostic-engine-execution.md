@@ -55,11 +55,16 @@ Group Policy logs with no failed-logon counts, and out-of-band WinRE recovery as
 
 ## The order
 
-**Phase 1 (foundation, the first session) → the first module on it: the SQL connectivity ladder → then phases 2 to 6** as
-section 5 of the audit maps them (drivers and services; network and application; controlled remediation; extended;
-intelligence). Each phase ends with passing tests, documentation and a review before the next starts.
+**The foundation (the first slice of phase 2, and the first session) → the first module on it: the SQL connectivity
+ladder → then the rest of phases 2 to 6** as section 5 of the audit maps them (drivers and services; network and
+application; controlled remediation; extended; intelligence). Each phase ends with passing tests, documentation and a
+review before the next starts.
 
-## Phase 1 in detail
+The phase numbering is the [roadmap's](../spec/13-roadmap.md), and **five phases are left (2, 3, 4, 5, 6)** — see
+[remaining-phases.md](remaining-phases.md), which also maps these six engine phases into those five so nothing is counted
+twice.
+
+## The foundation in detail
 
 1. **Module contract.** `contracts/schemas/diagnostic-module.schema.json`, its generated TypeScript beside the other
    contracts, and the types in `server/src/diagnose/module.ts`: applicability (clients, roles, hardware, Windows
