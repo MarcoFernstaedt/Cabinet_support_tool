@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { gzipSync } from "node:zlib";
 import type { FastifyInstance } from "fastify";
 import { CommandNotifier } from "../src/agent-api/notifier.js";
-import { buildAgentApi, parseAcks, TokenBucket, type AgentApiOptions } from "../src/agent-api/server.js";
+import { buildAgentApi, parseAcks, SourceBuckets, sourceKey, TokenBucket, type AgentApiOptions } from "../src/agent-api/server.js";
 import { Presence } from "../src/agent-api/presence.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import type { IssuingKey } from "../src/pki/x509.js";
@@ -365,6 +365,56 @@ test("new connections beyond the admission rate get 503 with Retry-After; admitt
   } finally { await limited.app.close(); }
   const bucket = new TokenBucket(1000, 2);
   assert.deepEqual([bucket.take(), bucket.take(), bucket.take()], [true, true, false]);
+});
+
+test("a flood of requests without a client certificate does not shed enrolled cabinets, and is limited per source", async () => {
+  // The shared buckets are tiny here: before this change, certificate-less requests drew on them and turned the fleet away.
+  const other = await otherApi({ admission: { newConnectionsPerSecond: 0.001, newConnectionsBurst: 3, requestsPerSecond: 0.001, requestsBurst: 6,
+    unauthenticatedPerSecond: 0.001, unauthenticatedBurst: 10, enrollStatusPerMinute: 0.001 } });
+  const cab = await enrolledCabinet();
+  try {
+    const flood: number[] = [];
+    for (let i = 0; i < 40; i++) {
+      const target = i % 4 === 0 ? "/agent/v1/heartbeat" : i % 4 === 1 ? `/agent/v1/enroll/${randomUUID()}` : i % 4 === 2 ? "/health" : "/agent/v1/commands";
+      flood.push((await call(i % 4 === 0 ? "POST" : "GET", target, i % 4 === 0 ? heartbeat : undefined, undefined, { port: other.port, agent: false })).status);
+    }
+    assert.ok(flood.filter(s => s === 429).length >= 25, `the source is limited on its own: ${flood.join(",")}`);
+    // The enrolled cabinet, on new connections, is still admitted: none of the flood was charged to the fleet's buckets.
+    for (let i = 0; i < 3; i++) {
+      const beat = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: false });
+      assert.equal(beat.status, 200, `heartbeat ${i}: ${beat.status} ${JSON.stringify(beat.body)}`);
+    }
+    // A refused answer to the flood names a wait and closes the connection.
+    const refused = await call("GET", "/health", undefined, undefined, { port: other.port, agent: false });
+    assert.equal(refused.status, 429);
+    assert.ok(Number(refused.headers["retry-after"]) >= 3);
+  } finally { await other.app.close(); }
+});
+
+test("per-source limits count an IPv4 address or an IPv6 /64, and stay bounded", () => {
+  assert.equal(sourceKey("203.0.113.9"), "203.0.113.9");
+  assert.equal(sourceKey("::ffff:203.0.113.9"), "203.0.113.9");
+  assert.equal(sourceKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+  assert.equal(sourceKey("2001:0db8:0001:0002::1"), "2001:db8:1:2::/64");
+  assert.equal(sourceKey("2001:DB8:1:2::ffff"), sourceKey("2001:db8:1:2:ffff::1"), "one /64, whatever the interface id");
+  assert.notEqual(sourceKey("2001:db8:1:2::1"), sourceKey("2001:db8:1:3::1"));
+  assert.equal(sourceKey("::1"), "0:0:0:0::/64");
+  assert.equal(sourceKey("fe80::1%eth0"), "fe80:0:0:0::/64");
+  for (const hostile of ["", "not an address", "1:2:3", "zzzz::1", "x".repeat(500)]) assert.equal(typeof sourceKey(hostile), "string");
+
+  const buckets = new SourceBuckets(1, 2, 3);
+  const t = 1_000_000;
+  assert.deepEqual([buckets.take("a", t), buckets.take("a", t), buckets.take("a", t)], [true, true, false]);
+  assert.equal(buckets.take("b", t), true);
+  assert.equal(buckets.take("c", t), true);
+  assert.equal(buckets.size, 3);
+  // Past the cap, new sources share the overflow bucket instead of growing the map.
+  assert.deepEqual([buckets.take("d", t), buckets.take("e", t), buckets.take("f", t)], [true, true, false]);
+  assert.ok(buckets.size <= 4, `bounded: ${buckets.size}`);
+  // Once the buckets have refilled, pruning forgets them all.
+  buckets.prune(t + 10_000);
+  assert.equal(buckets.size, 0);
+  assert.equal(buckets.take("a", t + 10_000), true);
 });
 
 test("shutdown ends every held poll with a spread-out reconnectAfterMs, then closes HTTP/1.1 and HTTP/2 connections", async () => {
