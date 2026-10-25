@@ -6,18 +6,22 @@
 // and the watched services are the precedent): one JSON column on clients, sites and cabinets, the fleet default as one settings
 // row. The most specific level with a list wins whole; null inherits, [] approves nothing at that level.
 //
-// Every stored value carries the SHA-256 of its own canonical entries and is recomputed on the way out. A value edited outside the
-// platform does not describe its own entries, so it is skipped and reported as rejected rather than half-applied.
+// Every stored value carries the SHA-256 of its own canonical entries and is recomputed on the way out, and its entries are checked
+// against the same contract shape the heartbeat answer uses. This is a consistency check, not tamper protection: the hash has no key,
+// so anyone who can write the column can also write a matching hash. What it does catch is a value that was hand-edited or truncated
+// carelessly. Such a level is reported as rejected and resolves to an empty list - it approves nothing - rather than falling through to
+// a broader level, so damage at one level can only take programs away from the cabinets below it, never add any.
 //
 // Only a server administrator sets a list, with a step-up token bound to the exact entries: a Tier 1 or Tier 2 account, the
 // console's write path and the agent itself never submit a path.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { configHash, type Item } from "./config-canonical.js";
-import { ROLE_RANK, type Role } from "./console-commands.js";
+import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
 import { canonicalRoot, joinWithinRoot, keyProblem } from "./filefacts-path.js";
 import { parseJson, upsertSetting } from "./settings.js";
+import { commonDefs } from "../contracts.js";
 
 export type AppLevel = "fleet" | "client" | "site" | "cabinet";
 /** The levels a list can be set at, most specific first: the order resolution walks. */
@@ -168,6 +172,9 @@ export function verifyStored(raw: unknown): AppList | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const entries = normalizeEntries(value.entries);
   if (!entries.ok) return null;
+  // The same shape the heartbeat answer is checked against (key at most 64 characters, the program path pattern): a stored list the
+  // contract would refuse would otherwise fail every heartbeat of every cabinet below it.
+  if (!commonDefs.approvedAppEntries.is(entries.entries.map(rawEntry))) return null;
   const hash = typeof value.hash === "string" ? value.hash.toLowerCase() : "";
   if (hash.length !== 64 || appsHash(entries.entries) !== hash) return null;
   const version = typeof value.version === "number" ? value.version : Number(value.version);
@@ -176,19 +183,27 @@ export function verifyStored(raw: unknown): AppList | null {
   return { version, entries: entries.entries, hash, setBy: typeof value.setBy === "string" ? value.setBy : "", setAt };
 }
 
-/** The four levels as they were read, with the level that wins worked out. */
+/** What a level whose stored value was rejected resolves to: a list of its own that approves nothing. */
+const DENY_ALL: AppList = Object.freeze({ version: 0, entries: [], hash: "", setBy: "", setAt: "" }) as AppList;
+
+/**
+ * The four levels as they were read, with the level that wins worked out. A level holding a value that does not check out is still a
+ * level that was set: it wins as an empty list (deny), and never lets the broader level's list through in its place.
+ */
 export function resolveLevels(found: Partial<Record<AppLevel, unknown>>): AppLevels {
   const rejected: AppLevel[] = [];
+  const present = new Set<AppLevel>();
   const read = (level: AppLevel): AppList | null => {
     const stored = found[level];
     if (stored === null || stored === undefined) return null; // nothing set at this level
+    present.add(level);
     const content = verifyStored(stored);
     if (!content) rejected.push(level);
     return content;
   };
   const levels = { fleet: read("fleet"), client: read("client"), site: read("site"), cabinet: read("cabinet") };
-  const source = APP_LEVELS.find(level => levels[level] !== null) ?? "none";
-  return { ...levels, effective: source === "none" ? null : levels[source], source, rejected };
+  const source = APP_LEVELS.find(level => present.has(level)) ?? "none";
+  return { ...levels, effective: source === "none" ? null : levels[source] ?? DENY_ALL, source, rejected };
 }
 
 /** One level's own value, aliased so the data layer hands back the stored JSON rather than parsing it as a known column. */
@@ -224,10 +239,10 @@ export async function appLevels(db: Queryable, cabinetId: string): Promise<AppLe
 
 /**
  * Sets, replaces or removes the list for one level. entries null removes it (the level above applies); an empty list approves
- * nothing at this level and still wins. The step-up token is bound to the level and to these exact entries, so the owner confirms the programs themselves and not just the act of saving; the version steps up on every change and the whole thing is audited with the keys (never the paths twice: they are in the stored list, which the audit points at by version and hash).
+ * nothing at this level and still wins. The step-up token is bound to the level and to these exact entries as sent, so the owner confirms the programs themselves and not just the act of saving; the version steps up on every change and the whole thing is audited with the keys (never the paths twice: they are in the stored list, which the audit points at by version and hash).
  */
 export async function setApprovedApps(pool: Pool, user: { userId: string; role: string }, level: AppLevel, id: string | null,
-  entriesRaw: unknown, stepUpToken: string): Promise<AppList | null> {
+  entriesRaw: unknown, stepUpToken: string, confirmed?: unknown): Promise<AppList | null> {
   assertOwner(user.role);
   if (!APP_LEVELS.includes(level)) throw new Refused("invalid_params", 400, "not a level");
   const key = scopeKey(level, id);
@@ -242,7 +257,11 @@ export async function setApprovedApps(pool: Pool, user: { userId: string; role: 
   return transaction(pool, async c => {
     // Reading the level first is also the scope check: a level whose scope is gone is not found, never "empty".
     const previous = (await readLevel(c, level, level === "fleet" ? null : key))?.version ?? 0;
-    await consumeStepUpToken(c, stepUpToken, user.userId, APPS_SET_ACTION[level], target, { level, id: key, entries });
+    // The token is bound to the request as the person sent it ({level, id, entries} in canonical JSON), so the console hashes exactly
+    // what it sends and needs none of the server's own normalisation; the route passes the body itself, after checking it names the
+    // same level and scope as the address.
+    await consumeStepUpToken(c, stepUpToken, user.userId, APPS_SET_ACTION[level], target,
+      confirmed ?? { level, id: level === "fleet" ? null : key, entries: entriesRaw ?? null });
     const stored = entries === null ? null : storedValue(entries, user.userId, previous);
     if (level === "fleet") {
       if (stored === null) await c.query("DELETE FROM settings WHERE [key] = $1", [APPS_SETTING_KEY]);
@@ -258,6 +277,13 @@ export async function setApprovedApps(pool: Pool, user: { userId: string; role: 
     // The caller gets the list back in the same shape a read hands out, so a console that saves a list can render it straight away.
     return stored === null || entries === null ? null : { version: stored.version, entries, hash: stored.hash, setBy: stored.setBy, setAt: stored.setAt };
   });
+}
+
+/** A level's column value for a list, as JSON text: for seeding (the demo fleet) and tests, through the same path a write takes. */
+export function storedApprovedApps(raw: unknown, by: string, version = 1): string {
+  const list = normalizeEntries(raw);
+  if (!list.ok) throw new Error(`not an approved-applications list: ${list.reason}`);
+  return JSON.stringify(storedValue(list.entries, by, version - 1));
 }
 
 /** What one level's column holds: the entries in the owner's form, their fingerprint, the version and who set them. */

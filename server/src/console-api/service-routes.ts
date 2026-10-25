@@ -13,6 +13,18 @@ import { setWatched, watchLevels, type WatchLevel } from "../services/watched-se
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
+/**
+ * What the person confirmed for an approved-applications write: the body as sent, without its token. A body naming another level or
+ * scope than the address is refused, so a token bought for one level is never spent on a write the address aims elsewhere.
+ */
+function appsConfirmed(b: { level: string; id?: string | null; entries?: unknown; stepUpToken: string }, level: string, scope: string | null): unknown {
+  if (b.level !== level) throw new Refused("invalid_request", 400, "the body names another level than the address");
+  const sent = typeof b.id === "string" ? b.id.toLowerCase() : null;
+  if (sent !== scope) throw new Refused("invalid_request", 400, "the body names another scope than the address");
+  const { stepUpToken: _token, ...confirmed } = b;
+  return confirmed;
+}
+
 export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   app.get("/api/cabinets/:id/watched-services", async request => {
     await o.guards.role(request, "tier1");
@@ -73,7 +85,8 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     app.put(`/api/${table}/:id/approved-apps`, async request => {
       const u = await o.guards.role(request, "admin");
       const b = consoleBodies.approvedApps.parse(request.body);
-      return { own: await setApprovedApps(o.pool, u, level, id(request), b.entries ?? null, b.stepUpToken), fleet: await readLevel(o.pool, "fleet", null) };
+      const scope = id(request);
+      return { own: await setApprovedApps(o.pool, u, level, scope, b.entries ?? null, b.stepUpToken, appsConfirmed(b, level, scope)), fleet: await readLevel(o.pool, "fleet", null) };
     });
   }
 
@@ -85,7 +98,7 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   app.put("/api/admin/approved-apps", async request => {
     const u = await o.guards.role(request, "admin");
     const b = consoleBodies.approvedApps.parse(request.body);
-    return { fleet: await setApprovedApps(o.pool, u, "fleet", null, b.entries ?? null, b.stepUpToken) };
+    return { fleet: await setApprovedApps(o.pool, u, "fleet", null, b.entries ?? null, b.stepUpToken, appsConfirmed(b, "fleet", null)) };
   });
 
   app.get("/api/cabinets/:id/approved-apps", async request => {
@@ -96,7 +109,8 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   app.put("/api/cabinets/:id/approved-apps", async request => {
     const u = await o.guards.role(request, "admin");
     const b = consoleBodies.approvedApps.parse(request.body);
-    await setApprovedApps(o.pool, u, "cabinet", id(request), b.entries ?? null, b.stepUpToken);
-    return appLevels(o.pool, id(request));
+    const scope = id(request);
+    await setApprovedApps(o.pool, u, "cabinet", scope, b.entries ?? null, b.stepUpToken, appsConfirmed(b, "cabinet", scope));
+    return appLevels(o.pool, scope);
   });
 }

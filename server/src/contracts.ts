@@ -179,6 +179,8 @@ export const releaseFiles = {
 /** Shared definitions checked on their own, such as a stored rule's match. */
 export const commonDefs = {
   symptomMatch: validator<SymptomMatch>("symptomMatch", ref("common.schema.json", "symptomMatch")),
+  /** An approved-applications list in the shape the heartbeat answer carries it: a stored list is checked against this before use. */
+  approvedAppEntries: validator<unknown[]>("approvedAppEntries", ref("common.schema.json", "approvedAppEntries")),
 } as const;
 
 const consoleBody = (file: string) => ref(`console/${file}.schema.json`);

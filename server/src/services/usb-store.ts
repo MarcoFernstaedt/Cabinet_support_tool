@@ -13,6 +13,7 @@ import { normalizeSignature, upsertAlert } from "./alerts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { upsertSetting } from "./settings.js";
+import { ROLE_RANK, type Role } from "./roles.js";
 import {
   UsbPolicyError, UsbPolicyMemory, checkStoredUsbPolicy, issuesText, nextUsbPolicyVersion, parseUsbWatchPolicy,
   usbPolicyAuditEntry, usbPolicySettingKey, usbStepUpAction, type UsbPolicy, type UsbPolicyLevel, type UsbScopeLevel,
@@ -56,12 +57,25 @@ export async function readUsbPolicyRow(db: Queryable, level: UsbScopeLevel, scop
   return r.rows[0]?.value ?? null;
 }
 
+/** Who may change a USB watch policy: an Admin, as for every other fleet, client, site or cabinet setting. */
+function assertAdmin(role: string): void {
+  if (ROLE_RANK[role as Role] !== ROLE_RANK.admin) throw new Refused("forbidden", 403, "only an Admin changes a USB watch policy");
+}
+
+/** What the step-up token for a USB policy write is bound to: the level, the scope and the policy exactly as the person sent it. */
+export const usbPolicyConfirmed = (level: UsbScopeLevel, scopeId: string | null, policy: unknown): Record<string, unknown> =>
+  ({ level, scopeId: scopeId === null ? null : scopeId.toLowerCase(), policy });
+
 /**
- * Stores a policy for one scope: the level has to exist, the request has to meet the contract (or it is refused with
- * the field and the rule that failed), the version is one more than what is in force, and the change and its audit
- * entry commit together. `stepUpToken` is what the console collected from the operator; without it the write is refused.
+ * Stores a policy for one scope: an Admin only, the level has to exist, the request has to meet the contract (or it is refused with
+ * the field and the rule that failed), the version is one more than what is in force, and the change, its step-up token and its audit
+ * entry commit together. The token is required and is bound to {level, scopeId, policy} as sent, so it confirms this policy for this
+ * scope and nothing else.
  */
-export async function setUsbPolicy(pool: Pool, userId: string, level: UsbScopeLevel, scopeId: string | null, input: unknown, stepUpToken?: string): Promise<UsbPolicy> {
+export async function setUsbPolicy(pool: Pool, user: { userId: string; role: string }, level: UsbScopeLevel, scopeId: string | null, input: unknown, stepUpToken: string): Promise<UsbPolicy> {
+  assertAdmin(user.role);
+  const userId = user.userId;
+  if (typeof stepUpToken !== "string" || stepUpToken.length === 0) throw new Refused("step_up_required", 403, "a USB policy change needs an authenticator code");
   let policy: UsbPolicy;
   try {
     policy = parseUsbWatchPolicy(input);
@@ -77,19 +91,22 @@ export async function setUsbPolicy(pool: Pool, userId: string, level: UsbScopeLe
     }
     const current = await readUsbPolicyRow(c, level, scopeId);
     const version = nextUsbPolicyVersion(current);
-    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, usbStepUpAction(level), scopeId ?? "fleet");
+    await consumeStepUpToken(c, stepUpToken, userId, usbStepUpAction(level), scopeId?.toLowerCase() ?? "fleet", usbPolicyConfirmed(level, scopeId, input));
     await upsertSetting(c, usbPolicySettingKey(level, scopeId), { version, policy }, userId);
     await audit(c, usbPolicyAuditEntry({ level, scopeId, userId, version, before: beforePolicy(current), after: policy }));
   });
   return policy;
 }
 
-/** Removes a scope's policy, which leaves the broader scope in force again. The audit entry carries what was removed. */
-export async function clearUsbPolicy(pool: Pool, userId: string, level: UsbScopeLevel, scopeId: string | null, stepUpToken?: string): Promise<void> {
+/** Removes a scope's policy, which leaves the broader scope in force again: an Admin with a token bound to {level, scopeId, policy: null}. The audit entry carries what was removed. */
+export async function clearUsbPolicy(pool: Pool, user: { userId: string; role: string }, level: UsbScopeLevel, scopeId: string | null, stepUpToken: string): Promise<void> {
+  assertAdmin(user.role);
+  const userId = user.userId;
+  if (typeof stepUpToken !== "string" || stepUpToken.length === 0) throw new Refused("step_up_required", 403, "a USB policy change needs an authenticator code");
   await transaction(pool, async c => {
     if (level !== "fleet" && scopeId === null) throw new Refused("invalid_request", 400, `a ${level} policy needs an id`);
     const current = await readUsbPolicyRow(c, level, scopeId);
-    if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, usbStepUpAction(level), scopeId ?? "fleet");
+    await consumeStepUpToken(c, stepUpToken, userId, usbStepUpAction(level), scopeId?.toLowerCase() ?? "fleet", usbPolicyConfirmed(level, scopeId, null));
     await c.query(usbPolicyDeleteSql, usbPolicyDeleteParams(level, scopeId));
     await audit(c, usbPolicyAuditEntry({ level, scopeId, userId, version: null, before: beforePolicy(current), after: null }));
   });

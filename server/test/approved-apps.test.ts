@@ -117,11 +117,29 @@ test("the most specific level with a list wins whole, and a rejected level is re
   const bare = resolveLevels({ cabinet: null, site: null, client: null, fleet: null });
   assert.equal(bare.source, "none");
   assert.equal(bare.effective, null);
-  // A cabinet whose own value was edited outside the platform falls back, and says which level was rejected.
+  // A cabinet whose own value does not check out does not fall back to the fleet's list: it wins as an empty list (deny), and says
+  // which level was rejected. Damage at one level can only take programs away from the cabinets below it.
   const rejected = resolveLevels({ cabinet: stored(entriesOf([entry()]), { hash: "0".repeat(64) }), site: null, client: null, fleet });
-  assert.equal(rejected.source, "fleet");
+  assert.equal(rejected.source, "cabinet");
   assert.deepEqual(rejected.rejected, ["cabinet"]);
-  assert.deepEqual(rejected.effective?.entries.map(e => e.key), ["app:alpha"]);
+  assert.deepEqual(rejected.effective?.entries, []);
+  // The same for a client level under a good fleet, and for garbage of any shape.
+  for (const bad of ["not json", 42, [], { version: 1 }, { version: 1, entries: "x", hash: "0".repeat(64) }]) {
+    const r = resolveLevels({ cabinet: null, site: null, client: bad, fleet });
+    assert.deepEqual([r.source, r.effective?.entries, r.rejected], ["client", [], ["client"]], JSON.stringify(bad));
+  }
+});
+
+test("a stored list the heartbeat contract would refuse is rejected, so it cannot fail every heartbeat", () => {
+  // normalizeEntry allows a key of up to 128 characters; the heartbeat answer allows 64. A list holding such a key, with a hash that
+  // matches it, would make every heartbeat answer of every cabinet under it fail its own contract (a 500 for the whole level).
+  const long = { version: 1, entries: [{ key: `app:${"k".repeat(70)}`, kind: "application", name: "Long", path: "C:\\Tools\\long.exe" }] };
+  const normalized = normalizeEntries(long.entries);
+  assert.equal(normalized.ok, true, "the service's own check alone lets the long key through");
+  const withHash = { ...long, hash: appsHash(normalized.ok ? normalized.entries : []), setBy: "x", setAt: "2026-10-01T00:00:00.000Z" };
+  assert.equal(verifyStored(withHash), null);
+  const r = resolveLevels({ cabinet: null, site: null, client: null, fleet: withHash });
+  assert.deepEqual([r.source, r.effective?.entries, r.rejected], ["fleet", [], ["fleet"]]);
 });
 
 test("only a server administrator approves a program, and a scope id is a scope id", () => {

@@ -9,7 +9,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { CATEGORIES, currentItems, keyBelongs, type Category } from "./config-ingest.js";
 import { valueText } from "./config-canonical.js";
-import { ROLE_RANK, type Role } from "./console-commands.js";
+import { ROLE_RANK, type Role } from "./roles.js";
 
 export type ScopeKind = BaselineScope["kind"];
 export type Scope = { kind: ScopeKind; id: string | null };
