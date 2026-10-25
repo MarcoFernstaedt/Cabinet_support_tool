@@ -122,3 +122,27 @@ export function packageArchitecture(packageBytes: Buffer): Architecture {
   if (architectures.size > 1) throw new PackageArchitectureError(`the package mixes architectures: ${read.map(p => `${p.name} (${p.architecture})`).join(", ")}`);
   return read[0]!.architecture;
 }
+
+/**
+ * The programs a release package carries, exactly as the agent lays them out on disk
+ * (agent/src/Cabinet.Agent.Core/Upgrades/Authenticode.cs, AgentLayout.ReleasePrograms): one folder per program at
+ * the zip root. The updater looks each of these up by this name, so a package without them cannot be installed
+ * however well formed it is. Keep this list beside that one: the agent's copy is what the machine enforces.
+ */
+export const RELEASE_PROGRAMS: readonly string[] = [
+  "Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe",
+  "Cabinet.Agent.Network/Cabinet.Agent.Network.exe",
+  "Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe",
+  "Cabinet.Agent.Harness/cabinet-harness.exe",
+];
+
+/**
+ * Which of the release programs a package does not have, so an upload can be refused here instead of failing on a
+ * cabinet. Empty means the package is laid out as a release. The installer bundle the platform serves for a fresh
+ * install (CabinetAgent/{install,out}) holds the same programs one level down: it installs a cabinet perfectly well
+ * and can never be updated to, so it must not be accepted as a release package.
+ */
+export function missingReleasePrograms(packageBytes: Buffer): string[] {
+  const names = new Set(entries(packageBytes).map(e => e.name.replace(/\\/g, "/")));
+  return RELEASE_PROGRAMS.filter(program => !names.has(program));
+}

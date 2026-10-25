@@ -11,14 +11,16 @@ import { describe, it } from "node:test";
 import type { Pool, QueryResult, Queryable } from "../src/db/db.js";
 import { receiveReleasePackage, type ReleaseStore } from "../src/services/releases.js";
 import { pe, zip } from "./package-pki.js";
+import { agentPackage } from "./release-kit.js";
 
 const VERSION = "1.2.3";
 const ARCHITECTURE = "windows-x64";
 // The package is a real zip whose programs are readable Windows programs: the server reads the architecture out of them before
 // it publishes anything, so bytes that are not a package at all can no longer reach the store (its own case is below).
-const programs = (architecture: "windows-x64" | "windows-x86"): Buffer => zip([
-  ["Cabinet.Agent.Updater/Cabinet.Agent.Updater.exe", pe("MZ|signed:agent-signer", architecture === "windows-x86" ? 0x14c : 0x8664)],
-]);
+// A release package holds every program the updater installs, one folder per program at the zip root: a package with
+// only some of them is refused at upload (`missingReleasePrograms`), because the updater would fail on the name it
+// cannot find. The kit's agentPackage is that layout, which is what makes it the right fixture here.
+const programs = (architecture: "windows-x64" | "windows-x86"): Buffer => agentPackage(architecture);
 const PAYLOAD = programs("windows-x64");
 const OTHER_ARCHITECTURE = programs("windows-x86");
 const NOT_A_PACKAGE = Buffer.from("these are not the bytes of any package");

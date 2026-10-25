@@ -69,6 +69,8 @@ WORKDIR /build
 COPY contracts/schemas ./contracts/schemas
 COPY contracts/trust ./contracts/trust
 COPY agent/ ./agent/
+# The archive README is copied in as a real build input: a cp inside a RUN cannot reach a file the stage never copied.
+COPY deploy/agent-README.txt /agent-readme/README.txt
 # The same publish as agent/install/Publish-CabinetAgent.ps1: four programs, self-contained single files, for each Windows
 # architecture the agent is built for (docs/platform/second-architecture.md). Windows cannot run a 64-bit program on 32-bit
 # Windows, so both builds come out of this one source and ship as their own archive, named for the architecture.
@@ -93,7 +95,7 @@ RUN set -eu; \
       done; \
       find "$pkg/out" -name '*.pdb' -delete; \
       cp agent/install/Install-CabinetAgent.ps1 agent/install/Uninstall-CabinetAgent.ps1 "$pkg/install/"; \
-      cp deploy/agent-README.txt "$pkg/README.txt"; \
+      cp /agent-readme/README.txt "$pkg/README.txt"; \
     done
 RUN mkdir -p /agent-download && set -eu; \
     for architecture in win-x64 win-x86; do \

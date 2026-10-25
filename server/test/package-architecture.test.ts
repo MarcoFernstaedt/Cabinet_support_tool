@@ -3,7 +3,7 @@
 // specifications: what the platform derives, and the exact refusal every other package gets instead of a guess.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PackageArchitectureError, packageArchitecture } from "../src/services/package-architecture.js";
+import { missingReleasePrograms, PackageArchitectureError, packageArchitecture } from "../src/services/package-architecture.js";
 import { pe, zip } from "./package-pki.js";
 
 /** The programs of a real agent package, in the layout the pipeline publishes. */
@@ -25,6 +25,22 @@ test("a package's architecture is the machine of every program inside it", () =>
   // A zip may store or deflate each entry; both read the same, so the answer cannot depend on how the pipeline zipped it.
   assert.equal(packageArchitecture(packageOf(0x8664, false)), "windows-x64");
   assert.equal(packageArchitecture(packageOf(0x14c, false)), "windows-x86");
+});
+
+test("a package must hold the programs the updater installs, or it is refused before a cabinet ever sees one", () => {
+  // The release layout: one folder per program at the zip root, which is exactly what the updater swaps in.
+  assert.deepEqual(missingReleasePrograms(packageOf(0x8664)), []);
+  // The installer bundle the deploy serves carries the same programs one level down. It installs a cabinet
+  // perfectly well and can never be updated to, so the update store must not accept it as a release package.
+  const bundle = zip([...PROGRAMS.map(name => [`CabinetAgent/out/${name}`, pe("MZ|signed:agent-signer", 0x8664)] as [string, Buffer]),
+    ["CabinetAgent/install/Install-CabinetAgent.ps1", Buffer.from("# installer")]], true);
+  assert.deepEqual(missingReleasePrograms(bundle).sort(), [...PROGRAMS].sort());
+  // One program missing is enough: the updater fails on exactly that name.
+  const partial = zip(PROGRAMS.slice(1).map(name => [name, pe("MZ|signed:agent-signer", 0x8664)] as [string, Buffer]), true);
+  assert.deepEqual(missingReleasePrograms(partial), [PROGRAMS[0]]);  // the one that is missing, by name
+  // A backslash-separated name is the same path, so an archive built on Windows is not refused for that alone.
+  const backslashes = zip(PROGRAMS.map(name => [name.replace(/\//g, "\\"), pe("MZ|signed:agent-signer", 0x8664)] as [string, Buffer]), true);
+  assert.deepEqual(missingReleasePrograms(backslashes), []);
 });
 
 test("a package that has no single architecture is refused, never guessed at", () => {

@@ -67,6 +67,14 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
    headers, no new dependency: `node:zlib` inflates the one entry) and refuses a package that is mixed, unreadable or
    built for another machine, so the declared architecture cannot be a lie; migration `0008_release_architecture.sql`, the
    release record, `startRollout`/`offerFor`, the console (`453c92d`) and the cabinet-side refusal (`9fe801f`) follow it.
+   **Two artifacts, not one.** A release package and the installer bundle the console hands out are different trees and are
+   not interchangeable: `deploy/Dockerfile` zips `CabinetAgent/{install,out}`, whose `out/` the *installer* reads, while
+   `New-AgentRelease.ps1` zips the publish directory's contents with `includeBaseDirectory:$false` — one folder per program
+   at the zip **root**, which is exactly what the updater looks up (`AgentLayout.ReleasePrograms`). A rollout started from
+   the installer bundle is well formed enough to be accepted and then fails on the cabinet: *"Failed at the Install check:
+   The release does not contain Cabinet.Agent.Broker/Cabinet.Agent.Broker.exe"*. The store now refuses it at upload
+   (`package_not_a_release`, `missingReleasePrograms` beside `packageArchitecture`), so that mistake lands on the operator
+   who built the wrong package instead of on a cabinet in the middle of a rollout.
 4. **Setup: choose the install the way the engine is chosen.** An architecture picker beside the PowerShell engine picker; the
    page then offers that architecture's archive, and the launcher and the pasted commands carry that archive's name and hash.
    The default stays 64-bit. The install steps page says which machine takes which archive, in one line.
@@ -83,11 +91,15 @@ executables come out i386 (PE machine `0x014c`), single-file and self-contained.
 
 ## The two proofs, and which one counts
 
-- **The HP (Marco's desktop, 64-bit Windows).** 64-bit Windows runs 32-bit programs, so installing the 32-bit agent on it
-  proves the binaries start, enroll, read, control and take a 32-bit update — the same path Salt lite will walk, without
-  waiting for Salt lite. It needs one deliberate exception: the installer refuses a 32-bit package on 64-bit Windows by
-  design, so this leg needs a lab-only switch (`-AllowArchitectureMismatch`) that names itself in the install log and is used
-  by nothing else. **This is the decision the plan needs before building: yes or no.**
+- **The HP (Marco's desktop, 64-bit Windows).** Provable without any exception to the installer, and proven: the 32-bit
+  programs run on this machine (all four, i386, 73 MB harness); the 32-bit build's own harness ran the full read plan and
+  produced results **identical to the installed 64-bit build's, operation for operation**; and its `network.flushDns` write
+  was refused with `read_only_mode` by the 32-bit build itself. The 64-bit side was exercised end to end on the same machine:
+  install, enrollment, architecture reporting, and a signed `0.2.4` pilot update.
+  What this leg cannot prove is a 32-bit **service install** and a 32-bit update landing on a cabinet, because the installer
+  refuses a 32-bit package on 64-bit Windows by design. That needs the lab-only switch the plan named
+  (`-AllowArchitectureMismatch`, naming itself in the install log, used by nothing else) — a change to the installer's safety
+  contract, so it stays Marco's decision rather than a convenience taken here.
 - **Salt lite, the real 32-bit cabinet.** Install the 32-bit archive, enroll it by hand on the cabinets' own network, read it,
   control it, then push a real update and watch it land and report its architecture. This is the acceptance, and it needs
   hands on the machine, not only code.

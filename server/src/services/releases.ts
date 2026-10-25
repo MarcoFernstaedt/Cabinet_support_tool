@@ -20,7 +20,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { ContractError, releaseFiles, type UpgradeManifest, type UpgradeSignature } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { isArchitecture, packageArchitecture, PackageArchitectureError, type Architecture } from "./package-architecture.js";
+import { isArchitecture, missingReleasePrograms, packageArchitecture, PackageArchitectureError, type Architecture } from "./package-architecture.js";
 import { raiseSecurityAlert } from "./security.js";
 
 export const PRODUCT = "mashura-cabinet-agent";
@@ -176,7 +176,7 @@ export function releaseLock(version: string, architecture: string): string {
 }
 
 /** The refusals that mean "these bytes can never be this release's package", so the release goes back with the reason. */
-const BAD_PACKAGE: readonly string[] = ["hash_mismatch", "architecture_mismatch", "package_architecture_unknown"];
+const BAD_PACKAGE: readonly string[] = ["hash_mismatch", "architecture_mismatch", "package_architecture_unknown", "package_not_a_release"];
 
 /**
  * Publishes a finished upload. Under the release's own lock the row is read again, and the statement that makes it ready names every
@@ -255,6 +255,13 @@ export async function receiveReleasePackage(pool: Pool, store: ReleaseStore, adm
       throw new Refused("package_architecture_unknown", 422, `the package's architecture cannot be told: ${e.message}`);
     }
     if (derived !== architecture) throw new Refused("architecture_mismatch", 422, `the package's programs are built for ${derived}, but this release is ${architecture}`);
+    // A package the updater cannot install must be refused here, not on a cabinet: the machine would report the
+    // missing program long after the rollout had been started, and the failure would be charged to the cabinet.
+    const missing = missingReleasePrograms(await readFile(temp));
+    if (missing.length > 0)
+      throw new Refused("package_not_a_release", 422,
+        `the package is not a release package: the updater installs one folder per program at the zip root and this package has no ${missing.join(", ")}. `
+        + "The installer bundle (CabinetAgent/{install,out}) installs a cabinet but can never be updated to; build the release package with agent/install/New-AgentRelease.ps1.");
     await publishReleasePackage(pool, store, { adminId, version, architecture, sha256: digest, size, temp });
   } catch (e) {
     await rm(temp, { force: true });
