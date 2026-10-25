@@ -9,6 +9,10 @@ namespace Cabinet.Agent.Core.Services;
 /// Windows refuses, or a service that stops again within 2 minutes of being started. After 3 in a row the watcher
 /// waits 15 minutes before trying again; 10 minutes of running resets the count. It never starts a disabled or refused
 /// service, and never changes a start type. Its state survives restarts.
+///
+/// A watched service must also be on the cabinet's approved list, checked against the program its registered path points
+/// at now, the same check service.control makes. A watched service that is not approved is reported as refused and is
+/// never started: watching it is not a way round the list.
 /// </summary>
 public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceWatcher.Saved> store, TimeProvider clock, Action<string> log)
 {
@@ -39,6 +43,9 @@ public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceW
     }
 
     private readonly object _gate = new();
+
+    /// <summary>The approved list in force, read again at every check; left unset, nothing is approved and nothing is started.</summary>
+    public Func<ApprovedApps> Approved { get; set; } = static () => ApprovedApps.None;
 
     /// <summary>Replaces the list (from the console, through the network service). Names are checked again here.</summary>
     public void SetList(IReadOnlyList<string> names)
@@ -94,6 +101,12 @@ public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceW
         if (facts is null) { r.State = WatchState.Missing; r.ServiceState = null; return; }
         r.ServiceState = facts.Value.State;
         if (facts.Value.StartType == ServiceStartType.Disabled) { r.State = WatchState.Disabled; return; }
+        if (!IsApproved(key))
+        {
+            if (r.State != WatchState.Refused) log($"Watched service {name} is not on this cabinet's approved list (or no longer runs the program it names); it is reported, never started.");
+            r.State = WatchState.Refused;
+            return;
+        }
 
         switch (facts.Value.State)
         {
@@ -135,6 +148,16 @@ public sealed class ServiceWatcher(IServicePlatform platform, StateFile<ServiceW
             if (r.ConsecutiveFailures >= FailuresBeforeAlert && r.BackoffUntil is null) r.BackoffUntil = now + Backoff;
             log($"Watched service {name} would not start (Windows error {e.Code}); failure {r.ConsecutiveFailures} in a row.");
         }
+    }
+
+    private bool IsApproved(string key)
+    {
+        try
+        {
+            Approved().RefuseServiceControl(key, ServiceRules.RegisteredProgram(platform, key, log));
+            return true;
+        }
+        catch (OperationFailedException) { return false; }
     }
 
     private static WatchedServiceStatus View(string name, Record r) => new()

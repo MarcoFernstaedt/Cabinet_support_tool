@@ -122,7 +122,8 @@ public class ServiceWatcherTests
     private readonly ManualClock _clock = new(Fixtures.Start);
     private readonly FakeServices _fake = new();
     private readonly List<string> _log = [];
-    private ServiceWatcher Watcher(StateFile<ServiceWatcher.Saved>? store = null) => new(_fake, store ?? new StateFile<ServiceWatcher.Saved>(null), _clock, _log.Add);
+    private ServiceWatcher Watcher(StateFile<ServiceWatcher.Saved>? store = null, Func<ApprovedApps>? approved = null) =>
+        new(_fake, store ?? new StateFile<ServiceWatcher.Saved>(null), _clock, _log.Add) { Approved = approved ?? (() => ApprovedLists.Scanner()) };
     private static WatchedServiceStatus Of(ServiceWatcher w, string name) => w.Status().Single(s => s.Name == name);
 
     [Fact]
@@ -189,6 +190,47 @@ public class ServiceWatcherTests
         w.SetList(["NoSuchSvc", "DisabledSvc", "TermService", "CabinetAgentNetwork"]);
         w.Tick();
         Assert.Equal([WatchState.Missing, WatchState.Disabled, WatchState.Refused, WatchState.Refused], w.Status().Select(s => s.State));
+        Assert.Empty(_fake.Calls);
+    }
+
+    [Fact]
+    public void A_watched_service_that_is_not_approved_is_reported_refused_and_never_started()
+    {
+        var w = Watcher(approved: () => ApprovedApps.None);
+        w.SetList(["BioScanSvc"]);
+        _fake.Services["BioScanSvc"] = (ServiceState.Stopped, ServiceStartType.Automatic);
+        for (int i = 0; i < 3; i++) { w.Tick(); _clock.Advance(TimeSpan.FromSeconds(30)); }
+        Assert.Equal(WatchState.Refused, Of(w, "BioScanSvc").State);
+        Assert.Empty(_fake.Calls);
+        Assert.Equal(ServiceState.Stopped, _fake.Services["BioScanSvc"].State);
+        Assert.Single(_log, l => l.Contains("not on this cabinet's approved list", StringComparison.Ordinal)); // said once, not every 30 seconds
+    }
+
+    [Fact]
+    public void A_watched_service_whose_program_was_pointed_elsewhere_is_not_started()
+    {
+        var w = Watcher();
+        w.SetList(["BioScanSvc"]);
+        _fake.Services["BioScanSvc"] = (ServiceState.Stopped, ServiceStartType.Automatic);
+        _fake.Programs["BioScanSvc"] = @"C:\Users\Public\dispenser.exe";
+        w.Tick();
+        Assert.Equal(WatchState.Refused, Of(w, "BioScanSvc").State);
+        Assert.Empty(_fake.Calls);
+        // The program is back where the entry says: the watcher starts it on the next check.
+        _fake.Programs["BioScanSvc"] = ApprovedLists.Dispenser;
+        _clock.Advance(TimeSpan.FromSeconds(30));
+        w.Tick();
+        Assert.Equal(["start BioScanSvc"], _fake.Calls);
+    }
+
+    [Fact]
+    public void A_watcher_given_no_list_starts_nothing()
+    {
+        var w = new ServiceWatcher(_fake, new StateFile<ServiceWatcher.Saved>(null), _clock, _log.Add);
+        w.SetList(["BioScanSvc"]);
+        _fake.Services["BioScanSvc"] = (ServiceState.Stopped, ServiceStartType.Automatic);
+        w.Tick();
+        Assert.Equal(WatchState.Refused, Of(w, "BioScanSvc").State);
         Assert.Empty(_fake.Calls);
     }
 
@@ -287,16 +329,91 @@ public class ServiceDisplayNameTests
 
 public class ServiceStartTypeTests
 {
-    private static (ServiceControl Control, FakeServices Fake) Make() { var f = new FakeServices(); return (new ServiceControl(f, _ => { }), f); }
+    private const string DisabledProgram = @"C:\Program Files\Vendor\disabled.exe";
+    private static (ServiceControl Control, FakeServices Fake) Make(ApprovedApps? approved = null)
+    {
+        var f = new FakeServices();
+        f.Programs["DisabledSvc"] = DisabledProgram;
+        return (new ServiceControl(f, _ => { }) { Approved = () => approved ?? ApprovedApps.None }, f);
+    }
     private static ServiceSetStartTypeParams P(string name, ServiceStartType t) => new() { Name = name, StartType = t };
+    private static ApprovedApps DisabledApproved() => ApprovedLists.Scanner("DisabledSvc", DisabledProgram);
 
     [Fact]
-    public void A_disabled_service_can_be_set_to_manual_and_the_change_is_read_back()
+    public void An_approved_disabled_service_can_be_set_to_manual_and_the_change_is_read_back()
     {
-        var (c, f) = Make();
+        var (c, f) = Make(DisabledApproved());
         var o = c.SetStartType(P("DisabledSvc", ServiceStartType.Manual));
         Assert.Equal((ServiceStartType.Disabled, ServiceStartType.Manual), (o.Before, o.After));
         Assert.Contains("starttype DisabledSvc Manual", f.Calls);
+    }
+
+    [Theory]
+    [InlineData(ServiceStartType.Manual)]
+    [InlineData(ServiceStartType.Automatic)]
+    [InlineData(ServiceStartType.AutomaticDelayed)]
+    public void Lifting_disabled_on_a_service_that_is_not_approved_is_refused(ServiceStartType t)
+    {
+        var (c, f) = Make();
+        var e = Assert.Throws<OperationFailedException>(() => c.SetStartType(P("DisabledSvc", t)));
+        Assert.Contains("not on this cabinet's approved list", e.Message);
+        Assert.Empty(f.Calls);
+    }
+
+    [Theory]
+    [InlineData(ServiceStartType.Automatic)]
+    [InlineData(ServiceStartType.AutomaticDelayed)]
+    public void Setting_a_service_that_is_not_approved_to_start_by_itself_is_refused(ServiceStartType t)
+    {
+        var (c, f) = Make();
+        f.Services["PrintSvc"] = (ServiceState.Stopped, ServiceStartType.Manual);
+        f.Programs["PrintSvc"] = @"C:\Windows\System32\spoolsv.exe";
+        Assert.Throws<OperationFailedException>(() => c.SetStartType(P("PrintSvc", t)));
+        Assert.Empty(f.Calls);
+    }
+
+    [Fact]
+    public void An_approved_service_whose_program_was_pointed_elsewhere_cannot_be_set_to_automatic()
+    {
+        var (c, f) = Make(DisabledApproved());
+        f.Programs["DisabledSvc"] = @"C:\Users\Public\disabled.exe";
+        Assert.Contains("does not run the program", Assert.Throws<OperationFailedException>(() => c.SetStartType(P("DisabledSvc", ServiceStartType.Automatic))).Message);
+        Assert.Empty(f.Calls);
+    }
+
+    [Theory]
+    [InlineData(ServiceStartType.Manual)]
+    [InlineData(ServiceStartType.Disabled)]
+    public void Lowering_a_start_type_starts_nothing_and_needs_no_approval(ServiceStartType t)
+    {
+        var (c, f) = Make();
+        var o = c.SetStartType(P("BioScanSvc", t));
+        Assert.Equal((ServiceStartType.Automatic, t), (o.Before, o.After));
+        Assert.Equal([$"starttype BioScanSvc {t}"], f.Calls);
+    }
+
+    [Theory]
+    [InlineData(@"C:\a.exe.x.exe", @"C:\a.exe.x.exe")]                                       // the first .exe is not the end of the program
+    [InlineData(@"C:\a.exe.x.exe -k netsvcs", @"C:\a.exe.x.exe")]
+    [InlineData("\"C:\\Program Files\\x\\y.exe\" -k foo", @"C:\Program Files\x\y.exe")]
+    [InlineData(@"C:\Program Files\x\y.exe -k foo", @"C:\Program Files\x\y.exe")]
+    [InlineData(@"C:\Windows\system32\svchost.exe -k LocalService", @"C:\Windows\system32\svchost.exe")]
+    [InlineData(@"C:\x\y.EXE", @"C:\x\y.EXE")]
+    [InlineData("C:\\x\\y.exe\t-arg", @"C:\x\y.exe")]
+    [InlineData(@"C:\x\driver.sys", @"C:\x\driver.sys")]
+    [InlineData("\"C:\\unclosed\\y.exe", null)]                                                // a quote never closed is not a program
+    [InlineData("\"\"", null)]
+    [InlineData("   ", null)]
+    [InlineData(null, null)]
+    public void The_program_of_an_image_path_is_read_the_way_Windows_reads_it(string? imagePath, string? program) =>
+        Assert.Equal(program, ServiceRules.ProgramOnly(imagePath));
+
+    [Fact]
+    public void A_lookalike_image_path_does_not_borrow_an_approved_program()
+    {
+        ApprovedApps list = ApprovedLists.Scanner(program: @"C:\a.exe");
+        Assert.Throws<OperationFailedException>(() => list.RefuseServiceControl("BioScanSvc", ServiceRules.ProgramOnly(@"C:\a.exe.x.exe")));
+        list.RefuseServiceControl("BioScanSvc", ServiceRules.ProgramOnly(@"C:\a.exe -k x"));
     }
 
     [Fact]

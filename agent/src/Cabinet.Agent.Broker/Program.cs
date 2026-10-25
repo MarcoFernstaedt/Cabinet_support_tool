@@ -53,9 +53,13 @@ public sealed class BrokerService : ServiceBase
         // The approved list (milestone 10): the programs this cabinet may be asked to start, stop or restart. It is the
         // cabinet's own copy — the one the network service keeps from the heartbeat answer in the state folder
         // (Network/Program.cs) and this process reads from disk, because the broker never touches the network — and it is
-        // read again for every request, so a list the console changes takes effect without a restart. Nothing on the
-        // machine is controlled unless the server has sent an entry for it.
+        // read again for every request, so a list the console changes takes effect without a restart. A missing,
+        // oversized or unreadable copy approves nothing. The network service writes that file, so the list keeps an honest
+        // network service to what the console approved; it is a guard rail, not a wall against a network service that has
+        // been taken over (docs/spec/09-open-decisions.md: signing the list is open).
         var approved = new ApprovedAppsFile(Path.Combine(AgentPaths.State, "monitor-settings.json"), _log.Write);
+        // The watcher also asks the list before it starts a watched service: watched but not approved is reported, not started.
+        serviceWatcher.Approved = () => approved.Current;
         var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher, Approved = () => approved.Current };
         // Time zone and clock (module 21): time.status, time.setZone, time.sync.
         var time = new TimeOperations(new WindowsTimePlatform(), _log.Write);
@@ -64,7 +68,7 @@ public sealed class BrokerService : ServiceBase
         // and checks it first. The check belongs in the process that holds the administrator rights, and replacing rather
         // than re-listing the registrations here means an action added to ActionOperations cannot be lost by this file.
         var registry = ActionOperations.Register(InventoryOperations.Register(time.Register(WindowsProcesses.Register(serviceControl.Register(packages.Register(writes.Register(BrokerReadOperations.Registry())))))));
-        ApprovedProcessEnd.Register(registry, () => approved.Current, ProgramOf, ActionOperations.EndProcess, _log.Write);
+        ApprovedProcessEnd.Register(registry, () => approved.Current, ActionOperations.OpenProcess, _log.Write);
         // Signed upgrades: the broker verifies a downloaded release against the keys compiled into it and starts the updater.
         var authenticode = new WindowsAuthenticode();
         var upgrades = new UpgradeBroker(new ReleaseVerifier(UpgradeTrust.Compiled, authenticode), new UpgradeJournalStore(AgentPaths.UpgradeJournal),
@@ -154,23 +158,6 @@ public sealed class BrokerService : ServiceBase
             _log.Write($"The downloads folder was not re-created ({e.GetType().Name}); keeping it.");
             downloads.Refresh();
             if (downloads.Attributes.HasFlag(FileAttributes.ReparsePoint)) throw new InvalidOperationException("The downloads folder is a link; refusing to start.");
-        }
-    }
-
-    /// <summary>
-    /// The whole program path of a running process, or null when Windows will not say. Used only to check a process
-    /// against the approved list: a process whose program cannot be read is refused, never assumed approved.
-    /// </summary>
-    private static string? ProgramOf(long processId)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(checked((int)processId));
-            return process.MainModule?.FileName;
-        }
-        catch (Exception e) when (e is ArgumentException or OverflowException or InvalidOperationException or NotSupportedException or System.ComponentModel.Win32Exception)
-        {
-            return null;
         }
     }
 

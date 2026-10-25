@@ -35,27 +35,79 @@ public static class ActionOperations
     public static ProcessEndOutput EndProcess(ProcessEndParams p)
     {
         if (ActionRules.WhyNotEnd(p.ProcessId, p.Name, Environment.ProcessId) is { } why) throw new OperationFailedException("execution_failed", why);
+        using OpenedProcess process = OpenProcess(p.ProcessId) ?? throw new OperationFailedException("not_found", "No process has that ID any more.");
+        return process.End(p);
+    }
+
+    /// <summary>
+    /// Opens the process under that ID and holds its handle, or null when there is none. Everything process.end checks
+    /// afterwards (the program, the name) and the end itself go through this one handle: while it is open Windows cannot
+    /// reuse the process ID, so the process that is checked is the process that is ended.
+    /// </summary>
+    public static OpenedProcess? OpenProcess(long processId)
+    {
         Process process;
-        try { process = Process.GetProcessById(checked((int)p.ProcessId)); }
-        catch (Exception e) when (e is ArgumentException or OverflowException) { throw new OperationFailedException("not_found", "No process has that ID any more."); }
-        using (process)
+        try { process = Process.GetProcessById(checked((int)processId)); }
+        catch (Exception e) when (e is ArgumentException or OverflowException) { return null; }
+        try
         {
-            string actual = ProcessName(process);
-            // The ID and the name must both match, so an ID that Windows has reused for another program is never ended.
-            if (!SameName(actual, p.Name)) throw new OperationFailedException("not_found", "The process with that ID is not the one that was named.");
-            if (ActionRules.WhyNotEnd(p.ProcessId, actual, Environment.ProcessId) is { } why2) throw new OperationFailedException("execution_failed", why2);
-            try { process.Kill(entireProcessTree: false); }
-            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
-            { throw new OperationFailedException("execution_failed", "Windows would not end that process."); }
-            return new ProcessEndOutput { ProcessId = p.ProcessId, Name = p.Name, Ended = process.WaitForExit(5000) };
+            _ = process.SafeHandle; // opens the handle now and keeps it for every call below
+            return new OpenedProcess(process);
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            process.Dispose();
+            throw new OperationFailedException("execution_failed", "Windows would not let the agent open that process, so it was not ended.");
         }
     }
 
-    private static string ProcessName(Process p)
+    /// <summary>One process held open by its handle (see <see cref="OpenProcess"/>).</summary>
+    public sealed class OpenedProcess : Cabinet.Agent.Core.Services.IOpenedProcess
     {
-        try { return Path.GetFileName(p.MainModule?.FileName) is { Length: > 0 } f ? f : p.ProcessName; }
-        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { return p.ProcessName; }
+        private readonly Process _process;
+
+        internal OpenedProcess(Process process) { _process = process; }
+
+        /// <summary>The program, read from the held handle (QueryFullProcessImageName), so it is this process's program.</summary>
+        public string? Program
+        {
+            get
+            {
+                try
+                {
+                    var buffer = new char[1024];
+                    uint size = (uint)buffer.Length;
+                    return QueryFullProcessImageNameW(_process.SafeHandle, 0, buffer, ref size) && size is > 0 and <= 520 ? new string(buffer, 0, (int)size) : null;
+                }
+                catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { return null; }
+            }
+        }
+
+        public ProcessEndOutput End(ProcessEndParams p)
+        {
+            if (ActionRules.WhyNotEnd(p.ProcessId, p.Name, Environment.ProcessId) is { } why) throw new OperationFailedException("execution_failed", why);
+            string actual = Path.GetFileName(Program) is { Length: > 0 } file ? file : SafeName();
+            // The ID and the name must both match, so an ID that Windows has reused for another program is never ended.
+            if (!SameName(actual, p.Name)) throw new OperationFailedException("not_found", "The process with that ID is not the one that was named.");
+            if (ActionRules.WhyNotEnd(p.ProcessId, actual, Environment.ProcessId) is { } why2) throw new OperationFailedException("execution_failed", why2);
+            try { _process.Kill(entireProcessTree: false); }
+            catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+            { throw new OperationFailedException("execution_failed", "Windows would not end that process."); }
+            return new ProcessEndOutput { ProcessId = p.ProcessId, Name = p.Name, Ended = _process.WaitForExit(5000) };
+        }
+
+        private string SafeName()
+        {
+            try { return _process.ProcessName; }
+            catch (Exception e) when (e is InvalidOperationException or NotSupportedException) { return ""; }
+        }
+
+        public void Dispose() => _process.Dispose();
     }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool QueryFullProcessImageNameW(Microsoft.Win32.SafeHandles.SafeProcessHandle process, uint flags, [System.Runtime.InteropServices.Out] char[] name, ref uint size);
 
     private static string Bare(string name) => name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name;
     private static bool SameName(string a, string b) => string.Equals(Bare(a), Bare(b), StringComparison.OrdinalIgnoreCase);
