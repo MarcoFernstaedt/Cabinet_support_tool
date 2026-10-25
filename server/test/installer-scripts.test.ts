@@ -8,7 +8,9 @@
 // to parse on the cabinet, while every check made from this repository (pwsh 7, which reads UTF-8) passes.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = join(import.meta.dirname, "..", "..", "..");
@@ -80,4 +82,88 @@ test("the installer checks this machine before it copies anything", () => {
   assert.match(text, /Function Get-PeMachine|function Get-PeMachine/);
   assert.match(text, /0x014c/);
   assert.match(text, /0x8664/);
+});
+
+// pwsh runs on the Linux test machines; when it is there, the parts of the scripts that do not need Windows are run for real.
+const pwsh = ["/usr/bin/pwsh", "/usr/local/bin/pwsh", "/opt/microsoft/powershell/7/pwsh"].find((p) => existsSync(p));
+
+/** Runs one function from a script, taken out of the script by the PowerShell parser, with the arguments given. */
+function runFunction(script: string, name: string, args: string[]): { status: number | null; out: string } {
+  const runner = join(mkdtempSync(join(tmpdir(), "ps-runner-")), "run.ps1");
+  writeFileSync(runner, [
+    "param([string]$Script, [string]$Name, [string[]]$Rest)",
+    "$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$null)",
+    "$fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name }, $true)",
+    "if (-not $fn) { throw \"no function $Name\" }",
+    ". ([scriptblock]::Create($fn.Extent.Text))",
+    "& $Name @Rest",
+  ].join("\n"));
+  const r = spawnSync(pwsh!, ["-NoProfile", "-NonInteractive", "-File", runner, "-Script", script, "-Name", name, "-Rest", ...args], { encoding: "utf8" });
+  return { status: r.status, out: `${r.stdout}${r.stderr}` };
+}
+
+test("every install script parses with no errors", { skip: !pwsh && "pwsh is not installed" }, () => {
+  for (const name of scripts) {
+    const r = spawnSync(pwsh!, ["-NoProfile", "-NonInteractive", "-Command",
+      "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:PS_FILE, [ref]$null, [ref]$e); if ($e) { $e | ForEach-Object { $_.Message }; exit 1 }"],
+      { encoding: "utf8", env: { ...process.env, PS_FILE: join(installDir, name) } });
+    assert.equal(r.status, 0, `${name}: ${r.stdout}${r.stderr}`);
+  }
+});
+
+test("uninstall -RemoveData deletes links as links and never what they point at", { skip: !pwsh && "pwsh is not installed" }, () => {
+  const root = mkdtempSync(join(tmpdir(), "remove-tree-"));
+  const outside = join(root, "outside");
+  const data = join(root, "data");
+  mkdirSync(join(outside, "deep"), { recursive: true });
+  writeFileSync(join(outside, "sentinel.txt"), "keep");
+  writeFileSync(join(outside, "deep", "also.txt"), "keep");
+  mkdirSync(join(data, "state", "sub"), { recursive: true });
+  writeFileSync(join(data, "state", "sub", "f.txt"), "x");
+  // What the network service could plant in a folder it can write: a link to a folder, a link to a file, a dangling link.
+  symlinkSync(outside, join(data, "state", "folder-link"), "dir");
+  symlinkSync(join(outside, "sentinel.txt"), join(data, "logs-file-link"));
+  symlinkSync(join(root, "nowhere"), join(data, "dangling"));
+  const r = runFunction(join(installDir, "Uninstall-CabinetAgent.ps1"), "Remove-Tree", [data]);
+  assert.equal(r.status, 0, r.out);
+  assert.equal(existsSync(data), false, "the data folder is gone");
+  assert.equal(readFileSync(join(outside, "sentinel.txt"), "utf8"), "keep", "a linked file's target is untouched");
+  assert.equal(readFileSync(join(outside, "deep", "also.txt"), "utf8"), "keep", "a linked folder's contents are untouched");
+  // A link given as the path itself is removed as a link.
+  symlinkSync(outside, join(root, "top-link"), "dir");
+  assert.equal(runFunction(join(installDir, "Uninstall-CabinetAgent.ps1"), "Remove-Tree", [join(root, "top-link")]).status, 0);
+  assert.equal(existsSync(join(root, "top-link")), false);
+  assert.equal(existsSync(join(outside, "sentinel.txt")), true);
+  rmSync(root, { recursive: true, force: true });
+});
+
+test("uninstall never uses Remove-Item -Recurse, which follows links on Windows PowerShell 5.1", () => {
+  const text = readFileSync(join(installDir, "Uninstall-CabinetAgent.ps1"), "utf8");
+  const code = text.split("\n").map(codePart).join("\n");
+  assert.doesNotMatch(code, /Remove-Item[^\n]*-Recurse/);
+  assert.match(code, /function Remove-Tree/);
+});
+
+test("a reinstall can turn read-only mode off, and refuses to be told both", () => {
+  const text = readFileSync(join(installDir, "Install-CabinetAgent.ps1"), "utf8");
+  assert.match(text, /\[switch\] \$ReadWrite/);
+  assert.match(text, /if \(\$ReadOnly -and \$ReadWrite\) \{ throw /);
+  assert.match(text, /readOnlyMode\s+= if \(\$ReadOnly\) \{ \$true \} elseif \(\$ReadWrite\) \{ \$false \} elseif \(\$installed\)/);
+});
+
+test("the installer refuses a source anyone but SYSTEM and administrators can change, and checks the copy it installs", () => {
+  const text = readFileSync(join(installDir, "Install-CabinetAgent.ps1"), "utf8");
+  const code = text.split("\n").map(codePart).join("\n");
+  // The account running it counts as a non-administrator writer: its own unelevated programs could swap a file.
+  assert.match(code, /\$trustedSids = @\('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'\)/);
+  assert.doesNotMatch(code, /\$broad = /, "the old check looked only at Everyone, Authenticated Users and Users");
+  assert.match(code, /GetOwner\(/, "the owner can rewrite the access list, so it is checked too");
+  assert.match(code, /ReparsePoint\) \{ throw /, "a link in the source is refused");
+  // The Authenticode scan reads the copy under Program Files, and the services are installed from that same copy.
+  const copy = code.indexOf("$incoming = Join-Path $env:ProgramFiles");
+  const scan = code.indexOf("Get-AuthenticodeSignature");
+  const install = code.indexOf("$from = Join-Path $incoming $service.Project");
+  assert.ok(copy > 0 && scan > copy && install > scan, "copy, then check the copy, then install the copy");
+  assert.match(code, /Get-ChildItem -LiteralPath \$incoming -Recurse -File -Include '\*\.exe', '\*\.dll'/);
+  assert.match(code, /finally \{[\s\S]*Remove-Item -LiteralPath \$incoming/);
 });
