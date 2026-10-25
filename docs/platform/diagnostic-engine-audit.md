@@ -1,6 +1,10 @@
 # Windows Diagnostic and Recovery Engine: audit and plan
 
-October 2026. Audit of the repository against the brief, before any architectural change. Nothing in this document is built yet.
+October 2026. Audit of the repository against the brief, before any architectural change. Nothing in this document is
+built yet.
+
+**The decisions below are settled (2026-10-25) and the plan is now an execution plan of its own:
+[diagnostic-engine-execution.md](diagnostic-engine-execution.md).**
 
 ## 1. What the repository already is
 
@@ -38,7 +42,14 @@ These are fixed by `CLAUDE.md` and the security model; the plan follows them and
 6. **Do not add dependencies without saying why.**
 7. **The agent runs only catalog operations.** An on-agent orchestrator may sequence only catalog operations that the server could have sent. It is not a second way to run anything.
 
-## 4. Decisions needed from you
+## 4. Decisions needed from you — **decided 2026-10-25, all four as recommended below**
+
+**Decided:** (1) orchestration runs on the agent as an evidence runner, the server keeps the rules, the policy and every
+approval, and there is no offline repair; (2) a per-incident approval is a server record, and executing it still needs
+that operation's own confirmation level; (3) device restart and disable/enable, DISM, SFC and scheduled-task changes may
+be added, all Tier 2 with an authenticator code and device restart behind the scanner-class protected list; (4) Windows
+Update keeps "never automatic uninstall". The answers, with decisions 5 to 7 from the expansion, are recorded in
+[diagnostic-engine-execution.md](diagnostic-engine-execution.md).
 
 1. **Where does orchestration run?** The brief wants local, offline-capable diagnostics. Today diagnosis is server-driven. Recommended: keep the server as the authority for rules, policy and approvals, and add an agent-side **evidence runner** that executes a signed, versioned diagnostic module (a list of catalog reads plus the deterministic rules) when a trigger fires, stores the result in the bounded outbox and uploads it when connected. Repairs always need the server's approval, so offline repair is not offered.
 2. **Is a per-incident approval (endpoint, operation, target, expiry) enough in place of today's per-action authenticator code?** Recommended: an approval is a server record; executing it still needs the existing confirmation level for that operation.
@@ -109,7 +120,12 @@ Audited against the repository before any change. "Status" is what exists on `sq
 6. **Predictive maintenance (item 10).** Warnings carry confidence, evidence and limits; no exact failure dates (matches the existing drive-prediction rule).
 7. **Self-repair loops (item 16).** The agent only reports its own problems; it never restarts or rewrites itself except through the existing update-and-rollback path.
 
-## C. Decisions added by this expansion
+## C. Decisions added by this expansion — **decided 2026-10-25**
+
+**Decided:** tenant isolation stays as it is — one organization, one console, everything visible to the support roles, with
+an Admin-controlled client filter as a convenience and one client's data kept out of another's evidence packages; and
+encryption at rest is disk-level encryption at the host with passphrase-encrypted export bundles (Express has no
+transparent data encryption).
 
 - **Tenant isolation:** keep one organization (recommended for a support team that serves all clients) or add per-client access?
 - **Baselines:** done: the earlier `baseline-recovery` design was ported (phases 1 and 2) with rebuilt queries; see 15-baselines-and-config.md.
@@ -140,7 +156,13 @@ Audit before implementation. Status is what exists on `sqlserver` now (including
 | 11 | Test harness | Demo simulator (121 cabinets, real server paths), scenario library, fleet-scale load test with failure scenarios, mocked agent in tests, Windows CI job | Scripted failure scenarios against the simulated agent for each listed failure, walking detection, diagnosis, evidence, authorization, repair, verification and resolution; no real device or VM disruption | Never disrupt a production or development machine |
 | 12 | Offline and out-of-band recovery | The agent cannot repair an unbootable Windows. Existing: emergency access doc, offline last-known state, agent update with rollback | **Design document only**: recovery USB workflow, a read-only evidence collector run from WinRE that writes a signed JSON file, import into the incident record after recovery | An agent inside Windows cannot repair a Windows that does not boot. Nothing is promised there |
 
-## New decisions this brief needs
+## New decisions this brief needs — **decided 2026-10-25**
+
+**Decided:** item 2, the login-free TDS pre-login handshake against an Admin-configured target, is **allowed** — no
+credential is ever stored or used and it is never a connection to the cabinet application's database. Items 1 (minidump
+header parsing on the cabinet, nothing uploaded) and 3 (authentication diagnostics from the System, Application, Netlogon,
+Kerberos and Group Policy logs, accepting no failed-logon counts) keep their recommended defaults and are confirmed again
+with phase 5, which builds them. Item 4 stays design only.
 
 1. **Minidump header parsing on the cabinet (item 1).** Confirm: parse headers locally, upload only the bug check code, parameters, faulting module name and size. Dumps are never uploaded.
 2. **Pre-login SQL Server handshake (item 7).** Confirm that a TDS pre-login (no login, no database access) to an Admin-configured server is allowed under "the platform never connects to the cabinet application's database".
