@@ -21,6 +21,7 @@ import { refreshDrive } from "../services/drives.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
 import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
+import { storedApprovedApps } from "../services/approved-apps.js";
 import { seedDemoTroubleshooting } from "./troubleshooting.js";
 import { raiseBaselineAlert } from "../diagnose/network.js";
 import { evaluateBaselineDrift } from "../services/baseline-drift.js";
@@ -214,6 +215,9 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
   }
 }
 
+/** The scanner's service, as each demo client's approved-applications list names it. */
+export const DEMO_SCANNER_SERVICE = { key: "app:bioscan", kind: "service", name: "BioScan fingerprint service", path: "C:\\Program Files\\BioScan\\BioScanSvc.exe", serviceName: "BioScanSvc" } as const;
+
 /** Adds the simulated fleet. Idempotent: does nothing if it is already there. */
 export async function enableDemo(pool: Pool, userId: string): Promise<void> {
   const cabinets: { id: string; scenario: Scenario }[] = [];
@@ -225,9 +229,12 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
     if ((await c.query("SELECT TOP (1) 1 AS x FROM clients WHERE demo = 1")).rows[0]) return;
     const clientRows: unknown[][] = [], siteRows: unknown[][] = [], cabinetRows: unknown[][] = [];
     let siteIndex = 0;
+    // The scanner's service is the one program each demo client approves, so the failing-service scenario can be fixed from the
+    // console: service.control is issued only for a service on the cabinet's approved-applications list (controlled-targets.ts).
+    const approved = storedApprovedApps([DEMO_SCANNER_SERVICE], userId);
     for (const client of DEMO_FLEET) {
       const clientId = randomUUID();
-      clientRows.push([clientId, client.name, ["BioScanSvc"], [1433]]);
+      clientRows.push([clientId, client.name, ["BioScanSvc"], [1433], approved]);
       for (const site of client.sites) {
         const siteId = randomUUID();
         const baseline = baselineFor(site.subnet, site.addressing);
@@ -246,7 +253,7 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
       }
     }
     // The whole fleet in a few statements (all 121 cabinets in one).
-    await insertMany(c, "clients", ["id", "name", "watched_services", "sync_ports"], clientRows, [["demo", "1"]]);
+    await insertMany(c, "clients", ["id", "name", "watched_services", "sync_ports", "approved_apps"], clientRows, [["demo", "1"]]);
     await insertMany(c, "sites", ["id", "client_id", "name", "sync_address", "time_zone", "network_baseline"], siteRows);
     await insertMany(c, "cabinets", ["id", "site_id", "name", "role", "hostname", "serial_number", "agent_version", "uptime_seconds", "demo_scenario", "firewall_profiles",
       "time_zone_id", "clock_skew_seconds", "demo_net", "ipv4"], cabinetRows, [["status", "'active'"], ["read_only", "0"], ["ipv4_at", "SYSUTCDATETIME()"]]);

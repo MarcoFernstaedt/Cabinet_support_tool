@@ -293,18 +293,18 @@ test("writes in the console: library upload and two-person approval, install, fi
     assert.equal(asList.ok, true, `expected an approved list: ${JSON.stringify(asList)}`);
     await setApprovedApps(db.app, { userId: people.ada.id, role: "admin" }, "cabinet", cabinetId, [spooler],
       await issueStepUpToken(db.app, people.ada.id, APPS_SET_ACTION.cabinet, cabinetId,
-        paramsHash({ level: "cabinet", id: cabinetId, entries: asList.ok ? asList.entries : [] })));
+        paramsHash({ level: "cabinet", id: cabinetId, entries: [spooler] })));
     // The agent works from its own copy of the list, refreshed on its next heartbeat (every two seconds here).
     await until("the cabinet's approved list", async () => {
       try { return readFileSync(join(state, "monitor-settings.json"), "utf8").includes("app:spooler"); } catch { return false; }
     });
 
-    // ---- Services: Tess restarts the print spooler (one click) and watches the scanner service ----
+    // ---- Services: Tess restarts the print spooler (with her code: the server asks for one) and watches the scanner service ----
     await section(tess, "services");
     const scannerRow = tess.getByRole("row", { name: /Biometric Scanner Service/ });
     await scannerRow.getByText("Running", { exact: true }).waitFor({ timeout: 60_000 });
     await tess.getByRole("row", { name: /Print Spooler/ }).getByRole("button", { name: "Restart" }).click();
-    await click(tess, /Restart the service Print Spooler/);
+    await confirm(tess, people.tess.secret, /Restart the service Print Spooler/);
     const restarted = tess.getByText(/Service Spooler: restart done; it is now running\./);
     try {
       await restarted.waitFor({ timeout: 60_000 });

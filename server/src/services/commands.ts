@@ -7,6 +7,7 @@ import { checkWriteAllowed, WriteLimitReached } from "./writes.js";
 import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { ingestAndEvaluate } from "./config-service.js";
+import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
@@ -30,8 +31,8 @@ export async function issueCommand(pool: Pool, userId: string, cabinetId: string
   const entry = catalog.get(operation)!;
   // Confirmation levels (docs/spec/12-milestones-8-to-12.md): a code-level write needs a step-up token bound to its
   // parameters; a click-level write is confirmed in the console and takes no token; reads take none.
-  if (entry.confirm === "code" && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "this change needs an authenticator code for these exact parameters");
-  if (entry.confirm !== "code" && write?.stepUpToken) throw new Refused("invalid_request", 400, "this operation takes no step-up token");
+  if (needsCode(operation) && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "this change needs an authenticator code for these exact parameters");
+  if (!needsCode(operation) && write?.stepUpToken) throw new Refused("invalid_request", 400, "this operation takes no step-up token");
   if (entry.kind === "write" && !write) throw new Refused("invalid_request", 400, "a write needs its authority");
   if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
   try {
@@ -40,6 +41,15 @@ export async function issueCommand(pool: Pool, userId: string, cabinetId: string
     if (e instanceof WriteLimitReached) await recordLimitPause(pool, userId);
     throw e;
   }
+}
+
+/**
+ * Whether a person confirms this operation with a fresh authenticator code. The catalog's level, raised to a code for the operations
+ * that touch a running program (service.control is a click in the catalog the agent is built with, but an agent built before the
+ * approved-applications list enforces nothing, so the server asks for the stronger confirmation).
+ */
+export function needsCode(operation: string): boolean {
+  return catalog.get(operation as OperationName)?.confirm === "code" || CONTROLLED_OPERATIONS.has(operation);
 }
 
 /** The agent's package refusals, and which security alert each raises. */

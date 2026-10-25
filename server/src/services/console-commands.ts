@@ -8,9 +8,10 @@ import { Refused } from "./errors.js";
 import { scannerIdsFor } from "./fleet.js";
 import { syncForCabinet } from "./device-settings.js";
 import { cabinetPolicy, switchesFor } from "./firewall-policy.js";
+import { assertApprovedTarget, CONTROLLED_OPERATIONS } from "./controlled-targets.js";
+import { ROLE_RANK, type Role } from "./roles.js";
 
-export const ROLE_RANK = { tier1: 1, tier2: 2, admin: 3 } as const;
-export type Role = keyof typeof ROLE_RANK;
+export { ROLE_RANK, type Role };
 
 const AUDIT_ACTION: Record<string, string> = {
   "eventlog.get": "eventlog.entry.open",   // docs/spec/05-server-spec.md: opening an event log entry is logged
@@ -25,6 +26,13 @@ export async function issueFromConsole(pool: Pool, user: { userId: string; role:
 
   if (operation === "system.restart" && params.mode === "shutdown" && ROLE_RANK[user.role] < ROLE_RANK.admin)
     throw new Refused("forbidden", 403, "only an Admin can shut a cabinet down: it stays off until someone switches it on");
+
+  // service.control and process.end aim only at what the cabinet's approved-applications list names, whichever route asked: an
+  // older agent enforces no list of its own (controlled-targets.ts). Checked against the schema first, so the check reads valid fields.
+  if (CONTROLLED_OPERATIONS.has(operation)) {
+    if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
+    await assertApprovedTarget(pool, cabinetId, operation, params);
+  }
 
   if (operation === "firewall.setRule") {
     // Checked against its schema first, so the rule checks below read only a valid rule.
@@ -63,7 +71,9 @@ export async function issueFromConsole(pool: Pool, user: { userId: string; role:
   }
   return issueCommand(pool, user.userId, cabinetId, operation, filled, AUDIT_ACTION[operation] ?? "command.issue",
     viaCli ? (entry.kind === "write" ? { viaCli: true } : undefined)
-      : entry.kind === "write" ? { ...(stepUpToken ? { stepUpToken } : {}), confirmedParams: params } : stepUpToken ? { stepUpToken } : undefined);
+      // The token is bound to what the person confirmed: the control route passes the request it confirmed (entry, action, cabinet),
+      // every other route the parameters as sent, before the server filled in its own values.
+      : entry.kind === "write" ? { ...(stepUpToken ? { stepUpToken } : {}), confirmedParams: confirmedParams ?? params } : stepUpToken ? { stepUpToken } : undefined);
 }
 
 /** Firewall rules people may write: an update keeps the rule's name (the agent refuses a rename too). */

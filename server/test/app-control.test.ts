@@ -57,17 +57,13 @@ function fakeDb(o: { levels?: Record<string, unknown> | null; services?: unknown
 }
 
 const COMMAND = { commandId: "0f1c8f0e-0000-4000-8000-0000000000c1", issuedAt: "2026-10-24T09:30:01.000Z", expiresAt: "2026-10-24T09:35:01.000Z" } as unknown as Command;
-interface Calls { row: AuditEntry[]; consume: unknown[][]; issue: unknown[][] }
-function fakeEffects(o: { consumeThrows?: unknown; issueThrows?: unknown } = {}): { calls: Calls; effects: ControlEffects } {
-  const calls: Calls = { row: [], consume: [], issue: [] };
+interface Calls { row: AuditEntry[]; issue: unknown[][] }
+function fakeEffects(o: { issueThrows?: unknown } = {}): { calls: Calls; effects: ControlEffects } {
+  const calls: Calls = { row: [], issue: [] };
   return {
     calls,
     effects: {
       record: async (entry: AuditEntry) => { calls.row.push(entry); },
-      consume: async (...args: unknown[]) => {
-        calls.consume.push(args);
-        if (o.consumeThrows) throw o.consumeThrows;
-      },
       issue: async (...args: unknown[]) => {
         calls.issue.push(args);
         if (o.issueThrows) throw o.issueThrows;
@@ -106,9 +102,8 @@ test("a service control is issued from the entry the list approves, with before 
   assert.deepEqual(outcome, { commandId: COMMAND.commandId, issuedAt: COMMAND.issuedAt, expiresAt: COMMAND.expiresAt,
     entryKey: "app:spooler", action: "stop", operation: "service.control", target: { name: "Spooler", action: "stop" }, before: "running" });
   // The target is the entry's own service name and the action as sent - never anything else in the body.
-  assert.deepEqual(calls.issue, [[USER, CABINET, "service.control", { name: "Spooler", action: "stop" }, undefined, undefined]]);
-  // A service control is a click-level operation: the request's token is spent here, bound to this exact entry, action and cabinet.
-  assert.deepEqual(calls.consume, [[TOKEN, USER.userId, SERVICE_CONTROL_STEP_UP, CABINET, boundParams(body())]]);
+  // The request's token goes with the command and is spent in its transaction, bound to this exact entry, action and cabinet.
+  assert.deepEqual(calls.issue, [[USER, CABINET, "service.control", { name: "Spooler", action: "stop" }, TOKEN, boundParams(body())]]);
   assert.equal(calls.row.length, 1, "one row per request");
   const row = calls.row[0]!;
   assert.equal(row.outcome, "succeeded");
@@ -158,14 +153,14 @@ test("a key that is not an approved-list key at all is refused with a code and a
     assert.match(one.message, /the entry key is not an approved-list key/);
     refusedRow(one.calls, CONTROL_CODES.entryInvalid);
     assert.equal(one.calls.issue.length, 0);
-    assert.equal(one.calls.consume.length, 0, "an invalid key never reaches the token");
+    assert.equal(one.calls.issue.length, 0, "an invalid key never reaches the token");
   }
   // The shape check is not the approval: a well-formed key nobody approved is the other refusal, and it says which list applied.
   for (const key of ["app:unlisted", "app:BIG", "app:has space"]) {
     const one = await refusalOf(body({ entryKey: key }));
     assert.equal(one.code, CONTROL_CODES.entryNotApproved, `key ${JSON.stringify(key)}`);
     assert.deepEqual((refusedRow(one.calls, CONTROL_CODES.entryNotApproved).details as Record<string, unknown>).listFrom, "cabinet");
-    assert.equal(one.calls.consume.length, 0);
+    assert.equal(one.calls.issue.length, 0);
   }
 });
 
@@ -189,7 +184,7 @@ test("the action is checked against the entry's kind, and against the platform's
     assert.equal(one.code, CONTROL_CODES.actionUnknown, `action ${JSON.stringify(action)}`);
     assert.equal(one.status, 400);
     refusedRow(one.calls, CONTROL_CODES.actionUnknown);
-    assert.equal(one.calls.consume.length, 0);
+    assert.equal(one.calls.issue.length, 0);
   }
   // A service is restarted through the service control manager, and its before/after are the operation's own words.
   const { calls, effects } = fakeEffects();
@@ -234,8 +229,7 @@ test("a process ID is a pointer into the cabinet's own report, never a target", 
   const outcome = await controlApproved(fakeDb(), USER, { ...end, processId: 4242 }, effects);
   assert.deepEqual(outcome.target, { processId: 4242, name: "dispenser" });
   assert.deepEqual(outcome.before, { processId: 4242, name: "dispenser", executablePath: DISPENSER.path });
-  // A code-level write: its own token is spent inside the command's transaction, so this route spends nothing first.
-  assert.deepEqual(calls.consume, []);
+  // A code-level write: its own token is spent inside the command's transaction.
   assert.deepEqual(calls.issue, [[USER, CABINET, "process.end", { processId: 4242, name: "dispenser" }, TOKEN, boundParams({ ...end, processId: 4242 })]]);
   assert.equal((calls.row[0]!.details as Record<string, unknown>).operation, "process.end");
   // A service entry can be ended as the process its own path names: the same pointer rule, on the same list.
@@ -249,8 +243,7 @@ test("a process ID is a pointer into the cabinet's own report, never a target", 
 test("the confirmation is bound to this exact entry, action and cabinet", async () => {
   const noToken = await refusalOf(body({ stepUpToken: "" }));
   assert.deepEqual([noToken.code, noToken.status], ["step_up_required", 403]);
-  assert.equal(noToken.calls.consume.length, 0, "a request with no token spends nothing");
-  assert.equal(noToken.calls.issue.length, 0);
+  assert.equal(noToken.calls.issue.length, 0, "a request with no token spends nothing");
   refusedRow(noToken.calls, "step_up_required");
   // What the token is spent on is the body without the token: this entry, this action, this cabinet.
   const bound = boundParams(body());
@@ -260,15 +253,15 @@ test("the confirmation is bound to this exact entry, action and cabinet", async 
   assert.notDeepEqual(boundParams(body()), boundParams(body({ action: "start" })));
   assert.notDeepEqual(boundParams(body()), boundParams(body({ cabinetId: OTHER })));
   // A token bought for another entry is spent nowhere: the refusal names the operation the token had to cover.
-  const wrongScope = await refusalOf(body(), {}, { consumeThrows: new Refused("step_up_required", 403, "a valid step-up token for this exact action is required") });
+  const wrongScope = await refusalOf(body(), {}, { issueThrows: new Refused("step_up_required", 403, "a valid step-up token for this exact action is required") });
   assert.equal(wrongScope.code, CONTROL_CODES.stepUpWrongScope);
   assert.equal(wrongScope.status, 403);
   assert.match(wrongScope.message, /confirm stop on app:spooler again/);
   const details = refusedRow(wrongScope.calls, CONTROL_CODES.stepUpWrongScope).details as Record<string, unknown>;
   assert.deepEqual([details.operation, details.stepUpAction], ["service.control", SERVICE_CONTROL_STEP_UP]);
-  assert.equal(wrongScope.calls.issue.length, 0, "a token that does not cover this request issues nothing");
+  assert.equal(wrongScope.calls.issue.length, 1, "the token is refused inside the issue, which then records nothing of its own");
   // Any other refusal from the token or the command is carried out with its own code and status.
-  const other = await refusalOf(body(), {}, { consumeThrows: new Refused("cabinet_offline", 503, "the cabinet is not connected") });
+  const other = await refusalOf(body(), {}, { issueThrows: new Refused("cabinet_offline", 503, "the cabinet is not connected") });
   assert.deepEqual([other.code, other.status], ["cabinet_offline", 503]);
   refusedRow(other.calls, "cabinet_offline");
   // A failure that is not a refusal at all is recorded as failed before it is thrown on.
