@@ -11,6 +11,10 @@
  - Running this again on an installed cabinet keeps its identity: the cabinet ID, the platform
     server it talks to, the scanner and sync settings and the bootstrap token already on the
     machine are kept unless this run gives them. Give -CabinetId to replace the identity.
+ - Read-only mode is kept on a reinstall unless -ReadOnly (on) or -ReadWrite (off) is given.
+ - The published programs must be in a folder only SYSTEM and Administrators can change (the console's installer
+    unpacks into such a folder); they are copied into a new folder under Program Files, and that copy is what is
+    signature-checked and installed.
   Run from an elevated PowerShell, after Publish-CabinetAgent.ps1.
   Every failure stops the install at the point it happened and prints four lines the operator can act on: what happened,
   the log folder on that cabinet, the state folder, and what to do next. The script exits with 1 when it fails.
@@ -22,6 +26,9 @@
   The SHA-256 is the one the console shows for the CA file; the installer refuses the file without it.
 .EXAMPLE
   .\Install-CabinetAgent.ps1 -ScannerHardwareId 'USB\VID_1234&PID_5678' -SyncCabinetAddress 10.20.0.15 -AllowedTcpPort 1433 -ReadOnly
+.EXAMPLE
+  .\Install-CabinetAgent.ps1 -ReadWrite
+  Reinstalls over an installed cabinet and turns read-only mode off; everything else is kept.
 #>
 [CmdletBinding()]
 param(
@@ -33,6 +40,9 @@ param(
     # Not given: the cabinet keeps the ID it is already enrolled with, and a cabinet that has none gets a new one.
     [guid] $CabinetId,
     [switch] $ReadOnly,
+    # Turns read-only mode off on a cabinet that has it (docs/spec/04-agent-spec.md: only reinstalling or a local
+    # administrator changes it). Without -ReadOnly or -ReadWrite a reinstall keeps the mode the cabinet already has.
+    [switch] $ReadWrite,
     [ValidateSet('sync', 'satellite', 'standalone')] [string] $CabinetRole,
     [string[]] $ScannerHardwareId = @(),
     [string] $SyncCabinetAddress,
@@ -49,10 +59,12 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{64}$')] [string] $PlatformCaSha256,
     # Development and demo builds are not code-signed. Production builds are, and are refused unless every program is.
     [switch] $AllowUnsigned,
-    # Throwaway CI machines only: skips the check that ordinary users cannot change the source folder.
+    # Throwaway CI machines only: skips the check that only SYSTEM and administrators can change the source folder.
     [switch] $SkipSourceFolderCheck
 )
 $ErrorActionPreference = 'Stop'
+# The copy of the programs this run checks and installs from (step 0); removed when the run ends, whatever happens.
+$incoming = $null
 
 # Where everything lives. These are plain path expressions with no side effects, so they are worked out before anything
 # can fail: the failure message at the bottom has to be able to name the log folder even when the install stopped in
@@ -90,6 +102,7 @@ function Get-PeMachine([string] $Path) {
     } finally { $stream.Dispose() }
 }
 
+if ($ReadOnly -and $ReadWrite) { throw 'Give -ReadOnly or -ReadWrite, not both: -ReadOnly turns read-only mode on, -ReadWrite turns it off.' }
 if ($BootstrapTokenFile) {
     if ($BootstrapToken) { throw 'Give -BootstrapToken or -BootstrapTokenFile, not both.' }
     if (-not (Test-Path -LiteralPath $BootstrapTokenFile -PathType Leaf)) {
@@ -147,22 +160,55 @@ if ($packageMachine -notin @(0x14c, 0x8664)) {
 }
 
 # 0. What is about to be installed as LocalSystem must be what was published.
-# - The source folder must not be writable by ordinary users (a folder made under C:\ is, by default): someone could swap a program.
+# - Nothing in the source folder may be a link (it could point anywhere), and only SYSTEM, Administrators and
+#   TrustedInstaller may be able to change it or own it. That includes the account running this script: an
+#   administrator's own Downloads folder is writable by that same account WITHOUT elevation, so any program the
+#   operator runs unelevated could swap a file between this check and the copy. The console's installer and its
+#   manual steps unpack into a new folder that only SYSTEM and Administrators can change; use that, or C:\Program Files.
 $sourceFull = (Resolve-Path -LiteralPath $SourceDir).Path
-$looseRights = [Security.AccessControl.FileSystemRights]'Write, Modify, FullControl, CreateFiles, AppendData, Delete'
-$broad = @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545')   # Everyone, Authenticated Users, Users
-if (-not $SkipSourceFolderCheck) { foreach ($folder in @($sourceFull) + @(Get-ChildItem -LiteralPath $sourceFull -Recurse -Directory | ForEach-Object FullName)) {
-    foreach ($rule in (Get-Acl -LiteralPath $folder).Access) {
-        $sid = try { $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' }
-        if ($rule.AccessControlType -eq 'Allow' -and $broad -contains $sid -and ($rule.FileSystemRights -band $looseRights)) {
-            throw "Ordinary users can change $folder. Unpack the agent into a folder only administrators can write (for example under your own Downloads folder, or C:\Program Files), then run again."
+$sourceItems = @(Get-Item -LiteralPath $sourceFull -Force) + @(Get-ChildItem -LiteralPath $sourceFull -Recurse -Force)
+foreach ($item in $sourceItems) {
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "$($item.FullName) is a link, not a file or folder. Unpack the agent archive again with the console's installer and run again." }
+}
+$trustedSids = @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')   # SYSTEM, Administrators, TrustedInstaller
+# The rights that let someone change a file or folder: write or append data (create files and folders), delete, delete
+# children, change permissions, take ownership, and the generic write and all rights an inheritable entry can carry.
+$changeRights = [int64]0x500D0046
+$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+function Get-Sid($Reference) { try { $Reference.Translate([Security.Principal.SecurityIdentifier]).Value } catch { '' } }
+if (-not $SkipSourceFolderCheck) { foreach ($item in $sourceItems) {
+    $acl = Get-Acl -LiteralPath $item.FullName
+    $owner = Get-Sid $acl.GetOwner([Security.Principal.SecurityIdentifier])
+    if ($trustedSids -notcontains $owner) {
+        $who = if ($owner -eq $currentSid) { 'your own account (without administrator rights)' } else { $owner }
+        throw "$($item.FullName) is owned by $who, so it can be changed without administrator rights. Install with the console's installer (it unpacks into a folder only administrators can change), or unpack into a folder under C:\Program Files, then run again."
+    }
+    foreach ($rule in $acl.Access) {
+        if ($rule.AccessControlType -ne 'Allow') { continue }
+        if ($rule.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly) { continue }   # applies to children, each checked itself
+        $sid = Get-Sid $rule.IdentityReference
+        if ($trustedSids -contains $sid) { continue }
+        if (([int64]$rule.FileSystemRights -band $changeRights) -ne 0) {
+            $who = if ($sid -eq $currentSid) { 'your own account (without administrator rights)' } elseif ($sid) { $sid } else { $rule.IdentityReference.Value }
+            throw "$($item.FullName) can be changed by $who. Only SYSTEM and administrators may be able to change what is installed. Install with the console's installer (it unpacks into a folder only administrators can change), or unpack into a folder under C:\Program Files, then run again."
         }
     }
 } }
+
+# - The programs are copied into a new folder under C:\Program Files (only administrators can change it) and every check
+#   from here on reads that copy, which is also what is installed: a file swapped in the source after this point is not
+#   the file that runs.
+$incoming = Join-Path $env:ProgramFiles ('Mashura\CabinetAgent.incoming-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $incoming | Out-Null
+foreach ($project in 'Cabinet.Agent.Broker', 'Cabinet.Agent.Network', 'Cabinet.Agent.Harness', 'Cabinet.Agent.Updater') {
+    $from = Join-Path $sourceFull $project
+    if (-not (Test-Path -LiteralPath $from -PathType Container)) { throw "The agent archive is incomplete: '$from' is missing. Unpack the whole archive again (the folder that holds Cabinet.Agent.Broker, Cabinet.Agent.Network, Cabinet.Agent.Harness and Cabinet.Agent.Updater) and run again." }
+    Copy-Item -LiteralPath $from -Destination (Join-Path $incoming $project) -Recurse
+}
 # - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
 # -File is required: on Windows PowerShell 5.1, -Include also returns matching *directories*,
 # and Get-AuthenticodeSignature cannot take a directory.
-$unsigned = Get-ChildItem -LiteralPath $sourceFull -Recurse -File -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
+$unsigned = Get-ChildItem -LiteralPath $incoming -Recurse -File -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
 if ($unsigned) {
     if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
     Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
@@ -193,9 +239,9 @@ function Invoke-Sc([string[]] $Arguments) {
     }
 }
 
-# 1. Program files (inherit the Program Files ACL: only administrators can change them).
+# 1. Program files (inherit the Program Files ACL: only administrators can change them), from the checked copy.
 foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ Name = $network; Project = 'Cabinet.Agent.Network' }, @{ Name = 'harness'; Project = 'Cabinet.Agent.Harness' }, @{ Name = 'updater'; Project = 'Cabinet.Agent.Updater' }) {
-    $from = Join-Path $SourceDir $service.Project
+    $from = Join-Path $incoming $service.Project
     if (-not (Test-Path $from)) { throw "The agent archive is incomplete: '$from' is missing. Unpack the whole archive again (the folder that holds Cabinet.Agent.Broker, Cabinet.Agent.Network, Cabinet.Agent.Harness and Cabinet.Agent.Updater) and run again." }
     $to = Join-Path $programDir $service.Project
     if (Get-Service -Name $service.Name -ErrorAction SilentlyContinue) {
@@ -306,7 +352,7 @@ $tcpPorts = @($AllowedTcpPort | Where-Object { $_ })
 if ($tcpPorts.Count -eq 0 -and $installed) { $tcpPorts = @($installed.allowedTcpPorts | Where-Object { $_ }) }
 $config = [ordered]@{
     cabinetId       = $CabinetId.ToString()
-    readOnlyMode    = if ($ReadOnly) { $true } elseif ($installed) { [bool]$installed.readOnlyMode } else { $false }
+    readOnlyMode    = if ($ReadOnly) { $true } elseif ($ReadWrite) { $false } elseif ($installed) { [bool]$installed.readOnlyMode } else { $false }
     cabinetRole     = if ($CabinetRole) { $CabinetRole } elseif ($installed) { $installed.cabinetRole } else { $null }
     scanner         = [ordered]@{ hardwareIds = @($hardwareIds) }
     syncCabinet     = [ordered]@{ address = if ($SyncCabinetAddress) { $SyncCabinetAddress } elseif ($installed) { $installed.syncCabinet.address } else { $null } }
@@ -380,5 +426,10 @@ catch {
     }
     Write-Host '  Next step     : send the "What happened" line and the newest log file to support - the log names the cause in plain words.'
     Write-Host ''
+    if ($incoming -and (Test-Path -LiteralPath $incoming)) { Remove-Item -LiteralPath $incoming -Recurse -Force -ErrorAction SilentlyContinue }
     exit 1
+}
+finally {
+    # The checked copy has been installed (or the run failed): it is not left behind under Program Files.
+    if ($incoming -and (Test-Path -LiteralPath $incoming)) { Remove-Item -LiteralPath $incoming -Recurse -Force -ErrorAction SilentlyContinue }
 }

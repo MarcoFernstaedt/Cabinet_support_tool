@@ -17,9 +17,29 @@ function Invoke-Sc([string[]] $Arguments) {
     return @{ ExitCode = $LASTEXITCODE; Output = (($output -replace '\s+', ' ').Trim()) }
 }
 
+function Remove-Tree([string] $Path) {
+    # Deletes a folder tree WITHOUT following links. Windows PowerShell 5.1's Remove-Item -Recurse walks into a junction or
+    # directory symbolic link and deletes what it points at, so a link planted in the data folder (the network service can
+    # write its state and log folders) could turn -RemoveData into deleting a folder elsewhere on the machine as SYSTEM.
+    # Here a link is removed as a link (the link itself, never its target), and only real folders are walked into.
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return }
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ($item.PSIsContainer) { [IO.Directory]::Delete($item.FullName, $false) } else { [IO.File]::Delete($item.FullName) }
+        return
+    }
+    if ($item.PSIsContainer) {
+        foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force)) { Remove-Tree $child.FullName }
+        [IO.Directory]::Delete($item.FullName, $false)
+    } else {
+        if ($item.Attributes -band [IO.FileAttributes]::ReadOnly) { $item.Attributes = $item.Attributes -band (-bnot [IO.FileAttributes]::ReadOnly) }
+        [IO.File]::Delete($item.FullName)
+    }
+}
+
 function Remove-Path([string] $Path) {
     if (-not (Test-Path -LiteralPath $Path)) { return }
-    Remove-Item -Recurse -Force -LiteralPath $Path
+    Remove-Tree $Path
     # This script says the agent was removed, so a file still there (in use, or owned by someone else) is a failure to
     # report, not a warning to swallow.
     if (Test-Path -LiteralPath $Path) { throw "$Path could not be removed. Stop whatever is using it (a service, an open log file) and run again." }
