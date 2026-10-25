@@ -53,11 +53,24 @@ export interface Admission {
   connectionRetryAfterSeconds: [number, number];
   /** Tests force the overloaded state. */
   overloaded?: () => boolean;
+  /**
+   * Traffic without a client certificate that chains to the platform's CA (enrollment, enrollment status, health, and anything else
+   * sent without one) never draws on the two shared buckets above: it has its own small buckets, per source (an IPv4 address or an
+   * IPv6 /64) and in total, so a flood of it cannot shed an enrolled cabinet.
+   */
+  unauthenticatedPerSecond: number; unauthenticatedBurst: number;
+  unauthenticatedTotalPerSecond: number; unauthenticatedTotalBurst: number;
+  /** Enrollment status polls per source per minute (an agent waiting for approval polls once a minute). */
+  enrollStatusPerMinute: number;
+  /** The most sources the per-source limits remember; past it new sources share one overflow bucket until the map is pruned. */
+  maxSources: number;
 }
 
 export const DEFAULT_ADMISSION: Admission = {
   newConnectionsPerSecond: 300, newConnectionsBurst: 900, requestsPerSecond: 2_000, requestsBurst: 4_000,
   maxPendingAcquires: 20, maxAcquireWaitMs: 1_000, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90], connectionRetryAfterSeconds: [3, 15],
+  unauthenticatedPerSecond: 5, unauthenticatedBurst: 50, unauthenticatedTotalPerSecond: 200, unauthenticatedTotalBurst: 1_000,
+  enrollStatusPerMinute: 30, maxSources: 20_000,
 };
 
 export interface AgentApiOptions {
@@ -114,6 +127,54 @@ export class TokenBucket {
     this.tokens -= 1;
     return true;
   }
+}
+
+/**
+ * The source a per-source limit counts against: an IPv4 address (an IPv4-mapped IPv6 address counts as its IPv4 address), or the /64
+ * of an IPv6 address, since one subscriber is normally given a whole /64 and could otherwise rotate through it. Anything that does not
+ * parse is its own key, lower-cased.
+ */
+export function sourceKey(ip: string): string {
+  const text = ip.trim().toLowerCase();
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(text);
+  if (mapped) return mapped[1]!;
+  if (!text.includes(":")) return text;
+  const bare = text.split("%")[0]!;
+  const [head, tail] = bare.includes("::") ? bare.split("::", 2) as [string, string] : [bare, null];
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = tail === null ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  if (groups.length < 4 || groups.slice(0, 4).some(g => !/^[0-9a-f]{1,4}$/.test(g))) return text;
+  return `${groups.slice(0, 4).map(g => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+/**
+ * One token bucket per source, kept bounded: at most maxSources keys. Past that, sources share one overflow bucket until prune() drops
+ * the buckets that have refilled (an idle source has a full bucket and nothing to remember), which a timer does every minute.
+ */
+export class SourceBuckets {
+  private readonly buckets = new Map<string, { tokens: number; last: number }>();
+  static readonly OVERFLOW = "overflow";
+  constructor(private readonly rate: number, private readonly burst: number, private readonly maxSources: number) {}
+  take(key: string, now = Date.now()): boolean {
+    let b = this.buckets.get(key);
+    if (!b) {
+      if (this.buckets.size >= this.maxSources) this.prune(now);
+      if (this.buckets.size >= this.maxSources) key = SourceBuckets.OVERFLOW;
+      b = this.buckets.get(key);
+      if (!b) { b = { tokens: this.burst, last: now }; this.buckets.set(key, b); }
+    }
+    b.tokens = Math.min(this.burst, b.tokens + ((now - b.last) / 1000) * this.rate);
+    b.last = now;
+    if (b.tokens < 1) return false;
+    b.tokens -= 1;
+    return true;
+  }
+  /** Drops every bucket that has refilled: those sources have been quiet long enough that forgetting them changes nothing. */
+  prune(now = Date.now()): void {
+    for (const [key, b] of this.buckets) if (b.tokens + ((now - b.last) / 1000) * this.rate >= this.burst) this.buckets.delete(key);
+  }
+  get size(): number { return this.buckets.size; }
 }
 
 /** The acknowledgement list of a poll: ?ack=<id>,<id> with at most MAX_COMMANDS_PER_POLL command IDs; anything else is refused. */
@@ -181,7 +242,6 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   const eventCounts = new Map<string, { hour: number; n: number }>();
   const configPerHour = o.configPerHour ?? 240;
   const configCounts = new Map<string, { hour: number; n: number }>();
-  const enrollAttempts = new Map<string, number[]>();
   const refusedLogged = new Map<string, number>();
   const admission: Admission = { ...DEFAULT_ADMISSION, ...o.admission };
   const leaseSeconds = o.leaseSeconds ?? LEASE_SECONDS;
@@ -233,6 +293,15 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     || o.pool.pending > admission.maxPendingAcquires * 10 || lagSeconds >= 6);
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
+  // Traffic without a verified client certificate: its own buckets, per source and in total, never the shared ones above.
+  const unauthenticatedTotal = new TokenBucket(admission.unauthenticatedTotalPerSecond, admission.unauthenticatedTotalBurst);
+  const unauthenticatedSources = new SourceBuckets(admission.unauthenticatedPerSecond, admission.unauthenticatedBurst, admission.maxSources);
+  const enrollStatusSources = new SourceBuckets(admission.enrollStatusPerMinute / 60, admission.enrollStatusPerMinute, admission.maxSources);
+  const enrollSources = new SourceBuckets(enrollPerHour / 3600, enrollPerHour, admission.maxSources);
+  const sourcesTimer = setInterval(() => { const now = Date.now(); unauthenticatedSources.prune(now); enrollStatusSources.prune(now); enrollSources.prune(now); }, 60_000);
+  sourcesTimer.unref();
+  /** Connections whose certificate chains to our CA but was refused (revoked, removed, unknown): treated as unauthenticated from then on. */
+  const refusedConnections = new WeakSet<object>();
   const admitted = new WeakSet<object>();
   const connectionRetryAfter = (): number => randomInt(admission.connectionRetryAfterSeconds[0], admission.connectionRetryAfterSeconds[1] + 1);
   const retryAfter = (): number => randomInt(admission.retryAfterSeconds[0], admission.retryAfterSeconds[1] + 1);
@@ -269,6 +338,25 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   });
   // Admission, before anything touches the database: shutdown, new-connection and request rates, and load.
   app.addHook("onRequest", async (request, reply) => {
+    const path = request.url.split("?")[0] ?? "";
+    // A request is charged to the shared buckets only when its connection carries a client certificate the TLS handshake verified
+    // against the platform's CA (and that was not refused since). Anything else - enrollment, its status, health, or a request to a
+    // cabinet route without a certificate - is counted per source and in total in buckets of its own, so it can never use up what
+    // the enrolled fleet needs. Whether the certificate is still accepted is checked by requireCabinet below.
+    const certified = tlsSocketOf(request).authorized === true && !refusedConnections.has(connectionOf(request));
+    if (!certified) {
+      const source = sourceKey(request.ip);
+      const limited = !unauthenticatedSources.take(source) || !unauthenticatedTotal.take()
+        || (request.method === "GET" && path.startsWith("/agent/v1/enroll/") && !enrollStatusSources.take(source));
+      if (limited) {
+        return reply.code(429).header("retry-after", String(connectionRetryAfter())).header("connection", "close").send({ error: "rate_limited" });
+      }
+      if (path === "/health") return;
+      if (shuttingDown) return shed(request, reply, { seconds: Math.ceil(reconnectSpread() / 1000), closeConnection: true });
+      // Enrollment reads and writes the database; it waits while the database is behind, like everything else.
+      if (overloaded()) return shed(request, reply, { seconds: retryAfter() });
+      return;
+    }
     if (request.url === "/health") return;
     if (shuttingDown) {
       const ms = reconnectSpread();
@@ -282,7 +370,6 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });
     // A long poll turned away for load comes back in 10 to 30 s: it costs the database almost nothing (one seek when nothing waits),
     // and sending it away for a minute would leave its cabinet unable to receive a command for that long; sooner adds load (2-10 s did, at 10,000).
-    const path = request.url.split("?")[0];
     const essential = (request.method === "GET" && path === "/agent/v1/commands") || (request.method === "POST" && path === "/agent/v1/results");
     if (essential ? severelyOverloaded() : overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
   });
@@ -306,6 +393,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   app.addHook("onClose", async () => {
     clearInterval(ticketTimer);
     clearInterval(lagTimer);
+    clearInterval(sourcesTimer);
     lag.disable();
     if (ownPresence) await presence.stop();
   });
@@ -349,6 +437,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     const found = socket.authorized && serial ? await authenticate(o.pool, serial, subject) : null;
     if (!found) {
       accepted.delete(connection);
+      // A certificate that chains to our CA but is not accepted (revoked, expired, removed cabinet): the rest of this connection's
+      // requests are counted as unauthenticated traffic, not against the fleet's shared buckets.
+      if (socket.authorized) refusedConnections.add(connection);
       opsMeter.count("agent_auth_fail", !serial ? "no_certificate" : socket.authorized ? "certificate_refused" : "untrusted");
       await noteRefusal(request, socket.authorized, serial, subject);
       return reply.code(401).send({ error: "certificate_refused" });
@@ -411,14 +502,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     return ++refusedCount <= 30;
   };
   app.post("/agent/v1/enroll", async (request, reply) => {
-    const now = Date.now();
-    const recent = (enrollAttempts.get(request.ip) ?? []).filter(t => now - t < 3_600_000);
-    if (recent.length >= enrollPerHour) return reply.code(429).send({ error: "rate_limited" });
-    recent.push(now);
-    enrollAttempts.set(request.ip, recent);
-    // Kept bounded: addresses with no attempt in the last hour are dropped once the map grows.
-    if (enrollAttempts.size > 10_000)
-      for (const [ip, times] of enrollAttempts) if (!times.some(t => now - t < 3_600_000)) enrollAttempts.delete(ip);
+    // enrollPerHour submissions per source (an IPv4 address or an IPv6 /64) per hour, as a bucket that refills over the hour; the map is
+    // bounded and pruned every minute (SourceBuckets).
+    if (!enrollSources.take(sourceKey(request.ip))) return reply.code(429).header("retry-after", "60").send({ error: "rate_limited" });
     const body = envelopes.enrollRequest.parse(request.body);
     try {
       const requestId = await submitEnrollment(o.pool, body, request.ip);
