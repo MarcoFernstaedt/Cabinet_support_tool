@@ -1,5 +1,6 @@
-// The two operations that touch a running program - service.control and process.end - aim only at what the cabinet's approved-
-// applications list names, whichever route asked for them (docs/spec/13-roadmap.md milestone 10).
+// The operations that touch a running program or decide whether one runs - service.control, service.setStartType and process.end -
+// aim only at what the cabinet's approved-applications list names, whichever route asked for them (docs/spec/13-roadmap.md milestone
+// 10). A start type decides what Windows starts at the next boot, so changing one (raising or lowering it) is control too.
 //
 // Why the server checks this for every route and not only for the control route: an agent built before the list existed enforces
 // nothing, so a generic command naming any service or any process ID would be carried out. The server is the one place every request
@@ -12,7 +13,7 @@ import { Refused } from "./errors.js";
 import { latestReading } from "./readings.js";
 
 /** The operations that need an approved target and, whatever the catalog's confirmation level, a step-up code bound to the parameters. */
-export const CONTROLLED_OPERATIONS: ReadonlySet<string> = new Set(["service.control", "process.end"]);
+export const CONTROLLED_OPERATIONS: ReadonlySet<string> = new Set(["service.control", "service.setStartType", "process.end"]);
 
 /** One process as the cabinet itself last reported it (operations/processes.list.schema.json). The path may be missing: Windows does not give one for every process. */
 export interface ReportedProcess {
@@ -66,7 +67,7 @@ export async function assertApprovedTarget(db: Queryable, cabinetId: string, ope
   if (!CONTROLLED_OPERATIONS.has(operation)) return;
   const levels = await appLevels(db, cabinetId);
   const entries = levels.effective?.entries ?? [];
-  if (operation === "service.control") {
+  if (operation === "service.control" || operation === "service.setStartType") {
     // Windows compares service key names without regard to case, so the list does too.
     const name = typeof params.name === "string" ? params.name.toLowerCase() : "";
     if (!entries.some(e => e.kind === "service" && e.serviceName !== null && e.serviceName.toLowerCase() === name))
@@ -78,6 +79,8 @@ export async function assertApprovedTarget(db: Queryable, cabinetId: string, ope
   const row = reported.processes.find(p => p.processId === params.processId);
   if (!row || row.name !== params.name)
     throw new Refused("control_process_unreported", 404, "the cabinet's own process list has no such process ID with that name");
-  if (row.executablePath === null || !entries.some(e => entryPath(e) === row.executablePath))
+  // Windows compares paths without regard to case, and so does the cabinet (ApprovedApps.ForProgram).
+  const reportedPath = row.executablePath?.toLowerCase() ?? null;
+  if (reportedPath === null || !entries.some(e => entryPath(e).toLowerCase() === reportedPath))
     throw new Refused("control_process_not_approved", 403, "the program the cabinet reports under that process ID is not on its approved-applications list");
 }

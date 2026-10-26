@@ -715,3 +715,18 @@ The agent API is on the public internet. Traffic without a valid cabinet certifi
 The cabinet's copy of the approved list lives in `state\monitor-settings.json`, which the network service writes from the heartbeat answer because the broker never touches the network. The network service can therefore write any list it likes: a network service that has been taken over can approve a program of its choice and then ask the broker to start, stop or end it. The list is a guard rail (it keeps an honest network service, a mistaken console request and a replayed command to what the console approved), not a wall against a compromised network process. The code comments and this file used to say the network process "cannot name a program the server's list does not carry"; that was not true and has been corrected.
 
 The fix that would make it a wall: the server signs the list (or the whole heartbeat answer's list part) with an administrator-held key, and the broker pins that key the way it pins the upgrade keys (compiled in, changed only by a signed agent upgrade), refusing any list whose signature does not verify. Questions for the owner: which key signs it (a new KMS key, or the upgrade signing key's chain), whether the console's list change then needs an offline signing step, and what a cabinet does between an agent upgrade that adds the check and the first signed list (proposal: approve nothing).
+
+## Approved programs: what counts as control, and what the server enforces (October 2026)
+
+Decided with the owner: only programs on the approved list are watched or restarted. Changes made after an adversarial review:
+
+- **Starting, stopping and starting at boot are all control.** `service.control`, `service.setStartType` and `process.end` need an approved target and an authenticator code bound to the parameters, whatever the catalog says. Lowering a start type is control too, since it stops the service at the next boot. That makes `service.setStartType` a code action for an approved service only. Runbooks can no longer offer it as a one-click fix, and existing runbook steps that use it are refused when run.
+- **Watched services are filtered on the server.** A service on a watched list that the approved list does not name is never sent to the cabinet. Agents built before the watcher checked the list start whatever they are told to watch.
+- **A damaged list is shown as damaged.** The heartbeat and the control check read the stored lists the same way: a damaged level denies everything and is never read as "not set". The console says so and lets an Admin replace it.
+- **Process paths are compared without regard to case**, as Windows and the cabinet do.
+- **The cabinet repairs its list file.** If the file is missing or damaged, the next heartbeat answer rewrites it, even when the server's list did not change.
+- **Known and accepted:**
+  - A service entry also allows ending its program's process. `svchost` and the platform's own processes stay protected by the agent's refused list.
+  - An unquoted service image path with spaces is matched as written. Planting `C:\Program.exe` needs administrator rights.
+  - The USB policy writes are now Admin-only and need a code, but no route calls them yet.
+- **Still open: signing the list.** The cabinet's list file is written by the unprivileged network service, so it is a guard rail until it is signed with an Admin-held key the cabinet pins. That is the next PR.

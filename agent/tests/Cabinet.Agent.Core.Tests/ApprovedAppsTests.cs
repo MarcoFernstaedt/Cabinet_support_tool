@@ -333,6 +333,25 @@ public class ApprovedAppsOnDiskTests
     }
 
     [Fact]
+    public void The_next_heartbeat_answer_repairs_a_list_file_that_was_deleted_or_damaged_even_when_the_list_did_not_change()
+    {
+        using var dir = new TempDir();
+        var (file, settings, broker, _) = WithGoodList(dir);
+        File.Delete(file);
+        Assert.True(broker.Current.IsEmpty);
+        settings.Apply(Answer(ApprovedLists.Entry()));
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(1));
+        Assert.Equal("app:scanner", Assert.Single(broker.Current.Entries).Key);
+
+        File.WriteAllText(file, "{ not json");
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(2));
+        Assert.True(broker.Current.IsEmpty);
+        settings.Apply(Answer(ApprovedLists.Entry()));
+        File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(3));
+        Assert.Equal("app:scanner", Assert.Single(broker.Current.Entries).Key);
+    }
+
+    [Fact]
     public void A_good_list_whose_file_disappears_leaves_nothing_approved()
     {
         using var dir = new TempDir();

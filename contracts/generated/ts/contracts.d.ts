@@ -1781,6 +1781,7 @@ export interface StepUpRequest {
     | "system.restart"
     | "process.end"
     | "service.control"
+    | "service.setStartType"
     | "package.upload"
     | "package.approve"
     | "package.retire"

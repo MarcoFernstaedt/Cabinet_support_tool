@@ -120,9 +120,15 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   // The same levels resolve the approved programs the broker may control. A level whose stored list fails its own fingerprint, the
   // heartbeat contract's shape, or does not read as a list, resolves to an empty list (deny) rather than to the level above it, so a
   // damaged column can only narrow what the cabinet may do, and it cannot make the heartbeat answer fail its own contract.
-  const apps = r ? resolveLevels({ cabinet: parseJson(r.ka), site: parseJson(r.sa), client: parseJson(r.ca), fleet: parseJson(r.fa) }) : null;
+  // The raw column values go in: resolveLevels parses and checks each one itself, the same way the control check does (appLevels), so a
+  // damaged column is rejected (deny) here too, never read as "not set" and replaced by the broader level.
+  const apps = r ? resolveLevels({ cabinet: r.ka, site: r.sa, client: r.ca, fleet: r.fa }) : null;
+  // Only an approved service may be kept running: a watched service that is not on the approved list is not sent, so an agent built
+  // before the watcher asked the list (which starts whatever it is told to watch) never starts it either.
+  const approvedServices = new Set((apps?.effective?.entries ?? []).filter(e => e.kind === "service" && e.serviceName).map(e => e.serviceName!.toLowerCase()));
+  const watchedApproved = watched.filter(name => approvedServices.has(name.toLowerCase()));
   return { wasOffline: !!r?.was_offline && !!r?.offline_open, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
-    scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched,
+    scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched: watchedApproved,
     approved: (apps?.effective?.entries ?? []).map(rawEntry) };
 }
 
