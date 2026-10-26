@@ -651,14 +651,27 @@ Main carried one machine's deployment (a tailnet front, Tailscale Funnel, a cons
 - **Console and agent API public for the test period** (cabinets on separate networks must reach the agent API). The spec's Control 3 (console on an internal network or VPN) still applies before production: set `CONSOLE_ALLOW_FROM` or keep the console behind the tailnet.
 - **Open:** confirm the release private key does not live on the server host. With unsigned development upgrades on, that key alone decides what every cabinet runs.
 
-## Sign-in limits: one person cannot lock everyone out (October 2026)
+## Sign-in limits: one person cannot lock everyone at an address out (October 2026)
 
-Control 6 limits sign-in "per account and per address". Behind a proxy that hid the browser's address, every person shared one address, so thirty wrong passwords from anyone refused every sign-in for 15 minutes. Two changes:
+Control 6 limits sign-in "per account and per address". Behind a proxy that hid the browser's address, every person shared one address, so thirty wrong passwords from anyone refused every sign-in for 15 minutes.
 
-- **The real address reaches the server.** Caddy sends the server exactly one address, the one it determined (`header_up X-Forwarded-For {client_ip}`). The tailnet example trusts `X-Forwarded-For` only from the Docker gateway Tailscale connects through. Tailscale Serve and Funnel overwrite that header with the address that connected to them, so a browser cannot plant one.
-- **The address limit no longer locks out people it cannot tell apart.**
-  - IPv6 is counted per /64.
-  - Past the limit, a browser the account has signed in with before (its device cookie, 256 random bits, stored only as a hash) may still try. Its wrong passwords count toward the account's own lock.
-  - A new browser at that address is refused before any password is checked.
-  - The steps after the password (authenticator code, password change, password confirmation) need a session and are guarded by the account's own lock, not by the address limit.
-- **Still shared:** people reaching the console through another site's proxy (for example a rewrite on another domain) arrive from that proxy's addresses. They share one address limit until each has signed in once from their browser. Trusting that proxy's forwarded header would need a secret only the proxy can send.
+**The real address reaches the server.**
+- Caddy sends the server exactly one address, the one it determined (`header_up X-Forwarded-For {client_ip}`).
+- The tailnet example trusts `X-Forwarded-For` only from the Docker gateway Tailscale connects through. Tailscale Serve and Funnel (HTTP mode) overwrite that header with the address that connected to them, so a browser cannot plant one.
+- Two assumptions follow:
+  - Serve or Funnel in raw TCP mode would make the header spoofable.
+  - Trusting the gateway trusts every process on the host.
+
+**The address limit no longer locks out people it cannot tell apart.**
+- **What is counted:** an IPv4 address, an IPv6 /64 (30 failures in 15 minutes), and an IPv6 /48 (120).
+- **Past the limit:** only a browser that has fully signed in to the account may still try. That means past the password and the authenticator code. It is recognised by its device cookie (256 random bits, stored as a hash, marked trusted by migration 0009's `trusted_at`).
+  - A password alone never makes a browser trusted.
+  - Changing the password keeps only the browser that changed it.
+  - An Admin ending the account's sessions (password or authenticator reset, role change, deletion) forgets them all.
+  - The browser's wrong passwords still count toward the account's own lock.
+- **How it answers:** a request without a trusted browser is refused before the username is looked up or a password checked, at no database cost. The browser is looked up by its device value alone, so the answer costs the same for any username.
+- **After the password:** the steps that follow (authenticator code, password change, password confirmation) need a session. The account's own lock guards them, not the address limit.
+
+**Still open:**
+- **One account can still be locked by name.** Five wrong passwords lock that account for 15 minutes, whatever the address. The spec's per-account lock is unchanged. A trusted browser does not get past it.
+- **People behind another site's proxy share its addresses.** That covers, for example, a rewrite on another domain. They share an address limit until each has fully signed in once from their browser. Trusting that proxy's forwarded header would need a secret only the proxy can send.
