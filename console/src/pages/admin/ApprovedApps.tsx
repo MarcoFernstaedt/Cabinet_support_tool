@@ -2,13 +2,13 @@
 // One list per level: the fleet default, a client, a site. The most specific level with a list wins whole for a cabinet. Only an Admin
 // changes a list, with an authenticator code bound to the exact entries; the server and the cabinet check every request against it.
 import { useEffect, useMemo, useState } from "react";
-import { api, describeError } from "../../lib/api";
+import { api, ApiError, describeError } from "../../lib/api";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { fullTime } from "../../lib/time";
 import type { KnownClient } from "./Admin";
-import { entryKey, entryProblem, toEntry, type AppEntry, type AppList } from "../../lib/approved-apps";
+import { documentBytes, entryKey, entryProblem, readSignatureFile, toEntry, type AppEntry, type AppList } from "../../lib/approved-apps";
 type Level = "fleet" | "client" | "site";
 
 export function ApprovedApps() {
@@ -52,8 +52,13 @@ export function ApprovedApps() {
 }
 
 function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Level; scopeId: string | null }) {
-  const data = useLoad<{ own?: AppList | null; ownRejected?: boolean; fleet: AppList | null; fleetRejected?: boolean }>(endpoint);
-  const own = level === "fleet" ? data.data?.fleet ?? null : data.data?.own ?? null;
+  const data = useLoad<{ own?: AppList | null; ownRejected?: boolean; ownPending?: AppList | null; fleet: AppList | null; fleetRejected?: boolean;
+    fleetPending?: AppList | null; signing?: { enabled: boolean } }>(endpoint);
+  const live = level === "fleet" ? data.data?.fleet ?? null : data.data?.own ?? null;
+  const pendingList = (level === "fleet" ? data.data?.fleetPending : data.data?.ownPending) ?? null;
+  const signingOn = data.data?.signing?.enabled === true;
+  // The editor starts from the newest saved list: the change waiting for a signature when there is one, else the list in force.
+  const own = pendingList ?? live;
   const rejected = (level === "fleet" ? data.data?.fleetRejected : data.data?.ownRejected) === true;
   const loaded = data.data !== undefined && data.data !== null;
   const [entries, setEntries] = useState<AppEntry[] | null>(null);
@@ -74,7 +79,8 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
     <section className="panel stack" aria-labelledby="apps-list">
       <h2 id="apps-list">{level === "fleet" ? "Fleet default" : level === "client" ? "This client's list" : "This site's list"}{" "}
         {entries === null ? <Badge tone="off">Not set</Badge> : <Badge tone="ok">{list.length} {list.length === 1 ? "program" : "programs"}</Badge>}</h2>
-      {own && <p className="muted small">Version {own.version}, saved {fullTime(own.setAt)}.</p>}
+      {live && <p className="muted small">In force: version {live.version}, saved {fullTime(live.setAt)}.{signingOn && (live.signed ? " Signed." : " Not signed yet.")}</p>}
+      {signingOn && <SigningPanel endpoint={endpoint} level={level} scopeId={scopeId} live={live} pending={pendingList} onChange={() => data.reload()} />}
       {rejected && <p className="notice warn" role="alert">The list stored here is damaged, so this level approves nothing until it is replaced. Add the programs again and save, or {level === "fleet" ? "approve nothing here" : "use the level above"}.</p>}
       {entries === null && !rejected && <p>{level === "fleet" ? "No fleet default: cabinets without a client or site list may not control any program." : <>Nothing set here, so the level above applies{data.data?.fleet && level === "client" ? <> (the fleet default: {data.data.fleet.entries.length} programs)</> : ""}.</>}</p>}
       {entries !== null && list.length === 0 && <p><strong>Approves nothing</strong> at this level, even if the level above has programs.</p>}
@@ -103,21 +109,86 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
       <div className="row gap wrap">
         <button className="btn primary" disabled={!changed} onClick={() => { setProblem(null); setSaved(null); setPending(entries); }}>Save</button>
         {entries === null && <button className="btn" onClick={() => setEntries([])}>Approve nothing here</button>}
-        {(own !== null || rejected) && level !== "fleet" && <button className="btn ghost" onClick={() => { setProblem(null); setSaved(null); setPending(null); }}>Use the level above</button>}
+        {(live !== null || pendingList !== null || rejected) && level !== "fleet" && <button className="btn ghost" onClick={() => { setProblem(null); setSaved(null); setPending(null); }}>Use the level above</button>}
         {changed && <button className="btn ghost" onClick={() => setEntries(own ? own.entries.map(toEntry) : null)}>Discard changes</button>}
         {saved && <span className="ok" role="status">{saved}</span>}
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       <StepUpDialog open={pending !== undefined} action={action} target={level === "fleet" ? "fleet" : scopeId!} params={pending === undefined ? undefined : body(pending)}
         onClose={() => setPending(undefined)}
-        description={<p>{pending === null ? "Remove this level's list, so the level above applies." : pending && pending.length === 0 ? "Approve no programs at this level." : `Approve exactly these ${pending?.length ?? 0} programs at this level. Cabinets use the list from their next heartbeat.`}</p>}
+        description={<p>{pending === null ? "Remove this level's list, so the level above applies." : pending && pending.length === 0 ? "Approve no programs at this level." : `Approve exactly these ${pending?.length ?? 0} programs at this level. ${signingOn ? "It goes into force once you sign it." : "Cabinets use the list from their next heartbeat."}`}</p>}
         onToken={async token => {
           try {
             await api("PUT", endpoint, { ...body(pending ?? null), stepUpToken: token });
-            setSaved("Saved. Cabinets use it from their next heartbeat.");
+            setSaved(signingOn && pending !== null ? "Saved. Sign it below to put it in force." : "Saved. Cabinets use it from their next heartbeat.");
             data.reload();
           } catch (e) { setProblem(describeError(e)); throw e; }
         }} />
     </section>
+  );
+}
+
+/**
+ * Signing (docs/spec/09-open-decisions.md "Signing the approved list"): the Admin downloads the exact document, signs it on their own
+ * computer with Sign-ApprovedList.ps1, and uploads the signature file. The server checks it before the list goes into force.
+ */
+function SigningPanel({ endpoint, level, scopeId, live, pending, onChange }: { endpoint: string; level: Level; scopeId: string | null;
+  live: AppList | null; pending: AppList | null; onChange: () => void }) {
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const target = pending ?? (live && !live.signed ? live : null);
+  if (!target) return live?.signed ? <p className="notice ok small">This list is signed. Cabinets that check signatures use it.</p> : null;
+
+  async function download() {
+    setProblem(null);
+    try {
+      const doc = await api<{ version: number; document: string; fileName: string }>("GET", `${endpoint}/to-sign`);
+      const href = URL.createObjectURL(new Blob([documentBytes(doc.document)], { type: "application/octet-stream" }));
+      const a = Object.assign(document.createElement("a"), { href, download: doc.fileName });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(href), 10_000);
+    } catch (e) { setProblem(describeError(e)); }
+  }
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setProblem(null); setDone(null);
+    const read = readSignatureFile(await file.text());
+    if (!read.ok) { setProblem(read.problem); return; }
+    setBusy(true);
+    try {
+      await api("POST", `${endpoint}/signature`, { level, id: scopeId, version: target!.version, signature: read.signature });
+      setDone(`Signed. Version ${target!.version} is in force; cabinets use it from their next heartbeat.`);
+      onChange();
+    } catch (e) {
+      // The two refusals an Admin can act on, said plainly; anything else is the platform's usual explanation.
+      if (e instanceof ApiError && e.code === "signature_invalid")
+        setProblem("The signature does not verify for this list. Sign the file you downloaded for this version, with the list-signing key, and upload what the script wrote.");
+      else if (e instanceof ApiError && e.code === "conflict")
+        setProblem("This version is no longer waiting for a signature (the list was changed or signed meanwhile). Download it again.");
+      else setProblem(describeError(e));
+      onChange();
+    }
+    finally { setBusy(false); }
+  }
+  async function discard() {
+    setProblem(null);
+    try { await api("POST", `${endpoint}/pending/discard`, {}); onChange(); }
+    catch (e) { setProblem(describeError(e)); }
+  }
+  return (
+    <div className="notice warn stack" role="region" aria-label="Waiting for a signature">
+      <p><strong>{pending ? `Version ${target.version} is waiting for your signature.` : `Version ${target.version} is not signed.`}</strong>{" "}
+        {pending ? "It is not in force until it is signed; the list above stays in force." : "Cabinets that check signatures approve nothing from it until it is signed."}</p>
+      <ol className="small">
+        <li><button className="btn small" onClick={download}>Download the list to sign</button></li>
+        <li>On your computer, run <code>Sign-ApprovedList.ps1 -ListFile &lt;the file&gt;</code> with your list-signing key.</li>
+        <li><label className="field inline"><span>Upload the signature file</span>
+          <input type="file" accept=".json,application/json" disabled={busy} onChange={e => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label></li>
+      </ol>
+      {pending && <div><button className="btn small ghost" onClick={discard}>Discard this change</button></div>}
+      {done && <p className="ok" role="status">{done}</p>}
+      {problem && <p className="error" role="alert">{problem}</p>}
+    </div>
   );
 }

@@ -590,6 +590,22 @@ export interface ApprovedApps {
 }
 
 /**
+ * An Admin's signature for one level's approved list (docs/spec/09-open-decisions.md "Signing the approved list"): the file Sign-ApprovedList.ps1 wrote, for the version the console offered. The server checks it over the exact document it offered for that level and version, with a key the agents hold, before the list goes into force. No step-up code: the signature is the Admin's confirmation, made on their own computer.
+ */
+export interface ApprovedListSign {
+  level: "fleet" | "client" | "site" | "cabinet";
+  /**
+   * The client, site or cabinet id; null for the fleet.
+   */
+  id: string | null;
+  /**
+   * The version the signature is for, as the console offered it.
+   */
+  version: number;
+  signature: ApprovedListSignature;
+}
+
+/**
  * The audit log search, from the query string: by user, cabinet, action and date range, newest first.
  */
 export interface AuditFilter {
@@ -2412,6 +2428,16 @@ export interface HeartbeatResponse {
    */
   approvedApps?: {
     entries: ApprovedAppEntries;
+    /**
+     * The same list as an Admin signed it (docs/spec/09-open-decisions.md "Signing the approved list"): base64 of the signed document's exact bytes and the detached signature over them. An agent built with a list-signing key acts only on this, and only once the signature verifies; entries is kept for agents built before signing. Sent only to agents from 0.3.0 on, since an older agent refuses a field it does not know.
+     */
+    signed?: {
+      /**
+       * Base64 of the document's exact bytes (at most 32 KB).
+       */
+      document: string;
+      signature: ApprovedListSignature;
+    };
   };
   /**
    * Server-directed pacing. The server raises these under load or for cabinets on poor links; the agent clamps them to the given ranges and uses its defaults when absent.

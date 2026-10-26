@@ -14,6 +14,12 @@
 //
 // Only a server administrator sets a list, with a step-up token bound to the exact entries: a Tier 1 or Tier 2 account, the
 // console's write path and the agent itself never submit a path.
+//
+// Signing (docs/spec/09-open-decisions.md "Signing the approved list"): once the platform has an Admin list-signing key
+// (contracts/trust/approved-list), a saved list does not go live. It waits as the level's pending change, and the level's current
+// list stays in force, until an Admin signs the exact document the server offers (Sign-ApprovedList.ps1) and uploads the signature.
+// The signed document is kept with the list exactly as it was signed, and the heartbeat answer carries it so the cabinet's broker
+// can check it. Removing a level's list needs no signature: the level above applies, and its list carries its own.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { configHash, type Item } from "./config-canonical.js";
@@ -21,7 +27,8 @@ import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
 import { canonicalRoot, joinWithinRoot, keyProblem } from "./filefacts-path.js";
 import { parseJson, upsertSetting } from "./settings.js";
-import { commonDefs } from "../contracts.js";
+import { commonDefs, type ApprovedListSignature } from "../contracts.js";
+import { listDocumentBytes, openSignedList, type ListSigningKeys } from "./approved-list-signing.js";
 
 export type AppLevel = "fleet" | "client" | "site" | "cabinet";
 /** The levels a list can be set at, most specific first: the order resolution walks. */
@@ -63,7 +70,15 @@ export interface AppList {
   hash: string;
   setBy: string;
   setAt: string;
+  /** The signed document and its signature, once an Admin has signed this version; null while it is not signed. */
+  signed: SignedList | null;
 }
+
+/** One level's list as an Admin signed it: base64 of the document's exact bytes, and the detached signature over them. */
+export interface SignedList { document: string; signature: ApprovedListSignature }
+
+/** A saved change waiting for a signature. It is in force nowhere until it is signed. */
+export type PendingList = Omit<AppList, "signed">;
 
 export interface AppLevels {
   fleet: AppList | null;
@@ -180,11 +195,51 @@ export function verifyStored(raw: unknown): AppList | null {
   const version = typeof value.version === "number" ? value.version : Number(value.version);
   if (!Number.isInteger(version) || version < 1) return null;
   const setAt = value.setAt instanceof Date ? value.setAt.toISOString() : typeof value.setAt === "string" ? value.setAt : "";
-  return { version, entries: entries.entries, hash, setBy: typeof value.setBy === "string" ? value.setBy : "", setAt };
+  const signed = value.signed === undefined || value.signed === null ? null : signedFor(value.signed, version, hash);
+  if (signed === undefined) return null;
+  return { version, entries: entries.entries, hash, setBy: typeof value.setBy === "string" ? value.setBy : "", setAt, signed };
+}
+
+/**
+ * The stored signed document, when it says what the list beside it says (the same version and the same entries); undefined when it
+ * does not, which makes the whole level damaged. The signature itself was checked when it was uploaded and every cabinet checks it
+ * again; this keeps the server's own control check and the cabinet's list from ever disagreeing about what is approved.
+ */
+function signedFor(raw: unknown, version: number, hash: string): SignedList | undefined {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const { document, signature } = raw as Record<string, unknown>;
+  if (typeof document !== "string" || signature === null || typeof signature !== "object" || Array.isArray(signature)) return undefined;
+  const parsed = parseJson<Record<string, unknown>>(Buffer.from(document, "base64").toString("utf8"));
+  if (parsed === null || typeof parsed !== "object" || parsed.version !== version) return undefined;
+  const entries = normalizeEntries(parsed.entries);
+  if (!entries.ok || appsHash(entries.entries) !== hash) return undefined;
+  return { document, signature: signature as ApprovedListSignature };
+}
+
+/** A pending change as stored, or null when there is none or it does not check out (a damaged pending change is not offered for signing). */
+function verifyPending(raw: unknown): PendingList | null {
+  if (raw === null || raw === undefined || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const list = verifyStored({ ...raw, signed: null });
+  if (!list) return null;
+  const { signed: _none, ...pending } = list;
+  return pending;
+}
+
+/**
+ * One level's column value, split into the list in force and the change waiting for a signature. A value that holds only a pending
+ * change is a level with nothing in force yet, so the level above applies; any other value that does not check out is damaged.
+ */
+export function splitStored(raw: unknown): { present: boolean; live: AppList | null; pending: PendingList | null } {
+  if (raw === null || raw === undefined) return { present: false, live: null, pending: null };
+  const value = parseJson<Record<string, unknown>>(raw);
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return { present: true, live: null, pending: null };
+  const pending = verifyPending(value.pending);
+  if (pending && Object.keys(value).length === 1) return { present: false, live: null, pending };
+  return { present: true, live: verifyStored(value), pending };
 }
 
 /** What a level whose stored value was rejected resolves to: a list of its own that approves nothing. */
-const DENY_ALL: AppList = Object.freeze({ version: 0, entries: [], hash: "", setBy: "", setAt: "" }) as AppList;
+const DENY_ALL: AppList = Object.freeze({ version: 0, entries: [], hash: "", setBy: "", setAt: "", signed: null }) as AppList;
 
 /**
  * The four levels as they were read, with the level that wins worked out. A level holding a value that does not check out is still a
@@ -194,12 +249,11 @@ export function resolveLevels(found: Partial<Record<AppLevel, unknown>>): AppLev
   const rejected: AppLevel[] = [];
   const present = new Set<AppLevel>();
   const read = (level: AppLevel): AppList | null => {
-    const stored = found[level];
-    if (stored === null || stored === undefined) return null; // nothing set at this level
+    const stored = splitStored(found[level]);
+    if (!stored.present) return null; // nothing in force at this level (at most a change waiting for its signature)
     present.add(level);
-    const content = verifyStored(stored);
-    if (!content) rejected.push(level);
-    return content;
+    if (!stored.live) rejected.push(level);
+    return stored.live;
   };
   const levels = { fleet: read("fleet"), client: read("client"), site: read("site"), cabinet: read("cabinet") };
   const source = APP_LEVELS.find(level => present.has(level)) ?? "none";
@@ -223,13 +277,18 @@ export async function readLevel(db: Queryable, level: AppLevel, id: string | nul
  * One level's list and whether a stored value was rejected. A rejected level is not "nothing set": it denies everything, so the console
  * has to be able to say so (and let an Admin replace or remove it) rather than show it as empty.
  */
-export async function readLevelState(db: Queryable, level: AppLevel, id: string | null): Promise<{ list: AppList | null; rejected: boolean }> {
+export async function readLevelState(db: Queryable, level: AppLevel, id: string | null): Promise<{ list: AppList | null; rejected: boolean; pending: PendingList | null }> {
+  const { stored } = await readRaw(db, level, id);
+  return { list: stored.live, rejected: stored.present && stored.live === null, pending: stored.pending };
+}
+
+/** One level's column as it is stored, and split. A scope that does not exist is not found. */
+async function readRaw(db: Queryable, level: AppLevel, id: string | null): Promise<{ key: string; raw: unknown; stored: ReturnType<typeof splitStored> }> {
   if (!APP_LEVELS.includes(level)) throw new Refused("invalid_params", 400, "not a level");
   const key = scopeKey(level, id);
   const row = (await db.query<{ value: unknown }>(LEVEL_SQL[level], level === "fleet" ? [] : [key])).rows[0];
   if (!row) throw new Refused("not_found", 404, `no such ${level}`);
-  const list = verifyStored(row.value);
-  return { list, rejected: list === null && row.value !== null && row.value !== undefined };
+  return { key, raw: row.value, stored: splitStored(row.value) };
 }
 
 /**
@@ -245,13 +304,17 @@ export async function appLevels(db: Queryable, cabinetId: string): Promise<AppLe
   if (!row) throw new Refused("not_found", 404, "no such cabinet");
   return resolveLevels({ fleet: row.f, client: row.c, site: row.s, cabinet: row.k });
 }
-
 /**
  * Sets, replaces or removes the list for one level. entries null removes it (the level above applies); an empty list approves
- * nothing at this level and still wins. The step-up token is bound to the level and to these exact entries as sent, so the owner confirms the programs themselves and not just the act of saving; the version steps up on every change and the whole thing is audited with the keys (never the paths twice: they are in the stored list, which the audit points at by version and hash).
+ * nothing at this level and still wins. The step-up token is bound to the level and to these exact entries as sent, so the owner
+ * confirms the programs themselves and not just the act of saving; the version steps up on every change and the whole thing is
+ * audited with the keys (never the paths twice: they are in the stored list, which the audit points at by version and hash).
+ *
+ * With signing switched on (`signing` holds a key), a new list is kept as the level's pending change and the list in force does not
+ * move until an Admin signs it (signApprovedApps). Removing a level's list still takes effect at once.
  */
 export async function setApprovedApps(pool: Pool, user: { userId: string; role: string }, level: AppLevel, id: string | null,
-  entriesRaw: unknown, stepUpToken: string, confirmed?: unknown): Promise<AppList | null> {
+  entriesRaw: unknown, stepUpToken: string, confirmed?: unknown, signing?: ListSigningKeys): Promise<AppList | null> {
   assertOwner(user.role);
   if (!APP_LEVELS.includes(level)) throw new Refused("invalid_params", 400, "not a level");
   const key = scopeKey(level, id);
@@ -265,27 +328,116 @@ export async function setApprovedApps(pool: Pool, user: { userId: string; role: 
   const target = level === "fleet" ? "fleet" : key;
   return transaction(pool, async c => {
     // Reading the level first is also the scope check: a level whose scope is gone is not found, never "empty".
-    const previous = (await readLevel(c, level, level === "fleet" ? null : key))?.version ?? 0;
+    const { raw, stored } = await readRaw(c, level, level === "fleet" ? null : key);
+    const previous = Math.max(stored.live?.version ?? 0, stored.pending?.version ?? 0);
     // The token is bound to the request as the person sent it ({level, id, entries} in canonical JSON), so the console hashes exactly
     // what it sends and needs none of the server's own normalisation; the route passes the body itself, after checking it names the
     // same level and scope as the address.
     await consumeStepUpToken(c, stepUpToken, user.userId, APPS_SET_ACTION[level], target,
       confirmed ?? { level, id: level === "fleet" ? null : key, entries: entriesRaw ?? null });
-    const stored = entries === null ? null : storedValue(entries, user.userId, previous);
-    if (level === "fleet") {
-      if (stored === null) await c.query("DELETE FROM settings WHERE [key] = $1", [APPS_SETTING_KEY]);
-      else await upsertSetting(c, APPS_SETTING_KEY, stored, user.userId);
-    } else {
-      const r = await c.query(`UPDATE ${TABLE[level]} SET ${APPS_COLUMN} = $2 WHERE id = $1 AND ${level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL"}`,
-        [key, stored === null ? null : JSON.stringify(stored)]);
-      if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
-    }
+    const next = entries === null ? null : storedValue(entries, user.userId, previous);
+    const waits = next !== null && (signing?.count ?? 0) > 0;
+    // Waiting for a signature: the column keeps exactly what it held for the list in force, and the change rides beside it.
+    // A damaged value that is not even an object stays damaged (it denies) rather than becoming "nothing set here" (the level above).
+    const kept = parseJson<Record<string, unknown>>(raw);
+    const inForce = !stored.present ? {} : kept && typeof kept === "object" && !Array.isArray(kept) ? withoutPending(kept) : { unreadable: true };
+    const value = next === null ? null : waits ? { ...inForce, pending: next } : next;
+    await writeLevel(c, level, key, value, user.userId);
     const place = level === "fleet" ? {} : { targetKind: level, targetId: key };
     await audit(c, { actorKind: "user", actorId: user.userId, action: APPS_SET_ACTION[level], ...place, outcome: "succeeded",
-      details: { level, id: key, removed: stored === null, entries: entries?.length ?? 0, version: stored?.version ?? null, keys: entries?.map(e => e.key) ?? [] } });
-    // The caller gets the list back in the same shape a read hands out, so a console that saves a list can render it straight away.
-    return stored === null || entries === null ? null : { version: stored.version, entries, hash: stored.hash, setBy: stored.setBy, setAt: stored.setAt };
+      details: { level, id: key, removed: next === null, waitsForSignature: waits, entries: entries?.length ?? 0, version: next?.version ?? null, keys: entries?.map(e => e.key) ?? [] } });
+    // The caller gets the list in force afterwards, in the shape a read hands out (with signing on, the one that was already there).
+    return splitStored(value).live;
   });
+}
+
+/** What an Admin is asked to sign for one level: the change waiting for a signature, else the list in force when it is not signed yet. */
+export interface ToSign { version: number; entries: number; document: string; fileName: string; waiting: boolean }
+
+/** The document bytes for one level's list, written the one way they are always written. */
+function documentFor(level: AppLevel, key: string, list: PendingList): Buffer {
+  return listDocumentBytes({ level, scopeId: level === "fleet" ? null : key, version: list.version, issuedAt: list.setAt, entries: list.entries.map(rawEntry) });
+}
+
+function signable(stored: ReturnType<typeof splitStored>): { list: PendingList; waiting: boolean } | null {
+  if (stored.pending) return { list: stored.pending, waiting: true };
+  if (stored.live && stored.live.signed === null && stored.live.version > 0) return { list: stored.live, waiting: false };
+  return null;
+}
+
+/** The document an Admin downloads to sign for one level, or null when there is nothing to sign there. */
+export async function listToSign(db: Queryable, level: AppLevel, id: string | null): Promise<ToSign | null> {
+  const { key, stored } = await readRaw(db, level, id);
+  const target = signable(stored);
+  if (!target) return null;
+  const bytes = documentFor(level, key, target.list);
+  return { version: target.list.version, entries: target.list.entries.length, document: bytes.toString("base64"), waiting: target.waiting,
+    fileName: `approved-list-${level}${level === "fleet" ? "" : `-${key.slice(0, 8)}`}-v${target.list.version}.json` };
+}
+
+/**
+ * Puts a signed list in force. The signature must verify over the exact document the server offers for this level and version
+ * (listToSign), with a key the agents hold; anything else is refused and audited, and nothing changes. A pending change that is
+ * signed replaces the list in force; signing the list already in force only adds its signature.
+ */
+export async function signApprovedApps(pool: Pool, user: { userId: string; role: string }, level: AppLevel, id: string | null, version: number,
+  signature: ApprovedListSignature, signing: ListSigningKeys): Promise<AppList> {
+  assertOwner(user.role);
+  if (signing.count === 0) throw new Refused("signing_off", 409, "no list-signing key is set up, so lists are not signed");
+  const outcome = await transaction(pool, async c => {
+    const { key, raw, stored } = await readRaw(c, level, id);
+    const target = signable(stored);
+    if (!target || target.list.version !== version) throw new Refused("conflict", 409, `version ${version} of this list is not waiting for a signature`);
+    const bytes = documentFor(level, key, target.list);
+    const opened = openSignedList(signing, bytes.toString("base64"), signature);
+    if (!opened.ok) return { key, refused: opened } as const;
+    const live: Record<string, unknown> = { ...storedValueOf(target.list), signed: { document: bytes.toString("base64"), signature } };
+    // Signing the list in force keeps a change that is still waiting; signing the waiting change consumes it.
+    const kept = parseJson<Record<string, unknown>>(raw);
+    if (!target.waiting && kept && typeof kept === "object" && !Array.isArray(kept) && kept.pending) live.pending = kept.pending;
+    await writeLevel(c, level, key, live, user.userId);
+    await audit(c, { actorKind: "user", actorId: user.userId, action: `${APPS_SET_ACTION[level]}.sign`, ...placeOf(level, key), outcome: "succeeded",
+      details: { level, id: key, version, keyId: signature.keyId, entries: target.list.entries.length } });
+    return { key, list: splitStored(live).live! } as const;
+  });
+  if ("list" in outcome) return outcome.list;
+  // A refused signature changes nothing, and is recorded on its own so the record outlives the refusal.
+  await transaction(pool, c => audit(c, { actorKind: "user", actorId: user.userId, action: `${APPS_SET_ACTION[level]}.sign`, ...placeOf(level, outcome.key),
+    outcome: "refused", details: { level, id: outcome.key, version, reason: outcome.refused.reason, keyId: signature.keyId } }));
+  throw new Refused("signature_invalid", 422, outcome.refused.why);
+}
+
+const placeOf = (level: AppLevel, key: string) => (level === "fleet" ? {} : { targetKind: level, targetId: key });
+
+/** Drops a level's change that is waiting for a signature; the list in force stays as it is. */
+export async function discardPendingApps(pool: Pool, user: { userId: string; role: string }, level: AppLevel, id: string | null): Promise<void> {
+  assertOwner(user.role);
+  await transaction(pool, async c => {
+    const { key, raw, stored } = await readRaw(c, level, id);
+    if (!stored.pending) throw new Refused("not_found", 404, "no change is waiting for a signature here");
+    const kept = parseJson<Record<string, unknown>>(raw)!;
+    const rest = withoutPending(kept);
+    await writeLevel(c, level, key, Object.keys(rest).length === 0 ? null : rest, user.userId);
+    await audit(c, { actorKind: "user", actorId: user.userId, action: `${APPS_SET_ACTION[level]}.discard`, ...placeOf(level, key), outcome: "succeeded",
+      details: { level, id: key, version: stored.pending.version } });
+  });
+}
+
+function withoutPending(value: Record<string, unknown>): Record<string, unknown> {
+  const { pending: _pending, ...rest } = value;
+  return rest;
+}
+
+/** Writes one level's column (or the fleet's settings row); null clears it. */
+async function writeLevel(c: Queryable, level: AppLevel, key: string, value: unknown, by: string): Promise<void> {
+  if (level === "fleet") {
+    if (value === null) await c.query("DELETE FROM settings WHERE [key] = $1", [APPS_SETTING_KEY]);
+    else await upsertSetting(c, APPS_SETTING_KEY, value, by);
+    return;
+  }
+  const r = await c.query(`UPDATE ${TABLE[level]} SET ${APPS_COLUMN} = $2 WHERE id = $1 AND ${level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL"}`,
+    [key, value === null ? null : JSON.stringify(value)]);
+  if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
 }
 
 /** A level's column value for a list, as JSON text: for seeding (the demo fleet) and tests, through the same path a write takes. */
@@ -298,4 +450,9 @@ export function storedApprovedApps(raw: unknown, by: string, version = 1): strin
 /** What one level's column holds: the entries in the owner's form, their fingerprint, the version and who set them. */
 function storedValue(entries: readonly ApprovedApp[], by: string, previous: number): { version: number; entries: ApprovedAppEntry[]; hash: string; setBy: string; setAt: string } {
   return { version: previous + 1, entries: entries.map(rawEntry), hash: appsHash(entries), setBy: by, setAt: new Date().toISOString() };
+}
+
+/** The stored form of a list that has been read, unchanged: the same version, time and author it was saved with. */
+function storedValueOf(list: PendingList): { version: number; entries: ApprovedAppEntry[]; hash: string; setBy: string; setAt: string } {
+  return { version: list.version, entries: list.entries.map(rawEntry), hash: list.hash, setBy: list.setBy, setAt: list.setAt };
 }
