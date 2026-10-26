@@ -75,6 +75,27 @@
       "properties": {
         "entries": {
           "$ref": "../common.schema.json#/$defs/approvedAppEntries"
+        },
+        "signed": {
+          "description": "The same list as an Admin signed it (docs/spec/09-open-decisions.md \"Signing the approved list\"): base64 of the signed document's exact bytes and the detached signature over them. An agent built with a list-signing key acts only on this, and only once the signature verifies; entries is kept for agents built before signing. Sent only to agents from 0.3.0 on, since an older agent refuses a field it does not know.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "document",
+            "signature"
+          ],
+          "properties": {
+            "document": {
+              "description": "Base64 of the document's exact bytes (at most 32 KB).",
+              "type": "string",
+              "minLength": 4,
+              "maxLength": 43692,
+              "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+            },
+            "signature": {
+              "$ref": "../agent/approved-list-signature.schema.json"
+            }
+          }
         }
       }
     },

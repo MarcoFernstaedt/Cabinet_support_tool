@@ -1,0 +1,27 @@
+{
+  "serverTime": "2026-10-23T15:40:00Z",
+  "scanner": {
+    "hardwareIds": null
+  },
+  "intervals": {
+    "heartbeatSeconds": 300,
+    "pollSeconds": 25,
+    "eventsPaceMs": 2000
+  },
+  "watchedServices": {
+    "names": [
+      "Spooler"
+    ]
+  },
+  "approvedApps": {
+    "entries": [],
+    "signed": {
+      "document": "{\"product\":1}",
+      "signature": {
+        "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+        "algorithm": "ecdsa-p256-sha256",
+        "signature": "MEQCIAyvqU/uMprDUeKK7A8ujMsy8a4Rrtx8S5osbCfVDwxnAiAu+iksC4NIhZSpZ9HmUPNXrBwdlV5+VYMO0TofieV/pQ=="
+      }
+    }
+  }
+}

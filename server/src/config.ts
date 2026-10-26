@@ -16,6 +16,8 @@ export interface Config {
   packages: { dir: string; maxBytes: number; trustDir?: string };
   /** The update store for signed agent releases, and the release keys the server checks uploads against (the agent checks again with its own). */
   releases: { dir: string; maxBytes: number; keysDir?: string };
+  /** A folder laid out like contracts/trust/approved-list, for tests only; production uses that folder, which the agent compiles in. */
+  approvedListKeysDir?: string;
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
   /** What the setup page tells an Admin about installing the agent: the address cabinets use to reach the agent API, and the folder holding the agent package to download (optional). */
   agentSetup: { host: string; port: number; downloadDir?: string; allowUnsigned: boolean; production?: boolean };
@@ -81,6 +83,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env.UPGRADE_KEYS_DIR) {
     if (env.NODE_ENV === "production") throw new Error("UPGRADE_KEYS_DIR is for tests and refuses to run in production.");
     config.releases.keysDir = env.UPGRADE_KEYS_DIR;
+  }
+  if (env.APPROVED_LIST_KEYS_DIR) {
+    if (env.NODE_ENV === "production") throw new Error("APPROVED_LIST_KEYS_DIR is for tests and refuses to run in production.");
+    config.approvedListKeysDir = env.APPROVED_LIST_KEYS_DIR;
   }
   if (!(config.packages.maxBytes > 0 && config.packages.maxBytes <= 2 * 1024 * 1024 * 1024)) throw new Error("PACKAGE_MAX_MB must be 1 to 2048.");
   // A different trusted publisher list is for tests only; production always uses contracts/trust, the list the agent compiles in.

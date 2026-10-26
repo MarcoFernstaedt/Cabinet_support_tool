@@ -8,7 +8,7 @@ import { Refused } from "./errors.js";
 import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
-import { rawEntry, resolveLevels, type ApprovedAppEntry } from "./approved-apps.js";
+import { rawEntry, resolveLevels, type ApprovedAppEntry, type SignedList } from "./approved-apps.js";
 import { parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
@@ -50,6 +50,8 @@ export interface HeartbeatOutcome {
   wasOffline: boolean; firewallChanged: boolean; timeCheck: boolean;
   /** The scanner hardware IDs the agent's watcher looks for (null: find it automatically), the services it keeps running, and the programs it may be asked to control. */
   scannerIds: string[] | null; watched: string[]; approved: ApprovedAppEntry[];
+  /** The same list as an Admin signed it, when it is signed (the agent checks it against its own list-signing key). */
+  approvedSigned: SignedList | null;
 }
 
 /**
@@ -129,7 +131,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   const watchedApproved = watched.filter(name => approvedServices.has(name.toLowerCase()));
   return { wasOffline: !!r?.was_offline && !!r?.offline_open, firewallChanged: !!r?.firewall_changed, timeCheck: !!r?.time_check,
     scannerIds: scanner && scanner.length > 0 ? [...new Set(scanner)].slice(0, 16) : null, watched: watchedApproved,
-    approved: (apps?.effective?.entries ?? []).map(rawEntry) };
+    approved: (apps?.effective?.entries ?? []).map(rawEntry), approvedSigned: apps?.effective?.signed ?? null };
 }
 
 /**

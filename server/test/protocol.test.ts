@@ -5,8 +5,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Agent as HttpsAgent, request as httpsRequest } from "node:https";
 import { connect as http2Connect, type ClientHttp2Session } from "node:http2";
-import { randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { gzipSync } from "node:zlib";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { CommandNotifier } from "../src/agent-api/notifier.js";
 import { buildAgentApi, parseAcks, SourceBuckets, sourceKey, TokenBucket, type AgentApiOptions } from "../src/agent-api/server.js";
@@ -18,7 +21,8 @@ import { approveEnrollment, createBootstrapToken } from "../src/services/enrollm
 import { checkExpiringCertificates, listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { anyRolloutRunning } from "../src/services/rollouts.js";
 import { upsertSetting } from "../src/services/settings.js";
-import { APPS_SET_ACTION, setApprovedApps } from "../src/services/approved-apps.js";
+import { APPS_SET_ACTION, listToSign, setApprovedApps, signApprovedApps } from "../src/services/approved-apps.js";
+import { ListSigningKeys } from "../src/services/approved-list-signing.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import { paramsHash } from "../src/auth/canonical.js";
 import { createPool, isBusy, limited, QueryTimeout, transaction } from "../src/db/db.js";
@@ -262,6 +266,30 @@ test("the heartbeat answer carries the pacing, the scanner and the watched servi
     assert.deepEqual(next.body.scanner.hardwareIds, ["USB\\VID_1234"]);
     assert.deepEqual(next.body.watchedServices.names, ["Spooler"]);
   } finally { await other.app.close(); }
+});
+
+test("the signed approved list is sent only to an agent that knows the field; an older agent gets the answer it always got", async () => {
+  const cab = await enrolledCabinet();
+  const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const der = pair.publicKey.export({ format: "der", type: "spki" });
+  const keyId = createHash("sha256").update(der).digest("hex");
+  const folder = mkdtempSync(join(tmpdir(), "list-trust-"));
+  writeFileSync(join(folder, "approved-list-keys.json"), JSON.stringify({ version: 1, keys: [{ keyId, name: "Test", publicKey: der.toString("base64") }] }));
+  const keys = ListSigningKeys.fromFolder(folder);
+  const kiosk = [{ key: "app:kiosk", kind: "application", name: "Kiosk", path: "C:\\Program Files\\Vendor\\kiosk.exe" }];
+  await setApprovedApps(db.app, { userId: admin, role: "admin" }, "cabinet", cab.cabinetId, kiosk,
+    await issueStepUpToken(db.app, admin, APPS_SET_ACTION.cabinet, cab.cabinetId, paramsHash({ level: "cabinet", id: cab.cabinetId, entries: kiosk })), undefined, keys);
+  const doc = (await listToSign(db.app, "cabinet", cab.cabinetId))!;
+  await signApprovedApps(db.app, { userId: admin, role: "admin" }, "cabinet", cab.cabinetId, doc.version,
+    { keyId, algorithm: "ecdsa-p256-sha256", signature: sign("sha256", Buffer.from(doc.document, "base64"), { key: pair.privateKey, dsaEncoding: "der" }).toString("base64") }, keys);
+
+  const older = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, agentVersion: "0.2.0" }, cab);
+  assert.equal(older.status, 200);
+  assert.deepEqual(Object.keys(older.body.approvedApps), ["entries"], "an agent before 0.3.0 would refuse an answer with a field it does not know");
+  assert.deepEqual(older.body.approvedApps.entries.map((e: { key: string }) => e.key), ["app:kiosk"]);
+  const newer = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, agentVersion: "0.3.0" }, cab);
+  assert.equal(newer.body.approvedApps.signed.document, doc.document);
+  assert.equal(newer.body.approvedApps.signed.signature.keyId, keyId);
 });
 
 // ---- Connections: HTTP/2, mutual TLS, remembered certificates, resumption ----------------------------------------------------------

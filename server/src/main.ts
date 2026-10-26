@@ -22,6 +22,7 @@ import { expireUnanswered } from "./services/commands.js";
 import { checkExpiringCertificates } from "./services/cabinets.js";
 import { TrustList } from "./packages/trust.js";
 import { mkdirSync } from "node:fs";
+import { ListSigningKeys } from "./services/approved-list-signing.js";
 import { ReleaseKeys } from "./services/releases.js";
 import { checkRollouts } from "./services/rollouts.js";
 import { DemoSimulator } from "./demo/demo.js";
@@ -105,7 +106,7 @@ if (runsServices) {
     stream = new ResultStream(feed, consolePool!);
     await stream.start();
     consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-      stream, packages, releases, staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
+      stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
     await consoleApp.listen({ host: config.console.host, port: config.console.port });
   }
   const jobs = jobsPool!;
