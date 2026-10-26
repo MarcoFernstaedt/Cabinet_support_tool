@@ -8,7 +8,7 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { parseJson } from "../services/settings.js";
-import { appLevels, readLevel, setApprovedApps } from "../services/approved-apps.js";
+import { appLevels, readLevel, readLevelState, setApprovedApps } from "../services/approved-apps.js";
 import { setWatched, watchLevels, type WatchLevel } from "../services/watched-services.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -80,7 +80,8 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     /** One client's or site's own list, and the fleet default (for the editor's "inherited" line). */
     app.get(`/api/${table}/:id/approved-apps`, async request => {
       await o.guards.role(request, "tier1");
-      return { own: await readLevel(o.pool, level, id(request)), fleet: await readLevel(o.pool, "fleet", null) };
+      const own = await readLevelState(o.pool, level, id(request));
+      return { own: own.list, ownRejected: own.rejected, fleet: await readLevel(o.pool, "fleet", null) };
     });
     app.put(`/api/${table}/:id/approved-apps`, async request => {
       const u = await o.guards.role(request, "admin");
@@ -92,7 +93,8 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
 
   app.get("/api/admin/approved-apps", async request => {
     await o.guards.role(request, "tier1");
-    return { fleet: await readLevel(o.pool, "fleet", null) };
+    const fleet = await readLevelState(o.pool, "fleet", null);
+    return { fleet: fleet.list, fleetRejected: fleet.rejected };
   });
 
   app.put("/api/admin/approved-apps", async request => {

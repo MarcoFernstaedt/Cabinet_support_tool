@@ -216,11 +216,20 @@ const LEVEL_SQL: Record<AppLevel, string> = {
 
 /** One level's list, or null when nothing is set there. A scope that does not exist is not found, not an empty list. */
 export async function readLevel(db: Queryable, level: AppLevel, id: string | null): Promise<AppList | null> {
+  return (await readLevelState(db, level, id)).list;
+}
+
+/**
+ * One level's list and whether a stored value was rejected. A rejected level is not "nothing set": it denies everything, so the console
+ * has to be able to say so (and let an Admin replace or remove it) rather than show it as empty.
+ */
+export async function readLevelState(db: Queryable, level: AppLevel, id: string | null): Promise<{ list: AppList | null; rejected: boolean }> {
   if (!APP_LEVELS.includes(level)) throw new Refused("invalid_params", 400, "not a level");
   const key = scopeKey(level, id);
   const row = (await db.query<{ value: unknown }>(LEVEL_SQL[level], level === "fleet" ? [] : [key])).rows[0];
   if (!row) throw new Refused("not_found", 404, `no such ${level}`);
-  return verifyStored(row.value);
+  const list = verifyStored(row.value);
+  return { list, rejected: list === null && row.value !== null && row.value !== undefined };
 }
 
 /**

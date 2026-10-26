@@ -8,7 +8,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
-import { APPS_SET_ACTION, appLevels, normalizeEntries, readLevel, setApprovedApps, type ApprovedApp } from "../src/services/approved-apps.js";
+import { APPS_SET_ACTION, appLevels, normalizeEntries, readLevel, readLevelState, setApprovedApps, type ApprovedApp } from "../src/services/approved-apps.js";
 import { paramsHash } from "../src/auth/canonical.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
@@ -155,4 +155,27 @@ test("approved applications: who may set a list, and what the list refuses befor
   await assert.rejects(asOwner(db, c => c.query(`UPDATE cabinets SET approved_apps = $2 WHERE id = $1`,
     [id.cabinet, JSON.stringify({ version: 1, entries: Array.from({ length: 33 }, (_, i) => ({ ...DISPENSER, key: `app:tool${i}`, path: `C:\\Tools\\tool${i}.exe` })), hash: "0".repeat(64), setBy: "x", setAt: "2026-10-01T00:00:00.000Z" })])));
   await assert.rejects(asOwner(db, c => c.query(`UPDATE cabinets SET approved_apps = $2 WHERE id = $1`, [id.cabinet, JSON.stringify("just a string")])));
+});
+
+test("the heartbeat sends only the watched services the approved list names, and a damaged list column denies rather than widens", async t => {
+  db = await createTestDatabase();
+  t.after(async () => { await db.drop(); });
+  await db.app.query(`INSERT INTO users ([id],[username],[name],[role]) VALUES ($1,'apps.owner','Apps Owner','admin')`, [admin.userId]);
+  await db.app.query(`INSERT INTO clients ([id],[name]) VALUES ($1,$2)`, [id.client, "Test client"]);
+  await db.app.query(`INSERT INTO sites ([id],[client_id],[name]) VALUES ($1,$2,$3)`, [id.otherSite, id.client, "Test site two"]);
+  await db.app.query(`INSERT INTO cabinets ([id],[site_id],[name],[role],[status]) VALUES ($1,$2,$3,$4,$5)`, [id.other, id.otherSite, "Other cabinet", "sync", "active"]);
+  await set("cabinet", id.other, [SPOOLER]);
+  await asOwner(db, c => c.query("UPDATE cabinets SET watched_services = $2 WHERE id = $1", [id.other, JSON.stringify(["Spooler", "TermService"])]));
+  const beat = () => recordHeartbeat(db.app, id.other, { agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false });
+  // An agent built before the watcher asked the list starts whatever it is told to watch, so only the approved one is sent.
+  assert.deepEqual((await beat()).watched, ["Spooler"]);
+  // A column holding an object that does not describe a list is a damaged list: it denies, exactly as the control check reads it,
+  // never "not set" and replaced by the broader level (the client's, here), and nothing is watched. (The database's own check
+  // already refuses anything that is not a JSON object.)
+  await set("client", id.client, [SPOOLER]);
+  await asOwner(db, c => c.query("UPDATE cabinets SET approved_apps = $2 WHERE id = $1", [id.other, JSON.stringify({ version: 1, entries: "not a list" })]));
+  assert.deepEqual((await appLevels(db.app, id.other)).rejected, ["cabinet"]);
+  assert.deepEqual(await readLevelState(db.app, "cabinet", id.other), { list: null, rejected: true }, "the console is told it is damaged, not empty");
+  const damaged = await beat();
+  assert.deepEqual([damaged.approved, damaged.watched], [[], []]);
 });

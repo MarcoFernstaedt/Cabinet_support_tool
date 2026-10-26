@@ -52,8 +52,9 @@ export function ApprovedApps() {
 }
 
 function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Level; scopeId: string | null }) {
-  const data = useLoad<{ own?: AppList | null; fleet: AppList | null }>(endpoint);
+  const data = useLoad<{ own?: AppList | null; ownRejected?: boolean; fleet: AppList | null; fleetRejected?: boolean }>(endpoint);
   const own = level === "fleet" ? data.data?.fleet ?? null : data.data?.own ?? null;
+  const rejected = (level === "fleet" ? data.data?.fleetRejected : data.data?.ownRejected) === true;
   const loaded = data.data !== undefined && data.data !== null;
   const [entries, setEntries] = useState<AppEntry[] | null>(null);
   const [draft, setDraft] = useState<AppEntry>({ key: "", kind: "application", name: "", path: "" });
@@ -74,7 +75,8 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
       <h2 id="apps-list">{level === "fleet" ? "Fleet default" : level === "client" ? "This client's list" : "This site's list"}{" "}
         {entries === null ? <Badge tone="off">Not set</Badge> : <Badge tone="ok">{list.length} {list.length === 1 ? "program" : "programs"}</Badge>}</h2>
       {own && <p className="muted small">Version {own.version}, saved {fullTime(own.setAt)}.</p>}
-      {entries === null && <p>{level === "fleet" ? "No fleet default: cabinets without a client or site list may not control any program." : <>Nothing set here, so the level above applies{data.data?.fleet && level === "client" ? <> (the fleet default: {data.data.fleet.entries.length} programs)</> : ""}.</>}</p>}
+      {rejected && <p className="notice warn" role="alert">The list stored here is damaged, so this level approves nothing until it is replaced. Add the programs again and save, or {level === "fleet" ? "approve nothing here" : "use the level above"}.</p>}
+      {entries === null && !rejected && <p>{level === "fleet" ? "No fleet default: cabinets without a client or site list may not control any program." : <>Nothing set here, so the level above applies{data.data?.fleet && level === "client" ? <> (the fleet default: {data.data.fleet.entries.length} programs)</> : ""}.</>}</p>}
       {entries !== null && list.length === 0 && <p><strong>Approves nothing</strong> at this level, even if the level above has programs.</p>}
       {list.length > 0 && (
         <div className="table-wrap"><table>
@@ -101,7 +103,7 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
       <div className="row gap wrap">
         <button className="btn primary" disabled={!changed} onClick={() => { setProblem(null); setSaved(null); setPending(entries); }}>Save</button>
         {entries === null && <button className="btn" onClick={() => setEntries([])}>Approve nothing here</button>}
-        {own !== null && level !== "fleet" && <button className="btn ghost" onClick={() => { setProblem(null); setSaved(null); setPending(null); }}>Use the level above</button>}
+        {(own !== null || rejected) && level !== "fleet" && <button className="btn ghost" onClick={() => { setProblem(null); setSaved(null); setPending(null); }}>Use the level above</button>}
         {changed && <button className="btn ghost" onClick={() => setEntries(own ? own.entries.map(toEntry) : null)}>Discard changes</button>}
         {saved && <span className="ok" role="status">{saved}</span>}
       </div>

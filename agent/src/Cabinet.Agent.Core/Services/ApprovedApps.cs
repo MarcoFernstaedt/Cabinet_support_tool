@@ -169,8 +169,9 @@ public sealed class ApprovedAppsFile
                 _log($"Approved list in force: {_current.Entries.Count} program(s).");
             }
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or NotSupportedException or ArgumentException)
+        catch (Exception e)
         {
+            // Whatever went wrong reading it, the answer is the same: a list that cannot be read approves nothing.
             _current = ApprovedApps.None;
             _read = null; // read again next time rather than remember a file that could not be read
             _log($"The approved list could not be read ({e.GetType().Name}); nothing is approved.");

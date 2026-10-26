@@ -279,6 +279,33 @@ test("the generic route issues service.control and process.end only for approved
   assert.deepEqual([crossed.status, crossed.body.error], [400, "invalid_request"]);
 });
 
+test("a service's start type is control too: only an approved service, and only with a code", async () => {
+  const user = await account("tier2");
+  const cookie = await signIn(user);
+  const send = (params: Record<string, unknown>, stepUpToken?: string) =>
+    call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "service.setStartType", params, ...(stepUpToken ? { stepUpToken } : {}) }, cookie);
+  // A click in the catalog; the server asks for a code bound to the parameters.
+  assert.equal((await send({ name: "Spooler", startType: "automatic" })).status, 403);
+  // Raising or lowering a service the list does not name is refused even with a code: lowering stops it at the next boot.
+  for (const params of [{ name: "TermService", startType: "automatic" }, { name: "EventLog", startType: "disabled" }, { name: "W32Time", startType: "manual" }]) {
+    const r = await send(params, await stepUp(user, cookie, "service.setStartType", cabinetId, params));
+    assert.deepEqual([r.status, r.body.error], [403, "control_entry_not_approved"], JSON.stringify(params));
+  }
+  const ok = { name: "Spooler", startType: "automatic_delayed" };
+  assert.equal((await send(ok, await stepUp(user, cookie, "service.setStartType", cabinetId, ok))).status, 202);
+});
+
+test("a process path is matched without regard to case, as Windows and the cabinet do", async () => {
+  const user = await account("tier2");
+  const cookie = await signIn(user);
+  await asOwner(db, c => c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
+                   VALUES ($1, $2, 'processes.list', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'succeeded', $4, DATEADD(second, 5, SYSUTCDATETIME()))`,
+    [randomUUID(), cabinetId, user.id, JSON.stringify({ output: { processes: [{ processId: 5151, name: "dispenser", executablePath: DISPENSER.path.toUpperCase() }] } })]));
+  const end = { processId: 5151, name: "dispenser" };
+  const r = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "process.end", params: end, stepUpToken: await stepUp(user, cookie, "process.end", cabinetId, end) }, cookie);
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+});
+
 test("an approved-applications write is bound to the body as sent, and a body naming another level or scope is refused", async () => {
   const owner = await account("admin");
   const cookie = await signIn(owner);

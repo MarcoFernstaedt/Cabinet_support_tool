@@ -8,11 +8,11 @@ interface Entry { name: string; kind: "read" | "write"; minimumRole: Role; confi
 const BY_NAME = new Map((catalog.operations as Entry[]).map(e => [e.name, e]));
 
 /**
- * Operations the server confirms with a code although the catalog says a click: controlling a service touches a running program, and
+ * Operations the server confirms with a code although the catalog says a click: controlling a service or its start type decides whether a program runs, and
  * an agent built before the approved-applications list enforces nothing, so the server asks for the stronger confirmation
  * (server/src/services/controlled-targets.ts).
  */
-const SERVER_ASKS_FOR_CODE = new Set(["service.control"]);
+const SERVER_ASKS_FOR_CODE = new Set(["service.control", "service.setStartType"]);
 
 export const confirmFor = (operation: string): Entry["confirm"] => SERVER_ASKS_FOR_CODE.has(operation) ? "code" : BY_NAME.get(operation)?.confirm ?? "code";
 export const minimumRoleFor = (operation: string): Role => BY_NAME.get(operation)?.minimumRole ?? "admin";

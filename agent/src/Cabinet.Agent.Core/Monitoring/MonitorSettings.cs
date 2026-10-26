@@ -70,9 +70,27 @@ public sealed class MonitorSettings
             // empty list is written to disk like any other, so the broker never acts on a list the server stopped sending.
             bool appsChanged = !SameApproved(_approved, answer.ApprovedApps?.Entries ?? []);
             _approved = answer.ApprovedApps?.Entries ?? [];
-            if ((changed || watchChanged || appsChanged) && _file is not null) AtomicFile.Write(_file, JsonSerializer.Serialize(answer, ContractJson.Options));
+            // Written when something changed, and also when the file on disk is not what this answer says (missing, damaged or
+            // edited): the broker approves nothing from a file it cannot read, so the next heartbeat repairs it rather than leaving
+            // the cabinet unable to control anything until the server's list happens to change.
+            if (_file is not null)
+            {
+                var text = JsonSerializer.Serialize(answer, ContractJson.Options);
+                if (changed || watchChanged || appsChanged || !OnDisk(_file, text)) AtomicFile.Write(_file, text);
+            }
         }
         if (changed) Changed?.Invoke();
+    }
+
+    /// <summary>Whether the file holds exactly this text. A file that cannot be read, or one larger than any answer, does not.</summary>
+    private static bool OnDisk(string path, string text)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists && info.Length < 1024 * 1024 && File.ReadAllText(path) == text;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
     private static bool Same(IReadOnlyList<string>? a, IReadOnlyList<string>? b) =>
