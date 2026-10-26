@@ -8,6 +8,7 @@ services:
   caddy:
     environment:
       CONSOLE_PUBLIC_URL: ${CONSOLE_PUBLIC_URL:?set CONSOLE_PUBLIC_URL in deploy/.env}
+      CONSOLE_TRUSTED_PROXIES: ${CONSOLE_TRUSTED_PROXIES:?set CONSOLE_TRUSTED_PROXIES in deploy/.env}
     # Tailscale holds the public 443 for Funnel, so Caddy answers on loopback only and Tailscale Serve forwards to it.
     ports: !override
       - "127.0.0.1:80:80"

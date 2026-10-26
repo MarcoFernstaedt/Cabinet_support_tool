@@ -34,6 +34,9 @@
 	reverse_proxy server:8080 {
 		# The live alert stream (server-sent events) must not be buffered.
 		flush_interval -1
+		# The server limits sign-in attempts per address, so it must see each browser's own address: exactly one, the one
+		# Caddy determined, never a list the browser could have started itself.
+		header_up X-Forwarded-For {client_ip}
 	}
 
 	log {

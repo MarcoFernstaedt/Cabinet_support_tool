@@ -13,10 +13,19 @@
 # CONSOLE_TLS   "acme" a public domain: a trusted certificate from Let's Encrypt; "internal" an IP only
 # CONSOLE_ALLOW_FROM  the addresses allowed to reach the console, space-separated CIDR ranges
 # CONSOLE_PUBLIC_URL  the console's public address, for the redirect below
+# CONSOLE_TRUSTED_PROXIES  the address Tailscale's connections reach Caddy from: the Docker frontend network's gateway
+#               (172.30.57.1/32 with the default FRONTEND_SUBNET). Tailscale Serve and Funnel replace X-Forwarded-For with
+#               the address that connected to them, so Caddy takes the browser's address from that header, and from no one else.
 
 {
 	# Browsers send no server name (SNI) when they connect to an IP address; answer with the console's certificate.
 	default_sni {$CONSOLE_SITE}
+
+	servers {
+		trusted_proxies static {$CONSOLE_TRUSTED_PROXIES}
+		client_ip_headers X-Forwarded-For
+		trusted_proxies_strict
+	}
 }
 
 (tls-acme) {
@@ -31,7 +40,7 @@
 	import tls-{$CONSOLE_TLS}
 
 	# Only the allowed networks reach the console; everyone else gets 403 and never sees the sign-in page.
-	@outside not remote_ip {$CONSOLE_ALLOW_FROM:0.0.0.0/0 ::/0}
+	@outside not client_ip {$CONSOLE_ALLOW_FROM:0.0.0.0/0 ::/0}
 	respond @outside "Not available from this network." 403
 
 	# Browsers remember to use HTTPS only (ignored by browsers for an IP address with Caddy's own CA).
@@ -44,6 +53,8 @@
 		reverse_proxy server:8080 {
 			# The live alert stream (server-sent events) must not be buffered.
 			flush_interval -1
+			# Exactly the browser's address as determined above, so the server's per-address sign-in limit is per person.
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
 

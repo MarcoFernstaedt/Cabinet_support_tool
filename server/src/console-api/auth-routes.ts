@@ -5,9 +5,9 @@ import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passwords.js";
 import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
-import { raiseSecurityAlertNow } from "../services/security.js";
+import { networkOf, raiseSecurityAlertNow } from "../services/security.js";
 import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
-import { DEVICE_MAX_AGE_SECONDS, recordSignIn } from "../auth/devices.js";
+import { DEVICE_MAX_AGE_SECONDS, isKnownDevice, recordSignIn } from "../auth/devices.js";
 import { DEVICE_COOKIE, readCookie, setCookie } from "../auth/cookies.js";
 import { issueStepUpToken } from "../auth/stepup.js";
 import * as totp from "../auth/totp.js";
@@ -18,15 +18,22 @@ export const MAX_FAILURES = 5;
 export const LOCK_MINUTES = 15;
 const ADDRESS_FAILURES_PER_15_MIN = 30;
 
+/** What the address limit counts against: an IPv4 address, or an IPv6 /64 (one subscriber usually holds a whole /64). */
+export function addressKey(ip: string): string {
+  const a = ip.startsWith("::ffff:") ? ip.slice(7) : ip;
+  return a.includes(":") ? networkOf(a) : a.slice(0, 64);
+}
+
 export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const now = o.now ?? Date.now;
   const addressFailures = new Map<string, number[]>();
 
-  const recentAddressFailures = (ip: string): number[] => (addressFailures.get(ip) ?? []).filter(t => now() - t < 15 * 60_000);
+  const recentAddressFailures = (ip: string): number[] => (addressFailures.get(addressKey(ip)) ?? []).filter(t => now() - t < 15 * 60_000);
   const noteAddressFailure = (ip: string): void => {
-    const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(ip, r);
+    const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(addressKey(ip), r);
     // Kept bounded: addresses with no failure in the last 15 minutes are dropped once the map grows.
-    if (addressFailures.size > 10_000) for (const [k] of addressFailures) if (recentAddressFailures(k).length === 0) addressFailures.delete(k);
+    if (addressFailures.size > 10_000)
+      for (const [k, times] of addressFailures) if (!times.some(t => now() - t < 15 * 60_000)) addressFailures.delete(k);
   };
 
   /**
@@ -55,11 +62,16 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   });
 
   app.post("/api/auth/login", async (request, reply) => {
-    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const body = consoleBodies.login.parse(request.body);
+    const addressBlocked = recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN;
     const user = (await o.pool.query<{ id: string; password_hash: string | null; role: string; totp_enabled: boolean; must_change_password: boolean; locked: boolean }>(
       `SELECT TOP (1) id, password_hash, role, totp_enabled, must_change_password, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
          FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [body.username])).rows[0];
+    // Many people can share one address (an office, a proxy in front of the console), so one person's wrong guesses must not
+    // lock the rest out. Past the address limit, only a browser this account has signed in with before may still try; its
+    // wrong passwords still count toward the account's own lock. No password is checked for anyone else.
+    if (addressBlocked && !(user && await isKnownDevice(o.pool, user.id, readCookie(request, DEVICE_COOKIE))))
+      return reply.code(429).send({ error: "too_many_attempts" });
     const ok = await verifyPassword(user?.password_hash ?? null, body.password);
     // A lock is shown only to someone who knows the password: a wrong password gets the same answer for every account.
     if (user?.locked && ok) return reply.code(429).send({ error: "account_locked" });
@@ -99,8 +111,9 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     return { signIns: await ownSignIns(o.pool, u.userId) };
   });
 
+  // The steps below all need a session, which needs the account's password. They are not refused by the address limit (which
+  // would lock everyone behind a shared address out); each wrong answer counts toward the account's own lock instead.
   app.post("/api/auth/totp", async (request, reply) => {
-    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const u = await o.guards.session(request);
     if (u.stage !== "totp") throw new Refused("wrong_stage", 409, "no authenticator code is expected now");
     const { code } = consoleBodies.code.parse(request.body);
@@ -161,8 +174,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const u = await o.guards.session(request);
     if (!(u.stage === "password_change" || u.stage === "complete")) throw new Refused("wrong_stage", 409, "finish the earlier sign-in steps first");
     const body = consoleBodies.passwordChange.parse(request.body);
-    // The same limits as sign-in: a stolen session must not become a way to guess the password without locking.
-    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
+    // A stolen session must not become a way to guess the password without locking: a wrong one counts toward the account's lock.
     const row = (await o.pool.query<{ password_hash: string; locked: boolean }>(
       "SELECT password_hash, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (row.locked) return reply.code(429).send({ error: "account_locked" });
@@ -234,7 +246,6 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
    * is bound to the bulk action, the site or client, and the exact parameters. Wrong passwords count toward the lock.
    */
   app.post("/api/auth/confirm-password", async (request, reply) => {
-    if (recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN) return reply.code(429).send({ error: "too_many_attempts" });
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.confirmPassword.parse(request.body);
     const row = (await o.pool.query<{ password_hash: string | null; locked: boolean }>(

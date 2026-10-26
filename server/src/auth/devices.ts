@@ -18,6 +18,12 @@ export function deviceLabel(userAgent: string | undefined): string {
   return `${browser} on ${system}`;
 }
 
+/** Whether this browser's device value is one the account has already signed in with. */
+export async function isKnownDevice(db: Queryable, userId: string, deviceCookie: string | undefined): Promise<boolean> {
+  if (!deviceCookie || !DEVICE_VALUE.test(deviceCookie)) return false;
+  return (await db.query("SELECT TOP (1) 1 AS known FROM user_devices WHERE user_id = $1 AND device_hash = $2", [userId, hashDevice(deviceCookie)])).rows.length > 0;
+}
+
 export interface SignIn { signInId: number; deviceValue: string; newNetwork: boolean; newDevice: boolean }
 
 /**
