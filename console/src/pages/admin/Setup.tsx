@@ -94,7 +94,7 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
           <p className="row gap wrap">
             {packages.map(p => p.pkg
               ? <a key={p.id} className="btn" data-tour={p.id === "windows-x86" ? "download-agent" : undefined} href={withBase(`/api/admin/agent-package?architecture=${p.id}`)} download={p.pkg.name}>
-                  {p.label} <span className="muted small">({((p.pkg.bytes ?? 0) / 1024 / 1024).toFixed(0)} MB)</span></a>
+                  {p.label}{(p.pkg.bytes ?? 0) >= 1024 * 1024 && <span className="muted small"> ({((p.pkg.bytes ?? 0) / 1024 / 1024).toFixed(0)} MB)</span>}</a>
               : <span key={p.id} className="muted small">{p.label}: not published on this server.</span>)}
           </p></li>
         <li><strong>Create an installer for the cabinet.</strong> Each installer works for one cabinet, once, for 7 days.
