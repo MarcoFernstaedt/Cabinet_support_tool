@@ -128,12 +128,13 @@ test("the most specific level with a list wins whole, and a level that was rejec
   assert.equal(viaFleet.operation, "service.control");
   assert.equal(fleetWins.calls.row[0]!.outcome, "succeeded");
   assert.equal((fleetWins.calls.row[0]!.details as Record<string, unknown>).listFrom, "fleet");
-  // A cabinet list edited outside the platform does not describe its own entries: the fleet applies, and the row says so.
+  // A cabinet list edited outside the platform does not describe its own entries: it approves nothing (the fleet's list is not used
+  // instead, which would widen what a damaged level allows), and the row says so.
   const fallback = await refusalOf(body(), { levels: { k: stored([SPOOLER], { hash: "0".repeat(64) }), s: null, c: null, f: stored([DISPENSER]) } });
   assert.equal(fallback.code, CONTROL_CODES.entryNotApproved);
   const details = refusedRow(fallback.calls, CONTROL_CODES.entryNotApproved).details as Record<string, unknown>;
-  assert.deepEqual([details.listFrom, details.rejected], ["fleet", ["cabinet"]]);
-  assert.match(fallback.message, /does not describe its own entries and was ignored/);
+  assert.deepEqual([details.listFrom, details.rejected], ["cabinet", ["cabinet"]]);
+  assert.match(fallback.message, /is damaged .* so it approves nothing/);
   // Nothing at any level, and a cabinet the platform does not have (or has removed), are two different answers.
   const nothing = await refusalOf(body(), { levels: { k: null, s: null, c: null, f: null } });
   assert.equal(nothing.code, CONTROL_CODES.entryNotApproved);

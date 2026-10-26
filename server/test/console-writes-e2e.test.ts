@@ -275,13 +275,20 @@ test("writes in the console: library upload and two-person approval, install, fi
     await section(sam, "services");
     await sam.getByRole("row", { name: /Biometric Scanner Service/ }).waitFor({ timeout: 60_000 });
     assert.equal(await sam.getByRole("button", { name: /^(Start|Stop|Restart|Watch)$/ }).count(), 0, "Tier 1 only looks at services");
-    // A Tier 1 can change a start type: the disabled service is set to manual, and it is read back.
+    // A Tier 1 can change a start type, of an approved service and with an authenticator code (a start type decides what runs at the
+    // next boot, so it is control): the owner approves the disabled service, which is then set to manual and read back.
+    const disabled = { key: "app:disabled", kind: "service", name: "A disabled service", path: "C:\\Program Files\\Simulated\\DisabledSvc.exe", serviceName: "DisabledSvc" };
+    await setApprovedApps(db.app, { userId: people.ada.id, role: "admin" }, "cabinet", cabinetId, [disabled],
+      await issueStepUpToken(db.app, people.ada.id, APPS_SET_ACTION.cabinet, cabinetId, paramsHash({ level: "cabinet", id: cabinetId, entries: [disabled] })));
+    await until("the cabinet's approved list with the disabled service", async () => {
+      try { return readFileSync(join(state, "monitor-settings.json"), "utf8").includes("app:disabled"); } catch { return false; }
+    });
     const disabledRow = sam.getByRole("row", { name: /A disabled service/ });
     await disabledRow.getByRole("cell", { name: /^Disabled/ }).waitFor();
     await disabledRow.getByRole("button", { name: "Change…" }).click();
     await sam.getByLabel("Start type", { exact: true }).selectOption("manual");
     await sam.getByRole("button", { name: "Review" }).click();
-    await sam.getByRole("dialog", { name: "Confirm the change" }).getByRole("button", { name: "Make the change" }).click();
+    await confirm(sam, people.sam.secret);
     await sam.getByText(/Service DisabledSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
     await disabledRow.getByRole("cell", { name: /^Manual/ }).waitFor({ timeout: 60_000 });
 
