@@ -18,7 +18,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { createTestDatabase, startFeed } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -34,7 +34,7 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
-  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, logger: false, now: () => clock });
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, agentSetup: agentDownloads(), logger: false, now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
