@@ -1,4 +1,4 @@
-// Admin home, pending cabinets, install tokens and the scanner default. The other admin screens are in their own files.
+// Admin home, pending cabinets, installing a cabinet and the scanner default. The other admin screens are in their own files.
 import { PolicyEditor, type Policy } from "../../components/FirewallPolicy";
 import { useEffect, useMemo, useState } from "react";
 import { PortsEditor, ScannerIdsEditor } from "../../components/DeviceSettings";
@@ -25,7 +25,7 @@ export function AdminHome() {
         <li><Link to="/admin/audit"><strong>Audit log</strong><span>Search and verify</span></Link></li>
         <li><Link to="/admin/safety"><strong>Fleet safety</strong><span>Pause and resume changes</span></Link></li>
         <li><Link to="/admin/pending"><strong>Pending cabinets</strong><span>{data ? `${data.length} waiting` : "Approve or reject"}</span></Link></li>
-        <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Install tokens and files</span></Link></li>
+        <li><Link to="/admin/tokens"><strong>Install a cabinet</strong><span>Agent packages and installers</span></Link></li>
         <li><Link to="/admin/clients"><strong>Clients and sites</strong><span>Clients and sites</span></Link></li>
         <li><Link to="/admin/issues"><strong>Issue types and suppressions</strong><span>Types and suppressions</span></Link></li>
         <li><Link to="/admin/baselines"><strong>Baselines</strong><span>How cabinets should be set up</span></Link></li>
@@ -50,7 +50,7 @@ export function PendingCabinets() {
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Pending cabinets" }]} />
       <h1>Pending cabinets</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
-      {data && data.length === 0 && <Empty>No cabinets are waiting. A cabinet appears here after it is installed with an install token.</Empty>}
+      {data && data.length === 0 && <Empty>No cabinets are waiting. A cabinet appears here after its installer has run.</Empty>}
       {data?.map(p => <PendingCard key={p.id} p={p} clients={clients.data ?? []} onDone={reload} />)}
     </div>
   );
@@ -139,7 +139,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
       {problem && <p className="error" role="alert">{problem}</p>}
       <StepUpDialog open={confirm !== null} action={confirm === "reject" ? "enrollment.reject" : "enrollment.approve"} target={p.id} onClose={() => setConfirm(null)}
         params={confirm === "reject" ? undefined : approval}
-        description={confirm === "reject" ? <p>Reject the request from <strong>{p.fingerprints.hostname}</strong>. It will need a new install token to try again.</p>
+        description={confirm === "reject" ? <p>Reject the request from <strong>{p.fingerprints.hostname}</strong>. It will need a new installer to try again.</p>
           : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>.
             {!client.exact && <> This creates the new client <strong>{form.client.trim()}</strong>.</>}
             {client.exact && !site.exact && <> This creates the new site <strong>{form.site.trim()}</strong>.</>}

@@ -46,29 +46,17 @@ You can run it again at any time. It keeps `deploy/.env` and the data.
 4. Choose a new password.
 5. Set up an authenticator app (for example Google Authenticator or Microsoft Authenticator) when asked. Approvals and changes need a code from it.
 
-## Install the agent on a Windows laptop
+## Install the agent on a cabinet
 
-1. In the console, as an Admin, open **Admin → Set up and demo**. Step 2 there downloads the three things the laptop needs: the agent zip (`CabinetAgent-win-x64.zip`), a one-time install token (`token.txt`) and the platform CA certificate (`platform-ca.pem`). It also shows the exact PowerShell commands, with this server's address filled in, for the PowerShell that is on the laptop: Windows PowerShell 5.1 (on every Windows machine) or PowerShell 7. Its **What PowerShell version am I on?** button gives the operator the two steps to look, and reads back the number they see.
-2. Follow `README.txt` inside the zip. Both engines install the same agent, so in short, in PowerShell as Administrator:
-   ```powershell
-   cd $HOME\Downloads\CabinetAgent
-   Get-ChildItem -Recurse | Unblock-File
-   Set-ExecutionPolicy -Scope Process Bypass -Force
-   .\install\Install-CabinetAgent.ps1 -PlatformServerHost <domain or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -PlatformCaSha256 <the SHA-256 the console shows> -BootstrapTokenFile .\token.txt -AllowUnsigned
-   ```
-3. `-PlatformServerHost` must be one of the names in `AGENT_API_HOSTNAMES` in `deploy/.env`.
-4. In the console, approve the enrollment request. The laptop comes online within a minute.
+Works on Windows 10 (1607 or later) and Windows 11, 32-bit and 64-bit, with the Windows PowerShell 5.1 every machine has.
 
-If the console has no download yet, get the same three files on the VPS:
+1. In the console, as an Admin, open **Admin → Setup**.
+2. Download the agent: the 32-bit and the 64-bit package (keep both if your cabinets are mixed).
+3. Press **Create installer** and confirm with your authenticator code. You get `Install-CabinetAgent.cmd` for one cabinet: it carries this server's address, its CA and a one-time token (valid 7 days).
+4. On the cabinet, put the installer next to the package(s) (Downloads or a USB stick) and double-click it. Approve the Windows prompt. It picks the package for that Windows, checks it against the server, installs, and deletes itself.
+5. Approve the cabinet in the console under **Pending cabinets**.
 
-```sh
-cd deploy
-docker compose cp server:/opt/cabinet/agent-download/CabinetAgent-win-x64.zip .
-docker compose exec -T server cat /var/lib/cabinet/pki/dev-issuing-ca.cert.pem > platform-ca.pem
-docker compose exec -T server node /opt/cabinet/server/dist/src/cli.js token create --as <admin username>
-```
-
-Save the token line in `token.txt`. Copy the three files to the laptop (for example with `scp`).
+The address in the installer is `AGENT_PUBLIC_HOST`, or the first name in `AGENT_API_HOSTNAMES` (`deploy/.env`).
 
 The agent is a developer build and is not signed. Windows SmartScreen or Defender may warn about it.
 

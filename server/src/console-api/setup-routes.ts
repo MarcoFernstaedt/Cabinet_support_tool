@@ -38,6 +38,9 @@ export const AGENT_PACKAGE_NAMES: Record<AgentArchitecture, string> = {
   "windows-x86": "CabinetAgent-win-x86.zip",
 };
 
+/** Written beside the packages by a build that does not code-sign them (deploy/Dockerfile). */
+export const UNSIGNED_MARKER = "UNSIGNED-DEVELOPMENT-BUILD";
+
 export function agentArchitecture(value: unknown): AgentArchitecture {
   if (value === undefined || value === null || value === "") return "windows-x64";
   if (value === "windows-x64" || value === "windows-x86") return value;
@@ -59,6 +62,16 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return { path, name, bytes: st.size, sha256: hashed.get(architecture)!.sha256 };
   };
 
+  // Whether the packages here are an unsigned development build. The build that made them says so with a marker file
+  // beside them (deploy/Dockerfile); without it they are taken to be signed, and the installer refuses anything that is
+  // not. A server running with NODE_ENV=production never accepts an unsigned build, marker or not.
+  const unsignedBuild = (): boolean => {
+    if (o.agentSetup?.production) return false;
+    if (o.agentSetup?.allowUnsigned) return true;
+    if (!o.agentSetup?.downloadDir) return false;
+    try { return statSync(join(o.agentSetup.downloadDir, UNSIGNED_MARKER)).isFile(); } catch { return false; }
+  };
+
   // The CA file the operator downloads and the value the installer checks it against are the same bytes, so both
   // routes read them from one place.
   const caSha256 = () => createHash("sha256").update(o.issuingKey.certificatePem, "utf8").digest("hex").toUpperCase();
@@ -78,7 +91,7 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
       return { architecture, name: AGENT_PACKAGE_NAMES[architecture], bytes: pkg?.bytes ?? null, sha256: pkg?.sha256 ?? null };
     }));
     return { otherUsers: Number(r.others), realCabinets: Number(r.cabinets), pendingCabinets: Number(r.pending), newestCabinetId: r.newest, newestCabinetName: r.newest_name,
-      agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, packages,
+      agent: { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, packages, unsigned: unsignedBuild(),
         // The installer checks the CA file it is given against this (Get-FileHash), so a swapped CA file is refused.
         caSha256: caSha256() } };
   });
@@ -89,16 +102,19 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/admin/installer", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.stepUpOnly.parse(request.body);
-    await transaction(o.pool, c => consumeStepUpToken(c, boundTo(body.stepUpToken, body), u.userId, "token.create", "fleet"));
     const [x64, x86] = await Promise.all(AGENT_ARCHITECTURES.map(a => packageInfo(a)));
     if (!x64 && !x86) throw new Refused("not_found", 404, "this server has no agent package to install");
-    const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
-    const script = launcherScript({
+    const input = (token: string) => ({
       packages: { "windows-x64": x64 ? { name: x64.name, sha256: x64.sha256 } : null, "windows-x86": x86 ? { name: x86.name, sha256: x86.sha256 } : null },
       host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null,
-      caPem: o.issuingKey.certificatePem, caSha256: caSha256(), token,
-      unsigned: o.agentSetup?.allowUnsigned ?? false,
+      caPem: o.issuingKey.certificatePem, caSha256: caSha256(), token, unsigned: unsignedBuild(),
     });
+    // Built once with a stand-in token first: a server whose own settings cannot make an installer says so before the
+    // confirmation is used up and a token is made for nothing.
+    try { launcherScript(input("x".repeat(43))); } catch (e) { throw new Refused("setup_incomplete", 409, (e as Error).message); }
+    await transaction(o.pool, c => consumeStepUpToken(c, boundTo(body.stepUpToken, body), u.userId, "token.create", "fleet"));
+    const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
+    const script = launcherScript(input(token));
     return { fileName: LAUNCHER_NAME, script, expiresAt: expiresAt.toISOString() };
   });
 

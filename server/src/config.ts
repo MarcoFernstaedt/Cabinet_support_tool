@@ -18,7 +18,7 @@ export interface Config {
   releases: { dir: string; maxBytes: number; keysDir?: string };
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
   /** What the setup page tells an Admin about installing the agent: the address cabinets use to reach the agent API, and the folder holding the agent package to download (optional). */
-  agentSetup: { host: string; port: number; downloadDir?: string; allowUnsigned: boolean };
+  agentSetup: { host: string; port: number; downloadDir?: string; allowUnsigned: boolean; production?: boolean };
   /** When the nightly audit check and retention run, server local time (MAINTENANCE_AT, HH:MM, default 02:30). */
   maintenanceAt: string;
 }
@@ -68,10 +68,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },
     maintenanceAt: maintenanceAt(env.MAINTENANCE_AT),
     agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port),
-      // The installer accepts an unsigned (development) agent build only outside production; production builds are signed.
-      allowUnsigned: env.NODE_ENV !== "production" },
+      // Decided per package folder (setup-routes.ts): unsigned only when the build says so, and never in production.
+      allowUnsigned: false },
   };
   if (env.AGENT_DOWNLOAD_DIR) config.agentSetup.downloadDir = env.AGENT_DOWNLOAD_DIR;
+  config.agentSetup.production = env.NODE_ENV === "production";
   if (!Number.isInteger(config.agentSetup.port) || config.agentSetup.port < 1 || config.agentSetup.port > 65535) throw new Error("AGENT_PUBLIC_PORT must be a port number.");
   if (!/^[A-Za-z0-9.-]{1,253}$/.test(config.agentSetup.host)) throw new Error("AGENT_PUBLIC_HOST must be a host name or IPv4 address.");
   // Other release keys are for tests only (a throwaway key made for the run); production uses contracts/trust/upgrade, the file the agent compiles in.

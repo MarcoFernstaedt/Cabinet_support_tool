@@ -19,7 +19,7 @@ If the install stops:
 
 The cabinet must be able to reach the server's agent address on port 8443 (it only connects out).
 
-Remove (from an administrator Windows PowerShell, in the unpacked CabinetAgent folder):
-  .\install\Uninstall-CabinetAgent.ps1 -RemoveData
+Remove (from an administrator Windows PowerShell):
+  & "C:\Program Files\Mashura\Uninstall-CabinetAgent.ps1" -RemoveData
 
 This build may be an unsigned development build. Production builds are code-signed.
