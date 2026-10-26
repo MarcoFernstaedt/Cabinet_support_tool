@@ -391,6 +391,27 @@ test("a flood of requests without a client certificate does not shed enrolled ca
   } finally { await other.app.close(); }
 });
 
+test("a revoked certificate on new connections is counted as unauthenticated, not against the fleet", async () => {
+  // Tiny shared buckets: three new connections and six requests. A revoked certificate still passes the TLS handshake.
+  const other = await otherApi({ admission: { newConnectionsPerSecond: 0.001, newConnectionsBurst: 3, requestsPerSecond: 0.001, requestsBurst: 6 } });
+  const revoked = await enrolledCabinet();
+  const cab = await enrolledCabinet();
+  try {
+    await revokeCabinet(db.app, revoked.cabinetId, admin);
+    const first = await call("POST", "/agent/v1/heartbeat", heartbeat, revoked, { port: other.port, agent: false });
+    assert.equal(first.status, 401, "refused once, on its first connection (charged as a cabinet: it could not be told apart yet)");
+    for (let i = 0; i < 10; i++) {
+      const again = await call("POST", "/agent/v1/heartbeat", heartbeat, revoked, { port: other.port, agent: false });
+      assert.ok([401, 429].includes(again.status), `request ${i}: ${again.status}`);
+    }
+    // Ten more new connections from the revoked certificate took nothing from the fleet: the enrolled cabinet still gets in.
+    for (let i = 0; i < 2; i++) {
+      const beat = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: false });
+      assert.equal(beat.status, 200, `heartbeat ${i}: ${beat.status} ${JSON.stringify(beat.body)}`);
+    }
+  } finally { await other.app.close(); }
+});
+
 test("per-source limits count an IPv4 address or an IPv6 /64, and stay bounded", () => {
   assert.equal(sourceKey("203.0.113.9"), "203.0.113.9");
   assert.equal(sourceKey("::ffff:203.0.113.9"), "203.0.113.9");
