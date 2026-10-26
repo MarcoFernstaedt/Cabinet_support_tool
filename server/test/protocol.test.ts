@@ -412,6 +412,68 @@ test("a revoked certificate on new connections is counted as unauthenticated, no
   } finally { await other.app.close(); }
 });
 
+test("a revoked certificate cannot spend the fleet's buckets through health, enrollment or unknown routes either", async () => {
+  const other = await otherApi({ admission: { newConnectionsPerSecond: 0.001, newConnectionsBurst: 3, requestsPerSecond: 0.001, requestsBurst: 6 } });
+  const revoked = await enrolledCabinet();
+  const cab = await enrolledCabinet();
+  try {
+    await revokeCabinet(db.app, revoked.cabinetId, admin);
+    // Never refused on a cabinet route, so its serial is not remembered: only the route decides which buckets it uses.
+    for (const [method, path] of [["GET", "/health"], ["GET", "/health?x=1"], ["GET", `/agent/v1/enroll/${randomUUID()}`], ["GET", "/agent/v1/nowhere"], ["GET", "/nowhere"]] as const)
+      for (let i = 0; i < 3; i++) await call(method, path, undefined, revoked, { port: other.port, agent: false });
+    for (let i = 0; i < 2; i++) {
+      const beat = await call("POST", "/agent/v1/heartbeat", heartbeat, cab, { port: other.port, agent: false });
+      assert.equal(beat.status, 200, `heartbeat ${i}: ${beat.status} ${JSON.stringify(beat.body)}`);
+    }
+  } finally { await other.app.close(); }
+});
+
+test("certificate-less requests that reach the database have a small total of their own", async () => {
+  const other = await otherApi({ admission: { unauthenticatedDatabasePerSecond: 0.001, unauthenticatedDatabaseBurst: 3 } });
+  try {
+    const statuses: number[] = [];
+    for (let i = 0; i < 6; i++) statuses.push((await call("GET", `/agent/v1/enroll/${randomUUID()}`, undefined, undefined, { port: other.port, agent: false })).status);
+    assert.deepEqual(statuses, [404, 404, 404, 429, 429, 429]);
+    // Health touches no database and is not counted against it.
+    assert.equal((await call("GET", "/health", undefined, undefined, { port: other.port, agent: false })).status, 200);
+  } finally { await other.app.close(); }
+});
+
+test("open connections are capped per source before TLS, and a closed one frees its place", async () => {
+  const other = await otherApi({ admission: { maxConnectionsPerSource: 2 } });
+  const { connect } = await import("node:net");
+  const open = (): Promise<import("node:net").Socket> => new Promise((resolve, reject) => {
+    const s = connect(other.port, "127.0.0.1", () => resolve(s)); s.once("error", reject);
+  });
+  const closed = (s: import("node:net").Socket, ms = 2000): Promise<boolean> => new Promise(resolve => {
+    const t = setTimeout(() => resolve(false), ms); s.once("close", () => { clearTimeout(t); resolve(true); });
+  });
+  try {
+    const a = await open(), b = await open();
+    const c = await open().catch(() => null);
+    assert.equal(c === null || await closed(c), true, "the third connection from one source is closed at once");
+    assert.equal(await closed(a, 300), false, "the first two stay open");
+    a.destroy();
+    await new Promise(r => setTimeout(r, 100));
+    const d = await open();
+    assert.equal(await closed(d, 300), false, "a freed place can be used again");
+    b.destroy(); d.destroy();
+  } finally { await other.app.close(); }
+});
+
+test("a refused certificate-less request over HTTP/2 closes the session rather than sending a Connection header", async () => {
+  const other = await otherApi({ admission: { unauthenticatedPerSecond: 0.001, unauthenticatedBurst: 1 } });
+  const session = http2Connect(`https://localhost:${other.port}`, { ca: key.certificatePem, servername: "localhost" });
+  try {
+    const sessionClosed = new Promise<void>(r => { session.once("goaway", () => r()); session.once("close", () => r()); });
+    assert.equal((await call2(session, "GET", "/health")).status, 200);
+    const refused = await call2(session, "GET", "/health");
+    assert.equal(refused.status, 429);
+    assert.equal(refused.headers["connection"], undefined);
+    await Promise.race([sessionClosed, new Promise((_, reject) => setTimeout(() => reject(new Error("the server did not end the session")), 3000))]);
+  } finally { session.destroy(); await other.app.close(); }
+});
+
 test("per-source limits count an IPv4 address or an IPv6 /64, and stay bounded", () => {
   assert.equal(sourceKey("203.0.113.9"), "203.0.113.9");
   assert.equal(sourceKey("::ffff:203.0.113.9"), "203.0.113.9");
@@ -429,12 +491,15 @@ test("per-source limits count an IPv4 address or an IPv6 /64, and stay bounded",
   assert.equal(buckets.take("b", t), true);
   assert.equal(buckets.take("c", t), true);
   assert.equal(buckets.size, 3);
-  // Past the cap, new sources share the overflow bucket instead of growing the map.
-  assert.deepEqual([buckets.take("d", t), buckets.take("e", t), buckets.take("f", t)], [true, true, false]);
-  assert.ok(buckets.size <= 4, `bounded: ${buckets.size}`);
-  // Once the buckets have refilled, pruning forgets them all.
-  buckets.prune(t + 10_000);
-  assert.equal(buckets.size, 0);
+  // Past the cap, new sources share one overflow bucket, larger than one source's, instead of growing the map (and without a prune).
+  assert.deepEqual([buckets.take("d", t), buckets.take("e", t), buckets.take("f", t)], [true, true, true]);
+  assert.equal(buckets.size, 4, "the three sources and the overflow bucket");
+  let overflowTaken = 0;
+  while (buckets.take(`new-${overflowTaken}`, t) && overflowTaken < 1_000) overflowTaken++;
+  assert.equal(overflowTaken + 3, 2 * SourceBuckets.OVERFLOW_FACTOR, "the overflow bucket holds OVERFLOW_FACTOR sources' worth, then refuses");
+  // Once the buckets have refilled, the timer's prune forgets the sources.
+  buckets.prune(t + 1_000_000);
+  assert.ok(buckets.size <= 1, `pruned: ${buckets.size}`);
   assert.equal(buckets.take("a", t + 10_000), true);
 });
 

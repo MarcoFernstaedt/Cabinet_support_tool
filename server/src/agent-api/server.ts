@@ -64,13 +64,21 @@ export interface Admission {
   enrollStatusPerMinute: number;
   /** The most sources the per-source limits remember; past it new sources share one overflow bucket until the map is pruned. */
   maxSources: number;
+  /** Certificate-less requests that reach the database (enrollment and its status), per second in total: kept well below what the fleet uses. */
+  unauthenticatedDatabasePerSecond: number; unauthenticatedDatabaseBurst: number;
+  /** Open connections per source (IPv4 address or IPv6 /64) and in total; past either a new connection is closed before TLS. */
+  maxConnectionsPerSource: number; maxConnections: number;
 }
+
+/** The routes a caller reaches without a client certificate. Every other route requires one (requireCabinet). */
+const OPEN_ROUTES = new Set(["/health", "/agent/v1/enroll", "/agent/v1/enroll/:requestId"]);
 
 export const DEFAULT_ADMISSION: Admission = {
   newConnectionsPerSecond: 300, newConnectionsBurst: 900, requestsPerSecond: 2_000, requestsBurst: 4_000,
   maxPendingAcquires: 20, maxAcquireWaitMs: 1_000, maxEventLoopLagMs: 250, retryAfterSeconds: [30, 90], connectionRetryAfterSeconds: [3, 15],
   unauthenticatedPerSecond: 5, unauthenticatedBurst: 50, unauthenticatedTotalPerSecond: 200, unauthenticatedTotalBurst: 1_000,
-  enrollStatusPerMinute: 30, maxSources: 20_000,
+  enrollStatusPerMinute: 60, maxSources: 20_000, unauthenticatedDatabasePerSecond: 10, unauthenticatedDatabaseBurst: 50,
+  maxConnectionsPerSource: 256, maxConnections: 30_000,
 };
 
 export interface AgentApiOptions {
@@ -155,16 +163,20 @@ export function sourceKey(ip: string): string {
 export class SourceBuckets {
   private readonly buckets = new Map<string, { tokens: number; last: number }>();
   static readonly OVERFLOW = "overflow";
+  static readonly OVERFLOW_FACTOR = 50;
   constructor(private readonly rate: number, private readonly burst: number, private readonly maxSources: number) {}
   take(key: string, now = Date.now()): boolean {
     let b = this.buckets.get(key);
+    let rate = this.rate, burst = this.burst;
     if (!b) {
-      if (this.buckets.size >= this.maxSources) this.prune(now);
-      if (this.buckets.size >= this.maxSources) key = SourceBuckets.OVERFLOW;
+      // Full: new sources share one overflow bucket, OVERFLOW_FACTOR times the size of one source's, until the timer prunes. Never a
+      // prune here: a flood of new sources must not buy a scan of the whole map per request.
+      if (this.buckets.size >= this.maxSources) { key = SourceBuckets.OVERFLOW; }
       b = this.buckets.get(key);
-      if (!b) { b = { tokens: this.burst, last: now }; this.buckets.set(key, b); }
+      if (!b) { b = { tokens: key === SourceBuckets.OVERFLOW ? this.burst * SourceBuckets.OVERFLOW_FACTOR : this.burst, last: now }; this.buckets.set(key, b); }
     }
-    b.tokens = Math.min(this.burst, b.tokens + ((now - b.last) / 1000) * this.rate);
+    if (key === SourceBuckets.OVERFLOW) { rate *= SourceBuckets.OVERFLOW_FACTOR; burst *= SourceBuckets.OVERFLOW_FACTOR; }
+    b.tokens = Math.min(burst, b.tokens + ((now - b.last) / 1000) * rate);
     b.last = now;
     if (b.tokens < 1) return false;
     b.tokens -= 1;
@@ -172,7 +184,7 @@ export class SourceBuckets {
   }
   /** Drops every bucket that has refilled: those sources have been quiet long enough that forgetting them changes nothing. */
   prune(now = Date.now()): void {
-    for (const [key, b] of this.buckets) if (b.tokens + ((now - b.last) / 1000) * this.rate >= this.burst) this.buckets.delete(key);
+    for (const [key, b] of this.buckets) if (key !== SourceBuckets.OVERFLOW && b.tokens + ((now - b.last) / 1000) * this.rate >= this.burst) this.buckets.delete(key);
   }
   get size(): number { return this.buckets.size; }
 }
@@ -219,6 +231,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     // TLS session tickets: a reconnecting agent resumes its session (the certificate it proved stays bound to it) instead of a full
     // handshake. The ticket keys are this process's own and are replaced daily.
     sessionTimeout: 24 * 3600,
+    // A handshake that has not finished in 10 s is dropped: a client that opens connections and never completes them holds nothing.
+    handshakeTimeout: 10_000,
     ...(http2 ? { allowHTTP1: true } : {}),
   };
   const app = Fastify({
@@ -235,7 +249,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     return503OnClosing: false,
     forceCloseConnections: false,
   } as Parameters<typeof Fastify>[0]) as unknown as FastifyInstance;
-  const enrollPerHour = o.enrollPerHour ?? 10;
+  // Per source: a site's cabinets often share one public address, and a refused attempt keeps its token and retries, so this is generous.
+  const enrollPerHour = o.enrollPerHour ?? 60;
   // The ingest quota (docs/platform/data-classification.md): per cabinet, per clock hour, kept in memory. Over it, a batch
   // is refused with 429 and the agent keeps the events in its own bounded queue and sends them later.
   const eventsPerHour = o.eventsPerHour ?? 3000;
@@ -254,9 +269,25 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   // ---- Connections -----------------------------------------------------------------------------------------------------
   const server = app.server as unknown as TlsServer;
   const http1Sockets = new Set<TLSSocket>();
+  const openPerSource = new Map<string, number>();
+  let openTotal = 0;
   // TCP keepalives every 20 s keep NAT entries alive and find dead peers; a TLS 1.2 renegotiation could swap the certificate on a
   // connection whose acceptance is remembered, so it is refused.
-  server.on("connection", (socket: Socket) => socket.setKeepAlive(true, 20_000));
+  server.on("connection", (socket: Socket) => {
+    // Open connections per source (an IPv4 address or an IPv6 /64) are capped before TLS starts, so one source cannot hold the server's
+    // sockets open. A whole site of cabinets behind one address stays far below the cap: each cabinet keeps one connection.
+    const source = sourceKey(socket.remoteAddress ?? "");
+    const open = openPerSource.get(source) ?? 0;
+    if (open >= admission.maxConnectionsPerSource || openTotal >= admission.maxConnections) { socket.destroy(); opsMeter.count("shed", "connection_limit"); return; }
+    openPerSource.set(source, open + 1);
+    openTotal++;
+    socket.once("close", () => {
+      openTotal--;
+      const left = (openPerSource.get(source) ?? 1) - 1;
+      if (left <= 0) openPerSource.delete(source); else openPerSource.set(source, left);
+    });
+    socket.setKeepAlive(true, 20_000);
+  });
   server.on("secureConnection", (socket: TLSSocket) => {
     socket.disableRenegotiation();
     if (socket.alpnProtocol !== "h2") { http1Sockets.add(socket); socket.once("close", () => http1Sockets.delete(socket)); }
@@ -295,6 +326,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   // Traffic without a verified client certificate: its own buckets, per source and in total, never the shared ones above.
   const unauthenticatedTotal = new TokenBucket(admission.unauthenticatedTotalPerSecond, admission.unauthenticatedTotalBurst);
+  const unauthenticatedDatabase = new TokenBucket(admission.unauthenticatedDatabasePerSecond, admission.unauthenticatedDatabaseBurst);
   const unauthenticatedSources = new SourceBuckets(admission.unauthenticatedPerSecond, admission.unauthenticatedBurst, admission.maxSources);
   const enrollStatusSources = new SourceBuckets(admission.enrollStatusPerMinute / 60, admission.enrollStatusPerMinute, admission.maxSources);
   const enrollSources = new SourceBuckets(enrollPerHour / 3600, enrollPerHour, admission.maxSources);
@@ -337,11 +369,20 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     catch { done(new Refused("invalid_json", 400, "body is not JSON"), undefined); }
   });
 
+  /**
+   * Ends the connection once this answer is out: a Connection: close header on HTTP/1.1; on HTTP/2, which has no such header, the session
+   * is closed (GOAWAY). The session is taken now: by the time the answer has finished, the stream no longer refers to it.
+   */
+  const closeAfter = (request: FastifyRequest, reply: FastifyReply): void => {
+    if (!isHttp2(request)) { reply.header("connection", "close"); return; }
+    const session = (request.raw as unknown as { stream?: { session?: { close(): void } } }).stream?.session;
+    if (session) reply.raw.once("finish", () => session.close());
+  };
+
   /** A refusal for load: 503 with a randomised Retry-After; a long poll instead gets an empty answer telling it when to come back. */
   const shed = (request: FastifyRequest, reply: FastifyReply, opts: { seconds: number; closeConnection?: boolean; pollAnswer?: boolean; pollMs?: number }): FastifyReply => {
     if (opts.closeConnection) {
-      if (isHttp2(request)) reply.raw.once("finish", () => (request.raw as unknown as { stream?: { session?: { close(): void } } }).stream?.session?.close());
-      else reply.header("connection", "close");
+      closeAfter(request, reply);
     }
     const isPoll = request.method === "GET" && request.url.split("?")[0] === "/agent/v1/commands";
     if (isPoll && opts.pollAnswer !== false)
@@ -361,22 +402,29 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     // against the platform's CA (and that was not refused since). Anything else - enrollment, its status, health, or a request to a
     // cabinet route without a certificate - is counted per source and in total in buckets of its own, so it can never use up what
     // the enrolled fleet needs. Whether the certificate is still accepted is checked by requireCabinet below.
+    // Only the cabinet routes (the ones requireCabinet guards) ever use the shared buckets: health, enrollment and anything that matches
+    // no route are certificate-less traffic whatever the caller presents, so not even a revoked certificate can spend them there.
+    const route = request.routeOptions?.url;
+    const cabinetRoute = route !== undefined && !OPEN_ROUTES.has(route);
     const tls = tlsSocketOf(request);
-    const certified = tls.authorized === true && !refusedConnections.has(connectionOf(request)) && !refusedSerial(peerSerial(tls));
+    const certified = cabinetRoute && tls.authorized === true && !refusedConnections.has(connectionOf(request)) && !refusedSerial(peerSerial(tls));
     if (!certified) {
       const source = sourceKey(request.ip);
+      const database = route === "/agent/v1/enroll" || route === "/agent/v1/enroll/:requestId";
       const limited = !unauthenticatedSources.take(source) || !unauthenticatedTotal.take()
-        || (request.method === "GET" && path.startsWith("/agent/v1/enroll/") && !enrollStatusSources.take(source));
+        || (route === "/agent/v1/enroll/:requestId" && !enrollStatusSources.take(source))
+        || (database && !unauthenticatedDatabase.take());
       if (limited) {
-        return reply.code(429).header("retry-after", String(connectionRetryAfter())).header("connection", "close").send({ error: "rate_limited" });
+        // HTTP/2 has no Connection header: the session is closed once the answer is out instead.
+        closeAfter(request, reply);
+        return reply.code(429).header("retry-after", String(connectionRetryAfter())).send({ error: "rate_limited" });
       }
-      if (path === "/health") return;
+      if (route === "/health" || !database) return;
       if (shuttingDown) return shed(request, reply, { seconds: Math.ceil(reconnectSpread() / 1000), closeConnection: true });
       // Enrollment reads and writes the database; it waits while the database is behind, like everything else.
       if (overloaded()) return shed(request, reply, { seconds: retryAfter() });
       return;
     }
-    if (request.url === "/health") return;
     if (shuttingDown) {
       const ms = reconnectSpread();
       return shed(request, reply, { seconds: Math.ceil(ms / 1000), closeConnection: true });
@@ -453,7 +501,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       return;
     }
     const epoch = revocationEpoch();
-    const found = socket.authorized && serial ? await authenticate(o.pool, serial, subject) : null;
+    // A certificate refused in the last ten minutes is refused again without asking the database.
+    const found = socket.authorized && serial && !refusedSerial(serial) ? await authenticate(o.pool, serial, subject) : null;
     if (!found) {
       accepted.delete(connection);
       // A certificate that chains to our CA but is not accepted (revoked, expired, removed cabinet): the rest of this connection's
