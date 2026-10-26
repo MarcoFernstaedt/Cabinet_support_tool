@@ -18,6 +18,6 @@ docker compose --project-directory deploy up -d --build
 | `Caddyfile.local` | Serves the console under `/console-proxy` for the other site's rewrite, and sends a browser that reaches the front directly to `CONSOLE_PUBLIC_URL`. |
 | `env.example` | `CONSOLE_ORIGIN`, `CONSOLE_PUBLIC_URL`, `AGENT_API_HOSTNAMES` with the public address first, and the development upgrade switch, commented out. |
 
-Then point Tailscale at Caddy, for example `tailscale funnel --bg --https=10000 https+insecure://127.0.0.1:443`.
+Then point Tailscale at Caddy over HTTP, for example `tailscale funnel --bg --https=10000 https+insecure://127.0.0.1:443`. Use HTTP mode only: Serve or Funnel in TCP mode does not set `X-Forwarded-For`, and the address Caddy trusts (`CONSOLE_TRUSTED_PROXIES`) could then claim any address. That address is the Docker gateway, so every process on the host is trusted with it.
 
 To turn it off: `rm deploy/compose.override.yaml deploy/Caddyfile.local`, remove the lines from `deploy/.env`, and run `docker compose --project-directory deploy up -d`.
