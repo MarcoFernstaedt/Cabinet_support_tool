@@ -48,17 +48,21 @@ test("every program is started by its full path, and no path is spliced into a c
   assert.match(batch, /"%SystemRoot%\\System32\\fltmc\.exe" >nul 2>&1/);
   assert.match(batch, /set "CABINET_PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe"/);
   assert.match(batch, /Sysnative\\WindowsPowerShell/, "64-bit PowerShell on 64-bit Windows, even from a 32-bit prompt");
-  assert.match(batch, /Start-Process -FilePath \$env:CABINET_LAUNCHER -Verb RunAs/, "the launcher's own path reaches PowerShell as a variable, never as code");
+  assert.match(batch, /Start-Process -FilePath \(Join-Path \$env:SystemRoot 'System32\\cmd\.exe'\) -Verb RunAs -ArgumentList \('\/d \/s \/c \\"\\"' \+ \$env:CABINET_LAUNCHER \+ '\\" --elevated\\"'\)/,
+    "cmd.exe is elevated by full path and given the launcher's path from a variable, quoted for cmd /s /c, so '(1).cmd' runs as itself");
+  assert.match(batch, /if \/i "%~1"=="--elevated" goto noadmin/, "it asks for administrator rights once, never in a loop");
   assert.equal(/'%~f0'|"%~f0"[^\r]*-Command/.test(batch), false);
   assert.equal(/\bnet session\b|^powershell(\.exe)? /m.test(batch), false);
   const bootstrap = bootstrapScript();
   assert.match(bootstrap, /Join-Path \$PSHOME 'powershell\.exe'/);
 });
 
-test("the bootstrap is carried encoded, unchanged, and makes a private folder in one step", () => {
+test("the bootstrap travels as plain text (antivirus treats encoded commands as obfuscation) and makes a private folder in one step", () => {
   const text = launcherScript(base);
-  const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(text)![1]!;
-  assert.equal(Buffer.from(encoded, "base64").toString("utf16le"), bootstrapScript());
+  assert.equal(text.includes("-EncodedCommand"), false);
+  const line = batchPart(text).split("\r\n").find(l => l.includes("-Command \"$ErrorActionPreference"))!;
+  assert.equal(line, `"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "${bootstrapScript().split("\n").map(l => l.trim()).join("; ")}"`);
+  assert.equal(/["%^&|<>!]/.test(line.slice(line.indexOf('-Command "') + 10, -1)), false, "nothing in it ends cmd's quote or means something to cmd.exe");
   const b = bootstrapScript();
   assert.match(b, /\[IO\.Directory\]::CreateDirectory\(\$stage, \$sec\)/, "the folder is created with its permissions, not locked down afterwards");
   assert.match(b, /SetAccessRuleProtection\(\$true, \$false\)/);

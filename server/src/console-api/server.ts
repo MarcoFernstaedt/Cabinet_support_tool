@@ -58,7 +58,7 @@ export interface ConsoleApiOptions {
   settings?: SettingsCache;
   trustProxy?: number | string | false;
   /** The agent API address cabinets use, and the folder with the agent package to download (docs/platform/demo.md). */
-  agentSetup?: { host: string; port: number; downloadDir?: string; allowUnsigned?: boolean };
+  agentSetup?: { host: string; port: number; downloadDir?: string; allowUnsigned?: boolean; production?: boolean };
   logger?: boolean;
   now?: () => number;
   /** How a fleet job polls and how long it waits to verify; shorter in tests. */

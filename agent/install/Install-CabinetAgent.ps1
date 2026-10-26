@@ -106,13 +106,13 @@ if ($ReadOnly -and $ReadWrite) { throw 'Give -ReadOnly or -ReadWrite, not both: 
 if ($BootstrapTokenFile) {
     if ($BootstrapToken) { throw 'Give -BootstrapToken or -BootstrapTokenFile, not both.' }
     if (-not (Test-Path -LiteralPath $BootstrapTokenFile -PathType Leaf)) {
-        throw "The token file '$BootstrapTokenFile' is not on this machine. On the console's Setup page press 'Download token.txt' and put that file next to this script (it lands in Downloads), or give the full path to it and run again."
+        throw "The token file '$BootstrapTokenFile' is not on this machine. Use the installer from the console's Setup page, which brings its own token, or give the full path to the token file and run again."
     }
     $BootstrapToken = (Get-Content -LiteralPath $BootstrapTokenFile -Raw).Trim()
-    if ($BootstrapToken -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw "The file '$BootstrapTokenFile' does not hold a bootstrap token. Press 'Download token.txt' on the console's Setup page and use the file it gives you; a token is 32 to 128 letters, digits, dashes and underscores." }
+    if ($BootstrapToken -notmatch '^[A-Za-z0-9_-]{32,128}$') { throw "The file '$BootstrapTokenFile' does not hold a bootstrap token. Create a new installer on the console's Setup page; a token is 32 to 128 letters, digits, dashes and underscores." }
 }
 if ($PlatformCaFile -and -not (Test-Path -LiteralPath $PlatformCaFile -PathType Leaf)) {
-    throw "The platform CA file '$PlatformCaFile' is not on this machine. On the console's Setup page press 'Download platform-ca.pem' and put that file next to this script, or give the full path to it and run again."
+    throw "The platform CA file '$PlatformCaFile' is not on this machine. Use the installer from the console's Setup page, which brings the CA with it, or give the full path to the CA file and run again."
 }
 
 # A 32-bit PowerShell on 64-bit Windows sees C:\Program Files (x86) as Program Files and a redirected System32, so the
@@ -131,7 +131,7 @@ if (-not $SourceDir) {
     $SourceDir = Join-Path $scriptRoot '..\out'
 }
 if (-not (Test-Path -LiteralPath $SourceDir -PathType Container)) {
-    throw "The published agent is not in '$SourceDir'. Unpack the agent archive you downloaded (CabinetAgent-win-x64.zip from the console's Setup page) and run the install script from inside the folder it unpacks to, or pass -SourceDir with the folder that holds the Cabinet.Agent.* folders."
+    throw "The published agent is not in '$SourceDir'. Use the installer from the console's Setup page, or unpack the agent archive for this Windows (CabinetAgent-win-x86.zip or CabinetAgent-win-x64.zip) and run the install script from inside the folder it unpacks to, or pass -SourceDir with the folder that holds the Cabinet.Agent.* folders."
 }
 
 # 0a. This machine. Two things decide whether the agent can run here at all, and both are checked before anything is
@@ -263,6 +263,12 @@ foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ N
         throw "The agent's files could not be copied into '$to': $($_.Exception.Message) Something is holding a file open - stop the $($service.Name) service (and any agent window left open) and run again."
     }
 }
+
+# The uninstaller stays on the cabinet, because the folder the agent was installed from is gone. It sits one level above
+# the programs, which an upgrade replaces as a whole; C:\Program Files keeps it changeable by administrators only.
+$installDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
+$uninstaller = Join-Path $installDir 'Uninstall-CabinetAgent.ps1'
+if (Test-Path -LiteralPath $uninstaller -PathType Leaf) { Copy-Item -LiteralPath $uninstaller -Destination (Join-Path (Split-Path $programDir -Parent) 'Uninstall-CabinetAgent.ps1') -Force }
 
 # 2. Services. The network service depends on the broker and runs as its virtual account.
 $brokerExe = Join-Path $programDir 'Cabinet.Agent.Broker\Cabinet.Agent.Broker.exe'
@@ -413,6 +419,7 @@ Write-Host "PowerShell used: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSE
 Write-Host "Configuration: $configPath"
 if ($installed) { Write-Host 'Kept the cabinet ID and every setting not given in this run from the existing configuration.' }
 Write-Host "Logs: $logDir"
+Write-Host "To remove the agent: $(Join-Path (Split-Path $programDir -Parent) 'Uninstall-CabinetAgent.ps1') -RemoveData"
 if ($EnableLocalHarness) { Write-Host "Local harness inbox: $(Join-Path $dataDir 'harness\inbox')" }
 }
 catch {

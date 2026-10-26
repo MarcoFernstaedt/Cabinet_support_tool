@@ -11,7 +11,8 @@
 //      starts Windows PowerShell 5.1 by full path: every Windows 10 and 11 machine has it, 32-bit or 64-bit. On 64-bit
 //      Windows it is always the 64-bit PowerShell (Sysnative from a 32-bit prompt), or C:\Program Files would be the
 //      32-bit one.
-//   2. A short bootstrap creates a new, randomly named folder that only SYSTEM and Administrators can change, writes the
+//   2. A short bootstrap (plain text on the command line, not encoded: antivirus rules treat encoded commands as
+//      obfuscation) creates a new, randomly named folder that only SYSTEM and Administrators can change, writes the
 //      PowerShell part of this file into it, and runs it from there.
 //   3. That part picks the package for this machine's Windows (32-bit or 64-bit), copies it into the protected folder,
 //      checks the SHA-256 of the copy, unpacks only the copy, writes the CA and the token beside it, and runs the
@@ -166,7 +167,7 @@ try {
  * and reads the launcher's path from the environment, so no path is ever spliced into code.
  */
 export function bootstrapScript(): string {
-  return [
+  const lines = [
     "$ErrorActionPreference = 'Stop'",
     "$self = $env:CABINET_LAUNCHER",
     "$text = [IO.File]::ReadAllText($self)",
@@ -194,13 +195,16 @@ export function bootstrapScript(): string {
     "  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue",
     "}",
     "exit $code",
-  ].join("\n");
+  ];
+  // It travels inside a double-quoted cmd.exe argument: nothing in it may end that quote or mean something to cmd.exe.
+  for (const l of lines) if (/["%^&|<>!]/.test(l)) throw new Error(`the bootstrap cannot carry ${JSON.stringify(l)}`);
+  return lines.join("\n");
 }
 
 /** The whole file the operator saves: the batch part, then the PowerShell payload after the marker. */
 export function launcherScript(o: LauncherInput): string {
   const payload = launcherPayload(o);
-  const encoded = Buffer.from(bootstrapScript(), "utf16le").toString("base64");
+  const bootstrap = bootstrapScript().split("\n").map(l => l.trim()).join("; ");
   const batch = [
     "@echo off",
     "rem Mashura cabinet agent installer. Double-click it on the cabinet; it installs the agent and then deletes itself.",
@@ -212,13 +216,21 @@ export function launcherScript(o: LauncherInput): string {
     'if exist "%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe" set "CABINET_PS=%SystemRoot%\\Sysnative\\WindowsPowerShell\\v1.0\\powershell.exe"',
     '"%SystemRoot%\\System32\\fltmc.exe" >nul 2>&1',
     "if not errorlevel 1 goto elevated",
+    // Already asked once: Windows did not give the rights, so stop rather than ask again forever.
+    'if /i "%~1"=="--elevated" goto noadmin',
     "echo Asking Windows for administrator rights...",
-    '"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:CABINET_LAUNCHER -Verb RunAs"',
+    // cmd.exe is elevated by its full path and given the launcher's path from the environment, quoted the way cmd /s /c
+    // expects, so a path with spaces, parentheses or ampersands ("Install-CabinetAgent (1).cmd") runs as itself.
+    '"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath (Join-Path $env:SystemRoot \'System32\\cmd.exe\') -Verb RunAs -ArgumentList (\'/d /s /c \"\"\' + $env:CABINET_LAUNCHER + \'\" --elevated\"\')"',
     "exit /b 0",
+    ":noadmin",
+    "echo This installer needs administrator rights, and Windows did not give them. Sign in as an administrator and run it again.",
+    "pause >nul",
+    "exit /b 1",
     ":elevated",
     "echo Mashura cabinet agent setup",
     "echo.",
-    `"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`,
+    `"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "${bootstrap}"`,
     'set "CABINET_EXIT=%ERRORLEVEL%"',
     "echo.",
     'if not "%CABINET_EXIT%"=="0" goto failed',

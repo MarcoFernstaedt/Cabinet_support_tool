@@ -17,7 +17,7 @@ import { INSTALL_ARCHITECTURES, type InstallArchitecture } from "../../lib/insta
 
 export interface SetupState {
   otherUsers: number; realCabinets: number; pendingCabinets: number; newestCabinetId: string | null; newestCabinetName: string | null;
-  agent: { host: string | null; port: number | null; packages: { architecture: InstallArchitecture; name: string; bytes: number | null; sha256: string | null }[]; caSha256: string };
+  agent: { host: string | null; port: number | null; unsigned: boolean; packages: { architecture: InstallArchitecture; name: string; bytes: number | null; sha256: string | null }[]; caSha256: string };
 }
 
 const Step = ({ n, title, done, children }: { n: number; title: string; done: boolean; children: React.ReactNode }) => (
@@ -88,6 +88,7 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
   const any = packages.some(p => p.pkg);
   return (
     <>
+      {setup.agent.unsigned && <p className="notice warn">Development build: these packages are not code-signed. Use them on test machines only.</p>}
       <ol className="steps">
         <li><strong>Download the agent.</strong> Once is enough: keep it with your installers, on this computer or a USB stick.
           <p className="row gap wrap">
@@ -111,6 +112,7 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
           <li>Windows 10 (1607 or later) or Windows 11, 32-bit or 64-bit. The installer uses the built-in Windows PowerShell; nothing else is needed.</li>
           <li>The cabinet must reach <code>{setup.agent.host ?? "this server"}:{setup.agent.port ?? 8443}</code>. It only connects out.</li>
           <li>If Windows SmartScreen appears, choose <em>More info</em>, then <em>Run anyway</em>.</li>
+          <li>Elevating as a different administrator account? Keep the installer and the agent files in the same folder; that account cannot see your Downloads.</li>
           <li>If setup stops, the window says what happened and what to do. The installer keeps its token so you can run it again; it deletes itself after a successful install.</li>
         </ul>
       </details>

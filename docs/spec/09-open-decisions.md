@@ -675,3 +675,12 @@ Control 6 limits sign-in "per account and per address". Behind a proxy that hid 
 **Still open:**
 - **One account can still be locked by name.** Five wrong passwords lock that account for 15 minutes, whatever the address. The spec's per-account lock is unchanged. A trusted browser does not get past it.
 - **People behind another site's proxy share its addresses.** That covers, for example, a rewrite on another domain. They share an address limit until each has fully signed in once from their browser. Trusting that proxy's forwarded header would need a secret only the proxy can send.
+
+## Installing the agent: one installer per cabinet (October 2026)
+
+The Setup page makes `Install-CabinetAgent.cmd` for one cabinet. It carries the server address, the platform CA, both package hashes and a one-time token, picks the 32-bit or 64-bit package by asking Windows, and runs on the built-in Windows PowerShell 5.1. The pasted command block, `token.txt` and `platform-ca.pem` are gone from the page.
+
+- **Unsigned builds are the build's statement, not a default.** The installer passes `-AllowUnsigned` only when the package folder holds the `UNSIGNED-DEVELOPMENT-BUILD` marker the Docker build writes, and never when `NODE_ENV=production`. A signing pipeline leaves the marker out.
+- **Accepted residual risk.** The installer is double-clicked from a folder the operator's own account can write (Downloads, a USB stick). Code running as that same account, without elevation, could change the file between the double-click and the moment the elevated part reads it. UAC is not a boundary against same-user code, and no file run from a user-writable folder can close that. What the installer does close: once elevated it works only in a new folder that only SYSTEM and Administrators can change, and it hashes the copy it unpacks, so a package swapped after the check is never the one installed.
+- **The token in the file.** Like the `token.txt` it replaces, it works once, expires in 7 days, and the cabinet still waits for an Admin's approval. The installer deletes itself after a successful install.
+- **Uninstall** is left on the cabinet at `C:\Program Files\Mashura\Uninstall-CabinetAgent.ps1`, outside the program folder an upgrade replaces.

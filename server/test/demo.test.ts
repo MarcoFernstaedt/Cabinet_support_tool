@@ -4,7 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -472,7 +472,7 @@ test("the setup page: Admin only; it says where cabinets connect and serves an a
   const setup = (await call("GET", "/api/admin/setup", undefined, ca)).body;
   // Both architectures are listed with their own file and hash, so the operator can see which one this server can
   // hand over before walking to a 32-bit machine.
-  assert.deepEqual({ ...setup.agent, caSha256: undefined }, { host: "cabinets.example.com", port: 8443, caSha256: undefined,
+  assert.deepEqual({ ...setup.agent, caSha256: undefined }, { host: "cabinets.example.com", port: 8443, caSha256: undefined, unsigned: false,
     packages: [
       { architecture: "windows-x64", name: "CabinetAgent-win-x64.zip", bytes: agentZip.length, sha256: createHash("sha256").update(agentZip).digest("hex") },
       { architecture: "windows-x86", name: "CabinetAgent-win-x86.zip", bytes: agentZipX86.length, sha256: createHash("sha256").update(agentZipX86).digest("hex") },
@@ -517,7 +517,7 @@ test("an installer for one cabinet: Admin only, confirmed with a code, holds a w
   assert.match(script, new RegExp(`'windows-x64' = @\\{ Name = 'CabinetAgent-win-x64\\.zip'; Sha256 = '${createHash("sha256").update(agentZip).digest("hex")}' \\}`));
   assert.match(script, new RegExp(`'windows-x86' = @\\{ Name = 'CabinetAgent-win-x86\\.zip'; Sha256 = '${createHash("sha256").update(agentZipX86).digest("hex")}' \\}`));
   assert.match(script, /\$serverHost = 'cabinets\.example\.com'/);
-  assert.equal(script.includes("-AllowUnsigned"), false, "this server was not told to accept unsigned builds");
+  assert.equal(script.includes("-AllowUnsigned"), false, "no build said its packages are unsigned");
   // The token in the file is a real one-time token: a cabinet can ask to join with it, once.
   const token = /\$token = '([A-Za-z0-9_-]+)'/.exec(script)![1]!;
   const fingerprints = { hostname: "CAB-INSTALLER", serialNumber: "SN-INSTALLER", macAddresses: [], provisionedClient: null, provisionedSite: null,
@@ -526,4 +526,28 @@ test("an installer for one cabinet: Admin only, confirmed with a code, holds a w
   await assert.rejects(submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints }, "127.0.0.1"), "a used token is refused");
   // The confirmation was used up.
   assert.ok((await call("POST", "/api/admin/installer", { stepUpToken: confirmation }, ca)).status >= 400);
+});
+
+test("unsigned packages are accepted only when the build says so, and never in production", async () => {
+  const admin = await account("admin");
+  const ca = await signIn(admin);
+  const installer = async () => {
+    clock += 30_000;
+    const confirmation = (await call("POST", "/api/auth/step-up", { code: totp.code(admin.secret, totp.stepAt(clock)), action: "token.create", target: "fleet" }, ca)).body.token;
+    const r = await call("POST", "/api/admin/installer", { stepUpToken: confirmation }, ca);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    return r.body.script as string;
+  };
+  writeFileSync(join(downloadDir, "UNSIGNED-DEVELOPMENT-BUILD"), "");
+  try {
+    assert.equal((await call("GET", "/api/admin/setup", undefined, ca)).body.agent.unsigned, true, "the page says so");
+    assert.match(await installer(), /\$installerArgs \+= '-AllowUnsigned'/);
+    const production = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin: ORIGIN, stream, logger: false, now: () => clock,
+      agentSetup: { host: "cabinets.example.com", port: 8443, downloadDir, production: true } });
+    try {
+      const r = await production.inject({ method: "GET", url: "/api/admin/setup", headers: { origin: ORIGIN, cookie: ca } });
+      assert.equal(JSON.parse(r.body).agent.unsigned, false, "a production server never accepts an unsigned build, marker or not");
+    } finally { await production.close(); }
+  } finally { rmSync(join(downloadDir, "UNSIGNED-DEVELOPMENT-BUILD")); }
+  assert.equal((await installer()).includes("-AllowUnsigned"), false);
 });

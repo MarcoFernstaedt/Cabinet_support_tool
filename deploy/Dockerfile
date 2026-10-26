@@ -101,7 +101,10 @@ RUN mkdir -p /agent-download && set -eu; \
     for architecture in win-x64 win-x86; do \
       cd "/pkg/$architecture" && zip -r -X -q "/agent-download/CabinetAgent-$architecture.zip" CabinetAgent; \
       sha256sum "/agent-download/CabinetAgent-$architecture.zip" | cut -d' ' -f1 > "/agent-download/CabinetAgent-$architecture.zip.sha256"; \
-    done
+    done; \
+    # This build does not code-sign the programs, and says so: the console's installer then accepts them as a development
+    # build (never on a server with NODE_ENV=production). A signing pipeline leaves the marker out.
+    touch /agent-download/UNSIGNED-DEVELOPMENT-BUILD
 
 # ---------------------------------------------------------------- runtime
 FROM ${NODE_IMAGE} AS runtime
