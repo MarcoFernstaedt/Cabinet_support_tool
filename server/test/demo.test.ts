@@ -500,3 +500,30 @@ test("the setup page: Admin only; it says where cabinets connect and serves an a
     if (h.statusCode === 200) assert.deepEqual(h.rawPayload, agentZip, url);
   }
 });
+
+test("an installer for one cabinet: Admin only, confirmed with a code, holds a working one-time token and this server's packages", async () => {
+  const t2 = await signIn(await account("tier2"));
+  const admin = await account("admin");
+  const ca = await signIn(admin);
+  assert.equal((await call("POST", "/api/admin/installer", { stepUpToken: "x".repeat(43) }, t2)).status, 403);
+  assert.ok((await call("POST", "/api/admin/installer", { stepUpToken: "x".repeat(43) }, ca)).status >= 400, "a made-up confirmation is refused");
+  assert.equal((await call("POST", "/api/admin/installer", { stepUpToken: "x".repeat(43), extra: 1 }, ca)).status, 400, "the body is checked against its schema");
+  clock += 30_000;
+  const confirmation = (await call("POST", "/api/auth/step-up", { code: totp.code(admin.secret, totp.stepAt(clock)), action: "token.create", target: "fleet" }, ca)).body.token;
+  const r = await call("POST", "/api/admin/installer", { stepUpToken: confirmation }, ca);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.fileName, "Install-CabinetAgent.cmd");
+  const script: string = r.body.script;
+  assert.match(script, new RegExp(`'windows-x64' = @\\{ Name = 'CabinetAgent-win-x64\\.zip'; Sha256 = '${createHash("sha256").update(agentZip).digest("hex")}' \\}`));
+  assert.match(script, new RegExp(`'windows-x86' = @\\{ Name = 'CabinetAgent-win-x86\\.zip'; Sha256 = '${createHash("sha256").update(agentZipX86).digest("hex")}' \\}`));
+  assert.match(script, /\$serverHost = 'cabinets\.example\.com'/);
+  assert.equal(script.includes("-AllowUnsigned"), false, "this server was not told to accept unsigned builds");
+  // The token in the file is a real one-time token: a cabinet can ask to join with it, once.
+  const token = /\$token = '([A-Za-z0-9_-]+)'/.exec(script)![1]!;
+  const fingerprints = { hostname: "CAB-INSTALLER", serialNumber: "SN-INSTALLER", macAddresses: [], provisionedClient: null, provisionedSite: null,
+    onlineSince: new Date().toISOString(), osVersion: "Windows 10 Pro (32-bit)", agentVersion: "0.2.0" };
+  await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints }, "127.0.0.1");
+  await assert.rejects(submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints }, "127.0.0.1"), "a used token is refused");
+  // The confirmation was used up.
+  assert.ok((await call("POST", "/api/admin/installer", { stepUpToken: confirmation }, ca)).status >= 400);
+});

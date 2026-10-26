@@ -18,7 +18,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, storyReady } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { createTestDatabase, startFeed } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -34,7 +34,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
-  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, agentSetup: agentDownloads(), ...(process.env.LOGS ? {} : { logger: false }), now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
@@ -191,7 +191,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the token");
     await clickOutlined('[data-tour="create-token"]');
     await confirmWithCode();
-    await page.getByRole("link", { name: "Download token.txt" }).waitFor();
+    await page.getByRole("link", { name: "Download Install-CabinetAgent.cmd" }).waitFor();
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),

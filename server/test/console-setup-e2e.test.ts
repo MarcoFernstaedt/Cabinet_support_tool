@@ -1,5 +1,5 @@
 // The demo journey in a real browser (docs/platform/demo.md): an Admin opens Setup, adds a support member,
-// creates an install token there, a real agent (the agent's own connection code) enrols with it, the Admin approves it on
+// creates an installer there, a real agent (the agent's own connection code) enrols with it, the Admin approves it on
 // the same page, opens its event logs, then turns demo mode on: the simulated clients appear next to the real one, marked
 // Demo, and a simulated cabinet answers. Runs when TEST_AGENT_DLL is set and the console is built.
 import test from "node:test";
@@ -100,39 +100,23 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
       "the new member must choose their own password at first sign-in");
     await p.getByRole("button", { name: "I have passed it on" }).click();
 
-    // 2. The agent package and an install token, both downloaded from the page.
+    // 2. The agent package, then an installer for this cabinet, both downloaded from the page.
     const pkg = p.waitForEvent("download");
-    await p.getByRole("link", { name: "Download CabinetAgent-win-x64.zip" }).click();
+    await p.getByRole("link", { name: /64-bit Windows/ }).click();
     assert.equal((await pkg).suggestedFilename(), "CabinetAgent-win-x64.zip");
-    await p.getByRole("button", { name: "Create install token" }).click();
+    assert.equal(await p.getByText("32-bit Windows: not published on this server.").count(), 1, "a missing package is named, never swapped");
+    await p.getByRole("button", { name: "Create installer" }).click();
     await confirmCode();
-    const tokenDownload = p.waitForEvent("download");
-    await p.getByRole("link", { name: "Download token.txt" }).click();
-    const token = readFileSync(await (await tokenDownload).path()!, "utf8");
-    const caDownload = p.waitForEvent("download");
-    await p.getByRole("link", { name: "Download platform-ca.pem" }).click();
+    const installerDownload = p.waitForEvent("download");
+    await p.getByRole("link", { name: "Download Install-CabinetAgent.cmd" }).click();
+    const installer = readFileSync(await (await installerDownload).path()!, "utf8");
+    // The installer carries what the cabinet needs: this server's address, the CA and a token, nothing to type.
+    assert.match(installer, new RegExp(`\\$serverHost = 'localhost'\r\n\\$serverPort = ${agentPort}\r\n`));
+    const token = /\$token = '([A-Za-z0-9_-]+)'/.exec(installer)![1]!;
+    const caPem = /\$caPem = @'\r\n([\s\S]+?)\r\n'@/.exec(installer)![1]!.replace(/\r\n/g, "\n") + "\n";
+    assert.equal(caPem, key.certificatePem.replace(/\r\n/g, "\n").trim() + "\n", "the CA in the installer is this server's");
     const caFile = join(dir, "from-console-ca.pem");
-    await (await caDownload).saveAs(caFile);
-    assert.match(await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText(), new RegExp(`-PlatformServerPort ${agentPort}`));
-
-    // The pasted line is built for the PowerShell that is on the computer, and the page works out which one that is:
-    // Windows PowerShell 5.1 is on every machine, PowerShell 7 only sometimes, and the help reads back the version
-    // number the operator sees instead of leaving them to guess.
-    // One paste: the first line unpacks the package the page just downloaded and puts token.txt and
-    // platform-ca.pem beside the installer, the second goes there, the third runs it.
-    const line = async (): Promise<string> => (await p.getByText(/-PlatformServerHost localhost -PlatformServerPort \d+/).innerText()).replace(/\s+/g, " ");
-    assert.match(await line(), /^\$p="\$HOME\\Downloads\\CabinetAgent-win-x64\.zip"; \$s="\$env:TEMP\\CabinetAgent-install"; .*\[IO\.Compression\.ZipFile\]::ExtractToDirectory\(\$p,\$s\);/, "the pasted line unpacks the package the operator just downloaded");
-    assert.match(await line(), /Copy-Item -Force "\$HOME\\Downloads\\token\.txt","\$HOME\\Downloads\\platform-ca\.pem" \$s cd \$s powershell\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 -PlatformServerHost localhost -PlatformServerPort \d+/, "the token and CA land beside the installer, which the line runs from there");
-    await p.getByRole("radio", { name: "PowerShell 7" }).check();
-    assert.match(await line(), / pwsh\.exe -NoProfile -ExecutionPolicy Bypass -File \.\\install\\Install-CabinetAgent\.ps1 /);
-    assert.doesNotMatch(await line(), /powershell\.exe/);
-    await p.getByRole("button", { name: "What PowerShell version am I on?" }).click();
-    const help = p.getByRole("dialog", { name: "What PowerShell version am I on?" });
-    await help.getByText(/\$PSVersionTable\.PSVersion/).waitFor();
-    await help.getByLabel("Type the number it showed").fill("5.1.26100.9711");
-    await help.getByRole("status").filter({ hasText: /That is Windows PowerShell 5\.1/ }).waitFor();
-    await help.getByRole("button", { name: "Use Windows PowerShell 5.1" }).click();
-    assert.match(await line(), / powershell\.exe -NoProfile -ExecutionPolicy Bypass /, "choosing the engine in the help changes the line");
+    writeFileSync(caFile, caPem);
 
     // The computer: the real agent connection code, with the token and CA the page gave.
     const state = join(dir, "agent-state");

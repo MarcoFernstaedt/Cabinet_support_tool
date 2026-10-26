@@ -20,8 +20,8 @@ How to show the platform to the support team: your real agent on your own Window
         | Tier 2 | Everything Tier 1 can, plus services, firewall rules and network settings. |
         | Admin | Everything Tier 2 can, plus enrolling cabinets and managing accounts. |
    2. **Install the agent on a computer.**
-      - Download the agent zip, an install token (`token.txt`) and `platform-ca.pem`.
-      - Copy the PowerShell commands shown and run them in an elevated PowerShell on the laptop.
+      - Download the agent, then press Create installer to get `Install-CabinetAgent.cmd` for one cabinet (it carries the address, the CA and a one-time token).
+      - Put the installer next to the agent file on the laptop and double-click it.
    3. **Approve it.**
       - The laptop shows up on the same page within a minute.
       - Check its host name and serial number, file it under a client and site (for example "Mashura Office" / "Support desk"), and approve.

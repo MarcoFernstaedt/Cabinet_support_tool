@@ -2,16 +2,22 @@
 // packages to download. The packages are fixed file names in AGENT_DOWNLOAD_DIR, one per Windows architecture; no request
 // can name another path.
 //
+// The Admin downloads both packages once (they fit on a USB stick with the installers) and an installer per cabinet; the
+// installer picks the package for the machine's own Windows, so nobody has to know whether a cabinet is 32-bit or 64-bit.
+//
 // Two architectures exist because Windows cannot run a 64-bit program on 32-bit Windows, so the agent is built once per
-// architecture (docs/platform/second-architecture.md). The operator picks the machine's own on the page, the page hands
-// over the matching package, and an architecture whose package is not on this server is reported as missing rather than
-// silently swapped for the other one: the other one cannot install at all.
+// architecture (docs/platform/second-architecture.md). An architecture whose package is not on this server is reported as
+// missing rather than silently swapped for the other one: the other one cannot install at all.
 import { createHash } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Refused } from "../services/errors.js";
+import { createBootstrapToken } from "../services/enrollment.js";
+import { consoleBodies } from "../contracts.js";
+import { boundTo, consumeStepUpToken } from "../auth/stepup.js";
+import { transaction } from "../db/db.js";
 import { LAUNCHER_NAME, launcherScript } from "./installer-launcher.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -77,24 +83,23 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
         caSha256: caSha256() } };
   });
 
-  // The launcher the operator saves and double-clicks: it finds the package they downloaded, proves its hash, unpacks
-  // it and runs the installer. Generated per request so the host, the port, the CA hash and the package hash always
-  // match what this server is serving right now; it never contains a token (see installer-launcher.ts).
-  app.get("/api/admin/installer", async (request, reply) => {
-    await o.guards.role(request, "admin");
-    const architecture = agentArchitecture((request.query as { architecture?: string } | undefined)?.architecture);
-    const pkg = await packageInfo(architecture);
-    if (!pkg) throw new Refused("not_found", 404, `no ${architecture === "windows-x86" ? "32-bit" : "64-bit"} agent package is available on this server`);
+  // The installer for one cabinet: a new one-time token, with this server's address, its CA and the SHA-256 of every
+  // package it serves, in one file the Admin carries to the cabinet next to the packages (installer-launcher.ts). Creating
+  // it creates a token, so it takes the same authenticator confirmation as creating a token.
+  app.post("/api/admin/installer", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.stepUpOnly.parse(request.body);
+    await transaction(o.pool, c => consumeStepUpToken(c, boundTo(body.stepUpToken, body), u.userId, "token.create", "fleet"));
+    const [x64, x86] = await Promise.all(AGENT_ARCHITECTURES.map(a => packageInfo(a)));
+    if (!x64 && !x86) throw new Refused("not_found", 404, "this server has no agent package to install");
+    const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
     const script = launcherScript({
-      packageName: pkg.name, packageSha256: pkg.sha256,
+      packages: { "windows-x64": x64 ? { name: x64.name, sha256: x64.sha256 } : null, "windows-x86": x86 ? { name: x86.name, sha256: x86.sha256 } : null },
       host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null,
-      caSha256: caSha256(),
-      unsigned: (request.query as { unsigned?: string } | undefined)?.unsigned === "1",
+      caPem: o.issuingKey.certificatePem, caSha256: caSha256(), token,
+      unsigned: o.agentSetup?.allowUnsigned ?? false,
     });
-    return reply.header("Content-Type", "text/plain; charset=utf-8")
-      .header("Content-Disposition", `attachment; filename="${LAUNCHER_NAME}"`)
-      .header("Content-Length", String(Buffer.byteLength(script, "utf8")))
-      .header("Cache-Control", "no-store").send(script);
+    return { fileName: LAUNCHER_NAME, script, expiresAt: expiresAt.toISOString() };
   });
 
   app.get("/api/admin/agent-package", async (request, reply) => {

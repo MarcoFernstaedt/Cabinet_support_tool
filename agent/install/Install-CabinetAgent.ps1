@@ -115,6 +115,11 @@ if ($PlatformCaFile -and -not (Test-Path -LiteralPath $PlatformCaFile -PathType 
     throw "The platform CA file '$PlatformCaFile' is not on this machine. On the console's Setup page press 'Download platform-ca.pem' and put that file next to this script, or give the full path to it and run again."
 }
 
+# A 32-bit PowerShell on 64-bit Windows sees C:\Program Files (x86) as Program Files and a redirected System32, so the
+# agent would be installed in the wrong place. The console's installer always starts the 64-bit one.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+    throw 'This is the 32-bit PowerShell on 64-bit Windows. Open Windows PowerShell (not "Windows PowerShell (x86)") as administrator and run again, or use the installer from the console, which picks the right one.'
+}
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell: right-click Windows PowerShell (or PowerShell 7) and choose Run as administrator, then run the same command again.' }
 

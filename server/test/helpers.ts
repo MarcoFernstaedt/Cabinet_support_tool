@@ -1,6 +1,6 @@
 // Test helpers: certificate requests built with Node's own crypto, temp folders.
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as der from "../src/pki/der.js";
@@ -51,3 +51,10 @@ export async function setUpAuthenticatorInBrowser(page: { locator(s: string): { 
 
 /** The session cookie ("name=value") from a reply's Set-Cookie header, which is one string or, once a device cookie is set too, a list. */
 export const firstCookie = (set: unknown): string | undefined => { const s = Array.isArray(set) ? set[0] : set; return typeof s === "string" ? s.split(";")[0] : undefined; };
+
+/** Where the console's setup page finds agent packages: a folder with a small stand-in package for each architecture. */
+export function agentDownloads(port = 8443): { host: string; port: number; downloadDir: string } {
+  const downloadDir = mkdtempSync(join(tmpdir(), "agent-download-"));
+  for (const name of ["CabinetAgent-win-x64.zip", "CabinetAgent-win-x86.zip"]) writeFileSync(join(downloadDir, name), Buffer.from(`PK\u0003\u0004 ${name}`));
+  return { host: "localhost", port, downloadDir };
+}

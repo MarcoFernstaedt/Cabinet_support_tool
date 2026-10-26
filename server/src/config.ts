@@ -18,7 +18,7 @@ export interface Config {
   releases: { dir: string; maxBytes: number; keysDir?: string };
   console?: { host: string; port: number; origin: string; secretKey: string; staticDir: string; trustProxy: number | string | false };
   /** What the setup page tells an Admin about installing the agent: the address cabinets use to reach the agent API, and the folder holding the agent package to download (optional). */
-  agentSetup: { host: string; port: number; downloadDir?: string };
+  agentSetup: { host: string; port: number; downloadDir?: string; allowUnsigned: boolean };
   /** When the nightly audit check and retention run, server local time (MAINTENANCE_AT, HH:MM, default 02:30). */
   maintenanceAt: string;
 }
@@ -67,7 +67,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },
     maintenanceAt: maintenanceAt(env.MAINTENANCE_AT),
-    agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port) },
+    agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port),
+      // The installer accepts an unsigned (development) agent build only outside production; production builds are signed.
+      allowUnsigned: env.NODE_ENV !== "production" },
   };
   if (env.AGENT_DOWNLOAD_DIR) config.agentSetup.downloadDir = env.AGENT_DOWNLOAD_DIR;
   if (!Number.isInteger(config.agentSetup.port) || config.agentSetup.port < 1 || config.agentSetup.port > 65535) throw new Error("AGENT_PUBLIC_PORT must be a port number.");

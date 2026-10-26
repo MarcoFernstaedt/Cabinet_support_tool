@@ -161,7 +161,7 @@ function AddRelease({ ask, after }: { ask: Ask; after: (t: string, ok?: boolean)
           {INSTALL_ARCHITECTURES.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}</select></label>
         <button className="btn primary" type="submit" disabled={busy}>{busy ? "Uploading…" : "Add release"}</button>
       </form>
-      <p className="small muted">{chosen.note} The archive for it is {chosen.packageName}.</p>
+      <p className="small muted">The archive for it is {chosen.packageName}.</p>
     </section>
   );
 }

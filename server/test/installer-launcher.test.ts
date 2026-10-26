@@ -1,92 +1,135 @@
-// The launcher is generated text that lands on a cabinet and runs elevated there, so what it promises has to hold in
-// the file itself: pure ASCII (PowerShell 5.1 reads a BOM-less .ps1 as ANSI), CRLF (it is batch), the values the
-// console shows and the values it checks are the same, no token in a file that can be forwarded, and no configuration
-// value able to close a quote and become code.
+// The installer is generated text that runs elevated on a cabinet, so what it promises has to hold in the file itself:
+// ASCII and CRLF, every line cmd.exe reads far below its 8,191-character limit, every program started by its full path,
+// no path ever spliced into a command, the values it checks are the values the server serves, and no value able to
+// close a quote and become code. The PowerShell parts are parsed by a real PowerShell when one is installed.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LAUNCHER_NAME, launcherPayload, launcherScript } from "../src/console-api/installer-launcher.js";
+import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { LAUNCHER_NAME, PAYLOAD_MARKER, bootstrapScript, launcherPayload, launcherScript, type LauncherInput } from "../src/console-api/installer-launcher.js";
+import { tempDir } from "./helpers.js";
 
-const base = {
-  packageName: "CabinetAgent-win-x64.zip",
-  packageSha256: "a".repeat(64),
-  host: "168.231.67.178",
+const PEM = "-----BEGIN CERTIFICATE-----\n" + "MIIB".padEnd(64, "A") + "\n" + "B".repeat(64) + "\n" + "C".repeat(40) + "=\n-----END CERTIFICATE-----\n";
+const base: LauncherInput = {
+  packages: { "windows-x64": { name: "CabinetAgent-win-x64.zip", sha256: "a".repeat(64) }, "windows-x86": { name: "CabinetAgent-win-x86.zip", sha256: "b".repeat(64) } },
+  host: "cabinets.example.com",
   port: 8443,
-  caSha256: "B".repeat(64),
-  unsigned: true,
+  caPem: PEM,
+  caSha256: "C".repeat(64),
+  token: "T".repeat(43),
+  unsigned: false,
 };
 
-test("the launcher is ASCII and batch-shaped", () => {
+const batchPart = (text: string) => text.slice(0, text.indexOf(PAYLOAD_MARKER));
+
+test("the file is ASCII, CRLF, and every line cmd.exe reads is short", () => {
   const text = launcherScript(base);
-  const wide = [...text].filter(c => c.charCodeAt(0) > 127);
-  assert.deepEqual(wide, [], "a non-ASCII character corrupts the script on Windows PowerShell");
-  assert.equal(text.includes("\r\n"), true, "batch needs CRLF");
-  assert.equal(/\r\n/.test(text.split("\n").filter(l => l.endsWith("\r") === false).join("") || "\r\n"), true);
+  assert.deepEqual([...text].filter(c => c.charCodeAt(0) > 127), [], "a non-ASCII character corrupts the script on Windows PowerShell 5.1");
+  assert.equal(text.replace(/\r\n/g, "").includes("\n"), false, "every line ends in CRLF");
   assert.equal(text.startsWith("@echo off\r\n"), true);
-  assert.equal(text.trimEnd().endsWith("exit /b %cabinet_setup_exit%"), true);
+  const longest = Math.max(...batchPart(text).split("\r\n").map(l => l.length));
+  assert.ok(longest < 8191, `cmd.exe refuses lines over 8,191 characters; the longest is ${longest}`);
   assert.equal(LAUNCHER_NAME, "Install-CabinetAgent.cmd");
 });
 
-test("it elevates before installing and carries the PowerShell encoded", () => {
-  const text = launcherScript(base);
-  assert.match(text, /net session >nul 2>&1/);
-  assert.match(text, /Start-Process -FilePath '%~f0' -Verb RunAs/);
-  assert.match(text, /-EncodedCommand [A-Za-z0-9+/=]+/);
+test("the batch part ends before the PowerShell part, so cmd.exe never reads it", () => {
+  const batch = batchPart(launcherScript(base)).trimEnd().split("\r\n");
+  assert.equal(batch.at(-1), "exit /b %CABINET_EXIT%");
+  assert.ok(batch.includes(":elevated") && batch.includes(":failed"));
 });
 
-test("-EncodedCommand carries exactly the payload, as UTF-16LE", () => {
+test("every program is started by its full path, and no path is spliced into a command", () => {
+  const batch = batchPart(launcherScript(base));
+  for (const line of batch.split("\r\n")) {
+    if (/^(rem |echo|set |if |:|exit|pause|setlocal|@echo|\(goto\)|$)/.test(line)) continue;
+    assert.match(line, /^"%(SystemRoot|CABINET_PS)%/, `a program started by bare name can be hijacked from the current folder: ${line}`);
+  }
+  assert.match(batch, /"%SystemRoot%\\System32\\fltmc\.exe" >nul 2>&1/);
+  assert.match(batch, /set "CABINET_PS=%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe"/);
+  assert.match(batch, /Sysnative\\WindowsPowerShell/, "64-bit PowerShell on 64-bit Windows, even from a 32-bit prompt");
+  assert.match(batch, /Start-Process -FilePath \$env:CABINET_LAUNCHER -Verb RunAs/, "the launcher's own path reaches PowerShell as a variable, never as code");
+  assert.equal(/'%~f0'|"%~f0"[^\r]*-Command/.test(batch), false);
+  assert.equal(/\bnet session\b|^powershell(\.exe)? /m.test(batch), false);
+  const bootstrap = bootstrapScript();
+  assert.match(bootstrap, /Join-Path \$PSHOME 'powershell\.exe'/);
+});
+
+test("the bootstrap is carried encoded, unchanged, and makes a private folder in one step", () => {
   const text = launcherScript(base);
   const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(text)![1]!;
-  const decoded = Buffer.from(encoded, "base64").toString("utf16le");
-  assert.equal(decoded, launcherPayload(base));
-  assert.deepEqual([...decoded].filter(c => c.charCodeAt(0) > 127), []);
+  assert.equal(Buffer.from(encoded, "base64").toString("utf16le"), bootstrapScript());
+  const b = bootstrapScript();
+  assert.match(b, /\[IO\.Directory\]::CreateDirectory\(\$stage, \$sec\)/, "the folder is created with its permissions, not locked down afterwards");
+  assert.match(b, /SetAccessRuleProtection\(\$true, \$false\)/);
+  assert.match(b, /'S-1-5-18', 'S-1-5-32-544'/);
+  assert.match(b, /NewGuid\(\)/, "a random name nobody can create first");
+  assert.match(b, /ReparsePoint/);
+  assert.match(b, /Remove-Item -LiteralPath \$stage -Recurse -Force/, "the folder, with the token in it, is removed whatever happens");
 });
 
-test("the values the console shows are the values the launcher checks", () => {
-  const payload = launcherPayload(base);
-  assert.match(payload, /\$packageName = 'CabinetAgent-win-x64\.zip'/);
-  assert.match(payload, new RegExp(`\\$packageSha = '${"a".repeat(64)}'`));
-  assert.match(payload, new RegExp(`\\$caSha = '${"B".repeat(64)}'`));
-  assert.match(payload, /\$serverHost = '168\.231\.67\.178'/);
-  assert.match(payload, /\$serverPort = '8443'/);
-  assert.match(payload, /Get-FileHash -LiteralPath \$zip -Algorithm SHA256/);
-  assert.match(payload, /-PlatformCaSha256/);
-  assert.match(payload, /-BootstrapTokenFile/);
+test("the copy is checked, not the download, and the right package is chosen for this machine's Windows", () => {
+  const p = launcherPayload(base);
+  assert.match(p, /'windows-x64' = @\{ Name = 'CabinetAgent-win-x64\.zip'; Sha256 = 'a{64}' \}/);
+  assert.match(p, /'windows-x86' = @\{ Name = 'CabinetAgent-win-x86\.zip'; Sha256 = 'b{64}' \}/);
+  assert.match(p, /Is64BitOperatingSystem/);
+  const copy = p.indexOf("Copy-Item -LiteralPath $candidate.FullName -Destination $zip");
+  const hash = p.indexOf("Get-FileHash -LiteralPath $zip");
+  const unpack = p.indexOf("ExtractToDirectory($zip, $unpacked)");
+  assert.ok(copy > 0 && copy < hash && hash < unpack, "copy into the private folder, hash that copy, unpack that copy");
+  assert.match(p, /Join-Path \$unpacked 'CabinetAgent\\install\\Install-CabinetAgent\.ps1'/, "the installer is run by its exact path");
+  assert.match(p, /-PlatformCaSha256', \$caSha/);
+  assert.match(p, /\$serverHost = 'cabinets\.example\.com'/);
+  assert.match(p, /\$serverPort = 8443/);
 });
 
-test("an unsigned build is accepted and a signed one is not", () => {
-  assert.match(launcherPayload(base), /-AllowUnsigned/);
-  assert.equal(launcherPayload({ ...base, unsigned: false }).includes("-AllowUnsigned"), false);
+test("a server with only one architecture says so for the other, rather than installing the wrong one", () => {
+  const p = launcherPayload({ ...base, packages: { "windows-x64": null, "windows-x86": base.packages["windows-x86"] } });
+  assert.match(p, /'windows-x64' = \$null/);
+  assert.match(p, /the server has no ' \+ \$label \+ ' agent package/);
+  assert.throws(() => launcherPayload({ ...base, packages: { "windows-x64": null, "windows-x86": null } }), /no agent package/);
 });
 
-test("no token ever travels in the file", () => {
-  const text = launcherScript(base) + launcherPayload(base);
-  assert.equal(/-BootstrapToken\s+\S/.test(text), false, "a token argument would be a token in a forwarded file");
-  assert.match(text, /Read-Host 'Paste the install token/);
-  assert.match(text, /Create install token/);
+test("the server decides whether an unsigned build is accepted", () => {
+  assert.equal(launcherPayload(base).includes("-AllowUnsigned"), false);
+  assert.match(launcherPayload({ ...base, unsigned: true }), /\$installerArgs \+= '-AllowUnsigned'/);
 });
 
-test("every failure says what happened and what to do", () => {
-  const payload = launcherPayload(base);
-  const failures = payload.match(/Write-Failure/g)?.length ?? 0;
-  assert.ok(failures >= 6, `expected a failure funnel at every step, found ${failures}`);
-  assert.match(payload, /What happened:/);
-  assert.match(payload, /What to do:/);
-  assert.match(payload, /exit 1/);
+test("the file deletes itself after a successful install, and says it holds a token", () => {
+  const batch = batchPart(launcherScript(base));
+  assert.match(batch, /\(goto\) 2>nul & del "%~f0"/);
+  assert.match(batch, /one-time install token/);
+  assert.ok(batch.indexOf('del "%~f0"') < batch.indexOf(":failed"), "only the success path deletes it");
 });
 
-test("hostile configuration cannot close a quote and become code", () => {
-  const hostile = launcherPayload({
-    ...base,
-    host: "x'; Remove-Item -LiteralPath C:\\ -Recurse -Force; '",
-    packageName: "a.zip'; whoami; '",
-    caSha256: "not a hash",
-    port: 99999,
-  });
-  assert.equal(hostile.includes("Remove-Item"), false);
-  assert.equal(hostile.includes("whoami"), false);
-  assert.match(hostile, /\$serverHost = ''/, "an unusable host falls back rather than travelling");
-  assert.match(hostile, /\$caSha = ''/);
-  assert.match(hostile, /\$serverPort = '8443'/);
-  assert.match(hostile, /\$packageName = 'CabinetAgent-win-x64\.zip'/);
-  assert.deepEqual([...launcherScript({ ...base, host: "x'; whoami; '" })].filter(c => c.charCodeAt(0) > 127), []);
+test("hostile values are refused, never written into the file", () => {
+  const hostile: Partial<LauncherInput>[] = [
+    { host: "x'; Remove-Item C:\\ -Recurse; '" },
+    { host: "" },
+    { token: "short" },
+    { token: "A".repeat(40) + "'; whoami; '" },
+    { caSha256: "not a hash" },
+    { caPem: "-----BEGIN CERTIFICATE-----\n'@\nwhoami\n-----END CERTIFICATE-----" },
+    { packages: { "windows-x64": { name: "a.zip'; whoami; '", sha256: "a".repeat(64) }, "windows-x86": null } },
+    { packages: { "windows-x64": { name: "CabinetAgent-win-x64.zip", sha256: "z".repeat(64) }, "windows-x86": null } },
+  ];
+  for (const h of hostile) assert.throws(() => launcherScript({ ...base, ...h }), /cannot be made/, JSON.stringify(h));
+  assert.match(launcherPayload({ ...base, port: 99999 }), /\$serverPort = 8443/);
 });
+
+test("both PowerShell parts parse", { skip: !hasPwsh() && "no PowerShell on this machine" }, () => {
+  const dir = tempDir();
+  const files = { "payload.ps1": launcherPayload({ ...base, unsigned: true }), "bootstrap.ps1": bootstrapScript() };
+  for (const [name, text] of Object.entries(files)) {
+    const path = join(dir, name);
+    writeFileSync(path, text);
+    const out = execFileSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command",
+      "$e = $null; [void][System.Management.Automation.Language.Parser]::ParseFile($env:PARSE_FILE, [ref]$null, [ref]$e); $e.Count; $e | ForEach-Object { $_.Message }"],
+      { encoding: "utf8", env: { ...process.env, PARSE_FILE: path } });
+    assert.equal(out.trim().split("\n")[0], "0", `${name} has parse errors: ${out}`);
+  }
+});
+
+function hasPwsh(): boolean {
+  try { execFileSync("pwsh", ["-NoProfile", "-Command", "1"], { stdio: "ignore" }); return true; } catch { return false; }
+}
