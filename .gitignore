@@ -72,3 +72,6 @@ deploy/.env
 # Personal, per-host deployment files; nothing personal goes in the repo.
 deploy/Caddyfile.gate
 deploy/compose.local.yaml
+# Local deployment overrides (examples in deploy/examples/)
+deploy/compose.override.yaml
+deploy/Caddyfile.local

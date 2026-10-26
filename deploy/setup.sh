@@ -9,6 +9,8 @@ set -euo pipefail
 DEPLOY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$DEPLOY_DIR/.env"
 COMPOSE=(docker compose --project-directory "$DEPLOY_DIR" -f "$DEPLOY_DIR/compose.yaml")
+# A local override (git-ignored; examples in deploy/examples/) is layered on top when present.
+[[ -f "$DEPLOY_DIR/compose.override.yaml" ]] && COMPOSE+=(-f "$DEPLOY_DIR/compose.override.yaml")
 
 say()  { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nERROR: %s\n' "$*" >&2; exit 1; }

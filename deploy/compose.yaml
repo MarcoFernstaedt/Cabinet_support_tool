@@ -8,11 +8,10 @@
 # Published ports: 80 and 443 (Caddy, the console) and 8443 (the agent API, mutual TLS, terminated by Node).
 # SQL Server is never published; it sits on an internal network with no route out.
 #
-# LOCAL OVERRIDES (this checkout, not upstream): Caddy and the agent API published on loopback only; the console
-# is reached through Tailscale — Funnel on 10000, which the portfolio site's /console rewrite proxies to, so a
-# visitor sees https://marcofernstaedt.com/console. The console image is built with CONSOLE_BASE=/console/ so it
-# can live under that path; CONSOLE_ORIGIN is pinned to the domain (the console accepts exactly one origin).
-# Keep all of this across every pull.
+# This file is the generic deployment and holds nothing specific to one machine. Anything local - a tailnet,
+# Tailscale Funnel, a front on another domain, a console under a path, development-only switches - goes in
+# deploy/compose.override.yaml, which Docker Compose reads automatically next to this file and git ignores.
+# A worked example for a tailnet and Funnel front is in deploy/examples/tailnet/.
 #
 # The demo link lands straight on the console's own sign-in page. The shared-code gate that used to sit in front
 # of it is gone: deploy/Caddyfile is mounted instead of deploy/Caddyfile.gate, and the gate service is removed.
@@ -25,22 +24,13 @@ x-platform-image: &platform-image
   build:
     context: ..
     dockerfile: deploy/Dockerfile
-    # LOCAL OVERRIDE (load-bearing): the console is published under /console on the domain, so every
-    # CONSOLE_BASE is the path the console's own addresses and assets start with. LOCAL OVERRIDE: the console is
-    # served at the domain's ROOT -- the site at marcofernstaedt.com asks the console's front for everything under
-    # /console-proxy and the front strips that marker, so the console answers at /, /assets/..., /api/... and the
-    # router sits at the root. A console built under /console instead advertises /console/assets/index-*.js, which
-    # nothing serves at the root, so the browser fetches the HTML and then a 404 for every asset: a blank page with
-    # no error anywhere. Keep this line across pulls.
     args:
-      CONSOLE_BASE: /
-      # LOCAL OVERRIDE (load-bearing): this deployment has no codesigning certificate, so its agent binaries carry no
-      # publisher. Without the development switch every agent it installs refuses every release at the Authenticode
-      # check -- "This agent has no code-signing publisher compiled in, so it cannot check the release's binaries" --
-      # and the update path is dead on arrival. With it the agent leans on the release key it was built with, which is
-      # the platform's own trust (the manifest signature and the PE architecture check still have to pass). A
-      # production deployment pins a real publisher and leaves this false: Cabinet.Agent.Core.csproj says so in full.
-      ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES: "true"
+      # The path the console is served under. "/" serves it at the root of CONSOLE_SITE.
+      CONSOLE_BASE: ${CONSOLE_BASE:-/}
+      # Development only. When true, the agents this image builds accept releases signed by the release key without
+      # an Authenticode publisher. Production pins a real publisher and leaves this false
+      # (agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj). Turn it on only in deploy/.env, knowingly.
+      ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES: ${ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES:-false}
 
 services:
   # Microsoft SQL Server 2022 for Linux. MSSQL_PID chooses the edition: Express is free (databases up to 10 GB, 1 GB of memory for the
@@ -58,7 +48,7 @@ services:
     networks:
       - backend
     cap_drop: [ALL]
-    # LOCAL OVERRIDE: sqlservr carries cap_net_bind_service as a file capability, and execve refuses a
+    # sqlservr carries cap_net_bind_service as a file capability, and execve refuses a
     # file-capability binary whose capability is outside the bounding set — cap_drop: ALL on its own
     # kills the container with exit 126 "Operation not permitted" before SQL Server ever starts.
     # Granting exactly that capability keeps cap_drop: ALL and no-new-privileges intact.
@@ -101,13 +91,8 @@ services:
       DATABASE_URL: sqlserver://cabinet_app_login:${APP_DB_PASSWORD}@mssql:1433/cabinet?trustServerCertificate=true
       # Every name or IP an agent may use to reach the agent API. The development TLS certificate covers exactly these.
       AGENT_API_HOSTNAMES: ${AGENT_API_HOSTNAMES:?set AGENT_API_HOSTNAMES in deploy/.env}
-      # DEMO PIN (local override): the console refuses every state-changing request whose Origin header is not
-      # exactly this value. Pinned to the public portfolio address: the site's /console rewrite reaches this
-      # console through Tailscale Funnel on 10000, and a browser there sends that origin for every call. Without
-      # this, sign-in returns 403 origin_refused. The tailnet console address now redirects here, because a
-      # console built under /console is not servable from the root of the tailnet front.
-      # Remove this line to return to the upstream origin (https://CONSOLE_SITE, i.e. port 443).
-      CONSOLE_ORIGIN: https://marcofernstaedt.com
+      # The console refuses every state-changing request whose Origin header is not exactly this value.
+      CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-https://${CONSOLE_SITE}}
       CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY:?set CONSOLE_SECRET_KEY in deploy/.env}
       # Believe only Caddy (its fixed address below) about the browser's address.
       CONSOLE_TRUST_PROXY: ${CADDY_IP:-172.30.57.10}
@@ -117,8 +102,12 @@ services:
       # Fixed in the image: CONSOLE_HOST=0.0.0.0, CONSOLE_PORT=8080, AGENT_API_PORT=8443, DEV_PKI_DIR=/var/lib/cabinet/pki,
       # PACKAGE_DIR, RELEASE_DIR, CONSOLE_STATIC_DIR, AGENT_DOWNLOAD_DIR=/opt/cabinet/agent-download.
     ports:
-      # Publish on the tailnet address only; agents' client certificates must reach Node directly.
-      - "${AGENT_BIND_IP:-127.0.0.1}:8443:8443"
+      # The agent API, published on every interface: cabinets on customer networks reach it over the internet.
+      # Every route needs a client certificate this server issued, except /health and the two enrollment routes
+      # (enrolling needs a bootstrap token). A caller without one still completes the TLS handshake, reaches those
+      # three routes, and is refused on every other.
+      # Agents' client certificates must reach Node directly, so this port never goes through Caddy.
+      - "${AGENT_BIND_IP:-0.0.0.0}:8443:8443"
     volumes:
       # DEMO ONLY: the development issuing CA (its private key is in this volume). Production uses a KMS-held key.
       - pki:/var/lib/cabinet/pki
@@ -143,15 +132,12 @@ services:
       CONSOLE_TLS: ${CONSOLE_TLS:-internal}
       CONSOLE_ALLOW_FROM: ${CONSOLE_ALLOW_FROM:-0.0.0.0/0 ::/0}
     ports:
-      # Only local Tailscale Serve reaches the Console; do not publish Caddy on the public interface.
-      # It cannot anyway: tailscaled holds 0.0.0.0:443 for Funnel. The domain front belongs to Tailscale/Vercel.
-      - "127.0.0.1:80:80"
-      - "127.0.0.1:443:443"
-      - "127.0.0.1:443:443/udp"
+      # The console's HTTPS front. CONSOLE_ALLOW_FROM (deploy/.env) limits who reaches it.
+      - "${CONSOLE_BIND_IP:-0.0.0.0}:80:80"
+      - "${CONSOLE_BIND_IP:-0.0.0.0}:443:443"
+      - "${CONSOLE_BIND_IP:-0.0.0.0}:443:443/udp"
     volumes:
-      # LOCAL OVERRIDE: Caddyfile.local adds the path the portfolio site's /console rewrite uses, and sends a
-      # browser reaching this front directly to that public address. Restore ./Caddyfile to undo.
-      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     # The only container facing the internet: no capabilities beyond binding 80/443, read-only root, no privilege escalation.

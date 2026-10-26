@@ -641,3 +641,12 @@ The list reaches the cabinet on the heartbeat and the cabinet now refuses before
 - **An application is pinned by its path, not by its publisher.** The entry has no field for a signing certificate, so a program whose file is replaced at the same path still matches. An optional publisher thumbprint, checked with `X509Certificate.CreateFromSignedFile`, is the next step if that gap matters; it also has to answer for the in-house programs nobody signed.
 - **A settings file that is missing, corrupt or contract-invalid keeps the last good list.** Failure to read narrows, never widens; a cabinet that cannot reach the platform keeps working with what it was last sent, and an answer that carries no list at all leaves it touching nothing.
 
+
+## Deployment: generic main, local overrides (October 2026)
+
+Main carried one machine's deployment (a tailnet front, Tailscale Funnel, a console origin on a personal domain, the server's public IP and tailnet names, and unsigned development upgrades switched on). Decided with the owner:
+
+- **Main is generic.** `deploy/compose.yaml` publishes the console (Caddy, 80 and 443) and the agent API (8443) on every interface, takes every machine-specific value from `deploy/.env`, and builds with `ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES=false` unless `.env` says otherwise.
+- **The tailnet setup is local, used when needed.** `deploy/compose.override.yaml` and `deploy/Caddyfile.local` are git-ignored; `deploy/examples/tailnet/` documents them with placeholders.
+- **Console and agent API public for the test period** (cabinets on separate networks must reach the agent API). The spec's Control 3 (console on an internal network or VPN) still applies before production: set `CONSOLE_ALLOW_FROM` or keep the console behind the tailnet.
+- **Open:** confirm the release private key does not live on the server host. With unsigned development upgrades on, that key alone decides what every cabinet runs.

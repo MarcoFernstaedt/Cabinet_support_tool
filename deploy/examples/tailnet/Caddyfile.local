@@ -1,0 +1,59 @@
+# The console's HTTPS front for a console proxied from a site on another domain (LOCAL: copy to deploy/Caddyfile.local,
+# which git ignores; deploy/examples/tailnet/compose.override.yaml mounts it instead of deploy/Caddyfile).
+#
+# The site on the other domain asks this front for everything under /console-proxy and the front strips that marker,
+# so the console answers at its own root (/assets/..., /api/...) and is built with CONSOLE_BASE=/ to match.
+#
+#   /console-proxy/*  what the site's rewrite asks for. The marker lets this front tell the site's proxy apart from a
+#                     browser, because the two want opposite answers. It is stripped before Node sees the request.
+#   everything else   a browser reaching this front directly is sent to the console's public address, because the
+#                     console answers state-changing requests for one pinned origin only (CONSOLE_ORIGIN).
+#
+# CONSOLE_SITE  the console's host name or IP (set by setup.sh in .env)
+# CONSOLE_TLS   "acme" a public domain: a trusted certificate from Let's Encrypt; "internal" an IP only
+# CONSOLE_ALLOW_FROM  the addresses allowed to reach the console, space-separated CIDR ranges
+# CONSOLE_PUBLIC_URL  the console's public address, for the redirect below
+
+{
+	# Browsers send no server name (SNI) when they connect to an IP address; answer with the console's certificate.
+	default_sni {$CONSOLE_SITE}
+}
+
+(tls-acme) {
+	# Automatic HTTPS: nothing to configure.
+}
+
+(tls-internal) {
+	tls internal
+}
+
+{$CONSOLE_SITE} {
+	import tls-{$CONSOLE_TLS}
+
+	# Only the allowed networks reach the console; everyone else gets 403 and never sees the sign-in page.
+	@outside not remote_ip {$CONSOLE_ALLOW_FROM:0.0.0.0/0 ::/0}
+	respond @outside "Not available from this network." 403
+
+	# Browsers remember to use HTTPS only (ignored by browsers for an IP address with Caddy's own CA).
+	header Strict-Transport-Security "max-age=31536000"
+
+	# The other site's /console rewrite: strip the marker and hand Node its own paths.
+	@proxied path /console-proxy /console-proxy/*
+	handle @proxied {
+		uri strip_prefix /console-proxy
+		reverse_proxy server:8080 {
+			# The live alert stream (server-sent events) must not be buffered.
+			flush_interval -1
+		}
+	}
+
+	# Anything else is a browser on this front: send it to the console's public address.
+	handle {
+		redir * {$CONSOLE_PUBLIC_URL} 302
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

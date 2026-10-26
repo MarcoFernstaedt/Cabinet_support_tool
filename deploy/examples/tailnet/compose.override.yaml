@@ -1,0 +1,19 @@
+# Local override: the console reached through Tailscale (Serve or Funnel), optionally behind a front on another domain.
+# Copy to deploy/compose.override.yaml (git ignores it). Docker Compose reads it automatically next to compose.yaml,
+# and deploy/setup.sh passes it too. Delete it to go back to the generic deployment.
+# Values (domain, addresses, development switches) go in deploy/.env: see env.example in this folder.
+#
+# Check what Compose will run:  docker compose --project-directory deploy config
+services:
+  caddy:
+    environment:
+      CONSOLE_PUBLIC_URL: ${CONSOLE_PUBLIC_URL:?set CONSOLE_PUBLIC_URL in deploy/.env}
+    # Tailscale holds the public 443 for Funnel, so Caddy answers on loopback only and Tailscale Serve forwards to it.
+    ports: !override
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+      - "127.0.0.1:443:443/udp"
+    volumes: !override
+      - ./Caddyfile.local:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
