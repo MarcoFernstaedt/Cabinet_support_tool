@@ -764,6 +764,15 @@ This answers "Open: the approved list on the cabinet is written by the network p
   - An agent built with a list key acts only on a list whose signature verifies. An unsigned, damaged or wrongly signed list approves nothing.
   - An agent built with no list key works as it did before signing existed. The repository ships with no key, so nothing changes until the owner makes one and releases an agent built with it.
   - Between that release and the first signed list, those cabinets approve nothing. That was the proposal above.
+- **The console flow** (part 2), on Admin → Approved programs:
+  - Once a key is set up, saving shows "Version N is waiting for your signature".
+  - There the Admin can download the list to sign, upload the signature file, or discard the change.
+  - A list that was in force before signing was set up is offered for signing as it is, at the same version. Until it is signed, cabinets that check signatures approve nothing from it.
+  - The upload is refused, and the refusal audited, when the signature does not verify over the exact document offered for that level and version.
+  - Uploads need no authenticator code: the signature is the Admin's confirmation. Saving still needs one.
+- **Older agents.** The heartbeat answer's contract is closed, so an agent refuses an answer that holds a field it does not know. That would also cut it off from every setting and upgrade offer the answer carries.
+  - The signed list is therefore sent only to agents from 0.3.0 on; this change raises the agent version to 0.3.0.
+  - Older agents get the answer they always got.
 - **Delivered in three pull requests, in this order:**
   1. The format, the checks on both sides, and the two scripts. Nothing uses them yet, so behaviour does not change.
   2. The server and console flow: waiting for a signature, download, upload. The heartbeat answer carries the signed document.

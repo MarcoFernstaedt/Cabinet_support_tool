@@ -124,6 +124,15 @@ public sealed record HeartbeatWatchedServices
 public sealed record HeartbeatApprovedApps
 {
     public required IReadOnlyList<ApprovedAppEntry> Entries { get; init; }
+    /// <summary>The same list as an Admin signed it; absent until it is signed, and from a server or agent before signing.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public SignedApprovedList? Signed { get; init; }
+}
+
+/// <summary>A signed approved list as the heartbeat answer carries it: base64 of the document's exact bytes and the signature over them.</summary>
+public sealed record SignedApprovedList
+{
+    public required string Document { get; init; }
+    public required ApprovedListSignature Signature { get; init; }
 }
 
 public enum ApprovedAppKind { Application, Service }

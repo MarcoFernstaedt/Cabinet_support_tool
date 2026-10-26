@@ -15,10 +15,22 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
 import { approvedListFiles, ContractError, type ApprovedList, type ApprovedListSignature } from "../contracts.js";
+import { compareVersions } from "./releases.js";
 
 export const LIST_PRODUCT = "mashura-approved-list";
 /** The largest document accepted: 32 entries at their longest fit in well under this. */
 export const MAX_LIST_DOCUMENT_BYTES = 32 * 1024;
+
+/**
+ * The first agent version that knows the heartbeat answer's signed list. The answer's contract is closed, so an older agent refuses an
+ * answer that carries it; any 0.3.0 pre-release counts, since it was built from the same contract.
+ */
+export const SIGNED_LIST_FROM_AGENT = "0.3.0-0";
+
+/** Whether an agent of this version may be sent the signed list. */
+export function knowsSignedList(agentVersion: string): boolean {
+  try { return compareVersions(agentVersion, SIGNED_LIST_FROM_AGENT) >= 0; } catch { return false; }
+}
 
 /** The Admin list-signing keys the agent compiles in (contracts/trust/approved-list), or a test folder laid out the same way. */
 export class ListSigningKeys {

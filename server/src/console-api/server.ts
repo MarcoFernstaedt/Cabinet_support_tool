@@ -34,6 +34,7 @@ import { readingRoutes } from "./reading-routes.js";
 import { fleetOpsRoutes } from "./fleet-ops-routes.js";
 import type { PackageStore } from "../services/packages.js";
 import type { ReleaseStore } from "../services/releases.js";
+import type { ListSigningKeys } from "../services/approved-list-signing.js";
 import { upgradeRoutes } from "./upgrade-routes.js";
 import { ResultStream } from "./stream.js";
 import { manageRoutes } from "./manage-routes.js";
@@ -50,6 +51,8 @@ export interface ConsoleApiOptions {
   packages?: PackageStore;
   /** The update store for signed agent releases; omitted in tests that add none. */
   releases?: ReleaseStore;
+  /** The Admin list-signing keys (contracts/trust/approved-list unless a test names others); with none, lists are not signed. */
+  listKeys?: ListSigningKeys;
   /** The built console (console/dist). Omitted in API-only tests. */
   staticDir?: string;
   /** Fixed session timeouts for tests; otherwise they come from the platform settings. */

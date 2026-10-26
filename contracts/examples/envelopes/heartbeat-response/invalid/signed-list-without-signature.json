@@ -1,0 +1,22 @@
+{
+  "serverTime": "2026-10-23T15:40:00Z",
+  "scanner": {
+    "hardwareIds": null
+  },
+  "intervals": {
+    "heartbeatSeconds": 300,
+    "pollSeconds": 25,
+    "eventsPaceMs": 2000
+  },
+  "watchedServices": {
+    "names": [
+      "Spooler"
+    ]
+  },
+  "approvedApps": {
+    "entries": [],
+    "signed": {
+      "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ=="
+    }
+  }
+}

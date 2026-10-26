@@ -30,6 +30,7 @@ import { downloadablePath, type PackageStore } from "../services/packages.js";
 import { raiseSecurityAlert } from "../services/security.js";
 import { noteError, noteResponse, opsMeter, routeOf } from "../services/ops-meter.js";
 import { releaseForAgent, releasePackageForAgent, type ReleaseStore } from "../services/releases.js";
+import { knowsSignedList } from "../services/approved-list-signing.js";
 import { anyRolloutRunning, offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 import { PacingCache } from "../services/settings.js";
 import { Presence } from "./presence.js";
@@ -660,7 +661,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const cabinetId = request.cabinet!.id;
       const heartbeat = envelopes.heartbeat.parse(request.body);
       // One round trip records it (and its load sample) and reads the scanner, watched-services and approved-applications settings the answer carries.
-      const { wasOffline, firewallChanged, timeCheck, scannerIds, watched, approved } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
+      const { wasOffline, firewallChanged, timeCheck, scannerIds, watched, approved, approvedSigned } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
       if (wasOffline) await resolveOfflineFor(o.pool, cabinetId);
       // Compared with the client's firewall policy only when the profiles changed (or were first reported).
       if (firewallChanged) await evaluateDrift(o.pool, { cabinetId });
@@ -673,7 +674,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       const eventsPaceMs = overloaded() || o.pool.pending > 0 ? Math.min(60_000, Math.max(p.eventsPaceMs * 4, 10_000)) : p.eventsPaceMs;
       // The answer carries the settings the agent's monitors use and any offered version: data only, never a command.
       return envelopes.heartbeatResponse.parse({ serverTime: serverTime(), scanner: { hardwareIds: scannerIds }, watchedServices: { names: watched },
-        approvedApps: { entries: approved },
+        // The signed list goes only to an agent that knows the field: the answer's contract is closed, so an older agent would refuse
+        // the whole answer, and with it every setting and upgrade offer it carries.
+        approvedApps: { entries: approved, ...(approvedSigned && knowsSignedList(heartbeat.agentVersion) ? { signed: approvedSigned } : {}) },
         intervals: { heartbeatSeconds: p.heartbeatSeconds, pollSeconds: reportedPollSeconds(await holdMs()), eventsPaceMs },
         ...(upgrade ? { upgrade: { version: upgrade } } : {}) });
     });
