@@ -16,7 +16,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { createTestDatabase, startFeed } from "./database.js";
-import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -32,7 +32,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
-  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, logger: false, now: () => clock });
+  const app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin, stream, staticDir: dist, agentSetup: agentDownloads(), logger: false, now: () => clock });
   await app.listen({ host: "127.0.0.1", port });
   const password = "correct horse battery staple";
   const secret = totp.newSecret();
@@ -224,13 +224,13 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.goBack();
     // The ending is onboarding a real agent. The computer asks to join while the presenter is on the install step.
     await next();
-    await page.getByRole("heading", { name: "Install the agent on a computer" }).waitFor();
+    await page.getByRole("heading", { name: "Install the agent" }).waitFor();
     await marked('[data-tour="create-token"]');
-    await page.getByRole("button", { name: "Create install token" }).click();
+    await page.getByRole("button", { name: "Create installer" }).click();
     clock += 30_000;
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
     await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
-    await page.getByRole("link", { name: "Download token.txt" }).waitFor();
+    await page.getByRole("link", { name: "Download Install-CabinetAgent.cmd" }).waitFor();
     const { token } = await createBootstrapToken(db.app, adminId);
     await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
       hostname: "SUPPORT-LAPTOP", serialNumber: "5CG0REAL001", macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: new Date().toISOString(),

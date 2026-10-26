@@ -9,6 +9,7 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
+import { InstallAgent, type SetupState } from "./Setup";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -155,40 +156,16 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   );
 }
 
+/** The install step of Setup on its own page, for installing more cabinets later. */
 export function InstallTokens() {
-  const [confirm, setConfirm] = useState(false);
-  const [issued, setIssued] = useState<{ token: string; expiresAt: string; platformCaPem: string } | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
-  // One download link per issued token, released when it is replaced or the page closes.
-  const caHref = useMemo(() => issued ? URL.createObjectURL(new Blob([issued.platformCaPem], { type: "application/x-pem-file" })) : undefined, [issued]);
-  useEffect(() => () => { if (caHref) URL.revokeObjectURL(caHref); }, [caHref]);
+  const state = useLoad<SetupState>("/api/admin/setup");
   return (
-    <div className="page">
+    <div className="page narrow">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Install a cabinet" }]} />
       <h1>Install a cabinet</h1>
-      <ol className="steps">
-        <li>Create an install token below. It works once and expires in 7 days.</li>
-        <li>On the cabinet, save the token in a file, then in an elevated PowerShell run the installer with the server's agent address and port
-          (8443 unless your server was set up with another <code>AGENT_API_PORT</code>), the platform CA file and the token file:<br />
-          <code>./Install-CabinetAgent.ps1 -PlatformServerHost &lt;server&gt; -PlatformServerPort &lt;port&gt; -PlatformCaFile platform-ca.pem -BootstrapTokenFile token.txt</code><br />
-          <span className="muted small">A token file keeps the token out of the command line, which Windows can record. Delete the file once the cabinet is approved.
-            The installer runs the same way in Windows PowerShell 5.1 and in PowerShell 7; <Link to="/admin/setup">Setup</Link> shows the exact line and works out which one the machine has.</span></li>
-        <li>The cabinet then appears under <Link to="/admin/pending">Pending cabinets</Link> for approval.</li>
-      </ol>
-      <button className="btn primary" data-tour="create-token" onClick={() => { setProblem(null); setConfirm(true); }}>Create install token</button>
-      {problem && <p className="error" role="alert">{problem}</p>}
-      {issued && (
-        <section className="panel" aria-live="polite">
-          <h2>Install token</h2>
-          <p className="notice warn">Copy it now: it is shown only once. Valid until {fullTime(issued.expiresAt)}.</p>
-          <p><code className="secret">{issued.token}</code> <button className="btn small" onClick={() => void navigator.clipboard?.writeText(issued.token)}>Copy</button></p>
-          <p><a className="btn" href={caHref} download="platform-ca.pem">Download platform-ca.pem</a></p>
-        </section>)}
-      <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)}
-        description={<p>Create a one-time token that lets one cabinet ask to join.</p>}
-        onToken={async token => {
-          try { setIssued(await api("POST", "/api/admin/bootstrap-tokens", { stepUpToken: token })); } catch (e) { setProblem(describeError(e)); }
-        }} />
+      {state.problem && <p className="error" role="alert">{state.problem}</p>}
+      {state.data && <section className="panel"><InstallAgent setup={state.data} /></section>}
+      <p className="muted">New cabinets wait under <Link to="/admin/pending">Pending cabinets</Link> for approval.</p>
     </div>
   );
 }

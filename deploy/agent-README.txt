@@ -1,53 +1,25 @@
-Mashura Cabinet Agent - demo build for Windows 10/11 (64-bit and 32-bit)
+Mashura Cabinet Agent for Windows 10 and 11 (32-bit and 64-bit)
 
-Two archives are published, one per Windows architecture: CabinetAgent-win-x64.zip for 64-bit Windows and
-CabinetAgent-win-x86.zip for 32-bit Windows. Take the one the machine is. In an Administrator PowerShell:
+Install (the normal way):
+  1. In the console, open Setup and download the agent (both files if your cabinets are mixed: the installer picks
+     the right one for each computer).
+  2. Press "Create installer". You get Install-CabinetAgent.cmd for one cabinet: it works once, for 7 days.
+  3. On the cabinet, put the installer in the same folder as the agent files (Downloads or a USB stick) and
+     double-click it. Approve the Windows prompt. If SmartScreen appears, choose More info, then Run anyway.
+  4. Approve the cabinet in the console under Pending cabinets.
 
-    (Get-CimInstance Win32_OperatingSystem).OSArchitecture
-
-says "64-bit" or "32-bit". Do not read $env:PROCESSOR_ARCHITECTURE instead: a 32-bit PowerShell on a 64-bit machine
-answers "x86", which would put the wrong archive on the machine.
-
-This is a developer build for a test machine. It is not signed. Never install it on a production cabinet.
-
-You need from the platform console (Admin):
-  - platform-ca.pem   the platform's certificate authority (development CA)
-  - token.txt         a one-time bootstrap token (valid 7 days, works once)
-  - the server's public name or IP address, and port 8443
-
-Install:
-  1. Unzip this folder into your own Downloads folder (it makes Downloads\CabinetAgent). Not directly under C:\ : other users could change files there, and the installer refuses such a folder.
-     The folder must contain "install" and "out" side by side.
-  2. Put platform-ca.pem and token.txt in Downloads\CabinetAgent.
-  3. Open PowerShell as Administrator. Windows PowerShell (the one every Windows machine has) and PowerShell 7 both work.
-     Not sure which you have? In that window, type:   $PSVersionTable.PSVersion
-     A number starting 5.1 is Windows PowerShell; a number starting 7 is PowerShell 7. Either way step 4 is the same.
-  4. Run:
-       cd $HOME\Downloads\CabinetAgent
-       Get-ChildItem -Recurse | Unblock-File
-       Set-ExecutionPolicy -Scope Process Bypass -Force
-       .\install\Install-CabinetAgent.ps1 -PlatformServerHost <server name or IP> -PlatformServerPort 8443 -PlatformCaFile .\platform-ca.pem -PlatformCaSha256 <the SHA-256 the console shows> -BootstrapTokenFile .\token.txt -AllowUnsigned
-     From another window, the same install works as:
-       powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install\Install-CabinetAgent.ps1 <the same options>
-     (use pwsh.exe instead of powershell.exe if you have PowerShell 7). The last lines say which PowerShell it ran in.
-  5. In the console, approve the enrollment request (Administration).
-     The agent picks up its certificate within a minute.
+The installer uses the Windows PowerShell 5.1 every Windows 10 and 11 machine has. It checks the agent files against
+the console before anything is installed, works in a private folder only administrators can change, and deletes
+itself after a successful install.
 
 If the install stops:
-  Nothing fails silently. The last lines say what happened, the script line, the log / state / configuration folders on
-  this machine, whether the agent's services were left stopped (and how to start them again), and what to do next.
-  Copy those lines into the support thread and attach the newest file in the log folder above; the "What happened" line
-  is the one that matters. A cabinet that was already enrolled keeps its identity, so repairing it is another install.
+  The window says what happened and what to do. Send those lines to support, with the newest file in
+  C:\ProgramData\Mashura\CabinetAgent\logs. The installer keeps its token, so you can run it again. A cabinet that
+  was already enrolled keeps its identity, so repairing it is another install.
 
-  The installer refuses, in one sentence that says why, when token.txt or platform-ca.pem is not beside it, when
-  platform-ca.pem does not match the SHA-256 the console shows, when this machine is older than Windows 10 version 1607,
-  when the archive is for the other architecture (a 32-bit archive on a 64-bit cabinet, or the 64-bit archive on a
-  32-bit cabinet), when the programs are unsigned and -AllowUnsigned was not given, or when the folder they are unpacked
-  in is one ordinary users can change.
+The cabinet must be able to reach the server's agent address on port 8443 (it only connects out).
 
-The server name or IP must be exactly the one the server's certificate was made for (AGENT_API_HOSTNAMES on the server).
-
-Logs: C:\ProgramData\Mashura\CabinetAgent\logs
-
-Remove:
+Remove (from an administrator Windows PowerShell, in the unpacked CabinetAgent folder):
   .\install\Uninstall-CabinetAgent.ps1 -RemoveData
+
+This build may be an unsigned development build. Production builds are code-signed.
