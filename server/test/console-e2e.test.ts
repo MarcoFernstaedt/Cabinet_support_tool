@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +20,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
-import { tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
+import { agentDownloads, tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -47,7 +47,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
   const secrets = new SecretBox(randomBytes(32).toString("base64"));
   const stream = new ResultStream(await startFeed(db), db.app);
   await stream.start();
-  const consoleApi = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, logger: false, now: () => clock });
+  const consoleApi = await buildConsoleApi({ pool: db.app, secrets, issuingKey: key, origin, stream, staticDir: dist, agentSetup: agentDownloads(), logger: false, now: () => clock });
   await consoleApi.listen({ host: "127.0.0.1", port: consolePort });
 
   const adminSecret = totp.newSecret();
@@ -94,12 +94,15 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Skip tour" }).click();
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
-    // ---- Creates an install token in the console; the cabinet installs with it ---------
+    // ---- Creates an installer in the console; the cabinet installs with the token inside it ---------
     await nav("Admin").click();
     await page.getByRole("link", { name: /Install a cabinet/ }).click();
-    await page.getByRole("button", { name: "Create install token" }).click();
+    await page.getByRole("button", { name: "Create installer" }).click();
     await confirmCode();
-    const token = (await page.locator("code.secret").textContent())!.trim();
+    const download = page.waitForEvent("download");
+    await page.getByRole("link", { name: "Download Install-CabinetAgent.cmd" }).click();
+    const installer = readFileSync((await (await download).path())!, "utf8");
+    const token = /\$token = '([A-Za-z0-9_-]+)'/.exec(installer)![1]!;
     assert.match(token, /^[A-Za-z0-9_-]{43}$/);
     const state = join(dir, "agent-state");
     mkdirSync(state);
