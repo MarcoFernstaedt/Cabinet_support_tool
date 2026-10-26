@@ -65,11 +65,11 @@ if (servesAgents) {
   // Workers share one secret (from the primary), so a TLS session resumes in whichever worker the reconnect reaches.
   const secret = process.env.AGENT_TICKET_SECRET;
   const ticketKey = workers > 1 && secret ? (day: number) => createHmac("sha384", Buffer.from(secret, "hex")).update(`ticket:${day}`).digest() : undefined;
-  const { newConnectionsPerSecond, requestsPerSecond } = config.agentApi.admission;
+  const { newConnectionsPerSecond, requestsPerSecond, maxConnectionsPerSource } = config.agentApi.admission;
   app = await buildAgentApi({ pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
     ...(config.agentApi.longPollSeconds !== undefined ? { longPollMs: config.agentApi.longPollSeconds * 1000 } : {}),
     ...(ticketKey ? { ticketKey } : {}),
-    admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2,
+    admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2, maxConnectionsPerSource,
       maxPendingAcquires: config.database.agentPoolMax } });
   const agentLog = app.log;
   logError = message => agentLog.error(message);

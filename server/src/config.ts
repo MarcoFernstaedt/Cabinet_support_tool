@@ -7,7 +7,7 @@ export interface Config {
   /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
   databaseUrl: string;
   /** longPollSeconds: how long a poll is held; unset, it follows the platform's pacing setting (default 25). */
-  agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds?: number; http2: boolean; workers: number; admission: { newConnectionsPerSecond: number; requestsPerSecond: number } };
+  agentApi: { host: string; port: number; hostnames: string[]; longPollSeconds?: number; http2: boolean; workers: number; admission: { newConnectionsPerSecond: number; requestsPerSecond: number; maxConnectionsPerSource: number } };
   /** Separate connection pools, so console work and background jobs can never take the connections agents need. */
   database: { agentPoolMax: number; consolePoolMax: number; jobsPoolMax: number };
   tls: { certFile?: string; keyFile?: string };
@@ -61,7 +61,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // Processes serving the agent port (Node's cluster module shares it). One is enough for a few thousand cabinets; at 10,000 a single
       // process's event loop is the limit (TLS, HTTP/2 and the database driver all run on it), so use 2 or more on a 4-core server.
       workers: whole("AGENT_API_WORKERS", 1, 1, 16),
-      admission: { newConnectionsPerSecond: whole("AGENT_NEW_CONNECTIONS_PER_SECOND", 300, 1, 10_000), requestsPerSecond: whole("AGENT_REQUESTS_PER_SECOND", 2_000, 10, 100_000) } },
+      admission: { newConnectionsPerSecond: whole("AGENT_NEW_CONNECTIONS_PER_SECOND", 300, 1, 10_000), requestsPerSecond: whole("AGENT_REQUESTS_PER_SECOND", 2_000, 10, 100_000),
+        // Open connections from one address (an IPv4 address or IPv6 /64). Raise it only where many cabinets share one address.
+        maxConnectionsPerSource: whole("AGENT_MAX_CONNECTIONS_PER_SOURCE", 256, 1, 100_000) } },
     database: { agentPoolMax: whole("AGENT_DB_POOL_MAX", 20, 4, 200), consolePoolMax: whole("CONSOLE_DB_POOL_MAX", 10, 4, 100), jobsPoolMax: whole("JOBS_DB_POOL_MAX", 4, 1, 50) },
     tls: {},
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
