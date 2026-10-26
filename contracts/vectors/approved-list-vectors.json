@@ -1,0 +1,112 @@
+{
+ "description": "Shared by the agent and the server (scripts/make-approved-list-vectors.mjs): each case is a signed approved-list document, base64 of its exact bytes, and the detached signature over them. accept says whether a verifier holding exactly these keys must take it; reason says which check refuses it (key: not a pinned key; signature: does not verify; document: verified but not an approved-list document).",
+ "keys": {
+  "version": 1,
+  "keys": [
+   {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "name": "Test list key",
+    "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+XA2VejEYPSWuXg/6Lfi/Genf4CzzRjW2RU/HXjS0XRM4Krr+gIjngBnSiT4npyInzi7oVkEa/OkfQ8ic/f9kg=="
+   }
+  ]
+ },
+ "cases": [
+  {
+   "name": "a site list signed with the pinned key",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ==",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEQCIAyvqU/uMprDUeKK7A8ujMsy8a4Rrtx8S5osbCfVDwxnAiAu+iksC4NIhZSpZ9HmUPNXrBwdlV5+VYMO0TofieV/pQ=="
+   },
+   "accept": true
+  },
+  {
+   "name": "an empty fleet list signed with the pinned key",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJmbGVldCIsInNjb3BlSWQiOm51bGwsInZlcnNpb24iOjEsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W119",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEYCIQCDUsdQp7Bc8EurHL9aT57jyzQ0n2lLa+lYw37iAx0wMAIhAKgO21Ww0TlJD/zsTTAJgzQ3qHvbV7GKi4/qQi8ehUzO"
+   },
+   "accept": true
+  },
+  {
+   "name": "one changed byte after signing",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xcZXZpbC5leGUifV19",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEQCIAyvqU/uMprDUeKK7A8ujMsy8a4Rrtx8S5osbCfVDwxnAiAu+iksC4NIhZSpZ9HmUPNXrBwdlV5+VYMO0TofieV/pQ=="
+   },
+   "accept": false,
+   "reason": "signature"
+  },
+  {
+   "name": "a signature with one bit flipped",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ==",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEQCIAyvqU/uMprDUeKK7A8ujMsy8a4Rrtx8S5osbCfVDwxnAiAu+iksC4NIhZSpZ9HmUPNXrBwdlV5+VYMO0TofieV/pA=="
+   },
+   "accept": false,
+   "reason": "signature"
+  },
+  {
+   "name": "signed by a key the agent does not hold",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ==",
+   "signature": {
+    "keyId": "54234bca21213488a6fa0e170dcd4e3b039fd6f03c918b3def8cfa5705cb1e00",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEUCIQDd9k5xZL+wzyJilOYRfg+/+NrXxXxH6mrjKne+fR3DBAIgCqlw+p8VHgBvszDpjxncFVd+Z/w4EKDjXqiJn/4ubnQ="
+   },
+   "accept": false,
+   "reason": "key"
+  },
+  {
+   "name": "a stranger's signature relabelled with the pinned key's id",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ==",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEUCIEHY0u8ipjpRQc59GMoYMBHLUJ3asBVjw8Rew/c7cf0bAiEAkZWgtEyMqScPL+45kYJt3LmThSE5Vqh4TCP3LEolY1U="
+   },
+   "accept": false,
+   "reason": "signature"
+  },
+  {
+   "name": "validly signed, but for another product",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1jYWJpbmV0LWFnZW50IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dfQ==",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEUCIQCqy2RCX/uL5SU9oB74wP127ly7cJtIWZx3lzdvWhHV8QIgU/HomyRyLJTIuiF+SQfKyoLGZ+0gB6JCunEQDs3pFjw="
+   },
+   "accept": false,
+   "reason": "document"
+  },
+  {
+   "name": "validly signed, but with a field the contract does not allow",
+   "document": "eyJwcm9kdWN0IjoibWFzaHVyYS1hcHByb3ZlZC1saXN0IiwibGV2ZWwiOiJzaXRlIiwic2NvcGVJZCI6IjZmMWMyYThlLTRiN2QtNGMxZS05YTNmLTJkNWU4YjdjMWE5MCIsInZlcnNpb24iOjMsImlzc3VlZEF0IjoiMjAyNi0xMC0yNlQxMjowMDowMC4wMDBaIiwiZW50cmllcyI6W3sia2V5IjoiYXBwOnNjYW5uZXIiLCJraW5kIjoic2VydmljZSIsIm5hbWUiOiJTY2FubmVyIHNlcnZpY2UiLCJwYXRoIjoiQzpcXFByb2dyYW0gRmlsZXNcXFZlbmRvclxcQmlvU2NhblxcQmlvU2NhblN2Yy5leGUiLCJzZXJ2aWNlTmFtZSI6IkJpb1NjYW5TdmMifSx7ImtleSI6ImFwcDpraW9zayIsImtpbmQiOiJhcHBsaWNhdGlvbiIsIm5hbWUiOiJLaW9zayIsInBhdGgiOiJDOlxcUHJvZ3JhbSBGaWxlc1xcVmVuZG9yXFxLaW9za1xca2lvc2suZXhlIn1dLCJub3RlIjoiYWRkZWQifQ==",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEUCIQDBY9/YfpJgQTBAJ9kiVQ7RTaHBskQ1xsuLc/kDXUIsBwIgS2KAWRg35alpOiZfHHn+bu7hc4S6nwqMsqNmRe/mMPQ="
+   },
+   "accept": false,
+   "reason": "document"
+  },
+  {
+   "name": "not JSON, validly signed",
+   "document": "bm90IGpzb24=",
+   "signature": {
+    "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+    "algorithm": "ecdsa-p256-sha256",
+    "signature": "MEUCIQC8pfcBObX0wAmT9uSBUY9Rqxmu0Nq2X9BNaeh0+1BxXQIgP+B/CQtzO4s92Ao8Zn4cPF+RpJnqC0ZlEy119MSEWhA="
+   },
+   "accept": false,
+   "reason": "document"
+  }
+ ]
+}

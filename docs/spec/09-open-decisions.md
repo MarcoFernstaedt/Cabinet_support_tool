@@ -729,4 +729,46 @@ Decided with the owner: only programs on the approved list are watched or restar
   - A service entry also allows ending its program's process. `svchost` and the platform's own processes stay protected by the agent's refused list.
   - An unquoted service image path with spaces is matched as written. Planting `C:\Program.exe` needs administrator rights.
   - The USB policy writes are now Admin-only and need a code, but no route calls them yet.
-- **Still open: signing the list.** The cabinet's list file is written by the unprivileged network service, so it is a guard rail until it is signed with an Admin-held key the cabinet pins. That is the next PR.
+- **Signing the list:** decided on 2026-10-26; see "Signing the approved list" below.
+
+## Signing the approved list (October 2026)
+
+This answers "Open: the approved list on the cabinet is written by the network process" above. The owner chose to sign the list with an Admin key kept offline, knowing every list change then needs that key.
+
+- **The key.** A P-256 key of its own, never the release key. `New-ApprovedListTrust.ps1` refuses a key the agent already trusts for releases. It is one of:
+  - a key file protected by a passphrase, kept on removable media (`-NewKey`);
+  - an AWS KMS key;
+  - an Azure Key Vault key.
+
+  The private key never reaches the server.
+- **Where the cabinet gets the public key.** It is compiled into the agent from `contracts/trust/approved-list`, the way the release key is, so only a signed agent upgrade can change it.
+  - An earlier plan had the installer write the key into a folder only administrators can change. That was dropped because the server makes the installer files: a server that had been taken over could put its own key into every new installer.
+  - At most two keys are held, the current one and the next, so the key can be changed.
+- **What is signed.** One level's list, as a small JSON document the server writes once when an Admin saves the list (`agent/approved-list.schema.json`).
+  - The document holds `product: "mashura-approved-list"`, the level, the scope id, the version, the time, and the entries.
+  - The signature covers those exact bytes (`agent/approved-list-signature.schema.json`).
+  - Nobody re-serialises the document, so the bytes the Admin signed are the bytes the cabinet checks.
+- **Checking it.** The server and the agent run the same check, held to the same vectors (`contracts/vectors/approved-list-vectors.json`):
+  1. The signature, against a pinned key, before anything in the document is read.
+  2. Then a strict parse. The agent refuses duplicate names.
+  3. Then the contract.
+- **The Admin's steps.**
+  1. Save the list in the console, with a code, as now.
+  2. Download it as a file.
+  3. Run `Sign-ApprovedList.ps1` on it. The script prints every program the list approves and asks for `SIGN` to be typed.
+  4. Upload the signature file.
+
+  The script refuses a file that is not an approved list, and an entry that holds a control or text-direction character, since that could make the screen show something other than what is signed.
+- **Until the signature is uploaded,** the level's previous signed list stays in force on the server and on the cabinets.
+- **On the cabinet.**
+  - An agent built with a list key acts only on a list whose signature verifies. An unsigned, damaged or wrongly signed list approves nothing.
+  - An agent built with no list key works as it did before signing existed. The repository ships with no key, so nothing changes until the owner makes one and releases an agent built with it.
+  - Between that release and the first signed list, those cabinets approve nothing. That was the proposal above.
+- **Delivered in three pull requests, in this order:**
+  1. The format, the checks on both sides, and the two scripts. Nothing uses them yet, so behaviour does not change.
+  2. The server and console flow: waiting for a signature, download, upload. The heartbeat answer carries the signed document.
+  3. The broker enforcing it on the cabinet.
+- **Known limit, open.** The signature proves that an Admin approved the list for some level. It does not prove the list is the one for this cabinet.
+  - A taken-over network service could hand the broker another list an Admin signed. Examples: the fleet list in place of a stricter site list, or an older version of the site's own list.
+  - It can no longer approve a program no Admin approved anywhere, which is the attack this change closes.
+  - Binding the list to the cabinet's own site needs the cabinet to hold its site from enrollment. That belongs with the enrollment change (site set at enrollment).

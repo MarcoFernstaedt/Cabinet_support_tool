@@ -44,8 +44,9 @@ export async function generate() {
   for (const { file } of readSchemas()) {
     if (file.startsWith("envelopes/")) targets.push([pascal(file.slice(10, -12)), BASE_ID + file]);
     if (file.startsWith("console/")) targets.push([pascal(file.slice(8, -12)), BASE_ID + file]);
-    // The release files the server checks on upload (the agent checks them again with its own keys).
-    if (["agent/upgrade-manifest.schema.json", "agent/upgrade-signature.schema.json", "agent/upgrade-keys.schema.json"].includes(file))
+    // The release files and the signed approved lists the server checks on upload (the agent checks both again with its own keys).
+    if (["agent/upgrade-manifest.schema.json", "agent/upgrade-signature.schema.json", "agent/upgrade-keys.schema.json",
+      "agent/approved-list.schema.json", "agent/approved-list-signature.schema.json", "agent/approved-list-keys.schema.json"].includes(file))
       targets.push([pascal(file.slice(6, -12)), BASE_ID + file]);
   }
   for (const op of catalog.operations) {

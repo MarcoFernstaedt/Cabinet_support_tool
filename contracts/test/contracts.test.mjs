@@ -130,6 +130,36 @@ test("the upgrade keys compiled into the agent are public P-256 keys named by th
       assert.ok(!readFileSync(join(dir, f.name), "utf8").includes("PRIVATE KEY"), `${f.name} must never hold a private key`);
 });
 
+test("the list-signing keys compiled into the agent are public P-256 keys named by their own hash, and no private key is beside them", async () => {
+  const { createHash, createPublicKey } = await import("node:crypto");
+  const trustDir = join(SCHEMA_DIR, "..", "trust", "approved-list");
+  const list = JSON.parse(readFileSync(join(trustDir, "approved-list-keys.json"), "utf8"));
+  const validate = ajv.getSchema(ref("agent/approved-list-keys.schema.json"));
+  assert.equal(validate(list), true, JSON.stringify(validate.errors));
+  for (const k of list.keys) {
+    const der = Buffer.from(k.publicKey, "base64");
+    assert.equal(createHash("sha256").update(der).digest("hex"), k.keyId, `${k.name}: keyId is the SHA-256 of the key`);
+    assert.equal(createPublicKey({ key: der, format: "der", type: "spki" }).asymmetricKeyDetails?.namedCurve, "prime256v1", `${k.name}: P-256`);
+  }
+  const upgrade = JSON.parse(readFileSync(join(trustDir, "..", "upgrade", "upgrade-keys.json"), "utf8"));
+  for (const k of list.keys) assert.ok(!upgrade.keys.some(u => u.keyId === k.keyId), `${k.name}: the release key never signs a list`);
+  for (const f of readdirSync(trustDir, { withFileTypes: true }).filter(e => e.isFile()))
+    assert.ok(!readFileSync(join(trustDir, f.name), "utf8").includes("PRIVATE KEY"), `${f.name} must never hold a private key`);
+});
+
+test("the approved-list vectors are documents and signatures of the right shape", () => {
+  const vectors = JSON.parse(readFileSync(join(SCHEMA_DIR, "..", "vectors", "approved-list-vectors.json"), "utf8"));
+  assert.equal(ajv.getSchema(ref("agent/approved-list-keys.schema.json"))(vectors.keys), true);
+  const signature = ajv.getSchema(ref("agent/approved-list-signature.schema.json"));
+  const document = ajv.getSchema(ref("agent/approved-list.schema.json"));
+  assert.ok(vectors.cases.some(c => c.accept) && vectors.cases.some(c => !c.accept));
+  for (const c of vectors.cases) {
+    assert.equal(signature(c.signature), true, `${c.name}: signature shape`);
+    // A case refused for its document must really be refused by the contract, or the agent and server would disagree on it.
+    if (c.accept) assert.equal(document(JSON.parse(Buffer.from(c.document, "base64").toString("utf8"))), true, c.name);
+  }
+});
+
 test("the catalog, the operation name list and the operation files agree", () => {
   const common = JSON.parse(readFileSync(join(SCHEMA_DIR, "common.schema.json"), "utf8"));
   assert.deepEqual([...common.$defs.operationName.enum].sort(), [...opNames].sort());

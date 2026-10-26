@@ -336,6 +336,66 @@ export interface ConfigSnapshotCategory {
 }
 
 /**
+ * The public halves of the Admin list-signing keys, compiled into the agent (contracts/trust/approved-list) the way the release keys are: only a signed agent upgrade can change them, and the server has no say. At most two keys: the one in use and the next one while the key is changed. An empty list means this build does not check list signatures yet, and treats the approved list as it did before signing existed.
+ */
+export interface ApprovedListKeys {
+  version: number;
+  /**
+   * @maxItems 2
+   */
+  keys: {
+    /**
+     * SHA-256 of the key's DER SubjectPublicKeyInfo, lower-case hex.
+     */
+    keyId: string;
+    name: string;
+    /**
+     * Base64 of the DER SubjectPublicKeyInfo of an ECDSA P-256 key.
+     */
+    publicKey: string;
+  }[];
+}
+
+/**
+ * The detached signature over an approved-list document's exact bytes: ECDSA P-256 over the SHA-256 of the document, DER-encoded, made with the Admin's list-signing key on the Admin's own computer (Sign-ApprovedList.ps1). keyId names which of the agent's compiled-in list keys made it (the SHA-256 of that key's SubjectPublicKeyInfo), so a second key can be added before the first is retired. The same shape as a release signature, but a different key: the release key never signs a list, and the list key never signs a release.
+ */
+export interface ApprovedListSignature {
+  /**
+   * Lower-case hex SHA-256 digest.
+   */
+  keyId: string;
+  algorithm: "ecdsa-p256-sha256";
+  /**
+   * Base64 of the DER-encoded ECDSA signature (at most 72 bytes).
+   */
+  signature: string;
+}
+
+/**
+ * One level's approved programs as an Admin signs them (docs/spec/09-open-decisions.md, "Signing the approved list"). The server writes these exact bytes when an Admin saves a list; the Admin signs the bytes on their own computer with the list-signing key (Sign-ApprovedList.ps1), and the cabinet's broker checks that signature against the keys compiled into the agent before it reads anything in the document. The product field keeps a signature over this document from ever being mistaken for any other signed file.
+ */
+export interface ApprovedList {
+  product: "mashura-approved-list";
+  /**
+   * The level the Admin set the list for. Shown to the person signing it; the cabinet does not choose between levels from it.
+   */
+  level: "fleet" | "client" | "site" | "cabinet";
+  /**
+   * The client, site or cabinet id; null for the fleet.
+   */
+  scopeId: string | null;
+  /**
+   * The level's version: it steps up by one on every change.
+   */
+  version: number;
+  /**
+   * When the Admin saved the list on the server.
+   */
+  issuedAt: string;
+  entries: ApprovedAppEntries;
+}
+
+/**
  * What an agent release must be signed with, compiled into the agent (docs/spec/07-upgrade-channel.md): the public half of the release signing key, with room for one future key while the key is changed, and the code-signing publisher whose Authenticode signature every agent binary must carry. A publisher is trusted only when its certificate's common name and organization match exactly and its chain ends at the pinned root. Only a signed agent upgrade can change the agent's copy. An empty list means this build accepts no upgrades, and checks its own files against no one.
  */
 export interface UpgradeKeys {
