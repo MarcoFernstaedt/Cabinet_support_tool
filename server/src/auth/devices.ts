@@ -18,10 +18,24 @@ export function deviceLabel(userAgent: string | undefined): string {
   return `${browser} on ${system}`;
 }
 
-/** Whether this browser's device value is one the account has already signed in with. */
-export async function isKnownDevice(db: Queryable, userId: string, deviceCookie: string | undefined): Promise<boolean> {
-  if (!deviceCookie || !DEVICE_VALUE.test(deviceCookie)) return false;
-  return (await db.query("SELECT TOP (1) 1 AS known FROM user_devices WHERE user_id = $1 AND device_hash = $2", [userId, hashDevice(deviceCookie)])).rows.length > 0;
+/** The accounts this browser has fully signed in to. Looked up by the device value alone, so the answer costs the same for any username. */
+export async function trustedAccounts(db: Queryable, deviceCookie: string | undefined): Promise<Set<string>> {
+  if (!deviceCookie || !DEVICE_VALUE.test(deviceCookie)) return new Set();
+  const rows = (await db.query<{ user_id: string }>("SELECT TOP (50) user_id FROM user_devices WHERE device_hash = $1 AND trusted_at IS NOT NULL",
+    [hashDevice(deviceCookie)])).rows;
+  return new Set(rows.map(r => r.user_id.toLowerCase()));
+}
+
+/** Marks this browser as one the account fully signed in from: past the password and, when the account has one, the authenticator. */
+export async function trustDevice(db: Queryable, userId: string, deviceCookie: string | undefined): Promise<void> {
+  if (!deviceCookie || !DEVICE_VALUE.test(deviceCookie)) return;
+  await db.query("UPDATE user_devices SET trusted_at = SYSUTCDATETIME() WHERE user_id = $1 AND device_hash = $2 AND trusted_at IS NULL", [userId, hashDevice(deviceCookie)]);
+}
+
+/** Forgets which browsers the account is trusted on, except (optionally) the one making this change. */
+export async function forgetTrustedDevices(db: Queryable, userId: string, keepDeviceCookie?: string): Promise<void> {
+  const keep = keepDeviceCookie && DEVICE_VALUE.test(keepDeviceCookie) ? hashDevice(keepDeviceCookie) : Buffer.alloc(0);
+  await db.query("UPDATE user_devices SET trusted_at = NULL WHERE user_id = $1 AND trusted_at IS NOT NULL AND device_hash <> $2", [userId, keep]);
 }
 
 export interface SignIn { signInId: number; deviceValue: string; newNetwork: boolean; newDevice: boolean }

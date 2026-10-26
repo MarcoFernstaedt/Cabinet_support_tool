@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { buildConsoleApi } from "../src/console-api/server.js";
-import { addressKey } from "../src/console-api/auth-routes.js";
+import { addressKey, addressLimits } from "../src/console-api/auth-routes.js";
 import { ResultStream } from "../src/console-api/stream.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
@@ -120,6 +120,41 @@ test("the steps after the password are not refused by someone else's address lim
   assert.equal((await call(known, "/api/auth/totp", { code: totp.code(u.secret, totp.stepAt(clock)) })).body.stage, "complete");
 });
 
+test("a password without the authenticator code does not make a browser trusted", async () => {
+  const shared = "203.0.113.90";
+  const u = await user();
+  const halfway = browser(shared);
+  // Someone who has the password but not the authenticator stops at the code step.
+  assert.equal((await call(halfway, "/api/auth/login", { username: u.username, password: PASSWORD })).body.stage, "totp");
+  await exhaust(shared);
+  assert.deepEqual((await call(halfway, "/api/auth/login", { username: u.username, password: PASSWORD })).body, { error: "too_many_attempts" });
+});
+
+test("changing the password forgets every other trusted browser; ending all sessions forgets them all", async () => {
+  const shared = "203.0.113.100";
+  const u = await user();
+  const mine = browser(shared), old = browser(shared);
+  assert.equal((await signIn(mine, u)).body.stage, "complete");
+  assert.equal((await signIn(old, u)).body.stage, "complete");
+  const NEW = "a different long passphrase 42";
+  assert.equal((await call(mine, "/api/auth/password", { currentPassword: PASSWORD, newPassword: NEW })).body.stage, "complete");
+  await exhaust(shared);
+  assert.deepEqual((await call(old, "/api/auth/login", { username: u.username, password: NEW })).body, { error: "too_many_attempts" });
+  assert.equal((await call(mine, "/api/auth/login", { username: u.username, password: NEW })).body.stage, "totp", "the browser that changed it stays trusted");
+  const { endAllSessions } = await import("../src/auth/sessions.js");
+  await endAllSessions(db.app, u.id);
+  assert.deepEqual((await call(mine, "/api/auth/login", { username: u.username, password: NEW })).body, { error: "too_many_attempts" });
+});
+
+test("IPv6 is also limited per /48, so a whole allocation of /64s is not 65,536 separate limits", async () => {
+  const attacker = (n: number) => browser(`2001:db8:77:${n.toString(16)}::1`);
+  let refused = 0;
+  for (let n = 0; n < 5; n++)
+    for (let i = 0; i < 30; i++) if ((await call(attacker(n), "/api/auth/login", { username: `nobody.${n}.${i}`, password: "wrong" })).status === 429) refused++;
+  assert.equal(refused, 30, "after 120 failures across the /48 the fifth /64 is refused from its first try");
+  assert.equal((await signIn(browser("2001:db8:78::1"), await user())).body.stage, "complete", "another /48 is not");
+});
+
 test("the address key: IPv4 as is, IPv6 by /64, mapped IPv4 unwrapped, hostile text bounded", () => {
   assert.equal(addressKey("198.51.100.7"), "198.51.100.7");
   assert.equal(addressKey("::ffff:198.51.100.7"), "198.51.100.7");
@@ -127,4 +162,6 @@ test("the address key: IPv4 as is, IPv6 by /64, mapped IPv4 unwrapped, hostile t
   assert.notEqual(addressKey("2001:db8:1:1::10"), addressKey("2001:db8:1:2::10"));
   assert.ok(addressKey(":".repeat(5000)).length <= 64);
   assert.ok(addressKey("x".repeat(5000)).length <= 64);
+  assert.deepEqual(addressLimits("198.51.100.7").map(l => l.key), ["198.51.100.7"]);
+  assert.deepEqual(addressLimits("2001:db8:1:2::10").map(l => l.key), ["2001:db8:1:2::/64", "2001:db8:1::/48"]);
 });
