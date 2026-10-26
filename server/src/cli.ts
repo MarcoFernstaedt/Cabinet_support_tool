@@ -3,6 +3,7 @@
 // same checks (write pauses and limits, the two-person rule) and audits everything as "via cli".
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "./auth/passwords.js";
+import { endAllSessions } from "./auth/sessions.js";
 import { parseArgs } from "node:util";
 import { databaseUrl, loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
@@ -253,7 +254,7 @@ async function main(argv: string[]): Promise<void> {
             [values.username, hash]);
           const target = r.rows[0];
           if (!target) throw new Refused("not_found", 1, "no such user");
-          await c.query("DELETE FROM sessions WHERE user_id = $1", [target.id]);
+          await endAllSessions(c, target.id);
           await audit(c, { actorKind: "user", actorId: adminId, action: "user.password.reset", targetKind: "user", targetId: target.id, outcome: "succeeded" });
         });
         console.log(`Temporary password for ${values.username} (shown once): ${temporary}`);

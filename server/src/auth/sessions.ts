@@ -57,7 +57,11 @@ export async function setStage(db: Queryable, sessionHash: Buffer, stage: Stage)
 export const endSession = (db: Queryable, sessionHash: Buffer) => db.query("DELETE FROM sessions WHERE id_hash = $1", [sessionHash]);
 
 /** Ends every session of a user: after a password or authenticator reset, or disabling the account. */
-export const endAllSessions = (db: Queryable, userId: string) => db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+/** Ends every session of the account and forgets the browsers it was trusted on: each must pass the full sign-in again. */
+export const endAllSessions = async (db: Queryable, userId: string) => {
+  await db.query("UPDATE user_devices SET trusted_at = NULL WHERE user_id = $1 AND trusted_at IS NOT NULL", [userId]);
+  return db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
+};
 
 /** The next stage a signed-in user must pass before using the console. An Admin setting can require an authenticator for every account. */
 /** Every account, of every role, needs an authenticator at sign-in (docs/spec/12-milestones-8-to-12.md). */

@@ -7,7 +7,7 @@ import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passw
 import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
 import { networkOf, raiseSecurityAlertNow } from "../services/security.js";
 import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
-import { DEVICE_MAX_AGE_SECONDS, isKnownDevice, recordSignIn } from "../auth/devices.js";
+import { DEVICE_MAX_AGE_SECONDS, forgetTrustedDevices, recordSignIn, trustDevice, trustedAccounts } from "../auth/devices.js";
 import { DEVICE_COOKIE, readCookie, setCookie } from "../auth/cookies.js";
 import { issueStepUpToken } from "../auth/stepup.js";
 import * as totp from "../auth/totp.js";
@@ -17,6 +17,10 @@ import { clearSessionCookie, setSessionCookie, type ConsoleApiOptions, type Guar
 export const MAX_FAILURES = 5;
 export const LOCK_MINUTES = 15;
 const ADDRESS_FAILURES_PER_15_MIN = 30;
+/** IPv6 is also counted per /48, a whole site's allocation, so a free /48 does not become 65,536 separate limits. */
+const SITE_FAILURES_PER_15_MIN = 120;
+const WINDOW_MS = 15 * 60_000;
+const MAX_TRACKED = 10_000;
 
 /** What the address limit counts against: an IPv4 address, or an IPv6 /64 (one subscriber usually holds a whole /64). */
 export function addressKey(ip: string): string {
@@ -24,16 +28,32 @@ export function addressKey(ip: string): string {
   return a.includes(":") ? networkOf(a) : a.slice(0, 64);
 }
 
+/** Every limit an address counts against, with how many failures each allows in 15 minutes. */
+export function addressLimits(ip: string): { key: string; limit: number }[] {
+  const key = addressKey(ip);
+  if (!key.endsWith("::/64")) return [{ key, limit: ADDRESS_FAILURES_PER_15_MIN }];
+  const site = key.split(":").slice(0, 3).join(":") + "::/48";
+  return [{ key, limit: ADDRESS_FAILURES_PER_15_MIN }, { key: site, limit: SITE_FAILURES_PER_15_MIN }];
+}
+
 export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   const now = o.now ?? Date.now;
   const addressFailures = new Map<string, number[]>();
+  let lastPrune = 0;
 
-  const recentAddressFailures = (ip: string): number[] => (addressFailures.get(addressKey(ip)) ?? []).filter(t => now() - t < 15 * 60_000);
+  const recent = (key: string): number[] => (addressFailures.get(key) ?? []).filter(t => now() - t < WINDOW_MS);
+  const addressBlocked = (ip: string): boolean => addressLimits(ip).some(l => recent(l.key).length >= l.limit);
   const noteAddressFailure = (ip: string): void => {
-    const r = recentAddressFailures(ip); r.push(now()); addressFailures.set(addressKey(ip), r);
-    // Kept bounded: addresses with no failure in the last 15 minutes are dropped once the map grows.
-    if (addressFailures.size > 10_000)
-      for (const [k, times] of addressFailures) if (!times.some(t => now() - t < 15 * 60_000)) addressFailures.delete(k);
+    // Kept bounded: past the cap, stale addresses are dropped at most once a minute, and while it stays full a new address is
+    // not tracked, so a flood of addresses costs neither memory nor a scan per request.
+    if (addressFailures.size >= MAX_TRACKED && now() - lastPrune > 60_000) {
+      lastPrune = now();
+      for (const [k, times] of addressFailures) if (!times.some(t => now() - t < WINDOW_MS)) addressFailures.delete(k);
+    }
+    for (const { key, limit } of addressLimits(ip)) {
+      if (!addressFailures.has(key) && addressFailures.size >= MAX_TRACKED) continue;
+      const r = recent(key); r.push(now()); addressFailures.set(key, r.slice(-limit));
+    }
   };
 
   /**
@@ -63,15 +83,19 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
 
   app.post("/api/auth/login", async (request, reply) => {
     const body = consoleBodies.login.parse(request.body);
-    const addressBlocked = recentAddressFailures(request.ip).length >= ADDRESS_FAILURES_PER_15_MIN;
+    // Many people can share one address (an office, a proxy in front of the console), so one person's wrong guesses must not
+    // lock the rest out. Past the address limit, only a browser that has fully signed in to this account before may still try;
+    // its wrong passwords still count toward the account's own lock. The browser is looked up by its device value alone, before
+    // the username, so the answer costs the same for any username; without a trusted browser the database is not touched.
+    let trusted: Set<string> | null = null;
+    if (addressBlocked(request.ip)) {
+      trusted = await trustedAccounts(o.pool, readCookie(request, DEVICE_COOKIE));
+      if (trusted.size === 0) return reply.code(429).send({ error: "too_many_attempts" });
+    }
     const user = (await o.pool.query<{ id: string; password_hash: string | null; role: string; totp_enabled: boolean; must_change_password: boolean; locked: boolean }>(
       `SELECT TOP (1) id, password_hash, role, totp_enabled, must_change_password, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
          FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [body.username])).rows[0];
-    // Many people can share one address (an office, a proxy in front of the console), so one person's wrong guesses must not
-    // lock the rest out. Past the address limit, only a browser this account has signed in with before may still try; its
-    // wrong passwords still count toward the account's own lock. No password is checked for anyone else.
-    if (addressBlocked && !(user && await isKnownDevice(o.pool, user.id, readCookie(request, DEVICE_COOKIE))))
-      return reply.code(429).send({ error: "too_many_attempts" });
+    if (trusted && !(user && trusted.has(user.id.toLowerCase()))) return reply.code(429).send({ error: "too_many_attempts" });
     const ok = await verifyPassword(user?.password_hash ?? null, body.password);
     // A lock is shown only to someone who knows the password: a wrong password gets the same answer for every account.
     if (user?.locked && ok) return reply.code(429).send({ error: "account_locked" });
@@ -90,6 +114,8 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       if (stage !== "totp") await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
       const signIn = await recordSignIn(c, { userId: user.id, username: body.username, address: request.ip, userAgent: request.headers["user-agent"],
         deviceCookie: readCookie(request, DEVICE_COOKIE) });
+      // An account without an authenticator has passed its whole sign-in; one with an authenticator is trusted only once the code is right.
+      if (stage !== "totp") await trustDevice(c, user.id, signIn.deviceValue);
       if (stage === "complete") await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [user.id]);
       await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded",
         details: { stage, source: request.ip, newNetwork: signIn.newNetwork, newDevice: signIn.newDevice } });
@@ -134,6 +160,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
         [u.userId, step, stage === "complete"]);
       if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
       await setStage(c, u.sessionHash, stage);
+      await trustDevice(c, u.userId, readCookie(request, DEVICE_COOKIE));
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp", outcome: "succeeded", details: { source: request.ip } });
     });
     return { stage };
@@ -192,6 +219,8 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [u.userId, hash]);
       // Every other session of this user ends; this one continues.
       await c.query("DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2", [u.userId, u.sessionHash]);
+      // Every other browser must pass the full sign-in again before it counts as this account's own.
+      await forgetTrustedDevices(c, u.userId, readCookie(request, DEVICE_COOKIE));
       if (u.stage === "password_change") await setStage(c, u.sessionHash, "complete");
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.password.change", targetKind: "user", targetId: u.userId, outcome: "succeeded" });
     });
