@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/approved-list.schema.json",
+  "title": "approved-list",
+  "description": "One level's approved programs as an Admin signs them (docs/spec/09-open-decisions.md, \"Signing the approved list\"). The server writes these exact bytes when an Admin saves a list; the Admin signs the bytes on their own computer with the list-signing key (Sign-ApprovedList.ps1), and the cabinet's broker checks that signature against the keys compiled into the agent before it reads anything in the document. The product field keeps a signature over this document from ever being mistaken for any other signed file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["product", "level", "scopeId", "version", "issuedAt", "entries"],
+  "properties": {
+    "product": {
+      "const": "mashura-approved-list"
+    },
+    "level": {
+      "description": "The level the Admin set the list for. Shown to the person signing it; the cabinet does not choose between levels from it.",
+      "enum": ["fleet", "client", "site", "cabinet"]
+    },
+    "scopeId": {
+      "description": "The client, site or cabinet id; null for the fleet.",
+      "anyOf": [{"$ref": "../common.schema.json#/$defs/uuid"}, {"type": "null"}]
+    },
+    "version": {
+      "description": "The level's version: it steps up by one on every change.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "issuedAt": {
+      "description": "When the Admin saved the list on the server.",
+      "$ref": "../common.schema.json#/$defs/timestamp"
+    },
+    "entries": {
+      "$ref": "../common.schema.json#/$defs/approvedAppEntries"
+    }
+  },
+  "if": {"properties": {"level": {"const": "fleet"}}},
+  "then": {"properties": {"scopeId": {"type": "null"}}},
+  "else": {"properties": {"scopeId": {"type": "string"}}}
+}

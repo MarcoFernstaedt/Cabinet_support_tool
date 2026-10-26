@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/agent/approved-list-keys.schema.json",
+  "title": "approved-list-keys",
+  "description": "The public halves of the Admin list-signing keys, compiled into the agent (contracts/trust/approved-list) the way the release keys are: only a signed agent upgrade can change them, and the server has no say. At most two keys: the one in use and the next one while the key is changed. An empty list means this build does not check list signatures yet, and treats the approved list as it did before signing existed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "keys"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "keys": {
+      "type": "array",
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["keyId", "name", "publicKey"],
+        "properties": {
+          "keyId": {
+            "description": "SHA-256 of the key's DER SubjectPublicKeyInfo, lower-case hex.",
+            "$ref": "../common.schema.json#/$defs/sha256"
+          },
+          "name": {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          "publicKey": {
+            "description": "Base64 of the DER SubjectPublicKeyInfo of an ECDSA P-256 key.",
+            "type": "string",
+            "minLength": 120,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+          }
+        }
+      }
+    }
+  }
+}

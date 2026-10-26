@@ -67,6 +67,9 @@ public static class ExampleData
             "update-response" => typeof(UpdateResponse),
             "upgrade-status" => typeof(UpgradeStatus),
             "service-watch" => typeof(ServiceWatch),
+            "approved-list" => typeof(ApprovedListDocument),
+            "approved-list-signature" => typeof(ApprovedListSignature),
+            "approved-list-keys" => typeof(ApprovedListKeys),
             _ => throw new InvalidOperationException($"No C# type for {target}"),
         };
     }

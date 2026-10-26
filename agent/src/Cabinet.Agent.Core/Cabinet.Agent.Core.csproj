@@ -8,6 +8,7 @@
   <PropertyGroup>
     <RootNamespace>Cabinet.Agent.Core</RootNamespace>
     <UpgradeTrustDir Condition="'$(UpgradeTrustDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\contracts\trust\upgrade</UpgradeTrustDir>
+    <ApprovedListTrustDir Condition="'$(ApprovedListTrustDir)' == ''">$(MSBuildThisFileDirectory)..\..\..\contracts\trust\approved-list</ApprovedListTrustDir>
   </PropertyGroup>
   <!-- Opt-in for a disposable development fleet. The manifest signature, package hash, version and path checks remain mandatory.
        Never pass this property to a production build: it permits unsigned agent executables when no publisher is pinned. -->
@@ -33,6 +34,10 @@
          the same way. Release builds take them from contracts/trust/upgrade. A test build (Windows CI) may name another folder
          with -p:UpgradeTrustDir=..., holding a throwaway key and certificate made for that run; it is never set for a release. -->
     <EmbeddedResource Include="$(UpgradeTrustDir)\upgrade-keys.json;$(UpgradeTrustDir)\*.pem" LogicalName="upgrade/%(Filename)%(Extension)" />
+    <!-- The Admin list-signing keys (docs/spec/09-open-decisions.md "Signing the approved list"), compiled in the same way
+         and used to check a signed approved list (ApprovedListTrust). A test build may name another folder with
+         -p:ApprovedListTrustDir=...; it is never set for a release. -->
+    <EmbeddedResource Include="$(ApprovedListTrustDir)\approved-list-keys.json" LogicalName="approved-list/approved-list-keys.json" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />

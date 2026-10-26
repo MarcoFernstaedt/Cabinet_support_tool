@@ -128,6 +128,44 @@ public sealed record HeartbeatApprovedApps
 
 public enum ApprovedAppKind { Application, Service }
 
+public enum ApprovedListLevel { Fleet, Client, Site, Cabinet }
+
+/// <summary>
+/// One level's approved programs as an Admin signs them (agent/approved-list.schema.json). The broker reads this only after
+/// the signature over its exact bytes has verified against a list-signing key compiled into the agent.
+/// </summary>
+public sealed record ApprovedListDocument
+{
+    public required string Product { get; init; }
+    public required ApprovedListLevel Level { get; init; }
+    public required Guid? ScopeId { get; init; }
+    public required int Version { get; init; }
+    public required DateTimeOffset IssuedAt { get; init; }
+    public required IReadOnlyList<ApprovedAppEntry> Entries { get; init; }
+}
+
+/// <summary>The detached signature over an approved-list document's exact bytes (agent/approved-list-signature.schema.json).</summary>
+public sealed record ApprovedListSignature
+{
+    public required string KeyId { get; init; }
+    public required string Algorithm { get; init; }
+    public required string Signature { get; init; }
+}
+
+public sealed record ApprovedListKey
+{
+    public required string KeyId { get; init; }
+    public required string Name { get; init; }
+    public required string PublicKey { get; init; }
+}
+
+/// <summary>The Admin list-signing keys (agent/approved-list-keys.schema.json). Compiled in; only a signed agent upgrade changes them.</summary>
+public sealed record ApprovedListKeys
+{
+    public required int Version { get; init; }
+    public required IReadOnlyList<ApprovedListKey> Keys { get; init; }
+}
+
 /// <summary>
 /// One program a cabinet may be asked to start, stop or restart: an application, or a service with its key name. The path
 /// is the whole executable path, never a command line, and it is what the cabinet checks the running program against,

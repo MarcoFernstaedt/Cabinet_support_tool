@@ -1,0 +1,15 @@
+{
+  "product": "mashura-approved-list",
+  "level": "site",
+  "scopeId": "6f1c2a8e-4b7d-4c1e-9a3f-2d5e8b7c1a90",
+  "version": 3,
+  "issuedAt": "2026-10-26T12:00:00.000Z",
+  "entries": [
+    {
+      "key": "app:x",
+      "kind": "application",
+      "name": "X",
+      "path": "C:\\Tools\\run.ps1"
+    }
+  ]
+}

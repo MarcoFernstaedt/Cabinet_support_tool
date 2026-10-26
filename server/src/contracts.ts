@@ -78,6 +78,9 @@ import type {
   PackageUpload,
   WritePause,
   UpgradeKeys,
+  ApprovedList,
+  ApprovedListKeys,
+  ApprovedListSignature,
   UpgradeManifest,
   UpgradeSignature,
   UpgradeStatus,
@@ -174,6 +177,13 @@ export const releaseFiles = {
   manifest: validator<UpgradeManifest>("upgrade-manifest", ref("agent/upgrade-manifest.schema.json")),
   signature: validator<UpgradeSignature>("upgrade-signature", ref("agent/upgrade-signature.schema.json")),
   keys: validator<UpgradeKeys>("upgrade-keys", ref("agent/upgrade-keys.schema.json")),
+} as const;
+
+/** The signed approved list (docs/spec/09-open-decisions.md "Signing the approved list") and the keys it is checked against. */
+export const approvedListFiles = {
+  document: validator<ApprovedList>("approved-list", ref("agent/approved-list.schema.json")),
+  signature: validator<ApprovedListSignature>("approved-list-signature", ref("agent/approved-list-signature.schema.json")),
+  keys: validator<ApprovedListKeys>("approved-list-keys", ref("agent/approved-list-keys.schema.json")),
 } as const;
 
 /** Shared definitions checked on their own, such as a stored rule's match. */

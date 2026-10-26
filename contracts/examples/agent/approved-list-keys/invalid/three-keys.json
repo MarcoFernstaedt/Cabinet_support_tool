@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+      "name": "Test list key",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+XA2VejEYPSWuXg/6Lfi/Genf4CzzRjW2RU/HXjS0XRM4Krr+gIjngBnSiT4npyInzi7oVkEa/OkfQ8ic/f9kg=="
+    },
+    {
+      "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+      "name": "b",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+XA2VejEYPSWuXg/6Lfi/Genf4CzzRjW2RU/HXjS0XRM4Krr+gIjngBnSiT4npyInzi7oVkEa/OkfQ8ic/f9kg=="
+    },
+    {
+      "keyId": "fbcdb42b31fce5573abc975772bc15713ab8d6ea54245b484921a2aec5f367ae",
+      "name": "c",
+      "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+XA2VejEYPSWuXg/6Lfi/Genf4CzzRjW2RU/HXjS0XRM4Krr+gIjngBnSiT4npyInzi7oVkEa/OkfQ8ic/f9kg=="
+    }
+  ]
+}
