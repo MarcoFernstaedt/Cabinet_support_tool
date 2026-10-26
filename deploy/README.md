@@ -13,7 +13,7 @@ This is a demo setup. It uses the development certificate authority. Do not conn
 | `mssql` | The database (SQL Server 2022 for Linux). Not reachable from outside. | none |
 | `migrate` | Runs once at each start. Creates the database, updates its schema and the app's database login. | none |
 
-The agent API on port 8443 is published directly, not through Caddy. Agents sign in with client certificates, and those must reach the server itself.
+The agent API on port 8443 is published directly, not through Caddy. Agents sign in with client certificates, and those must reach the server itself. A caller without a certificate still completes the TLS handshake, but it can reach only the health check and the two enrollment routes (enrolling needs a one-time bootstrap token); every other route refuses it.
 
 ## Prerequisites
 
@@ -145,6 +145,16 @@ This deletes the database, the CA, the stores and Caddy's certificates. `deploy/
 
 To also change the names or secrets, delete `deploy/.env` before step 2.
 
+## Local overrides
+
+`compose.yaml` is generic and holds nothing specific to one machine. Anything local goes in files git ignores:
+
+- `deploy/.env`: names, addresses, secrets, and the optional switches `CONSOLE_BASE`, `CONSOLE_ORIGIN`, `AGENT_BIND_IP`, `CONSOLE_BIND_IP` and `ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES`.
+- `deploy/compose.override.yaml`: changes to the services themselves. Docker Compose reads it automatically next to `compose.yaml`, and `setup.sh` passes it too.
+- `deploy/Caddyfile.local`: a different console front, mounted by the override.
+
+`deploy/examples/tailnet/` is a worked example for a console reached through Tailscale Serve or Funnel, with an optional front on another domain. To turn it off again, delete `deploy/compose.override.yaml` and run `docker compose up -d`.
+
 ## Security notes
 
 - **Demo CA only.** The server issues agent certificates with a development CA, whose private key lives in the `pki` volume on the VPS. Production uses a CA key held in a KMS, and a real TLS certificate for the agent API (`AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE`). The server refuses the development CA when `NODE_ENV=production`, so this image does not set it.
@@ -153,4 +163,5 @@ To also change the names or secrets, delete `deploy/.env` before step 2.
 - **Secrets** are only in `deploy/.env` (mode 600). It is ignored by git. Never commit or share it.
 - **Docker and ufw.** Ports Docker publishes bypass `ufw`. Control access with your provider's firewall.
 - **The agent zip** is an unsigned developer build. Never install it on a production cabinet.
+- **Unsigned development upgrades** (`ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES=true`) are off by default. When on, the agents the image builds trust the release key alone, with no code-signing publisher, so whoever holds that key can push code to every cabinet. Keep the release private key off the server host, and never turn this on in production.
 - The server runs as a non-root user with a read-only file system. The database login it uses (`cabinet_app_login`) holds only the `cabinet_app` role.
