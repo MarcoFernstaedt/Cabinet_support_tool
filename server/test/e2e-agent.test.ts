@@ -374,9 +374,9 @@ test("watched services on the real agent code: a stopped service is started agai
   try {
     const a = await startAgent({ db, api, port, key, dir, admin, name: "svc" });
     agents.push(a.agent);
-    // The watcher starts only services that are also on the cabinet's approved list, so the owner approves the two it is
-    // meant to keep running (the simulated service manager reports C:\Program Files\Simulated\<name>.exe for each).
-    const approvedEntries = normalizeEntries(["BioScanSvc", "FlakySvc"].map(name => ({
+    // Only approved services are watched (the server sends no other) and started, so the owner approves the three on the watch list
+    // (the simulated service manager reports C:\Program Files\Simulated\<name>.exe for each; NoSuchSvc is not installed at all).
+    const approvedEntries = normalizeEntries(["BioScanSvc", "FlakySvc", "NoSuchSvc"].map(name => ({
       key: `app:${name}`, kind: "service", name, path: `C:\\Program Files\\Simulated\\${name}.exe`, serviceName: name })));
     assert.equal(approvedEntries.ok, true, JSON.stringify(approvedEntries));
     const entries = approvedEntries.ok ? approvedEntries.entries : [];

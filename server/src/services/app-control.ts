@@ -168,7 +168,7 @@ export async function controlApproved(db: Queryable, user: { userId: string; rol
   const found = levels.effective?.entries.find(e => e.key === body.entryKey) ?? null;
   if (!found) {
     const where = levels.source === "none" ? "no level sets a list" : `the list from the ${levels.source} level applies`;
-    const ignored = levels.rejected.length > 0 ? `; a list at ${levels.rejected.join(", ")} does not describe its own entries and was ignored` : "";
+    const ignored = levels.rejected.length > 0 ? `; a list at ${levels.rejected.join(", ")} is damaged (it does not describe its own entries), so it approves nothing` : "";
     throw await refusal(CONTROL_CODES.entryNotApproved, 403, `that entry is not on this cabinet's approved list (${where})${ignored}`,
       { listFrom: levels.source, rejected: levels.rejected });
   }

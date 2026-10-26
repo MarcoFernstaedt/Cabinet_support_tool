@@ -168,6 +168,11 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
   const cabinetId = cabinet.id;
   const end = useConfirmedWrite<ProcessEndOutput>(cabinet, "process.end", r => { if (r.status === "succeeded") refresh(); });
   const canEnd = useCanWrite(cabinet, "process.end");
+  // Only a program on the cabinet's approved list can be ended (the server and the cabinet refuse anything else), so only those
+  // rows offer it. Paths are compared without regard to case, as Windows does.
+  const approved = useLoad<{ effective: { entries: { root: string; file: string }[] } | null }>(`/api/cabinets/${cabinetId}/approved-apps`);
+  const approvedPaths = new Set((approved.data?.effective?.entries ?? []).map(e => `${e.root.replace(/\\$/, "")}\\${e.file}`.toLowerCase()));
+  const isApproved = (p: { executablePath?: string | null }) => !!p.executablePath && approvedPaths.has(p.executablePath.toLowerCase());
   const op = useOperation<ProcessesListOutput>(cabinetId, "processes.list");
   const perf = useOperation<SystemPerformanceOutput>(cabinetId, "system.performance");
   const [text, setText] = useState("");
@@ -197,6 +202,7 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
               <option value="cpu">CPU</option><option value="memory">Memory</option><option value="threads">Threads</option><option value="handles">Handles</option><option value="name">Name</option></select></label>
             <label className="field inline"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} /><span>Live</span></label>
             <span className="muted small">{shown.length} of {out.processes.length}{out.truncated ? " (first 2,000)" : ""}</span>
+            {canEnd && <span className="muted small">Only approved programs can be ended (Admin, Approved programs).</span>}
           </div>
           <PagedRows rows={shown} label="processes">{page => (<table className="table compact">
             <caption className="sr-only">Running processes</caption>
@@ -206,7 +212,7 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
                 <th scope="row">{p.name}{p.executablePath && <div className="muted small wrap">{p.executablePath}</div>}</th>
                 <td>{p.processId}</td><td>{p.cpuPercent.toFixed(1)}%</td><td>{megabytes(p.workingSetBytes)}</td><td>{p.threads}</td><td>{p.handles}</td>
                 <td className="small">{p.account ?? <span className="muted">—</span>}</td><td className="small">{p.startTime ? ago(p.startTime) : <span className="muted">—</span>}</td>
-                {canEnd && <td>{mayEnd(p) && <button className="btn small ghost" aria-label={`End ${p.name} (${p.processId})`} onClick={() => end.ask({ processId: p.processId, name: p.name },
+                {canEnd && <td>{mayEnd(p) && isApproved(p) && <button className="btn small ghost" aria-label={`End ${p.name} (${p.processId})`} onClick={() => end.ask({ processId: p.processId, name: p.name },
                   <><p>End <strong>{p.name}</strong> (process {p.processId}).</p><p className="muted small">Anything it has not saved is lost. The cabinet ends it only if the ID and the name still match.</p></>)}>End</button>}</td>}
               </tr>))}
             </tbody>

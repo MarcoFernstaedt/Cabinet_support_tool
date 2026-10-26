@@ -18,6 +18,9 @@ import { approveEnrollment, createBootstrapToken } from "../src/services/enrollm
 import { checkExpiringCertificates, listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { anyRolloutRunning } from "../src/services/rollouts.js";
 import { upsertSetting } from "../src/services/settings.js";
+import { APPS_SET_ACTION, setApprovedApps } from "../src/services/approved-apps.js";
+import { issueStepUpToken } from "../src/auth/stepup.js";
+import { paramsHash } from "../src/auth/canonical.js";
 import { createPool, isBusy, limited, QueryTimeout, transaction } from "../src/db/db.js";
 import { NotificationFeed } from "../src/db/notifications.js";
 import { HeavyQuery } from "../src/console-api/heavy.js";
@@ -244,7 +247,11 @@ test("the heartbeat answer carries the pacing, the scanner and the watched servi
   assert.equal(hb.body.scanner.hardwareIds, null);
   assert.deepEqual(hb.body.watchedServices, { names: [] });
   assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM health_samples WHERE cabinet_id = $1", [cab.cabinetId])).rows[0].n, 1, "the load sample is stored with it");
-  await transaction(db.app, async c => { await upsertSetting(c, "services.watched", ["Spooler"], admin); await upsertSetting(c, "agents.heartbeatSeconds", 120, admin);
+  // Only a watched service the approved list names is sent: Spooler is approved for this cabinet, TermService is not.
+  const spooler = [{ key: "app:spooler", kind: "service", name: "Spooler", serviceName: "Spooler", path: "C:\\Windows\\System32\\spoolsv.exe" }];
+  await setApprovedApps(db.app, { userId: admin, role: "admin" }, "cabinet", cab.cabinetId, spooler,
+    await issueStepUpToken(db.app, admin, APPS_SET_ACTION.cabinet, cab.cabinetId, paramsHash({ level: "cabinet", id: cab.cabinetId, entries: spooler })));
+  await transaction(db.app, async c => { await upsertSetting(c, "services.watched", ["Spooler", "TermService"], admin); await upsertSetting(c, "agents.heartbeatSeconds", 120, admin);
     await upsertSetting(c, "agents.eventsPaceMs", 99_999_999, admin); });
   await db.app.query("UPDATE cabinets SET scanner_hardware_ids = $2 WHERE id = $1", [cab.cabinetId, JSON.stringify(["USB\\VID_1234", "USB\\VID_1234"])]);
   // A fresh API, so the pacing cache is read again.

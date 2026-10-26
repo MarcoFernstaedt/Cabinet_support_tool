@@ -215,6 +215,10 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
   }
 }
 
+/** The scanner's update service: the demo's start-type scenario sets it from Disabled to Manual, and a start type is control. */
+export const DEMO_UPDATE_SERVICE = { key: "app:bioupdate", kind: "service", name: "BioScan update service", path: "C:\\Program Files\\BioScan\\BioUpdateSvc.exe", serviceName: "BioUpdateSvc" } as const;
+/** The scanner's own program, as the demo's process list reports it (contracts/examples processes.list typical.json): the program a demo may end. */
+export const DEMO_SCANNER_APP = { key: "app:bioscan-kiosk", kind: "application", name: "BioScan kiosk", path: "C:\\Program Files\\Vendor\\BioScan\\bioscan.exe" } as const;
 /** The scanner's service, as each demo client's approved-applications list names it. */
 export const DEMO_SCANNER_SERVICE = { key: "app:bioscan", kind: "service", name: "BioScan fingerprint service", path: "C:\\Program Files\\BioScan\\BioScanSvc.exe", serviceName: "BioScanSvc" } as const;
 
@@ -229,9 +233,9 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
     if ((await c.query("SELECT TOP (1) 1 AS x FROM clients WHERE demo = 1")).rows[0]) return;
     const clientRows: unknown[][] = [], siteRows: unknown[][] = [], cabinetRows: unknown[][] = [];
     let siteIndex = 0;
-    // The scanner's service is the one program each demo client approves, so the failing-service scenario can be fixed from the
-    // console: service.control is issued only for a service on the cabinet's approved-applications list (controlled-targets.ts).
-    const approved = storedApprovedApps([DEMO_SCANNER_SERVICE], userId);
+    // The scanner's service and its update service are the programs each demo client approves, so the failing-service and start-type
+    // scenarios can be fixed from the console: both are issued only for a service on the approved list (controlled-targets.ts).
+    const approved = storedApprovedApps([DEMO_SCANNER_SERVICE, DEMO_UPDATE_SERVICE, DEMO_SCANNER_APP], userId);
     for (const client of DEMO_FLEET) {
       const clientId = randomUUID();
       clientRows.push([clientId, client.name, ["BioScanSvc"], [1433], approved]);

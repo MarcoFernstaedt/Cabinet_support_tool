@@ -170,7 +170,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.locator('[data-tour="start-type"]').first().click();
     await page.getByLabel("Start type", { exact: true }).selectOption("manual");
     await page.getByRole("button", { name: "Review" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    // A start type is control: an approved service only, confirmed with an authenticator code.
+    clock += 30_000;
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
     await page.getByText(/Service BioUpdateSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
 
     // Steps 8 to 10: errors with no name, on two cabinets; look at the log; map the error to the scanner issue.

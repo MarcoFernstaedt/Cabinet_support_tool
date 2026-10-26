@@ -156,7 +156,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await clickOutlined('[data-tour="start-type"]');
     await page.getByLabel("Start type", { exact: true }).selectOption("manual");
     await page.getByRole("button", { name: "Review" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
+    await confirmWithCode(); // a start type is control: an approved service only, with an authenticator code
     await page.getByText(/Service BioUpdateSvc: start type changed from Disabled to Manual\./).waitFor({ timeout: 60_000 });
     await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
     await next();
