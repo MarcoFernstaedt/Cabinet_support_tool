@@ -650,3 +650,15 @@ Main carried one machine's deployment (a tailnet front, Tailscale Funnel, a cons
 - **The tailnet setup is local, used when needed.** `deploy/compose.override.yaml` and `deploy/Caddyfile.local` are git-ignored; `deploy/examples/tailnet/` documents them with placeholders.
 - **Console and agent API public for the test period** (cabinets on separate networks must reach the agent API). The spec's Control 3 (console on an internal network or VPN) still applies before production: set `CONSOLE_ALLOW_FROM` or keep the console behind the tailnet.
 - **Open:** confirm the release private key does not live on the server host. With unsigned development upgrades on, that key alone decides what every cabinet runs.
+
+## Sign-in limits: one person cannot lock everyone out (October 2026)
+
+Control 6 limits sign-in "per account and per address". Behind a proxy that hid the browser's address, every person shared one address, so thirty wrong passwords from anyone refused every sign-in for 15 minutes. Two changes:
+
+- **The real address reaches the server.** Caddy sends the server exactly one address, the one it determined (`header_up X-Forwarded-For {client_ip}`). The tailnet example trusts `X-Forwarded-For` only from the Docker gateway Tailscale connects through. Tailscale Serve and Funnel overwrite that header with the address that connected to them, so a browser cannot plant one.
+- **The address limit no longer locks out people it cannot tell apart.**
+  - IPv6 is counted per /64.
+  - Past the limit, a browser the account has signed in with before (its device cookie, 256 random bits, stored only as a hash) may still try. Its wrong passwords count toward the account's own lock.
+  - A new browser at that address is refused before any password is checked.
+  - The steps after the password (authenticator code, password change, password confirmation) need a session and are guarded by the account's own lock, not by the address limit.
+- **Still shared:** people reaching the console through another site's proxy (for example a rewrite on another domain) arrive from that proxy's addresses. They share one address limit until each has signed in once from their browser. Trusting that proxy's forwarded header would need a secret only the proxy can send.
