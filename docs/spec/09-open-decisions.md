@@ -684,3 +684,27 @@ The Setup page makes `Install-CabinetAgent.cmd` for one cabinet. It carries the 
 - **Accepted residual risk.** The installer is double-clicked from a folder the operator's own account can write (Downloads, a USB stick). Code running as that same account, without elevation, could change the file between the double-click and the moment the elevated part reads it. UAC is not a boundary against same-user code, and no file run from a user-writable folder can close that. What the installer does close: once elevated it works only in a new folder that only SYSTEM and Administrators can change, and it hashes the copy it unpacks, so a package swapped after the check is never the one installed.
 - **The token in the file.** Like the `token.txt` it replaces, it works once, expires in 7 days, and the cabinet still waits for an Admin's approval. The installer deletes itself after a successful install.
 - **Uninstall** is left on the cabinet at `C:\Program Files\Mashura\Uninstall-CabinetAgent.ps1`, outside the program folder an upgrade replaces.
+
+## Agent API: what certificate-less traffic can spend (October 2026)
+
+The agent API is on the public internet. Traffic without a valid cabinet certificate now has its own limits and cannot shed enrolled cabinets. The details are in 03-protocol.md.
+
+- **Defaults:**
+
+  | Limit | Default |
+  |---|---|
+  | Certificate-less requests, per source | 5 per second (burst 50) |
+  | Certificate-less requests, in total | 200 per second |
+  | Enrollment and its status, in total (they reach the database) | 10 per second |
+  | Enrollment submissions, per source | 60 per hour |
+  | Enrollment status polls, per source | 60 per minute |
+  | Open connections, per source | 256 |
+  | Open connections, in total | 30,000 |
+  | TLS handshake | must finish within 10 seconds |
+
+  A site's cabinets usually share one public address. Thirty of them enrolling the same day are well inside these limits, and a refused attempt keeps its token and retries.
+- **Two deployment caveats, not handled in code:**
+  - **Behind a load balancer without PROXY protocol, every source shares one address.** The per-source limits then become one shared limit, which still never touches the enrolled fleet's buckets.
+  - **With AGENT_API_WORKERS above 1, each process keeps its own buckets.** The effective limits are multiplied by the number of workers.
+- **Not covered by this change: a valid cabinet certificate that multiplexes many HTTP/2 streams.** It still draws on the shared request bucket. That is an insider or stolen-certificate case, and a per-connection request limit is the follow-up.
+- **Handshake floods large enough to saturate the CPU need a network-level limit**, such as the provider's firewall or a rate limit in front of port 8443.
