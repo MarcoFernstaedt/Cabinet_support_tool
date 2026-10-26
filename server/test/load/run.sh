@@ -63,6 +63,8 @@ MASTER_URL="sqlserver://sa:${SA_ENC}@${MSSQL_HOST}:${MSSQL_PORT}/master?trustSer
 export DATABASE_URL="sqlserver://${LOGIN}:${APP_PW}@${MSSQL_HOST}:${MSSQL_PORT}/${DB}?trustServerCertificate=true"
 export DEV_PKI_DIR="$WORK/pki"
 export AGENT_API_PORT=$AGENT_PORT AGENT_API_HOSTNAMES=localhost AGENT_API_HOST=127.0.0.1
+# Every simulated cabinet connects from this one machine's address, which the per-source connection cap would otherwise refuse.
+export AGENT_MAX_CONNECTIONS_PER_SOURCE=${AGENT_MAX_CONNECTIONS_PER_SOURCE:-100000}
 export PACKAGE_DIR="$WORK/packages" RELEASE_DIR="$WORK/releases"
 PIDFILE="$WORK/server.pid"
 SERVER_LOG="$OUT_DIR/$STAMP-$SCENARIO-$AGENTS-server.log"
