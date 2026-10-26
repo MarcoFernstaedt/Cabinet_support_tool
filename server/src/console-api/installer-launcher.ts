@@ -171,7 +171,8 @@ export function bootstrapScript(): string {
     "$ErrorActionPreference = 'Stop'",
     "$self = $env:CABINET_LAUNCHER",
     "$text = [IO.File]::ReadAllText($self)",
-    `$at = $text.IndexOf('${PAYLOAD_MARKER}')`,
+    // The marker is written in two halves so that this line, which sits above the payload in the same file, never matches.
+    `$at = $text.IndexOf('${PAYLOAD_MARKER.slice(0, 8)}' + '${PAYLOAD_MARKER.slice(8)}')`,
     "if ($at -lt 0) { Write-Host 'This installer file is incomplete. Download it again from the console.' -ForegroundColor Red; exit 1 }",
     "$payload = $text.Substring($at + " + PAYLOAD_MARKER.length + ").TrimStart()",
     // A new folder with a random name, owned by Administrators and changeable only by SYSTEM and Administrators, made
@@ -196,8 +197,9 @@ export function bootstrapScript(): string {
     "}",
     "exit $code",
   ];
-  // It travels inside a double-quoted cmd.exe argument: nothing in it may end that quote or mean something to cmd.exe.
-  for (const l of lines) if (/["%^&|<>!]/.test(l)) throw new Error(`the bootstrap cannot carry ${JSON.stringify(l)}`);
+  // It travels inside one double-quoted cmd.exe argument. Inside the quotes cmd.exe treats & | < > ^ as plain text; only a
+  // double quote (which would end them) and % or ! (variable expansion) mean something to it, so those may not appear.
+  for (const l of lines) if (/["%!]/.test(l)) throw new Error(`the bootstrap cannot carry ${JSON.stringify(l)}`);
   return lines.join("\n");
 }
 
@@ -221,7 +223,7 @@ export function launcherScript(o: LauncherInput): string {
     "echo Asking Windows for administrator rights...",
     // cmd.exe is elevated by its full path and given the launcher's path from the environment, quoted the way cmd /s /c
     // expects, so a path with spaces, parentheses or ampersands ("Install-CabinetAgent (1).cmd") runs as itself.
-    '"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath (Join-Path $env:SystemRoot \'System32\\cmd.exe\') -Verb RunAs -ArgumentList (\'/d /s /c \"\"\' + $env:CABINET_LAUNCHER + \'\" --elevated\"\')"',
+    String.raw`"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') -Verb RunAs -ArgumentList ('/d /s /c \"\"' + $env:CABINET_LAUNCHER + '\" --elevated\"')"`,
     "exit /b 0",
     ":noadmin",
     "echo This installer needs administrator rights, and Windows did not give them. Sign in as an administrator and run it again.",
