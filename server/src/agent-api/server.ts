@@ -302,6 +302,24 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   sourcesTimer.unref();
   /** Connections whose certificate chains to our CA but was refused (revoked, removed, unknown): treated as unauthenticated from then on. */
   const refusedConnections = new WeakSet<object>();
+  /**
+   * Certificates that chain to our CA but were refused, by serial, for ten minutes: a revoked certificate still passes the handshake,
+   * so without this a holder could open a new connection for every request and charge each one to the fleet's shared buckets. Bounded:
+   * past REFUSED_SERIALS_MAX the oldest entries are dropped first (a Map keeps insertion order).
+   */
+  const refusedSerials = new Map<string, number>();
+  const REFUSED_SERIALS_MAX = 10_000;
+  const refusedSerial = (serial: string, now = Date.now()): boolean => {
+    const until = refusedSerials.get(serial);
+    if (until === undefined) return false;
+    if (until > now) return true;
+    refusedSerials.delete(serial);
+    return false;
+  };
+  const peerSerial = (socket: TLSSocket): string => {
+    const serial = socket.getPeerCertificate()?.serialNumber ?? "";
+    return /^[0-9A-Fa-f]{2,64}$/.test(serial) ? serial.toUpperCase() : "";
+  };
   const admitted = new WeakSet<object>();
   const connectionRetryAfter = (): number => randomInt(admission.connectionRetryAfterSeconds[0], admission.connectionRetryAfterSeconds[1] + 1);
   const retryAfter = (): number => randomInt(admission.retryAfterSeconds[0], admission.retryAfterSeconds[1] + 1);
@@ -343,7 +361,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     // against the platform's CA (and that was not refused since). Anything else - enrollment, its status, health, or a request to a
     // cabinet route without a certificate - is counted per source and in total in buckets of its own, so it can never use up what
     // the enrolled fleet needs. Whether the certificate is still accepted is checked by requireCabinet below.
-    const certified = tlsSocketOf(request).authorized === true && !refusedConnections.has(connectionOf(request));
+    const tls = tlsSocketOf(request);
+    const certified = tls.authorized === true && !refusedConnections.has(connectionOf(request)) && !refusedSerial(peerSerial(tls));
     if (!certified) {
       const source = sourceKey(request.ip);
       const limited = !unauthenticatedSources.take(source) || !unauthenticatedTotal.take()
@@ -439,7 +458,14 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       accepted.delete(connection);
       // A certificate that chains to our CA but is not accepted (revoked, expired, removed cabinet): the rest of this connection's
       // requests are counted as unauthenticated traffic, not against the fleet's shared buckets.
-      if (socket.authorized) refusedConnections.add(connection);
+      if (socket.authorized) {
+        refusedConnections.add(connection);
+        if (serial) {
+          refusedSerials.delete(serial);
+          refusedSerials.set(serial, now + 10 * 60_000);
+          while (refusedSerials.size > REFUSED_SERIALS_MAX) refusedSerials.delete(refusedSerials.keys().next().value!);
+        }
+      }
       opsMeter.count("agent_auth_fail", !serial ? "no_certificate" : socket.authorized ? "certificate_refused" : "untrusted");
       await noteRefusal(request, socket.authorized, serial, subject);
       return reply.code(401).send({ error: "certificate_refused" });
