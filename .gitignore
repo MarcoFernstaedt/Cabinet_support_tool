@@ -75,3 +75,5 @@ deploy/compose.local.yaml
 # Local deployment overrides (examples in deploy/examples/)
 deploy/compose.override.yaml
 deploy/Caddyfile.local
+# Load harness reports and server logs (server/test/load/run.sh)
+server/load-results/
