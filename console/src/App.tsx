@@ -11,6 +11,7 @@ import { WelcomeTour, startWelcomeTour } from "./components/WelcomeTour";
 import { PasswordChange, SignIn, TotpSetup, TotpStep, type Stage } from "./pages/SignIn";
 import { ClientPage, FleetHome, SitePage } from "./pages/Fleet";
 import { AdminHome, InstallTokens, PendingCabinets, ScannerDefault } from "./pages/admin/Admin";
+import { ApprovedApps } from "./pages/admin/ApprovedApps";
 import { AuditLog, OnlineNow } from "./pages/admin/Audit";
 import { UserActivity, Users } from "./pages/admin/Users";
 import { ClientsAndSites, IssueTypesAndSuppressions } from "./pages/admin/Organization";
@@ -102,6 +103,7 @@ function Pages({ onTour }: { onTour: () => void }) {
   if (match("/admin/pending", path)) return <PendingCabinets />;
   if (match("/admin/tokens", path)) return <InstallTokens />;
   if (match("/admin/scanner", path)) return <ScannerDefault />;
+  if (match("/admin/approved-apps", path)) return <ApprovedApps />;
   if (match("/admin/audit", path)) return <AuditLog />;
   if (match("/admin/software", path)) return <SoftwareLibrary />;
   if (match("/admin/upgrades", path)) return <Upgrades />;
