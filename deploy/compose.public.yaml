@@ -25,6 +25,12 @@ services:
       AGENT_PUBLIC_HOST: "168.231.67.178"
       AGENT_PUBLIC_PORT: "8443"
     ports: !override
-      # Public. Mutual TLS only — see the header above before changing this to 0.0.0.0 on any other port.
+      # Public, and mutual TLS only — see the header above before changing this.
       # 0.0.0.0 covers the tailnet address too, so the base file's entry is replaced rather than added.
+      #
+      # Do not hand this port to anything else. TCP 8443 is the only inbound port the VPS provider leaves open to
+      # the internet, and cabinets enroll here: while the API was published on the tailnet address instead
+      # (100.119.218.113:18443, nothing public) a cabinet on a customer network could not reach the platform at
+      # all. The Minecraft Java relay went on this port once and enrollment broke with it; keep the relay off this
+      # port (/home/marco/mc-java-relay — stopped).
       - "0.0.0.0:8443:8443"
