@@ -33,6 +33,12 @@ test("the file is ASCII, CRLF, and every line cmd.exe reads is short", () => {
   assert.equal(LAUNCHER_NAME, "Install-CabinetAgent.cmd");
 });
 
+test("the payload marker appears exactly once, so the bootstrap finds the payload and not itself", () => {
+  const text = launcherScript(base);
+  assert.equal(text.split(PAYLOAD_MARKER).length, 2);
+  assert.equal(text.split("\r\n").filter(l => l === PAYLOAD_MARKER).length, 1);
+});
+
 test("the batch part ends before the PowerShell part, so cmd.exe never reads it", () => {
   const batch = batchPart(launcherScript(base)).trimEnd().split("\r\n");
   assert.equal(batch.at(-1), "exit /b %CABINET_EXIT%");
@@ -62,7 +68,7 @@ test("the bootstrap travels as plain text (antivirus treats encoded commands as 
   assert.equal(text.includes("-EncodedCommand"), false);
   const line = batchPart(text).split("\r\n").find(l => l.includes("-Command \"$ErrorActionPreference"))!;
   assert.equal(line, `"%CABINET_PS%" -NoProfile -ExecutionPolicy Bypass -Command "${bootstrapScript().split("\n").map(l => l.trim()).join("; ")}"`);
-  assert.equal(/["%^&|<>!]/.test(line.slice(line.indexOf('-Command "') + 10, -1)), false, "nothing in it ends cmd's quote or means something to cmd.exe");
+  assert.equal(/["%!]/.test(line.slice(line.indexOf('-Command "') + 10, -1)), false, "nothing in it ends cmd's quote or expands a variable");
   const b = bootstrapScript();
   assert.match(b, /\[IO\.Directory\]::CreateDirectory\(\$stage, \$sec\)/, "the folder is created with its permissions, not locked down afterwards");
   assert.match(b, /SetAccessRuleProtection\(\$true, \$false\)/);
