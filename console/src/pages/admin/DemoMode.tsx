@@ -14,9 +14,9 @@ export function DemoMode() {
   const [problem, setProblem] = useState<string | null>(null);
   const on = demo.data?.enabled ?? false;
   const body = ask === "reset" ? { enabled: true, reset: true } : { enabled: ask === "on" };
-  const text = { on: "Add the simulated demo clients, sites and cabinets for everyone signed in to see.",
-    off: "Delete every simulated demo client, site and cabinet, with their alerts and history. Real cabinets are not touched.",
-    reset: "Delete the simulated fleet and build it again from the same scenarios, as at the start of a demo. Real cabinets are not touched." };
+  const text = { on: "Add the simulated clients, sites and cabinets for all users.",
+    off: "Delete all simulated clients, sites and cabinets with their alerts and history. Real cabinets are unaffected.",
+    reset: "Rebuild the simulated fleet from its scenarios. Real cabinets are unaffected." };
   return (
     <section className="panel" id="demo" aria-labelledby="demo-heading">
       <h2 id="demo-heading">Demo mode {demo.data && (on ? <Badge tone="info">On</Badge> : <Badge tone="off">Off</Badge>)}</h2>

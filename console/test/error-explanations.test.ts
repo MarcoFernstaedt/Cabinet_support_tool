@@ -105,33 +105,28 @@ test("network failures before any server answers are explained as network failur
   }
 });
 
-test("the installer failures this project hit are phrased for the person holding the machine", () => {
-  const powershell7 = explainFailure("pwsh.exe : The term 'pwsh.exe' is not recognized as the name of a cmdlet.");
-  assert.match(powershell7.title, /PowerShell 7/, "a missing pwsh has to name PowerShell 7");
-  assert.match(powershell7.fix, /powershell\.exe|PowerShell 7/);
+test("installer failures name the one-click installer, never a manual install line", () => {
+  const damaged = explainFailure("At C:\\Agent\\Install-CabinetAgent.ps1:42 char:20\n+ Unexpected token '}' in expression or statement.\nParserError:");
+  assert.match(damaged.title, /damaged/, "on 5.1 a parse error means the file was altered");
+  assert.match(damaged.fix, /new installer/);
 
-  const oldSyntax = explainFailure("At C:\\CabinetAgent\\install\\Install-CabinetAgent.ps1:42 char:20\n+ $x = $a ?? $b\n+ Unexpected token '??' in expression or statement.\nParserError:");
-  assert.match(oldSyntax.title, /newer PowerShell/, "5.1 reading PS7 syntax is a version mismatch, not a syntax bug");
+  const policy = explainFailure("File C:\\Agent\\Install-CabinetAgent.ps1 cannot be loaded because running scripts is disabled on this system.");
+  assert.match(policy.fix, /Install-CabinetAgent\.cmd/, "the .cmd starts the script with the policy bypassed");
 
-  const policy = explainFailure("File C:\\CabinetAgent\\install\\Install-CabinetAgent.ps1 cannot be loaded because running scripts is disabled on this system.");
-  assert.match(policy.fix, /-ExecutionPolicy Bypass/, "the execution policy fix is the bypass flag on that one run");
-
-  const notACmdlet = explainFailure("Install-CabinetAgent.ps1 : The term 'Install-CabinetAgent.ps1' is not recognized as the name of a cmdlet, function, script file, or operable program.");
-  assert.match(notACmdlet.fix, /folder/i, "a name that is not found is a wrong-folder or missing-file problem");
-
-  const scriptRoot = explainFailure("Cannot use $PSScriptRoot in a parameter default value.");
-  assert.match(scriptRoot.title, /folder/, "the $PSScriptRoot default has to be explained as the script's own folder");
-  assert.match(scriptRoot.fix, /folder|Tier 2/);
+  const notFound = explainFailure("The term 'Cabinet.Agent.Network.exe' is not recognized as the name of a cmdlet, function, script file, or operable program.");
+  assert.match(notFound.fix, /same folder/i);
 
   const tls = explainFailure("Exception calling \"GetResponse\": The request was aborted: Could not create SSL/TLS secure channel.");
-  assert.match(tls.title, /too old|secure connection/, "a dead TLS channel on old Windows is a Windows setting");
-  assert.match(tls.fix, /TLS 1\.2/, "the fix has to name TLS 1.2");
+  assert.match(tls.title, /TLS 1\.2/);
+  assert.match(tls.fix, /TLS 1\.2/);
 
   const unreachable = explainFailure("The Cabinet Agent service is installed but cannot connect to the platform server: No connection could be made because the target machine actively refused it. (10061)");
   assert.match(unreachable.title, /installed but cannot reach/, "an installed agent that cannot connect is not a failed install");
-  assert.match(unreachable.fix, /firewall/i, "the fix is the firewall or the address");
-  assert.doesNotMatch(unreachable.fix, /^(reinstall|run the install line)/i, "the fix must not send them back to a reinstall");
-  assert.match(unreachable.fix, /do not reinstall/i, "the fix has to say plainly that a reinstall will not help");
+  assert.match(unreachable.fix, /firewall/i);
+  assert.match(unreachable.fix, /do not reinstall/i);
+
+  const all = [damaged, policy, notFound, tls, unreachable].map(e => `${e.title} ${e.detail} ${e.fix}`).join(" ");
+  assert.doesNotMatch(all, /install line|pwsh|PowerShell 7/, "the old manual install steps are gone");
 });
 
 test("normaliseFailure accepts a code, a status, a message, an Error and the object the caller passes", () => {

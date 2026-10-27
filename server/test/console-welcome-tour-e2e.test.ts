@@ -35,7 +35,7 @@ async function walk(page: Page, expect: { outlined: (title: string) => string | 
       const marked = page.locator(".tour-target").first();
       await marked.waitFor({ timeout: 10_000 });
       assert.match((await marked.innerText()).trim(), new RegExp(wanted), `${title}: the outlined control`);
-      assert.equal(await panel.getByText(/not on screen for you/).count(), 0, `${title}: it found what it points at`);
+      assert.equal(await panel.getByText(/Not on screen for your role/).count(), 0, `${title}: it found what it points at`);
     }
     if (/^(Fleet|Drive health|Time)$/.test(title)) await shot(page, title);
     assert.equal(await page.evaluate(() => document.activeElement?.id ?? ""), "welcome-title", `${title}: the step's heading has the focus`);

@@ -69,7 +69,7 @@ export function Setup() {
             <li><Link to={`/cabinets/${s.newestCabinetId}/scanner`}>Fingerprint scanner</Link>: the standard scanner checklist in one click.</li>
             <li><Link to={`/cabinets/${s.newestCabinetId}/firewall`}>Firewall</Link>: profiles, rules and the client policy, with one-click apply.</li>
             <li><Link to={`/cabinets/${s.newestCabinetId}/network`}>Network</Link>: adapters, DNS and connection tests.</li>
-          </ul>) : <p className="muted">Once a computer is approved, links to its event logs, services, scanner and firewall appear here.</p>}
+          </ul>) : <p className="muted">Links to the cabinet's event logs, services, scanner and firewall appear here once it is approved.</p>}
       </Step>
 
       <DemoMode />
@@ -90,7 +90,7 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
     <>
       {setup.agent.unsigned && <p className="notice warn">Development build: these packages are not code-signed. Use them on test machines only.</p>}
       <ol className="steps">
-        <li><strong>Download the agent.</strong> Once is enough: keep it with your installers, on this computer or a USB stick.
+        <li><strong>Download the agent.</strong> Download once and keep it with the installers.
           <p className="row gap wrap">
             {packages.map(p => p.pkg
               ? <a key={p.id} className="btn" data-tour={p.id === "windows-x86" ? "download-agent" : undefined} href={withBase(`/api/admin/agent-package?architecture=${p.id}`)} download={p.pkg.name}>
@@ -112,7 +112,7 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
           <li>Windows 10 (1607 or later) or Windows 11, 32-bit or 64-bit. The installer uses the built-in Windows PowerShell; nothing else is needed.</li>
           <li>The cabinet must reach <code>{setup.agent.host ?? "this server"}:{setup.agent.port ?? 8443}</code>. It only connects out.</li>
           <li>If Windows SmartScreen appears, choose <em>More info</em>, then <em>Run anyway</em>.</li>
-          <li>Elevating as a different administrator account? Keep the installer and the agent files in the same folder; that account cannot see your Downloads.</li>
+          <li>Elevating as another administrator account: keep the installer and agent files in a folder that account can read.</li>
           <li>If setup stops, the window says what happened and what to do. The installer keeps its token so you can run it again; it deletes itself after a successful install.</li>
         </ul>
       </details>

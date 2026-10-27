@@ -87,7 +87,7 @@ export function TotpSetup({ onStage, onCancel, required }: { onStage: (s: Stage)
   const { busy, problem, submit } = useSubmit(async () => onStage((await api<{ stage: Stage }>("POST", "/api/auth/totp/setup", { code })).stage));
   return (
     <Card title="Set up your authenticator" intro={required
-      ? "Every account signs in with a code from an authenticator app (Microsoft Authenticator, Google Authenticator or similar), and confirms some changes with it. Set it up now to continue."
+      ? "Every account uses an authenticator app (Microsoft Authenticator, Google Authenticator or similar) to sign in and to confirm changes. Set it up to continue."
       : "Turn on two-factor sign-in with an authenticator app."}>
       {loadProblem && <p className="error" role="alert">{loadProblem}</p>}
       {setup && (
@@ -103,7 +103,7 @@ export function TotpSetup({ onStage, onCancel, required }: { onStage: (s: Stage)
           </ol>
           <CodeField value={code} onChange={setCode} />
           {problem && <p className="error" role="alert">{problem}</p>}
-          {problem && <p className="muted small">If your app lists an older entry for the same account, delete it and use the entry you just added; each setup has its own code.</p>}
+          {problem && <p className="muted small">If the app lists an older entry for this account, delete it; each setup has its own key.</p>}
           <button className="btn primary wide" disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Turn on two-factor"}</button>
           <button type="button" className="btn ghost wide" onClick={onCancel}>{required ? "Sign out" : "Cancel"}</button>
         </form>

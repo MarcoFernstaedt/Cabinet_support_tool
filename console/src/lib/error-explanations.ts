@@ -579,57 +579,39 @@ const statusExplanations: Record<number, Explanation> = {
  * Order matters: the most specific wording wins, so the installer rules are checked first.
  */
 const messageRules: ReadonlyArray<{ pattern: RegExp; explanation: Explanation }> = [
-  // ---- installer / script failures, phrased for the person holding the machine --------------------
+  // ---- installer failures (Install-CabinetAgent.cmd, run on the built-in Windows PowerShell 5.1) ---------------------------------
   {
-    // PowerShell 7 syntax (?? , ?. , ternary) in a script started with powershell.exe (5.1).
-    pattern: /unexpected token '\?'|the '\?' operator|missing closing '\}'|parsererror|unexpected token ':'|assignment expression.*not valid|expression or statement is incomplete/i,
+    // The installer is plain ASCII PowerShell 5.1; a parse error means the file was edited or re-saved, not a PowerShell version problem.
+    pattern: /unexpected token|missing closing '\}'|parsererror|assignment expression.*not valid|expression or statement is incomplete/i,
     explanation: {
-      title: "Install script needs a newer PowerShell",
-      detail: "The script was written for PowerShell 7, but it was started with Windows PowerShell 5.1, which cannot read parts of it.",
-      fix: "Run the install line that starts with pwsh.exe, installing PowerShell 7 first if you do not have it.",
-    },
-  },
-  {
-    // 5.1 starts the script fine but cannot handle the pwsh-specific parts, or pwsh is missing.
-    pattern: /pwsh(\.exe)?['\u2019]? (is not recognized|not found)|cannot find (the )?pwsh|pwsh.*no such file/i,
-    explanation: {
-      title: "PowerShell 7 is not installed",
-      detail: "This machine has no pwsh command, which the line you ran expects.",
-      fix: "Install PowerShell 7, or use the install line that starts with powershell.exe instead.",
+      title: "Installer file damaged",
+      detail: "Windows PowerShell could not parse the installer, which happens when the file is opened and re-saved or altered in transit.",
+      fix: "Create a new installer in Admin → Setup and run it without opening it.",
     },
   },
   {
     pattern: /running scripts is disabled|execution policy|executionpolicy|unauthorizedaccess.*\.ps1|\.ps1.*cannot be loaded/i,
     explanation: {
-      title: "Windows is blocking the script",
-      detail: "Windows' script policy refuses to run downloaded PowerShell files.",
-      fix: "Use the install line that starts with powershell.exe -NoProfile -ExecutionPolicy Bypass -File, which bypasses the policy for that one run only.",
-    },
-  },
-  {
-    // A parameter default that reads $PSScriptRoot dies before the script body runs.
-    pattern: /PSScriptRoot/i,
-    explanation: {
-      title: "The install script could not work out its own folder",
-      detail: "It uses $PSScriptRoot while reading its settings, and PowerShell fills that in too late, so the script stops at once.",
-      fix: "Open a terminal in the folder you extracted the package to and run the install line from there; if it still fails, send this text to Tier 2.",
+      title: "Script execution policy",
+      detail: "Windows refused to run a PowerShell file directly.",
+      fix: "Run Install-CabinetAgent.cmd, not a .ps1 file; it applies -ExecutionPolicy Bypass for that run only.",
     },
   },
   {
     pattern: /is not recognized as the name of a cmdlet|is not recognized as an internal or external command|commandnotfoundexception|the term '[^']+' is not recognized/i,
     explanation: {
-      title: "Program not on this machine",
-      detail: "The name in the command was not found, usually because you are in the wrong folder or the program is not installed.",
-      fix: "Change into the folder you extracted the package to, check the file name, and run the install line exactly as the console shows it.",
+      title: "File not found",
+      detail: "A file the installer needs was not found in its folder.",
+      fix: "Keep Install-CabinetAgent.cmd in the same folder as the agent files and run it from that folder.",
     },
   },
   {
-    // Old Windows with TLS 1.2 off: the installer cannot download anything.
+    // Old Windows with TLS 1.2 off: the agent cannot reach the server.
     pattern: /could not create ssl\/tls secure channel|secure channel|tls ?1\.[0-9]|ssl\/tls|the underlying connection was closed.*(unexpected|tls)|tls.*(disabled|not enabled|not supported)/i,
     explanation: {
-      title: "Windows too old for the secure connection",
-      detail: "It does not turn on TLS 1.2 by default, which the platform's download requires.",
-      fix: "On the machine, enable TLS 1.2 in Internet Options under Advanced, install all Windows updates, then run the install line again.",
+      title: "TLS 1.2 not available",
+      detail: "Windows on this machine does not enable TLS 1.2, which the platform requires.",
+      fix: "Enable TLS 1.2 (Internet Options → Advanced), install pending Windows updates, then run Install-CabinetAgent.cmd again.",
     },
   },
   {
@@ -637,8 +619,8 @@ const messageRules: ReadonlyArray<{ pattern: RegExp; explanation: Explanation }>
     pattern: /10061|10060|no route to host|(agent|service|cabinet).{0,60}(cannot|can't|unable to|failed to).{0,30}(reach|connect)|(cannot|can't|unable to) (reach|connect to) (the )?(platform|server)/i,
     explanation: {
       title: "The agent is installed but cannot reach the server",
-      detail: "The service is running, yet its connection to the platform is refused or goes nowhere, so this is the network path and not the install.",
-      fix: "Check the server address and port on the install line, and allow outbound traffic to them through the Windows firewall; do not reinstall.",
+      detail: "The service is running but its outbound connection is refused or times out: a network path problem, not an install problem.",
+      fix: "Allow outbound traffic to the server address and agent port through the firewall and any proxy; do not reinstall.",
     },
   },
 

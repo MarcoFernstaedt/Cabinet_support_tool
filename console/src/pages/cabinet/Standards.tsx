@@ -44,7 +44,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     detail: <>
       <p>Windows Firewall profiles on this cabinet are meant to be: <strong>{describePolicy(fw.data.policy)}</strong> ({SOURCE[fw.data.source]!.toLowerCase()}).</p>
       {fw.data.reported && <p>It reports: <strong>{profiles(fw.data.reported)}</strong>.</p>}
-      <p className="muted small">Changing the policy changes nothing on a cabinet by itself; applying it is a separate step on the Firewall tab, or from a diagnosis. Editing it needs an authenticator code, because a changed policy decides how every cabinet of the client is later told to set its firewall.</p>
+      <p className="muted small">Editing the policy changes no cabinet; apply it from the Firewall tab or from a diagnosis. Requires an authenticator code.</p>
       <ClientFirewallPolicy clientId={cabinet.client.id} name={cabinet.client.name} editable={atLeast(me, "admin")} />
       <p><Link to={`/cabinets/${cabinet.id}/firewall`}>Open this cabinet's firewall</Link></p></>,
   });
@@ -59,7 +59,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       actual: a4 ? `${a4.dhcp ? "DHCP" : "Fixed"}, ${a4.addresses[0]?.address ?? "no address"}, gateway ${a4.gateways[0] ?? "none"}, DNS ${adapter!.dns.servers.join(", ") || "none"}` : "Not read; run Diagnose network",
       state: !b ? "unset" : !a4 ? "unknown" : differs ? "differs" : "matches",
       detail: <>
-        <p>The network this site's cabinets should be on. It changes nothing on a cabinet: the network diagnosis compares each cabinet with it and proposes fixes, and each fix is confirmed on its own.</p>
+        <p>The expected network for this site's cabinets. Network diagnosis compares against it; it changes no cabinet.</p>
         <SiteNetwork siteId={s.id} name={s.name} baseline={b} cabinets={s.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Open this cabinet's network</Link></p></>,
     });
@@ -76,7 +76,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       actual: "Tested from Network", state: s.sync.address ? "unknown" : "unset",
       detail: <>
         <p>Where this site's satellites reach the sync cabinet, and the ports the connection test uses. Ports not set here come from the client, then the fleet default ({s.sync.portsSource}).</p>
-        <p className="muted small">Editing it needs an authenticator code: it decides which address the cabinets' connection tests, and the cabinet-side checks that follow them, are pointed at.</p>
+        <p className="muted small">Requires an authenticator code: it sets the address the cabinets' connection tests target.</p>
         <SyncSettings siteId={s.id} sync={s.sync} editable={atLeast(me, "admin")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Test it from this cabinet's network</Link></p></>,
     });
@@ -89,7 +89,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       actual: cond.data ? ({ healthy: "Meets it", degraded: "Differs from it", offline: "Out of contact", unknown: "Not judged yet" } as Record<string, string>)[cond.data.state] ?? "Not judged yet" : "Not read",
       state: !sc0.length ? "unset" : cond.data?.state === "healthy" ? "matches" : cond.data?.state === "degraded" ? "differs" : "unknown",
       detail: <>
-        <p>The approved baseline this cabinet's configuration is compared with. It is written and approved under Admin, Baselines, and comparing never changes the cabinet.</p>
+        <p>The approved baseline this cabinet is compared with. Managed under Admin → Baselines.</p>
         {cond.data && cond.data.state === "degraded" && <ul className="plain">{cond.data.reasons.slice(0, 5).map((r, i) => <li key={i}>{r.text}</li>)}</ul>}
         <p><Link to={`/cabinets/${cabinet.id}/baseline`}>Open this cabinet's baseline and drift</Link></p></>,
     });
@@ -100,7 +100,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     key: "scanner", label: "Fingerprint scanner IDs", source: SOURCE[sc.source]!, standard: sc.effective?.length ? sc.effective.join(", ") : "Found automatically (the Biometric device class)",
     actual: "Checked on the Fingerprint scanner tab", state: sc.effective?.length ? "unknown" : "unset",
     detail: <>
-      <p>Which device the scanner checks look for, most specific level first: this cabinet, its site, its client, the fleet default, then automatic detection. Changing it moves no cabinet setting.</p>
+      <p>Hardware IDs the scanner checks look for, most specific first: cabinet, site, client, fleet, then automatic detection.</p>
       <ScannerIdsEditor key={`sc-c-${cabinet.id}`} label="This cabinet's own scanner IDs" current={sc.cabinetHardwareIds}
         inherited={above ? <>the level above applies (<code>{above.join(", ")}</code>).</> : "cabinets find the scanner automatically."}
         endpoint={`/api/cabinets/${cabinet.id}/scanner`} action="cabinet.scanner" target={cabinet.id} what={cabinet.name} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
@@ -115,7 +115,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       key: "services", label: "Watched services", source: SOURCE[w.source] ?? w.source, standard: w.effective.length ? w.effective.join(", ") : "None",
       actual: "State on the Services tab", state: w.effective.length ? "unknown" : "unset",
       detail: <>
-        <p>Services the agent starts again whenever they stop, and alerts on after 3 failed restarts. The most specific list set applies.</p>
+        <p>Restarted automatically when stopped; alert after 3 failed restarts. The most specific list applies.</p>
         {s && <WatchedServices level="sites" id={s.id} name={s.name} editable={atLeast(me, "tier2")} />}
         <p><Link to={`/cabinets/${cabinet.id}/services`}>Open this cabinet's services (a list of its own is set there)</Link></p></>,
     });
@@ -125,7 +125,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     <section className="panel" aria-labelledby="standards-heading">
       <h2 id="standards-heading">Standards for {cabinet.name}</h2>
       <table className="table clickable">
-        <caption className="sr-only">Each setting this cabinet is held to, what it should be, and what it reports. Select a line to see every level and change it.</caption>
+        <caption className="sr-only">Expected and reported value for each standard. Select a line to see every level.</caption>
         <thead><tr><th scope="col">Setting</th><th scope="col">Standard</th><th scope="col">Comes from</th><th scope="col">This cabinet</th><th scope="col">Status</th></tr></thead>
         <tbody>{lines.map(l => (
           <tr key={l.key}>
