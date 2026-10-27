@@ -263,3 +263,24 @@ test("only an Admin previews or approves, and the preview's query is checked aga
   const tier2Approve = await call("POST", `/api/admin/enrollments/${requestId}/approve`, { client: "A", site: "B", cabinet: "C", role: "standalone", baseline: { use: "capture" }, stepUpToken: "A".repeat(43) }, tier2);
   assert.equal(tier2Approve.status, 403);
 });
+
+test("the database refuses a decision row the code never writes", async () => {
+  const { approveEnrollment } = await import("../src/services/enrollment.js");
+  const r = await approveEnrollment(db.app, await developmentIssuingKey(tempDir()), await pending(), { clientName: "Quebec Health", siteName: "North", cabinetName: "ICU 1", role: "standalone" }, ada.id);
+  const site = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [r.cabinetId])).rows[0]!.site_id;
+  const insert = (decision: string, attached: string | null, state: string | null, draft: string | null) => db.app.query(
+    "INSERT INTO enrollment_baselines (cabinet_id, site_id, decision, decided_by, attached_version_id, capture_state, draft_version_id, drafted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    [r.cabinetId, site, decision, ada.id, attached, state, draft, draft ? new Date() : null]);
+  for (const [decision, attached, state, draft] of [
+    ["capture", null, null, null],            // a capture always has a state
+    ["capture", null, "bogus", null],
+    ["capture", null, "drafted", null],       // drafted needs its draft
+    ["capture", null, "waiting", randomUUID()],
+    ["attach", null, null, null],             // an attachment names its version
+    ["inherited", randomUUID(), null, null],
+    ["inherited", null, "waiting", null],
+    ["skip", null, null, null],
+  ] as const)
+    await assert.rejects(insert(decision, attached, state, draft), `${decision}/${attached}/${state}/${draft} must be refused`);
+  await insert("capture", null, "waiting", null);
+});

@@ -22,8 +22,8 @@ CREATE TABLE enrollment_baselines (
   CONSTRAINT [enrollment_baselines_attach_check] CHECK (([decision] = 'attach' AND [attached_version_id] IS NOT NULL) OR ([decision] <> 'attach' AND [attached_version_id] IS NULL)),
   CONSTRAINT [enrollment_baselines_capture_check] CHECK (
     ([decision] <> 'capture' AND [capture_state] IS NULL AND [draft_version_id] IS NULL AND [drafted_at] IS NULL)
-    OR ([decision] = 'capture' AND [capture_state] IN ('waiting', 'failed') AND [draft_version_id] IS NULL AND [drafted_at] IS NULL)
-    OR ([decision] = 'capture' AND [capture_state] = 'drafted' AND [draft_version_id] IS NOT NULL AND [drafted_at] IS NOT NULL))
+    OR ([decision] = 'capture' AND [capture_state] IS NOT NULL AND [capture_state] IN ('waiting', 'failed') AND [draft_version_id] IS NULL AND [drafted_at] IS NULL)
+    OR ([decision] = 'capture' AND [capture_state] IS NOT NULL AND [capture_state] = 'drafted' AND [draft_version_id] IS NOT NULL AND [drafted_at] IS NOT NULL))
 );
 GO
 ALTER TABLE enrollment_baselines ADD CONSTRAINT [enrollment_baselines_cabinet_id_fkey] FOREIGN KEY ([cabinet_id]) REFERENCES cabinets([id]) ON DELETE CASCADE;

@@ -90,7 +90,8 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
 
     await arrive("Site overview");
     assert.equal(await storyReady(db.app), true, "starting the demo set the whole environment up");
-    assert.match(page.url(), /\/sites\//);
+    // The panel shows the step at once; the tour moves to its first page once the scenarios are read, so wait for that page.
+    await page.waitForURL(/\/sites\//);
     await next();
     await arrive("Single-cabinet network diagnosis", '[data-tour="diagnose"]');
     assert.match(page.url(), /\/cabinets\/.*\/network/);
