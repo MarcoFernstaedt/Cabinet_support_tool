@@ -10,6 +10,7 @@ import { Refused } from "./errors.js";
 import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
 import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
+import { approvedFor, attachChoices, attachToSite, type Scope } from "./baselines.js";
 
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -78,7 +79,25 @@ export interface Approval {
   syncCabinetId?: string;
   /** For a new client only: whether it uses a fingerprint scanner, with its service when it does (client-scanner.ts). */
   scanner?: ScannerChoice;
+  /**
+   * The baseline decision. The console route and the command line always pass one (the contract requires it); the server's own callers
+   * (tests, the demo) may leave it out, and the cabinet then shows "Baseline required" until a baseline applies to it.
+   */
+  baseline?: BaselineDecision;
 }
+
+/** The baseline decision every approval carries (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). */
+export type BaselineDecision = { use: "inherited" } | { use: "attach"; versionId: string } | { use: "capture" };
+
+/** What became of the baseline decision, for the console to say. */
+export interface ApprovalBaseline { decision: BaselineDecision["use"] | null; inForce: { kind: string; name: string; version: number }[]; captureWaiting: boolean }
+
+const noBaseline = () => new Refused("no_approved_baseline", 409, "no approved baseline applies to this cabinet's site, client or the fleet",
+  { reason: "No approved baseline applies here yet. Choose an approved baseline to attach to the site, or capture this cabinet's configuration as the site's baseline draft." });
+
+/** The scopes a cabinet at this client and site falls under before it has reported its model. */
+const placeScopes = (clientId: string | null, siteId: string | null): Scope[] =>
+  [{ kind: "global", id: null }, ...(clientId ? [{ kind: "client" as const, id: clientId.toLowerCase() }] : []), ...(siteId ? [{ kind: "site" as const, id: siteId.toLowerCase() }] : [])];
 
 // This one carries `reason`, the sentence the console shows (console/src/lib/api.ts describeError): a refusal an Admin has to act on
 // says what to do, not just that it happened.
@@ -86,7 +105,8 @@ const chooseSyncCabinet = () => new Refused("choose_sync_cabinet", 409, "this si
   { reason: "This site has several sync cabinets. Choose the one this satellite reaches." });
 
 /** Approves a pending request: places the cabinet, links it into the site's sync arrangement, signs its certificate and records it all. */
-export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string, signing?: ListSigningKeys): Promise<{ cabinetId: string; serial: string }> {
+export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string, signing?: ListSigningKeys):
+  Promise<{ cabinetId: string; serial: string; siteId: string; baseline: ApprovalBaseline }> {
   if (approval.syncCabinetId !== undefined && approval.role !== "satellite")
     throw new Refused("sync_not_allowed", 400, "only a satellite is given a sync cabinet", { reason: "Only a satellite is given a sync cabinet." });
   return transaction(pool, async c => {
@@ -138,13 +158,29 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     if (insert.rowCount !== 1) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
     // The site's first sync cabinet takes in the satellites that were waiting for one.
     const linked = approval.role === "sync" ? await linkUnassigned(c, site.id) : 0;
+    // The baseline decision, checked and recorded with the cabinet. A refusal rolls the whole approval back.
+    let inForce: ApprovalBaseline["inForce"] = [];
+    if (approval.baseline) {
+      const decision = approval.baseline;
+      if (decision.use === "inherited") {
+        const found = await approvedFor(c, placeScopes(client.id, site.id));
+        if (found.length === 0) throw noBaseline();
+        inForce = found.map(o => ({ kind: o.kind, name: o.name, version: o.version }));
+      } else if (decision.use === "attach") {
+        const o = await attachToSite(c, userId, site.id, decision.versionId, `Attached when ${approval.cabinetName} was approved`);
+        inForce = [{ kind: o.kind, name: o.name, version: o.version }];
+      }
+      await c.query("INSERT INTO enrollment_baselines (cabinet_id, site_id, decision, decided_by, attached_version_id, capture_state) VALUES ($1, $2, $3, $4, $5, $6)",
+        [cabinetId, site.id, decision.use, userId, decision.use === "attach" ? decision.versionId.toLowerCase() : null, decision.use === "capture" ? "waiting" : null]);
+    }
     const certificate = await issueAgentCertificate(key, request.csr, cabinetId);
     await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [certificate.serialHex, cabinetId, certificate.notAfter]);
     await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = SYSUTCDATETIME()
                    WHERE id = $1`, [requestId, cabinetId, certificate.serialHex, certificate.pem, userId]);
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
       details: { requestId, ...approval, syncCabinetId, ...(scanner ? { scannerApproval: scanner.approval } : {}), ...(approval.role === "sync" ? { satellitesLinked: linked } : {}), certificateSerial: certificate.serialHex } });
-    return { cabinetId, serial: certificate.serialHex };
+    return { cabinetId, serial: certificate.serialHex, siteId: site.id,
+      baseline: { decision: approval.baseline?.use ?? null, inForce, captureWaiting: approval.baseline?.use === "capture" } };
   });
 }
 
@@ -154,4 +190,26 @@ export async function rejectEnrollment(pool: Pool, requestId: string, userId: st
     if (r.rowCount !== 1) throw new Refused("not_pending", 409, "that enrollment request is not pending");
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.reject", targetKind: "enrollment", targetId: requestId, outcome: "succeeded" });
   });
+}
+
+/** What the approval shows about baselines for a client and site: the approved baselines that already apply, and the ones that could be attached. */
+export interface ApprovalBaselinePreview {
+  inForce: { kind: string; name: string; version: number }[];
+  /** Approved model baselines exist: one may also apply once the cabinet reports its model, which the approval cannot know yet. */
+  modelBaselines: number;
+  siteHasOwn: boolean;
+  choices: { versionId: string; version: number; scope: string; name: string }[];
+}
+
+/** Reads only; the approval checks everything again. A client or site that does not exist yet has nothing of its own. */
+export async function approvalBaselinePreview(db: Queryable, requestId: string, q: { client: string; site: string }): Promise<ApprovalBaselinePreview> {
+  if (!(await db.query("SELECT 1 AS x FROM enrollment_requests WHERE id = $1 AND status = 'pending'", [requestId])).rows[0])
+    throw new Refused("not_pending", 409, "that enrollment request is not pending");
+  const client = (await db.query<{ id: string }>("SELECT id FROM clients WHERE name = $1 AND removed_at IS NULL", [q.client])).rows[0] ?? null;
+  const site = client ? (await db.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, q.site])).rows[0] ?? null : null;
+  const inForce = await approvedFor(db, placeScopes(client?.id ?? null, site?.id ?? null));
+  const modelBaselines = Number((await db.query<{ n: number }>(
+    "SELECT COUNT(*) AS n FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved' WHERE b.scope_kind = 'model'")).rows[0]!.n);
+  return { inForce: inForce.map(o => ({ kind: o.kind, name: o.name, version: o.version })), modelBaselines, siteHasOwn: inForce.some(o => o.kind === "site"),
+    choices: await attachChoices(db) };
 }
