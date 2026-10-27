@@ -120,6 +120,15 @@ test("switching on without signing writes the list in force; a fleet list that a
   await setApprovedApps(db.app, admin, "fleet", null, null, await issueStepUpToken(db.app, admin.userId, "settings.apps", "fleet", paramsHash({ level: "fleet", id: null, entries: null })));
 });
 
+test("the same program already approved under another key counts as there, so it is never listed twice", async () => {
+  const p = await place();
+  const earlier = { ...SERVICE, key: "app:BioScan", name: "BioScan" };
+  const token = await issueStepUpToken(db.app, admin.userId, "client.apps", p.client, paramsHash({ level: "client", id: p.client, entries: [earlier] }));
+  await setApprovedApps(db.app, admin, "client", p.client, [earlier], token);
+  assert.equal((await choose(p.client, { enabled: true, service: { ...SERVICE, path: SERVICE.path.toUpperCase(), serviceName: "bioscansvc" } })).approval, "approved");
+  assert.deepEqual((await readLevelState(db.app, "client", p.client)).list?.entries.map(e => e.key), ["app:BioScan"]);
+});
+
 test("switching off: no IDs, no alerts, open scanner alerts resolved and audited, the service off the watched list", async () => {
   const p = await place();
   await choose(p.client, { enabled: true, service: SERVICE, hardwareIds: ["USB\\VID_1234&PID_5678"] });
@@ -153,9 +162,19 @@ test("only an Admin, with a code bound to the exact choice; hostile services and
     { ...SERVICE, serviceName: "Bio'; DROP TABLE clients;--" }, { ...KIOSK }])
     await refused(choose(p.client, { enabled: true, service }), "invalid_params");
   await db.app.query("UPDATE clients SET watched_services = $2 WHERE id = $1", [p.client, JSON.stringify(Array.from({ length: 16 }, (_, i) => `Svc${i}`))]);
-  await refused(choose(p.client, { enabled: true, service: SERVICE }), "too_many_items");
+  await assert.rejects(choose(p.client, { enabled: true, service: SERVICE }),
+    (e: unknown) => e instanceof Refused && e.code === "too_many_items" && /The client already watches 16/.test(String(e.extra?.reason)));
   assert.deepEqual(await clientScanner(db.app, p.client), { enabled: true, service: null, approval: null }, "nothing was written");
   assert.equal((await readLevelState(db.app, "client", p.client)).list, null);
+  // A client that follows the fleet's full list is told that the fleet's list is the full one.
+  const q = await place();
+  await db.app.query("MERGE settings AS t USING (SELECT 'services.watched' AS k) AS s ON t.[key] = s.k WHEN MATCHED THEN UPDATE SET [value] = $1 WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES ('services.watched', $1);",
+    [JSON.stringify(Array.from({ length: 16 }, (_, i) => `Svc${i}`))]);
+  try {
+    await assert.rejects(choose(q.client, { enabled: true, service: SERVICE }),
+      (e: unknown) => e instanceof Refused && e.code === "too_many_items" && /follows the fleet's watched services list/.test(String(e.extra?.reason)));
+    assert.equal(await watchedOf(q.client), null, "the client still follows the fleet list");
+  } finally { await db.app.query("DELETE FROM settings WHERE [key] = 'services.watched'"); }
 });
 
 test("a new client chooses at its first approval; an existing client's setting is not changed by an approval", async () => {
