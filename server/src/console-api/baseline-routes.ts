@@ -106,7 +106,12 @@ export async function baselineRoutes(app: FastifyInstance, o: ConsoleApiOptions 
     return { categories: await currentConfig(o.pool, await cabinet(id(request)), q.category) };
   });
   // The configuration health: judged against the baseline in force (the load samples have their own route, /api/cabinets/:id/health).
-  app.get("/api/cabinets/:id/condition", async request => { await o.guards.role(request, "tier1"); return healthFor(o.pool, await cabinet(id(request))); });
+  // With it, whether a baseline is in force at all ("Baseline required" until one is) and what was decided for it at enrollment.
+  app.get("/api/cabinets/:id/condition", async request => {
+    await o.guards.role(request, "tier1");
+    const cabinetId = await cabinet(id(request));
+    return { ...(await healthFor(o.pool, cabinetId)), baseline: await baselines.baselineStatus(o.pool, cabinetId) };
+  });
   app.get("/api/cabinets/:id/drift", async request => { await o.guards.role(request, "tier1"); return { drift: await driftFor(o.pool, await cabinet(id(request))) }; });
   app.get("/api/cabinets/:id/config-changes", async request => {
     await o.guards.role(request, "tier1");

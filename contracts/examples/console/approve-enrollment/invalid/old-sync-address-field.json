@@ -6,5 +6,8 @@
   "sync": {
     "address": "10.20.0.15"
   },
+  "baseline": {
+    "use": "inherited"
+  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

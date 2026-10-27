@@ -1,0 +1,10 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "baseline": {
+    "use": "attach"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

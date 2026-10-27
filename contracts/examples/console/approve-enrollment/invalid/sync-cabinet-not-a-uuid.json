@@ -4,5 +4,8 @@
   "cabinet": "ICU 2",
   "role": "satellite",
   "syncCabinetId": "'; DROP TABLE cabinets; --",
+  "baseline": {
+    "use": "inherited"
+  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

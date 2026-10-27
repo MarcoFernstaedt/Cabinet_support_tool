@@ -6,5 +6,8 @@
   "scanner": {
     "enabled": true
   },
+  "baseline": {
+    "use": "inherited"
+  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

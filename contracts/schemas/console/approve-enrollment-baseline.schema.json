@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment-baseline.schema.json",
+  "title": "approve-enrollment-baseline",
+  "description": "GET /api/admin/enrollments/:id/baseline query string: the client and site an approval would use, so the approval can show which approved baseline would apply and offer the ones that could be attached. Reading it changes nothing; the approval checks everything again.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "client": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    },
+    "site": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[^\\u0000-\\u001f\\u007f<>]+$"
+    }
+  },
+  "required": [
+    "client",
+    "site"
+  ]
+}

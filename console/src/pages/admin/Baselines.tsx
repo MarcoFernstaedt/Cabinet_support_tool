@@ -114,7 +114,7 @@ export function BaselineDetail({ id }: { id: string }) {
 interface Item { category: string; key: string; mode: string; expect?: Record<string, unknown>; required?: boolean; severity?: "minor" | "major"; note?: string }
 interface Content { items: Item[]; health?: Record<string, unknown> }
 interface VersionFull extends VersionSummary { baselineId: string; scope: Scope; content: Content; proposedAt: string | null; previousVersionId: string | null;
-  diff: { added: Item[]; removed: Item[]; changed: { before: Item; after: Item }[]; healthChanged: boolean }; origin: { kind?: string; cabinetName?: string } | null }
+  diff: { added: Item[]; removed: Item[]; changed: { before: Item; after: Item }[]; healthChanged: boolean }; origin: { kind?: string; cabinetName?: string; enrollment?: boolean } | null }
 
 const MODE: Record<string, string> = { match: "Must be", present: "Must exist", absent: "Must not exist", ignore: "Not required here" };
 
@@ -160,7 +160,7 @@ export function VersionReview({ id }: { id: string }) {
         <section className="panel">
           <dl className="kv">
             <div><dt>Applies to</dt><dd>{KIND_NAME[data.scope.kind]}</dd></div>
-            <div><dt>Written by</dt><dd>{data.createdBy.name}, {fullTime(data.createdAt)}{data.origin?.cabinetName && <> · captured from {data.origin.cabinetName}</>}</dd></div>
+            <div><dt>Written by</dt><dd>{data.createdBy.name}, {fullTime(data.createdAt)}{data.origin?.cabinetName && <> · captured from {data.origin.cabinetName}</>}{data.origin?.enrollment && <> · captured from the cabinet's first report, as asked when it was approved</>}{data.origin?.kind === "attach" && <> · attached to this site when a cabinet was approved</>}</dd></div>
             {data.decidedBy && <div><dt>Decided by</dt><dd>{data.decidedBy.name}, {data.decidedAt && fullTime(data.decidedAt)}{data.decisionNote && <> · {data.decisionNote}</>}</dd></div>}
             <div><dt>Purpose</dt><dd>{editable ? <input aria-label="What this version is for" value={description ?? data.description} minLength={3} maxLength={500} onChange={e => setDescription(e.target.value)} /> : data.description}</dd></div>
           </dl>

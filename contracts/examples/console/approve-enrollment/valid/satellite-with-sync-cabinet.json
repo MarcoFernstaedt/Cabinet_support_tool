@@ -4,5 +4,8 @@
   "cabinet": "ICU 2",
   "role": "satellite",
   "syncCabinetId": "3f2b8c1e-5d4a-4b6f-9e21-7a0c9d8e1f23",
+  "baseline": {
+    "use": "inherited"
+  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }
