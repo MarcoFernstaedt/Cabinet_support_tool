@@ -268,7 +268,7 @@ test("writes through a real agent: kept when delivered, rolled back when the ser
     await a.until("the rule's result", done(create.commandId));
     const created = (await result(create.commandId))!;
     assert.equal(created.status, "succeeded", JSON.stringify(created.result));
-    await a.until("the change to be kept", () => a.lines.some(l => l.includes(`Command ${create.commandId}: the server was reached; the change is kept.`)));
+    await a.until("the change to be kept", () => a.lines.some(l => l.includes(`Command ${create.commandId}: the server took its result and the broker kept the change.`)));
     await a.until("the firewall change event, attributed", async () =>
       (await db.app.query("SELECT 1 FROM firewall_changes WHERE command_id = $1 AND event_id IS NOT NULL", [create.commandId])).rows.length > 0, 30_000);
     assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM alerts WHERE issue_type_id = $1", [ISSUE.firewall])).rows[0]!.n, 0, "a platform change raises no alert");
