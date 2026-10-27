@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment.schema.json",
   "title": "approve-enrollment",
-  "description": "Approve a pending cabinet: where it belongs, what it is called, and the configuration its role needs. A satellite is given the site's sync cabinet here; a sync cabinet is the endpoint itself and is never given one.",
+  "description": "Approve a pending cabinet: where it belongs, what it is called and its role. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -27,35 +27,9 @@
     "role": {
       "$ref": "../common.schema.json#/$defs/cabinetRole"
     },
-    "sync": {
-      "description": "The site's sync cabinet, captured with the approval: a private IPv4 address (RFC 1918, the same rule the site sync settings use), and optionally the site's own TCP ports. ports left out means the client's default ports, else the fleet's.",
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "address": {
-          "description": "The sync cabinet's address on the site's own network. The dotted-quad form is checked by $defs/ipv4; the pattern keeps it to the private ranges.",
-          "allOf": [
-            {
-              "$ref": "../common.schema.json#/$defs/ipv4"
-            },
-            {
-              "type": "string",
-              "pattern": "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)"
-            }
-          ]
-        },
-        "ports": {
-          "type": "array",
-          "maxItems": 4,
-          "uniqueItems": true,
-          "items": {
-            "$ref": "../common.schema.json#/$defs/port"
-          }
-        }
-      },
-      "required": [
-        "address"
-      ]
+    "syncCabinetId": {
+      "description": "The sync cabinet this satellite reaches. Only a satellite names one.",
+      "$ref": "../common.schema.json#/$defs/uuid"
     },
     "stepUpToken": {
       "description": "A one-time step-up token bound to this exact action.",
@@ -71,17 +45,16 @@
     "stepUpToken"
   ],
   "not": {
-    "description": "A sync cabinet is what the site's satellites reach, so it is not given a sync address. Saying so is clearer than dropping the address, which the Admin would expect to have been used.",
+    "description": "Only a satellite reaches a sync cabinet. Refusing the field on another role is clearer than ignoring it.",
     "required": [
-      "role",
-      "sync"
+      "syncCabinetId"
     ],
     "properties": {
       "role": {
-        "const": "sync"
-      },
-      "sync": {
-        "type": "object"
+        "enum": [
+          "sync",
+          "standalone"
+        ]
       }
     }
   }

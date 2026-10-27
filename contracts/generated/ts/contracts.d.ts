@@ -541,7 +541,7 @@ export interface AppControl {
 }
 
 /**
- * Approve a pending cabinet: where it belongs, what it is called, and the configuration its role needs. A satellite is given the site's sync cabinet here; a sync cabinet is the endpoint itself and is never given one.
+ * Approve a pending cabinet: where it belongs, what it is called and its role. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned.
  */
 export interface ApproveEnrollment {
   client: string;
@@ -549,18 +549,9 @@ export interface ApproveEnrollment {
   cabinet: string;
   role: "sync" | "satellite" | "standalone";
   /**
-   * The site's sync cabinet, captured with the approval: a private IPv4 address (RFC 1918, the same rule the site sync settings use), and optionally the site's own TCP ports. ports left out means the client's default ports, else the fleet's.
+   * The sync cabinet this satellite reaches. Only a satellite names one.
    */
-  sync?: {
-    /**
-     * The sync cabinet's address on the site's own network. The dotted-quad form is checked by $defs/ipv4; the pattern keeps it to the private ranges.
-     */
-    address: string;
-    /**
-     * @maxItems 4
-     */
-    ports?: number[];
-  };
+  syncCabinetId?: string;
   /**
    * A one-time step-up token bound to this exact action.
    */
@@ -834,6 +825,28 @@ export interface CabinetInOffice {
  */
 export interface CabinetRole {
   role: "sync" | "satellite" | "standalone";
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Sets the address a sync cabinet's satellites reach: a private IPv4 address that a report never replaces. null goes back to the address the cabinet reports itself.
+ */
+export interface CabinetSyncAddress {
+  address: string | null;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
+ * Assigns a satellite to a sync cabinet at its own site, or unassigns it (null), which leaves its enrollment incomplete.
+ */
+export interface CabinetSyncCabinet {
+  syncCabinetId: string | null;
   /**
    * A one-time step-up token bound to this exact action.
    */
@@ -1877,6 +1890,8 @@ export interface StepUpRequest {
     | "site.rename"
     | "site.remove"
     | "cabinet.role"
+    | "cabinet.sync_cabinet"
+    | "cabinet.sync_address"
     | "issue_type.create"
     | "issue_type.update"
     | "settings.update"
@@ -1939,18 +1954,6 @@ export interface SuppressionCreate {
  * Default TCP ports for testing the sync cabinet: a client's (for all its sites) or the fleet's. null removes that level's setting. A site's own ports, when set, win.
  */
 export interface SyncPorts {
-  ports: number[] | null;
-  /**
-   * A one-time step-up token bound to this exact action.
-   */
-  stepUpToken: string;
-}
-
-/**
- * A site's sync cabinet: a private IPv4 address, and at most 4 TCP ports. ports null uses the client's default ports, else the fleet default. Each cabinet also refuses an address that is not on its own network.
- */
-export interface SyncSettings {
-  address: string | null;
   ports: number[] | null;
   /**
    * A one-time step-up token bound to this exact action.
