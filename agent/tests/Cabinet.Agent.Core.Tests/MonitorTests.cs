@@ -457,6 +457,33 @@ public class MonitorHostTests
         Assert.Equal(EventKind.Scanner, e.Kind);
         Assert.Equal(ScannerState.Disconnected, e.Device!.State);
     }
+
+    [Fact]
+    public async Task A_client_without_a_scanner_reports_nothing_about_one_and_the_setting_survives_a_restart()
+    {
+        using var dir = new TempDir();
+        string file = Path.Combine(dir.Path, "monitor-settings.json");
+        var devices = new List<DeviceFacts>
+        {
+            new() { InstanceId = @"USB\VID_1234&PID_5678\1", Name = "Fingerprint Reader", Present = true, ProblemCode = 0, HardwareIds = new[] { @"USB\VID_1234&PID_5678" } },
+        };
+        var settings = new MonitorSettings(file, new[] { @"USB\VID_1234&PID_5678" });
+        Assert.True(settings.ScannerWatched, "until the console says otherwise, the agent watches");
+        settings.Apply(new HeartbeatResponse { ServerTime = Fixtures.Start, Scanner = new HeartbeatScanner { HardwareIds = null, Watch = false } });
+        Assert.False(settings.ScannerWatched);
+        var queue = new EventQueue(null);
+        var host = new MonitorHost(new MonitorSources { Devices = _ => Task.FromResult<IReadOnlyList<DeviceFacts>>(devices.ToList()) },
+            settings, queue, null, new ManualClock(Fixtures.Start), _ => { });
+        await host.ScannerOnceAsync(default);
+        devices.Clear();
+        await host.ScannerOnceAsync(default);
+        Assert.Equal(0, queue.Count);
+        // Kept on disk like the rest of the answer, so a restart while the server is unreachable does not start watching again.
+        Assert.False(new MonitorSettings(file).ScannerWatched);
+        // A server that sends no setting (an older one) leaves the agent watching, as before.
+        settings.Apply(new HeartbeatResponse { ServerTime = Fixtures.Start, Scanner = new HeartbeatScanner { HardwareIds = null } });
+        Assert.True(settings.ScannerWatched);
+    }
 }
 
 public class DriveSnapshotTests
