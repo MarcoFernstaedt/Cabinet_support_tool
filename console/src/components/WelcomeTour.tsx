@@ -81,7 +81,7 @@ export function WelcomeTour() {
       <div id="welcome-body" className="stack">
         {(choosing ? first.body : step.body).map((p, i) => <p key={i}>{p}</p>)}
         {!choosing && step.needs && <p className="small"><strong>Who can do what:</strong> {step.needs}</p>}
-        {!choosing && step.target && found === "missing" && <p className="small muted" role="status">This is not on screen for you, so it is not outlined. Carry on.</p>}
+        {!choosing && step.target && found === "missing" && <p className="small muted" role="status">Not on screen for your role; not outlined.</p>}
       </div>
       {choosing ? (
         <div className="row gap wrap">

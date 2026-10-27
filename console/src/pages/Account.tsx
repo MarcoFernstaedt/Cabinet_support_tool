@@ -25,7 +25,7 @@ export function Account({ onTour }: { onTour: () => void }) {
       <CaseNotes title="Activity summary: everything you did" />
       <section className="panel">
         <h2>Two-factor sign-in</h2>
-        {me.totpEnabled ? <p>On. You sign in with your authenticator app, and confirm changes that need a code with it. It stays on for every account; an admin can reset it if you lose your phone.</p>
+        {me.totpEnabled ? <p>On. Required for every account. An Admin can reset it if the device is lost.</p>
           : <><p>Off. Turn it on to protect your account with an authenticator app.</p><button className="btn" onClick={() => setMode("totp")}>Turn on two-factor</button></>}
       </section>
       <section className="panel">
