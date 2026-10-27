@@ -68,6 +68,18 @@ The owner's decision (09-open-decisions.md "Site policies at first approval"): t
 - **At a site's first approval** the approval may carry `sitePolicies` (firewall policy and time zone). The console pre-fills them from what the site would inherit (`GET /api/admin/enrollments/:id/site-policies`); keeping the inherited value sends null, so the site goes on following its client and the fleet; only a value the approver sets becomes the site's own. Each is written and audited as its own change in the approval's transaction. An approval for an existing site may not carry them (`site_policies_for_existing_site`): its policies are changed on its page.
 - **The network standard** is set on the site page, from what its cabinets report ("Standards for <site>"), once they have reported their network; a pending cabinet has reported none.
 
+## Replacing a cabinet
+
+The owner's decision (09-open-decisions.md "Replacing a cabinet"): when a cabinet's drive fails, the agent is installed again on the new drive and enrolls as a new request. Its approval may say which cabinet it replaces (`replacesCabinetId`, migration 0015 `cabinets.replaces_cabinet_id`).
+
+- **What may be replaced:** an active cabinet at the approval's site with the same role. Otherwise the approval is refused before anything is written: `not_replaceable` (not active: removed, pending, or replaced already), `replacement_elsewhere` (another site), `replacement_role_differs`. The old cabinet is read under lock, so two approvals cannot both replace it; a cabinet is replaced at most once.
+- **The new cabinet takes its place**, in the approval's transaction:
+  - a satellite keeps the sync cabinet the old one reached, unless the approval names another; a sync cabinet takes the old one's satellites and, when an Admin had set it, its address (a reported address is not copied: the new cabinet reports its own);
+  - the old cabinet's own settings are copied: scanner hardware IDs, watched services, file-facts paths, the in-office flag, its approved-programs list (with signing on, a change waiting for the Admin's signature, like any other), its USB watch policy and its approved cabinet baseline (as a new approved version whose origin names the one copied). Settings it inherited from its site, client or fleet are not copied: the new cabinet inherits them the same way;
+  - when the new cabinet takes the old one's name, the old record is renamed "<name> (replaced YYYY-MM-DD)".
+- **The old cabinet is retired, its history kept:** status removed, its certificates revoked (its agent is cut off at once), its open alerts resolved as "Replaced by <name>.", each audited. Its page stays reachable and links to the new cabinet; the new cabinet's page links back. Audit: `cabinet.replace` on the new cabinet (what was moved and copied) and `cabinet.revoke` on the old one.
+- **Re-applying on the machine** (the firewall policy, time zone, a fixed address and DNS, the drawer address) after the new agent first reports is a separate step, not done by the approval.
+
 ## Issue types and symptom rules
 
 This is how errors become meaningful alerts, and how the team teaches the system new symptoms of known problems.

@@ -297,7 +297,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { interfaceIndex: a.interfaceIndex, address: n.gateway, macAddress: reachesGateway(n, ctx.baseline) ? mac(1) : null, state: reachesGateway(n, ctx.baseline) ? (flaky ? "stale" : "reachable") : "incomplete" },
         ...(ctx.role === "sync" ? [] : [{ interfaceIndex: a.interfaceIndex, address: `${ctx.subnet}.20`, macAddress: mac(20), state: "stale" }])];
       o.proxy = { winHttp: null, userProxyEnabled: null, userProxyServer: null };
-      // Some cabinets also have the cash drawer link: an Ethernet adapter on an unidentified network with a fixed address and no gateway.
+      // Some cabinets also have the drawer link: an Ethernet adapter on an unidentified network with a fixed address and no gateway.
       // Its counters grow with the clock so two readings seconds apart show traffic.
       if (ctx.index % 3 === 0 || ctx.role === "sync") {
         const secs = Math.floor(Date.now() / 1000) % 100_000;

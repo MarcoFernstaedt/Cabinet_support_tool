@@ -1,4 +1,4 @@
-// The cash drawer check. A drawer reaches the cabinet over a spoofed Ethernet link from the monitor; Windows lists it as an adapter on an
+// The drawer check. A drawer reaches the cabinet over a spoofed Ethernet link from the monitor; Windows lists it as an adapter on an
 // "Unidentified network" with a fixed address in the drawer network. Plain comparisons of two network readings and the firewall state:
 // no pattern matching of text.
 import type { AdapterReading } from "../components/NetworkReadings";
@@ -122,5 +122,5 @@ export function drawerAddressParams(interfaceIndex: number, lastNumber: string, 
 
 /** The result as plain text for a ticket. */
 export function drawerText(cabinet: string, a: DrawerAnalysis): string {
-  return [`${cabinet}: cash drawer check`, ...a.lines.map(l => `${l.label.padEnd(15, ".")} [${l.tone === "ok" ? "OK" : l.tone === "crit" ? "PROBLEM" : l.tone === "warn" ? "CHECK" : "INFO"}] ${l.text}`)].join("\n");
+  return [`${cabinet}: drawer check`, ...a.lines.map(l => `${l.label.padEnd(15, ".")} [${l.tone === "ok" ? "OK" : l.tone === "crit" ? "PROBLEM" : l.tone === "warn" ? "CHECK" : "INFO"}] ${l.text}`)].join("\n");
 }

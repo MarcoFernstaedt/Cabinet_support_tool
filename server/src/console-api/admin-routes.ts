@@ -48,6 +48,7 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     // A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site.
     const result = await approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
       ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}),
+      ...(body.replacesCabinetId ? { replacesCabinetId: body.replacesCabinetId.toLowerCase() } : {}),
       ...(body.sitePolicies ? { sitePolicies: { firewall: body.sitePolicies.firewall ?? null, timeZone: (body.sitePolicies.timeZone ?? null) as TimeZoneId | null } } : {}), baseline: body.baseline }, u.userId,
       o.listKeys ?? ListSigningKeys.fromFolder());
     // An attached baseline changes what every cabinet at the site is compared with: bring them up to date in the background, one at a time.

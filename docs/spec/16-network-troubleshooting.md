@@ -119,9 +119,9 @@ Not built: the network connection category (Public, Private, Domain) on each ada
 
 What a technician can change from the Network section, by role: Tier 1 renews a DHCP lease and flushes the DNS cache; Tier 2 and up sets a fixed IP address, gateway or DHCP, and sets DNS servers or automatic DNS, each with an authenticator code and the safety net that puts the old setting back if the cabinet loses contact.
 
-## Cash drawer check
+## Drawer check
 
-Some cabinets connect their cash drawers through the monitor over a spoofed Ethernet link. Windows lists it as an Ethernet adapter on an "Unidentified network" with a fixed address and no gateway. The Network tab has a **Cash drawer** panel (`console/src/pages/cabinet/DrawerCheck.tsx`, logic in `console/src/lib/drawer.ts`, covered by `console/test/drawer.test.ts`):
+Some cabinets connect their drawers through the monitor over a spoofed Ethernet link. Windows lists it as an Ethernet adapter on an "Unidentified network" with a fixed address and no gateway. The Network tab has a **Drawer** panel (`console/src/pages/cabinet/DrawerCheck.tsx`, logic in `console/src/lib/drawer.ts`, covered by `console/test/drawer.test.ts`):
 
 - Finds the drawer adapter: an Ethernet adapter with an address in the drawer network, else one on an unidentified network. Wi-Fi is never chosen. If none is found, the panel says so and points at the cable and Devices and drivers.
 - Checks status (link, disabled), IPv4 (inside the drawer network, right prefix, static, no gateway) and packet counters. `network.config` is read twice, five seconds apart, so the panel reports traffic and new errors or drops in that window, not just totals since boot.

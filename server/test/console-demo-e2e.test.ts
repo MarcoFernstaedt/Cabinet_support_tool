@@ -137,9 +137,9 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText("Replaced the patch cable to the switch; the errors stopped.").first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/known-fix.png`, fullPage: true });
 
-    // The cash drawer, on a cabinet whose firewall is on: the check finds it, the client's policy turns it off.
+    // The drawer, on a cabinet whose firewall is on: the check finds it, the client's policy turns it off.
     await next();
-    await page.getByRole("heading", { name: "Cash drawer check" }).waitFor();
+    await page.getByRole("heading", { name: "Drawer check" }).waitFor();
     await marked('[data-tour="drawer-check"]');
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
@@ -364,7 +364,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.ok(await page.getByRole("cell", { name: "Clean" }).count() >= 1, "at least one healthy path is marked clean");
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/packets.png`, fullPage: true });
 
-    // Cash drawer: the drawer link is found among the adapters (unidentified network, fixed address), its settings and packet counters are
+    // Drawer: the drawer link is found among the adapters (unidentified network, fixed address), its settings and packet counters are
     // checked over two readings, and the firewall state is reported.
     const withDrawer = (await db.app.query<{ id: string }>(
       `SELECT TOP (1) k.id FROM cabinets k WHERE k.demo_scenario = 'healthy' AND (SELECT count(*) FROM cabinets o WHERE o.site_id = k.site_id AND o.name < k.name) % 3 = 0 ORDER BY k.name`)).rows[0]!.id;

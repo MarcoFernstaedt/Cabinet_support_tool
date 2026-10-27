@@ -16,7 +16,7 @@ const DISCOVERED_CODES = [
   "invalid_address", "invalid_code", "invalid_json", "invalid_manifest", "invalid_output", "invalid_params",
   "invalid_ports", "choose_sync_cabinet", "invalid_sync_cabinet", "not_a_satellite", "not_a_sync_cabinet", "scanner_for_existing_client", "approved_key_in_use", "sync_not_allowed",
   "invalid_request", "invalid_result", "invalid_runbook", "invalid_window", "job_exists", "last_admin",
-  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
+  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
   "not_approved", "not_awaiting_package", "not_deleted", "not_found", "not_live", "not_paused", "not_pending",
   "not_searchable", "not_uploading", "not_yours", "not_yourself", "one_site_only", "own_proposal",
   "package_not_approved", "pilot_not_eligible", "query_timeout", "query_too_slow", "rate_limited",

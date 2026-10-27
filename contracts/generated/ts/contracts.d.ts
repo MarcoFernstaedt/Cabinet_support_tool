@@ -590,7 +590,7 @@ export interface ApproveEnrollmentBaseline {
 }
 
 /**
- * Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision.
+ * Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision. It may name the cabinet it replaces.
  */
 export interface ApproveEnrollment {
   client: string;
@@ -601,6 +601,10 @@ export interface ApproveEnrollment {
    * The sync cabinet this satellite reaches. Only a satellite names one.
    */
   syncCabinetId?: string;
+  /**
+   * The active cabinet this one replaces (a failed drive, a reinstalled agent): a cabinet at the same client and site, with the same role. The old cabinet is retired with its history kept, and this one takes its name, its sync link and its own settings (docs/spec/05-server-spec.md "Replacing a cabinet").
+   */
+  replacesCabinetId?: string;
   scanner?: ClientScannerChoice;
   sitePolicies?: SitePolicies;
   /**

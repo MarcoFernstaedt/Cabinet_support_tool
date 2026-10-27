@@ -362,6 +362,20 @@ async function writeApprovedList(c: Queryable, userId: string, level: AppLevel, 
 }
 
 /**
+ * Copies a cabinet's own list in force to the cabinet that replaces it, in the caller's transaction (the caller approved the replacement
+ * with its own step-up). The list is signed for the old cabinet's id, so the copy is a new list for the new cabinet: with signing on it
+ * waits for the Admin's signature like any other change, and the broker approves nothing from it until then. A change that was still
+ * waiting on the old cabinet is not copied: nobody approved it. Returns what became of the copy, or null when there was nothing to copy.
+ */
+export async function copyCabinetList(c: Queryable, userId: string, fromCabinetId: string, toCabinetId: string, signing?: ListSigningKeys): Promise<"waiting" | "written" | null> {
+  const from = (await readRaw(c, "cabinet", fromCabinetId)).stored.live;
+  if (!from) return null;
+  const to = await readRaw(c, "cabinet", toCabinetId);
+  await writeApprovedList(c, userId, "cabinet", to.key, to.raw, to.stored, 0, from.entries, signing, `replaces cabinet ${fromCabinetId.toLowerCase()}`);
+  return (signing?.count ?? 0) > 0 ? "waiting" : "written";
+}
+
+/**
  * Makes sure a client's list approves one service entry, in the caller's transaction (used when a client's fingerprint scanner is
  * switched on; the caller has checked the role and the step-up). The change starts from what the client would otherwise get: its pending
  * change, else its own list, else the fleet's, because a client list replaces the fleet's whole. Returns whether the entry is approved

@@ -19,6 +19,7 @@ import { SitePolicyFieldset, useSitePolicyPreview } from "../../components/Appro
 import { sitePoliciesFrom, type SitePolicyFields } from "../../lib/site-policies";
 import { describePolicy } from "../../components/FirewallPolicy";
 import { zoneName } from "../cabinet/Time";
+import { replaceable, replacementSentence, replacesFrom, type SiteCabinet } from "../../lib/replacement";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -77,7 +78,7 @@ function known(name: string, names: string[]): { exact: boolean; near: string | 
 
 
 export function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
-  const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone", syncCabinetId: "" });
+  const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone", syncCabinetId: "", replacesCabinetId: "" });
   // Approving with a name that does not exist creates that client or site, so existing ones are offered and a new one is said out loud.
   const client = known(form.client, clients.map(c => c.name));
   const knownClient = clients.find(c => c.name === form.client.trim());
@@ -92,15 +93,20 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   // decides whether the approval is allowed.
   const siteId = knownClient?.sites.find(s => s.name === form.site.trim())?.id;
   const [syncCabinets, setSyncCabinets] = useState<SyncCabinetRef[] | null>(null);
+  // The site's cabinets, for "this replaces": a failed drive reinstalled gets a new agent, and the approval says which cabinet it was.
+  const [siteCabinets, setSiteCabinets] = useState<SiteCabinet[]>([]);
   useEffect(() => {
     setSyncCabinets(null);
+    setSiteCabinets([]);
     if (!siteId) return;
     let live = true;
-    void api<{ sync: { syncCabinets: SyncCabinetRef[] } }>("GET", `/api/fleet/sites/${siteId}`)
-      .then(r => { if (live) setSyncCabinets(r.sync.syncCabinets); })
+    void api<{ sync: { syncCabinets: SyncCabinetRef[] }; cabinets: SiteCabinet[] }>("GET", `/api/fleet/sites/${siteId}`)
+      .then(r => { if (live) { setSyncCabinets(r.sync.syncCabinets); setSiteCabinets(r.cabinets); } })
       .catch(() => undefined);
     return () => { live = false; };
   }, [siteId]);
+  const candidates = useMemo(() => replaceable(siteCabinets, form.role), [siteCabinets, form.role]);
+  const replacing = candidates.find(c => c.id === form.replacesCabinetId) ?? null;
   // A new client chooses whether it uses a fingerprint scanner; an existing client keeps its own setting (changed on its page).
   const [scannerUse, setScannerUse] = useState<"used" | "not_used">("used");
   const [scannerFields, setScannerFields] = useState<ScannerFields>(EMPTY_FIELDS);
@@ -117,16 +123,19 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const siteState = useSitePolicyPreview(p.id, form.client, form.site, setSiteFields);
   const sitePolicies = sitePoliciesFrom(siteState.preview, siteFields);
   const choices = syncCabinets ?? [];
-  const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
-  const needsChoice = form.role === "satellite" && choices.length > 1 && !form.syncCabinetId;
+  // A satellite that replaces another keeps the sync cabinet the old one reached, so it is not asked.
+  const keepsLink = form.role === "satellite" && !!replacing;
+  const chosen = keepsLink ? "" : choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
+  const needsChoice = form.role === "satellite" && !keepsLink && choices.length > 1 && !form.syncCabinetId;
   // Exactly what is sent, and therefore exactly what the step-up token is bound to: no extra fields the contract refuses.
   const approval = useMemo(() => ({
     client: form.client, site: form.site, cabinet: form.cabinet, role: form.role,
     ...(form.role === "satellite" && chosen ? { syncCabinetId: chosen } : {}),
+    ...replacesFrom(form.replacesCabinetId, candidates),
     ...(scannerChoice ? { scanner: scannerChoice } : {}),
     ...(sitePolicies ? { sitePolicies } : {}),
     baseline: decision,
-  }), [form, chosen, scannerChoice, decision, sitePolicies?.firewall?.domain, sitePolicies?.firewall?.private, sitePolicies?.firewall?.public, sitePolicies?.timeZone, !!sitePolicies]);
+  }), [form, chosen, candidates, scannerChoice, decision, sitePolicies?.firewall?.domain, sitePolicies?.firewall?.private, sitePolicies?.firewall?.public, sitePolicies?.timeZone, !!sitePolicies]);
   const reaches = choices.find(c => c.id === chosen);
   return (
     <section className="panel" aria-label={`Request from ${p.fingerprints.hostname}`}>
@@ -143,14 +152,26 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
-          {form.role === "satellite" && choices.length > 1 && (
+          {candidates.length > 0 && (
+            <label className="field"><span>Replaces</span>
+              <select value={replacing?.id ?? ""} onChange={e => {
+                const old = candidates.find(c => c.id === e.target.value);
+                // Replacing usually keeps the old name: offered, and still editable.
+                setForm(f => ({ ...f, replacesCabinetId: e.target.value, ...(old ? { cabinet: old.name } : {}) }));
+              }}>
+                <option value="">Nothing: a new cabinet</option>
+                {candidates.map(c => <option key={c.id} value={c.id}>{c.name}{c.online ? "" : c.lastHeartbeatAt ? ` (not heard from since ${fullTime(c.lastHeartbeatAt)})` : " (never connected)"}</option>)}
+              </select></label>
+          )}
+          {replacing && <span className="muted small">{replacing.name} is retired and its settings are copied to this cabinet. Its history stays on its page.</span>}
+          {form.role === "satellite" && !keepsLink && choices.length > 1 && (
             <label className="field"><span>Sync cabinet</span>
               <select required value={form.syncCabinetId} onChange={e => setForm(f => ({ ...f, syncCabinetId: e.target.value }))}>
                 <option value="">Choose</option>
                 {choices.map(c => <option key={c.id} value={c.id}>{c.name}{c.address ? ` (${c.address})` : ""}</option>)}
               </select></label>
           )}
-          {form.role === "satellite" && (
+          {form.role === "satellite" && !keepsLink && (
             <span className="muted small">
               {choices.length === 1 ? <>Reaches <strong>{choices[0]!.name}</strong>, the site&apos;s sync cabinet.</>
                 : choices.length === 0 ? <>No sync cabinet at this site yet: the satellite is approved as incomplete and linked when one is approved.</>
@@ -187,7 +208,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
             {client.exact && !site.exact && <> This creates the new site <strong>{form.site.trim()}</strong>.</>}
             {newClient && (scannerUse === "not_used" ? <> It does not use a fingerprint scanner.</>
               : scannerChoice?.enabled ? <> Its scanner service <strong>{scannerChoice.service!.serviceName}</strong> is added to the approved programs and watched.</> : null)}
-            {form.role === "satellite" && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
+            {replacing && <> {replacementSentence(replacing, form.cabinet)}</>}
+            {form.role === "satellite" && !keepsLink && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
             {sitePolicies && <> The new site uses {sitePolicies.firewall ? <>its own firewall policy (<strong>{describePolicy(sitePolicies.firewall)}</strong>)</> : <>{siteState.preview?.firewall.source === "client" ? "the client's" : "the fleet's"} firewall policy</>}
               {" "}and {sitePolicies.timeZone ? <>the time zone <strong>{zoneName(sitePolicies.timeZone)}</strong></> : siteState.preview?.timeZone.zone ? <>the inherited time zone</> : <>no time zone</>}.</>}
             {" "}Baseline: {decision?.use === "inherited" ? inForceText(baselinePreview?.inForce ?? [])
@@ -197,7 +219,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
         onToken={async token => {
           try {
             if (confirm === "reject") { await api("POST", `/api/admin/enrollments/${p.id}/reject`, { stepUpToken: token }); setDone("Rejected."); }
-            else { await api("POST", `/api/admin/enrollments/${p.id}/approve`, { ...approval, stepUpToken: token }); setDone(`Approved. ${form.cabinet} will come online within a minute.${decision?.use === "capture" ? " It shows Baseline required until the site's baseline draft from it is approved." : ""}`); }
+            else { await api("POST", `/api/admin/enrollments/${p.id}/approve`, { ...approval, stepUpToken: token }); setDone(`Approved. ${form.cabinet} will come online within a minute.${replacing ? ` ${replacing.name} is retired.` : ""}${decision?.use === "capture" ? " It shows Baseline required until the site's baseline draft from it is approved." : ""}`); }
             setTimeout(onDone, 1500);
           } catch (e) { setProblem(describeError(e)); }
         }} />

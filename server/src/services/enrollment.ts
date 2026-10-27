@@ -14,6 +14,8 @@ import { approvedFor, attachChoices, attachToSite, type Scope } from "./baseline
 import { fleetPolicy, writeSitePolicy, type FirewallPolicy } from "./firewall-policy.js";
 import { fleetTimeZone, type TimeZoneId } from "./time.js";
 import { parseJson } from "./settings.js";
+import { completeReplacement, freeName, lockReplaced, type OldCabinet } from "./replacement.js";
+import { noteRevocation } from "../agent-api/revocations.js";
 
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -89,6 +91,8 @@ export interface Approval {
   baseline?: BaselineDecision;
   /** For a new site only: its own firewall policy and time zone; null or left out, it inherits them (05-server-spec.md "Site policies"). */
   sitePolicies?: { firewall?: FirewallPolicy | null; timeZone?: TimeZoneId | null };
+  /** The active cabinet this one replaces (05-server-spec.md "Replacing a cabinet"): same site, same role. */
+  replacesCabinetId?: string;
 }
 
 /** The baseline decision every approval carries (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). */
@@ -111,10 +115,10 @@ const chooseSyncCabinet = () => new Refused("choose_sync_cabinet", 409, "this si
 
 /** Approves a pending request: places the cabinet, links it into the site's sync arrangement, signs its certificate and records it all. */
 export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string, signing?: ListSigningKeys):
-  Promise<{ cabinetId: string; serial: string; siteId: string; baseline: ApprovalBaseline }> {
+  Promise<{ cabinetId: string; serial: string; siteId: string; baseline: ApprovalBaseline; replacement: Awaited<ReturnType<typeof completeReplacement>> | null }> {
   if (approval.syncCabinetId !== undefined && approval.role !== "satellite")
     throw new Refused("sync_not_allowed", 400, "only a satellite is given a sync cabinet", { reason: "Only a satellite is given a sync cabinet." });
-  return transaction(pool, async c => {
+  const result = await transaction(pool, async c => {
     const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
       "SELECT csr, fingerprints FROM enrollment_requests WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND status = 'pending'", [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
@@ -148,11 +152,16 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         details: { before: null, timeZone: approval.sitePolicies.timeZone, enrollment: requestId } });
     }
 
+    // The cabinet this one replaces, read and checked under lock before anything is written.
+    const old: OldCabinet | null = approval.replacesCabinetId ? await lockReplaced(c, approval.replacesCabinetId, site.id, approval.role) : null;
     // A satellite's sync cabinet, decided before the cabinet exists so a refusal leaves nothing behind. The site's sync cabinets are
     // read under lock: a sync cabinet approved at the same moment cannot change the answer between this read and the insert.
     let syncCabinetId: string | null = null;
     if (approval.role === "satellite") {
-      if (approval.syncCabinetId !== undefined) {
+      if (approval.syncCabinetId === undefined && old?.syncCabinetId) {
+        // A replacement reaches the sync cabinet the old one reached.
+        syncCabinetId = old.syncCabinetId;
+      } else if (approval.syncCabinetId !== undefined) {
         await assertSyncCabinetAt(c, approval.syncCabinetId, site.id);
         syncCabinetId = approval.syncCabinetId;
       } else {
@@ -164,14 +173,22 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     }
 
     const cabinetId = randomUUID();
+    // A replacement that takes the old cabinet's name frees it first (the old record keeps its history under "<name> (replaced <date>)").
+    if (old && old.name.toLowerCase() === approval.cabinetName.trim().toLowerCase()) await freeName(c, old);
     // A cabinet name is unique within its site (removed cabinets keep theirs). The check is in the insert itself, with a lock on the rows
     // it reads, so two approvals at the same moment cannot both pass: one inserts, the other sees the row and is refused.
-    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id)
-                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9
+    // A replacement starts with the old cabinet's own settings; an Admin-set sync address carries over (a reported one comes from the new report).
+    const keepAddress = old?.role === "sync" && old.syncAddressSource === "admin";
+    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
+                     replaces_cabinet_id, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source)
+                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
                    WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
       [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion,
-       request.fingerprints.architecture ?? null, syncCabinetId]);
+       request.fingerprints.architecture ?? null, syncCabinetId, old?.id ?? null, old?.scannerHardwareIds ?? null, old?.watchedServices ?? null, old?.filefactsPaths ?? null,
+       old?.inOffice ? 1 : 0, keepAddress ? old!.syncAddress : null, keepAddress ? "admin" : null]);
     if (insert.rowCount !== 1) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
+    // The old cabinet's place, its own settings, and the old cabinet retired (its satellites follow it before any are linked below).
+    const replacement = old ? await completeReplacement(c, userId, old, cabinetId, approval.cabinetName, signing) : null;
     // The site's first sync cabinet takes in the satellites that were waiting for one.
     const linked = approval.role === "sync" ? await linkUnassigned(c, site.id) : 0;
     // The baseline decision, checked and recorded with the cabinet. A refusal rolls the whole approval back.
@@ -196,8 +213,11 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
       details: { requestId, ...approval, syncCabinetId, ...(scanner ? { scannerApproval: scanner.approval } : {}), ...(approval.role === "sync" ? { satellitesLinked: linked } : {}), certificateSerial: certificate.serialHex } });
     return { cabinetId, serial: certificate.serialHex, siteId: site.id,
-      baseline: { decision: approval.baseline?.use ?? null, inForce, captureWaiting: approval.baseline?.use === "capture" } };
+      baseline: { decision: approval.baseline?.use ?? null, inForce, captureWaiting: approval.baseline?.use === "capture" }, replacement };
   });
+  // Every server process forgets the connections the replaced cabinet had, once the approval has committed.
+  if (result.replacement) noteRevocation();
+  return result;
 }
 
 export async function rejectEnrollment(pool: Pool, requestId: string, userId: string): Promise<void> {

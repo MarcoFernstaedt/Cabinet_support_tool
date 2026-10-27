@@ -254,6 +254,29 @@ export async function attachToSite(c: Queryable, userId: string, siteId: string,
 }
 
 /**
+ * Copies a cabinet's own approved baseline to the cabinet that replaces it, in the caller's transaction: the new cabinet gets an approved
+ * version with the same content (origin "replacement"), decided by the person who approved the replacement. The content was approved
+ * for the same machine through the usual review; nothing else is copied. Returns the copy, or null when the old cabinet had none.
+ */
+export async function copyCabinetBaseline(c: Queryable, userId: string, fromCabinetId: string, toCabinetId: string): Promise<{ versionId: string; version: number } | null> {
+  await lockBaselines(c);
+  const src = (await c.query<{ id: string; content: BaselineContent; version: number }>(
+    `SELECT v.id, v.content, v.[version] FROM baseline_versions v JOIN baselines b ON b.id = v.baseline_id
+      WHERE b.scope_kind = 'cabinet' AND b.scope_id = $1 AND v.status = 'approved'`, [fromCabinetId.toLowerCase()])).rows[0];
+  if (!src) return null;
+  const scope: Scope = { kind: "cabinet", id: toCabinetId.toLowerCase() };
+  const baselineId = await ensureBaseline(c, { userId, role: "admin" }, scope);
+  const id = randomUUID();
+  const origin = { kind: "replacement", fromCabinetId: fromCabinetId.toLowerCase(), versionId: src.id, version: src.version };
+  await c.query(`INSERT INTO baseline_versions (id, baseline_id, [version], status, content, description, previous_version_id, compat, origin, created_by, decided_by, decided_at, decision_note)
+                 VALUES ($1, $2, 1, 'approved', $3, $4, NULL, NULL, $5, $6, $6, SYSUTCDATETIME(), $7)`,
+    [id, baselineId, safeJson(src.content), `Copied from the cabinet it replaced (version ${src.version})`, safeJson(origin), userId, "Copied when the replacement was approved"]);
+  await audit(c, { actorKind: "user", actorId: userId, action: "baseline.copy", targetKind: "baseline", targetId: baselineId, outcome: "succeeded",
+    details: { versionId: id, scope, fromCabinetId: origin.fromCabinetId, fromVersionId: src.id, fromVersion: src.version } });
+  return { versionId: id, version: 1 };
+}
+
+/**
  * A capture asked for at enrollment: once the cabinet has reported every category a site baseline uses, its configuration becomes the
  * site's baseline draft, written in the approver's name (they asked for it) and audited as the platform's doing. The draft is then
  * proposed and approved like any other, with the two-person rule. Returns the draft, or null when there is nothing to do yet.

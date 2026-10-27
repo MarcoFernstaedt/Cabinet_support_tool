@@ -15,7 +15,7 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
   const scanner = rows.find(r => r.scenario === "scanner_flapping");
   const real = (await db.query<{ id: string; name: string }>(
     "SELECT TOP (1) id, name FROM cabinets WHERE demo_scenario IS NULL AND status = 'active' ORDER BY created_at DESC")).rows[0];
-  // The cash drawer check is shown on a cabinet whose firewall is on, in another demo site: the same page, with a fault to find and fix.
+  // The drawer check is shown on a cabinet whose firewall is on, in another demo site: the same page, with a fault to find and fix.
   const drawer = (await db.query<{ id: string }>(
     `SELECT TOP (1) k.id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE k.name = 'Pharmacy Sync' AND k.demo_scenario IS NOT NULL AND c.demo = 1 ORDER BY k.name`)).rows[0];
@@ -29,7 +29,7 @@ export async function demoScenarios(db: Queryable): Promise<DemoScenario[]> {
         ...(examRoom ? [{ label: "One cabinet: Exam Room 1", path: `/cabinets/${examRoom.id}/network` }] : []),
         { label: "The whole site", path: `/sites/${site.site_id}?diagnose=network` },
         ...(operating ? [{ label: "Operating Room's network", path: `/cabinets/${operating.id}/network` }] : []),
-        ...(drawer ? [{ label: "Cash drawer: Pharmacy Sync", path: `/cabinets/${drawer.id}/network` }] : []),
+        ...(drawer ? [{ label: "Drawer: Pharmacy Sync", path: `/cabinets/${drawer.id}/network` }] : []),
         ...(scanner ? [{ label: "Procedure Room's scanner", path: `/cabinets/${scanner.id}/scanner` }, { label: "Service start type: Procedure Room", path: `/cabinets/${scanner.id}/services` }] : []),
         { label: "Unrecognized errors", path: "/alerts?view=unrecognized" },
         ...(reception ? [{ label: "Reception: event logs", path: `/cabinets/${reception.id}/events?log=System` }, { label: "Reception: alerts", path: `/cabinets/${reception.id}/alerts` }] : []),

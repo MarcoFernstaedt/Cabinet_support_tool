@@ -46,7 +46,7 @@ export interface NetworkEvidence {
 const PROFILE_NAMES = ["domain", "private", "public"] as const;
 const onOff = (p: Profiles) => PROFILE_NAMES.map(k => `${k[0]!.toUpperCase()}${k.slice(1)} ${p[k] ? "on" : "off"}`).join(", ");
 const differs = (want: Profiles, have: Profiles) => PROFILE_NAMES.some(k => want[k] !== have[k]);
-/** The cash drawer link: an address in 172.20.1.0/24 (the same network as console/src/lib/drawer.ts). */
+/** The drawer link: an address in 172.20.1.0/24 (the same network as console/src/lib/drawer.ts). */
 const isDrawerLink = (a: { ipv4: { addresses: { address: string }[] } }) => a.ipv4.addresses.some(x => x.address.startsWith("172.20.1."));
 const isApipa = (a: string) => a.startsWith("169.254.");
 const octets = (a: string): number | null => {
@@ -94,7 +94,7 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
     add({ id: "config", severity: "info", certainty: "not_checked", title: "Could not read the network settings", evidence: [e.configFailure ?? "No answer from the cabinet."], fix: "Run the diagnosis again; if it keeps failing, check the cabinet is online." });
   } else {
     const adapters = e.config.adapters.filter(a => a.type !== "other");
-    // The cash drawer link is its own small network with no gateway; the site checks below do not apply to it (the cabinet's Network tab has a drawer check).
+    // The drawer link is its own small network with no gateway; the site checks below do not apply to it (the cabinet's Network tab has a drawer check).
     const connected = adapters.filter(a => a.connected && !isDrawerLink(a));
     if (connected.length === 0)
       add({ id: "link", severity: "problem", certainty: "confirmed", title: "No network link on any adapter",

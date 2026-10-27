@@ -27,7 +27,7 @@ test("the drawer adapter is found by address or by the unidentified network, nev
 test("a healthy drawer link passes", () => {
   const a = analyseDrawer([adapter()], [later(adapter(), { bytesReceived: 5000, bytesSent: 3000 })], 5, off);
   assert.equal(a.tone, "ok", a.summary);
-  assert.match(drawerText("Cab 1", a), /cash drawer check/);
+  assert.match(drawerText("Cab 1", a), /drawer check/);
 });
 
 test("a missing drawer adapter is a problem", () => {
