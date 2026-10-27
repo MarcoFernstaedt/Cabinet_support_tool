@@ -555,7 +555,15 @@ export interface AppControl {
 }
 
 /**
- * Approve a pending cabinet: where it belongs, what it is called and its role. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned.
+ * GET /api/admin/enrollments/:id/baseline query string: the client and site an approval would use, so the approval can show which approved baseline would apply and offer the ones that could be attached. Reading it changes nothing; the approval checks everything again.
+ */
+export interface ApproveEnrollmentBaseline {
+  client: string;
+  site: string;
+}
+
+/**
+ * Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision.
  */
 export interface ApproveEnrollment {
   client: string;
@@ -567,6 +575,20 @@ export interface ApproveEnrollment {
    */
   syncCabinetId?: string;
   scanner?: ClientScannerChoice;
+  /**
+   * The baseline decision every approval needs (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). inherited: an approved baseline already applies (fleet, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.
+   */
+  baseline:
+    | {
+        use: "inherited";
+      }
+    | {
+        use: "attach";
+        versionId: string;
+      }
+    | {
+        use: "capture";
+      };
   /**
    * A one-time step-up token bound to this exact action.
    */

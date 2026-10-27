@@ -4,6 +4,7 @@ import type { ConfigUpload } from "../contracts.js";
 import type { Pool, Queryable } from "../db/db.js";
 import { currentItems, ingestConfig, isCategory, type Category, type IngestSummary } from "./config-ingest.js";
 import { evaluateBaselineDrift } from "./baseline-drift.js";
+import { captureForEnrollment } from "./baselines.js";
 import { evaluateHealth } from "./cabinet-health.js";
 import { likeContains } from "./sql-like.js";
 import { followStoredNetwork } from "./sync-cabinets.js";
@@ -11,6 +12,8 @@ import { followStoredNetwork } from "./sync-cabinets.js";
 /** Verifies and stores snapshots, then brings the cabinet's drift and health up to date once. */
 export async function ingestAndEvaluate(pool: Pool, cabinetId: string, snapshots: ConfigUpload["snapshots"], source: "agent" | "refresh"): Promise<IngestSummary> {
   const summary = await ingestConfig(pool, cabinetId, snapshots, source);
+  // A capture asked for when the cabinet was approved becomes the site's baseline draft once every category has been reported.
+  if (summary.first + summary.changed > 0) await captureForEnrollment(pool, cabinetId);
   if (summary.first + summary.changed > 0) await evaluateBaselineDrift(pool, cabinetId);
   await evaluateHealth(pool, cabinetId, new Date(), summary.first + summary.changed > 0 ? summary.latestObservedAt : null);
   // A sync cabinet's satellites follow the address it reports, unless an Admin set one.

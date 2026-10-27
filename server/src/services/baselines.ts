@@ -164,12 +164,23 @@ const PER_CABINET: Partial<Record<Category, string[]>> = { network: ["addresses"
 /** Categories a baseline wider than one cabinet does not start with (every cabinet has its own devices). */
 const CABINET_ONLY: Category[] = ["devices"];
 
+/** The categories a capture for a scope starts with: every one, except the per-cabinet ones for a scope wider than one cabinet. */
+export const captureCategories = (kind: ScopeKind): Category[] => CATEGORIES.filter(k => !CABINET_ONLY.includes(k) || kind === "cabinet");
+
 export async function captureDraft(pool: Pool, actor: Actor, body: { cabinetId: string; scope: Scope; description: string; categories?: string[] | undefined }) {
   const scope = normalScope(body.scope);
   checkScopeRole(actor, scope);
   return transaction(pool, async c => {
     await lockBaselines(c);
-    const wanted = (body.categories as Category[] | undefined) ?? CATEGORIES.filter(k => !CABINET_ONLY.includes(k) || scope.kind === "cabinet");
+    return captureIn(c, actor, { ...body, scope });
+  });
+}
+
+/** A capture inside the caller's transaction, which already holds the baselines lock. */
+async function captureIn(c: Queryable, actor: Actor, body: { cabinetId: string; scope: Scope; description: string; categories?: string[] | undefined }, auditAs?: { actorKind: "system"; actorId: string }) {
+  const scope = body.scope;
+  {
+    const wanted = (body.categories as Category[] | undefined) ?? captureCategories(scope.kind);
     const current = await currentItems(c, body.cabinetId.toLowerCase(), wanted);
     if (current.size === 0) throw new Refused("no_configuration", 409, "this cabinet has not reported its configuration yet");
     const items: BaselineItem[] = [];
@@ -182,11 +193,125 @@ export async function captureDraft(pool: Pool, actor: Actor, body: { cabinetId: 
     if (items.length > MAX_ITEMS) throw new Refused("too_many_items", 400, `a baseline holds at most ${MAX_ITEMS} items; this capture has ${items.length}, so leave some categories out`);
     items.sort((a, b) => (a.category + "|" + a.key < b.category + "|" + b.key ? -1 : 1));
     const observed = Math.max(...[...current.values()].map(r => r.observedAt.getTime()));
-    const d = await newDraft(c, actor, scope, body.description.trim(), { items }, null, { kind: "capture", cabinetId: body.cabinetId.toLowerCase(), observedAt: new Date(observed).toISOString() });
-    await audit(c, { actorKind: "user", actorId: actor.userId, action: "baseline.capture", targetKind: "baseline", targetId: d.baselineId, outcome: "succeeded",
-      details: { versionId: d.id, version: d.version, scope, cabinetId: body.cabinetId.toLowerCase(), items: items.length } });
+    const d = await newDraft(c, actor, scope, body.description.trim(), { items }, null,
+      { kind: "capture", cabinetId: body.cabinetId.toLowerCase(), observedAt: new Date(observed).toISOString(), ...(auditAs ? { enrollment: true } : {}) });
+    await audit(c, { actorKind: auditAs?.actorKind ?? "user", actorId: auditAs?.actorId ?? actor.userId, action: "baseline.capture", targetKind: "baseline", targetId: d.baselineId, outcome: "succeeded",
+      details: { versionId: d.id, version: d.version, scope, cabinetId: body.cabinetId.toLowerCase(), items: items.length, ...(auditAs ? { forUser: actor.userId, enrollment: true } : {}) } });
     return { ...d, items: items.length };
+  }
+}
+
+// ---- Baselines at enrollment ----------------------------------------------------------------------------------------------
+// docs/spec/15-baselines-and-config.md "Baselines at enrollment": every approval names the baseline a cabinet is judged against.
+
+/** The approved baselines in force for these scopes, widest first: what a cabinet in them is judged against. */
+export async function approvedFor(db: Queryable, scopes: readonly Scope[]): Promise<Origin[]> {
+  if (scopes.length === 0) return [];
+  const rows = (await db.query<{ scope_kind: ScopeKind; scope_id: string | null; name: string; baseline_id: string; version_id: string; version: number }>(
+    `SELECT b.scope_kind, b.scope_id, b.name, b.id AS baseline_id, v.id AS version_id, v.[version]
+       FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved'
+      WHERE EXISTS (SELECT 1 FROM OPENJSON($1) WITH (kind nvarchar(16) '$.kind', id nvarchar(64) '$.id') s WHERE s.kind = b.scope_kind AND ISNULL(s.id, N'') = ISNULL(b.scope_id, N''))`,
+    [scopes.map(s => ({ kind: s.kind, id: s.id === null ? null : s.id.toLowerCase() }))])).rows;
+  return rows.sort((a, b) => ORDER.indexOf(a.scope_kind) - ORDER.indexOf(b.scope_kind))
+    .map(r => ({ kind: r.scope_kind, id: r.scope_id, name: r.name, baselineId: r.baseline_id, versionId: r.version_id, version: r.version }));
+}
+
+/** The approved versions an approver may attach to a site, newest first; the few fields the dialog shows. */
+export async function attachChoices(db: Queryable, limit = 100) {
+  const rows = (await db.query<{ version_id: string; version: number; scope_kind: ScopeKind; name: string }>(
+    `SELECT TOP (${Math.max(1, Math.min(200, Math.floor(limit)))}) v.id AS version_id, v.[version], b.scope_kind, b.name
+       FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved'
+      WHERE b.scope_kind IN ('global', 'model', 'client', 'site') ORDER BY v.decided_at DESC`)).rows;
+  return rows.map(r => ({ versionId: r.version_id, version: r.version, scope: r.scope_kind, name: r.name }));
+}
+
+/**
+ * Attaches an approved baseline to a site, in the caller's transaction: the site's baseline gets an approved version with the same
+ * content. The content was approved already (by the two-person review of its own scope); the approver's step-up for the whole approval
+ * confirms that it now also applies to this site. A site that has an approved baseline of its own is refused: that one applies.
+ */
+export async function attachToSite(c: Queryable, userId: string, siteId: string, versionId: string, why: string): Promise<Origin> {
+  await lockBaselines(c);
+  const src = (await c.query<{ content: BaselineContent; version: number; scope_kind: ScopeKind; scope_id: string | null; name: string }>(
+    `SELECT v.content, v.[version], b.scope_kind, b.scope_id, b.name FROM baseline_versions v JOIN baselines b ON b.id = v.baseline_id
+      WHERE v.id = $1 AND v.status = 'approved' AND b.scope_kind IN ('global', 'model', 'client', 'site')`, [versionId])).rows[0];
+  if (!src) throw new Refused("not_approved", 409, "that baseline version is not an approved baseline that can be attached",
+    { reason: "That baseline is not approved, or a newer version replaced it. Choose one from the list again." });
+  const scope: Scope = { kind: "site", id: siteId.toLowerCase() };
+  const baselineId = await ensureBaseline(c, { userId, role: "admin" }, scope);
+  if ((await c.query("SELECT TOP (1) 1 AS x FROM baseline_versions WHERE baseline_id = $1 AND status = 'approved'", [baselineId])).rows.length > 0)
+    throw new Refused("site_has_baseline", 409, "this site already has an approved baseline of its own",
+      { reason: "This site already has an approved baseline of its own, and it applies to this cabinet. Choose \"use the baseline in force\"." });
+  const last = Number((await c.query<{ v: number }>("SELECT ISNULL(MAX([version]), 0) AS v FROM baseline_versions WHERE baseline_id = $1", [baselineId])).rows[0]!.v);
+  const id = randomUUID();
+  const origin = { kind: "attach", from: { kind: src.scope_kind, id: src.scope_id }, versionId, version: src.version };
+  await c.query(`INSERT INTO baseline_versions (id, baseline_id, [version], status, content, description, previous_version_id, compat, origin, created_by, decided_by, decided_at, decision_note)
+                 VALUES ($1, $2, $3, 'approved', $4, $5, NULL, NULL, $6, $7, $7, SYSUTCDATETIME(), $8)`,
+    [id, baselineId, last + 1, safeJson(src.content), `Attached from ${src.name} version ${src.version}`.slice(0, 500), safeJson(origin), userId, why.slice(0, 500)]);
+  await audit(c, { actorKind: "user", actorId: userId, action: "baseline.attach", targetKind: "baseline", targetId: baselineId, outcome: "succeeded",
+    details: { versionId: id, version: last + 1, scope, from: origin.from, fromVersionId: versionId, fromVersion: src.version } });
+  return { kind: "site", id: scope.id, name: await scopeName(c, scope), baselineId, versionId: id, version: last + 1 };
+}
+
+/**
+ * A capture asked for at enrollment: once the cabinet has reported every category a site baseline uses, its configuration becomes the
+ * site's baseline draft, written in the approver's name (they asked for it) and audited as the platform's doing. The draft is then
+ * proposed and approved like any other, with the two-person rule. Returns the draft, or null when there is nothing to do yet.
+ */
+export async function captureForEnrollment(pool: Pool, cabinetId: string): Promise<{ versionId: string; version: number } | null> {
+  const id = cabinetId.toLowerCase();
+  // Cheap check first: this runs after every configuration upload of every cabinet.
+  const waiting = (await pool.query<{ site_id: string }>("SELECT site_id FROM enrollment_baselines WHERE cabinet_id = $1 AND capture_state = 'waiting'", [id])).rows[0];
+  if (!waiting) return null;
+  const need = captureCategories("site");
+  const have = (await pool.query<{ category: string }>("SELECT category FROM config_current WHERE cabinet_id = $1", [id])).rows.map(r => r.category);
+  if (!need.every(k => have.includes(k))) return null;
+  return transaction(pool, async c => {
+    await lockBaselines(c);
+    // Claimed under the lock, so two uploads at the same moment make one draft.
+    const row = (await c.query<{ site_id: string; decided_by: string; name: string }>(
+      `SELECT e.site_id, e.decided_by, k.name FROM enrollment_baselines e WITH (UPDLOCK, ROWLOCK) JOIN cabinets k ON k.id = e.cabinet_id
+        WHERE e.cabinet_id = $1 AND e.capture_state = 'waiting' AND k.status = 'active'`, [id])).rows[0];
+    if (!row) return null;
+    let d: { id: string; version: number };
+    try {
+      d = await captureIn(c, { userId: row.decided_by, role: "admin" }, { cabinetId: id, scope: { kind: "site", id: row.site_id.toLowerCase() },
+        description: `Captured from ${row.name} when it first reported, as asked at its approval`.slice(0, 500) }, { actorKind: "system", actorId: "enrollment" });
+    } catch (e) {
+      // A capture the rules refuse (more items than a baseline holds) is refused before anything is written: say so once, and stop
+      // trying on every upload. Someone captures a trimmed baseline by hand from the cabinet's Baseline tab.
+      if (!(e instanceof Refused)) throw e;
+      await c.query("UPDATE enrollment_baselines SET capture_state = 'failed' WHERE cabinet_id = $1", [id]);
+      await audit(c, { actorKind: "system", actorId: "enrollment", action: "baseline.capture", targetKind: "cabinet", targetId: id, outcome: "failed", details: { code: e.code } });
+      return null;
+    }
+    await c.query("UPDATE enrollment_baselines SET capture_state = 'drafted', draft_version_id = $2, drafted_at = SYSUTCDATETIME() WHERE cabinet_id = $1", [id, d.id]);
+    return { versionId: d.id, version: d.version };
   });
+}
+
+export interface BaselineStatus {
+  /** An approved baseline applies to the cabinet now. */
+  inForce: boolean;
+  inForceFrom: { kind: ScopeKind; name: string; version: number }[];
+  /** The decision made when it was approved, and where a requested capture stands. */
+  enrollment: { decision: "inherited" | "attach" | "capture"; captureState: "waiting" | "drafted" | "failed" | null; draftVersionId: string | null; draftStatus: string | null;
+    categoriesReported: number; categoriesNeeded: number } | null;
+}
+
+/** Whether a baseline is in force for a cabinet, and what was decided for it at enrollment: the "Baseline required" state. */
+export async function baselineStatus(db: Queryable, cabinetId: string): Promise<BaselineStatus> {
+  const inForce = await approvedFor(db, await cabinetScopes(db, cabinetId));
+  const e = (await db.query<{ decision: "inherited" | "attach" | "capture"; capture_state: "waiting" | "drafted" | "failed" | null; draft_version_id: string | null; draft_status: string | null }>(
+    `SELECT e.decision, e.capture_state, e.draft_version_id, v.status AS draft_status FROM enrollment_baselines e LEFT JOIN baseline_versions v ON v.id = e.draft_version_id
+      WHERE e.cabinet_id = $1`, [cabinetId])).rows[0];
+  const need = captureCategories("site");
+  const reported = e?.capture_state === "waiting"
+    ? (await db.query<{ category: string }>("SELECT category FROM config_current WHERE cabinet_id = $1", [cabinetId])).rows.filter(r => need.includes(r.category as Category)).length : 0;
+  return {
+    inForce: inForce.length > 0, inForceFrom: inForce.map(o => ({ kind: o.kind, name: o.name, version: o.version })),
+    enrollment: e ? { decision: e.decision, captureState: e.capture_state, draftVersionId: e.draft_version_id, draftStatus: e.draft_status, categoriesReported: reported, categoriesNeeded: need.length } : null,
+  };
 }
 
 export async function importDraft(pool: Pool, actor: Actor, body: { from: Scope; to: Scope; description: string }) {

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment.schema.json",
   "title": "approve-enrollment",
-  "description": "Approve a pending cabinet: where it belongs, what it is called and its role. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned.",
+  "description": "Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -35,6 +35,51 @@
       "description": "For a new client only: whether it uses a fingerprint scanner, with its service when it does. An existing client keeps its own setting, so the approval refuses this field for one (change it on the client's page).",
       "$ref": "../common.schema.json#/$defs/clientScannerChoice"
     },
+    "baseline": {
+      "description": "The baseline decision every approval needs (docs/spec/15-baselines-and-config.md \"Baselines at enrollment\"). inherited: an approved baseline already applies (fleet, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "use": {
+              "const": "inherited"
+            }
+          },
+          "required": [
+            "use"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "use": {
+              "const": "attach"
+            },
+            "versionId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          },
+          "required": [
+            "use",
+            "versionId"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "use": {
+              "const": "capture"
+            }
+          },
+          "required": [
+            "use"
+          ]
+        }
+      ]
+    },
     "stepUpToken": {
       "description": "A one-time step-up token bound to this exact action.",
       "type": "string",
@@ -46,6 +91,7 @@
     "site",
     "cabinet",
     "role",
+    "baseline",
     "stepUpToken"
   ],
   "not": {

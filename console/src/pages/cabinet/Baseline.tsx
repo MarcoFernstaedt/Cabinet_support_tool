@@ -14,7 +14,24 @@ import { CATEGORIES, categoryName, FieldChange, HEALTH_LABEL, HEALTH_TONE, Origi
 import type { CabinetDetail } from "./CabinetPage";
 
 interface Reason { code: string; text: string }
-interface Condition { state: Health; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; degradedSince: string | null; changesSinceHealthy: number | null }
+/** Whether any approved baseline applies, and what was decided for it when the cabinet was approved. */
+interface BaselineStatus {
+  inForce: boolean; inForceFrom: { kind: string; name: string; version: number }[];
+  enrollment: { decision: "inherited" | "attach" | "capture"; captureState: "waiting" | "drafted" | "failed" | null; draftVersionId: string | null; draftStatus: string | null;
+    categoriesReported: number; categoriesNeeded: number } | null;
+}
+interface Condition { state: Health; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; degradedSince: string | null; changesSinceHealthy: number | null; baseline?: BaselineStatus }
+
+/** Why a cabinet still needs a baseline, and what happens next: the capture asked for at its approval, or a person's choice. */
+function baselineRequiredText(b: BaselineStatus): string {
+  const e = b.enrollment;
+  if (e?.decision === "capture" && e.captureState === "waiting")
+    return `Its configuration becomes the site's baseline draft once it has reported all of it (${e.categoriesReported} of ${e.categoriesNeeded} parts so far).`;
+  if (e?.decision === "capture" && e.captureState === "drafted")
+    return e.draftStatus === "pending" ? "The site's baseline draft from this cabinet is waiting for an Admin's approval." : "The site's baseline draft from this cabinet is ready to review and propose.";
+  if (e?.decision === "capture" && e.captureState === "failed") return "Its configuration was too large to capture as a baseline. Capture one by hand, leaving some parts out.";
+  return "No approved baseline applies to this cabinet. Attach one to its site, or capture one from a known-working cabinet.";
+}
 
 function next(h: Condition): string {
   if (h.state === "healthy") return "Nothing to do: this cabinet meets its baseline.";
@@ -31,7 +48,11 @@ export function ConfigHealth({ cabinet }: { cabinet: CabinetDetail }) {
   if (!data) return null;
   return (
     <section className={`panel health ${data.state}`} aria-labelledby="config-health-heading">
-      <h2 id="config-health-heading">Configuration <Badge tone={HEALTH_TONE[data.state]}>{HEALTH_LABEL[data.state]}</Badge></h2>
+      <h2 id="config-health-heading">Configuration <Badge tone={HEALTH_TONE[data.state]}>{HEALTH_LABEL[data.state]}</Badge>
+        {data.baseline && !data.baseline.inForce && <> <Badge tone="warn">Baseline required</Badge></>}</h2>
+      {data.baseline && !data.baseline.inForce && (
+        <p className="notice warn">Baseline required. {baselineRequiredText(data.baseline)}
+          {data.baseline.enrollment?.draftVersionId && <> <Link to={`/admin/baselines/versions/${data.baseline.enrollment.draftVersionId}`}>Open the draft</Link></>}</p>)}
       <dl className="kv">
         <div><dt>Last known healthy configuration</dt><dd>{data.lastHealthyAt ? <>{fullTime(data.lastHealthyAt)} <span className="muted">({ago(data.lastHealthyAt)})</span></> : <span className="muted">not recorded yet</span>}</dd></div>
         {data.state !== "healthy" && data.degradedSince && <div><dt>Problem first observed</dt><dd>{fullTime(data.degradedSince)}{data.lastHealthyAt && <span className="muted"> (it was last seen healthy at {fullTime(data.lastHealthyAt)}, so it began in between)</span>}</dd></div>}

@@ -3,5 +3,8 @@
   "site": "North",
   "cabinet": "ICU 3",
   "role": "satellite",
+  "baseline": {
+    "use": "inherited"
+  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }
