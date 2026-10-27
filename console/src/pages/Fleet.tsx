@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { SiteSync, type SiteSyncInfo } from "../components/SyncCabinets";
+import { ClientScannerPanel, type ClientScannerState } from "../components/ClientScanner";
 import { api, describeError } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
@@ -65,6 +66,7 @@ export function FleetHome() {
 
 interface ClientDetail { id: string; name: string; writePaused: boolean;
   scanner: { hardwareIds: string[] | null; fleetHardwareIds: string[] | null }; syncPorts: { ports: number[] | null; fleetPorts: number[] | null };
+  fingerprintScanner: ClientScannerState | null;
   sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
 
 export function ClientPage({ id }: { id: string }) {
@@ -95,9 +97,10 @@ export function ClientPage({ id }: { id: string }) {
         <Pager {...sitesPaged} label="sites" />
         <section className="panel" aria-labelledby="client-scanner">
           <h2 id="client-scanner">Fingerprint scanner for {data.name}</h2>
-          <ScannerIdsEditor key={data.id} label="This client's scanner IDs" current={data.scanner.hardwareIds}
+          <ClientScannerPanel key={`fs-${data.id}`} clientId={data.id} name={data.name} state={data.fingerprintScanner} admin={atLeast(me, "admin")} onSaved={reload} />
+          {data.fingerprintScanner?.enabled !== false && <ScannerIdsEditor key={data.id} label="This client's scanner IDs" current={data.scanner.hardwareIds}
             inherited={data.scanner.fleetHardwareIds ? <>the fleet default applies (<code>{data.scanner.fleetHardwareIds.join(", ")}</code>).</> : "cabinets find the scanner automatically (the Biometric device)."}
-            endpoint={`/api/clients/${data.id}/scanner`} action="client.scanner" target={data.id} what={`every cabinet of ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />
+            endpoint={`/api/clients/${data.id}/scanner`} action="client.scanner" target={data.id} what={`every cabinet of ${data.name}`} editable={atLeast(me, "tier2")} onSaved={reload} />}
         </section>
         <section className="panel" aria-labelledby="client-ports">
           <h2 id="client-ports">Sync cabinet ports for {data.name}</h2>
