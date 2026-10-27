@@ -21,7 +21,7 @@ For each cabinet it reads the network settings and firewall, then tests the gate
 - the **address** with the baseline's network (an address from another network, a 169.254 address from a failed DHCP lease, a fixed address where the site uses DHCP);
 - the **gateway** with the baseline's;
 - the **DNS servers** with the baseline's;
-- the **firewall** with the client policy, and the sync cabinet's firewall when a satellite cannot reach it.
+- the **firewall** with the policy that applies (the site's own, else the client's, else the fleet default; 05-server-spec.md "Site policies"), and the sync cabinet's firewall when a satellite cannot reach it.
 
 Every finding says how sure it is (confirmed, probable, possible, could not check) and where it sits in the path: link, address, gateway, DNS, platform, sync cabinet, firewall. A failed test that follows from a wrong address, gateway or DNS server is marked as probably a result of it and is not listed as a separate problem. A cabinet that differs from its baseline gets a minor "Network settings differ from the site baseline" alert, which a later clean diagnosis closes.
 
@@ -29,7 +29,7 @@ Every finding says how sure it is (confirmed, probable, possible, could not chec
 
 | Finding | Fix | Operation | Confirmation |
 |---|---|---|---|
-| Firewall differs from policy, or blocks the sync cabinet | Apply the client's policy (on the sync cabinet when it is the one blocking) | `firewall.applyPolicy` | One click (Tier 1 and up) |
+| Firewall differs from policy, or blocks the sync cabinet | Apply the policy that applies (on the sync cabinet when it is the one blocking) | `firewall.applyPolicy` | One click (Tier 1 and up) |
 | DNS servers differ from the baseline | Set the baseline's DNS servers | `network.setDns` | Authenticator code (Tier 2 and up) |
 | No DHCP lease (a 169.254 address) on an adapter that uses DHCP | Renew the DHCP lease | `network.renewLease` | A click (Tier 1 and up); no setting changes, so no safety net |
 | Address from another network, or a fixed address at a DHCP site | Switch to DHCP | `network.setIp` | Authenticator code (Tier 2 and up) |
@@ -78,7 +78,7 @@ A diagnosis keeps everything it read (`diagnoses.readings`), whether or not anyt
 
 ## Site standards
 
-A site is compared with three standards: a network baseline, a time zone and the client's firewall policy. When one isn't set, the site page shows "Standards for <site>" and offers to adopt what a cabinet there already reports. `GET /api/sites/:id/standards` works the suggestions out and saves nothing. Saving goes through the usual routes with the usual confirmations: an authenticator code bound to the exact baseline or policy, and a plain save for the time zone.
+A site is compared with three standards: a network baseline, a time zone and a firewall policy (the time zone and firewall policy are the site's own, else the client's, else the fleet's). When the site sets none of its own, the site page shows "Standards for <site>" and offers to adopt what a cabinet there already reports. `GET /api/sites/:id/standards` works the suggestions out and saves nothing. Saving goes through the usual routes with the usual confirmations: an authenticator code bound to the exact baseline or policy, and a plain save for the time zone.
 
 ## Known fixes
 
