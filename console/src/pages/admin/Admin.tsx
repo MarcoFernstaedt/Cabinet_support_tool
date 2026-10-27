@@ -11,6 +11,7 @@ import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
 import { InstallAgent, type SetupState } from "./Setup";
 import type { SyncCabinetRef } from "../../components/SyncCabinets";
+import { choiceFrom, EMPTY_FIELDS, ScannerServiceFields, type ScannerFields } from "../../components/ClientScanner";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -93,6 +94,11 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
       .catch(() => undefined);
     return () => { live = false; };
   }, [siteId]);
+  // A new client chooses whether it uses a fingerprint scanner; an existing client keeps its own setting (changed on its page).
+  const [scannerUse, setScannerUse] = useState<"used" | "not_used">("used");
+  const [scannerFields, setScannerFields] = useState<ScannerFields>(EMPTY_FIELDS);
+  const newClient = form.client.trim() !== "" && !client.exact;
+  const scannerChoice = !newClient ? null : scannerUse === "not_used" ? { enabled: false } : choiceFrom(scannerFields);
   const choices = syncCabinets ?? [];
   const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
   const needsChoice = form.role === "satellite" && choices.length > 1 && !form.syncCabinetId;
@@ -100,7 +106,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const approval = useMemo(() => ({
     client: form.client, site: form.site, cabinet: form.cabinet, role: form.role,
     ...(form.role === "satellite" && chosen ? { syncCabinetId: chosen } : {}),
-  }), [form, chosen]);
+    ...(scannerChoice ? { scanner: scannerChoice } : {}),
+  }), [form, chosen, scannerChoice]);
   const reaches = choices.find(c => c.id === chosen);
   return (
     <section className="panel" aria-label={`Request from ${p.fingerprints.hostname}`}>
@@ -134,6 +141,16 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           {form.role === "sync" && (
             <span className="muted small">Satellites at this site reach it at the address it reports. A site may have several sync cabinets.</span>
           )}
+          {newClient && (
+            <fieldset className="row gap wrap">
+              <legend>Fingerprint scanner at {form.client.trim()}</legend>
+              <label className="field"><span>Scanner</span>
+                <select value={scannerUse} onChange={e => setScannerUse(e.target.value as "used" | "not_used")}>
+                  <option value="used">Used</option><option value="not_used">Not used</option></select></label>
+              {scannerUse === "used" && <ScannerServiceFields fields={scannerFields} onChange={setScannerFields} idPrefix={`pending-${p.id}-scanner`} />}
+              {scannerUse === "used" && !scannerChoice && <span className="muted small">Leave the service empty to set it up later on the client&apos;s page.</span>}
+            </fieldset>
+          )}
           <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice}>Approve</button>
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
           {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
@@ -146,6 +163,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>.
             {!client.exact && <> This creates the new client <strong>{form.client.trim()}</strong>.</>}
             {client.exact && !site.exact && <> This creates the new site <strong>{form.site.trim()}</strong>.</>}
+            {newClient && (scannerUse === "not_used" ? <> It does not use a fingerprint scanner.</>
+              : scannerChoice?.enabled ? <> Its scanner service <strong>{scannerChoice.service!.serviceName}</strong> is added to the approved programs and watched.</> : null)}
             {form.role === "satellite" && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
             {" "}It receives its certificate on its next check-in.</p>}
         onToken={async token => {

@@ -41,6 +41,8 @@ export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null
   scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
     effective: string[] | null; source: "cabinet" | "site" | "client" | "fleet" | "automatic" };
   sync: CabinetSync | null;
+  /** Whether the cabinet's client uses a fingerprint scanner. */
+  scannerUsed?: boolean;
   siblings: CabinetRow[];
 }
 
@@ -135,7 +137,7 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
   const scanner = useLoad<ScannerHistory>(`/api/cabinets/${cabinet.id}/scanner-history`).data;
   const tone = !cabinet.online ? "crit" : cabinet.openAlerts > 0 || scanner?.offNow ? "warn" : "ok";
   const headline = !cabinet.online ? "Offline" : cabinet.openAlerts > 0 ? `Online, ${cabinet.openAlerts} open ${cabinet.openAlerts === 1 ? "alert" : "alerts"}` : "Online, no open alerts";
-  const scannerText = !scanner ? "Not read yet" : scanner.offNow ? "Not detected now" : scanner.drops24h > 0 ? `${scanner.drops24h} ${scanner.drops24h === 1 ? "drop" : "drops"} in 24 hours` : "No drops in 24 hours";
+  const scannerText = cabinet.scannerUsed === false ? "Not used by this client" : !scanner ? "Not read yet" : scanner.offNow ? "Not detected now" : scanner.drops24h > 0 ? `${scanner.drops24h} ${scanner.drops24h === 1 ? "drop" : "drops"} in 24 hours` : "No drops in 24 hours";
   const go = (section: string) => navigate(`/cabinets/${cabinet.id}/${section}`);
   // Reads need the cabinet to answer, so an offline cabinet is offered what the platform already knows instead.
   const candidates: [string, string][] = [];

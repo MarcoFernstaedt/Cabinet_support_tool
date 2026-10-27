@@ -42,6 +42,14 @@ const CHECK_NAME: Record<string, string> = {
 };
 
 export function Scanner({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail; onSettingsChanged: () => void }) {
+  if (cabinet.scannerUsed === false) return (
+    <section className="panel"><h2>Fingerprint scanner</h2>
+      <p>{cabinet.client.name} does not use a fingerprint scanner: this cabinet is not checked or alerted on for one. An Admin changes this on the <Link to={`/clients/${cabinet.client.id}`}>client's page</Link>.</p>
+    </section>);
+  return <ScannerInUse cabinet={cabinet} onSettingsChanged={onSettingsChanged} />;
+}
+
+function ScannerInUse({ cabinet, onSettingsChanged }: { cabinet: CabinetDetail; onSettingsChanged: () => void }) {
   const status = useOperation<PeripheralStatusOutput>(cabinet.id, "peripheral.status");
   useEffect(() => { void status.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const rerun = () => void status.start();

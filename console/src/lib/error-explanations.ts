@@ -197,6 +197,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "Only an active satellite is assigned to a sync cabinet.",
     fix: "Change the cabinet's role to satellite first.",
   },
+  scanner_for_existing_client: {
+    title: "Client already exists",
+    detail: "An existing client keeps its own fingerprint scanner setting; an approval does not change it.",
+    fix: "Approve without the scanner choice, and change the setting on the client's page.",
+  },
   not_a_sync_cabinet: {
     title: "Not a sync cabinet",
     detail: "Only an active sync cabinet has an address its satellites reach.",
