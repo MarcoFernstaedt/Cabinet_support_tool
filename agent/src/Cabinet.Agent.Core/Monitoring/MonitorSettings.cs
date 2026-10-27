@@ -15,6 +15,7 @@ public sealed class MonitorSettings
     private readonly string? _file;
     private readonly object _gate = new();
     private IReadOnlyList<string>? _scannerIds;
+    private bool _scannerWatched = true;
     private IReadOnlyList<string> _watched = [];
     private IReadOnlyList<ApprovedAppEntry> _approved = [];
 
@@ -31,6 +32,7 @@ public sealed class MonitorSettings
                 {
                     var saved = doc.RootElement.Deserialize<HeartbeatResponse>(ContractJson.Options)!;
                     _scannerIds = saved.Scanner.HardwareIds;
+                    _scannerWatched = saved.Scanner.Watch != false;
                     _watched = saved.WatchedServices?.Names ?? [];
                     _approved = saved.ApprovedApps?.Entries ?? [];
                 }
@@ -42,6 +44,12 @@ public sealed class MonitorSettings
     public IReadOnlyList<string>? FallbackScannerIds { get; }
 
     public IReadOnlyList<string>? ScannerHardwareIds { get { lock (_gate) return _scannerIds ?? FallbackScannerIds; } }
+
+    /// <summary>
+    /// Whether to look for a fingerprint scanner at all. The console says no for a client that uses none; until it has said
+    /// anything (no answer yet, or a server from before the setting), the agent watches as it always did.
+    /// </summary>
+    public bool ScannerWatched { get { lock (_gate) return _scannerWatched; } }
 
     /// <summary>The services the broker keeps running (milestone 10): from the console, kept on disk like the scanner IDs.</summary>
     public IReadOnlyList<string> WatchedServices { get { lock (_gate) return _watched; } }
@@ -60,8 +68,10 @@ public sealed class MonitorSettings
         bool changed;
         lock (_gate)
         {
-            changed = !Same(_scannerIds, answer.Scanner.HardwareIds);
+            bool watched = answer.Scanner.Watch != false;
+            changed = !Same(_scannerIds, answer.Scanner.HardwareIds) || watched != _scannerWatched;
             _scannerIds = answer.Scanner.HardwareIds;
+            _scannerWatched = watched;
             // A server from before milestone 10 sends no list: the last one is kept rather than emptied.
             bool watchChanged = answer.WatchedServices is { } w && !Same(_watched, w.Names);
             if (answer.WatchedServices is { } list) _watched = list.Names;

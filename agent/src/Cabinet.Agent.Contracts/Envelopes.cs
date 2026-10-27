@@ -125,6 +125,8 @@ public sealed record ServerAck
 public sealed record HeartbeatScanner
 {
     public required IReadOnlyList<string>? HardwareIds { get; init; }
+    /// <summary>False when the cabinet's client uses no fingerprint scanner: the agent does not look for one. Absent means watch.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? Watch { get; init; }
 }
 
 /// <summary>The server's answer to a heartbeat: its time and the settings the background monitors use. Data only.</summary>

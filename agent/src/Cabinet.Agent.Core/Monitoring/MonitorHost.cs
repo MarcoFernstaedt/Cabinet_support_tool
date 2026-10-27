@@ -127,7 +127,7 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
                 if (queued > 0) log($"Configuration: {queued} categor{(queued == 1 ? "y" : "ies")} queued for the server.");
             }, token));
         }
-        settings.Changed += () => log("New scanner hardware IDs from the console; the scanner watcher uses them from its next look.");
+        settings.Changed += () => log("New scanner settings from the console; the scanner watcher uses them from its next look.");
         return Task.WhenAll(loops);
     }
 
@@ -161,6 +161,8 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
     /// <summary>One look at the scanner, for tests and the harness.</summary>
     public async Task ScannerOnceAsync(CancellationToken token)
     {
+        // A client that uses no scanner: nothing is looked for, so nothing is reported about one.
+        if (!settings.ScannerWatched) return;
         var devices = await sources.Devices!(token).ConfigureAwait(false);
         if (_scanner.Observe(settings.ScannerHardwareIds, devices, clock.GetUtcNow()) is { } e)
         {
