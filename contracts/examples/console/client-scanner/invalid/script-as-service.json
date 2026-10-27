@@ -1,0 +1,13 @@
+{
+  "scanner": {
+    "enabled": true,
+    "service": {
+      "key": "app:bioscan",
+      "kind": "service",
+      "name": "Fingerprint scanner",
+      "path": "C:\\Windows\\System32\\cmd.exe /c whoami",
+      "serviceName": "BioScanSvc"
+    }
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

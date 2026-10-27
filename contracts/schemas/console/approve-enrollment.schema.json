@@ -31,6 +31,10 @@
       "description": "The sync cabinet this satellite reaches. Only a satellite names one.",
       "$ref": "../common.schema.json#/$defs/uuid"
     },
+    "scanner": {
+      "description": "For a new client only: whether it uses a fingerprint scanner, with its service when it does. An existing client keeps its own setting, so the approval refuses this field for one (change it on the client's page).",
+      "$ref": "../common.schema.json#/$defs/clientScannerChoice"
+    },
     "stepUpToken": {
       "description": "A one-time step-up token bound to this exact action.",
       "type": "string",

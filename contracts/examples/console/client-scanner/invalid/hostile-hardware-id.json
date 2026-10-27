@@ -1,0 +1,16 @@
+{
+  "scanner": {
+    "enabled": true,
+    "service": {
+      "key": "app:bioscan",
+      "kind": "service",
+      "name": "Fingerprint scanner",
+      "path": "C:\\Program Files\\BioScan\\bioscan.exe",
+      "serviceName": "BioScanSvc"
+    },
+    "hardwareIds": [
+      "USB\\VID_1234\"; DROP TABLE clients;--"
+    ]
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

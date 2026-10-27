@@ -71,6 +71,7 @@
         "rollout.resume",
         "rollout.stop",
         "client.scanner",
+        "client.fingerprint_scanner",
         "site.scanner",
         "client.sync",
         "settings.sync",

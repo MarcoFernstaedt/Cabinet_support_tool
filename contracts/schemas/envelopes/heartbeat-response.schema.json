@@ -36,6 +36,10 @@
               "type": "null"
             }
           ]
+        },
+        "watch": {
+          "description": "false when the cabinet's client does not use a fingerprint scanner: the agent does not look for one and reports nothing about it. Left out, the agent watches as before. Sent only to agents that know it (0.3.1 and later): the answer's contract is closed, so an older agent would refuse it.",
+          "type": "boolean"
         }
       }
     },

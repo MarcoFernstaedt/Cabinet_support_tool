@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/client-scanner.schema.json",
+  "title": "client-scanner",
+  "description": "Switches a client's fingerprint scanner on or off (Admin, authenticator code bound to this exact body).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scanner",
+    "stepUpToken"
+  ],
+  "properties": {
+    "scanner": {
+      "$ref": "../common.schema.json#/$defs/clientScannerChoice"
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}
