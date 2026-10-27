@@ -228,7 +228,8 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.goBack();
     // The ending is onboarding a real agent. The computer asks to join while the presenter is on the install step.
     await next();
-    await page.getByRole("heading", { name: "Install the agent" }).waitFor();
+    // The page's own step, not the guide panel's "Enrollment: install the agent" (a role name matches by substring).
+    await page.locator("main").getByRole("heading", { name: "Install the agent" }).waitFor();
     await marked('[data-tour="create-token"]');
     await page.getByRole("button", { name: "Create installer" }).click();
     clock += 30_000;

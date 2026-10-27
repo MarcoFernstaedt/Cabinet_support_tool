@@ -40,7 +40,7 @@ test("migration 0011 moves each site's address to its only sync cabinet and link
     ${row(k.twoSyncA, two, "SYNC A", "sync")}, ${row(k.twoSyncB, two, "SYNC B", "sync")}, ${row(k.twoSat, two, "SAT", "satellite")},
     ${row(k.naSync, noAddress, "SYNC", "sync")}, ${row(k.naSat, noAddress, "SAT", "satellite")}`);
 
-  assert.deepEqual(await migrate(owner, all), ["0011_sync_cabinets"]);
+  assert.deepEqual(await migrate(owner, all.filter(m => m.version < "0012")), ["0011_sync_cabinets"]);
 
   const rows = new Map((await q("SELECT id, sync_cabinet_id, sync_address, sync_address_source FROM cabinets")).recordset
     .map((r: { id: string; sync_cabinet_id: string | null; sync_address: string | null; sync_address_source: string | null }) =>
