@@ -827,3 +827,17 @@ Choices made in building it (confirm or change):
 - Switching the scanner off takes its service off the client's watched list but leaves it on the approved list, because removing it would need a signature and an approved service that nobody watches does nothing.
 - USB device policies (usb-policy.ts) are separate, explicit per-device settings and are not changed by the scanner switch.
 - The agent's own off switch needs agent 0.3.1. Until a cabinet runs it, the cabinet keeps looking for a scanner, and the server stores its scanner events without opening alerts.
+
+## Baselines at enrollment (2026-10-27)
+
+The owner's requirement: approval requires a baseline decision, and a cabinet shows "Baseline required" until a baseline is in force (15-baselines-and-config.md "Baselines at enrollment").
+
+Choices made in building it (confirm or change):
+- **Attaching skips a second review.** Attaching copies an already approved version to the site as approved, decided by the approver with the approval's authenticator code. The content went through the two-person rule once, in its own scope. A captured draft always goes through the two-person rule.
+- **"Use the baseline in force" ignores model baselines** at approval time, because the cabinet has not reported its model yet. The approval says when model baselines exist.
+- **Existing cabinets are not migrated.** They show "Baseline required" by the same rule as new ones whenever no approved baseline applies; they have no enrollment decision on record.
+- **The server's own callers may leave the decision out** (tests and tools call the service directly); the console route and the command line cannot.
+- **A capture over 5,000 items** is marked failed instead of retried on every upload, and the cabinet says to capture one by hand.
+
+Open, for the next enrollment step (site policies at first approval): which of firewall, network standard and time zone get fleet and client levels, and whether the approval should require them or prefill them.
+
