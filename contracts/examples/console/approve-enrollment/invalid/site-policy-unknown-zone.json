@@ -1,0 +1,13 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "sitePolicies": {
+    "timeZone": "Mars Standard Time"
+  },
+  "baseline": {
+    "use": "inherited"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

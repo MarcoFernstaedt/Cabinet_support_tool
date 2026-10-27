@@ -1,0 +1,14 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "sitePolicies": {
+    "firewall": null,
+    "timeZone": null
+  },
+  "baseline": {
+    "use": "inherited"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

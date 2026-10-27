@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/site-time-zone.schema.json",
   "title": "site-time-zone",
-  "description": "Sets the Windows time zone a site's cabinets should use (Tier 2 and up), or clears it with null. Cabinets in another zone get a minor alert; nothing changes on a cabinet until someone corrects it.",
+  "description": "Sets the Windows time zone for a site (Tier 2 and up), a client's default (Tier 2 and up) or the fleet default (Admin), or clears it with null so the level above applies (site \u2192 client \u2192 fleet). Cabinets in another zone than the one that applies get a minor alert; nothing changes on a cabinet until someone corrects it.",
   "type": "object",
   "additionalProperties": false,
   "required": [

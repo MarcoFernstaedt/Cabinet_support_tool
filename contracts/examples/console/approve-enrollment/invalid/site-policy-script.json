@@ -1,0 +1,13 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "sitePolicies": {
+    "timeZone": "Pacific Standard Time; Set-TimeZone UTC"
+  },
+  "baseline": {
+    "use": "inherited"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

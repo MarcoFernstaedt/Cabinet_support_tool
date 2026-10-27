@@ -35,6 +35,10 @@
       "description": "For a new client only: whether it uses a fingerprint scanner, with its service when it does. An existing client keeps its own setting, so the approval refuses this field for one (change it on the client's page).",
       "$ref": "../common.schema.json#/$defs/clientScannerChoice"
     },
+    "sitePolicies": {
+      "description": "For a new site only: its own firewall policy and time zone, pre-filled by the console from what it would inherit and confirmed by the approver. An existing site keeps its own settings, so the approval refuses this field for one (change them on the site's page).",
+      "$ref": "../common.schema.json#/$defs/sitePolicies"
+    },
     "baseline": {
       "description": "The baseline decision every approval needs (docs/spec/15-baselines-and-config.md \"Baselines at enrollment\"). inherited: an approved baseline already applies (fleet, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.",
       "oneOf": [

@@ -883,6 +883,66 @@
         "Hawaiian Standard Time"
       ]
     },
+    "firewallProfilePolicy": {
+      "description": "A firewall policy: each Windows firewall profile on or off. Set for the fleet, a client or a site; the most specific level with a policy applies (docs/spec/05-server-spec.md \"Site policies\").",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "domain",
+        "private",
+        "public"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
+        "private": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        },
+        "public": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      }
+    },
+    "sitePolicies": {
+      "description": "A new site's own policies, confirmed with its first approval. A field left out or null means the site sets none and inherits: the client's firewall policy, else the fleet's; the client's time zone, else the fleet's. The network standard is set later from what the site's cabinets report.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "firewall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/firewallProfilePolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeZone": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timeZoneId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
     "reportedTimeZoneId": {
       "description": "A Windows time zone ID as a cabinet reports it; any zone can be reported, only timeZoneId zones can be set.",
       "type": "string",
