@@ -806,3 +806,11 @@ This answers "Open: the approved list on the cabinet is written by the network p
   - **The test-build mark is advisory.** It shows what an agent says about itself. An agent that leaves the field out, including one an attacker controls, shows nothing. The protection is that production builds cannot install unsigned programs at all; the mark only helps spot a development build left in the field.
   - **No anchor is not a failure.** A database with no `audit_chain_head` row reads as "no anchor" rather than as a failed check. Every migrated database has the row (0001 seeds it), and the audit check records `anchored: false` in its own entry when it is missing.
   - **The column checks only count entries.** The `entries[32]` check on `approved_apps` and `filefacts_paths` passes a value whose `entries` is not a list at all. The contract and the services reject that; the column check is a size cap, not a shape check.
+
+## Open: the confirmation level for firewall rule changes (2026-10-27)
+
+Raised in the review of #95. The spec contradicts itself:
+- `contracts/schemas/operations/catalog.json` has `firewall.setRule` at `confirm: "click"`, and the click row of the confirmation-level table in `12-milestones-8-to-12.md` lists "firewall rules".
+- The code row of that same table says "every rule change" needs a fresh authenticator code.
+
+The code follows the catalog (click). Undecided: which of the two is meant. The tour copy says only "Tier 2" for rules, which is true either way.

@@ -1,4 +1,4 @@
-<!-- Supplied by the owner on 2026-10-27 and kept as written, except that links to the owner's own notes are shown as names.
+<!-- The owner's file, added on 2026-10-27 and kept as written, except that links to the owner's own notes are shown as names.
      Nothing in this file is approved or scheduled; it is the ordered shelf after phases 1-6 (13-roadmap.md). -->
 
 # Phases 7 and beyond
