@@ -137,6 +137,14 @@ test("signing the approved list: waiting, offered, signed, carried, and refused 
   assert.deepEqual(damaged.effective?.entries, []);
   assert.equal((await beat()).approvedSigned, null);
 
+  // A list stored without a time in the contract's form (older or hand-made data) is still offered, always as the same bytes.
+  await save("site", [KIOSK], none);
+  await asOwner(db, c => c.query(`UPDATE sites SET approved_apps = JSON_MODIFY(approved_apps, '$.setAt', '') WHERE id = $1`, [id.site]));
+  const timeless = (await listToSign(db.app, "site", id.site))!;
+  assert.equal(JSON.parse(Buffer.from(timeless.document, "base64").toString("utf8")).issuedAt, "1970-01-01T00:00:00Z");
+  assert.equal((await listToSign(db.app, "site", id.site))!.document, timeless.document);
+  await signApprovedApps(db.app, admin, "site", id.site, timeless.version, signWith(key, timeless.document), key.keys);
+
   // Removing the site's list needs no signature: it takes effect at once, and the fleet's signed list applies.
   await save("site", null, key.keys);
   assert.equal((await appLevels(db.app, id.cabinet)).source, "fleet");
