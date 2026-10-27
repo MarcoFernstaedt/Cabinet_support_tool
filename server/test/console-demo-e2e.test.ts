@@ -245,6 +245,8 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await marked('[data-tour="approve-cabinet"]');
     await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
     await page.getByLabel("Site", { exact: true }).fill("Support desk");
+    // No approved baseline applies to a new client: the approval asks for the decision.
+    await page.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();
     await page.getByRole("button", { name: "Approve", exact: true }).click();
     clock += 30_000;
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(totp.code(secret, totp.stepAt(clock)));

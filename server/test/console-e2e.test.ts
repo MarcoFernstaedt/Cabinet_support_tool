@@ -125,6 +125,8 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await card.getByLabel("Site").fill("North Wing");
     await card.getByLabel("Cabinet name").fill("Lab cabinet");
     await card.getByLabel("Role").selectOption("sync");
+    // No approved baseline applies to a new client: the approval asks for the decision.
+    await card.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();
     await card.getByRole("button", { name: "Approve" }).click();
     await confirmCode();
     await card.getByText(/Approved\./).waitFor();
