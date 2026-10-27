@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Cabinet.Agent.Contracts;
 using Cabinet.Agent.Core.Monitoring;
@@ -17,6 +18,9 @@ public static class ApprovedLists
     /// <summary>A list with one application entry for a program path.</summary>
     public static ApprovedApps Application(string program, string key = "app:program", string name = "A program") =>
         new([Entry(key: key, kind: ApprovedAppKind.Application, name: name, path: program, serviceName: null)]);
+
+    /// <summary>A build with no list-signing key: the list is read from the entries, as before signing existed.</summary>
+    public static ApprovedListTrust Unsigned { get; } = new(new ApprovedListKeys { Version = 1, Keys = [] });
 
     public static ApprovedAppEntry Entry(string key = "app:scanner", ApprovedAppKind kind = ApprovedAppKind.Service,
         string name = "Biometric scanner", string path = Dispenser, string? serviceName = "BioScanSvc") => new()
@@ -298,7 +302,7 @@ public class ApprovedAppsOnDiskTests
         var file = Path.Combine(dir.Path, "monitor-settings.json");
         var settings = new MonitorSettings(file);
         var log = new List<string>();
-        var broker = new ApprovedAppsFile(file, log.Add);
+        var broker = new ApprovedAppsFile(file, log.Add, ApprovedLists.Unsigned);
 
         // Nothing has been sent yet: nothing is approved.
         Assert.True(broker.Current.IsEmpty);
@@ -316,7 +320,7 @@ public class ApprovedAppsOnDiskTests
         // It is read from a restart of the broker as well.
         settings.Apply(Answer(ApprovedLists.Entry()));
         File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(3));
-        Assert.Equal("app:scanner", Assert.Single(new ApprovedAppsFile(file, _ => { }).Current.Entries).Key);
+        Assert.Equal("app:scanner", Assert.Single(new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned).Current.Entries).Key);
         Assert.Single(new MonitorSettings(file).ApprovedApps);
         Assert.Contains(log, line => line.Contains("Approved list in force: 1 program(s)", StringComparison.Ordinal));
     }
@@ -327,7 +331,7 @@ public class ApprovedAppsOnDiskTests
         var settings = new MonitorSettings(file);
         settings.Apply(Answer(ApprovedLists.Entry()));
         var log = new List<string>();
-        var broker = new ApprovedAppsFile(file, log.Add);
+        var broker = new ApprovedAppsFile(file, log.Add, ApprovedLists.Unsigned);
         Assert.Single(broker.Current.Entries);
         return (file, settings, broker, log);
     }
@@ -414,7 +418,7 @@ public class ApprovedAppsOnDiskTests
              "approvedApps":{"entries":[{"key":"app:scanner","kind":"service","name":"Scanner",
              "path":"C:\\Program Files\\Dispenser\\dispenser.exe","serviceName":"BioScanSvc","arguments":["--silent"]}]}}
             """);
-        Assert.True(new ApprovedAppsFile(file, _ => { }).Current.IsEmpty);
+        Assert.True(new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned).Current.IsEmpty);
     }
 
     [Fact]
@@ -422,12 +426,12 @@ public class ApprovedAppsOnDiskTests
     {
         using var dir = new TempDir();
         var file = Path.Combine(dir.Path, "monitor-settings.json");
-        Assert.True(new ApprovedAppsFile(file, _ => { }).Current.IsEmpty);
+        Assert.True(new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned).Current.IsEmpty);
         File.WriteAllText(file, "{\"approvedApps\":{\"entries\":[{\"key\":\"app:scanner\",\"kind\":\"service\",\"name\":\"S\",\"path\":\"C:\\\\x\\\\a.exe\",\"serviceName\":\"BioScanSvc\"}]}}");
-        Assert.True(new ApprovedAppsFile(file, _ => { }).Current.IsEmpty);
+        Assert.True(new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned).Current.IsEmpty);
         File.WriteAllText(file, "not json at all");
-        Assert.True(new ApprovedAppsFile(file, _ => { }).Current.IsEmpty);
-        Assert.True(new ApprovedAppsFile(null, _ => { }).Current.IsEmpty);
+        Assert.True(new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned).Current.IsEmpty);
+        Assert.True(new ApprovedAppsFile(null, _ => { }, ApprovedLists.Unsigned).Current.IsEmpty);
     }
 
     [Fact]
@@ -438,7 +442,7 @@ public class ApprovedAppsOnDiskTests
         var settings = new MonitorSettings(file);
         settings.Apply(Answer(ApprovedLists.Entry()));
         Assert.Single(new MonitorSettings(file).ApprovedApps);
-        var broker = new ApprovedAppsFile(file, _ => { });
+        var broker = new ApprovedAppsFile(file, _ => { }, ApprovedLists.Unsigned);
         Assert.Single(broker.Current.Entries);
 
         // An older server's answer carries no approved list at all: the contract says the agent keeps an empty one, so
@@ -447,5 +451,127 @@ public class ApprovedAppsOnDiskTests
         File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddSeconds(5));
         Assert.Empty(new MonitorSettings(file).ApprovedApps);
         Assert.True(broker.Current.IsEmpty);
+    }
+}
+
+/// <summary>
+/// The broker with an Admin list-signing key compiled in (docs/spec/09-open-decisions.md "Signing the approved list"): it acts
+/// only on the signed document in the file the network service keeps, never on the unsigned entries beside it, and a list that
+/// is not signed, or signed wrongly, approves nothing.
+/// </summary>
+public class SignedApprovedListTests
+{
+    private const string Kiosk = @"C:\Program Files\Vendor\Kiosk\kiosk.exe";
+    private const string Evil = @"C:\Users\Public\evil.exe";
+
+    private sealed class Signer : IDisposable
+    {
+        public ECDsa Key { get; } = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        public string KeyId => Convert.ToHexString(SHA256.HashData(Key.ExportSubjectPublicKeyInfo())).ToLowerInvariant();
+        public ApprovedListTrust Trust => new(new ApprovedListKeys
+        {
+            Version = 1,
+            Keys = [new ApprovedListKey { KeyId = KeyId, Name = "Test", PublicKey = Convert.ToBase64String(Key.ExportSubjectPublicKeyInfo()) }],
+        });
+
+        public SignedApprovedList Sign(byte[] document, ECDsa? by = null) => new()
+        {
+            Document = Convert.ToBase64String(document),
+            Signature = new ApprovedListSignature
+            {
+                KeyId = KeyId, Algorithm = ApprovedListTrust.Algorithm,
+                Signature = Convert.ToBase64String((by ?? Key).SignData(document, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence)),
+            },
+        };
+
+        public void Dispose() => Key.Dispose();
+    }
+
+    private static byte[] Document(params ApprovedAppEntry[] entries) => System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+    {
+        product = "mashura-approved-list", level = "site", scopeId = "6f1c2a8e-4b7d-4c1e-9a3f-2d5e8b7c1a90", version = 4,
+        issuedAt = "2026-10-26T12:00:00.000Z", entries,
+    }, ContractJson.Options));
+
+    private static ApprovedAppEntry App(string path, string key = "app:kiosk") => ApprovedLists.Entry(key: key, kind: ApprovedAppKind.Application, name: "Kiosk", path: path, serviceName: null);
+
+    /// <summary>Writes the heartbeat answer the way the network service does, with these unsigned entries and this signed list.</summary>
+    private static string Write(TempDir dir, ApprovedAppEntry[] entries, SignedApprovedList? signed)
+    {
+        var file = Path.Combine(dir.Path, "monitor-settings.json");
+        new MonitorSettings(file).Apply(new HeartbeatResponse
+        {
+            ServerTime = Fixtures.Start,
+            Scanner = new HeartbeatScanner { HardwareIds = null },
+            ApprovedApps = new HeartbeatApprovedApps { Entries = entries, Signed = signed },
+        });
+        return file;
+    }
+
+    [Fact]
+    public void A_validly_signed_list_is_in_force_and_read_from_the_signed_document()
+    {
+        using var dir = new TempDir();
+        using var signer = new Signer();
+        var log = new List<string>();
+        var file = Write(dir, [App(Kiosk)], signer.Sign(Document(App(Kiosk))));
+        var broker = new ApprovedAppsFile(file, log.Add, signer.Trust);
+        Assert.Equal(Kiosk, Assert.Single(broker.Current.Entries).Program);
+        Assert.Contains(log, l => l.Contains("signed, version 4 for the site", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Entries_the_network_service_adds_beside_a_signed_list_are_ignored()
+    {
+        // A network service that has been taken over writes its own program into the unsigned entries and keeps the signed list.
+        using var dir = new TempDir();
+        using var signer = new Signer();
+        var file = Write(dir, [App(Kiosk), App(Evil, "app:evil")], signer.Sign(Document(App(Kiosk))));
+        var broker = new ApprovedAppsFile(file, _ => { }, signer.Trust);
+        Assert.Equal(["app:kiosk"], broker.Current.Entries.Select(e => e.Key));
+        Assert.Null(broker.Current.ForProgram(Evil));
+    }
+
+    [Fact]
+    public void A_list_that_is_not_signed_or_signed_wrongly_approves_nothing()
+    {
+        using var signer = new Signer();
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        byte[] good = Document(App(Kiosk));
+        byte[] changed = Document(App(Evil));
+        var cases = new (string Name, SignedApprovedList? Signed, string Logged)[]
+        {
+            ("not signed", null, "not signed"),
+            ("signed by another key under this key's id", signer.Sign(good, other), "does not verify"),
+            ("the document changed after signing", signer.Sign(good) with { Document = Convert.ToBase64String(changed) }, "does not verify"),
+            ("a key this agent does not hold", signer.Sign(good) with { Signature = signer.Sign(good).Signature with { KeyId = new string('0', 64) } }, "does not hold"),
+        };
+        foreach (var (name, signed, logged) in cases)
+        {
+            using var dir = new TempDir();
+            var log = new List<string>();
+            var broker = new ApprovedAppsFile(Write(dir, [App(Kiosk)], signed), log.Add, signer.Trust);
+            Assert.True(broker.Current.IsEmpty, name);
+            Assert.Contains(log, l => l.Contains(logged, StringComparison.Ordinal) && l.Contains("Nothing is approved", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public void A_signed_list_that_names_a_script_is_refused_by_its_contract_even_though_the_signature_is_good()
+    {
+        using var dir = new TempDir();
+        using var signer = new Signer();
+        byte[] script = Document(App(@"C:\Tools\run.ps1"));
+        var broker = new ApprovedAppsFile(Write(dir, [], signer.Sign(script)), _ => { }, signer.Trust);
+        Assert.True(broker.Current.IsEmpty);
+    }
+
+    [Fact]
+    public void A_build_with_no_list_key_reads_the_entries_as_before()
+    {
+        using var dir = new TempDir();
+        using var signer = new Signer();
+        var broker = new ApprovedAppsFile(Write(dir, [App(Kiosk)], null), _ => { }, ApprovedLists.Unsigned);
+        Assert.Equal("app:kiosk", Assert.Single(broker.Current.Entries).Key);
     }
 }

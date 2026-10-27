@@ -108,11 +108,13 @@ public sealed class ApprovedApps
 /// answer the contract allows leaves NOTHING approved: the previous list is never kept, because a list the broker cannot
 /// read now is not a list it can vouch for. The size is checked before a byte is read.
 ///
-/// What this list is and is not: the file sits in the state folder, which the network service can write, so it is
-/// written by the less trusted process. It is a guard rail against a mistaken or replayed request and keeps an honest
-/// network service to what the console approved; it does not stop a network service that has been taken over from
-/// naming a program of its choice, because that process can write the file. Signing the list with an administrator key
-/// the broker pins is recorded as open in docs/spec/09-open-decisions.md.
+/// Signing (docs/spec/09-open-decisions.md "Signing the approved list"): the file sits in the state folder, which the
+/// network service writes, so on its own it would only keep an honest network service to what the console approved. An
+/// agent built with an Admin list-signing key (<see cref="ApprovedListTrust"/>) therefore reads the list only from the
+/// signed document in that file, after its signature verifies against the compiled-in key, and ignores the unsigned
+/// entries beside it: a network service that has been taken over can no longer approve a program no Admin signed. A
+/// list that is not signed, or whose signature does not verify, approves nothing. An agent built with no list key reads
+/// the entries as before.
 /// </summary>
 public sealed class ApprovedAppsFile
 {
@@ -121,15 +123,18 @@ public sealed class ApprovedAppsFile
 
     private readonly string? _file;
     private readonly Action<string> _log;
+    private readonly ApprovedListTrust _trust;
     private readonly object _gate = new();
     private ApprovedApps _current = ApprovedApps.None;
     private (bool Exists, long Length, DateTime Written)? _read;
 
     /// <param name="file">The heartbeat answer the network service keeps, or null when the broker has none.</param>
-    public ApprovedAppsFile(string? file, Action<string> log)
+    /// <param name="trust">The list-signing keys; the ones compiled into this agent unless a test names others.</param>
+    public ApprovedAppsFile(string? file, Action<string> log, ApprovedListTrust? trust = null)
     {
         _file = file;
         _log = log;
+        _trust = trust ?? ApprovedListTrust.Compiled;
     }
 
     /// <summary>The list in force now.</summary>
@@ -165,8 +170,13 @@ public sealed class ApprovedAppsFile
                     return;
                 }
                 var answer = document.RootElement.Deserialize<HeartbeatResponse>(ContractJson.Options)!;
-                _current = new ApprovedApps(answer.ApprovedApps?.Entries ?? []);
-                _log($"Approved list in force: {_current.Entries.Count} program(s).");
+                if (!_trust.HasKeys)
+                {
+                    _current = new ApprovedApps(answer.ApprovedApps?.Entries ?? []);
+                    _log($"Approved list in force: {_current.Entries.Count} program(s).");
+                    return;
+                }
+                _current = FromSigned(answer.ApprovedApps?.Signed);
             }
         }
         catch (Exception e)
@@ -176,6 +186,23 @@ public sealed class ApprovedAppsFile
             _read = null; // read again next time rather than remember a file that could not be read
             _log($"The approved list could not be read ({e.GetType().Name}); nothing is approved.");
         }
+    }
+
+    /// <summary>
+    /// The list from the signed document alone, once its signature verifies; nothing approved otherwise. The unsigned entries
+    /// beside it are never read here: they are for agents built before signing, and the network service writes them.
+    /// </summary>
+    private ApprovedApps FromSigned(SignedApprovedList? signed)
+    {
+        if (signed is null) { _log("The approved list is not signed; nothing is approved until an Admin signs it."); return ApprovedApps.None; }
+        byte[] bytes;
+        try { bytes = Convert.FromBase64String(signed.Document); }
+        catch (FormatException) { _log("The signed approved list is not base64; nothing is approved."); return ApprovedApps.None; }
+        ApprovedListTrust.Refusal refusal = _trust.Open(bytes, signed.Signature, out ApprovedListDocument? list, out string problem);
+        if (refusal != ApprovedListTrust.Refusal.None || list is null) { _log($"The approved list was refused: {problem} Nothing is approved."); return ApprovedApps.None; }
+        var current = new ApprovedApps(list.Entries);
+        _log($"Approved list in force: {current.Entries.Count} program(s), signed, version {list.Version} for the {list.Level.ToString().ToLowerInvariant()}.");
+        return current;
     }
 
     /// <summary>

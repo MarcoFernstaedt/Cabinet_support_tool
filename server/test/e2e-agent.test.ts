@@ -3,11 +3,13 @@
 // test agent; CI sets it. Milestone 2 is done when the first test passes; the second
 // is milestone 4's done-when, driven through the agent's real monitors and event queue.
 import { setWatched } from "../src/services/watched-services.js";
-import { appsHash, normalizeEntries, rawEntry } from "../src/services/approved-apps.js";
+import { APPS_SET_ACTION, appsHash, listToSign, normalizeEntries, rawEntry, setApprovedApps, signApprovedApps } from "../src/services/approved-apps.js";
+import { ListSigningKeys } from "../src/services/approved-list-signing.js";
+import { paramsHash } from "../src/auth/canonical.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { createReadStream, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { connect, createServer } from "node:net";
@@ -409,6 +411,73 @@ test("watched services on the real agent code: a stopped service is started agai
     assert.match((await commandRecord(db.app, rdp.commandId))!.result!.error!.message, /never/);
   } finally {
     for (const ag of agents) ag.kill("SIGINT");
+    await api.close();
+    await notifier.stop();
+    feed.stop();
+    await db.drop();
+  }
+});
+
+test("a signed approved list on the real agent code: with a list key, an unsigned list approves nothing and the signed one is obeyed",
+  { skip: !dll && "set TEST_AGENT_DLL to run", timeout: 180_000 }, async () => {
+  const db: TestDatabase = await createTestDatabase();
+  const dir = tempDir();
+  const key = await developmentIssuingKey(dir);
+  writeFileSync(join(dir, "platform-ca.pem"), key.certificatePem);
+  // The Admin's list-signing key, made for this run: the agent is given its public half, as a build would compile it in.
+  const pair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  const der = pair.publicKey.export({ format: "der", type: "spki" });
+  const keyId = createHash("sha256").update(der).digest("hex");
+  const trustDir = join(dir, "list-trust");
+  mkdirSync(trustDir);
+  writeFileSync(join(trustDir, "approved-list-keys.json"), JSON.stringify({ version: 1, keys: [{ keyId, name: "Test", publicKey: der.toString("base64") }] }));
+  const listKeys = ListSigningKeys.fromFolder(trustDir);
+  const feed = new NotificationFeed(db.app, 50);
+  await feed.start();
+  const notifier = new CommandNotifier(feed);
+  await notifier.start();
+  const api: FastifyInstance = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, dir, ["localhost"]), longPollMs: 3000, logger: false });
+  await api.listen({ host: "127.0.0.1", port: 0 });
+  const port = (api.server.address() as { port: number }).port;
+  const admin = randomUUID();
+  await db.app.query(`INSERT INTO users (id, username, name, role) VALUES ($1, 'list.admin', 'List Admin', 'admin')`, [admin]);
+  let agent: ChildProcess | null = null;
+  try {
+    const a = await startAgent({ db, api, port, key, dir, admin, name: "signed",
+      env: { TEST_AGENT_VERSION: "0.3.0", TEST_APPROVED_LIST_KEYS: join(trustDir, "approved-list-keys.json") } });
+    agent = a.agent;
+    const scanner = [{ key: "app:scanner", kind: "service", name: "Scanner", path: "C:\\Program Files\\Simulated\\BioScanSvc.exe", serviceName: "BioScanSvc" }];
+    const restart = async () => {
+      const c = await issueCommand(db.app, admin, a.cabinetId, "service.control", { name: "BioScanSvc", action: "restart" }, "command.issue", { viaCli: true });
+      await a.until("the restart's result", async () => ["succeeded", "failed"].includes((await commandRecord(db.app, c.commandId))?.status ?? ""));
+      return (await commandRecord(db.app, c.commandId))!;
+    };
+
+    // Saved but not signed: the server keeps it waiting, so nothing is in force, and the agent approves nothing.
+    await setApprovedApps(db.app, { userId: admin, role: "admin" }, "cabinet", a.cabinetId, scanner,
+      await issueStepUpToken(db.app, admin, APPS_SET_ACTION.cabinet, a.cabinetId, paramsHash({ level: "cabinet", id: a.cabinetId, entries: scanner })), undefined, listKeys);
+    const refused = await restart();
+    assert.equal(refused.status, "failed");
+    assert.match(refused.result!.error!.message, /not on this cabinet's approved list/);
+
+    // Even a list the server stores in force without a signature (written past the platform) approves nothing on this agent.
+    const plain = normalizeEntries(scanner);
+    assert.ok(plain.ok);
+    await asOwner(db, c => c.query("UPDATE cabinets SET approved_apps = $1 WHERE id = $2", [JSON.stringify({
+      version: 1, entries: plain.entries.map(rawEntry), hash: appsHash(plain.entries), setBy: admin, setAt: new Date().toISOString() }), a.cabinetId]));
+    // The broker reads the list when a request needs it, so each restart is its own check.
+    await new Promise(r => setTimeout(r, 5_000)); // a couple of heartbeats: the plain list is in the agent's file by now
+    assert.equal((await restart()).status, "failed");
+    assert.ok(a.lines.some(l => l.includes("The approved list is not signed; nothing is approved")), a.lines.join("\n"));
+
+    // The Admin signs it: the agent checks the signature against its own key and obeys the list.
+    const doc = (await listToSign(db.app, "cabinet", a.cabinetId))!;
+    await signApprovedApps(db.app, { userId: admin, role: "admin" }, "cabinet", a.cabinetId, doc.version,
+      { keyId, algorithm: "ecdsa-p256-sha256", signature: sign("sha256", Buffer.from(doc.document, "base64"), { key: pair.privateKey, dsaEncoding: "der" }).toString("base64") }, listKeys);
+    await a.until("the signed list to be obeyed", async () => (await restart()).status === "succeeded", 60_000);
+    assert.ok(a.lines.some(l => l.includes("Approved list in force: 1 program(s), signed, version 1 for the cabinet")), a.lines.join("\n"));
+  } finally {
+    agent?.kill("SIGINT");
     await api.close();
     await notifier.stop();
     feed.stop();

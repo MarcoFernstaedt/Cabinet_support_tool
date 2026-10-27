@@ -71,6 +71,34 @@ archive layout and the required programs. Only the Authenticode publisher check 
 The server and heartbeat cannot enable this mode, and the build default is false. Test an update and a failed update
 with a pilot before relying on remote recovery; retain physical access until then.
 
+## Sign the approved programs list
+
+Only programs on the approved list can be started, stopped, restarted or ended on a cabinet. Once list signing is set up, a list goes into force only after an Admin signs it on their own computer. A cabinet then refuses any list that is not signed with your key, even if someone tampers with the copy on the cabinet. Until it is set up, lists apply as soon as they are saved.
+
+**Set it up once.** You need PowerShell 7 on the Admin's computer (`winget install --id Microsoft.PowerShell`).
+
+1. Make the key, kept on a USB stick that stays with the Admin:
+   ```
+   pwsh agent/install/New-ApprovedListTrust.ps1 -NewKey E:\list-signing-key.pem -OutDir contracts/trust/approved-list
+   ```
+   - The script asks for a passphrase of at least 12 characters, and writes only the public key into the repository.
+   - Keep a second copy of the key file somewhere safe.
+   - A cloud key works too: `-AwsKmsKeyId alias/...`, or `-PublicKeyFile` with an Azure Key Vault key.
+2. Commit `contracts/trust/approved-list/approved-list-keys.json` through review.
+3. Build and roll out the agent from that commit.
+
+   Cabinets on that agent approve nothing until their list is signed. Sign the lists already in force (below) when you roll it out.
+
+**Each time a list changes:**
+1. In Admin → Approved programs, change the list and save it with your authenticator code. The page says "Version N is waiting for your signature". The list already in force stays in force.
+2. Select **Download the list to sign**.
+3. Sign the file on your computer:
+   ```
+   pwsh agent/install/Sign-ApprovedList.ps1 -ListFile approved-list-site-....json -KeyFile E:\list-signing-key.pem
+   ```
+   The script shows every program on the list. Type `SIGN` to confirm.
+4. Select **Upload the signature file** and choose the `.signature.json` file the script wrote. Cabinets use the list from their next check-in.
+
 ## Everyday commands
 
 Run these in the `deploy` folder.

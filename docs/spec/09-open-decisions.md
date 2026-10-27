@@ -777,6 +777,12 @@ This answers "Open: the approved list on the cabinet is written by the network p
   1. The format, the checks on both sides, and the two scripts. Nothing uses them yet, so behaviour does not change.
   2. The server and console flow: waiting for a signature, download, upload. The heartbeat answer carries the signed document.
   3. The broker enforcing it on the cabinet.
+- **The broker** (part 3) reads the list through `ApprovedAppsFile`:
+  - With a list key compiled in, it uses only the signed document in the file. It checks the signature with `ApprovedListTrust`, then the contract.
+  - It never reads the unsigned entries beside it, which the network service writes.
+  - A list that is missing, not signed, refused for its key or signature, or failing its contract approves nothing, and the reason is logged.
+  - The service watcher and `process.end` ask the same list, so they follow it too.
+  - The test agent (`Cabinet.Agent.TestAgent`) checks signatures only when `TEST_APPROVED_LIST_KEYS` names a trust file. The server tests that drive it with plain lists keep working whatever key the repository holds.
 - **Known limit, open.** The signature proves that an Admin approved the list for some level. It does not prove the list is the one for this cabinet.
   - A taken-over network service could hand the broker another list an Admin signed. Examples: the fleet list in place of a stricter site list, or an older version of the site's own list.
   - It can no longer approve a program no Admin approved anywhere, which is the attack this change closes.

@@ -54,10 +54,10 @@ public sealed class BrokerService : ServiceBase
         // cabinet's own copy — the one the network service keeps from the heartbeat answer in the state folder
         // (Network/Program.cs) and this process reads from disk, because the broker never touches the network — and it is
         // read again for every request, so a list the console changes takes effect without a restart. A missing,
-        // oversized or unreadable copy approves nothing. The network service writes that file, so the list keeps an honest
-        // network service to what the console approved; it is a guard rail, not a wall against a network service that has
-        // been taken over (docs/spec/09-open-decisions.md: signing the list is open).
-        var approved = new ApprovedAppsFile(Path.Combine(AgentPaths.State, "monitor-settings.json"), _log.Write);
+        // oversized or unreadable copy approves nothing. The network service writes that file, so with an Admin list-signing
+        // key compiled in (contracts/trust/approved-list) only the signed document in it counts, checked against that key
+        // here; a list that is not signed approves nothing (docs/spec/09-open-decisions.md "Signing the approved list").
+        var approved = new ApprovedAppsFile(Path.Combine(AgentPaths.State, "monitor-settings.json"), _log.Write, ApprovedListTrust.Compiled);
         // The watcher also asks the list before it starts a watched service: watched but not approved is reported, not started.
         serviceWatcher.Approved = () => approved.Current;
         var serviceControl = new ServiceControl(servicePlatform, _log.Write) { Watcher = serviceWatcher, Approved = () => approved.Current };
