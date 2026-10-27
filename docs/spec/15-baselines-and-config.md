@@ -60,6 +60,18 @@ Each snapshot carries `observedAt` (when the agent looked). A change record stor
 - **Three ways to make one**: capture from a cabinet (never in force until approved), import (copy the approved content of another scope as a draft), or the API with explicit content. A capture leaves out values that differ per cabinet (services `state`, network `connected` and `linkSpeedMbps`); for scopes wider than one cabinet it also leaves out addresses, MAC addresses, interface indexes, update install dates and the `devices` category. A capture of over 5,000 items is refused.
 - An approval re-evaluates the drift and the health of the cabinets in its scope in the background, one at a time.
 
+## Baselines at enrollment
+
+Every cabinet is approved with a baseline decision, so a new cabinet is never judged against nothing without someone having chosen that.
+
+- **The decision** (`baseline` in `approve-enrollment`, required by the contract, so an approval without one is refused before anything else runs):
+  - `inherited`: an approved baseline already applies at the fleet, client or site level. The server checks that one does and refuses with `no_approved_baseline` when none does. A model baseline cannot count yet, because the cabinet has not reported its model when it is approved.
+  - `attach` with a `versionId`: an approved fleet, model, client or site baseline version is copied to the cabinet's site as the site's approved baseline (origin `attach`, decided by the approver, audited as `baseline.attach`). Its content was approved through its own review; the approver's authenticator code for the whole approval confirms that it now also applies to this site. A version that is not approved is refused (`not_approved`), and so is a site that already has an approved baseline of its own (`site_has_baseline`), since that one applies.
+  - `capture`: the cabinet's first full configuration report becomes the site's baseline **draft**, in the approver's name and audited as the platform's doing. It is made once every category a site baseline uses has been reported (every category except `devices`). It is never in force until proposed and approved with the two-person rule. A capture over 5,000 items is marked failed; someone captures a trimmed one by hand.
+- **"Baseline required"**: an active cabinet that no approved baseline applies to says so on its Overview (with why, and what happens next) and in the site's cabinet list. Existing cabinets get the same mark from the same rule; nothing is migrated.
+- **Where it is kept**: `enrollment_baselines` (migration 0013), one row per cabinet approved through the console or the command line: the decision, who made it, the attached version, and where a capture stands (`waiting`, `drafted`, `failed`).
+- **Routes**: `GET /api/admin/enrollments/:id/baseline?client=&site=` (Admin) says which approved baselines would apply and lists the approved versions that could be attached; the approval checks everything again. `GET /api/cabinets/:id/condition` carries `baseline` (in force, from where, and the enrollment decision). The command line's `approve` takes `--baseline inherited|capture|<versionId>`.
+
 ## Change detection, drift, health
 
 - **Three comparisons, kept apart**: against the approved baseline (drift: should be), against the previous observation (changes: what changed), against the last known healthy state (what is different from when it worked).
@@ -82,7 +94,8 @@ Reading is Tier 1; every query string and body is checked against its contract.
 
 ## Console
 
-- Cabinet, **Overview**: a Configuration panel (state, since when, last known healthy, problem first observed, changes since, next step).
+- Cabinet, **Overview**: a Configuration panel (state, since when, last known healthy, problem first observed, changes since, next step), with "Baseline required" and why when no approved baseline applies.
+- Admin, **Pending cabinets**: the approval shows which baseline applies at the chosen client and site; with none, Approve waits until the approver attaches an approved baseline or asks for a capture. The site's cabinet list has a Baseline column.
 - Cabinet, **Baseline** tab: Differs from baseline, Since last healthy, History, Baseline in force; "Read its configuration now"; capture a baseline (Tier 2).
 - Cabinet, **Compare**: modes "another cabinet", "its baseline", "its last healthy state". **What changed** also lists the configuration changes. **Standards** has a Configuration baseline line.
 - **Differences** (main menu): the fleet's differences grouped, then one group.
