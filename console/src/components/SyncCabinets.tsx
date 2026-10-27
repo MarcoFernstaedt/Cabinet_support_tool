@@ -8,6 +8,7 @@ import { useLoad } from "../lib/useLoad";
 import { PORTS_SOURCE, PortsEditor } from "./DeviceSettings";
 import { useStepUp } from "./StepUp";
 import { Badge } from "./ui";
+import { looksPrivate } from "../lib/ipv4";
 
 export type AddressSource = "reported" | "admin" | null;
 export interface SyncCabinetRef { id: string; name: string; address: string | null; addressSource: AddressSource }
@@ -21,15 +22,6 @@ export interface SiteSyncInfo {
 }
 
 const SOURCE_TEXT: Record<string, string> = { reported: "reported by the cabinet", admin: "set by an Admin" };
-const PRIVATE = ["10.", "192.168."];
-/** The client-side shape check, so an obvious typo is caught before the code is asked for. The server decides. */
-const looksPrivate = (a: string) => {
-  const parts = a.split(".");
-  if (parts.length !== 4 || parts.some(p => p === "" || String(Number(p)) !== p || Number(p) > 255)) return false;
-  const second = Number(parts[1]);
-  return PRIVATE.some(p => a.startsWith(p)) || (a.startsWith("172.") && second >= 16 && second <= 31);
-};
-
 export function addressText(address: string | null, source: AddressSource) {
   return address ? <><code>{address}</code> <span className="muted small">({SOURCE_TEXT[source ?? ""] ?? "unknown source"})</span></> : <span className="muted">Not reported yet</span>;
 }

@@ -38,7 +38,8 @@ export function lanAddress(adapters: readonly ReportedAdapter[]): string | null 
 /** Four decimal parts written the one way (no sign, spaces or leading zeros), so what is stored is exactly what is tested and shown. */
 export function isCanonicalIpv4(address: string): boolean {
   const parts = address.split(".");
-  return parts.length === 4 && parts.every(p => p.length >= 1 && p.length <= 3 && String(Number(p)) === p && Number(p) <= 255);
+  return parts.length === 4 && parts.every(p => p.length >= 1 && p.length <= 3 && [...p].every(ch => ch >= "0" && ch <= "9")
+    && String(Number(p)) === p && Number(p) <= 255);
 }
 
 /** The adapters in a stored network configuration (config-canonical items "adapter:<name>"). Anything malformed counts as absent. */
