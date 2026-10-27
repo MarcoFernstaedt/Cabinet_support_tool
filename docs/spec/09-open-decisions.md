@@ -833,7 +833,7 @@ Choices made in building it (confirm or change):
 The owner's requirement: approval requires a baseline decision, and a cabinet shows "Baseline required" until a baseline is in force (15-baselines-and-config.md "Baselines at enrollment").
 
 Choices made in building it (confirm or change):
-- **Attaching skips a second review.** Attaching copies an already approved version to the site as approved, decided by the approver with the approval's authenticator code. The content went through the two-person rule once, in its own scope. A captured draft always goes through the two-person rule.
+- **Attaching skips a second review.** Attaching copies an already approved version to the site as approved, decided by the approver with the approval's authenticator code. The content went through the two-person rule once, in its own scope. A captured draft always goes through the two-person rule. The command line's `approve --baseline <versionId>` attaches with no authenticator code: it runs on the server with the operator's own access, the same trust that lets it approve at all.
 - **"Use the baseline in force" ignores model baselines** at approval time, because the cabinet has not reported its model yet. The approval says when model baselines exist.
 - **Existing cabinets are not migrated.** They show "Baseline required" by the same rule as new ones whenever no approved baseline applies; they have no enrollment decision on record.
 - **The server's own callers may leave the decision out** (tests and tools call the service directly); the console route and the command line cannot.

@@ -23,7 +23,7 @@ test("the approval asks for a baseline decision, and the cabinet says Baseline r
   try {
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
-    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
+    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429|500)/.test(m.text())) problems.push(m.text()); });
     const request = async (hostname: string) => {
       const { token } = await createBootstrapToken(c.db.app, c.adminId);
       return submitEnrollment(c.db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: { hostname, serialNumber: "SN-" + randomBytes(3).toString("hex"), macAddresses: [],
@@ -33,8 +33,19 @@ test("the approval asks for a baseline decision, and the cabinet says Baseline r
     await c.signIn(page);
     await page.goto(`${c.origin}/admin/pending`);
     const card = page.getByRole("region", { name: "Request from WARD-ONE" });
+    // The first read of which baselines apply fails (the 500 is faked, so the browser logging it is expected): the approval says so and
+    // offers to read again, instead of waiting forever.
+    let failOnce = true;
+    await page.route("**/api/admin/enrollments/*/baseline?*", route => {
+      if (!failOnce) return route.continue();
+      failOnce = false;
+      return route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal", message: "internal error" }) });
+    });
     await card.getByLabel("Client").fill("Papa Health");
     await card.getByLabel("Site").fill("Ward 4");
+    await card.getByText(/Could not read which baselines apply/).waitFor();
+    assert.equal(await card.getByRole("button", { name: "Approve" }).isDisabled(), true);
+    await card.getByRole("button", { name: "Try again" }).click();
     await card.getByLabel("Role").selectOption("standalone");
     // No baseline applies to a new client: the approval says so, and Approve waits for the decision.
     await card.getByText("Baseline required").first().waitFor();
