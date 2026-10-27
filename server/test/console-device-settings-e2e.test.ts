@@ -114,9 +114,9 @@ test("device settings in the console: a client's scanner and sync ports set once
     await dialog.getByText("Set here:").first().waitFor().catch(async e => { await page.screenshot({ path: "/tmp/std.png" }); throw new Error(`${e.message}\nPage: ${(await page.locator("body").innerText()).slice(0, 900)}`); });
     await dialog.getByRole("button", { name: "Close" }).click();
     assert.deepEqual((await db.app.query("SELECT scanner_hardware_ids FROM cabinets WHERE id = $1", [cabinet])).rows[0].scanner_hardware_ids, ["USB\\VID_5555&PID_0002"]);
-    // The firewall policy line opens the policy at the cabinet's client; changing it asks for the code.
+    // The firewall policy line opens the policy at the cabinet's site (its own, else the client's); changing it asks for the code.
     await table.getByRole("button", { name: "Firewall policy" }).click();
-    await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("heading", { name: "Firewall policy for Acme Health" }).waitFor();
+    await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("heading", { name: "Firewall policy at North" }).waitFor();
     await page.getByRole("dialog", { name: "Firewall policy" }).getByRole("button", { name: "Close" }).click();
 
     // ---- The client firewall policy: the cabinet reports all profiles on, unlike the default (all off) ----

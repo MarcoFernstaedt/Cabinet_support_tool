@@ -6,7 +6,7 @@ import { parseJson } from "./settings.js";
 import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
 import { clientScanner, scannerUsedFor } from "./client-scanner.js";
-import { fleetTimeZone, siteTimeZone } from "./time.js";
+import { fleetTimeZone } from "./time.js";
 
 export { fleetScannerIds, fleetSyncPorts };
 
@@ -133,8 +133,8 @@ export async function client(db: Queryable, id: string) {
  * the whole list, so a site with more cabinets than a page still answers quickly and says so.
  */
 export async function site(db: Queryable, id: string, page: Page = {}) {
-  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; network_baseline: unknown }>(
-    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, s.network_baseline
+  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; client_zone: string | null; network_baseline: unknown }>(
+    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, c.time_zone AS client_zone, s.network_baseline
        FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
   const { limit, offset } = pageWindow(page);
@@ -144,7 +144,9 @@ export async function site(db: Queryable, id: string, page: Page = {}) {
   const count = await cabinetCount(db, id);
   const ports = (await syncPortsForSite(db, id))!;
   const syncCabinets = await siteSyncCabinets(db, id);
-  const zone = await siteTimeZone(db, id);
+  const fleetZone = s.time_zone || s.client_zone ? null : await fleetTimeZone(db);
+  const zone = s.time_zone ? { zone: s.time_zone, source: "site" as const } : s.client_zone ? { zone: s.client_zone, source: "client" as const }
+    : { zone: fleetZone, source: fleetZone ? "fleet" as const : null };
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
     // The zone its cabinets are held to and where it comes from: the site's own, else the client's, else the fleet's (null: none is checked).
     timeZoneApplies: { zone: zone.zone, source: zone.source },
