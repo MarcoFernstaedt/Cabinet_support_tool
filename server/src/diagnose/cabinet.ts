@@ -10,6 +10,7 @@ import { Refused } from "../services/errors.js";
 import { issueFromConsole, type Role } from "../services/console-commands.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { scannerIdsFor } from "../services/fleet.js";
+import { scannerUsedFor } from "../services/client-scanner.js";
 import { fixesForFindings, type KnownFixView } from "../services/known-fixes.js";
 import { effectiveRunbook, runbookSummaries } from "../services/runbooks.js";
 import { issueResolutions } from "../services/resolutions.js";
@@ -24,13 +25,14 @@ const MAX_RUNNING_PER_USER = 2;
 interface Issued { key: string; operation: string; commandId: string }
 
 /** The fixed set of reads (and nothing else) that the diagnosis runs. Parameters are exactly the ones each operation's own page sends. */
-export function bundleReads(now = Date.now()): { key: keyof ReadKeys; operation: string; params: Record<string, unknown> }[] {
+export function bundleReads(now = Date.now(), scannerUsed = true): { key: keyof ReadKeys; operation: string; params: Record<string, unknown> }[] {
   const from = new Date(now - 24 * 3_600_000).toISOString();
   return [
     { key: "info", operation: "system.info", params: {} },
     { key: "smart", operation: "disk.smart", params: {} },
     { key: "performance", operation: "system.performance", params: {} },
-    { key: "peripheral", operation: "peripheral.status", params: {} },
+    // A client that uses no fingerprint scanner: there is nothing to read.
+    ...(scannerUsed ? [{ key: "peripheral" as const, operation: "peripheral.status", params: {} }] : []),
     { key: "usb", operation: "usb.ports", params: {} },
     { key: "devices", operation: "devices.list", params: { problemsOnly: true } },
     { key: "services", operation: "services.list", params: {} },
@@ -61,7 +63,8 @@ export async function startCabinetDiagnosis(pool: Pool, user: { userId: string; 
   // The reads are issued before answering, so a refusal (role, unknown cabinet) reaches the person at once. The scanner's hardware IDs
   // are filled in by the server from the console's settings, as for the scanner page.
   const issued: Issued[] = [];
-  for (const r of bundleReads()) issued.push({ key: r.key, operation: r.operation, commandId: (await issueFromConsole(pool, user, cabinetId, r.operation, r.params)).commandId });
+  const scannerUsed = await scannerUsedFor(pool, cabinetId);
+  for (const r of bundleReads(Date.now(), scannerUsed)) issued.push({ key: r.key, operation: r.operation, commandId: (await issueFromConsole(pool, user, cabinetId, r.operation, r.params)).commandId });
   await pool.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands) VALUES ($1, $2, 'cabinet', $3, 'running', $4)", [id, cabinetId, user.userId, safeJson(issued)]);
   await audit(pool, { actorKind: "user", actorId: user.userId, action: "diagnosis.start", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded", details: { diagnosisId: id, kind: "cabinet", reads: issued.length } });
   // The network diagnosis runs alongside, as its own stored diagnosis, and is folded in when it is done.
@@ -94,7 +97,8 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   const k = (await pool.query<{ name: string; role: string; zone: string | null }>(
     "SELECT k.name, k.role, s.time_zone AS zone FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0];
   if (!k) throw new Error("the cabinet is gone");
-  const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, now: Date.now() };
+  const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, now: Date.now(),
+    scannerUsed: issued.some(i => i.key === "peripheral") };
   for (const key of ["info", "smart", "performance", "peripheral", "usb", "devices", "services", "updates", "time", "systemLog", "appLog"] as const) {
     const r = read<never>(key);
     if (r) (evidence as unknown as Record<string, unknown>)[key] = r;
