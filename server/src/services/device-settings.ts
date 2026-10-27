@@ -3,12 +3,14 @@
 //   Scanner IDs: the cabinet's own, else its site's, else its client's, else the fleet default; none set anywhere means
 //   the agent finds the scanner itself (its Biometric device class). An ID may be a vendor prefix such as USB\VID_1234,
 //   which matches every model from that vendor, so a client changing scanner model needs no change at all.
-//   Sync ports: the site's own, else its client's, else the fleet default. The sync address stays per site.
+//   Sync ports: the site's own, else its client's, else the fleet default. The address is the satellite's own sync cabinet's
+//   (sync-cabinets.ts).
 // Every change needs its step-up token and is audited.
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { isPrivateIpv4, parseJson, upsertSetting } from "./settings.js";
+import { parseJson, upsertSetting } from "./settings.js";
+import { syncAddressFor } from "./sync-cabinets.js";
 
 export type ScannerSource = "cabinet" | "site" | "client" | "fleet" | "automatic";
 export type PortsSource = "site" | "client" | "fleet" | "none";
@@ -52,53 +54,32 @@ export async function scannerIdsFor(db: Queryable, cabinetId: string): Promise<s
   return (await scannerLevels(db, cabinetId)).effective;
 }
 
-export interface SyncLevels { address: string | null; site: number[] | null; client: number[] | null; fleet: number[] | null; effective: number[]; source: PortsSource }
+/** The sync ports that apply at a site, at every level, and where the ones in force come from. */
+export interface SyncPorts { site: number[] | null; client: number[] | null; fleet: number[] | null; effective: number[]; source: PortsSource }
+/** What a cabinet's sync tests aim at: its sync cabinet's address (null when it has none to reach) and the site's ports. */
+export interface SyncLevels extends SyncPorts { address: string | null }
 
-/** A site's sync cabinet: its address, and the ports that apply with where they come from. */
-export async function syncForSite(db: Queryable, siteId: string): Promise<SyncLevels | null> {
-  const row = (await db.query<{ address: string | null; s: string | null; c: string | null }>(
-    `SELECT s.sync_address AS address, s.sync_ports AS s, c.sync_ports AS c FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [siteId])).rows[0];
+/** A site's sync ports: the site's own, else the client's, else the fleet's. */
+export async function syncPortsForSite(db: Queryable, siteId: string): Promise<SyncPorts | null> {
+  const row = (await db.query<{ s: string | null; c: string | null }>(
+    `SELECT s.sync_ports AS s, c.sync_ports AS c FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [siteId])).rows[0];
   if (!row) return null;
-  const r = { address: row.address, s: parseJson<number[]>(row.s), c: parseJson<number[]>(row.c) };
+  const r = { s: parseJson<number[]>(row.s), c: parseJson<number[]>(row.c) };
   const fleet = await fleetSyncPorts(db);
   // A site or client with an explicit empty list means "no ports here", which still overrides what is above it.
   const pick = r.s !== null ? [r.s, "site"] : r.c !== null ? [r.c, "client"] : fleet !== null ? [fleet, "fleet"] : [[], "none"];
-  return { address: r.address, site: r.s, client: r.c, fleet, effective: pick[0] as number[], source: pick[1] as PortsSource };
+  return { site: r.s, client: r.c, fleet, effective: pick[0] as number[], source: pick[1] as PortsSource };
 }
 
 /** The most sync ports a site may be given: the same limit pathhealth-targets.ts and the agent's own validator use. */
 export const SITE_SYNC_PORTS_MAX = 4;
 
-export interface SiteSync { address: string; ports: number[] | null }
-
-/**
- * Validates and writes a site's sync cabinet in the caller's transaction, into the same columns `syncForSite` reads
- * (`sites.sync_address`, `sites.sync_ports`). The address rule is settings.ts's own (`setSiteSync` uses it too), so the
- * console's site settings and an approval cannot disagree about what a sync cabinet address is.
- *
- * This runs inside the caller's transaction on purpose: an approval that fails after it (a duplicated cabinet name, a
- * certificate that cannot be issued) leaves no sync address behind.
- */
-export async function writeSiteSync(c: Queryable, userId: string, siteId: string, sync: SiteSync): Promise<void> {
-  // A sync cabinet is reached on the site's own network, so only RFC 1918 addresses are accepted; each cabinet checks again
-  // that the address is on one of its own networks before it connects.
-  if (!isPrivateIpv4(sync.address)) {
-    throw new Refused("invalid_address", 400, "the sync cabinet's address must be a private IPv4 address: 10.x.x.x, 172.16-31.x.x or 192.168.x.x");
-  }
-  const ports = sync.ports ?? null;
-  if (ports !== null) {
-    if (ports.length > SITE_SYNC_PORTS_MAX) throw new Refused("invalid_ports", 400, `a site can have at most ${SITE_SYNC_PORTS_MAX} sync ports`);
-    for (const port of ports) if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Refused("invalid_ports", 400, "a sync port must be a whole number from 1 to 65535");
-    if (new Set(ports).size !== ports.length) throw new Refused("invalid_ports", 400, "the same sync port is listed twice");
-  }
-  const r = await c.query("UPDATE sites SET sync_address = $2, sync_ports = $3 WHERE id = $1 AND removed_at IS NULL", [siteId, sync.address, ports]);
-  if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
-  await audit(c, { actorKind: "user", actorId: userId, action: "site.sync", targetKind: "site", targetId: siteId, outcome: "succeeded", details: { address: sync.address, ports } });
-}
-
+/** What a cabinet's sync tests use: a satellite's live sync cabinet's address (none for any other role), and its site's ports. */
 export async function syncForCabinet(db: Queryable, cabinetId: string): Promise<SyncLevels | null> {
   const site = (await db.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.site_id;
-  return site ? syncForSite(db, site) : null;
+  if (!site) return null;
+  const ports = await syncPortsForSite(db, site);
+  return ports ? { ...ports, address: await syncAddressFor(db, cabinetId) } : null;
 }
 
 // ---- Changes ---------------------------------------------------------------------------------------

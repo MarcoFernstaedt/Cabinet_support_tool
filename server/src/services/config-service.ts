@@ -6,12 +6,15 @@ import { currentItems, ingestConfig, isCategory, type Category, type IngestSumma
 import { evaluateBaselineDrift } from "./baseline-drift.js";
 import { evaluateHealth } from "./cabinet-health.js";
 import { likeContains } from "./sql-like.js";
+import { followStoredNetwork } from "./sync-cabinets.js";
 
 /** Verifies and stores snapshots, then brings the cabinet's drift and health up to date once. */
 export async function ingestAndEvaluate(pool: Pool, cabinetId: string, snapshots: ConfigUpload["snapshots"], source: "agent" | "refresh"): Promise<IngestSummary> {
   const summary = await ingestConfig(pool, cabinetId, snapshots, source);
   if (summary.first + summary.changed > 0) await evaluateBaselineDrift(pool, cabinetId);
   await evaluateHealth(pool, cabinetId, new Date(), summary.first + summary.changed > 0 ? summary.latestObservedAt : null);
+  // A sync cabinet's satellites follow the address it reports, unless an Admin set one.
+  if (summary.categoriesChanged.includes("network")) await followStoredNetwork(pool, cabinetId);
   return summary;
 }
 

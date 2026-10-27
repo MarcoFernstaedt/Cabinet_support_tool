@@ -101,10 +101,11 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: "no answer within a minute" };
   const fw = outcome(first[1]!);
 
-  // The site's sync cabinet as the platform knows it: whether it is checking in, and its firewall profiles.
+  // This satellite's own sync cabinet as the platform knows it: whether it is checking in, and its firewall profiles.
   const sc = sync?.address ? (await pool.query<{ id: string; name: string; last: Date | null; firewall_profiles: Profiles | null }>(
-    `SELECT TOP (1) k.id, k.name, k.last_heartbeat_at AS last, k.firewall_profiles FROM cabinets k
-      WHERE k.site_id = (SELECT site_id FROM cabinets WHERE id = $1) AND k.role = 'sync' AND k.status = 'active' AND k.id <> $1 ORDER BY k.name`, [cabinetId])).rows[0] : undefined;
+    `SELECT y.id, y.name, y.last_heartbeat_at AS last, y.firewall_profiles FROM cabinets k
+       JOIN cabinets y ON y.id = k.sync_cabinet_id AND y.site_id = k.site_id AND y.role = 'sync' AND y.status = 'active'
+      WHERE k.id = $1`, [cabinetId])).rows[0] : undefined;
   const policy = switchesFor((await cabinetPolicy(pool, cabinetId)).policy);
   const baseline = (await pool.query<{ network_baseline: NetworkBaseline | null }>(
     "SELECT s.network_baseline FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0]?.network_baseline ?? null;

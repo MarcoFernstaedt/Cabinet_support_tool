@@ -1,5 +1,5 @@
 // Console-managed settings: the scanner's hardware IDs (fleet and per cabinet) and each
-// site's sync cabinet. Each change needs its step-up token and is audited with the action.
+// site's sync ports. Each change needs its step-up token and is audited with the action.
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
@@ -49,14 +49,13 @@ export function isPrivateIpv4(address: string): boolean {
   return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
 
-/** A site's sync cabinet address, and its own ports (null: use the client's, else the fleet's). */
-export async function setSiteSync(pool: Pool, userId: string, siteId: string, address: string | null, ports: number[] | null, stepUpToken: string): Promise<void> {
-  if (address !== null && !isPrivateIpv4(address)) throw new Refused("invalid_address", 400, "the sync cabinet must have a private IPv4 address");
+/** A site's own sync ports (null: use the client's, else the fleet's). The address belongs to each sync cabinet (sync-cabinets.ts). */
+export async function setSitePorts(pool: Pool, userId: string, siteId: string, ports: number[] | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "site.sync", siteId);
-    const r = await c.query("UPDATE sites SET sync_address = $2, sync_ports = $3 WHERE id = $1", [siteId, address, ports]);
+    const r = await c.query("UPDATE sites SET sync_ports = $2 WHERE id = $1 AND removed_at IS NULL", [siteId, ports]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
-    await audit(c, { actorKind: "user", actorId: userId, action: "site.sync", targetKind: "site", targetId: siteId, outcome: "succeeded", details: { address, ports } });
+    await audit(c, { actorKind: "user", actorId: userId, action: "site.sync", targetKind: "site", targetId: siteId, outcome: "succeeded", details: { ports } });
   });
 }
 

@@ -5,6 +5,7 @@ import { audit, HOT_PATH_TIMEOUT_MS, notify, transaction, type Pool, type Querya
 import { AGENT_RENEW_DAYS, issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
+import { linkUnassigned } from "./sync-cabinets.js";
 import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
@@ -166,8 +167,10 @@ export async function renewCertificate(pool: Pool, key: IssuingKey, cabinet: Aut
 /** Revokes every certificate of a cabinet and marks it removed. Its next connection is refused. */
 export async function revokeCabinet(pool: Pool, cabinetId: string, userId: string): Promise<void> {
   await transaction(pool, async c => {
-    const r = await c.query("UPDATE cabinets SET status = 'removed' WHERE id = $1 AND status <> 'removed'", [cabinetId]);
+    const r = await c.query<{ site_id: string }>("UPDATE cabinets SET status = 'removed' OUTPUT inserted.site_id WHERE id = $1 AND status <> 'removed'", [cabinetId]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active cabinet");
+    // A removed sync cabinet's satellites go to the site's only remaining sync cabinet, if there is exactly one; otherwise they wait for an Admin.
+    await linkUnassigned(c, r.rows[0]!.site_id);
     await c.query("UPDATE cabinet_certificates SET revoked_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND revoked_at IS NULL", [cabinetId]);
     // Every server process forgets the connections it had accepted, so the cabinet's next request is refused at once.
     await notify(c, REVOCATION_CHANNEL, cabinetId);

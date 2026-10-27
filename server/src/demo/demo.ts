@@ -232,6 +232,7 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
     await upsertSetting(c, SETTING, "true", userId);
     if ((await c.query("SELECT TOP (1) 1 AS x FROM clients WHERE demo = 1")).rows[0]) return;
     const clientRows: unknown[][] = [], siteRows: unknown[][] = [], cabinetRows: unknown[][] = [];
+    const links: { id: string; syncId: string }[] = [];
     let siteIndex = 0;
     // The scanner's service and its update service are the programs each demo client approves, so the failing-service and start-type
     // scenarios can be fixed from the console: both are issued only for a service on the approved list (controlled-targets.ts).
@@ -242,25 +243,34 @@ export async function enableDemo(pool: Pool, userId: string): Promise<void> {
       for (const site of client.sites) {
         const siteId = randomUUID();
         const baseline = baselineFor(site.subnet, site.addressing);
-        siteRows.push([siteId, clientId, site.name, `${site.subnet}.20`, site.timeZone, safeJson(baseline)]);
+        siteRows.push([siteId, clientId, site.name, site.timeZone, safeJson(baseline)]);
+        // The site's first sync cabinet is the one its satellites reach, at the address the simulated network gives it (subnet .20).
+        const ids = site.cabinets.map(() => randomUUID());
+        const syncIndex = site.cabinets.findIndex(k => k.role === "sync");
+        const syncId = syncIndex < 0 ? null : ids[syncIndex]!;
         for (const [i, k] of site.cabinets.entries()) {
-          const id = randomUUID();
+          const id = ids[i]!;
           cabinets.push({ id, scenario: k.scenario });
           const net = initialNet(k.scenario, baseline, site.subnet, i);
           const problems = netProblems(net, baseline);
           if (problems.length > 0) netAlerts.push({ id, problems });
           cabinetRows.push([id, siteId, k.name, k.role, hostnameFor(siteIndex, i, k.role), `5CG${siteIndex}${i}DEMO${i}`, AGENT_VERSION, 86_400 * (2 + i), k.scenario,
             safeJson(k.scenario === "firewall_drift" ? { domain: true, private: true, public: true } : ALL_OFF),
-            k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net), net.address]);
+            k.scenario === "time_zone_wrong" ? wrongZoneFor(site.timeZone) : site.timeZone, k.scenario === "clock_drift" ? DRIFT_SECONDS : 0.3, safeJson(net), net.address,
+            i === syncIndex ? `${site.subnet}.20` : null, i === syncIndex ? "admin" : null]);
+          if (k.role === "satellite" && syncId) links.push({ id, syncId });
         }
         siteIndex++;
       }
     }
     // The whole fleet in a few statements (all 121 cabinets in one).
     await insertMany(c, "clients", ["id", "name", "watched_services", "sync_ports", "approved_apps"], clientRows, [["demo", "1"]]);
-    await insertMany(c, "sites", ["id", "client_id", "name", "sync_address", "time_zone", "network_baseline"], siteRows);
+    await insertMany(c, "sites", ["id", "client_id", "name", "time_zone", "network_baseline"], siteRows);
     await insertMany(c, "cabinets", ["id", "site_id", "name", "role", "hostname", "serial_number", "agent_version", "uptime_seconds", "demo_scenario", "firewall_profiles",
-      "time_zone_id", "clock_skew_seconds", "demo_net", "ipv4"], cabinetRows, [["status", "'active'"], ["read_only", "0"], ["ipv4_at", "SYSUTCDATETIME()"]]);
+      "time_zone_id", "clock_skew_seconds", "demo_net", "ipv4", "sync_address", "sync_address_source"], cabinetRows, [["status", "'active'"], ["read_only", "0"], ["ipv4_at", "SYSUTCDATETIME()"]]);
+    // Linked once every cabinet exists: a satellite and its sync cabinet can fall in different insert statements.
+    await c.query(`UPDATE k SET k.sync_cabinet_id = j.sync_id FROM cabinets k
+                     JOIN OPENJSON($1) WITH (id uniqueidentifier '$.id', sync_id uniqueidentifier '$.syncId') j ON j.id = k.id`, [safeJson(links)]);
     await audit(c, { actorKind: "user", actorId: userId, action: "demo.enable", outcome: "succeeded", details: { cabinets: cabinets.length } });
   });
   // Through the real paths, outside the transaction (as an agent's requests would be): heartbeats, then the events.
@@ -431,9 +441,10 @@ async function heartbeat(pool: Pool, cabinetId: string, profiles?: Profiles): Pr
 }
 
 async function context(pool: Pool, cabinetId: string): Promise<DemoContext | null> {
-  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; sync_address: string | null; firewall_profiles: Profiles | null; watched_services: string[] | null; sync_blocked: boolean; pos: number;
+  const k = (await pool.query<{ hostname: string; role: string; scenario: Scenario; site_sync: string | null; firewall_profiles: Profiles | null; watched_services: string[] | null; sync_blocked: boolean; pos: number;
                                zone: string | null; skew: number | null; demo_net: DemoNet | null; network_baseline: NetworkBaseline | null }>(
-    `SELECT k.hostname, k.role, k.demo_scenario AS scenario, s.sync_address, k.firewall_profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew, k.demo_net, s.network_baseline,
+    `SELECT k.hostname, k.role, k.demo_scenario AS scenario,
+            (SELECT TOP (1) y.sync_address FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.sync_address IS NOT NULL ORDER BY y.name) AS site_sync, k.firewall_profiles, k.time_zone_id AS zone, k.clock_skew_seconds AS skew, k.demo_net, s.network_baseline,
             COALESCE(k.watched_services, s.watched_services, c.watched_services) AS watched_services,
             CAST(CASE WHEN k.role <> 'sync' AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.role = 'sync' AND y.id <> k.id
               AND (JSON_VALUE(y.firewall_profiles, '$.domain') = 'true' OR JSON_VALUE(y.firewall_profiles, '$.private') = 'true' OR JSON_VALUE(y.firewall_profiles, '$.public') = 'true')) THEN 1 ELSE 0 END AS bit) AS sync_blocked,
@@ -455,7 +466,7 @@ async function context(pool: Pool, cabinetId: string): Promise<DemoContext | nul
     power[r.key.slice(`demo.power:${cabinetId}:`.length)] = r.value === true;
   const drawerValue = (await pool.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [`demo.drawer:${cabinetId}`])).rows[0]?.value;
   const drawer = drawerValue === undefined || drawerValue === null ? null : String(drawerValue);
-  const subnet = (k.sync_address ?? "10.0.0.20").split(".").slice(0, 3).join(".");
+  const subnet = (k.site_sync ?? "10.0.0.20").split(".").slice(0, 3).join(".");
   return { hostname: k.hostname, role: k.role, scenario: k.scenario, subnet,
     index: Number(k.pos), firewallProfiles: k.firewall_profiles ?? ALL_OFF, watchedServices: k.watched_services ?? [], startTypes, power, drawer, syncBlocked: k.sync_blocked, now: new Date(),
     timeZoneId: k.zone ?? "Eastern Standard Time", clockSkewSeconds: k.skew ?? 0,

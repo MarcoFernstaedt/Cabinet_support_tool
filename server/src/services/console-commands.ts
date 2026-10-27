@@ -1,6 +1,6 @@
 // Commands from people (the console, and platform-admin on the server host): the role check, the
 // Admin-only and approved-package rules, then the values the server itself controls (scanner IDs,
-// the site's sync cabinet) put into the parameters. Both paths go through here, so neither can skip a rule.
+// a satellite's sync cabinet and its site's ports) put into the parameters. Both paths go through here, so neither can skip a rule.
 import type { Pool } from "../db/db.js";
 import { catalog, isOperationName, operations, type Command } from "../contracts.js";
 import { issueCommand } from "./commands.js";

@@ -10,7 +10,7 @@ import { commandRecord } from "../services/commands.js";
 import { issueFromConsole } from "../services/console-commands.js";
 import { Refused } from "../services/errors.js";
 import * as fleet from "../services/fleet.js";
-import { setCabinetScanner, setFleetScanner, setSiteSync } from "../services/settings.js";
+import { setCabinetScanner, setFleetScanner, setSitePorts } from "../services/settings.js";
 import { setClientSyncPorts, setFleetSyncPorts, setScanner } from "../services/device-settings.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -152,8 +152,8 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
 
   app.put("/api/sites/:id/sync", async request => {
     const u = await o.guards.role(request, "admin");
-    const body = consoleBodies.sync.parse(request.body);
-    await setSiteSync(o.pool, u.userId, id(request), body.address, body.ports, boundTo(body.stepUpToken, body));
-    return { address: body.address, ports: body.ports };
+    const body = consoleBodies.syncPorts.parse(request.body);
+    await setSitePorts(o.pool, u.userId, id(request), body.ports, boundTo(body.stepUpToken, body));
+    return { ports: body.ports };
   });
 }

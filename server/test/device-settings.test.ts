@@ -13,7 +13,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { scannerIdsFor } from "../src/services/fleet.js";
-import { scannerLevels, syncForSite } from "../src/services/device-settings.js";
+import { scannerLevels, syncPortsForSite as syncForSite } from "../src/services/device-settings.js";
 import { issueFromConsole } from "../src/services/console-commands.js";
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
@@ -113,7 +113,13 @@ test("scanner IDs: Tier 1 cannot change any level, tokens are bound to their lev
 });
 
 test("sync ports: the site's own, else the client's, else the fleet's; only Admins change them; network.test uses what applies", async () => {
-  await db.app.query<any>("UPDATE sites SET sync_address = '10.20.0.15' WHERE id IN ($1, $2)", [ids.site, ids.site2]);
+  // Each cabinet is a satellite of a sync cabinet at its site, whose address its sync tests aim at.
+  for (const [k, site] of [[ids.cab, ids.site], [ids.cab2, ids.site2]] as const) {
+    const sync = randomUUID();
+    await db.app.query<any>("INSERT INTO cabinets (id, site_id, name, role, status, sync_address, sync_address_source) VALUES ($1, $2, $3, 'sync', 'active', '10.20.0.15', 'admin')",
+      [sync, site, `Sync ${sync.slice(0, 4)}`]);
+    await db.app.query<any>("UPDATE cabinets SET role = 'satellite', sync_cabinet_id = $2 WHERE id = $1", [k, sync]);
+  }
   assert.deepEqual((await syncForSite(db.app, ids.site))!.source, "none");
   assert.equal((await put(tier2, `/api/clients/${ids.client}/sync-ports`, { ports: [1433] }, "client.sync", ids.client)).status, 403, "Admin only");
   assert.equal((await put(admin, "/api/settings/sync-ports", { ports: [445] }, "settings.sync", "fleet")).status, 200);
@@ -122,17 +128,20 @@ test("sync ports: the site's own, else the client's, else the fleet's; only Admi
   assert.equal((await put(admin, `/api/clients/${ids.client}/sync-ports`, { ports: [1433, 5000] }, "client.sync", ids.client)).status, 200);
   for (const s of [ids.site, ids.site2]) assert.deepEqual(await syncForSite(db.app, s).then(x => [x!.effective, x!.source]), [[1433, 5000], "client"]);
   // One site differs; null brings it back to the client's.
-  assert.equal((await put(admin, `/api/sites/${ids.site}/sync`, { address: "10.20.0.15", ports: [8080] }, "site.sync", ids.site)).status, 200);
+  assert.equal((await put(admin, `/api/sites/${ids.site}/sync`, { ports: [8080] }, "site.sync", ids.site)).status, 200);
   assert.deepEqual((await syncForSite(db.app, ids.site))!.effective, [8080]);
   const sitePage = (await call("GET", `/api/fleet/sites/${ids.site}`, undefined, tier1.cookie)).body;
-  assert.deepEqual(sitePage.sync, { address: "10.20.0.15", ports: [8080], effectivePorts: [8080], portsSource: "site" });
+  assert.deepEqual({ ...sitePage.sync, syncCabinets: sitePage.sync.syncCabinets.map((c: any) => [c.address, c.addressSource, c.satellites]) },
+    { ports: [8080], effectivePorts: [8080], portsSource: "site", syncCabinets: [["10.20.0.15", "admin", 1]], unassignedSatellites: 0 });
+  // The site's ports take no address any more: the old body is refused by its contract.
+  assert.equal((await call("PUT", `/api/sites/${ids.site}/sync`, { address: "10.20.0.15", ports: [8080], stepUpToken: "A".repeat(43) }, admin.cookie)).status, 400);
 
   const test1 = await issueFromConsole(db.app, { userId: tier1.id, role: "tier1" }, ids.cab, "network.test", { target: "sync_cabinet", method: "tcp", port: 8080, syncPorts: [22, 3389] });
   assert.deepEqual([(test1.params as any).syncAddress, (test1.params as any).syncPorts], ["10.20.0.15", [8080]], "what the browser sent is replaced");
   const test2 = await issueFromConsole(db.app, { userId: tier1.id, role: "tier1" }, ids.cab2, "network.test", { target: "sync_cabinet", method: "tcp", port: 1433 });
   assert.deepEqual((test2.params as any).syncPorts, [1433, 5000]);
 
-  assert.equal((await put(admin, `/api/sites/${ids.site}/sync`, { address: "10.20.0.15", ports: null }, "site.sync", ids.site)).status, 200);
+  assert.equal((await put(admin, `/api/sites/${ids.site}/sync`, { ports: null }, "site.sync", ids.site)).status, 200);
   assert.deepEqual((await syncForSite(db.app, ids.site))!.source, "client");
   assert.equal((await put(admin, `/api/clients/${ids.client}/sync-ports`, { ports: null }, "client.sync", ids.client)).status, 200);
   assert.deepEqual(await syncForSite(db.app, ids.site).then(x => [x!.effective, x!.source]), [[445], "fleet"]);

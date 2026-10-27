@@ -25,9 +25,9 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const requestId = id(request);
     const body = consoleBodies.approve.parse(request.body);
     await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve", requestId);
-    // The approval carries what the cabinet's role needs: a satellite's site sync address (and ports) is written with it.
+    // A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site.
     return approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
-      ...(body.sync ? { sync: { address: body.sync.address, ports: body.sync.ports ?? null } } : {}) }, u.userId);
+      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}) }, u.userId);
   });
 
   app.post("/api/admin/enrollments/:id/reject", async request => {
