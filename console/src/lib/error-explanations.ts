@@ -27,9 +27,8 @@ export interface Explanation {
 const pausedWrites = (who: string): Explanation => ({
   title: "Changes are paused",
   detail: `Writing to cabinets is paused ${who}; nothing on the machine was changed.`,
-  fix: who === "for your account"
-    ? "Ask your Admin to resume writes, then repeat the action."
-    : "Ask Tier 2 to resume writes, then repeat the action.",
+  // Only an Admin resumes writes, for the platform, a client or an account (write-routes.ts, users.ts).
+  fix: "Ask an Admin to resume writes, then repeat the action.",
 });
 
 const codeExplanations: Record<string, Explanation> = {
@@ -67,7 +66,7 @@ const codeExplanations: Record<string, Explanation> = {
   totp_required: {
     title: "Second factor required",
     detail: "This account must enter an authenticator code to finish signing in.",
-    fix: "Enter the current code from the authenticator app; ask Tier 2 if none is set up on the account.",
+    fix: "Enter the current code from the authenticator app; if none is set up on the account, ask an Admin to reset it.",
   },
   weak_password: {
     title: "Password too weak",
@@ -96,13 +95,13 @@ const codeExplanations: Record<string, Explanation> = {
   },
   same_person: {
     title: "Two different people required",
-    detail: "The same account cannot both raise and approve a request.",
-    fix: "Ask a second Admin or Tier 2 to review and approve it.",
+    detail: "The Admin who uploaded a package cannot also approve it.",
+    fix: "Ask a second Admin to review and approve it.",
   },
   own_proposal: {
     title: "Cannot approve your own proposal",
     detail: "Approvals need a second person, so someone else has to decide this one.",
-    fix: "Ask another Admin or Tier 2 to review it.",
+    fix: "Ask another Admin to review and approve it.",
   },
   last_admin: {
     title: "That is the last Admin",
@@ -134,9 +133,9 @@ const codeExplanations: Record<string, Explanation> = {
     fix: "Enroll again with a fresh token; if it still fails, send this text to Tier 2.",
   },
   already_claimed: {
-    title: "Cabinet already set up",
-    detail: "Someone has already finished connecting this cabinet, so the code cannot be used twice.",
-    fix: "Open the cabinet from the Cabinets list; if it is the wrong machine, ask an Admin to remove it and start again.",
+    title: "Someone else claimed it first",
+    detail: "Another person claimed this alert a moment before you, so it is theirs to work on.",
+    fix: "Reload the alert to see who has it and talk to them; an Admin can resolve it if they cannot.",
   },
   invalid_code: {
     title: "Code not recognised",
@@ -283,7 +282,7 @@ const codeExplanations: Record<string, Explanation> = {
   no_approved_baseline: {
     title: "No approved baseline yet",
     detail: "Nothing is approved as this cabinet's expected state, so there is nothing to compare against.",
-    fix: "Approve a baseline from a known-good reading, or ask Tier 2 to set one.",
+    fix: "Ask an Admin to approve a baseline from a known-good reading of this cabinet.",
   },
   no_configuration: {
     title: "Nothing set up yet",
