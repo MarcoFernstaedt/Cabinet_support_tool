@@ -292,6 +292,20 @@ test("the signed approved list is sent only to an agent that knows the field; an
   assert.equal(newer.body.approvedApps.signed.signature.keyId, keyId);
 });
 
+test("a client without a scanner: an agent that knows the setting is told to stop looking, an older one gets the answer it always got", async () => {
+  const cab = await enrolledCabinet();
+  const clientId = (await db.app.query<{ id: string }>("SELECT s.client_id AS id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cab.cabinetId])).rows[0]!.id;
+  const on = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, agentVersion: "0.3.1" }, cab);
+  assert.deepEqual(Object.keys(on.body.scanner), ["hardwareIds"], "a client that uses a scanner: nothing new in the answer");
+  await db.app.query("UPDATE clients SET fingerprint_scanner = 0 WHERE id = $1", [clientId]);
+  const older = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, agentVersion: "0.3.0" }, cab);
+  assert.equal(older.status, 200);
+  assert.deepEqual(older.body.scanner, { hardwareIds: null }, "an agent before 0.3.1 would refuse an answer with a field it does not know");
+  const newer = await call("POST", "/agent/v1/heartbeat", { ...heartbeat, agentVersion: "0.3.1" }, cab);
+  assert.deepEqual(newer.body.scanner, { hardwareIds: null, watch: false });
+  await db.app.query("UPDATE clients SET fingerprint_scanner = 1 WHERE id = $1", [clientId]);
+});
+
 // ---- Connections: HTTP/2, mutual TLS, remembered certificates, resumption ----------------------------------------------------------
 
 test("HTTP/2 clients get the same answers and the same certificate checks as HTTP/1.1", async () => {

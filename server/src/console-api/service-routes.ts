@@ -10,6 +10,7 @@ import { Refused } from "../services/errors.js";
 import { parseJson } from "../services/settings.js";
 import { appLevels, discardPendingApps, listToSign, readLevel, readLevelState, setApprovedApps, signApprovedApps, type AppLevel } from "../services/approved-apps.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
+import { clientScanner, setClientScanner } from "../services/client-scanner.js";
 import { setWatched, watchLevels, type WatchLevel } from "../services/watched-services.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -80,6 +81,15 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   // With an Admin list-signing key set up, a saved list waits for its signature; the console says so and offers it for signing.
   const signing = o.listKeys ?? ListSigningKeys.fromFolder();
   const signingState = { signing: { enabled: signing.count > 0 } };
+
+  // Whether a client uses a fingerprint scanner (Admin, code bound to the exact choice). Switching it on adds the scanner's service to the
+  // client's approved list (waiting for a signature when signing is on) and to its watched services.
+  app.put("/api/clients/:id/fingerprint-scanner", async request => {
+    const u = await o.guards.role(request, "admin");
+    const b = consoleBodies.clientScanner.parse(request.body);
+    const clientId = id(request);
+    return setClientScanner(o.pool, u, clientId, b.scanner, b.stepUpToken, signing).then(async r => ({ ...r, state: await clientScanner(o.pool, clientId) }));
+  });
 
   for (const [level, table] of [["client", "clients"], ["site", "sites"]] as const) {
     /** One client's or site's own list, its change waiting for a signature, and the fleet default (for the editor's "inherited" line). */

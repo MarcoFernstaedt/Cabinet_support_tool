@@ -51,6 +51,8 @@ export interface CabinetEvidence {
   siteTimeZone: string | null;
   /** When the reads were made. */
   now: number;
+  /** false when the cabinet's client uses no fingerprint scanner: the scanner was not read, and is reported as not used. */
+  scannerUsed?: boolean;
   info?: Read<SystemInfoOutput>;
   peripheral?: Read<PeripheralStatusOutput>;
   usb?: Read<UsbPortsOutput>;
@@ -219,6 +221,7 @@ function performance(e: CabinetEvidence, make: Make): Part {
 }
 
 function scanner(e: CabinetEvidence, make: Make): Part {
+  if (e.scannerUsed === false) return { findings: [], ok: "Not used by this client" };
   const r = e.peripheral;
   if (!r) return { findings: [], ok: null };
   if (!r.ok) return { findings: [make({ id: "scanner-unread", area: "scanner", severity: "info", certainty: "not_checked", title: "Could not check the fingerprint scanner", evidence: lines([r.failure]), fix: null, priority: 20 })], ok: null };
@@ -492,7 +495,7 @@ export function cabinetFindings(e: CabinetEvidence, network?: { findings: Networ
   const parts: [Area, Part][] = [["system", system(e, make)], ["storage", storage(e, make)], ["performance", perf], ["scanner", scanner(e, make)],
     ["devices", mergeParts(devices(e, make), usbPorts(e, make))], ["services", services(e, make)], ["updates", updates(e, make, lowSpace)], ["time", time(e, make)], ["logs", logs(e, make)]];
   const all: BundleFinding[] = parts.flatMap(([, p]) => p.findings);
-  const asked: Record<Area, boolean> = { system: !!e.info, storage: !!e.smart, performance: !!e.performance, scanner: !!e.peripheral, devices: !!e.devices || !!e.usb, services: !!e.services,
+  const asked: Record<Area, boolean> = { system: !!e.info, storage: !!e.smart, performance: !!e.performance, scanner: !!e.peripheral || e.scannerUsed === false, devices: !!e.devices || !!e.usb, services: !!e.services,
     updates: !!e.updates, time: !!e.time, logs: !!e.systemLog || !!e.appLog, network: network !== undefined };
   if (network && "findings" in network) for (const nf of network.findings) { const b = fromNetwork(nf); if (b) all.push(b); }
   else if (network && "failure" in network) all.push(make({ id: "network-unread", area: "network", severity: "info", certainty: "not_checked", title: "The network checks did not finish", evidence: lines([network.failure]), fix: "Run the diagnosis again, or run Diagnose network on the Network page.", priority: 30 }));

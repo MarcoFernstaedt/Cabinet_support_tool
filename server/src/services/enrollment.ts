@@ -8,6 +8,8 @@ import type { IssuingKey } from "../pki/x509.js";
 import { CsrError, verifyCsr } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
+import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
+import type { ListSigningKeys } from "./approved-list-signing.js";
 
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -74,6 +76,8 @@ export interface Approval {
    * cabinet, or stays incomplete when the site has none yet; a site with several needs the choice made here. Only a satellite names one.
    */
   syncCabinetId?: string;
+  /** For a new client only: whether it uses a fingerprint scanner, with its service when it does (client-scanner.ts). */
+  scanner?: ScannerChoice;
 }
 
 // This one carries `reason`, the sentence the console shows (console/src/lib/api.ts describeError): a refusal an Admin has to act on
@@ -82,13 +86,17 @@ const chooseSyncCabinet = () => new Refused("choose_sync_cabinet", 409, "this si
   { reason: "This site has several sync cabinets. Choose the one this satellite reaches." });
 
 /** Approves a pending request: places the cabinet, links it into the site's sync arrangement, signs its certificate and records it all. */
-export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string): Promise<{ cabinetId: string; serial: string }> {
+export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string, signing?: ListSigningKeys): Promise<{ cabinetId: string; serial: string }> {
   if (approval.syncCabinetId !== undefined && approval.role !== "satellite")
     throw new Refused("sync_not_allowed", 400, "only a satellite is given a sync cabinet", { reason: "Only a satellite is given a sync cabinet." });
   return transaction(pool, async c => {
     const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
       "SELECT csr, fingerprints FROM enrollment_requests WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND status = 'pending'", [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
+    // Whether this approval creates the client: only a new client takes a scanner choice; an existing one keeps its own setting.
+    const existed = !!(await c.query("SELECT 1 AS x FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0];
+    if (existed && approval.scanner) throw new Refused("scanner_for_existing_client", 409, "this client already exists; change its fingerprint scanner setting on the client's page",
+      { reason: "This client already exists. Its fingerprint scanner setting is changed on the client's page, not with an approval." });
     // Insert unless a live client of that name exists (a concurrent insert that wins the race is the same outcome).
     try {
       await c.query("IF NOT EXISTS (SELECT 1 FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $2 AND removed_at IS NULL) INSERT INTO clients (id, name) VALUES ($1, $2)", [randomUUID(), approval.clientName]);
@@ -96,6 +104,8 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     const client = (await c.query<{ id: string; demo: boolean }>("SELECT id, demo FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
     // A real cabinet never joins a simulated client: turning demo mode off deletes those, and its data would be mixed with the simulation.
     if (client.demo) throw new Refused("demo_client", 409, "that is a simulated demo client; file the cabinet under a real client");
+    // A new client's scanner, set up with the approval that creates it, in the same transaction.
+    const scanner = !existed && approval.scanner ? await applyScannerChoice(c, userId, client.id, approval.scanner, signing) : null;
     try {
       await c.query("IF NOT EXISTS (SELECT 1 FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $2 AND name = $3 AND removed_at IS NULL) INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)",
         [randomUUID(), client.id, approval.siteName]);
@@ -133,7 +143,7 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = SYSUTCDATETIME()
                    WHERE id = $1`, [requestId, cabinetId, certificate.serialHex, certificate.pem, userId]);
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
-      details: { requestId, ...approval, syncCabinetId, ...(approval.role === "sync" ? { satellitesLinked: linked } : {}), certificateSerial: certificate.serialHex } });
+      details: { requestId, ...approval, syncCabinetId, ...(scanner ? { scannerApproval: scanner.approval } : {}), ...(approval.role === "sync" ? { satellitesLinked: linked } : {}), certificateSerial: certificate.serialHex } });
     return { cabinetId, serial: certificate.serialHex };
   });
 }

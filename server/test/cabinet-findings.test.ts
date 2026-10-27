@@ -134,3 +134,10 @@ test("the triage score explains itself and ranks major and widespread first", ()
   const odd = triageScore({ severity: "minor", cabinets: -5, unclaimed: Number.NaN, mark: null, sitePatternAlerts: 0, oldestUnclaimedHours: -1, unrecognized: true });
   assert.ok(Number.isFinite(odd.score) && odd.score >= 0);
 });
+
+test("a client that uses no fingerprint scanner: the scanner area says so, with no finding", () => {
+  const r = cabinetFindings({ ...base(), scannerUsed: false });
+  const area = r.areas.find(a => a.area === "scanner");
+  assert.deepEqual(area && { state: area.state, summary: area.summary }, { state: "ok", summary: "Not used by this client" });
+  assert.equal(r.findings.filter(f => f.area === "scanner").length, 0);
+});

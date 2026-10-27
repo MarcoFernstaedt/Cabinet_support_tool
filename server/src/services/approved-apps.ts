@@ -335,20 +335,57 @@ export async function setApprovedApps(pool: Pool, user: { userId: string; role: 
     // same level and scope as the address.
     await consumeStepUpToken(c, stepUpToken, user.userId, APPS_SET_ACTION[level], target,
       confirmed ?? { level, id: level === "fleet" ? null : key, entries: entriesRaw ?? null });
-    const next = entries === null ? null : storedValue(entries, user.userId, previous);
-    const waits = next !== null && (signing?.count ?? 0) > 0;
-    // Waiting for a signature: the column keeps exactly what it held for the list in force, and the change rides beside it.
-    // A damaged value that is not even an object stays damaged (it denies) rather than becoming "nothing set here" (the level above).
-    const kept = parseJson<Record<string, unknown>>(raw);
-    const inForce = !stored.present ? {} : kept && typeof kept === "object" && !Array.isArray(kept) ? withoutPending(kept) : { unreadable: true };
-    const value = next === null ? null : waits ? { ...inForce, pending: next } : next;
-    await writeLevel(c, level, key, value, user.userId);
-    const place = level === "fleet" ? {} : { targetKind: level, targetId: key };
-    await audit(c, { actorKind: "user", actorId: user.userId, action: APPS_SET_ACTION[level], ...place, outcome: "succeeded",
-      details: { level, id: key, removed: next === null, waitsForSignature: waits, entries: entries?.length ?? 0, version: next?.version ?? null, keys: entries?.map(e => e.key) ?? [] } });
-    // The caller gets the list in force afterwards, in the shape a read hands out (with signing on, the one that was already there).
-    return splitStored(value).live;
+    return writeApprovedList(c, user.userId, level, key, raw, stored, previous, entries, signing);
   });
+}
+
+/**
+ * The write half of setApprovedApps, in the caller's transaction after its own permission and step-up checks: stores the list (as the
+ * level's pending change when signing is on), audits it, and returns the list in force afterwards.
+ */
+async function writeApprovedList(c: Queryable, userId: string, level: AppLevel, key: string, raw: unknown, stored: ReturnType<typeof splitStored>, previous: number,
+  entries: ApprovedApp[] | null, signing?: ListSigningKeys, why?: string): Promise<AppList | null> {
+  const next = entries === null ? null : storedValue(entries, userId, previous);
+  const waits = next !== null && (signing?.count ?? 0) > 0;
+  // Waiting for a signature: the column keeps exactly what it held for the list in force, and the change rides beside it.
+  // A damaged value that is not even an object stays damaged (it denies) rather than becoming "nothing set here" (the level above).
+  const kept = parseJson<Record<string, unknown>>(raw);
+  const inForce = !stored.present ? {} : kept && typeof kept === "object" && !Array.isArray(kept) ? withoutPending(kept) : { unreadable: true };
+  const value = next === null ? null : waits ? { ...inForce, pending: next } : next;
+  await writeLevel(c, level, key, value, userId);
+  const place = level === "fleet" ? {} : { targetKind: level, targetId: key };
+  await audit(c, { actorKind: "user", actorId: userId, action: APPS_SET_ACTION[level], ...place, outcome: "succeeded",
+    details: { level, id: key, removed: next === null, waitsForSignature: waits, entries: entries?.length ?? 0, version: next?.version ?? null, keys: entries?.map(e => e.key) ?? [],
+      ...(why ? { why } : {}) } });
+  // The caller gets the list in force afterwards, in the shape a read hands out (with signing on, the one that was already there).
+  return splitStored(value).live;
+}
+
+/**
+ * Makes sure a client's list approves one service entry, in the caller's transaction (used when a client's fingerprint scanner is
+ * switched on; the caller has checked the role and the step-up). The change starts from what the client would otherwise get: its pending
+ * change, else its own list, else the fleet's, because a client list replaces the fleet's whole. Returns whether the entry is approved
+ * in force already, waits for a signature, or was written in force (signing off). An entry with the same key, path and service name
+ * counts as already there; one with the same key but a different program is replaced.
+ */
+export async function ensureClientEntry(c: Queryable, userId: string, clientId: string, entry: ApprovedApp, signing?: ListSigningKeys): Promise<"approved" | "waiting" | "written"> {
+  const { key, raw, stored } = await readRaw(c, "client", clientId);
+  const same = (e: ApprovedApp) => e.key === entry.key && e.kind === entry.kind && entryPath(e).toLowerCase() === entryPath(entry).toLowerCase()
+    && (e.serviceName ?? "").toLowerCase() === (entry.serviceName ?? "").toLowerCase();
+  const liveHas = !!stored.live?.entries.some(same);
+  if (stored.pending) {
+    if (stored.pending.entries.some(same)) return liveHas ? "approved" : "waiting";
+  } else if (liveHas) return "approved";
+  // No list of its own: the fleet's applies, and may approve the entry already.
+  const fleet = stored.present || stored.pending ? null : splitStored((await readRaw(c, "fleet", null)).raw).live;
+  if (fleet?.entries.some(same)) return "approved";
+  const base = stored.pending?.entries ?? stored.live?.entries ?? fleet?.entries ?? [];
+  const entries = [...base.filter(e => e.key !== entry.key), entry].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  if (entries.length > MAX_APPS) throw new Refused("too_many_items", 409, `the client's approved list already holds ${MAX_APPS} programs`,
+    { reason: `The client's approved programs list is full (${MAX_APPS}). Remove one before adding the scanner's service.` });
+  const previous = Math.max(stored.live?.version ?? 0, stored.pending?.version ?? 0);
+  await writeApprovedList(c, userId, "client", key, raw, stored, previous, entries, signing, "fingerprint scanner switched on");
+  return (signing?.count ?? 0) > 0 ? "waiting" : "written";
 }
 
 /** What an Admin is asked to sign for one level: the change waiting for a signature, else the list in force when it is not signed yet. */

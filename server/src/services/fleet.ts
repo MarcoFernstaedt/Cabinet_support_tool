@@ -5,6 +5,7 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { parseJson } from "./settings.js";
 import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
+import { clientScanner, scannerUsedFor } from "./client-scanner.js";
 
 export { fleetScannerIds, fleetSyncPorts };
 
@@ -98,6 +99,7 @@ export async function client(db: Queryable, id: string) {
   return { id: c.id, name: c.name, demo: c.demo, writePaused: c.write_paused,
     scanner: { hardwareIds: c.scanner_hardware_ids, fleetHardwareIds: fleetIds },
     syncPorts: { ports: c.sync_ports, fleetPorts },
+    fingerprintScanner: await clientScanner(db, c.id),
     sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
     openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
 }
@@ -152,6 +154,7 @@ export async function cabinet(db: Queryable, id: string, page: Page = {}) {
     scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
       effective: levels.effective, source: levels.source },
     sync: await cabinetSync(db, id),
+    scannerUsed: await scannerUsedFor(db, id),
     siblings: await pageRows(db, siblings), siblingCount, siblingsPage: { limit, offset, hasMore: offset + siblings.length < siblingCount },
   };
 }

@@ -2,6 +2,7 @@
 // Each new event is checked against the live rules; a match raises or updates the issue's alert,
 // anything else becomes a minor unrecognized alert. Repeats fold into one active alert per
 // cabinet; the same issue on several cabinets at one site within an hour is a site-wide pattern.
+import { scannerUsedFor } from "./client-scanner.js";
 import { platformSettings } from "./settings.js";
 import { createHash } from "node:crypto";
 import type { AlertFilter, Event } from "../contracts.js";
@@ -69,7 +70,10 @@ export async function processBatch(c: Tx, cabinetId: string, events: readonly Ev
   // An agent clock far in the future cannot push last_seen past now.
   const seenAt = (e: Event) => new Date(Math.min(new Date(e.occurredAt).getTime(), now));
 
+  // A client that uses no fingerprint scanner: an agent that still reports one (built before the setting) opens no alert about it.
+  const scannerUsed = events.some(e => e.kind === "scanner") ? await scannerUsedFor(c, cabinetId) : true;
   for (const [index, e] of events.entries()) {
+    if (e.kind === "scanner" && !scannerUsed) { outcomes[index] = { kind: "stored" }; continue; }
     // A firewall change carrying a platform command's ID is an approved change, not an alert.
     if (e.kind === "firewall_changed" && e.commandId) { outcomes[index] = { kind: "platform_change" }; continue; }
     // The scanner watcher says when the scanner works again; its alert resolves itself.

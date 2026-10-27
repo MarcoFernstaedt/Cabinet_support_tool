@@ -6,6 +6,7 @@ import { consoleBodies } from "../contracts.js";
 import { transaction } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { revokeCabinet } from "../services/cabinets.js";
+import { ListSigningKeys } from "../services/approved-list-signing.js";
 import { approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -27,7 +28,8 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve", requestId);
     // A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site.
     return approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
-      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}) }, u.userId);
+      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}) }, u.userId,
+      o.listKeys ?? ListSigningKeys.fromFolder());
   });
 
   app.post("/api/admin/enrollments/:id/reject", async request => {
