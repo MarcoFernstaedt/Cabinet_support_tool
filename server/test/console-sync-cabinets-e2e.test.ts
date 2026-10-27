@@ -78,6 +78,8 @@ test("sync cabinets: the site's list, an incomplete satellite assigned, an Admin
     await card.getByText("This site has 2 sync cabinets.").waitFor();
     assert.equal(await card.getByRole("button", { name: "Approve" }).isDisabled(), true, "no choice yet");
     await card.getByLabel("Sync cabinet").selectOption({ label: "Midtown Sync B (10.40.0.21)" });
+    assert.equal(await card.getByRole("button", { name: "Approve" }).isDisabled(), true, "no baseline decision yet");
+    await card.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();
     await card.getByRole("button", { name: "Approve" }).click();
     await page.getByRole("dialog").getByText(/It reaches Midtown Sync B/).waitFor();
     await c.confirmWithCode(page);

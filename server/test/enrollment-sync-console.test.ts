@@ -70,7 +70,9 @@ test.before(async () => {
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
 
-async function approve(requestId: string, body: Record<string, unknown>): Promise<Reply> {
+// Every approval carries a baseline decision (enrollment-baseline.test.ts covers it); these tests are about the sync cabinet.
+async function approve(requestId: string, request: Record<string, unknown>): Promise<Reply> {
+  const body = { baseline: { use: "capture" }, ...request };
   return call("POST", `/api/admin/enrollments/${requestId}/approve`, { ...body, stepUpToken: await stepUp("enrollment.approve", requestId, body) });
 }
 async function put(url: string, action: string, target: string, body: Record<string, unknown>): Promise<Reply> {
@@ -87,7 +89,7 @@ test("the console approves a satellite with the sync cabinet it reaches, and the
   assert.equal(b.status, 200, JSON.stringify(b.body));
 
   const requestId = await pending();
-  const body = { client: "Kilo Health", site: "North", cabinet: "SAT 1", role: "satellite", syncCabinetId: b.body.cabinetId };
+  const body = { client: "Kilo Health", site: "North", cabinet: "SAT 1", role: "satellite", syncCabinetId: b.body.cabinetId, baseline: { use: "capture" } };
   // A token confirmed for the other sync cabinet does not authorize this choice.
   const forOther = await stepUp("enrollment.approve", requestId, { ...body, syncCabinetId: a.body.cabinetId });
   const refused = await call("POST", `/api/admin/enrollments/${requestId}/approve`, { ...body, stepUpToken: forOther });
@@ -113,14 +115,14 @@ test("a refusal the Admin must act on comes back with its own code and one sente
 
 test("the contract refuses the old address field, a sync cabinet that is not an ID, and one given to a sync cabinet", async () => {
   const requestId = await pending();
-  const sat = { client: "Mike Health", site: "North", cabinet: "SAT 1", role: "satellite" };
+  const sat = { client: "Mike Health", site: "North", cabinet: "SAT 1", role: "satellite", baseline: { use: "capture" } };
   for (const extra of [{ sync: { address: "10.0.0.1" } }, { syncCabinetId: "10.0.0.1" }, { syncCabinetId: "'; DROP TABLE cabinets; --" }, { syncCabinetId: null }]) {
     const body = { ...sat, ...extra };
     const r = await call("POST", `/api/admin/enrollments/${requestId}/approve`, { ...body, stepUpToken: await stepUp("enrollment.approve", requestId, body) });
     assert.equal(r.status, 400, `${JSON.stringify(extra)} → ${JSON.stringify(r.body)}`);
     assert.equal(r.body.error, "invalid_request");
   }
-  const sync = { client: "Mike Health", site: "North", cabinet: "SYNC 1", role: "sync", syncCabinetId: randomUUID() };
+  const sync = { client: "Mike Health", site: "North", cabinet: "SYNC 1", role: "sync", syncCabinetId: randomUUID(), baseline: { use: "capture" } };
   const r = await call("POST", `/api/admin/enrollments/${requestId}/approve`, { ...sync, stepUpToken: await stepUp("enrollment.approve", requestId, sync) });
   assert.equal(r.status, 400, JSON.stringify(r.body));
   assert.equal(r.body.error, "invalid_request");

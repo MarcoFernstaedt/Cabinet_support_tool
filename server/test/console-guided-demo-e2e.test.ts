@@ -201,6 +201,8 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.match(page.url(), /\/admin\/pending/);
     await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
     await page.getByLabel("Site", { exact: true }).fill("Support desk");
+    // No approved baseline applies to a new client: the approval asks for the decision.
+    await page.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();
     await clickOutlined('[data-tour="approve-cabinet"]');
     await confirmWithCode();
     await page.getByText(/Approved\. SUPPORT-LAPTOP will come online within a minute/).waitFor();

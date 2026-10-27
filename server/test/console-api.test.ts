@@ -212,7 +212,7 @@ test("every route checks the role on the server", async () => {
     ["sync address", "PUT", `/api/admin/cabinets/${cabinetId}/sync-address`, { address: null, stepUpToken: token }, "admin"],
     ["sync cabinet", "PUT", `/api/admin/cabinets/${cabinetId}/sync-cabinet`, { syncCabinetId: null, stepUpToken: token }, "admin"],
     ["pending", "GET", "/api/admin/enrollments", undefined, "admin"],
-    ["approve", "POST", `/api/admin/enrollments/${randomUUID()}/approve`, { client: "a", site: "b", cabinet: "c", role: "sync", stepUpToken: token }, "admin"],
+    ["approve", "POST", `/api/admin/enrollments/${randomUUID()}/approve`, { client: "a", site: "b", cabinet: "c", role: "sync", baseline: { use: "capture" }, stepUpToken: token }, "admin"],
     ["tokens", "POST", "/api/admin/bootstrap-tokens", { stepUpToken: token }, "admin"],
     ["revoke", "POST", `/api/admin/cabinets/${cabinetId}/revoke`, { stepUpToken: token }, "admin"],
     ["audit", "GET", "/api/admin/audit", undefined, "admin"],

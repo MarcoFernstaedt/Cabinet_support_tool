@@ -133,6 +133,8 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await request.getByLabel("Site").fill("Support desk");
     await request.getByLabel("Cabinet name").fill("Marco's HP");
     await request.getByLabel("Role").selectOption("standalone");
+    // No approved baseline applies to a new client: the approval asks for the decision.
+    await request.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();
     await request.getByRole("button", { name: "Approve" }).click();
     await confirmCode();
     await until("the first heartbeat", async () => (await db.app.query("SELECT 1 FROM cabinets WHERE name = $1 AND last_heartbeat_at IS NOT NULL", ["Marco's HP"])).rows.length > 0);
