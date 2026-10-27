@@ -83,7 +83,7 @@ const inSite = async (siteId: string, scenario: string) =>
 async function bigSite(n: number): Promise<string> {
   const client = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM clients WHERE demo = 1")).rows[0]!.id;
   const site = randomUUID();
-  await db.app.query("INSERT INTO sites (id, client_id, name, sync_address, time_zone) VALUES ($1, $2, $3, '10.99.0.20', 'Eastern Standard Time')", [site, client, `Scale ${n} ${site.slice(0, 4)}`]);
+  await db.app.query("INSERT INTO sites (id, client_id, name, time_zone) VALUES ($1, $2, $3, 'Eastern Standard Time')", [site, client, `Scale ${n} ${site.slice(0, 4)}`]);
   await db.app.query(
     `INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, read_only, agent_version, uptime_seconds, demo_scenario, firewall_profiles, time_zone_id, clock_skew_seconds, last_heartbeat_at)
      SELECT NEWID(), $1, CONCAT('Scale ', g), 'satellite', 'active', CONCAT('SCALE-', SUBSTRING($3, 1, 4), '-', g), CONCAT('SC', g, SUBSTRING($3, 1, 4)), 0, '1.4.2', 86400, 'healthy',

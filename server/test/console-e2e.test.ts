@@ -129,7 +129,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await confirmCode();
     await card.getByText(/Approved\./).waitFor();
 
-    // ---- Sets the fleet scanner IDs and the site's sync cabinet ----------------------
+    // ---- Sets the fleet scanner IDs and the site's sync ports ---------------------------
     await page.goto(`${origin}/admin/scanner`);
     const fleetScanner = page.getByRole("region", { name: "Fingerprint scanner" });
     await fleetScanner.getByLabel(/Fleet default scanner IDs/).fill("USB\\VID_1234&PID_5678");
@@ -142,8 +142,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByRole("link", { name: "North Wing" }).click();
     await page.getByRole("heading", { name: "North Wing", level: 1 }).waitFor();
     await a11y("site");
-    const sync = page.getByRole("region", { name: "Sync cabinet" });
-    await sync.getByLabel("IPv4 address").fill("10.20.0.15");
+    const sync = page.getByRole("region", { name: "Sync cabinets at North Wing" });
     await sync.getByLabel(/TCP ports/).fill("1433");
     await sync.getByRole("button", { name: "Save" }).click();
     await confirmCode();
