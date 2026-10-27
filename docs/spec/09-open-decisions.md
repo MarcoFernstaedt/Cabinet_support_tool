@@ -787,3 +787,18 @@ This answers "Open: the approved list on the cabinet is written by the network p
   - A taken-over network service could hand the broker another list an Admin signed. Examples: the fleet list in place of a stricter site list, or an older version of the site's own list.
   - It can no longer approve a program no Admin approved anywhere, which is the attack this change closes.
   - Binding the list to the cabinet's own site needs the cabinet to hold its site from enrollment. That belongs with the enrollment change (site set at enrollment).
+
+## Small fixes from the audit of 2026-10-26 (October 2026)
+
+- **Missing database objects (findings S7 and F2).** Migration `0010_missing_objects.sql` adds what the code already used:
+  - The `audit_head` procedure. The audit check can now see when the newest entries were deleted.
+  - The `filefacts_paths` column on clients, sites and cabinets, with the same 32-entry check as the approved programs.
+  - The issue types `app_version`, `usb_flap` and `usb_dependency`, so those alerts can open.
+- **Error messages (finding F3).**
+  - "Someone else claimed this alert" no longer reads "Cabinet already set up".
+  - Messages for actions only an Admin can take now send people to an Admin, not Tier 2: resuming writes, approving another Admin's package or baseline, and resetting an authenticator.
+- **The stale agent test (finding F4)** now looks for the agent's current log line.
+- **Development builds are marked.**
+  - An agent built to accept agent upgrades whose programs are not code-signed (`AllowUnsignedDevelopmentUpgrades` with no publisher compiled in) says so in its heartbeat (`unsignedUpgrades: true`).
+  - The console shows "Test build" in the fleet list, plus a warning on the cabinet's page.
+  - Production builds never send the field.

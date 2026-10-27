@@ -104,6 +104,8 @@ public sealed record Heartbeat
     /// contract precisely so an agent built before the second architecture — which never sends it — stays valid.
     /// </summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Architecture { get; init; }
+    /// <summary>True only for a build that accepts agent upgrades whose programs are not code-signed; absent otherwise.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? UnsignedUpgrades { get; init; }
 }
 
 public sealed record HealthSample

@@ -67,6 +67,10 @@
           }
         }
       }
+    },
+    "unsignedUpgrades": {
+      "description": "Present, and true, only when this agent was built to accept agent upgrades whose programs are not code-signed (a development build with no code-signing publisher compiled in). The console marks such a cabinet: whoever holds the release key alone decides what it runs. Absent from every production build.",
+      "const": true
     }
   },
   "required": [
