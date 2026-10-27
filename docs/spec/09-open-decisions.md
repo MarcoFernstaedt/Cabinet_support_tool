@@ -802,3 +802,7 @@ This answers "Open: the approved list on the cabinet is written by the network p
   - An agent built to accept agent upgrades whose programs are not code-signed (`AllowUnsignedDevelopmentUpgrades` with no publisher compiled in) says so in its heartbeat (`unsignedUpgrades: true`).
   - The console shows "Test build" in the fleet list, plus a warning on the cabinet's page.
   - Production builds never send the field.
+- **Accepted limits** (from the review of #94):
+  - **The test-build mark is advisory.** It shows what an agent says about itself. An agent that leaves the field out, including one an attacker controls, shows nothing. The protection is that production builds cannot install unsigned programs at all; the mark only helps spot a development build left in the field.
+  - **No anchor is not a failure.** A database with no `audit_chain_head` row reads as "no anchor" rather than as a failed check. Every migrated database has the row (0001 seeds it), and the audit check records `anchored: false` in its own entry when it is missing.
+  - **The column checks only count entries.** The `entries[32]` check on `approved_apps` and `filefacts_paths` passes a value whose `entries` is not a list at all. The contract and the services reject that; the column check is a size cap, not a shape check.
