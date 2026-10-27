@@ -172,5 +172,6 @@ These hold for all remaining work and are checked in each pull request.
 - **The fingerprint scanner is a per-client choice at enrollment.** A client either uses the scanner or does not:
   - **When it does:** enrollment sets the scanner's hardware IDs, puts its service on the approved and watched lists, and the scanner checks and alerts apply.
   - **When it does not:** none of these apply to that client's cabinets.
+  - Built in PR 8b (05-server-spec.md "Fingerprint scanner per client").
 - **Engineering standards.** Secure first, scalable, modular and reusable, and clean code that follows best practice. A change that does not meet these is not finished.
 - **Phase 7 and beyond.** The owner's list of further phases is kept in 17-phase-7-and-beyond.md. It is not approved or scheduled. Its first group (change-anchored correlation, problem records with grouped alerts, known-error articles, the asset spine, SLOs and MTTR/MTBF, platform observability, canary rings, scale test and rehearsed restore) is server-side and needs no new privilege on a cabinet.

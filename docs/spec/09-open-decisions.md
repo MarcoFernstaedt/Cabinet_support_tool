@@ -816,3 +816,14 @@ Raised in the review of #95. The spec contradicts itself:
 - The code row of that same table says "every rule change" needs a fresh authenticator code.
 
 The code follows the catalog (click). Undecided: which of the two is meant. The tour copy says only "Tier 2" for rules, which is true either way.
+
+## Fingerprint scanner per client (2026-10-27)
+
+The owner's decisions (05-server-spec.md "Fingerprint scanner per client"):
+- **Switching the scanner on does not bypass the signature.** The scanner's service is added to the client's approved list as a change waiting for the Admin's offline signature (when signing is on); the scanner shows "Waiting for the approved-list signature" until then.
+- **Existing clients start on**, keeping today's behaviour; a new client chooses at its first approval.
+
+Choices made in building it (confirm or change):
+- Switching the scanner off takes its service off the client's watched list but leaves it on the approved list, because removing it would need a signature and an approved service that nobody watches does nothing.
+- USB device policies (usb-policy.ts) are separate, explicit per-device settings and are not changed by the scanner switch.
+- The agent's own off switch needs agent 0.3.1. Until a cabinet runs it, the cabinet keeps looking for a scanner, and the server stores its scanner events without opening alerts.

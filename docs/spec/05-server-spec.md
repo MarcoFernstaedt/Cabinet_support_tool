@@ -49,6 +49,16 @@
 - **Assigning.** An Admin assigns a satellite to a sync cabinet at its own site, or unassigns it, with an authenticator code (`cabinet.sync_cabinet`).
 - **Role changes.** A cabinet that stops being a satellite drops its link; one that stops being a sync cabinet drops its address. A cabinet that becomes a sync cabinet starts from the address it last reported.
 
+## Fingerprint scanner per client
+
+- **A client either uses a fingerprint scanner or does not** (`clients.fingerprint_scanner`). Existing clients start on; a new client chooses with the approval that creates it. An approval for an existing client may not carry the choice (`scanner_for_existing_client`): its setting is changed on the client's page.
+- **Switching it on** (Admin, authenticator code bound to the exact choice) takes the scanner's Windows service as an approved-list entry (key name and exact program path) and, optionally, the client's scanner hardware IDs. In one transaction:
+  - the service joins the client's approved list. With signing on it is a change waiting for the Admin's offline signature, and the list in force is untouched until then. The change starts from the client's pending change, else its own list, else the fleet's, because a client list replaces the fleet's whole. A list in force that already approves the service is left alone;
+  - the service joins the client's watched services (at most 16);
+  - the broker keeps the service running only once the signed list approves it, so watching starts with the signature.
+- **Switching it off:** the client's cabinets get no scanner IDs; an agent from 0.3.1 is told not to look for a scanner (`heartbeat-response scanner.watch: false`, sent only to agents that know the field); scanner events from an older agent are stored and open no alert; open scanner alerts are resolved, each audited; the cabinet diagnosis does not read the scanner and reports it as not used; the scanner's service comes off the client's watched list. The approved list is left alone: removing an entry needs the same signature as adding one, and an approved service that nobody watches does nothing by itself.
+- **The client's page** shows whether the scanner is used, its service, and where that service stands: approved and watched, waiting for the signature, or not on the approved list.
+
 ## Issue types and symptom rules
 
 This is how errors become meaningful alerts, and how the team teaches the system new symptoms of known problems.
