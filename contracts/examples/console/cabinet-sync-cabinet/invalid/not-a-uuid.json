@@ -1,7 +1,4 @@
 {
-  "address": "10.20.0.15",
-  "ports": [
-    1433
-  ],
+  "syncCabinetId": "sync-1",
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

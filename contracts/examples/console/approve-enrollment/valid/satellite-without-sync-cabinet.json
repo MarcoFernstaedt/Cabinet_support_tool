@@ -1,11 +1,7 @@
 {
   "client": "Acme Health",
   "site": "North",
-  "cabinet": "ICU 2",
+  "cabinet": "ICU 3",
   "role": "satellite",
-  "sync": {
-    "address": "10.20.0.15",
-    "ports": [1433, 5000]
-  },
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

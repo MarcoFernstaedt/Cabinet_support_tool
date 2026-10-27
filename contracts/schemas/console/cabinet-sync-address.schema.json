@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/cabinet-sync-address.schema.json",
+  "title": "cabinet-sync-address",
+  "description": "Sets the address a sync cabinet's satellites reach: a private IPv4 address that a report never replaces. null goes back to the address the cabinet reports itself.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "address": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/ipv4"
+            },
+            {
+              "type": "string",
+              "pattern": "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  },
+  "required": [
+    "address",
+    "stepUpToken"
+  ]
+}

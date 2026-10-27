@@ -56,6 +56,8 @@
         "site.rename",
         "site.remove",
         "cabinet.role",
+        "cabinet.sync_cabinet",
+        "cabinet.sync_address",
         "issue_type.create",
         "issue_type.update",
         "settings.update",

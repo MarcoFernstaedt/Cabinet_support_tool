@@ -1,10 +1,8 @@
 {
   "client": "Acme Health",
   "site": "North",
-  "cabinet": "ICU 1",
-  "role": "sync",
-  "sync": {
-    "address": "10.20.0.15"
-  },
+  "cabinet": "ICU 2",
+  "role": "standalone",
+  "syncCabinetId": "3f2b8c1e-5d4a-4b6f-9e21-7a0c9d8e1f23",
   "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }
