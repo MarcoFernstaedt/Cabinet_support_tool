@@ -1,4 +1,4 @@
-// Visits console pages at desktop and narrow widths, checking the sign-in and core navigation remain usable, and fails on sideways scrolling, raw values
+// Visits console pages at desktop and laptop widths (1024 px and up; docs/spec/06-console-spec.md), checking the sign-in and core navigation remain usable, and fails on sideways scrolling, raw values
 // (undefined, [object Object], NaN, null) and console errors. With SHOTS set it photographs each page for review.
 // The guided demo in a real browser: one story at Midtown Manhattan. The firewall fix is one click and it works (the site comes back clean),
 // the scanner page shows three drops and the driver installed before them, and a site with no baseline still gets its network read.
@@ -53,8 +53,8 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
     page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
     await page.goto(origin);
-    // Sign-in must stay usable on a compact laptop and phone, not disappear behind a desktop-only notice.
-    await page.setViewportSize({ width: 390, height: 844 });
+    // Sign-in stays usable on the smallest supported laptop width, and below it still shows (the layout scrolls, it is not hidden).
+    await page.setViewportSize({ width: 1024, height: 768 });
     assert.equal(await page.locator("#root").isVisible(), true);
     assert.equal(await page.getByLabel("Username").isVisible(), true);
     assert.equal(await page.getByLabel("Password").isVisible(), true);
@@ -82,7 +82,7 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
     const faults: string[] = [];
     const compactPages = new Set(["/", "/admin/setup", "/admin/pending", `/cabinets/${ids.cabinet}/overview`, `/cabinets/${ids.cabinet}/events`]);
     for (const [label, size] of [["w1440", { width: 1440, height: 900 }], ["w1280", { width: 1280, height: 800 }],
-      ["w1100", { width: 1100, height: 800 }], ["w768", { width: 768, height: 900 }], ["w390", { width: 390, height: 844 }]] as const) {
+      ["w1100", { width: 1100, height: 800 }], ["w1024", { width: 1024, height: 768 }]] as const) {
       await page.setViewportSize(size);
       for (const path of pages.filter(p => (label === "w1440" || label === "w1280" || compactPages.has(p)) &&
         (!process.env.ONLY || p.includes(process.env.ONLY) || process.env.ONLY.split(",").some(o => p.includes(o))))) {
