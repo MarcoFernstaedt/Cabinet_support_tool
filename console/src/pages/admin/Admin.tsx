@@ -12,6 +12,8 @@ import { WatchListEditor } from "../cabinet/Services";
 import { InstallAgent, type SetupState } from "./Setup";
 import type { SyncCabinetRef } from "../../components/SyncCabinets";
 import { choiceFrom, EMPTY_FIELDS, ScannerServiceFields, type ScannerFields } from "../../components/ClientScanner";
+import { BaselineFields, useBaselinePreview } from "../../components/ApprovalBaseline";
+import { decisionFrom, inForceText, type BaselineChoice } from "../../lib/approval-baseline";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -99,6 +101,11 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const [scannerFields, setScannerFields] = useState<ScannerFields>(EMPTY_FIELDS);
   const newClient = form.client.trim() !== "" && !client.exact;
   const scannerChoice = !newClient ? null : scannerUse === "not_used" ? { enabled: false } : choiceFrom(scannerFields);
+  // The baseline decision every approval needs: the one in force by default, else the approver's choice.
+  const [baselineChoice, setBaselineChoice] = useState<BaselineChoice>("");
+  const [attachId, setAttachId] = useState("");
+  const baselinePreview = useBaselinePreview(p.id, form.client, form.site, setBaselineChoice);
+  const decision = baselinePreview ? decisionFrom(baselineChoice, attachId) : null;
   const choices = syncCabinets ?? [];
   const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
   const needsChoice = form.role === "satellite" && choices.length > 1 && !form.syncCabinetId;
@@ -107,7 +114,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
     client: form.client, site: form.site, cabinet: form.cabinet, role: form.role,
     ...(form.role === "satellite" && chosen ? { syncCabinetId: chosen } : {}),
     ...(scannerChoice ? { scanner: scannerChoice } : {}),
-  }), [form, chosen, scannerChoice]);
+    baseline: decision,
+  }), [form, chosen, scannerChoice, decision]);
   const reaches = choices.find(c => c.id === chosen);
   return (
     <section className="panel" aria-label={`Request from ${p.fingerprints.hostname}`}>
@@ -151,7 +159,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
               {scannerUse === "used" && !scannerChoice && <span className="muted small">Leave the service empty to set it up later on the client&apos;s page.</span>}
             </fieldset>
           )}
-          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice}>Approve</button>
+          <BaselineFields name={lists} preview={baselinePreview} choice={baselineChoice} onChoice={setBaselineChoice} attachId={attachId} onAttach={setAttachId} />
+          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice || !decision}>Approve</button>
+          {baselinePreview && !decision && <span className="muted small">Choose a baseline to approve.</span>}
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
           {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
           <button type="button" className="btn danger" onClick={() => { setProblem(null); setConfirm("reject"); }}>Reject</button>
@@ -166,11 +176,14 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
             {newClient && (scannerUse === "not_used" ? <> It does not use a fingerprint scanner.</>
               : scannerChoice?.enabled ? <> Its scanner service <strong>{scannerChoice.service!.serviceName}</strong> is added to the approved programs and watched.</> : null)}
             {form.role === "satellite" && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
+            {" "}Baseline: {decision?.use === "inherited" ? inForceText(baselinePreview?.inForce ?? [])
+              : decision?.use === "attach" ? <>attach <strong>{baselinePreview?.choices.find(c => c.versionId === attachId)?.name ?? "the chosen baseline"}</strong> to this site</>
+              : "capture this cabinet's configuration as the site baseline draft"}.
             {" "}It receives its certificate on its next check-in.</p>}
         onToken={async token => {
           try {
             if (confirm === "reject") { await api("POST", `/api/admin/enrollments/${p.id}/reject`, { stepUpToken: token }); setDone("Rejected."); }
-            else { await api("POST", `/api/admin/enrollments/${p.id}/approve`, { ...approval, stepUpToken: token }); setDone(`Approved. ${form.cabinet} will come online within a minute.`); }
+            else { await api("POST", `/api/admin/enrollments/${p.id}/approve`, { ...approval, stepUpToken: token }); setDone(`Approved. ${form.cabinet} will come online within a minute.${decision?.use === "capture" ? " It shows Baseline required until the site's baseline draft from it is approved." : ""}`); }
             setTimeout(onDone, 1500);
           } catch (e) { setProblem(describeError(e)); }
         }} />

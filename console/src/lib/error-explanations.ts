@@ -304,6 +304,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "Nothing is approved as this cabinet's expected state, so there is nothing to compare against.",
     fix: "Ask an Admin to approve a baseline from a known-good reading of this cabinet.",
   },
+  site_has_baseline: {
+    title: "The site has its own baseline",
+    detail: "This site already has an approved baseline of its own, and it applies to the cabinet.",
+    fix: "Choose \"Use the baseline in force\" instead of attaching another.",
+  },
   no_configuration: {
     title: "Nothing set up yet",
     detail: "The configuration this action needs has not been created.",

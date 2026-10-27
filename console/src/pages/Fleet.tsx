@@ -116,7 +116,9 @@ export function ClientPage({ id }: { id: string }) {
   );
 }
 
-export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; architecture: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; unsignedUpgrades?: boolean; syncUnassigned?: boolean; }
+export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; architecture: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; unsignedUpgrades?: boolean; syncUnassigned?: boolean;
+  /** No approved baseline applies to it yet. */
+  baselineRequired?: boolean; }
 export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
   sync: SiteSyncInfo;
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
@@ -138,13 +140,14 @@ export function SitePage({ id }: { id: string }) {
         <div className="table-wrap">
         <table className="table">
           <caption className="sr-only">Cabinets at {data.name}</caption>
-          <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Alerts</th></tr></thead>
+          <thead><tr><th scope="col">Cabinet</th><th scope="col">Role</th><th scope="col">Status</th><th scope="col">Last heard</th><th scope="col">Agent</th><th scope="col">Read-only</th><th scope="col">Baseline</th><th scope="col">Alerts</th></tr></thead>
           <tbody>{cabinetsPaged.rows.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
               <td>{roleLabel(c.role)}{c.syncUnassigned && <div><Badge tone="warn">Enrollment incomplete</Badge></div>}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
               <td>{c.agentVersion ?? "unknown"}{architectureLabel(c.architecture) && <div className="muted small">{architectureLabel(c.architecture)}</div>}
                 {c.unsignedUpgrades && <div><Badge tone="warn">Test build</Badge></div>}</td><td>{c.readOnly ? "Yes" : "No"}</td>
+              <td>{c.baselineRequired ? <Badge tone="warn">Baseline required</Badge> : <span className="muted">In force</span>}</td>
               <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>
             </tr>))}
           </tbody>
