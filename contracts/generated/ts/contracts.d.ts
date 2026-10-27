@@ -336,6 +336,20 @@ export interface ConfigSnapshotCategory {
 }
 
 /**
+ * Whether a client uses a fingerprint scanner. On: the scanner's service (added to the client's approved list, waiting for a signature when signing is on, and to its watched services) and, optionally, the client's scanner hardware IDs (null leaves them as they are; the agent then finds the scanner itself). Off: nothing else.
+ */
+export interface ClientScannerChoice {
+  enabled: boolean;
+  /**
+   * The fingerprint scanner's Windows service, as an approved-list entry: a service with its key name and the exact program path it runs.
+   */
+  service?: ApprovedAppEntry & {
+    kind: "service";
+  };
+  hardwareIds?: [string, ...string[]] | null;
+}
+
+/**
  * The public halves of the Admin list-signing keys, compiled into the agent (contracts/trust/approved-list) the way the release keys are: only a signed agent upgrade can change them, and the server has no say. At most two keys: the one in use and the next one while the key is changed. An empty list means this build does not check list signatures yet, and treats the approved list as it did before signing existed.
  */
 export interface ApprovedListKeys {
@@ -552,6 +566,7 @@ export interface ApproveEnrollment {
    * The sync cabinet this satellite reaches. Only a satellite names one.
    */
   syncCabinetId?: string;
+  scanner?: ClientScannerChoice;
   /**
    * A one-time step-up token bound to this exact action.
    */
@@ -873,6 +888,17 @@ export interface CaseNoteQuery {
  */
 export interface CaseNoteRedact {
   reason: string;
+}
+
+/**
+ * Switches a client's fingerprint scanner on or off (Admin, authenticator code bound to this exact body).
+ */
+export interface ClientScanner {
+  scanner: ClientScannerChoice;
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
 }
 
 /**
@@ -1905,6 +1931,7 @@ export interface StepUpRequest {
     | "rollout.resume"
     | "rollout.stop"
     | "client.scanner"
+    | "client.fingerprint_scanner"
     | "site.scanner"
     | "client.sync"
     | "settings.sync"
@@ -2410,6 +2437,10 @@ export interface HeartbeatResponse {
      * The scanner's hardware IDs from the console: the cabinet's own, else its site's, else its client's, else the fleet default. Whole IDs or vendor prefixes (USB\\VID_1234). null when none is set anywhere: the agent then finds the scanner itself by its Biometric device class.
      */
     hardwareIds: [string, ...string[]] | null;
+    /**
+     * false when the cabinet's client does not use a fingerprint scanner: the agent does not look for one and reports nothing about it. Left out, the agent watches as before. Sent only to agents that know it (0.3.1 and later): the answer's contract is closed, so an older agent would refuse it.
+     */
+    watch?: boolean;
   };
   /**
    * An agent release this cabinet is offered. The agent downloads it and the broker verifies it (docs/spec/07-upgrade-channel.md); the agent ignores an offer that is not newer than itself.

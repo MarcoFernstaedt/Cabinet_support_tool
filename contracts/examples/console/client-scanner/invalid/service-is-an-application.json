@@ -1,0 +1,12 @@
+{
+  "scanner": {
+    "enabled": true,
+    "service": {
+      "key": "app:bioscan",
+      "kind": "application",
+      "name": "Scanner",
+      "path": "C:\\Program Files\\BioScan\\bioscan.exe"
+    }
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

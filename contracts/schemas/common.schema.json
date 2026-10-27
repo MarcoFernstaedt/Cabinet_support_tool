@@ -1115,6 +1115,86 @@
           }
         }
       }
+    },
+    "scannerServiceEntry": {
+      "description": "The fingerprint scanner's Windows service, as an approved-list entry: a service with its key name and the exact program path it runs.",
+      "allOf": [
+        {
+          "$ref": "#/$defs/approvedAppEntry"
+        },
+        {
+          "type": "object",
+          "required": [
+            "kind",
+            "serviceName"
+          ],
+          "properties": {
+            "kind": {
+              "const": "service"
+            }
+          }
+        }
+      ]
+    },
+    "clientScannerChoice": {
+      "description": "Whether a client uses a fingerprint scanner. On: the scanner's service (added to the client's approved list, waiting for a signature when signing is on, and to its watched services) and, optionally, the client's scanner hardware IDs (null leaves them as they are; the agent then finds the scanner itself). Off: nothing else.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "service": {
+          "$ref": "#/$defs/scannerServiceEntry"
+        },
+        "hardwareIds": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/hardwareId"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "service"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "service"
+              ]
+            },
+            {
+              "required": [
+                "hardwareIds"
+              ]
+            }
+          ]
+        }
+      }
     }
   }
 }

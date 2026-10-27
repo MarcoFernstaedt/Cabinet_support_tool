@@ -1,0 +1,17 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "scanner": {
+    "enabled": true,
+    "service": {
+      "key": "app:bioscan",
+      "kind": "service",
+      "name": "Fingerprint scanner",
+      "path": "C:\\Program Files\\BioScan\\bioscan.exe",
+      "serviceName": "BioScanSvc"
+    }
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}
