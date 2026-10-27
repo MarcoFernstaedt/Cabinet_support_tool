@@ -149,7 +149,9 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
         <OnlineBadge online={cabinet.online} />
         <strong>{headline}</strong>
         {cabinet.online && cabinet.readOnly && <Badge tone="info">Read-only</Badge>}
+        {cabinet.unsignedUpgrades && <Badge tone="warn">Test build: accepts unsigned upgrades</Badge>}
       </div>
+      {cabinet.unsignedUpgrades && <p className="notice warn small" role="note">This cabinet runs a development build of the agent that installs agent upgrades whose programs are not code-signed. Whoever holds the release key alone decides what it runs. Reinstall it with a production build.</p>}
       <dl className="summary-grid">
         <div><dt>Last contact</dt><dd title={fullTime(cabinet.lastHeartbeatAt)}>{cabinet.lastHeartbeatAt ? ago(cabinet.lastHeartbeatAt) : "Never"}</dd></div>
         <div><dt>Agent version</dt><dd>{cabinet.agentVersion ?? <span className="muted">Unknown</span>}</dd></div>

@@ -21,19 +21,22 @@ export interface CabinetRow {
   architecture: string | null;
   /** A simulated demo cabinet (docs/platform/demo.md). */
   demo: boolean;
+  /** Its agent accepts upgrades whose programs are not code-signed (a development build); the console marks it. */
+  unsignedUpgrades: boolean;
 }
 
-interface CabinetDbRow { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; architecture: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string | number; demo_scenario?: string | null }
+interface CabinetDbRow { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; architecture: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string | number; demo_scenario?: string | null; unsigned_upgrades?: boolean | number | null }
 
 function cabinetRow(r: CabinetDbRow): CabinetRow {
   return { id: r.id, name: r.name, role: r.role, status: r.status, online: online(r.status, r.last_heartbeat_at), lastHeartbeatAt: r.last_heartbeat_at?.toISOString() ?? null,
-    agentVersion: r.agent_version, architecture: r.architecture, readOnly: r.read_only, hostname: r.hostname, openAlerts: Number(r.open_alerts), demo: !!r.demo_scenario };
+    agentVersion: r.agent_version, architecture: r.architecture, readOnly: r.read_only, hostname: r.hostname, openAlerts: Number(r.open_alerts), demo: !!r.demo_scenario,
+    unsignedUpgrades: !!r.unsigned_upgrades };
 }
 
 const OPEN_ALERTS = "(SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved')";
-const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, ${OPEN_ALERTS} AS open_alerts`;
+const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades, ${OPEN_ALERTS} AS open_alerts`;
 /** The columns a cabinet row is built from, without the open-alert count: a page of them has its counts read once, in one grouped query. */
-const CABINET_FIELDS = "k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario";
+const CABINET_FIELDS = "k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades";
 
 /** How many cabinets of a site one page holds, and the most a caller may ask for: a site of thousands is read a page at a time. */
 export const SITE_CABINET_PAGE = 200;

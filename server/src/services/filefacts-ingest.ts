@@ -28,7 +28,7 @@ import { parseJson } from "./settings.js";
 
 /** The operation a file-facts read is asked for as, named the way the platform names its other reads. */
 export const FACTS_OPERATION = "files.facts";
-/** The issue type a tracked version that differs from its baseline raises. Registered by migration 0006_filefacts.sql. */
+/** The issue type a tracked version that differs from its baseline raises. Registered by migration 0010_missing_objects.sql. */
 export const APP_VERSION_ISSUE = "00000000-0000-4000-8000-000000000124";
 export const REPORT_SCHEMA_ID = "filefacts/filefacts-report.schema.json";
 

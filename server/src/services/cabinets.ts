@@ -79,7 +79,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
        BEGIN
          UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), uptime_at = SYSUTCDATETIME(), agent_version = $2, uptime_seconds = $3, read_only = $4, clock_skew_seconds = CAST($5 AS float),
                 firewall_profiles = COALESCE(CAST($7 AS nvarchar(max)), firewall_profiles), time_zone_id = COALESCE(CAST($8 AS nvarchar(64)), time_zone_id),
-                architecture = COALESCE(CAST($14 AS nvarchar(16)), architecture)
+                architecture = COALESCE(CAST($14 AS nvarchar(16)), architecture), unsigned_upgrades = CAST($15 AS bit)
           WHERE id = $1;
          IF CAST($10 AS int) IS NOT NULL
            INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
@@ -111,7 +111,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
      h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE,
      h.health?.cpuPercent ?? null, h.health?.memoryUsedPercent ?? null, h.health?.diskFreePercent ?? null, ISSUE.offline,
-     h.architecture ?? null], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
+     h.architecture ?? null, h.unsignedUpgrades === true ? 1 : 0], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).
   if (r && h.health?.drives && h.health.drives.length > 0) await recordDriveReport(db, cabinetId, h.health.drives);
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });

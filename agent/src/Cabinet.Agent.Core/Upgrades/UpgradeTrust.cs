@@ -31,6 +31,12 @@ public sealed class UpgradeTrust : IDisposable
     public static readonly bool AllowsUnsignedDevelopmentUpgrades = false;
 #endif
 
+    /// <summary>
+    /// Whether this build would install an upgrade whose programs are not code-signed: a development build with no publisher
+    /// compiled in (ReleaseVerifier). Reported in the heartbeat so the console can mark the cabinet.
+    /// </summary>
+    public static bool AcceptsUnsignedPrograms => AllowsUnsignedDevelopmentUpgrades && !Compiled.HasPublisher;
+
     private static readonly Lazy<UpgradeTrust> CompiledTrust = new(() => Load(name =>
     {
         using Stream s = typeof(UpgradeTrust).Assembly.GetManifestResourceStream("upgrade/" + name)

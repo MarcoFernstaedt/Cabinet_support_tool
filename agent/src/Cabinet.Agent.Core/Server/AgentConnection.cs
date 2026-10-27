@@ -358,6 +358,8 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                         // and offers only the releases that match. Optional in the contract, so an agent built before
                         // the second architecture — which sends nothing here — stays valid.
                         Architecture = AgentArchitecture.Current,
+                        // A development build that would install unsigned agent programs says so, so the console can mark it.
+                        UnsignedUpgrades = Upgrades.UpgradeTrust.AcceptsUnsignedPrograms ? true : null,
                         AgentVersion = o.AgentVersion, UptimeSeconds = o.UptimeSeconds(), ReadOnlyMode = o.Config.ReadOnlyMode, ClockSkewSeconds = skew,
                         FirewallProfiles = o.FirewallProfiles?.Invoke(), TimeZoneId = o.TimeZoneId?.Invoke(), Health = health,
                     }, token).ConfigureAwait(false);
