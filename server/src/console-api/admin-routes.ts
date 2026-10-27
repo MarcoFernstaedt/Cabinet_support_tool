@@ -7,10 +7,11 @@ import { transaction } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { revokeCabinet } from "../services/cabinets.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
-import { approvalBaselinePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
+import { approvalBaselinePreview, approvalSitePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
 import { cabinetsInScope, evaluateBaselineDrift } from "../services/baseline-drift.js";
 import { evaluateHealth } from "../services/cabinet-health.js";
 import { reevaluations } from "./baseline-routes.js";
+import type { TimeZoneId } from "../services/time.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -31,6 +32,13 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return approvalBaselinePreview(o.pool, requestId, consoleBodies.approveBaseline.parse(request.query));
   });
 
+  /** What a new site would inherit (firewall policy and time zone), for the approval to pre-fill. Reads only. */
+  app.get("/api/admin/enrollments/:id/site-policies", async request => {
+    await o.guards.role(request, "admin");
+    const requestId = id(request);
+    return approvalSitePreview(o.pool, requestId, consoleBodies.approveBaseline.parse(request.query));
+  });
+
   app.post("/api/admin/enrollments/:id/approve", async request => {
     const u = await o.guards.role(request, "admin");
     const requestId = id(request);
@@ -39,7 +47,8 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve", requestId);
     // A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site.
     const result = await approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
-      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}), baseline: body.baseline }, u.userId,
+      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}),
+      ...(body.sitePolicies ? { sitePolicies: { firewall: body.sitePolicies.firewall ?? null, timeZone: (body.sitePolicies.timeZone ?? null) as TimeZoneId | null } } : {}), baseline: body.baseline }, u.userId,
       o.listKeys ?? ListSigningKeys.fromFolder());
     // An attached baseline changes what every cabinet at the site is compared with: bring them up to date in the background, one at a time.
     if (body.baseline.use === "attach") {

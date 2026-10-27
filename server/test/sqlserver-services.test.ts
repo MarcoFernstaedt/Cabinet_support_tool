@@ -375,7 +375,8 @@ test("site standards suggest from a cabinet's reports", async () => {
   assert.deepEqual(s.suggested.networkBaseline?.baseline, { addressing: "static", prefixLength: 24, gateway: "10.1.1.1", dnsServers: ["10.1.1.2"] });
   assert.equal(s.suggested.timeZone?.timeZone, "Pacific Standard Time");
   assert.deepEqual(s.suggested.firewall?.policy, { domain: "on", private: "off", public: "on" });
-  assert.equal(s.current.clientFirewall, null);
+  assert.equal(s.current.siteFirewall, null);
+  assert.equal(s.current.inheritedFirewallFrom, "fleet");
   assert.equal(await siteStandards(db.app, randomUUID()), null);
 });
 

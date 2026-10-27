@@ -1,9 +1,9 @@
-// The client firewall policy and the bulk apply (docs/spec/12-milestones-8-to-12.md, milestone 9). Every body and
+// The firewall policy (fleet, client and site levels) and the bulk apply (docs/spec/12-milestones-8-to-12.md, milestone 9). Every body and
 // query is checked against its contract; roles are checked here, never only in the console.
 import { boundTo } from "../auth/stepup.js";
 import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
-import { bulkApply, bulkCandidates, cabinetPolicy, fleetPolicy, setClientPolicy, setFleetPolicy, BULK_LIMIT } from "../services/firewall-policy.js";
+import { bulkApply, bulkCandidates, cabinetPolicy, fleetPolicy, setClientPolicy, setFleetPolicy, setSitePolicy, sitePolicy, BULK_LIMIT } from "../services/firewall-policy.js";
 import { Refused } from "../services/errors.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -27,6 +27,20 @@ export async function firewallRoutes(app: FastifyInstance, o: ConsoleApiOptions 
     const u = await o.guards.role(request, "admin");
     const b = consoleBodies.firewallPolicy.parse(request.body);
     await setClientPolicy(o.pool, u.userId, id(request), b.policy, boundTo(b.stepUpToken, b));
+    return { ok: true };
+  });
+
+  /** A site's own policy and the two it would otherwise follow. */
+  app.get("/api/sites/:id/firewall-policy", async request => {
+    await o.guards.role(request, "tier1");
+    const p = await sitePolicy(o.pool, id(request));
+    return { own: p.own, client: p.client, fleet: p.fleet, policy: p.policy, source: p.source };
+  });
+
+  app.put("/api/sites/:id/firewall-policy", async request => {
+    const u = await o.guards.role(request, "admin");
+    const b = consoleBodies.firewallPolicy.parse(request.body);
+    await setSitePolicy(o.pool, u.userId, id(request), b.policy, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 

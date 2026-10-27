@@ -6,6 +6,7 @@ import { parseJson } from "./settings.js";
 import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
 import { clientScanner, scannerUsedFor } from "./client-scanner.js";
+import { fleetTimeZone, siteTimeZone } from "./time.js";
 
 export { fleetScannerIds, fleetSyncPorts };
 
@@ -107,8 +108,8 @@ export async function clients(db: Queryable) {
 }
 
 export async function client(db: Queryable, id: string) {
-  const c = (await db.query<{ id: string; name: string; demo: boolean; write_paused: boolean; scanner_hardware_ids: string[] | null; sync_ports: number[] | null }>(
-    "SELECT id, name, demo, write_paused, scanner_hardware_ids, sync_ports FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
+  const c = (await db.query<{ id: string; name: string; demo: boolean; write_paused: boolean; scanner_hardware_ids: string[] | null; sync_ports: number[] | null; time_zone: string | null }>(
+    "SELECT id, name, demo, write_paused, scanner_hardware_ids, sync_ports, time_zone FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
   if (!c) return null;
   const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT s.id, s.name, SUM(CASE WHEN k.status = 'active' THEN 1 ELSE 0 END) AS cabinets,
@@ -120,6 +121,8 @@ export async function client(db: Queryable, id: string) {
   return { id: c.id, name: c.name, demo: c.demo, writePaused: c.write_paused,
     scanner: { hardwareIds: c.scanner_hardware_ids, fleetHardwareIds: fleetIds },
     syncPorts: { ports: c.sync_ports, fleetPorts },
+    // The client's default zone for its sites, and the fleet's it falls back to.
+    timeZone: { own: c.time_zone, fleet: await fleetTimeZone(db) },
     fingerprintScanner: await clientScanner(db, c.id),
     sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
     openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
@@ -141,7 +144,10 @@ export async function site(db: Queryable, id: string, page: Page = {}) {
   const count = await cabinetCount(db, id);
   const ports = (await syncPortsForSite(db, id))!;
   const syncCabinets = await siteSyncCabinets(db, id);
+  const zone = await siteTimeZone(db, id);
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
+    // The zone its cabinets are held to and where it comes from: the site's own, else the client's, else the fleet's (null: none is checked).
+    timeZoneApplies: { zone: zone.zone, source: zone.source },
     sync: { ports: ports.site, effectivePorts: ports.effective, portsSource: ports.source, syncCabinets: syncCabinets.cabinets, unassignedSatellites: syncCabinets.unassigned },
     scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: parseJson<string[]>(s.client_scanner), fleetHardwareIds: await fleetScannerIds(db) },
     cabinets: await pageRows(db, cabinets), cabinetCount: count, cabinetsPage: { limit, offset, hasMore: offset + cabinets.length < count } };

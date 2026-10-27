@@ -1,6 +1,6 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
-import { cabinetTime, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
+import { cabinetTime, fleetTimeZone, setClientTimeZone, setFleetTimeZone, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
 import { siteStandards } from "../services/site-standards.js";
 import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -147,6 +147,23 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const u = await o.guards.role(request, "tier2");
     const body = consoleBodies.siteTimeZone.parse(request.body);
     await setSiteTimeZone(o.pool, u.userId, id(request), body.timeZone as TimeZoneId | null);
+    return { timeZone: body.timeZone };
+  });
+
+  /** A client's default zone for its sites (Tier 2 and up, like a site's own). */
+  app.put("/api/clients/:id/time-zone", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const body = consoleBodies.siteTimeZone.parse(request.body);
+    await setClientTimeZone(o.pool, u.userId, id(request), body.timeZone as TimeZoneId | null);
+    return { timeZone: body.timeZone };
+  });
+
+  /** The fleet default zone: read by anyone signed in, set by an Admin. */
+  app.get("/api/settings/time-zone", async request => { await o.guards.role(request, "tier1"); return { timeZone: await fleetTimeZone(o.pool) }; });
+  app.put("/api/settings/time-zone", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.siteTimeZone.parse(request.body);
+    await setFleetTimeZone(o.pool, u.userId, body.timeZone as TimeZoneId | null);
     return { timeZone: body.timeZone };
   });
 

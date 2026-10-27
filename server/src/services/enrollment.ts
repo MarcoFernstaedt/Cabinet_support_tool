@@ -11,6 +11,9 @@ import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
 import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
 import { approvedFor, attachChoices, attachToSite, type Scope } from "./baselines.js";
+import { fleetPolicy, writeSitePolicy, type FirewallPolicy } from "./firewall-policy.js";
+import { fleetTimeZone, type TimeZoneId } from "./time.js";
+import { parseJson } from "./settings.js";
 
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -84,6 +87,8 @@ export interface Approval {
    * (tests, the demo) may leave it out, and the cabinet then shows "Baseline required" until a baseline applies to it.
    */
   baseline?: BaselineDecision;
+  /** For a new site only: its own firewall policy and time zone; null or left out, it inherits them (05-server-spec.md "Site policies"). */
+  sitePolicies?: { firewall?: FirewallPolicy | null; timeZone?: TimeZoneId | null };
 }
 
 /** The baseline decision every approval carries (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). */
@@ -126,11 +131,22 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     if (client.demo) throw new Refused("demo_client", 409, "that is a simulated demo client; file the cabinet under a real client");
     // A new client's scanner, set up with the approval that creates it, in the same transaction.
     const scanner = !existed && approval.scanner ? await applyScannerChoice(c, userId, client.id, approval.scanner, signing) : null;
+    // Whether this approval creates the site: only a new site takes its policies here; an existing one keeps its own (changed on its page).
+    const siteExisted = !!(await c.query("SELECT 1 AS x FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0];
+    if (siteExisted && approval.sitePolicies) throw new Refused("site_policies_for_existing_site", 409, "this site already exists; change its policies on the site's page",
+      { reason: "This site already exists. Its firewall policy and time zone are changed on the site's page, not with an approval." });
     try {
       await c.query("IF NOT EXISTS (SELECT 1 FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $2 AND name = $3 AND removed_at IS NULL) INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)",
         [randomUUID(), client.id, approval.siteName]);
     } catch (e) { if (!isUniqueViolation(e)) throw e; }
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
+    // A new site's own policies, confirmed with this approval and written with it (each audited as its own change).
+    if (!siteExisted && approval.sitePolicies?.firewall) await writeSitePolicy(c, userId, site.id, approval.sitePolicies.firewall);
+    if (!siteExisted && approval.sitePolicies?.timeZone) {
+      await c.query("UPDATE sites SET time_zone = $2 WHERE id = $1", [site.id, approval.sitePolicies.timeZone]);
+      await audit(c, { actorKind: "user", actorId: userId, action: "site.time_zone", targetKind: "site", targetId: site.id, outcome: "succeeded",
+        details: { before: null, timeZone: approval.sitePolicies.timeZone, enrollment: requestId } });
+    }
 
     // A satellite's sync cabinet, decided before the cabinet exists so a refusal leaves nothing behind. The site's sync cabinets are
     // read under lock: a sync cabinet approved at the same moment cannot change the answer between this read and the insert.
@@ -213,3 +229,26 @@ export async function approvalBaselinePreview(db: Queryable, requestId: string, 
   return { inForce: inForce.map(o => ({ kind: o.kind, name: o.name, version: o.version })), modelBaselines, siteHasOwn: inForce.some(o => o.kind === "site"),
     choices: await attachChoices(db) };
 }
+
+/** What a site would inherit, for the approval to pre-fill: its client's firewall policy and zone, else the fleet's. Reads only. */
+export interface ApprovalSitePreview {
+  siteExists: boolean;
+  firewall: { policy: FirewallPolicy; source: "client" | "fleet" };
+  timeZone: { zone: TimeZoneId | null; source: "client" | "fleet" | null };
+}
+
+export async function approvalSitePreview(db: Queryable, requestId: string, q: { client: string; site: string }): Promise<ApprovalSitePreview> {
+  if (!(await db.query("SELECT 1 AS x FROM enrollment_requests WHERE id = $1 AND status = 'pending'", [requestId])).rows[0])
+    throw new Refused("not_pending", 409, "that enrollment request is not pending");
+  const client = (await db.query<{ id: string; firewall_policy: string | null; time_zone: TimeZoneId | null }>(
+    "SELECT id, firewall_policy, time_zone FROM clients WHERE name = $1 AND removed_at IS NULL", [q.client])).rows[0] ?? null;
+  const siteExists = !!client && !!(await db.query("SELECT 1 AS x FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, q.site])).rows[0];
+  const clientPolicy = parseJson<FirewallPolicy>(client?.firewall_policy ?? null);
+  const fleetZone = await fleetTimeZone(db);
+  return {
+    siteExists,
+    firewall: clientPolicy ? { policy: clientPolicy, source: "client" } : { policy: await fleetPolicy(db), source: "fleet" },
+    timeZone: client?.time_zone ? { zone: client.time_zone, source: "client" } : { zone: fleetZone, source: fleetZone ? "fleet" : null },
+  };
+}
+
