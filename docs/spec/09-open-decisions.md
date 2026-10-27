@@ -266,10 +266,12 @@ Decided here, open to change:
 - **"Who opened this cabinet"** is a link on the cabinet page for Admins. It opens the audit log filtered to that cabinet's views. The audit search also takes a family of actions such as `user.`.
 - **Cabinet role** (sync, satellite, standalone) is changed by an Admin on the cabinet's overview.
   - The role is chosen when the request is approved, together with what that role needs to work, so a cabinet is not approved into a state it cannot use and then fixed afterwards.
-  - **A satellite is refused (409, `satellite_needs_sync`) when its site has no sync cabinet address.** This tightens what used to be allowed: an approval that would have left a satellite with nothing to reach now says to enter the sync cabinet's private IPv4 address with the approval, or to approve the sync cabinet first. The address may be given in the same approval, so a site's first satellite does not need a second screen.
-  - **A site has one live sync cabinet** (`status <> 'removed'`), enforced when the cabinet is approved: a second one is refused (409, `sync_exists`), under the same transaction's lock, so two approvals at the same moment leave exactly one. Changing a cabinet's role on its overview is still how an existing sync cabinet becomes a satellite or standalone.
-  - A **sync** cabinet is the endpoint its satellites and their network checks reach, so it is not given a sync address: an approval that carries one is refused (400, `sync_not_allowed`), rather than the address being ignored.
-  - The address the approval writes is the site's own setting (`sites.sync_address`, `sites.sync_ports`, the pair the Device defaults screen writes), validated by the same rule: a private IPv4 address, and at most four whole ports. It is written in the approving transaction, so a refused or failed approval leaves neither a cabinet nor an address behind.
+  - **Superseded on 2026-10-27 by several sync cabinets per site** (05-server-spec.md "Sync cabinets and satellites"). The owner's decisions:
+    - A satellite can be enrolled before any sync cabinet; it shows "Enrollment incomplete" until it is linked to one.
+    - A site may have several sync cabinets; the approver chooses the one a satellite reaches.
+    - A sync cabinet's address comes from its own report, unless an Admin sets one, which a report never replaces.
+    - Existing sites were linked by migration 0011: where a site had exactly one sync cabinet, the typed site address became that sync cabinet's Admin-set address and its satellites were linked to it. Satellites at a site with no sync cabinet, or several, were left for an Admin to assign.
+  - The old refusals `satellite_needs_sync` and `sync_exists` are gone. `sync_not_allowed` now refuses a sync cabinet named for a sync or standalone cabinet.
 
 ## Choices made for the alert changes (confirm or change)
 
@@ -469,7 +471,7 @@ A code on an edit helps only against one threat: someone using a signed-in brows
 | Setting | Code? | Why |
 |---|---|---|
 | Client and fleet firewall policy | Yes (Admin) | It decides how every cabinet of the client is told to set its firewall; a hijacked session could weaken them all. |
-| Sync cabinet address and ports (site, client, fleet) | Yes (Admin) | It decides where every cabinet's connection test and the checks after it are pointed. |
+| Sync cabinet address (per sync cabinet), a satellite's sync cabinet, and sync ports (site, client, fleet) | Yes (Admin) | They decide where every satellite's connection test and the checks after it are pointed. |
 | Network baseline | No (Tier 2 and up, one click) | It changes no cabinet. The diagnosis only proposes fixes, and each fix that changes an address or DNS asks for its own code with the exact values. |
 | Scanner hardware IDs (fleet, client, site, cabinet) | No (Tier 2 and up, one click) | It changes only which device the scanner checks look at. Installing a driver is a separate step with its own code. |
 | Site time zone, watched services | No (already one click) | Time zone changes no cabinet; the watch list only restarts services, never changes a start type, and refuses remote-access services. |

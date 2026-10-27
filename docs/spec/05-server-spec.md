@@ -35,6 +35,20 @@
 - On rejection, the request is closed and the token stays consumed.
 - Every agent connection is checked against the cabinet record: unknown or revoked certificate serials are refused.
 
+## Sync cabinets and satellites
+
+- **A site may have several sync cabinets.** Each sync cabinet holds the address its satellites reach (`cabinets.sync_address`); each satellite names the sync cabinet it reaches (`cabinets.sync_cabinet_id`). The ports stay per site: the site's own, else the client's, else the fleet default.
+- **A satellite's link counts only while it points at an active sync cabinet at the same site.** Otherwise the satellite's enrollment is incomplete: the console marks it, and its sync tests and diagnosis have no target. Removing, demoting or moving a cabinet therefore never leaves a satellite aimed at the wrong place.
+- **Approval.**
+  - A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site (`invalid_sync_cabinet` otherwise).
+  - Left out: at a site with one sync cabinet the satellite is linked to it; at a site with none it is approved as incomplete; at a site with several the approval is refused (`choose_sync_cabinet`).
+  - Only a satellite names one (`sync_not_allowed` for a sync or standalone cabinet).
+  - Everything happens in the approving transaction: a refused or failed approval leaves no cabinet and no link.
+- **Linking without asking.** When a site has exactly one active sync cabinet (one is approved, removed, or a role changes), every active satellite there without a live link is linked to it, and each link is audited as the system's.
+- **The address.** Taken from the sync cabinet's own reported network settings (config snapshots and `network.config` results): the single private IPv4 address on its connected adapters, written exactly as a dotted quad. It is followed when it changes. A report with none, or several, keeps the last address. An Admin may set the address with an authenticator code (`cabinet.sync_address`); a report never replaces it, and clearing it goes back to the reported address. Every change is audited: the system's for a report, the Admin's for a setting.
+- **Assigning.** An Admin assigns a satellite to a sync cabinet at its own site, or unassigns it, with an authenticator code (`cabinet.sync_cabinet`).
+- **Role changes.** A cabinet that stops being a satellite drops its link; one that stops being a sync cabinet drops its address. A cabinet that becomes a sync cabinet starts from the address it last reported.
+
 ## Issue types and symptom rules
 
 This is how errors become meaningful alerts, and how the team teaches the system new symptoms of known problems.

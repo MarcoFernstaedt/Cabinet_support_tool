@@ -23,7 +23,8 @@
 ## Navigation hierarchy
 
 - Client view: all sites for one client, with each site's open alerts and errors rolled up, and the client's totals at the top
-- Site view: all cabinets at one site, each showing name, role, online or offline, agent version, read-only mode and open alert count
+- Site view: all cabinets at one site, each showing name, role, online or offline, agent version, read-only mode and open alert count; a satellite with no sync cabinet is marked "Enrollment incomplete". The site also lists its sync cabinets with each one's address and where it comes from (reported, or set by an Admin), and how many satellites wait for one.
+- Cabinet overview: a satellite shows the sync cabinet it reaches, and a sync cabinet its address and satellites. An Admin assigns a satellite, or sets a sync cabinet's address, with an authenticator code.
 - Cabinet view: one cabinet in detail
 
 ## Screen size
@@ -73,7 +74,7 @@ The steps follow 05-server-spec.md:
 ## Network
 
 - Each adapter: name, type, connected or disconnected, link speed, MAC address, DHCP or static, IP address, subnet, gateway, DNS servers and DNS suffix
-- Connectivity tests with one button each: gateway, DNS servers, the site's sync cabinet, the platform server
+- Connectivity tests with one button each: gateway, DNS servers, the satellite's sync cabinet, the platform server
 - Edit IP settings and Edit DNS for one adapter (Tier 2 and Admin). The confirmation shows current and new values side by side, warns that the cabinet may drop off briefly, and explains that the change reverts itself if the cabinet cannot reach the server within 2 minutes.
 
 ## Firewall
