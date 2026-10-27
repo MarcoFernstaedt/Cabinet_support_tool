@@ -62,7 +62,11 @@ var services = new SimulatedServices(simulate, Log);
 var serviceWatcher = new Cabinet.Agent.Core.Services.ServiceWatcher(services, new StateFile<Cabinet.Agent.Core.Services.ServiceWatcher.Saved>(Path.Combine(state, "broker", "service-watch.json")), clock, Log);
 // The approved list the platform sends in its heartbeat answer, read from this double's own copy of it and read again for
 // every request, exactly as the broker does: the list decides which services may be started, stopped or restarted.
-var approved = new Cabinet.Agent.Core.Services.ApprovedAppsFile(Path.Combine(state, "monitor-settings.json"), Log);
+// TEST_APPROVED_LIST_KEYS names a list-signing trust file (approved-list-keys.json) made for the run. Without it this double
+// checks no signatures, whatever key the repository holds, so the tests that drive it with plain lists keep working.
+var approved = new Cabinet.Agent.Core.Services.ApprovedAppsFile(Path.Combine(state, "monitor-settings.json"), Log,
+    Cabinet.Agent.Core.Services.ApprovedListTrust.Parse(Environment.GetEnvironmentVariable("TEST_APPROVED_LIST_KEYS") is { Length: > 0 } listKeys
+        ? File.ReadAllText(listKeys) : """{"version":1,"keys":[]}"""));
 serviceWatcher.Approved = () => approved.Current;
 var serviceControl = new Cabinet.Agent.Core.Services.ServiceControl(services, Log) { Watcher = serviceWatcher, Approved = () => approved.Current };
 // Time zone and clock: the broker's real time logic over a simulated tzutil and w32tm.
