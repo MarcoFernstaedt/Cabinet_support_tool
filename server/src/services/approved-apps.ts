@@ -365,12 +365,14 @@ async function writeApprovedList(c: Queryable, userId: string, level: AppLevel, 
  * Makes sure a client's list approves one service entry, in the caller's transaction (used when a client's fingerprint scanner is
  * switched on; the caller has checked the role and the step-up). The change starts from what the client would otherwise get: its pending
  * change, else its own list, else the fleet's, because a client list replaces the fleet's whole. Returns whether the entry is approved
- * in force already, waits for a signature, or was written in force (signing off). An entry with the same key, path and service name
- * counts as already there; one with the same key but a different program is replaced.
+ * in force already, waits for a signature, or was written in force (signing off). An entry for the same program and service name, under
+ * any key, counts as already there; one with the same key but a different program is replaced.
  */
 export async function ensureClientEntry(c: Queryable, userId: string, clientId: string, entry: ApprovedApp, signing?: ListSigningKeys): Promise<"approved" | "waiting" | "written"> {
   const { key, raw, stored } = await readRaw(c, "client", clientId);
-  const same = (e: ApprovedApp) => e.key === entry.key && e.kind === entry.kind && entryPath(e).toLowerCase() === entryPath(entry).toLowerCase()
+  // The same program under any key counts as the entry: an Admin may have approved it before under a name of their own, and adding it
+  // again under another key would show it twice and leave one behind when the other is revoked.
+  const same = (e: ApprovedApp) => e.kind === entry.kind && entryPath(e).toLowerCase() === entryPath(entry).toLowerCase()
     && (e.serviceName ?? "").toLowerCase() === (entry.serviceName ?? "").toLowerCase();
   const liveHas = !!stored.live?.entries.some(same);
   if (stored.pending) {
