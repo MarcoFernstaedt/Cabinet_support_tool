@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { audit, isUniqueViolation, lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
+import { linkUnassigned, reportedAddress } from "./sync-cabinets.js";
 import { writeStatus } from "./writes.js";
 
 const ONLINE_MINUTES = 5;
@@ -93,13 +94,25 @@ export async function removeSite(pool: Pool, adminId: string, id: string, stepUp
   });
 }
 
+/**
+ * Changes a cabinet's role. The site's sync arrangement follows in the same transaction: a cabinet that stops being a satellite drops its
+ * link; one that stops being a sync cabinet drops its address, and its satellites read as incomplete unless the site now has exactly one
+ * sync cabinet, which takes them in. A new sync cabinet starts from the address it last reported.
+ */
 export async function setCabinetRole(pool: Pool, adminId: string, id: string, role: string, stepUpToken: string): Promise<void> {
+  const reported = role === "sync" ? await reportedAddress(pool, id) : null;
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "cabinet.role", id);
-    const r = await c.query<{ old_role: string }>(
-      "UPDATE cabinets SET role = $2 OUTPUT deleted.role AS old_role WHERE id = $1 AND status = 'active'", [id, role]);
+    const r = await c.query<{ old_role: string; site_id: string }>(
+      `UPDATE cabinets SET role = $2,
+              sync_cabinet_id = CASE WHEN $2 = 'satellite' THEN sync_cabinet_id ELSE NULL END,
+              sync_address = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address WHEN $2 = 'sync' THEN $3 ELSE NULL END,
+              sync_address_source = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address_source WHEN $2 = 'sync' AND $3 IS NOT NULL THEN 'reported' ELSE NULL END
+       OUTPUT deleted.role AS old_role, inserted.site_id WHERE id = $1 AND status = 'active'`, [id, role, reported]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active cabinet");
-    await audit(c, { actorKind: "user", actorId: adminId, action: "cabinet.role", targetKind: "cabinet", targetId: id, outcome: "succeeded", details: { before: r.rows[0]!.old_role, role } });
+    const linked = await linkUnassigned(c, r.rows[0]!.site_id);
+    await audit(c, { actorKind: "user", actorId: adminId, action: "cabinet.role", targetKind: "cabinet", targetId: id, outcome: "succeeded",
+      details: { before: r.rows[0]!.old_role, role, satellitesLinked: linked } });
   });
 }
 

@@ -3,7 +3,8 @@ import type { Queryable } from "../db/db.js";
 import { likeContains } from "./sql-like.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { parseJson } from "./settings.js";
-import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncForSite } from "./device-settings.js";
+import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncPortsForSite } from "./device-settings.js";
+import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
 
 export { fleetScannerIds, fleetSyncPorts };
 
@@ -23,20 +24,23 @@ export interface CabinetRow {
   demo: boolean;
   /** Its agent accepts upgrades whose programs are not code-signed (a development build); the console marks it. */
   unsignedUpgrades: boolean;
+  /** A satellite with no live link to a sync cabinet: its enrollment is incomplete until one is assigned. */
+  syncUnassigned: boolean;
 }
 
-interface CabinetDbRow { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; architecture: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string | number; demo_scenario?: string | null; unsigned_upgrades?: boolean | number | null }
+interface CabinetDbRow { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; architecture: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string | number; demo_scenario?: string | null; unsigned_upgrades?: boolean | number | null; sync_unassigned?: number | null }
 
 function cabinetRow(r: CabinetDbRow): CabinetRow {
   return { id: r.id, name: r.name, role: r.role, status: r.status, online: online(r.status, r.last_heartbeat_at), lastHeartbeatAt: r.last_heartbeat_at?.toISOString() ?? null,
     agentVersion: r.agent_version, architecture: r.architecture, readOnly: r.read_only, hostname: r.hostname, openAlerts: Number(r.open_alerts), demo: !!r.demo_scenario,
-    unsignedUpgrades: !!r.unsigned_upgrades };
+    unsignedUpgrades: !!r.unsigned_upgrades, syncUnassigned: r.sync_unassigned === 1 };
 }
 
 const OPEN_ALERTS = "(SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved')";
-const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades, ${OPEN_ALERTS} AS open_alerts`;
+const SYNC_UNASSIGNED = `CASE WHEN k.role = 'satellite' AND k.status = 'active' AND NOT ${LIVE_LINK} THEN 1 ELSE 0 END AS sync_unassigned`;
+const CABINET_COLUMNS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades, ${SYNC_UNASSIGNED}, ${OPEN_ALERTS} AS open_alerts`;
 /** The columns a cabinet row is built from, without the open-alert count: a page of them has its counts read once, in one grouped query. */
-const CABINET_FIELDS = "k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades";
+const CABINET_FIELDS = `k.id, k.name, k.role, k.status, k.last_heartbeat_at, k.agent_version, k.architecture, k.read_only, k.hostname, k.demo_scenario, k.unsigned_upgrades, ${SYNC_UNASSIGNED}`;
 
 /** How many cabinets of a site one page holds, and the most a caller may ask for: a site of thousands is read a page at a time. */
 export const SITE_CABINET_PAGE = 200;
@@ -112,9 +116,10 @@ export async function site(db: Queryable, id: string, page: Page = {}) {
     `SELECT ${CABINET_FIELDS}, 0 AS open_alerts FROM cabinets k WHERE k.site_id = $1 AND k.status <> 'removed' ORDER BY k.name OFFSET $2 ROWS FETCH NEXT $3 ROWS ONLY`,
     [id, offset, limit])).rows;
   const count = await cabinetCount(db, id);
-  const sync = (await syncForSite(db, id))!;
+  const ports = (await syncPortsForSite(db, id))!;
+  const syncCabinets = await siteSyncCabinets(db, id);
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
-    sync: { address: sync.address, ports: sync.site, effectivePorts: sync.effective, portsSource: sync.source },
+    sync: { ports: ports.site, effectivePorts: ports.effective, portsSource: ports.source, syncCabinets: syncCabinets.cabinets, unassignedSatellites: syncCabinets.unassigned },
     scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: parseJson<string[]>(s.client_scanner), fleetHardwareIds: await fleetScannerIds(db) },
     cabinets: await pageRows(db, cabinets), cabinetCount: count, cabinetsPage: { limit, offset, hasMore: offset + cabinets.length < count } };
 }
@@ -146,6 +151,7 @@ export async function cabinet(db: Queryable, id: string, page: Page = {}) {
     site: { id: k.site_id, name: k.site_name }, client: { id: k.client_id, name: k.client_name },
     scanner: { cabinetHardwareIds: levels.cabinet, siteHardwareIds: levels.site, clientHardwareIds: levels.client, fleetHardwareIds: levels.fleet,
       effective: levels.effective, source: levels.source },
+    sync: await cabinetSync(db, id),
     siblings: await pageRows(db, siblings), siblingCount, siblingsPage: { limit, offset, hasMore: offset + siblings.length < siblingCount },
   };
 }

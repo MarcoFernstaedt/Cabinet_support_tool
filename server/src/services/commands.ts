@@ -8,6 +8,7 @@ import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Quer
 import { Refused } from "./errors.js";
 import { ingestAndEvaluate } from "./config-service.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
+import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
@@ -206,6 +207,8 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       const all = adapters.filter(a => a.connected).flatMap(a => a.ipv4.addresses.map(x => x.address));
       const address = all.find(a => !a.startsWith("169.254.")) ?? all[0];
       if (address) await c.query("UPDATE cabinets SET ipv4 = $2, ipv4_at = SYSUTCDATETIME() WHERE id = $1", [cabinetId, address]);
+      // A sync cabinet that follows its own report takes the address its satellites reach from the same reading.
+      await followReportedAddress(c, cabinetId, lanAddress(adaptersFromNetworkConfig(result.output)));
     }
     // A firewall write's before and after go into the cabinet's firewall history as a change made through the platform.
     if (result.status === "succeeded" && command.operation.startsWith("firewall.") && command.operation !== "firewall.state") {

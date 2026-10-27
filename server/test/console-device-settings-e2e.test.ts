@@ -40,7 +40,7 @@ test("device settings in the console: a client's scanner and sync ports set once
   const code = (): string => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
   const client = randomUUID(), site = randomUUID(), cabinet = randomUUID();
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
-  await db.app.query("INSERT INTO sites (id, client_id, name, sync_address) VALUES ($1, $2, 'North', '10.20.0.15')", [site, client]);
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
   await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, 'ICU cabinet', 'standalone', 'active', SYSUTCDATETIME())", [cabinet, site]);
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
@@ -84,14 +84,14 @@ test("device settings in the console: a client's scanner and sync ports set once
 
     // The site inherits both and says so; then it overrides the ports.
     await page.goto(`${origin}/sites/${site}`);
-    const sync = page.getByRole("region", { name: "Sync cabinet" });
-    await sync.getByText(/Ports in use: 1433, 5000/).waitFor();
+    const sync = page.getByRole("region", { name: "Sync cabinets at North" });
+    await sync.getByText(/In use: 1433, 5000/).waitFor();
     await sync.getByText(/from the client's default/).waitFor();
     await page.getByRole("region", { name: "Fingerprint scanner at North" }).getByText(/the client's setting applies/).waitFor();
-    await sync.getByLabel(/This site's TCP ports/).fill("8080");
+    await sync.getByLabel(/TCP ports/).fill("8080");
     await sync.getByRole("button", { name: "Save" }).click();
     await confirm(/ports 8080/);
-    await sync.getByText(/Ports in use: 8080/).waitFor();
+    await sync.getByText(/In use: 8080/).waitFor();
     await sync.getByText(/from this site's own setting/).waitFor();
 
     // The cabinet uses the client's scanner, and says where it comes from.

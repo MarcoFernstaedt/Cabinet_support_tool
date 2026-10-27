@@ -6,8 +6,8 @@ import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Querya
 import { issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey } from "../pki/x509.js";
 import { CsrError, verifyCsr } from "../pki/x509.js";
-import { writeSiteSync } from "./device-settings.js";
 import { Refused } from "./errors.js";
+import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
 
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -70,24 +70,21 @@ export async function pendingRequests(db: Queryable): Promise<PendingRequest[]> 
 export interface Approval {
   clientName: string; siteName: string; cabinetName: string; role: "sync" | "satellite" | "standalone";
   /**
-   * The site's sync cabinet, captured while the cabinet that needs it is approved: a private IPv4 address, and
-   * optionally the site's own TCP ports (omitted or null: the client's ports, else the fleet's). Ignored for a
-   * `standalone`; refused for a `sync` and required (here or already set on the site) for a `satellite`.
+   * A satellite's sync cabinet: an active sync cabinet at the same site. Left out, the satellite is linked to the site's only sync
+   * cabinet, or stays incomplete when the site has none yet; a site with several needs the choice made here. Only a satellite names one.
    */
-  sync?: { address: string; ports?: number[] | null };
+  syncCabinetId?: string;
 }
 
-// These three carry `reason`, the one sentence the console shows (console/src/lib/api.ts describeError): a refusal an
-// Admin has to act on must say what to do, not just that it happened.
-const syncExists = () => new Refused("sync_exists", 409,
-  "this site already has a sync cabinet. A site has one: approve this cabinet as a satellite or standalone, or change the existing sync cabinet's role first.",
-  { reason: "This site already has a sync cabinet, and a site has only one. Approve this cabinet as a satellite or standalone, or change the existing sync cabinet's role first." });
-const satelliteNeedsSync = () => new Refused("satellite_needs_sync", 409,
-  "a satellite needs the site's sync cabinet to reach. Enter the sync cabinet's private IPv4 address (10.x.x.x, 172.16-31.x.x or 192.168.x.x) with this approval, or approve the sync cabinet first and set the address on the site.",
-  { reason: "A satellite needs the sync cabinet it reaches. Enter the sync cabinet's private IPv4 address (10.x, 172.16-31.x or 192.168.x) above, or approve the site's sync cabinet first." });
+// This one carries `reason`, the sentence the console shows (console/src/lib/api.ts describeError): a refusal an Admin has to act on
+// says what to do, not just that it happened.
+const chooseSyncCabinet = () => new Refused("choose_sync_cabinet", 409, "this site has several sync cabinets; choose the one this satellite reaches",
+  { reason: "This site has several sync cabinets. Choose the one this satellite reaches." });
 
-/** Approves a pending request: places the cabinet, signs its certificate and records both. */
+/** Approves a pending request: places the cabinet, links it into the site's sync arrangement, signs its certificate and records it all. */
 export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: string, approval: Approval, userId: string): Promise<{ cabinetId: string; serial: string }> {
+  if (approval.syncCabinetId !== undefined && approval.role !== "satellite")
+    throw new Refused("sync_not_allowed", 400, "only a satellite is given a sync cabinet", { reason: "Only a satellite is given a sync cabinet." });
   return transaction(pool, async c => {
     const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
       "SELECT csr, fingerprints FROM enrollment_requests WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND status = 'pending'", [requestId])).rows[0];
@@ -104,42 +101,39 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         [randomUUID(), client.id, approval.siteName]);
     } catch (e) { if (!isUniqueViolation(e)) throw e; }
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
-    // A sync cabinet is the endpoint its satellites reach, so it is never given a sync target. Refusing is kinder than
-    // dropping the address: an Admin who typed one meant it to be used.
-    if (approval.role === "sync" && approval.sync) throw new Refused("sync_not_allowed", 400,
-      "a sync cabinet is the endpoint its satellites connect to, so it is not given a sync address. Leave the address empty, or approve this cabinet as a satellite.",
-      { reason: "A sync cabinet is the endpoint its satellites connect to, so it is not given a sync address. Leave the address empty, or approve this cabinet as a satellite." });
+
+    // A satellite's sync cabinet, decided before the cabinet exists so a refusal leaves nothing behind. The site's sync cabinets are
+    // read under lock: a sync cabinet approved at the same moment cannot change the answer between this read and the insert.
+    let syncCabinetId: string | null = null;
+    if (approval.role === "satellite") {
+      if (approval.syncCabinetId !== undefined) {
+        await assertSyncCabinetAt(c, approval.syncCabinetId, site.id);
+        syncCabinetId = approval.syncCabinetId;
+      } else {
+        const syncs = (await c.query<{ id: string }>(
+          "SELECT id FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $1 AND role = 'sync' AND status = 'active'", [site.id])).rows;
+        if (syncs.length > 1) throw chooseSyncCabinet();
+        syncCabinetId = syncs[0]?.id ?? null;
+      }
+    }
+
     const cabinetId = randomUUID();
-    const taken = new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
-    // A cabinet name is unique within its site (removed cabinets keep theirs), and a site has at most one live sync cabinet.
-    // Both are checked in the insert itself with a lock on the rows it reads, so two approvals at the same moment cannot
-    // both pass: one inserts, the other sees the row and is refused.
-    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture)
-                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8
-                   WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)
-                   ${approval.role === "sync" ? "AND NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND role = 'sync' AND status <> 'removed')" : ""}`,
+    // A cabinet name is unique within its site (removed cabinets keep theirs). The check is in the insert itself, with a lock on the rows
+    // it reads, so two approvals at the same moment cannot both pass: one inserts, the other sees the row and is refused.
+    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id)
+                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9
+                   WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
       [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion,
-       request.fingerprints.architecture ?? null]);
-    if (insert.rowCount !== 1) {
-      // Say which rule refused it: the two need different fixes.
-      if (approval.role === "sync" && (await c.query("SELECT 1 FROM cabinets WHERE site_id = $1 AND role = 'sync' AND status <> 'removed'", [site.id])).rows[0]) throw syncExists();
-      throw taken;
-    }
-    // The site's sync cabinet is captured with the approval that needs it, in the same transaction: an approval that
-    // fails below leaves neither the cabinet nor the address behind.
-    if (approval.sync && approval.role !== "sync") {
-      await writeSiteSync(c, userId, site.id, { address: approval.sync.address, ports: approval.sync.ports ?? null });
-    }
-    if (approval.role === "satellite" &&
-        !(await c.query<{ sync_address: string | null }>("SELECT sync_address FROM sites WHERE id = $1", [site.id])).rows[0]?.sync_address) {
-      throw satelliteNeedsSync();
-    }
+       request.fingerprints.architecture ?? null, syncCabinetId]);
+    if (insert.rowCount !== 1) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
+    // The site's first sync cabinet takes in the satellites that were waiting for one.
+    const linked = approval.role === "sync" ? await linkUnassigned(c, site.id) : 0;
     const certificate = await issueAgentCertificate(key, request.csr, cabinetId);
     await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [certificate.serialHex, cabinetId, certificate.notAfter]);
     await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = SYSUTCDATETIME()
                    WHERE id = $1`, [requestId, cabinetId, certificate.serialHex, certificate.pem, userId]);
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
-      details: { requestId, ...approval, certificateSerial: certificate.serialHex } });
+      details: { requestId, ...approval, syncCabinetId, ...(approval.role === "sync" ? { satellitesLinked: linked } : {}), certificateSerial: certificate.serialHex } });
     return { cabinetId, serial: certificate.serialHex };
   });
 }

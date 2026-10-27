@@ -15,7 +15,7 @@ import { runRetention, pruneNotifications } from "../src/services/maintenance.js
 import { evaluateDrift, fleetPolicy, setFleetPolicy, setClientPolicy, bulkCandidates, cabinetPolicy } from "../src/services/firewall-policy.js";
 import { evaluateTime, setSiteTimeZone, cabinetTime } from "../src/services/time.js";
 import { setWatched, watchLevels } from "../src/services/watched-services.js";
-import { scannerLevels, setScanner, syncForSite, setFleetSyncPorts, setClientSyncPorts } from "../src/services/device-settings.js";
+import { scannerLevels, setScanner, syncPortsForSite as syncForSite, setFleetSyncPorts, setClientSyncPorts } from "../src/services/device-settings.js";
 import { allSignIns, ownSignIns, sessionSignIn } from "../src/services/sign-ins.js";
 import { siteStandards } from "../src/services/site-standards.js";
 import { audit, transaction, verifyAuditChain } from "../src/db/db.js";
@@ -356,7 +356,7 @@ test("watched services and device settings: levels, inheritance, JSON read back 
   assert.equal((await scannerLevels(db.app, w.cab)).source, "site");
   const gone = randomUUID();
   await refused(setScanner(db.app, boss, "site", gone, null, await token(boss, "site.scanner", gone)), "not_found");
-  assert.deepEqual(await syncForSite(db.app, w.site), { address: null, site: null, client: null, fleet: null, effective: [], source: "none" });
+  assert.deepEqual(await syncForSite(db.app, w.site), { site: null, client: null, fleet: null, effective: [], source: "none" });
   await setFleetSyncPorts(db.app, boss, [1433, 1434], await token(boss, "settings.sync", "fleet"));
   await setClientSyncPorts(db.app, boss, w.client, [], await token(boss, "client.sync", w.client));
   const sync = (await syncForSite(db.app, w.site))!;

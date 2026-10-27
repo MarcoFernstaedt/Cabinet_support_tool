@@ -12,6 +12,7 @@ import * as users from "../services/users.js";
 import { listSecurityAlerts, openSecurityAlertCount, resolveSecurityAlert } from "../services/security.js";
 import { createSuppression, listSuppressions, renewSuppression } from "../services/rules.js";
 import { platformSettings, updatePlatformSettings } from "../services/settings.js";
+import { setSyncAddress, setSyncCabinet } from "../services/sync-cabinets.js";
 import { healthSummary } from "../services/ops-health.js";
 import { verifyChainAndAlert } from "../services/maintenance.js";
 import { id } from "./fleet-routes.js";
@@ -138,6 +139,20 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
     const u = await asAdmin(request);
     const b = consoleBodies.cabinetRole.parse(request.body);
     await admin.setCabinetRole(o.pool, u.userId, id(request), b.role, boundTo(b.stepUpToken, b));
+    return { ok: true };
+  });
+
+  app.put("/api/admin/cabinets/:id/sync-cabinet", async request => {
+    const u = await asAdmin(request);
+    const b = consoleBodies.cabinetSyncCabinet.parse(request.body);
+    await setSyncCabinet(o.pool, u.userId, id(request), b.syncCabinetId === null ? null : b.syncCabinetId.toLowerCase(), boundTo(b.stepUpToken, b));
+    return { ok: true };
+  });
+
+  app.put("/api/admin/cabinets/:id/sync-address", async request => {
+    const u = await asAdmin(request);
+    const b = consoleBodies.cabinetSyncAddress.parse(request.body);
+    await setSyncAddress(o.pool, u.userId, id(request), b.address, boundTo(b.stepUpToken, b));
     return { ok: true };
   });
 

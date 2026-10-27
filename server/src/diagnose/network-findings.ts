@@ -196,8 +196,9 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
   const isSync = e.cabinet.role === "sync";
   if (isSync) add({ id: "sync-self", severity: "info", certainty: "confirmed", title: "This is the site's sync cabinet", evidence: ["Its satellites connect to it; run the diagnosis on a satellite to test the connection to it."], fix: null });
   else if (!e.sync.address)
-    add({ id: "sync-none", severity: "info", certainty: "not_checked", title: "The site has no sync cabinet address", evidence: ["Nothing to test the satellite-to-sync connection against."],
-      fix: "An Admin sets the sync cabinet's address on the site page; then run the diagnosis again." });
+    add({ id: "sync-none", severity: "info", certainty: "not_checked", title: "No sync cabinet to test",
+      evidence: ["This satellite has no sync cabinet assigned, or its sync cabinet has not reported an address yet."],
+      fix: "An Admin assigns the sync cabinet on this cabinet's page, or sets the sync cabinet's address on its page; then run the diagnosis again." });
   else {
     const ping = tests("sync-ping")[0];
     const ports = tests("sync-tcp");

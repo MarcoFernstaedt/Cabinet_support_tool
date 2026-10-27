@@ -208,7 +208,9 @@ test("every route checks the role on the server", async () => {
     ["fleet scanner read", "GET", "/api/settings/scanner", undefined, "tier1"],
     ["cabinet scanner", "PUT", `/api/cabinets/${cabinetId}/scanner`, { hardwareIds: null, stepUpToken: token }, "tier2"],
     ["fleet scanner", "PUT", "/api/settings/scanner", { hardwareIds: null, stepUpToken: token }, "admin"],
-    ["site sync", "PUT", `/api/sites/${siteId}/sync`, { address: null, ports: [], stepUpToken: token }, "admin"],
+    ["site sync", "PUT", `/api/sites/${siteId}/sync`, { ports: [], stepUpToken: token }, "admin"],
+    ["sync address", "PUT", `/api/admin/cabinets/${cabinetId}/sync-address`, { address: null, stepUpToken: token }, "admin"],
+    ["sync cabinet", "PUT", `/api/admin/cabinets/${cabinetId}/sync-cabinet`, { syncCabinetId: null, stepUpToken: token }, "admin"],
     ["pending", "GET", "/api/admin/enrollments", undefined, "admin"],
     ["approve", "POST", `/api/admin/enrollments/${randomUUID()}/approve`, { client: "a", site: "b", cabinet: "c", role: "sync", stepUpToken: token }, "admin"],
     ["tokens", "POST", "/api/admin/bootstrap-tokens", { stepUpToken: token }, "admin"],
@@ -229,33 +231,39 @@ test("every route checks the role on the server", async () => {
 test("a step-up token works once, only for its own action and target", async () => {
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
-  const token = await stepUp(admin, cookie, "site.sync", siteId, { address: "10.20.0.15", ports: [1433] });
+  const token = await stepUp(admin, cookie, "site.sync", siteId, { ports: [1433] });
   const granted = (await db.app.query<any>("SELECT details FROM audit_log WHERE actor_id = $1 AND action = 'auth.step_up' AND outcome = 'succeeded'", [admin.id])).rows;
-  assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId, paramsHash: paramsHash({ address: "10.20.0.15", ports: [1433] }) }], "a granted step-up is audited");
+  assert.deepEqual(granted.map(r => r.details), [{ action: "site.sync", target: siteId, paramsHash: paramsHash({ ports: [1433] }) }], "a granted step-up is audited");
   assert.deepEqual((await call("POST", `/api/admin/cabinets/${cabinetId}/revoke`, { stepUpToken: token }, cookie)).body, { error: "step_up_required" }, "wrong action");
   const otherSite = randomUUID();
-  assert.equal((await call("PUT", `/api/sites/${otherSite}/sync`, { address: null, ports: [], stepUpToken: token }, cookie)).status, 403, "wrong target");
-  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.99", ports: [1433], stepUpToken: token }, cookie)).status, 403, "other parameters than the ones confirmed");
-  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: token }, cookie)).status, 200);
-  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.16", ports: [1433], stepUpToken: token }, cookie)).status, 403, "used once");
-  const expired = await stepUp(admin, cookie, "site.sync", siteId, { address: null, ports: [] });
+  assert.equal((await call("PUT", `/api/sites/${otherSite}/sync`, { ports: [1433], stepUpToken: token }, cookie)).status, 403, "wrong target");
+  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { ports: [1434], stepUpToken: token }, cookie)).status, 403, "other parameters than the ones confirmed");
+  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { ports: [1433], stepUpToken: token }, cookie)).status, 200);
+  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { ports: [1433], stepUpToken: token }, cookie)).status, 403, "used once");
+  const expired = await stepUp(admin, cookie, "site.sync", siteId, { ports: [] });
   await db.app.query<any>("UPDATE step_up_tokens SET expires_at = DATEADD(second, -1, SYSUTCDATETIME())");
-  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { address: null, ports: [], stepUpToken: expired }, cookie)).status, 403, "expired");
+  assert.equal((await call("PUT", `/api/sites/${siteId}/sync`, { ports: [], stepUpToken: expired }, cookie)).status, 403, "expired");
 });
 
 test("the server refuses a public sync address, and fills the sync target and scanner IDs itself", async () => {
   const admin = await account("admin", { totp: true });
   const cookie = await signIn(admin);
-  const bad = await call("PUT", `/api/sites/${siteId}/sync`, { address: "8.8.8.8", ports: [], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId, { address: "8.8.8.8", ports: [] }) }, cookie);
-  assert.deepEqual(bad.body, { error: "invalid_address" });
-  await call("PUT", `/api/sites/${siteId}/sync`, { address: "10.20.0.15", ports: [1433], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId, { address: "10.20.0.15", ports: [1433] }) }, cookie);
+  // cabinetId is the site's sync cabinet. A public address is refused by the contract, before the service is reached.
+  const bad = await call("PUT", `/api/admin/cabinets/${cabinetId}/sync-address`, { address: "8.8.8.8", stepUpToken: await stepUp(admin, cookie, "cabinet.sync_address", cabinetId, { address: "8.8.8.8" }) }, cookie);
+  assert.equal(bad.status, 400);
+  assert.equal(bad.body.error, "invalid_request");
+  assert.equal((await call("PUT", `/api/admin/cabinets/${cabinetId}/sync-address`, { address: "10.20.0.15", stepUpToken: await stepUp(admin, cookie, "cabinet.sync_address", cabinetId, { address: "10.20.0.15" }) }, cookie)).status, 200);
+  await call("PUT", `/api/sites/${siteId}/sync`, { ports: [1433], stepUpToken: await stepUp(admin, cookie, "site.sync", siteId, { ports: [1433] }) }, cookie);
+  // A satellite of it: its sync tests aim at the sync cabinet's address, whatever the browser sends.
+  const satellite = randomUUID();
+  await db.app.query<any>("INSERT INTO cabinets (id, site_id, name, role, status, sync_cabinet_id) VALUES ($1, $2, 'ICU 2', 'satellite', 'active', $3)", [satellite, siteId, cabinetId]);
   await call("PUT", "/api/settings/scanner", { hardwareIds: ["USB\\VID_AAAA&PID_0001"], stepUpToken: await stepUp(admin, cookie, "settings.scanner", "fleet", { hardwareIds: ["USB\\VID_AAAA&PID_0001"] }) }, cookie);
 
-  const sync = await call("POST", `/api/cabinets/${cabinetId}/commands`,
+  const sync = await call("POST", `/api/cabinets/${satellite}/commands`,
     { operation: "network.test", params: { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.99.99.99" } }, cookie);
   assert.equal(sync.status, 202);
   const syncParams = (await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [sync.body.commandId])).rows[0].params;
-  assert.deepEqual(syncParams, { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "the browser's address is replaced by the site's");
+  assert.deepEqual(syncParams, { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "the browser's address is replaced by the sync cabinet's");
 
   const scan = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
   assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [scan.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_AAAA&PID_0001"] });
