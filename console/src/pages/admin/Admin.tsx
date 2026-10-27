@@ -9,11 +9,16 @@ import { Breadcrumbs } from "../../components/Layout";
 import { Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
+import { TimeZoneEditor } from "../Fleet";
 import { InstallAgent, type SetupState } from "./Setup";
 import type { SyncCabinetRef } from "../../components/SyncCabinets";
 import { choiceFrom, EMPTY_FIELDS, ScannerServiceFields, type ScannerFields } from "../../components/ClientScanner";
 import { BaselineFields, useBaselinePreview } from "../../components/ApprovalBaseline";
 import { decisionFrom, inForceText, type BaselineChoice } from "../../lib/approval-baseline";
+import { SitePolicyFieldset, useSitePolicyPreview } from "../../components/ApprovalSitePolicies";
+import { sitePoliciesFrom, type SitePolicyFields } from "../../lib/site-policies";
+import { describePolicy } from "../../components/FirewallPolicy";
+import { zoneName } from "../cabinet/Time";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -107,6 +112,10 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const baselineState = useBaselinePreview(p.id, form.client, form.site, setBaselineChoice);
   const baselinePreview = baselineState.preview;
   const decision = baselinePreview ? decisionFrom(baselineChoice, attachId) : null;
+  // A new site's policies: pre-filled from what it would inherit; the approver keeps that or sets the site's own.
+  const [siteFields, setSiteFields] = useState<SitePolicyFields>({ firewallOwn: false, firewall: { domain: "off", private: "off", public: "off" }, timeZone: "" });
+  const siteState = useSitePolicyPreview(p.id, form.client, form.site, setSiteFields);
+  const sitePolicies = sitePoliciesFrom(siteState.preview, siteFields);
   const choices = syncCabinets ?? [];
   const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
   const needsChoice = form.role === "satellite" && choices.length > 1 && !form.syncCabinetId;
@@ -115,8 +124,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
     client: form.client, site: form.site, cabinet: form.cabinet, role: form.role,
     ...(form.role === "satellite" && chosen ? { syncCabinetId: chosen } : {}),
     ...(scannerChoice ? { scanner: scannerChoice } : {}),
+    ...(sitePolicies ? { sitePolicies } : {}),
     baseline: decision,
-  }), [form, chosen, scannerChoice, decision]);
+  }), [form, chosen, scannerChoice, decision, sitePolicies?.firewall?.domain, sitePolicies?.firewall?.private, sitePolicies?.firewall?.public, sitePolicies?.timeZone, !!sitePolicies]);
   const reaches = choices.find(c => c.id === chosen);
   return (
     <section className="panel" aria-label={`Request from ${p.fingerprints.hostname}`}>
@@ -160,8 +170,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
               {scannerUse === "used" && !scannerChoice && <span className="muted small">Leave the service empty to set it up later on the client&apos;s page.</span>}
             </fieldset>
           )}
+          <SitePolicyFieldset name={lists} site={form.site.trim()} state={siteState} fields={siteFields} onChange={setSiteFields} />
           <BaselineFields name={lists} state={baselineState} filled={!!form.client.trim() && !!form.site.trim()} choice={baselineChoice} onChoice={setBaselineChoice} attachId={attachId} onAttach={setAttachId} />
-          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice || !decision}>Approve</button>
+          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice || !decision || (!!form.site.trim() && !siteState.preview && !siteState.problem && !!form.client.trim()) || !!siteState.problem}>Approve</button>
           {baselinePreview && !decision && <span className="muted small">Choose a baseline to approve.</span>}
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
           {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
@@ -177,6 +188,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
             {newClient && (scannerUse === "not_used" ? <> It does not use a fingerprint scanner.</>
               : scannerChoice?.enabled ? <> Its scanner service <strong>{scannerChoice.service!.serviceName}</strong> is added to the approved programs and watched.</> : null)}
             {form.role === "satellite" && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
+            {sitePolicies && <> The new site uses {sitePolicies.firewall ? <>its own firewall policy (<strong>{describePolicy(sitePolicies.firewall)}</strong>)</> : <>{siteState.preview?.firewall.source === "client" ? "the client's" : "the fleet's"} firewall policy</>}
+              {" "}and {sitePolicies.timeZone ? <>the time zone <strong>{zoneName(sitePolicies.timeZone)}</strong></> : siteState.preview?.timeZone.zone ? <>the inherited time zone</> : <>no time zone</>}.</>}
             {" "}Baseline: {decision?.use === "inherited" ? inForceText(baselinePreview?.inForce ?? [])
               : decision?.use === "attach" ? <>attach <strong>{baselinePreview?.choices.find(c => c.versionId === attachId)?.name ?? "the chosen baseline"}</strong> to this site</>
               : "capture this cabinet's configuration as the site baseline draft"}.
@@ -209,6 +222,7 @@ export function InstallTokens() {
 export function ScannerDefault() {
   const scanner = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
   const firewall = useLoad<{ policy: Policy }>("/api/admin/firewall-policy");
+  const zone = useLoad<{ timeZone: string | null }>("/api/settings/time-zone");
   const ports = useLoad<{ ports: number[] | null }>("/api/settings/sync-ports");
   const watched = useLoad<{ names: string[] | null }>("/api/admin/watched-services");
   return (
@@ -231,6 +245,8 @@ export function ScannerDefault() {
         {firewall.data && <PolicyEditor current={firewall.data.policy} inherited={null} endpoint="/api/admin/firewall-policy" action="fleet.firewall_policy" target="fleet"
           what="the fleet" editable onSaved={firewall.reload} />}
       </section>
+      {zone.data && <TimeZoneEditor id="fleet-tz" heading="Time zone (fleet default)" endpoint="/api/settings/time-zone" current={zone.data.timeZone} inherited={null}
+        what="sites whose client sets none either" editable onSaved={zone.reload} />}
       <section className="panel" aria-labelledby="fleet-watched">
         <h2 id="fleet-watched">Watched services (fleet default)</h2>
         {watched.data && <WatchListEditor endpoint="/api/admin/watched-services" own={watched.data.names} inherited="no services are watched."

@@ -1,4 +1,4 @@
-// The firewall policy for a client or the fleet, and applying it to every cabinet of a site or client that differs
+// The firewall policy for the fleet, a client or a site, and applying it to every cabinet of a site or client that differs
 // (docs/spec/12-milestones-8-to-12.md, milestone 9). Admins edit a policy with an authenticator code; a bulk apply
 // (Tier 1 and up) is confirmed with the password and shows each cabinet's answer as it arrives. The server checks
 // every role, confirmation, pause and limit again.
@@ -15,8 +15,11 @@ const NAME = { domain: "Domain", private: "Private", public: "Public" } as const
 export const describePolicy = (p: Policy) => PROFILES.map(k => `${NAME[k]} ${p[k]}`).join(", ");
 
 /** One level's policy: a client's own (or none, so the fleet default applies), or the fleet default itself. */
-export function PolicyEditor({ current, inherited, endpoint, action, target, what, editable, onSaved }: {
-  current: Policy | null; inherited: Policy | null; endpoint: string; action: string; target: string; what: string; editable: boolean; onSaved: () => void;
+export function PolicyEditor({ current, inherited, inheritedName = "the fleet default", endpoint, action, target, what, editable, onSaved }: {
+  current: Policy | null; inherited: Policy | null;
+  /** What applies when nothing is set here: "the fleet default", or for a site "the client's policy" when the client has one. */
+  inheritedName?: string;
+  endpoint: string; action: string; target: string; what: string; editable: boolean; onSaved: () => void;
 }) {
   const [form, setForm] = useState<Policy>(current ?? inherited ?? { domain: "off", private: "off", public: "off" });
   const [pending, setPending] = useState<Policy | null | undefined>(undefined);
@@ -24,7 +27,7 @@ export function PolicyEditor({ current, inherited, endpoint, action, target, wha
   const [saved, setSaved] = useState(false);
   return (
     <div className="stack">
-      <p>{current ? <>Set here: <strong>{describePolicy(current)}</strong></> : inherited ? <>Nothing set here; the fleet default applies: <strong>{describePolicy(inherited)}</strong>.</> : null}</p>
+      <p>{current ? <>Set here: <strong>{describePolicy(current)}</strong></> : inherited ? <>Nothing set here; {inheritedName} applies: <strong>{describePolicy(inherited)}</strong>.</> : null}</p>
       {editable && (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setPending(form); }}>
           {PROFILES.map(k => (
@@ -32,12 +35,12 @@ export function PolicyEditor({ current, inherited, endpoint, action, target, wha
               <select value={form[k]} onChange={e => setForm(f => ({ ...f, [k]: e.target.value as Switch }))}>
                 <option value="off">Off</option><option value="on">On</option></select></label>))}
           <button className="btn" type="submit">Save</button>
-          {current && inherited && <button className="btn ghost" type="button" onClick={() => { setProblem(null); setSaved(false); setPending(null); }}>Use the fleet default</button>}
+          {current && inherited && <button className="btn ghost" type="button" onClick={() => { setProblem(null); setSaved(false); setPending(null); }}>Use {inheritedName}</button>}
           {saved && <span className="ok" role="status">Saved. Cabinets are compared with it at once.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>)}
       <StepUpDialog open={pending !== undefined} action={action} target={target} onClose={() => setPending(undefined)} params={{ policy: pending ?? null }}
-        description={<p>{pending ? <>Set the firewall policy for {what} to <strong>{describePolicy(pending)}</strong>.</> : <>Remove {what}'s own policy, so the fleet default applies.</>}
+        description={<p>{pending ? <>Set the firewall policy for {what} to <strong>{describePolicy(pending)}</strong>.</> : <>Remove {what}'s own policy, so {inheritedName} applies.</>}
           {" "}Cabinets that differ get a minor alert; nothing changes on a cabinet until someone applies the policy.</p>}
         onToken={async token => {
           try { await api("PUT", endpoint, { policy: pending ?? null, stepUpToken: token }); setSaved(true); onSaved(); }

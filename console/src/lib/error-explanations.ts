@@ -304,6 +304,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "Nothing is approved as this cabinet's expected state, so there is nothing to compare against.",
     fix: "Ask an Admin to approve a baseline from a known-good reading of this cabinet.",
   },
+  site_policies_for_existing_site: {
+    title: "Site already exists",
+    detail: "An existing site keeps its own firewall policy and time zone; an approval does not change them.",
+    fix: "Approve without the site's policies, and change them on the site's page.",
+  },
   site_has_baseline: {
     title: "The site has its own baseline",
     detail: "This site already has an approved baseline of its own, and it applies to the cabinet.",
