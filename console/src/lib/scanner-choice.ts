@@ -13,12 +13,16 @@ export interface ClientScannerState { enabled: boolean; service: string | null; 
 export interface ScannerFields { name: string; serviceName: string; path: string; hardwareIds: string }
 export const EMPTY_FIELDS: ScannerFields = { name: "Fingerprint scanner", serviceName: "", path: "", hardwareIds: "" };
 
-/** The choice the fields describe, or null while they are incomplete. The approved-list key follows the approved-programs editor's rule (app: and the name). */
+/**
+ * The choice the fields describe, or null while they are incomplete. The approved-list key follows the approved-programs editor's rule
+ * (app: and a name), built from the service's key name rather than its display name: the display name starts the same for every client,
+ * while the key name belongs to the one program.
+ */
 export function choiceFrom(f: ScannerFields): ScannerChoice | null {
   const serviceName = f.serviceName.trim(), path = f.path.trim(), name = f.name.trim();
   if (!serviceName || !path || !name) return null;
   const ids = f.hardwareIds.split(",").map(s => s.trim()).filter(Boolean);
-  return { enabled: true, service: { key: entryKey(name), kind: "service", name, path, serviceName },
+  return { enabled: true, service: { key: entryKey(serviceName.slice(0, 59)), kind: "service", name, path, serviceName },
     ...(ids.length > 0 ? { hardwareIds: ids } : {}) };
 }
 

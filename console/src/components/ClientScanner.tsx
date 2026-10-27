@@ -14,7 +14,7 @@ export function ScannerServiceFields({ fields, onChange, idPrefix }: { fields: S
   const set = (k: keyof ScannerFields) => (e: { target: { value: string } }) => onChange({ ...fields, [k]: e.target.value });
   return (
     <>
-      <label className="field"><span>Service display name</span><input id={`${idPrefix}-name`} maxLength={59} value={fields.name} onChange={set("name")} /></label>
+      <label className="field"><span>Service display name</span><input id={`${idPrefix}-name`} maxLength={128} value={fields.name} onChange={set("name")} /></label>
       <label className="field"><span>Service key name</span><input id={`${idPrefix}-service`} maxLength={80} placeholder="e.g. BioScanSvc" value={fields.serviceName} onChange={set("serviceName")} /></label>
       <label className="field"><span>Service program</span><input id={`${idPrefix}-path`} maxLength={260} placeholder="C:\Program Files\Vendor\scanner.exe" value={fields.path} onChange={set("path")} /></label>
       <label className="field"><span>Scanner hardware IDs (optional, comma separated)</span><input id={`${idPrefix}-ids`} maxLength={600} placeholder="USB\VID_1234&PID_5678" value={fields.hardwareIds} onChange={set("hardwareIds")} /></label>
