@@ -102,7 +102,7 @@ test("device settings in the console: a client's scanner and sync ports set once
 
     // ---- The cabinet's Standards: every setting it is held to, one line each; a line opens every level and the editors ----
     await page.goto(`${origin}/cabinets/${cabinet}/standards`);
-    const table = page.getByRole("table", { name: /Each setting this cabinet is held to/ });
+    const table = page.getByRole("table", { name: /Expected and reported value for each standard/ });
     for (const line of ["Firewall policy", "Network baseline", "Time zone", "Sync cabinet", "Fingerprint scanner IDs", "Watched services"])
       await table.getByRole("button", { name: line }).waitFor();
     await table.getByRole("row", { name: /Fingerprint scanner IDs/ }).getByText("The client").waitFor();
