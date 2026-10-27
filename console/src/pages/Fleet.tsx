@@ -2,11 +2,11 @@ import { Pager, usePaged } from "../components/Pager";
 import { DrivesAtRisk } from "../components/DriveTrends";
 import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
-import { PORTS_SOURCE, PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
+import { PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
+import { SiteSync, type SiteSyncInfo } from "../components/SyncCabinets";
 import { api, describeError } from "../lib/api";
 import { useAction } from "../lib/useAction";
 import { useLoad } from "../lib/useLoad";
-import { parseSyncPorts, SYNC_PORTS_RULE } from "../lib/ports";
 import { Link } from "../lib/router";
 import { atLeast, useSession } from "../lib/session";
 import { ago } from "../lib/time";
@@ -113,9 +113,9 @@ export function ClientPage({ id }: { id: string }) {
   );
 }
 
-export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; architecture: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; unsignedUpgrades?: boolean; }
+export interface CabinetRow { id: string; name: string; demo?: boolean; role: string; status: string; online: boolean; lastHeartbeatAt: string | null; agentVersion: string | null; architecture: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number; unsignedUpgrades?: boolean; syncUnassigned?: boolean; }
 export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
-  sync: { address: string | null; ports: number[] | null; effectivePorts: number[]; portsSource: string };
+  sync: SiteSyncInfo;
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   cabinets: CabinetRow[]; }
 
@@ -139,7 +139,7 @@ export function SitePage({ id }: { id: string }) {
           <tbody>{cabinetsPaged.rows.map(c => (
             <tr key={c.id}>
               <th scope="row"><Link to={`/cabinets/${c.id}`}>{c.name}</Link>{c.demo && <> <DemoTag /></>}{c.hostname && <div className="muted small">{c.hostname}</div>}</th>
-              <td>{roleLabel(c.role)}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
+              <td>{roleLabel(c.role)}{c.syncUnassigned && <div><Badge tone="warn">Enrollment incomplete</Badge></div>}</td><td><OnlineBadge online={c.online} /></td><td>{ago(c.lastHeartbeatAt)}</td>
               <td>{c.agentVersion ?? "unknown"}{architectureLabel(c.architecture) && <div className="muted small">{architectureLabel(c.architecture)}</div>}
                 {c.unsignedUpgrades && <div><Badge tone="warn">Test build</Badge></div>}</td><td>{c.readOnly ? "Yes" : "No"}</td>
               <td>{c.openAlerts > 0 ? <Link to={`/cabinets/${c.id}/alerts`}>{c.openAlerts} open</Link> : <span className="muted">None</span>}</td>
@@ -150,7 +150,7 @@ export function SitePage({ id }: { id: string }) {
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />
-        <SyncSettings key={data.id} siteId={data.id} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
+        <SiteSync key={data.id} siteId={data.id} name={data.name} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
           <h2 id="site-scanner">Fingerprint scanner at {data.name}</h2>
           <ScannerIdsEditor key={data.id} label="This site's scanner IDs" current={data.scanner.hardwareIds}
@@ -304,43 +304,6 @@ export function WatchedServices({ level, id, name, editable }: { level: "clients
       <h2 id={`${level}-watched`}>Watched services for {name}</h2>
       {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above}
         what={level === "clients" ? `every cabinet of ${name}` : `every cabinet at ${name}`} editable={editable} onSaved={reload} />}
-    </section>
-  );
-}
-
-/** The site's sync cabinet (Admin, with step-up). Each cabinet also refuses an address not on its own network. Empty ports use the client's (else the fleet's). */
-export function SyncSettings({ siteId, sync, editable, onSaved }: { siteId: string; sync: SiteDetail["sync"]; editable: boolean; onSaved: () => void }) {
-  const [address, setAddress] = useState(sync.address ?? "");
-  const [ports, setPorts] = useState((sync.ports ?? []).join(", "));
-  const [confirming, setConfirming] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const { ports: parsedPorts, valid: portsValid } = parseSyncPorts(ports);
-  return (
-    <section className="panel" aria-labelledby="sync-heading">
-      <h2 id="sync-heading">Sync cabinet</h2>
-      <p>{sync.address ? <>Address <code>{sync.address}</code></> : "No address set yet."} · Ports in use: <strong>{sync.effectivePorts.length ? sync.effectivePorts.join(", ") : "none"}</strong>
-        <span className="muted"> (from {PORTS_SOURCE[sync.portsSource] ?? sync.portsSource})</span></p>
-      {editable && (
-        <form className="row gap wrap" onSubmit={e => { e.preventDefault(); setProblem(null); setSaved(false); setConfirming(true); }}>
-          <label className="field"><span>IPv4 address</span><input value={address} placeholder="e.g. 10.20.0.15" onChange={e => setAddress(e.target.value.trim())} /></label>
-          <label className="field"><span>This site's TCP ports (up to 4; empty to use the client's)</span><input value={ports} placeholder="e.g. 1433" onChange={e => setPorts(e.target.value)} /></label>
-          <button className="btn" disabled={!portsValid}>Save</button>
-          {!portsValid && <span className="error">{SYNC_PORTS_RULE}</span>}
-          {problem && <span className="error" role="alert">{problem}</span>}
-          {saved && <span className="ok" role="status">Saved.</span>}
-        </form>
-      )}
-      <StepUpDialog open={confirming} action="site.sync" target={siteId} onClose={() => setConfirming(false)}
-        params={{ address: address || null, ports: parsedPorts.length ? parsedPorts : null }}
-        description={<p>Set this site's sync cabinet to <strong>{address || "none"}</strong> with {parsedPorts.length ? <>ports <strong>{parsedPorts.join(", ")}</strong></> : "the client's default ports"}.</p>}
-        onToken={async token => {
-          try {
-            await api("PUT", `/api/sites/${siteId}/sync`, { address: address || null, ports: parsedPorts.length ? parsedPorts : null, stepUpToken: token });
-            setSaved(true);
-            onSaved();
-          } catch (e) { setProblem(describeError(e)); }
-        }} />
     </section>
   );
 }

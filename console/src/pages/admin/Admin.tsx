@@ -10,6 +10,7 @@ import { Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
 import { InstallAgent, type SetupState } from "./Setup";
+import type { SyncCabinetRef } from "../../components/SyncCabinets";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -66,11 +67,9 @@ function known(name: string, names: string[]): { exact: boolean; near: string | 
   return { exact: false, near: names.find(n => n.toLowerCase() === t.toLowerCase()) ?? null };
 }
 
-/** What the site's sync cabinet is now, as the site view reports it, so the form can show it instead of asking again. */
-interface SiteSync { address: string | null; effectivePorts: number[]; portsSource: string }
 
 export function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
-  const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone", syncAddress: "" });
+  const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone", syncCabinetId: "" });
   // Approving with a name that does not exist creates that client or site, so existing ones are offered and a new one is said out loud.
   const client = known(form.client, clients.map(c => c.name));
   const knownClient = clients.find(c => c.name === form.client.trim());
@@ -80,25 +79,29 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const [confirm, setConfirm] = useState<"approve" | "reject" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
-  // A satellite is pointed at the site's sync cabinet: show what the site already has, and its ports, so a new site's
-  // address is entered once here rather than in a second screen. Reading it is not a permission check: the server
+  // A satellite reaches one of its site's sync cabinets: offer the ones the site has. With one, it is used without asking; with several,
+  // the choice is required; with none, the satellite is approved as incomplete. Reading the list is not a permission check: the server
   // decides whether the approval is allowed.
   const siteId = knownClient?.sites.find(s => s.name === form.site.trim())?.id;
-  const [siteSync, setSiteSync] = useState<SiteSync | null>(null);
+  const [syncCabinets, setSyncCabinets] = useState<SyncCabinetRef[] | null>(null);
   useEffect(() => {
-    setSiteSync(null);
+    setSyncCabinets(null);
     if (!siteId) return;
     let live = true;
-    void api<{ sync: SiteSync }>("GET", `/api/fleet/sites/${siteId}`)
-      .then(r => { if (live) setSiteSync(r.sync); })
+    void api<{ sync: { syncCabinets: SyncCabinetRef[] } }>("GET", `/api/fleet/sites/${siteId}`)
+      .then(r => { if (live) setSyncCabinets(r.sync.syncCabinets); })
       .catch(() => undefined);
     return () => { live = false; };
   }, [siteId]);
+  const choices = syncCabinets ?? [];
+  const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
+  const needsChoice = form.role === "satellite" && choices.length > 1 && !form.syncCabinetId;
   // Exactly what is sent, and therefore exactly what the step-up token is bound to: no extra fields the contract refuses.
   const approval = useMemo(() => ({
     client: form.client, site: form.site, cabinet: form.cabinet, role: form.role,
-    ...(form.role === "satellite" && form.syncAddress.trim() ? { sync: { address: form.syncAddress.trim() } } : {}),
-  }), [form]);
+    ...(form.role === "satellite" && chosen ? { syncCabinetId: chosen } : {}),
+  }), [form, chosen]);
+  const reaches = choices.find(c => c.id === chosen);
   return (
     <section className="panel" aria-label={`Request from ${p.fingerprints.hostname}`}>
       <h2>{p.fingerprints.hostname}</h2>
@@ -114,25 +117,24 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
+          {form.role === "satellite" && choices.length > 1 && (
+            <label className="field"><span>Sync cabinet</span>
+              <select required value={form.syncCabinetId} onChange={e => setForm(f => ({ ...f, syncCabinetId: e.target.value }))}>
+                <option value="">Choose</option>
+                {choices.map(c => <option key={c.id} value={c.id}>{c.name}{c.address ? ` (${c.address})` : ""}</option>)}
+              </select></label>
+          )}
           {form.role === "satellite" && (
-            <>
-              <label className="field"><span>Sync cabinet address</span>
-                <input inputMode="decimal" maxLength={15} placeholder={siteSync?.address ?? "e.g. 10.20.0.15"} value={form.syncAddress}
-                  onChange={e => setForm(f => ({ ...f, syncAddress: e.target.value }))} /></label>
-              <span className="muted small">
-                {siteSync?.address
-                  ? <>This site&apos;s sync cabinet is already <strong>{siteSync.address}</strong>; leave the field empty to use it. </>
-                  : <>The private IPv4 address of the cabinet this satellite reaches (10.x, 172.16-31.x or 192.168.x). </>}
-                {siteSync && siteSync.effectivePorts.length > 0 &&
-                  <>Sync ports this site uses: {siteSync.effectivePorts.join(", ")}{siteSync.portsSource === "site" ? "" : ` (${siteSync.portsSource} default)`}.</>}
-              </span>
-            </>
+            <span className="muted small">
+              {choices.length === 1 ? <>Reaches <strong>{choices[0]!.name}</strong>, the site&apos;s sync cabinet.</>
+                : choices.length === 0 ? <>No sync cabinet at this site yet: the satellite is approved as incomplete and linked when one is approved.</>
+                : <>This site has {choices.length} sync cabinets.</>}
+            </span>
           )}
           {form.role === "sync" && (
-            <span className="muted small">This cabinet becomes the endpoint the site&apos;s satellites and their network checks use.
-              A sync cabinet is the destination, so it is not given a sync address; enter its private address on each satellite you approve.</span>
+            <span className="muted small">Satellites at this site reach it at the address it reports. A site may have several sync cabinets.</span>
           )}
-          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near}>Approve</button>
+          <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice}>Approve</button>
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}
           {site.near && <span className="error">{form.client.trim()} already has a site named "{site.near}".</span>}
           <button type="button" className="btn danger" onClick={() => { setProblem(null); setConfirm("reject"); }}>Reject</button>
@@ -144,7 +146,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           : <p>Approve <strong>{p.fingerprints.hostname}</strong> as <strong>{form.cabinet}</strong> ({form.role}) at <strong>{form.client} / {form.site}</strong>.
             {!client.exact && <> This creates the new client <strong>{form.client.trim()}</strong>.</>}
             {client.exact && !site.exact && <> This creates the new site <strong>{form.site.trim()}</strong>.</>}
-            {form.role === "satellite" && <> Satellites reach the sync cabinet at <strong>{form.syncAddress.trim() || siteSync?.address || "an address that is not set yet"}</strong>.</>}
+            {form.role === "satellite" && (reaches ? <> It reaches <strong>{reaches.name}</strong>.</> : <> It stays incomplete until a sync cabinet is assigned.</>)}
             {" "}It receives its certificate on its next check-in.</p>}
         onToken={async token => {
           try {

@@ -7,7 +7,8 @@ import { atLeast, useSession } from "../../lib/session";
 import { Badge } from "../../components/ui";
 import { describePolicy, type Policy } from "../../components/FirewallPolicy";
 import { ScannerIdsEditor } from "../../components/DeviceSettings";
-import { ClientFirewallPolicy, SiteNetwork, SiteTimeZone, SyncSettings, WatchedServices, type SiteDetail } from "../Fleet";
+import { ClientFirewallPolicy, SiteNetwork, SiteTimeZone, WatchedServices, type SiteDetail } from "../Fleet";
+import { CabinetSyncLine, SiteSync } from "../../components/SyncCabinets";
 import { zoneName, type CabinetTime } from "./Time";
 import { Link } from "../../lib/router";
 import type { CabinetDetail } from "./CabinetPage";
@@ -70,14 +71,18 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       detail: <><SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/time`}>Open this cabinet's time</Link></p></>,
     });
+    const sync = cabinet.sync;
+    const target = sync?.role === "satellite" ? sync.syncCabinet : null;
     lines.push({
-      key: "sync", label: "Sync cabinet", source: s.sync.address ? SOURCE.site! : SOURCE.none!,
-      standard: s.sync.address ? `${s.sync.address}, ports ${s.sync.effectivePorts.join(", ") || "none"}` : "Not set",
-      actual: "Tested from Network", state: s.sync.address ? "unknown" : "unset",
+      key: "sync", label: "Sync cabinet", source: sync?.role === "satellite" && target ? SOURCE.cabinet! : SOURCE.none!,
+      standard: sync?.role === "sync" ? `This is a sync cabinet${sync.address ? ` at ${sync.address}` : ""}`
+        : sync?.role === "satellite" ? (target ? `${target.name}${target.address ? ` at ${target.address}` : ", address not reported yet"}, ports ${s.sync.effectivePorts.join(", ") || "none"}` : "Not assigned")
+        : "Not used",
+      actual: "Tested from Network", state: sync?.role === "satellite" && !target ? "unset" : "unknown",
       detail: <>
-        <p>Where this site's satellites reach the sync cabinet, and the ports the connection test uses. Ports not set here come from the client, then the fleet default ({s.sync.portsSource}).</p>
-        <p className="muted small">Requires an authenticator code: it sets the address the cabinets' connection tests target.</p>
-        <SyncSettings siteId={s.id} sync={s.sync} editable={atLeast(me, "admin")} onSaved={reloadAll} />
+        <p>The sync cabinet this satellite reaches, and the ports the connection test uses. Ports not set for the site come from the client, then the fleet default.</p>
+        <div><CabinetSyncLine cabinet={cabinet} sync={sync} admin={atLeast(me, "admin")} onChanged={reloadAll} /></div>
+        <SiteSync siteId={s.id} name={s.name} sync={s.sync} editable={atLeast(me, "admin")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Test it from this cabinet's network</Link></p></>,
     });
   }

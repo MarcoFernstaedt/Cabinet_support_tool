@@ -177,20 +177,30 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "The server address was not in a form the platform could use.",
     fix: "Enter just a host name or IP address, such as cab.example.com.",
   },
-  sync_exists: {
-    title: "Site already has a sync cabinet",
-    detail: "A site can have only one cabinet the others sync through, and this site already has it.",
-    fix: "Approve this cabinet as a satellite or standalone, or change the existing sync cabinet's role first — an Admin can do this.",
+  choose_sync_cabinet: {
+    title: "Choose the sync cabinet",
+    detail: "This site has several sync cabinets, and a satellite reaches one of them.",
+    fix: "Choose the sync cabinet this satellite reaches, and approve again.",
   },
-  satellite_needs_sync: {
-    title: "Satellite needs the sync cabinet's address",
-    detail: "This cabinet will sync through another cabinet, but the platform was not told the address.",
-    fix: "Enter the sync cabinet's private address, such as 10.0.0.5, with this approval; or approve the sync cabinet first and set the address on the site.",
+  invalid_sync_cabinet: {
+    title: "Not a sync cabinet at this site",
+    detail: "A satellite can only reach an active sync cabinet at its own site.",
+    fix: "Choose one of the site's sync cabinets, or approve a sync cabinet there first.",
   },
   sync_not_allowed: {
-    title: "A sync cabinet takes no sync address",
-    detail: "The sync cabinet is the one the others connect to, so it gets no address to sync with.",
-    fix: "Leave the address empty, or approve this cabinet as a satellite instead.",
+    title: "Only a satellite has a sync cabinet",
+    detail: "A sync cabinet or a standalone cabinet does not reach another cabinet.",
+    fix: "Leave the sync cabinet out, or approve this cabinet as a satellite.",
+  },
+  not_a_satellite: {
+    title: "Not a satellite",
+    detail: "Only an active satellite is assigned to a sync cabinet.",
+    fix: "Change the cabinet's role to satellite first.",
+  },
+  not_a_sync_cabinet: {
+    title: "Not a sync cabinet",
+    detail: "Only an active sync cabinet has an address its satellites reach.",
+    fix: "Change the cabinet's role to sync first.",
   },
   invalid_ports: {
     title: "Sync ports not valid",

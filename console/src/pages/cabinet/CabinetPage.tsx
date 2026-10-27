@@ -32,6 +32,7 @@ import { Software } from "./Software";
 import { WindowsInfo } from "./WindowsInfo";
 import { TrendCharts } from "../../components/TrendChart";
 import { WritePauseBanner } from "../../lib/writes";
+import { CabinetSyncLine, type CabinetSync } from "../../components/SyncCabinets";
 import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 
 export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null;
@@ -39,6 +40,7 @@ export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null
   site: { id: string; name: string }; client: { id: string; name: string };
   scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
     effective: string[] | null; source: "cabinet" | "site" | "client" | "fleet" | "automatic" };
+  sync: CabinetSync | null;
   siblings: CabinetRow[];
 }
 
@@ -150,6 +152,7 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
         <strong>{headline}</strong>
         {cabinet.online && cabinet.readOnly && <Badge tone="info">Read-only</Badge>}
         {cabinet.unsignedUpgrades && <Badge tone="warn">Test build: accepts unsigned upgrades</Badge>}
+        {cabinet.syncUnassigned && <Badge tone="warn">Enrollment incomplete: no sync cabinet</Badge>}
       </div>
       {cabinet.unsignedUpgrades && <p className="notice warn small" role="note">This cabinet runs a development build of the agent that installs agent upgrades whose programs are not code-signed. Whoever holds the release key alone decides what it runs. Reinstall it with a production build.</p>}
       <dl className="summary-grid">
@@ -176,6 +179,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
       <h2 id="details-heading">Details</h2>
       <KeyValues rows={[
         ["Role", atLeast(me, "admin") ? <RoleChange cabinet={cabinet} onChanged={onChanged} /> : roleLabel(cabinet.role)],
+        [cabinet.role === "sync" ? "Sync address" : "Sync cabinet", <CabinetSyncLine cabinet={cabinet} sync={cabinet.sync} admin={atLeast(me, "admin")} onChanged={onChanged} />],
         ["Windows host name", cabinet.hostname],
         ["Serial number", cabinet.serialNumber],
         ["Last heard from", <>{fullTime(cabinet.lastHeartbeatAt)}</>],

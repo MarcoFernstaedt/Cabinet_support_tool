@@ -14,7 +14,7 @@ const DISCOVERED_CODES = [
   "cabinet_offline", "certificate_refused", "demo_client", "duplicate_item", "duplicate_key",
   "enrollment_refused", "fix_not_for_this_issue", "forbidden", "has_cabinets", "hash_mismatch",
   "invalid_address", "invalid_code", "invalid_json", "invalid_manifest", "invalid_output", "invalid_params",
-  "invalid_ports", "satellite_needs_sync", "sync_exists", "sync_not_allowed",
+  "invalid_ports", "choose_sync_cabinet", "invalid_sync_cabinet", "not_a_satellite", "not_a_sync_cabinet", "sync_not_allowed",
   "invalid_request", "invalid_result", "invalid_runbook", "invalid_window", "job_exists", "last_admin",
   "name_taken", "no_approved_baseline", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
   "not_approved", "not_awaiting_package", "not_deleted", "not_found", "not_live", "not_paused", "not_pending",
