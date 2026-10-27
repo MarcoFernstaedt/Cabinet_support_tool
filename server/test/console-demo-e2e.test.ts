@@ -15,6 +15,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
+import { siteStandards } from "../src/services/site-standards.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
 
@@ -273,6 +274,10 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     assert.equal(await page.getByText("No default gateway").count(), 0, "what follows from having no address is not listed as separate problems");
 
     // Onboarding: the same site can adopt a cabinet's network as its baseline (one click: it changes no cabinet), and then it is compared.
+    // The suggestion comes from a cabinet whose read has a usable address; the lines above waited for the broken cabinet's read only, and
+    // under load the others finish later, so wait for the suggestion itself before opening the page.
+    for (const end = Date.now() + 90_000; !(await siteStandards(db.app, phoenix))?.suggested.networkBaseline; await new Promise(r => setTimeout(r, 500)))
+      if (Date.now() > end) assert.fail("no cabinet at Phoenix Clinic finished a network read with a usable address");
     await page.goto(`${origin}/sites/${phoenix}`);
     await page.getByRole("heading", { name: "Standards for Phoenix Clinic" }).waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/standards.png`, fullPage: true });
