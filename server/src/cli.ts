@@ -21,7 +21,7 @@ import { createReadStream, mkdirSync } from "node:fs";
 import { TrustList } from "./packages/trust.js";
 import { PackageRefused, verifyPackage } from "./packages/verify.js";
 import { approvePackage, receiveUpload, retirePackage, startUpload } from "./services/packages.js";
-import { catalog, isOperationName, releaseFiles } from "./contracts.js";
+import { catalog, consoleBodies, isOperationName, releaseFiles } from "./contracts.js";
 import { addRelease, checkManifest, listReleases, receiveReleasePackage, ReleaseKeys } from "./services/releases.js";
 import { isArchitecture, type Architecture } from "./services/package-architecture.js";
 import { changeRollout, listRollouts, rolloutTargets, setInOffice, startRollout } from "./services/rollouts.js";
@@ -34,7 +34,8 @@ const USAGE = `platform-admin <command> [options]
   user reset-password --username u --as <admin>             new temporary password; ends the user's sessions
   token create --as <admin>                 one-time bootstrap token for one cabinet (valid 7 days)
   pending                                   enrollment requests waiting for approval
-  approve <requestId> --as <admin> --client C --site S --cabinet N --role sync|satellite|standalone
+  approve <requestId> --as <admin> --client C --site S --cabinet N --role sync|satellite|standalone --baseline inherited|capture|<versionId>
+                                            the baseline decision is required (docs/spec/15-baselines-and-config.md)
   reject <requestId> --as <admin>
   cabinets                                  every cabinet, with online status
   revoke <cabinetId> --as <admin>
@@ -74,7 +75,7 @@ async function main(argv: string[]): Promise<void> {
       client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
       version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" },
       manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" },
-      architecture: { type: "string" } },
+      architecture: { type: "string" }, baseline: { type: "string" } },
   });
   const [command, ...rest] = positionals;
   if (!command) { console.log(USAGE); return; }
@@ -271,11 +272,16 @@ async function main(argv: string[]): Promise<void> {
         return;
       case "approve": {
         const role = values.role;
-        if (!rest[0] || !values.client || !values.site || !values.cabinet || !(role === "sync" || role === "satellite" || role === "standalone"))
+        const decision = values.baseline;
+        if (!rest[0] || !values.client || !values.site || !values.cabinet || !(role === "sync" || role === "satellite" || role === "standalone") || !decision)
           throw new Refused("usage", 2, USAGE);
+        // Checked against the same contract as the console's approval, so the command line cannot approve what the console could not. It runs
+        // on the server with the operator's own database access and no step-up, so the token is a placeholder the contract needs and nothing consumes.
+        const body = consoleBodies.approve.parse({ client: values.client, site: values.site, cabinet: values.cabinet, role,
+          baseline: decision === "inherited" || decision === "capture" ? { use: decision } : { use: "attach", versionId: decision }, stepUpToken: "c".repeat(43) });
         const r = await approveEnrollment(pool, await issuingKey(config), rest[0],
-          { clientName: values.client, siteName: values.site, cabinetName: values.cabinet, role }, await userId(pool, values.as, "admin"));
-        console.log(`Approved. Cabinet ${r.cabinetId}, certificate ${r.serial}. The agent picks it up on its next enrollment poll.`);
+          { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role, baseline: body.baseline }, await userId(pool, values.as, "admin"));
+        console.log(`Approved. Cabinet ${r.cabinetId}, certificate ${r.serial}. Baseline: ${r.baseline.decision}. The agent picks it up on its next enrollment poll.`);
         return;
       }
       case "reject":

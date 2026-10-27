@@ -7,7 +7,10 @@ import { transaction } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { revokeCabinet } from "../services/cabinets.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
-import { approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
+import { approvalBaselinePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
+import { cabinetsInScope, evaluateBaselineDrift } from "../services/baseline-drift.js";
+import { evaluateHealth } from "../services/cabinet-health.js";
+import { reevaluations } from "./baseline-routes.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -21,15 +24,31 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return pendingRequests(o.pool);
   });
 
+  /** Which approved baseline an approval with this client and site would use, and the ones that could be attached. Reads only. */
+  app.get("/api/admin/enrollments/:id/baseline", async request => {
+    await o.guards.role(request, "admin");
+    const requestId = id(request);
+    return approvalBaselinePreview(o.pool, requestId, consoleBodies.approveBaseline.parse(request.query));
+  });
+
   app.post("/api/admin/enrollments/:id/approve", async request => {
     const u = await o.guards.role(request, "admin");
     const requestId = id(request);
+    // The contract requires the baseline decision: an approval without one is refused here, before anything else runs.
     const body = consoleBodies.approve.parse(request.body);
     await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve", requestId);
     // A satellite may name its sync cabinet; the server checks it is an active sync cabinet at the same site.
-    return approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
-      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}) }, u.userId,
+    const result = await approveEnrollment(o.pool, o.issuingKey, requestId, { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role,
+      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}), ...(body.scanner ? { scanner: body.scanner } : {}), baseline: body.baseline }, u.userId,
       o.listKeys ?? ListSigningKeys.fromFolder());
+    // An attached baseline changes what every cabinet at the site is compared with: bring them up to date in the background, one at a time.
+    if (body.baseline.use === "attach") {
+      const run = (async () => { for (const c of await cabinetsInScope(o.pool, { kind: "site", id: result.siteId.toLowerCase() })) { await evaluateBaselineDrift(o.pool, c); await evaluateHealth(o.pool, c); } })()
+        .catch(e => app.log.error({ err: { type: (e as Error).name } }, "re-evaluating after a baseline was attached failed"))
+        .finally(() => reevaluations.delete(run));
+      reevaluations.add(run);
+    }
+    return result;
   });
 
   app.post("/api/admin/enrollments/:id/reject", async request => {

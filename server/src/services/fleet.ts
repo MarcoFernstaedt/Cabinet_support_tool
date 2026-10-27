@@ -27,14 +27,16 @@ export interface CabinetRow {
   unsignedUpgrades: boolean;
   /** A satellite with no live link to a sync cabinet: its enrollment is incomplete until one is assigned. */
   syncUnassigned: boolean;
+  /** An active cabinet no approved baseline applies to yet (docs/spec/15-baselines-and-config.md "Baselines at enrollment"): "Baseline required". */
+  baselineRequired: boolean;
 }
 
 interface CabinetDbRow { id: string; name: string; role: string; status: string; last_heartbeat_at: Date | null; agent_version: string | null; architecture: string | null; read_only: boolean | null; hostname: string | null; open_alerts: string | number; demo_scenario?: string | null; unsigned_upgrades?: boolean | number | null; sync_unassigned?: number | null }
 
-function cabinetRow(r: CabinetDbRow): CabinetRow {
+function cabinetRow(r: CabinetDbRow, baselineRequired = false): CabinetRow {
   return { id: r.id, name: r.name, role: r.role, status: r.status, online: online(r.status, r.last_heartbeat_at), lastHeartbeatAt: r.last_heartbeat_at?.toISOString() ?? null,
     agentVersion: r.agent_version, architecture: r.architecture, readOnly: r.read_only, hostname: r.hostname, openAlerts: Number(r.open_alerts), demo: !!r.demo_scenario,
-    unsignedUpgrades: !!r.unsigned_upgrades, syncUnassigned: r.sync_unassigned === 1 };
+    unsignedUpgrades: !!r.unsigned_upgrades, syncUnassigned: r.sync_unassigned === 1, baselineRequired };
 }
 
 const OPEN_ALERTS = "(SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved')";
@@ -64,7 +66,26 @@ async function pageRows(db: Queryable, rows: readonly CabinetDbRow[]): Promise<C
   const counts = (await db.query<{ cabinet_id: string; n: string }>(
     `SELECT cabinet_id, COUNT(*) AS n FROM alerts WHERE state <> 'resolved' AND cabinet_id IN (${ids.map((_, i) => `$${i + 1}`).join(", ")}) GROUP BY cabinet_id`, ids)).rows;
   const openAlerts = new Map(counts.map(c => [c.cabinet_id, Number(c.n)]));
-  return rows.map(r => cabinetRow({ ...r, open_alerts: openAlerts.get(r.id) ?? 0 }));
+  const noBaseline = await cabinetsWithoutBaseline(db, ids);
+  return rows.map(r => cabinetRow({ ...r, open_alerts: openAlerts.get(r.id) ?? 0 }, noBaseline.has(r.id.toLowerCase())));
+}
+
+/**
+ * Of these cabinets, the active ones no approved baseline applies to (the lists' "Baseline required"). One statement for a page of
+ * cabinets: each cabinet's five scopes are matched against the approved versions.
+ */
+async function cabinetsWithoutBaseline(db: Queryable, cabinetIds: readonly string[]): Promise<Set<string>> {
+  if (cabinetIds.length === 0) return new Set();
+  const rows = (await db.query<{ id: string }>(
+    `SELECT k.id FROM cabinets k JOIN sites s ON s.id = k.site_id
+      WHERE k.id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($1)) AND k.status = 'active'
+        AND NOT EXISTS (SELECT 1 FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved'
+                         WHERE b.scope_kind = 'global'
+                            OR (b.scope_kind = 'model' AND b.scope_id = k.model)
+                            OR (b.scope_kind = 'client' AND b.scope_id = LOWER(CONVERT(nvarchar(36), s.client_id)))
+                            OR (b.scope_kind = 'site' AND b.scope_id = LOWER(CONVERT(nvarchar(36), k.site_id)))
+                            OR (b.scope_kind = 'cabinet' AND b.scope_id = LOWER(CONVERT(nvarchar(36), k.id))))`, [JSON.stringify(cabinetIds)])).rows;
+  return new Set(rows.map(r => r.id.toLowerCase()));
 }
 
 /** How many cabinets a site has: the page says what it is a page of, so a truncated list is never taken for the whole one. */
@@ -146,7 +167,7 @@ export async function cabinet(db: Queryable, id: string, page: Page = {}) {
   const levels = await scannerLevels(db, id);
   // The last moment nothing was wrong: before the oldest open alert began; with none open, now if the cabinet is online, else when it was last heard from.
   const oldestOpen = (await db.query<{ since: Date | null }>("SELECT MIN(first_seen) AS since FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND state <> 'resolved'", [id])).rows[0]?.since ?? null;
-  const row = cabinetRow(k);
+  const row = cabinetRow(k, (await cabinetsWithoutBaseline(db, [k.id])).has(k.id.toLowerCase()));
   const lastHealthyAt = oldestOpen ? oldestOpen.toISOString() : row.online ? new Date().toISOString() : k.last_heartbeat_at ? k.last_heartbeat_at.toISOString() : null;
   return {
     ...row, lastHealthyAt, serialNumber: k.serial_number, manufacturer: k.manufacturer, model: k.model, uptimeSeconds: k.uptime_seconds === null ? null : Number(k.uptime_seconds), clockSkewSeconds: k.clock_skew_seconds,
