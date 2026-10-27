@@ -52,7 +52,7 @@ export function checkRunbookBody(b: { title: string; steps: readonly RunbookStep
         if (entry.kind !== "write") bad(i, "a fix can only be a change operation");
         // service.control is a click in the catalog but the server asks for a code (controlled-targets.ts), so no runbook offers it.
         else if (entry.confirm !== "click" || CONTROLLED_OPERATIONS.has(op)) bad(i, "only changes confirmed by a click can be offered from a runbook; the rest need an authenticator code and are made from the cabinet's own pages");
-        // The server fills in the client's policy; the browser (and so a runbook) sends no parameters for it.
+        // The server fills in the cabinet's policy; the browser (and so a runbook) sends no parameters for it.
         else if (op === "firewall.applyPolicy") { if (Object.keys(s.fix.params).length > 0) bad(i, "the firewall policy is filled in by the server; leave the parameters empty"); }
         else if (!operations[op].params.is(s.fix.params)) bad(i, "the fix's parameters do not fit the operation");
       }

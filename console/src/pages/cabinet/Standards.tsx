@@ -13,7 +13,7 @@ import { zoneName, type CabinetTime } from "./Time";
 import { Link } from "../../lib/router";
 import type { CabinetDetail } from "./CabinetPage";
 
-interface CabinetPolicy { policy: Policy; source: "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
+interface CabinetPolicy { policy: Policy; source: "site" | "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
 interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; effective: string[]; source: string }
 interface Reading { adapters: { connected: boolean; ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { servers: string[] } }[] }
 type State = "matches" | "differs" | "unknown" | "unset";

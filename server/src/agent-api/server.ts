@@ -664,7 +664,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       // One round trip records it (and its load sample) and reads the scanner, watched-services and approved-applications settings the answer carries.
       const { wasOffline, firewallChanged, timeCheck, scannerIds, scannerUsed, watched, approved, approvedSigned } = await recordHeartbeat(o.pool, cabinetId, heartbeat);
       if (wasOffline) await resolveOfflineFor(o.pool, cabinetId);
-      // Compared with the client's firewall policy only when the profiles changed (or were first reported).
+      // Compared with its firewall policy only when the profiles changed (or were first reported).
       if (firewallChanged) await evaluateDrift(o.pool, { cabinetId });
       // Compared with the site's time zone and the server's clock only when the zone changed or the clock is, or was, off.
       if (timeCheck) await evaluateTime(o.pool, { cabinetId });

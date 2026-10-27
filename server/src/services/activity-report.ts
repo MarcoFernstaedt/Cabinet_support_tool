@@ -21,7 +21,7 @@ const on = (v: unknown) => (v === true || v === "on" ? "on" : "off");
 export function describeChange(operation: string, p: Record<string, unknown>, packageName?: string): string {
   switch (operation) {
     case "firewall.setProfile": return `Turned the ${clip(p.profile, 12)} firewall profile ${p.enabled === undefined ? clip(p.state, 4) : on(p.enabled)}${p.durationMinutes ? ` for ${Number(p.durationMinutes)} minutes` : ""}`;
-    case "firewall.applyPolicy": return "Applied the client's firewall policy";
+    case "firewall.applyPolicy": return "Applied the firewall policy";
     case "firewall.setRule": return `${clip(p.mode, 10) === "create" ? "Added" : clip(p.mode, 10) === "delete" ? "Deleted" : "Changed"} firewall rule ${clip((p.rule as { name?: unknown } | undefined)?.name ?? p.name)}`;
     case "firewall.restore": return "Restored a saved firewall snapshot";
     case "network.setIp": return p.mode === "dhcp" ? "Set the adapter to DHCP" : `Set a fixed address ${clip(p.address, 15)}/${Number(p.prefixLength)}${p.gateway === undefined ? " with no gateway" : ` with gateway ${clip(p.gateway, 15)}`}`;

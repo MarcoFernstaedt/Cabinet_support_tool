@@ -73,8 +73,8 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
             </article>))}</div>)}
         {a.profilesOn.length > 0 && canPolicy && (
           <p className="row gap wrap"><button className="btn primary" data-tour="drawer-policy" onClick={() => policy.ask({}, <>
-            <p>Apply <strong>{cabinet.client.name}</strong>'s firewall policy to <strong>{cabinet.name}</strong>: every profile the policy says is off is turned off.</p>
-            <p className="muted small">A drawer's link is an unidentified network, which Windows treats as Public, so its firewall profile must be off for the drawer to work.</p></>)}>Apply the client's firewall policy</button></p>)}
+            <p>Apply the firewall policy to <strong>{cabinet.name}</strong> (its site's, else {cabinet.client.name}'s, else the fleet default): every profile the policy says is off is turned off.</p>
+            <p className="muted small">A drawer's link is an unidentified network, which Windows treats as Public, so its firewall profile must be off for the drawer to work.</p></>)}>Apply the firewall policy</button></p>)}
         {canAddress && needsDrawerAddress(a) && a.adapter && (
           <form className="row gap wrap" aria-label="Set the drawer address" data-tour="drawer-address" onSubmit={e => {
             e.preventDefault();

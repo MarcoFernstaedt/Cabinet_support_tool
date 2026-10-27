@@ -234,7 +234,7 @@ export async function startNetworkBatch(pool: Pool, user: { userId: string; role
 const GROUP_TITLE: Record<string, string> = {
   "baseline-dns": "DNS servers differ from the site baseline", "baseline-subnet": "Address outside the site's network", "baseline-gateway": "Wrong gateway",
   "baseline-addressing": "Fixed address where the site uses DHCP", ip: "No DHCP lease (address 169.254.x.x)", "sync-firewall": "Firewall blocks the sync cabinet's ports",
-  firewall: "Firewall differs from the client policy",
+  firewall: "Firewall differs from its policy",
 };
 export const JOB_FOR: Record<string, "firewall.applyPolicy" | "network.setDns" | "network.setIp" | "network.renewLease"> = {
   apply_policy: "firewall.applyPolicy", renew_lease: "network.renewLease", set_dns: "network.setDns", use_dhcp: "network.setIp", set_static: "network.setIp",

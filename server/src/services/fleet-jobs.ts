@@ -1,6 +1,6 @@
 // Fleet operations (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on cabinets a person chose, run as a
 // job. The target list is a snapshot taken when the job starts; the server fills in each cabinet's parameters (its site's
-// zone, its client's firewall policy) and says why it skips any. The job issues the commands in batches (the next batch
+// zone, its firewall policy) and says why it skips any. The job issues the commands in batches (the next batch
 // starts once this one has answered), records each cabinet's result, then verifies it from the cabinet's next report:
 // a change that cannot be seen is "not verified", never counted as done. Confirmed with the password, bound to the exact
 // operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
@@ -300,7 +300,7 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
 const verifiedText: Record<JobOperation, string> = {
   "time.setZone": "Verified: the cabinet reports its site's time zone.",
   "time.sync": "Verified: the cabinet's clock is within two minutes of the server's.",
-  "firewall.applyPolicy": "Verified: the cabinet's firewall matches its client's policy.",
+  "firewall.applyPolicy": "Verified: the cabinet's firewall matches its policy.",
   "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
   "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
   "network.renewLease": "Verified: read back from the cabinet, it has a real address from the DHCP server.",
