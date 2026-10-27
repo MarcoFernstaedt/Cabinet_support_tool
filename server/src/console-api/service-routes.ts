@@ -33,6 +33,50 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   });
 
   /** One client's or site's own list, and the fleet default (for the editor's "inherited" line). */
+  for (const [level, table] of [["client", "clients"], ["site", "sites"]] as const) {
+    app.get(`/api/${table}/:id/watched-services`, async request => {
+      await o.guards.role(request, "tier1");
+      // The lists come back as JSON text under these names (the data layer parses only the columns it knows), so they are parsed here.
+      const row = (await o.pool.query<{ own: string | null; parent: string | null }>(
+        level === "client"
+          ? "SELECT watched_services AS own, CAST(NULL AS nvarchar(max)) AS parent FROM clients WHERE id = $1 AND removed_at IS NULL"
+          : "SELECT s.watched_services AS own, c.watched_services AS parent FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1 AND s.removed_at IS NULL",
+        [id(request)])).rows[0];
+      if (!row) throw new Refused("not_found", 404, `no such ${level}`);
+      const fleet = (await o.pool.query<{ value: string[] }>("SELECT [value] FROM settings WHERE [key] = 'services.watched'")).rows[0]?.value ?? null;
+      return { own: parseJson<string[]>(row.own), client: level === "site" ? parseJson<string[]>(row.parent) : null, fleet };
+    });
+    app.put(`/api/${table}/:id/watched-services`, async request => {
+      const u = await o.guards.role(request, "tier2");
+      const b = consoleBodies.watchedServices.parse(request.body);
+      await setWatched(o.pool, u.userId, level as WatchLevel, id(request), b.names ?? null);
+      return { ok: true };
+    });
+  }
+
+  app.put("/api/cabinets/:id/watched-services", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const b = consoleBodies.watchedServices.parse(request.body);
+    await setWatched(o.pool, u.userId, "cabinet", id(request), b.names ?? null);
+    return watchLevels(o.pool, id(request));
+  });
+
+  app.get("/api/admin/watched-services", async request => {
+    await o.guards.role(request, "tier1");
+    return { names: (await o.pool.query<{ value: string[] }>("SELECT [value] FROM settings WHERE [key] = 'services.watched'")).rows[0]?.value ?? null };
+  });
+
+  app.put("/api/admin/watched-services", async request => {
+    const u = await o.guards.role(request, "admin");
+    const b = consoleBodies.watchedServices.parse(request.body);
+    await setWatched(o.pool, u.userId, "fleet", "fleet", b.names ?? null);
+    return { ok: true };
+  });
+
+  // ---- Approved applications (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). -------------
+  // What this cabinet may be asked to control: the programs an owner approves, with the exact executable path written by the
+  // owner. Admin only, the same rule the file-facts paths follow, and the step-up token is bound to the exact entries.
+
   // With an Admin list-signing key set up, a saved list waits for its signature; the console says so and offers it for signing.
   const signing = o.listKeys ?? ListSigningKeys.fromFolder();
   const signingState = { signing: { enabled: signing.count > 0 } };

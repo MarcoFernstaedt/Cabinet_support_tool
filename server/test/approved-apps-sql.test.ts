@@ -175,7 +175,7 @@ test("the heartbeat sends only the watched services the approved list names, and
   await set("client", id.client, [SPOOLER]);
   await asOwner(db, c => c.query("UPDATE cabinets SET approved_apps = $2 WHERE id = $1", [id.other, JSON.stringify({ version: 1, entries: "not a list" })]));
   assert.deepEqual((await appLevels(db.app, id.other)).rejected, ["cabinet"]);
-  assert.deepEqual(await readLevelState(db.app, "cabinet", id.other), { list: null, rejected: true }, "the console is told it is damaged, not empty");
+  assert.deepEqual(await readLevelState(db.app, "cabinet", id.other), { list: null, rejected: true, pending: null }, "the console is told it is damaged, not empty");
   const damaged = await beat();
   assert.deepEqual([damaged.approved, damaged.watched], [[], []]);
 });
