@@ -356,8 +356,14 @@ export interface ToSign { version: number; entries: number; document: string; fi
 
 /** The document bytes for one level's list, written the one way they are always written. */
 function documentFor(level: AppLevel, key: string, list: PendingList): Buffer {
-  return listDocumentBytes({ level, scopeId: level === "fleet" ? null : key, version: list.version, issuedAt: list.setAt, entries: list.entries.map(rawEntry) });
+  // A list stored before its time was recorded in this form still gets a document, and always the same one, so the bytes offered
+  // for signing and the bytes checked at upload agree.
+  const issuedAt = TIMESTAMP.test(list.setAt) ? list.setAt : "1970-01-01T00:00:00Z";
+  return listDocumentBytes({ level, scopeId: level === "fleet" ? null : key, version: list.version, issuedAt, entries: list.entries.map(rawEntry) });
 }
+
+/** The contract's timestamp (common.schema.json#/$defs/timestamp): UTC, ending in Z. */
+const TIMESTAMP = /^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]{1,7})?Z$/;
 
 function signable(stored: ReturnType<typeof splitStored>): { list: PendingList; waiting: boolean } | null {
   if (stored.pending) return { list: stored.pending, waiting: true };
