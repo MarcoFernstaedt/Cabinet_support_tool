@@ -155,7 +155,7 @@ test("normaliseFailure accepts a code, a status, a message, an Error and the obj
 });
 
 test("bare strings the caller already has are explained, not rejected", () => {
-  assert.equal(explainFailure("already_claimed").title, "Cabinet already set up");
+  assert.equal(explainFailure("already_claimed").title, "Someone else claimed it first");
   assert.match(explainFailure("ENOTFOUND").title, /name could not be found/);
   assert.equal(explainFailure(404).title, "Page or item not found");
 });
@@ -213,4 +213,16 @@ test("the line names the fields a contract check refused and the server's reason
   const generic = explainFailure({ message: raw });
   const line = formatExplanation(generic, { reason: raw });
   assert.equal(line.split(raw).length - 1, 1, "the reason is not repeated when it is already the detail");
+});
+
+test("an explanation sends people to the role that can actually do it", () => {
+  // Only an Admin resumes writes, approves another Admin's package or baseline, and resets an authenticator.
+  for (const code of ["writes_paused", "writes_paused_for_you", "same_person", "own_proposal", "no_approved_baseline"]) {
+    const fix = explainFailure({ code, message: "" }).fix;
+    assert.match(fix, /Admin/, code);
+    assert.doesNotMatch(fix, /Tier 2/, code);
+  }
+  assert.match(explainFailure({ code: "totp_required", message: "" }).fix, /ask an Admin to reset it/);
+  // already_claimed is only ever an alert someone else claimed (server/src/services/alerts.ts), never a cabinet.
+  assert.match(explainFailure({ code: "already_claimed", message: "" }).detail, /claimed this alert/);
 });
