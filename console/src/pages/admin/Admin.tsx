@@ -104,7 +104,8 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   // The baseline decision every approval needs: the one in force by default, else the approver's choice.
   const [baselineChoice, setBaselineChoice] = useState<BaselineChoice>("");
   const [attachId, setAttachId] = useState("");
-  const baselinePreview = useBaselinePreview(p.id, form.client, form.site, setBaselineChoice);
+  const baselineState = useBaselinePreview(p.id, form.client, form.site, setBaselineChoice);
+  const baselinePreview = baselineState.preview;
   const decision = baselinePreview ? decisionFrom(baselineChoice, attachId) : null;
   const choices = syncCabinets ?? [];
   const chosen = choices.length === 1 ? choices[0]!.id : form.syncCabinetId;
@@ -159,7 +160,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
               {scannerUse === "used" && !scannerChoice && <span className="muted small">Leave the service empty to set it up later on the client&apos;s page.</span>}
             </fieldset>
           )}
-          <BaselineFields name={lists} preview={baselinePreview} choice={baselineChoice} onChoice={setBaselineChoice} attachId={attachId} onAttach={setAttachId} />
+          <BaselineFields name={lists} state={baselineState} filled={!!form.client.trim() && !!form.site.trim()} choice={baselineChoice} onChoice={setBaselineChoice} attachId={attachId} onAttach={setAttachId} />
           <button className="btn primary" data-tour="approve-cabinet" disabled={!!client.near || !!site.near || needsChoice || !decision}>Approve</button>
           {baselinePreview && !decision && <span className="muted small">Choose a baseline to approve.</span>}
           {client.near && <span className="error">There is already a client named "{client.near}". Use that name, or a clearly different one.</span>}

@@ -44,6 +44,8 @@ function next(h: Condition): string {
 export function ConfigHealth({ cabinet }: { cabinet: CabinetDetail }) {
   const { navigate } = useRouter();
   const { data, problem } = useLoad<Condition>(`/api/cabinets/${cabinet.id}/condition`);
+  // The draft's review page is an Admin's; others are told where it waits instead of sent to a page they cannot open.
+  const admin = atLeast(useSession().me, "admin");
   if (problem) return <p className="error" role="alert">{problem}</p>;
   if (!data) return null;
   return (
@@ -52,7 +54,7 @@ export function ConfigHealth({ cabinet }: { cabinet: CabinetDetail }) {
         {data.baseline && !data.baseline.inForce && <> <Badge tone="warn">Baseline required</Badge></>}</h2>
       {data.baseline && !data.baseline.inForce && (
         <p className="notice warn">Baseline required. {baselineRequiredText(data.baseline)}
-          {data.baseline.enrollment?.draftVersionId && <> <Link to={`/admin/baselines/versions/${data.baseline.enrollment.draftVersionId}`}>Open the draft</Link></>}</p>)}
+          {data.baseline.enrollment?.draftVersionId && admin && <> <Link to={`/admin/baselines/versions/${data.baseline.enrollment.draftVersionId}`}>Open the draft</Link></>}</p>)}
       <dl className="kv">
         <div><dt>Last known healthy configuration</dt><dd>{data.lastHealthyAt ? <>{fullTime(data.lastHealthyAt)} <span className="muted">({ago(data.lastHealthyAt)})</span></> : <span className="muted">not recorded yet</span>}</dd></div>
         {data.state !== "healthy" && data.degradedSince && <div><dt>Problem first observed</dt><dd>{fullTime(data.degradedSince)}{data.lastHealthyAt && <span className="muted"> (it was last seen healthy at {fullTime(data.lastHealthyAt)}, so it began in between)</span>}</dd></div>}
