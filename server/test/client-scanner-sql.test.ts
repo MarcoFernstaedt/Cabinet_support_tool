@@ -129,6 +129,20 @@ test("the same program already approved under another key counts as there, so it
   assert.deepEqual((await readLevelState(db.app, "client", p.client)).list?.entries.map(e => e.key), ["app:BioScan"]);
 });
 
+test("a different program already under the scanner's key is refused, never dropped from the list the client follows", async () => {
+  const p = await place();
+  const other = { ...KIOSK, key: SERVICE.key };
+  const fleetSet = async (entries: unknown[] | null) => setApprovedApps(db.app, admin, "fleet", null, entries as never,
+    await issueStepUpToken(db.app, admin.userId, "settings.apps", "fleet", paramsHash({ level: "fleet", id: null, entries })));
+  await fleetSet([other]);
+  try {
+    await assert.rejects(choose(p.client, { enabled: true, service: SERVICE }),
+      (e: unknown) => e instanceof Refused && e.code === "approved_key_in_use" && /Kiosk/.test(String(e.extra?.reason)));
+    assert.equal((await readLevelState(db.app, "client", p.client)).list, null, "the client still follows the fleet's list, kiosk included");
+    assert.deepEqual(await clientScanner(db.app, p.client), { enabled: true, service: null, approval: null }, "nothing was written");
+  } finally { await fleetSet(null); }
+});
+
 test("switching off: no IDs, no alerts, open scanner alerts resolved and audited, the service off the watched list", async () => {
   const p = await place();
   await choose(p.client, { enabled: true, service: SERVICE, hardwareIds: ["USB\\VID_1234&PID_5678"] });

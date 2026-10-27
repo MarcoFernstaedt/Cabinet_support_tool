@@ -366,7 +366,7 @@ async function writeApprovedList(c: Queryable, userId: string, level: AppLevel, 
  * switched on; the caller has checked the role and the step-up). The change starts from what the client would otherwise get: its pending
  * change, else its own list, else the fleet's, because a client list replaces the fleet's whole. Returns whether the entry is approved
  * in force already, waits for a signature, or was written in force (signing off). An entry for the same program and service name, under
- * any key, counts as already there; one with the same key but a different program is replaced.
+ * any key, counts as already there; a different program under the same key is refused, so nothing approved is ever dropped.
  */
 export async function ensureClientEntry(c: Queryable, userId: string, clientId: string, entry: ApprovedApp, signing?: ListSigningKeys): Promise<"approved" | "waiting" | "written"> {
   const { key, raw, stored } = await readRaw(c, "client", clientId);
@@ -382,7 +382,12 @@ export async function ensureClientEntry(c: Queryable, userId: string, clientId: 
   const fleet = stored.present || stored.pending ? null : splitStored((await readRaw(c, "fleet", null)).raw).live;
   if (fleet?.entries.some(same)) return "approved";
   const base = stored.pending?.entries ?? stored.live?.entries ?? fleet?.entries ?? [];
-  const entries = [...base.filter(e => e.key !== entry.key), entry].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  // A different program already under this key is refused, never replaced: replacing it here would quietly take its approval away from
+  // the client's cabinets (and when the base is the fleet's list, the client's copy would simply lose it).
+  const taken = base.find(e => e.key === entry.key);
+  if (taken) throw new Refused("approved_key_in_use", 409, `${entry.key} already names another program on the approved list`,
+    { reason: `${entry.key} already names ${taken.name} on the approved list the client follows. Remove or rename that entry, or use another service key name.` });
+  const entries = [...base, entry].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   if (entries.length > MAX_APPS) throw new Refused("too_many_items", 409, `the client's approved list already holds ${MAX_APPS} programs`,
     { reason: `The client's approved programs list is full (${MAX_APPS}). Remove one before adding the scanner's service.` });
   const previous = Math.max(stored.live?.version ?? 0, stored.pending?.version ?? 0);

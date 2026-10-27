@@ -202,6 +202,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "An existing client keeps its own fingerprint scanner setting; an approval does not change it.",
     fix: "Approve without the scanner choice, and change the setting on the client's page.",
   },
+  approved_key_in_use: {
+    title: "Name already used on the approved list",
+    detail: "Another program is already approved under this name, and approving the scanner's service would replace it.",
+    fix: "Remove or rename that entry on the approved list, or check the scanner's service key name.",
+  },
   not_a_sync_cabinet: {
     title: "Not a sync cabinet",
     detail: "Only an active sync cabinet has an address its satellites reach.",
