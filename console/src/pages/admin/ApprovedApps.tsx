@@ -23,7 +23,7 @@ export function ApprovedApps() {
     <div className="page narrow">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Approved programs" }]} />
       <h1>Approved programs</h1>
-      <p className="muted">The programs and services the platform may start, stop, restart or end on a cabinet. Anything not on the list is refused, by the server and by the cabinet. The most specific list wins: a site's list replaces its client's, and a client's replaces the fleet default.</p>
+      <p className="muted">Programs and services the platform may start, stop, restart or end. Anything else is refused by the server and the cabinet. The most specific list applies: site, then client, then fleet.</p>
       <section className="panel">
         <div className="row gap wrap">
           <label className="field"><span>Set the list for</span>
@@ -81,8 +81,8 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
         {entries === null ? <Badge tone="off">Not set</Badge> : <Badge tone="ok">{list.length} {list.length === 1 ? "program" : "programs"}</Badge>}</h2>
       {live && <p className="muted small">In force: version {live.version}, saved {fullTime(live.setAt)}.{signingOn && (live.signed ? " Signed." : " Not signed yet.")}</p>}
       {signingOn && <SigningPanel endpoint={endpoint} level={level} scopeId={scopeId} live={live} pending={pendingList} onChange={() => data.reload()} />}
-      {rejected && <p className="notice warn" role="alert">The list stored here is damaged, so this level approves nothing until it is replaced. Add the programs again and save, or {level === "fleet" ? "approve nothing here" : "use the level above"}.</p>}
-      {entries === null && !rejected && <p>{level === "fleet" ? "No fleet default: cabinets without a client or site list may not control any program." : <>Nothing set here, so the level above applies{data.data?.fleet && level === "client" ? <> (the fleet default: {data.data.fleet.entries.length} programs)</> : ""}.</>}</p>}
+      {rejected && <p className="notice warn" role="alert">The stored list is damaged and approves nothing until replaced. Save a new list, or {level === "fleet" ? "approve nothing here" : "use the level above"}.</p>}
+      {entries === null && !rejected && <p>{level === "fleet" ? "No fleet default: cabinets without a client or site list control no program." : <>Nothing set here, so the level above applies{data.data?.fleet && level === "client" ? <> (the fleet default: {data.data.fleet.entries.length} programs)</> : ""}.</>}</p>}
       {entries !== null && list.length === 0 && <p><strong>Approves nothing</strong> at this level, even if the level above has programs.</p>}
       {list.length > 0 && (
         <div className="table-wrap"><table>

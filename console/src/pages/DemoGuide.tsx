@@ -16,19 +16,19 @@ export function DemoGuide() {
   return (
     <div className="page narrow">
       <h1>Demo guide</h1>
-      <p>Demo mode adds simulated clients, sites and cabinets beside the real ones, so you can work at fleet size without touching a customer's machine. Simulated cabinets are tagged <DemoTag />; real ones say "Live agent".</p>
+      <p>Simulated clients, sites and cabinets alongside the real fleet. Simulated cabinets are tagged <DemoTag />; real ones show "Live agent".</p>
       <ul className="links">
-        <li>Simulated cabinets use the same server code as a real agent: heartbeats, events, checks and fixes, each verified afterwards.</li>
-        <li>They are kept apart from real cabinets in both directions.</li>
-        <li>Roles and confirmations apply exactly as they do for real cabinets.</li>
+        <li>Same server paths as a real agent: heartbeats, events, checks and fixes, each verified.</li>
+        <li>Isolated from real cabinets in both directions.</li>
+        <li>Roles and confirmations apply as for real cabinets.</li>
       </ul>
       <p className="row gap wrap">
         {demo.data?.enabled ? <Badge tone="info">Demo mode is on: {demo.data.cabinets} simulated cabinets</Badge> : <Badge tone="off">Demo mode is off</Badge>}
         <button className="btn primary" onClick={() => startDemoTour("network")}>Start the guided demo</button>
         {atLeast(me, "admin") && <Link to="/admin/settings#demo">Turn on, off or reset in Settings</Link>}
       </p>
-      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>The demo</h2>
-      {lib.data && lib.data.scenarios.length === 0 && <Empty>Turn demo mode on to see the demo.</Empty>}
+      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>Scenarios</h2>
+      {lib.data && lib.data.scenarios.length === 0 && <Empty>Demo mode is off.</Empty>}
       <ul className="findings">{lib.data?.scenarios.map(s => (
         <li key={s.id} className="finding info">
           <div className="finding-head"><strong>{s.title}</strong></div>
@@ -36,8 +36,8 @@ export function DemoGuide() {
           <p className="row gap wrap">{s.steps.map(st => <Link key={st.path + st.label} className="btn small" to={st.path}>{st.label}</Link>)}</p>
         </li>))}
       </ul>
-      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>A live agent too</h2>
-      <p>To show real Windows data, install the agent on a test computer from <Link to="/admin/setup">Admin → Setup</Link>. You don't need demo mode for that, and its data is always live.</p>
+      <h2 style={{ marginTop: "var(--space-4, 1.5rem)" }}>Live agent</h2>
+      <p>For real Windows data, enroll a test computer from <Link to="/admin/setup">Admin → Setup</Link>. Independent of demo mode.</p>
     </div>
   );
 }
