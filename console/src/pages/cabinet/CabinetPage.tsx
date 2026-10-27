@@ -44,6 +44,9 @@ export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null
   /** Whether the cabinet's client uses a fingerprint scanner. */
   scannerUsed?: boolean;
   siblings: CabinetRow[];
+  /** The cabinet this one replaced, and the one that replaced it (05-server-spec.md "Replacing a cabinet"). */
+  replaces?: { id: string; name: string } | null;
+  replacedBy?: { id: string; name: string } | null;
 }
 
 
@@ -92,10 +95,12 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
             {cabinet.readOnly && <> <Badge tone="info">Read-only cabinet</Badge></>}
             {cabinet.demo ? <> <DemoTag long /></> : <> <Badge tone="ok">Live agent</Badge></>}
             {atLeast(me, "admin") && <> · <Link to={`/admin/audit?cabinet=${cabinet.id}&action=cabinet.view`}>Access history</Link></>}
+            {cabinet.replaces && <> · Replaces <Link to={`/cabinets/${cabinet.replaces.id}`}>{cabinet.replaces.name}</Link></>}
           </p>
         </header>
+        {cabinet.replacedBy && <div className="notice" role="note">This cabinet was replaced by <Link to={`/cabinets/${cabinet.replacedBy.id}`}>{cabinet.replacedBy.name}</Link>. Its record and history are kept here; it no longer connects.</div>}
         <WritePauseBanner clientId={cabinet.client.id} clientOnly />
-        {!cabinet.online && <div className="notice warn" role="status">{cabinet.lastHeartbeatAt ? <>This cabinet has not been heard from since {ago(cabinet.lastHeartbeatAt)}.</> : "This cabinet has not connected yet."} Diagnostics will wait for it to come back, and expire if it does not.</div>}
+        {!cabinet.online && !cabinet.replacedBy && <div className="notice warn" role="status">{cabinet.lastHeartbeatAt ? <>This cabinet has not been heard from since {ago(cabinet.lastHeartbeatAt)}.</> : "This cabinet has not connected yet."} Diagnostics will wait for it to come back, and expire if it does not.</div>}
         <Section current={current} cabinet={cabinet} reload={reload} />
       </div>
     </div>

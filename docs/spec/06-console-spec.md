@@ -112,7 +112,7 @@ The steps follow 05-server-spec.md:
 - Online now: who is signed in, their role, last activity and current cabinet
 - Activity: per-user history of cabinets viewed and actions taken, with exact date and time
 - Audit log: searchable by user, cabinet, action and date range
-- Pending queue: each enrollment request with its fingerprints shown in full, with approve and reject. Approval asks for client, site, cabinet name, role and a baseline decision (15-baselines-and-config.md "Baselines at enrollment"); for a new site it shows the firewall policy and time zone the site would inherit, which the approver keeps or sets as the site's own (05-server-spec.md "Site policies").
+- Pending queue: each enrollment request with its fingerprints shown in full, with approve and reject. Approval asks for client, site, cabinet name, role and a baseline decision (15-baselines-and-config.md "Baselines at enrollment"); for a new site it shows the firewall policy and time zone the site would inherit, which the approver keeps or sets as the site's own (05-server-spec.md "Site policies"). At a known site it offers "Replaces": the site's active cabinets of the chosen role, the ones not heard from first; choosing one fills in its name, and the confirmation says what happens to it (05-server-spec.md "Replacing a cabinet"). A replaced cabinet's page says what replaced it, with a link, and the replacement's page links back.
 - Clients and sites: create, rename, remove
 - Software library: upload packages, approve packages uploaded by another admin, retire packages
 - Issue types and suppressions: create and edit issue types, review all active suppressions and their expiry dates

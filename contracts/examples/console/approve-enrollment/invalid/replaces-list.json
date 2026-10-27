@@ -1,0 +1,13 @@
+{
+  "client": "Acme Health",
+  "site": "North",
+  "cabinet": "ICU 1",
+  "role": "sync",
+  "replacesCabinetId": [
+    "3f2b6c1d-9e8a-4b7c-8d6e-5f4a3b2c1d0e"
+  ],
+  "baseline": {
+    "use": "inherited"
+  },
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

@@ -1,4 +1,4 @@
-// Cash drawer check: finds the drawer link among the adapters, checks its IPv4 settings and packet counters (two readings a few seconds
+// Drawer check: finds the drawer link among the adapters, checks its IPv4 settings and packet counters (two readings a few seconds
 // apart) and the firewall, and offers to turn the firewall off. The writes are the ordinary firewall profile writes; the server and the
 // agent decide whether they are allowed.
 import { useState } from "react";
@@ -53,7 +53,7 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
   return (
     <section className="panel" aria-labelledby="drawer-heading" data-tour="drawer-check">
       <div className="row gap wrap spread">
-        <h2 id="drawer-heading">Cash drawer</h2>
+        <h2 id="drawer-heading">Drawer</h2>
         <span className="muted small">Expected network {DRAWER_NETWORK.address}/{DRAWER_NETWORK.prefixLength}</span>
         <button className="btn" disabled={state === "running"} onClick={() => void go()}>{state === "running" ? step : "Check drawer"}</button>
       </div>

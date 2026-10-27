@@ -135,9 +135,9 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the full reading to be opened");
     await page.locator("summary", { hasText: "Everything that was read" }).click();
     await page.waitForFunction(() => !(document.querySelector(".demo-tour button.primary") as HTMLButtonElement | null)?.disabled, undefined, { timeout: 10_000 });
-    // The cash drawer: the check finds the firewall on, the policy turns it off, and the next check reads off.
+    // The drawer: the check finds the firewall on, the policy turns it off, and the next check reads off.
     await next();
-    await arrive("Cash drawer check", '[data-tour="drawer-check"]');
+    await arrive("Drawer check", '[data-tour="drawer-check"]');
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the drawer to be fixed");
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });

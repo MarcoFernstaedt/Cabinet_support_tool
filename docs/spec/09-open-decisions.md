@@ -454,7 +454,7 @@ Two independent reviews (server and console; agent) found no critical or high de
 
 TCP series are limited to 10 attempts (ping stays at 20): answered by the team, enforced in the network.test contract and so by the agent.
 
-### Cash drawer check
+### Drawer check
 
 Built as a panel on the Network tab from existing reads (`network.config` twice, `firewall.state`) and the existing `firewall.setProfile`. The drawer network is `172.20.1.0/24` (the team first wrote 176.20.1.0 and confirmed 172). The check matches the whole /24. Open: should the range be an Admin platform setting instead of a constant in `console/src/lib/drawer.ts` and `server/src/diagnose/network-findings.ts`? Left as a constant.
 
@@ -500,7 +500,7 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 
 - **Registry write (decision to confirm):** Fast Startup has no `powercfg` switch other than turning hibernation off, so the broker writes the one fixed value `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power\HiberbootEnabled`. No other registry value can be written; there is no generic registry operation.
 - **Shutdown is Admin-only** because a shut-down cabinet stays off until someone switches it on. The server checks this; the agent has no notion of roles.
-- `network.setIp` accepts a static address **without a gateway** (a link with no router, such as the cash drawer's). With no gateway the agent clears any gateway left from before; Windows may refuse the empty list on some builds, in which case the address is still set.
+- `network.setIp` accepts a static address **without a gateway** (a link with no router, such as the drawer's). With no gateway the agent clears any gateway left from before; Windows may refuse the empty list on some builds, in which case the address is still set.
 - `network.renewLease` accepts `release: true`: give the lease back, then ask for a new one.
 - The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: a fixed `172.20.1.n/24` with no gateway, the last number typed by the person.
 - Scheduled-task last and next run times and logon times are empty in this version (Windows needs per-task calls for them).
@@ -854,3 +854,18 @@ Choices made in building it (confirm or change):
 - **The network standard is not part of the approval**: a pending cabinet has reported no network, so there is nothing to pre-fill it from. The site page offers it from the first report.
 - The issue type's name "Firewall differs from client policy" is unchanged (Admins may have edited it); its resolution now reads "The firewall matches its policy again."
 
+## Replacing a cabinet (2026-10-27)
+
+The owner's decisions (05-server-spec.md "Replacing a cabinet"): a reinstalled cabinet is approved as "this replaces <cabinet>"; the old cabinet is retired with its history kept; what affects the client's experience is re-applied on the machine automatically after an Admin's approval: the firewall policy, the time zone, a fixed address and DNS when the old cabinet had them, and the drawer address on the Ethernet adapter on the unidentified network. "Cash drawer" is called "drawer" everywhere.
+
+Built in two steps: the approval and the copy of the platform's settings first; the re-apply on the machine after the new agent first reports next.
+
+Choices made in building it (confirm or change):
+- **Same site and same role only.** Moving a cabinet to another site, or changing its role, stays a separate change.
+- **Only the old cabinet's own settings are copied.** What it inherited (site, client, fleet) the new one inherits the same way. An Admin-set sync address is copied; a reported one is not.
+- **The old name is freed only when the new cabinet takes it.** Given another name, the old record keeps its own.
+- **Alerts are resolved, not moved.** The new cabinet starts clean; the old alerts stay on the old cabinet's page.
+
+Open:
+- **The drawer address as a fixed standard.** The owner said the drawer address should always be the same. Today the drawer check matches the whole 172.20.1.0/24 network (see "Drawer check"). Should one exact address (and prefix) become a standard the platform holds and checks, fleet-wide or per client? The re-apply after a replacement uses the old cabinet's reported drawer address until this is answered.
+- **The server originating commands.** 01-architecture.md says the server originates no commands on its own; the automatic re-apply runs commands in the approving Admin's name after the new agent reports. The wording would become "never without a person's approval". To confirm with the re-apply step.

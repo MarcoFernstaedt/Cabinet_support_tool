@@ -309,6 +309,21 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "An existing site keeps its own firewall policy and time zone; an approval does not change them.",
     fix: "Approve without the site's policies, and change them on the site's page.",
   },
+  not_replaceable: {
+    title: "That cabinet cannot be replaced",
+    detail: "Only an active cabinet can be replaced; this one has been replaced or removed already.",
+    fix: "Choose another cabinet it replaces, or approve it as a new cabinet.",
+  },
+  replacement_elsewhere: {
+    title: "The cabinet is at another site",
+    detail: "A replacement goes to the site of the cabinet it replaces.",
+    fix: "Approve it at that cabinet's client and site.",
+  },
+  replacement_role_differs: {
+    title: "The roles differ",
+    detail: "A replacement has the same role as the cabinet it replaces (sync, satellite or standalone).",
+    fix: "Choose that cabinet's role for the replacement.",
+  },
   site_has_baseline: {
     title: "The site has its own baseline",
     detail: "This site already has an approved baseline of its own, and it applies to the cabinet.",

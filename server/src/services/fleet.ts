@@ -185,7 +185,16 @@ export async function cabinet(db: Queryable, id: string, page: Page = {}) {
     sync: await cabinetSync(db, id),
     scannerUsed: await scannerUsedFor(db, id),
     siblings: await pageRows(db, siblings), siblingCount, siblingsPage: { limit, offset, hasMore: offset + siblings.length < siblingCount },
+    ...(await replacementLinks(db, id)),
   };
+}
+
+/** The cabinet this one replaced, and the one that replaced it (05-server-spec.md "Replacing a cabinet"); null when there is none. */
+async function replacementLinks(db: Queryable, id: string) {
+  const r = (await db.query<{ old_id: string | null; old_name: string | null; new_id: string | null; new_name: string | null }>(
+    `SELECT o.id AS old_id, o.name AS old_name, n.id AS new_id, n.name AS new_name
+       FROM cabinets k LEFT JOIN cabinets o ON o.id = k.replaces_cabinet_id LEFT JOIN cabinets n ON n.replaces_cabinet_id = k.id WHERE k.id = $1`, [id])).rows[0];
+  return { replaces: r?.old_id ? { id: r.old_id, name: r.old_name! } : null, replacedBy: r?.new_id ? { id: r.new_id, name: r.new_name! } : null };
 }
 
 /** A cabinet to show a new person around: a real one before a simulated one, one that is online before one that is not. Null when there is none. */

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment.schema.json",
   "title": "approve-enrollment",
-  "description": "Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision.",
+  "description": "Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision. It may name the cabinet it replaces.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -29,6 +29,10 @@
     },
     "syncCabinetId": {
       "description": "The sync cabinet this satellite reaches. Only a satellite names one.",
+      "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "replacesCabinetId": {
+      "description": "The active cabinet this one replaces (a failed drive, a reinstalled agent): a cabinet at the same client and site, with the same role. The old cabinet is retired with its history kept, and this one takes its name, its sync link and its own settings (docs/spec/05-server-spec.md \"Replacing a cabinet\").",
       "$ref": "../common.schema.json#/$defs/uuid"
     },
     "scanner": {
