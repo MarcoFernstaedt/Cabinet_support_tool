@@ -35,6 +35,8 @@ test("malformed or hostile addresses never become the sync address", () => {
   assert.equal(lanAddress([up("10.20.0.15/24", "010.20.0.16/24")]), "10.20.0.15");
   assert.equal(isCanonicalIpv4("10.20.0.15"), true);
   assert.equal(isCanonicalIpv4("1.2.3.4.5"), false);
+  // A sign is not a digit: "-1" survives a Number round trip, so it is refused by its characters.
+  for (const signed of ["-1.2.3.4", "10.20.0.-1", "10.-0.0.1", "+1.2.3.4"]) assert.equal(isCanonicalIpv4(signed), false, signed);
 });
 
 test("a stored network configuration: adapters only, and anything not shaped like an adapter counts as absent", () => {
