@@ -63,6 +63,7 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <a className="skip" href="#main" onClick={e => { e.preventDefault(); main.current?.focus(); }}>Skip to content</a>
+      <p className="screen-notice" role="note">This console is designed for screens at least 1024 px wide.</p>
       <header className="topbar">
         <Link to="/" className="brand"><span className="mark" aria-hidden="true">◆</span> Mashura <span className="muted">Support Console</span></Link>
         <nav aria-label="Main">

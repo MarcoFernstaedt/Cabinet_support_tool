@@ -28,7 +28,7 @@
 
 ## Screen size
 
-- The console works on desktop and compact laptop displays, with a usable sign-in and all navigation and actions on tablet and phone widths. Compact laptops retain the vertical cabinet menu; only tablet and phone widths turn it into a horizontal section list. Navigation wraps or scrolls within its own region; wide data tables scroll within their containers rather than hiding the whole console.
+- The console is for desktop and laptop screens, 1024 px wide and up (decided with the owner, October 2026). From 1024 to 1199 px the top bar wraps and the cabinet menu narrows; wide data tables scroll within their own containers. A narrower window keeps the desktop layout, scrolls sideways and shows a one-line notice. There is no tablet or phone layout. Browser tests check 1024, 1280, 1366, 1440, 1920 and 2560 px.
 
 ## Cabinet view
 
