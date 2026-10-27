@@ -18,7 +18,11 @@ const TABS = ["Overview", "Standards", "Troubleshoot", "What changed", "Compare"
   "Windows updates", "Time", "Network", "Firewall", "Fingerprint scanner", "Crashes and restarts", "Windows", "Software", "Command history"];
 
 const shot = async (page: Page, name: string) => { if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/tour-${name.replace(/\W+/g, "_")}.png` }); };
-const axe = async (page: Page, where: string) => assert.deepEqual((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations.map(v => `${where}: ${v.id}`), []);
+// Checked once nothing is fading in: a contrast check taken mid-animation reads half-transparent text and fails at random.
+const axe = async (page: Page, where: string) => {
+  await page.waitForFunction(() => document.getAnimations().every(a => a.playState !== "running"));
+  assert.deepEqual((await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze()).violations.map(v => `${where}: ${v.id}`), []);
+};
 /** Goes through the whole tour with Next, returning each step's title; at every step what it points at is outlined (unless it says it cannot be). */
 async function walk(page: Page, expect: { outlined: (title: string) => string | null }): Promise<string[]> {
   const panel = page.getByRole("dialog", { name: /./ }).filter({ has: page.locator("#welcome-title") });
