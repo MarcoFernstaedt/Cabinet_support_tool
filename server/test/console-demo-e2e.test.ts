@@ -143,7 +143,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await marked('[data-tour="drawer-check"]');
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
-    await page.getByRole("button", { name: "Apply the client's firewall policy" }).click();
+    await page.getByRole("button", { name: "Apply the firewall policy" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText("Off on every profile").waitFor({ timeout: 90_000 });
 

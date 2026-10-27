@@ -31,7 +31,7 @@ export interface NetworkEvidence {
   cabinet: { id: string; name: string; role: string };
   config?: NetworkConfigOutput; configFailure?: string;
   firewall?: FirewallStateOutput; firewallFailure?: string;
-  /** What the client's firewall policy asks for (true = on). */
+  /** What the cabinet's firewall policy asks for (its site's, else its client's, else the fleet default; true = on). */
   policy: Profiles;
   /** What the site's network should look like; null when nobody has set it. */
   baseline?: NetworkBaseline | null;
@@ -224,8 +224,8 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
       if (scFirewallOn.length > 0)
         add({ id: "sync-firewall", severity: "problem", certainty: "probable", title: `The firewall on ${scName} is blocking port${portsBad.length > 1 ? "s" : ""} ${portsBad.map(t => t.params.port).join(", ")}`,
           evidence: [...(ping && ok(ping) ? [describe(ping)] : []), ...portsBad.map(describe),
-            `${sc!.name} reports ${onOff(sc!.profiles!)}; the client policy says ${onOff(e.policy)}.`],
-          fix: `Apply the client's firewall policy on ${sc!.name}: this is the usual fix for a satellite that cannot sync.`,
+            `${sc!.name} reports ${onOff(sc!.profiles!)}; its firewall policy says ${onOff(e.policy)}.`],
+          fix: `Apply the firewall policy on ${sc!.name}: this is the usual fix for a satellite that cannot sync.`,
           action: { kind: "apply_policy", cabinetId: sc!.id, cabinetName: sc!.name } });
       else
         add({ id: "sync-port", severity: "problem", certainty: "possible", title: `Port${portsBad.length > 1 ? "s" : ""} ${portsBad.map(t => t.params.port).join(", ")} on ${scName} do not answer`,
@@ -246,10 +246,10 @@ export function networkFindings(e: NetworkEvidence): Finding[] {
     const have: Profiles = { domain: false, private: false, public: false };
     for (const p of e.firewall.profiles) have[p.profile] = p.enabled;
     if (differs(e.policy, have))
-      add({ id: "firewall", severity: "warning", certainty: "confirmed", title: "This cabinet's firewall differs from the client policy",
-        evidence: [`Now: ${onOff(have)}. Policy: ${onOff(e.policy)}.`], fix: "Apply the client's firewall policy (one click).",
+      add({ id: "firewall", severity: "warning", certainty: "confirmed", title: "This cabinet's firewall differs from its policy",
+        evidence: [`Now: ${onOff(have)}. Policy: ${onOff(e.policy)}.`], fix: "Apply the firewall policy (one click).",
         action: { kind: "apply_policy", cabinetId: e.cabinet.id, cabinetName: e.cabinet.name } });
-    else add({ id: "firewall", severity: "ok", certainty: "confirmed", title: "The firewall matches the client policy", evidence: [onOff(have)], fix: null });
+    else add({ id: "firewall", severity: "ok", certainty: "confirmed", title: "The firewall matches its policy", evidence: [onOff(have)], fix: null });
   } else add({ id: "firewall", severity: "info", certainty: "not_checked", title: "Could not read the firewall", evidence: [e.firewallFailure ?? "No answer."], fix: null });
 
   // A wrong subnet, gateway or DNS setting explains the failed tests that follow from it: link them, so the cause is fixed first.

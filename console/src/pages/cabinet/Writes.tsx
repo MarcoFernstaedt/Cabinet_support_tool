@@ -216,12 +216,12 @@ export function ProfileControl({ cabinet, profile, write: w }: { cabinet: Cabine
   );
 }
 
-// ---- Client firewall policy ----------------------------------------------------------------
+// ---- Firewall policy (the site's, else the client's, else the fleet default) ----------------------------------------------------------------
 
-interface CabinetPolicy { policy: Record<Profile, "on" | "off">; source: "client" | "fleet"; reported: Record<Profile, boolean> | null; differs: boolean | null; readOnly: boolean | null }
+interface CabinetPolicy { policy: Record<Profile, "on" | "off">; source: "site" | "client" | "fleet"; reported: Record<Profile, boolean> | null; differs: boolean | null; readOnly: boolean | null }
 
 /**
- * The client's firewall policy for this cabinet, what the cabinet last reported, and Apply policy (a click, Tier 1 and
+ * The firewall policy that applies to this cabinet (its site's, else its client's, else the fleet default), what the cabinet last reported, and Apply policy (a click, Tier 1 and
  * up). The server fills the profiles in from the policy; the console sends none.
  */
 export function FirewallPolicyPanel({ cabinet, version, onChanged }: { cabinet: CabinetDetail; version: number; onChanged: () => void }) {
@@ -242,7 +242,7 @@ export function FirewallPolicyPanel({ cabinet, version, onChanged }: { cabinet: 
   return (
     <section className="panel" aria-labelledby="fw-policy">
       <h3 id="fw-policy">Firewall policy {data.differs === true ? <Badge tone="warn">Differs</Badge> : data.differs === false ? <Badge tone="ok">Matches</Badge> : <Badge tone="off">Not reported yet</Badge>}</h3>
-      <p>{data.source === "client" ? `${cabinet.client.name}'s policy` : "The fleet default policy"}: <strong>{wanted}</strong>.</p>
+      <p>{data.source === "site" ? `${cabinet.site.name}'s policy` : data.source === "client" ? `${cabinet.client.name}'s policy` : "The fleet default policy"}: <strong>{wanted}</strong>.</p>
       {data.reported && <p className="muted small">The cabinet last reported: {profiles.map(p => `${PROFILE_NAME[p]} ${data.reported![p] ? "on" : "off"}`).join(", ")}.</p>}
       {allowed && data.differs !== false && <button className="btn primary" disabled={w.run.state === "running"} onClick={() => w.ask({}, <>
         <p>Set the firewall profiles as the policy says: <strong>{wanted}</strong>.</p>

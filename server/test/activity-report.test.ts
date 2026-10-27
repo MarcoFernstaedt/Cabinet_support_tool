@@ -59,7 +59,7 @@ test("the report lists changes, what was checked, alerts and saved fixes, and no
   assert.match(text, /Case notes by /);
   assert.match(text, /Exam Room 1 \(.*Midtown Manhattan\)/);
   assert.match(text, /Checked: Event logs, Network tests/, "five reads fold into short names, each once");
-  assert.match(text, /Applied the client's firewall policy: done/);
+  assert.match(text, /Applied the firewall policy: done/);
   assert.match(text, /Flushed the DNS cache: done/);
   assert.match(text, /Restart service BioScanSvc: failed \(execution_failed\)/);
   if (alert) assert.match(text, /Resolved alert: .*Swapped the patch cable/);

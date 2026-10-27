@@ -59,6 +59,15 @@
 - **Switching it off:** the client's cabinets get no scanner IDs; an agent from 0.3.1 is told not to look for a scanner (`heartbeat-response scanner.watch: false`, sent only to agents that know the field); scanner events from an older agent are stored and open no alert; open scanner alerts are resolved, each audited; the cabinet diagnosis does not read the scanner and reports it as not used; the scanner's service comes off the client's watched list. The approved list is left alone: removing an entry needs the same signature as adding one, and an approved service that nobody watches does nothing by itself.
 - **The client's page** shows whether the scanner is used, its service, and where that service stands: approved and watched, waiting for the signature, or not on the approved list.
 
+## Site policies
+
+The owner's decision (09-open-decisions.md "Site policies at first approval"): the firewall policy and the time zone are inherited fleet → client → site; the network standard stays per site.
+
+- **Firewall policy** (`sites.firewall_policy`, migration 0014): the site's own, else the client's, else the fleet default (all off unless an Admin changes it). The drift alert, the one-click and bulk apply, the fleet operation and the network diagnosis all read the one that applies. A site's own is set or removed by an Admin with an authenticator code bound to the exact policy (`PUT /api/sites/:id/firewall-policy`, step-up action `site.firewall_policy`); its cabinets are compared again at once.
+- **Time zone** (`clients.time_zone`, and the fleet default in the settings row `time.zone`): the site's own, else the client's, else the fleet's; with none, no zone is checked. The wrong-zone alert, the cabinet's time facts, the fleet operation that sets zones and the cabinet diagnosis all use one SQL expression for it (`SITE_ZONE_SQL` in time.ts). A client's default is set by Tier 2 and up, like a site's (`PUT /api/clients/:id/time-zone`); the fleet default by an Admin (`PUT /api/settings/time-zone`). Every change is audited and re-checks the cabinets it reaches.
+- **At a site's first approval** the approval may carry `sitePolicies` (firewall policy and time zone). The console pre-fills them from what the site would inherit (`GET /api/admin/enrollments/:id/site-policies`); keeping the inherited value sends null, so the site goes on following its client and the fleet; only a value the approver sets becomes the site's own. Each is written and audited as its own change in the approval's transaction. An approval for an existing site may not carry them (`site_policies_for_existing_site`): its policies are changed on its page.
+- **The network standard** is set on the site page, from what its cabinets report ("Standards for <site>"), once they have reported their network; a pending cabinet has reported none.
+
 ## Issue types and symptom rules
 
 This is how errors become meaningful alerts, and how the team teaches the system new symptoms of known problems.

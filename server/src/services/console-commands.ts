@@ -50,7 +50,7 @@ export async function issueFromConsole(pool: Pool, user: { userId: string; role:
     filled.sha256 = p.sha256;
   }
   if (operation === "firewall.applyPolicy") {
-    // The browser names only the cabinet; the profiles come from its client's policy (or the fleet default).
+    // The browser names only the cabinet; the profiles come from its policy (the site's, else the client's, else the fleet default).
     if (Object.keys(params).length > 0) throw new Refused("invalid_params", 400, "the policy is filled in by the server; send no parameters");
     filled.profiles = switchesFor((await cabinetPolicy(pool, cabinetId)).policy);
   }

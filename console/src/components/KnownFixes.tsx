@@ -36,7 +36,7 @@ export function findingKey(id: string): string {
 export const KEY_LABEL: Record<string, string> = {
   "obs-ping-loss": "Packet loss to the gateway", "obs-ping-slow": "Slow replies from the gateway", "obs-ping-jitter": "Uneven replies from the gateway", "obs-errors": "Errors on the network card",
   "obs-lease": "DHCP lease", "obs-mtu": "Packet size (MTU)", "obs-arp": "Neighbours that do not answer", "obs-routes": "More than one default route", "obs-trace-sync": "Path to the sync cabinet",
-  "obs-trace-platform": "Path to the platform server", "sync-firewall": "Firewall blocks the sync cabinet's ports", "sync-down": "Sync cabinet does not answer", firewall: "Firewall differs from the client policy",
+  "obs-trace-platform": "Path to the platform server", "sync-firewall": "Firewall blocks the sync cabinet's ports", "sync-down": "Sync cabinet does not answer", firewall: "Firewall differs from its policy",
   link: "Network link", ip: "No DHCP lease", gateway: "Gateway does not answer", "baseline-dns": "DNS differs from the site baseline", "baseline-gateway": "Wrong gateway", "baseline-subnet": "Address outside the site's network",
 };
 export const symptomLabel = (s: KnownFix["symptom"] & { issueName?: string | null }) => s.kind === "finding" ? (KEY_LABEL[s.key] ?? s.key) : (s.issueName ?? "An issue type");

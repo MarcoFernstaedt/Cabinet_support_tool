@@ -1,6 +1,6 @@
 // Fleet operations (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on cabinets a person chose, run as a
 // job. The target list is a snapshot taken when the job starts; the server fills in each cabinet's parameters (its site's
-// zone, its client's firewall policy) and says why it skips any. The job issues the commands in batches (the next batch
+// zone, its firewall policy) and says why it skips any. The job issues the commands in batches (the next batch
 // starts once this one has answered), records each cabinet's result, then verifies it from the cabinet's next report:
 // a change that cannot be seen is "not verified", never counted as done. Confirmed with the password, bound to the exact
 // operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
@@ -14,7 +14,7 @@ import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { fleetPause, WRITE_OPERATIONS, WriteLimitReached } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
-import { CLOCK_TOLERANCE_SECONDS } from "./time.js";
+import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
 
@@ -43,7 +43,7 @@ export async function fleetCabinets(db: Queryable, q: { clientId?: string | unde
     online: number; time_zone_id: string | null; site_zone: string | null; skew: number | null; alerts: string; ipv4: string | null }>(
     `SELECT TOP (500) k.id, k.name, k.role, s.id AS site_id, s.name AS site, cl.id AS client_id, cl.name AS client, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo, k.read_only,
             CASE WHEN k.last_heartbeat_at > DATEADD(second, -$${args.length}, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS online,
-            k.time_zone_id, s.time_zone AS site_zone, k.clock_skew_seconds AS skew, k.ipv4,
+            k.time_zone_id, ${SITE_ZONE_SQL} AS site_zone, k.clock_skew_seconds AS skew, k.ipv4,
             (SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved') AS alerts
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
       WHERE ${where.join(" AND ")} ORDER BY cl.name, s.name, k.name`, args)).rows;
@@ -70,7 +70,7 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
     online: number; zone: string | null; site_zone: string | null; skew: number | null }>(
     `SELECT k.id, k.site_id, k.name, s.name AS site, cl.name AS client, k.status, k.read_only, cl.write_paused AS paused,
             CASE WHEN k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS online,
-            k.time_zone_id AS zone, s.time_zone AS site_zone, k.clock_skew_seconds AS skew
+            k.time_zone_id AS zone, ${SITE_ZONE_SQL} AS site_zone, k.clock_skew_seconds AS skew
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`,
     [cabinetIds, OFFLINE_AFTER_MS / 1000])).rows.map(r => [r.id, r]));
   // A bulk change covers the cabinets of one site: a mistake in the choice can only reach one place.
@@ -87,7 +87,7 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
     if (r.paused) { out.push(skip("Changes to this client's cabinets are paused.")); continue; }
     if (!r.online) { out.push(skip("Offline: not heard from in the last 5 minutes.")); continue; }
     if (operation === "time.setZone") {
-      if (!r.site_zone) { out.push(skip("Its site has no time zone set.")); continue; }
+      if (!r.site_zone) { out.push(skip("No time zone is set for its site, its client or the fleet.")); continue; }
       if (r.zone === r.site_zone) { out.push(skip("Already in its site's time zone.")); continue; }
       out.push({ ...base, params: { timeZoneId: r.site_zone }, skip: null });
     } else if (operation === "time.sync") {
@@ -98,7 +98,7 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
       out.push(fix.params ? { ...base, params: fix.params, skip: null, detail: fix.label } : skip(fix.why));
     } else {
       const p = await cabinetPolicy(db, id);
-      if (p.differs === false) { out.push(skip("Already matches its client's firewall policy.")); continue; }
+      if (p.differs === false) { out.push(skip("Already matches its firewall policy.")); continue; }
       out.push({ ...base, params: { profiles: switchesFor(p.policy) }, skip: null });
     }
   }
@@ -300,7 +300,7 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
 const verifiedText: Record<JobOperation, string> = {
   "time.setZone": "Verified: the cabinet reports its site's time zone.",
   "time.sync": "Verified: the cabinet's clock is within two minutes of the server's.",
-  "firewall.applyPolicy": "Verified: the cabinet's firewall matches its client's policy.",
+  "firewall.applyPolicy": "Verified: the cabinet's firewall matches its policy.",
   "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
   "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
   "network.renewLease": "Verified: read back from the cabinet, it has a real address from the DHCP server.",

@@ -67,6 +67,8 @@ export function FleetHome() {
 interface ClientDetail { id: string; name: string; writePaused: boolean;
   scanner: { hardwareIds: string[] | null; fleetHardwareIds: string[] | null }; syncPorts: { ports: number[] | null; fleetPorts: number[] | null };
   fingerprintScanner: ClientScannerState | null;
+  /** The client's default zone for its sites, and the fleet's it falls back to. */
+  timeZone: { own: string | null; fleet: string | null };
   sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
 
 export function ClientPage({ id }: { id: string }) {
@@ -109,6 +111,9 @@ export function ClientPage({ id }: { id: string }) {
             endpoint={`/api/clients/${data.id}/sync-ports`} action="client.sync" target={data.id} what={`every site of ${data.name}`} editable={atLeast(me, "admin")} onSaved={reload} />
         </section>
         <WatchedServices key={`watch-${data.id}`} level="clients" id={data.id} name={data.name} editable={atLeast(me, "tier2")} />
+        <TimeZoneEditor key={`tz-${data.id}`} id={`client-tz-${data.id}`} heading={`Time zone for ${data.name}'s sites`} endpoint={`/api/clients/${data.id}/time-zone`}
+          current={data.timeZone.own} inherited={data.timeZone.fleet ? { zone: data.timeZone.fleet, from: "the fleet default" } : null}
+          what={`sites of ${data.name} without their own`} editable={atLeast(me, "tier2")} onSaved={reload} />
         <ClientFirewallPolicy key={data.id} clientId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <BulkPolicyApply key={`bulk-${data.id}`} scope="client" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
@@ -120,6 +125,8 @@ export interface CabinetRow { id: string; name: string; demo?: boolean; role: st
   /** No approved baseline applies to it yet. */
   baselineRequired?: boolean; }
 export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
+  /** The zone its cabinets are held to and where it comes from (site, client or fleet; null: none is checked). */
+  timeZoneApplies?: { zone: string | null; source: "site" | "client" | "fleet" | null };
   sync: SiteSyncInfo;
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   cabinets: CabinetRow[]; }
@@ -155,7 +162,8 @@ export function SitePage({ id }: { id: string }) {
         <Pager {...cabinetsPaged} label="cabinets" />
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
-        <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} editable={atLeast(me, "tier2")} onSaved={reload} />
+        <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} applies={data.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reload} />
+        <SiteFirewallPolicy key={`fw-${data.id}`} siteId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <SiteSync key={data.id} siteId={data.id} name={data.name} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
           <h2 id="site-scanner">Fingerprint scanner at {data.name}</h2>
@@ -173,7 +181,7 @@ export function SitePage({ id }: { id: string }) {
 
 interface Standards {
   clientId: string;
-  current: { networkBaseline: Baseline | null; timeZone: string | null; clientFirewall: Policy | null; fleetFirewall: Policy };
+  current: { networkBaseline: Baseline | null; timeZone: string | null; inheritedTimeZone: string | null; siteFirewall: Policy | null; inheritedFirewall: Policy; inheritedFirewallFrom: "client" | "fleet" };
   suggested: { networkBaseline: { baseline: Baseline; fromCabinet: { id: string; name: string }; readAt: string } | null;
     timeZone: { timeZone: string; fromCabinet: { id: string; name: string } } | null; firewall: { policy: Policy; fromCabinet: { id: string; name: string } } | null };
 }
@@ -203,23 +211,24 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
       action: cur.timeZone || !canTier2 || !sug.timeZone ? null : <button className="btn" onClick={async () => {
         if (await timeZone.run(() => api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: sug.timeZone!.timeZone }))) done();
       }}>Use {zoneName(sug.timeZone.timeZone)} (from {sug.timeZone.fromCabinet.name})</button> },
-    { label: "Firewall", value: cur.clientFirewall ? describePolicy(cur.clientFirewall) : null,
-      action: cur.clientFirewall || !canAdmin || !sug.firewall ? null : <button className="btn" onClick={() => setAsk("firewall")}>Use {sug.firewall.fromCabinet.name}'s settings for the client</button> },
+    { label: "Firewall", value: cur.siteFirewall ? describePolicy(cur.siteFirewall) : null,
+      action: cur.siteFirewall || !canAdmin || !sug.firewall ? null : <button className="btn" onClick={() => setAsk("firewall")}>Use {sug.firewall.fromCabinet.name}'s settings for this site</button> },
   ];
   const missing = rows.filter(r => !r.value).length;
   return (
     <section className="panel" aria-labelledby={`std-${siteId}`}>
       <h2 id={`std-${siteId}`}>Standards for {name}</h2>
       <ul className="plain">{rows.map(r => (
-        <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; the fleet default applies (${describePolicy(cur.fleetFirewall)})` : ""}</span>} {r.action}</li>))}</ul>
+        <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; ${cur.inheritedFirewallFrom === "client" ? "the client's policy" : "the fleet default"} applies (${describePolicy(cur.inheritedFirewall)})`
+          : r.label === "Time zone" && cur.inheritedTimeZone ? `; ${zoneName(cur.inheritedTimeZone)} applies from the client or fleet` : ""}</span>} {r.action}</li>))}</ul>
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
       {(problem ?? timeZone.problem) && <p className="error" role="alert">{problem ?? timeZone.problem}</p>}
       {sug.networkBaseline && !cur.networkBaseline && <ConfirmDialog open={ask === "baseline"} onClose={() => setAsk(null)}
         description={<p>Set the network baseline for <strong>{name}</strong> from <strong>{sug.networkBaseline.fromCabinet.name}</strong>: {sug.networkBaseline.baseline.addressing === "dhcp" ? "DHCP" : "fixed addresses"}, gateway {sug.networkBaseline.baseline.gateway}/{sug.networkBaseline.baseline.prefixLength}, DNS {sug.networkBaseline.baseline.dnsServers.join(", ")}. Check that this cabinet's network is the right one first. Nothing changes on a cabinet.</p>}
         onConfirm={async () => { try { await api("PUT", `/api/sites/${siteId}/network-baseline`, { baseline: sug.networkBaseline!.baseline }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
-      {sug.firewall && !cur.clientFirewall && <StepUpDialog open={ask === "firewall"} action="client.firewall_policy" target={data.clientId} params={{ policy: sug.firewall.policy }} onClose={() => setAsk(null)}
-        description={<p>Set the client's firewall policy to <strong>{describePolicy(sug.firewall.policy)}</strong>, as {sug.firewall.fromCabinet.name} has it now. It applies to every site of this client. Nothing changes on a cabinet until someone applies it.</p>}
-        onToken={async token => { try { await api("PUT", `/api/clients/${data.clientId}/firewall-policy`, { policy: sug.firewall!.policy, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
+      {sug.firewall && !cur.siteFirewall && <StepUpDialog open={ask === "firewall"} action="site.firewall_policy" target={siteId} params={{ policy: sug.firewall.policy }} onClose={() => setAsk(null)}
+        description={<p>Set the firewall policy for <strong>{name}</strong> to <strong>{describePolicy(sug.firewall.policy)}</strong>, as {sug.firewall.fromCabinet.name} has it now. It applies to this site only. Nothing changes on a cabinet until someone applies it.</p>}
+        onToken={async token => { try { await api("PUT", `/api/sites/${siteId}/firewall-policy`, { policy: sug.firewall!.policy, stepUpToken: token }); done(); } catch (e) { setProblem(describeError(e)); throw e; } }} />}
     </section>
   );
 }
@@ -274,28 +283,41 @@ export function SiteNetwork({ siteId, name, baseline, cabinets, editable, onSave
   );
 }
 
+const ZONE_FROM: Record<string, string> = { client: "the client's default", fleet: "the fleet default" };
+
 /**
- * The time zone a site's cabinets should use (module 21). Setting it changes nothing on a cabinet: cabinets in another
- * zone get a minor "Wrong time zone" alert, and are corrected from their Time section or Fleet operations. Tier 2 and up.
+ * The time zone a site's cabinets should use (module 21): the site's own, else the client's, else the fleet's. Setting it changes
+ * nothing on a cabinet: cabinets in another zone get a minor "Wrong time zone" alert, and are corrected from their Time section or
+ * Fleet operations. Tier 2 and up.
  */
-export function SiteTimeZone({ siteId, name, current, editable, onSaved }: { siteId: string; name: string; current: string | null; editable: boolean; onSaved: () => void }) {
+export function SiteTimeZone({ siteId, name, current, applies, editable, onSaved }: { siteId: string; name: string; current: string | null;
+  applies?: { zone: string | null; source: string | null } | undefined; editable: boolean; onSaved: () => void }) {
+  const inherited = !current && applies?.zone && applies.source ? { zone: applies.zone, from: ZONE_FROM[applies.source] ?? applies.source } : null;
+  return <TimeZoneEditor id={`tz-${siteId}`} heading={`Time zone at ${name}`} endpoint={`/api/sites/${siteId}/time-zone`} current={current} inherited={inherited}
+    what={`${name}'s cabinets`} editable={editable} onSaved={onSaved} />;
+}
+
+/** One level's time zone (a site's, a client's default or the fleet default), with what applies when it sets none. */
+export function TimeZoneEditor({ id, heading, endpoint, current, inherited, what, editable, onSaved }: { id: string; heading: string; endpoint: string; current: string | null;
+  inherited: { zone: string; from: string } | null; what: string; editable: boolean; onSaved: () => void }) {
   const [zone, setZone] = useState(current ?? "");
   const { run, problem, saved } = useAction();
-  const save = async () => { if (await run(() => api("PUT", `/api/sites/${siteId}/time-zone`, { timeZone: zone || null }))) onSaved(); };
+  const save = async () => { if (await run(() => api("PUT", endpoint, { timeZone: zone || null }))) onSaved(); };
   return (
-    <section className="panel" aria-labelledby={`tz-${siteId}`}>
-      <h2 id={`tz-${siteId}`}>Time zone at {name}</h2>
+    <section className="panel" aria-labelledby={id}>
+      <h2 id={id}>{heading}</h2>
+      {!current && <p className="muted">{inherited ? <>Not set here; {inherited.from} applies: <strong>{zoneName(inherited.zone)}</strong>.</> : `Not set here or above, so no zone is checked for ${what}.`}</p>}
       {editable ? (
         <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void save(); }}>
           <label className="field inline"><span>Time zone</span>
             <select value={zone} onChange={e => setZone(e.target.value)}>
-              <option value="">Not set</option>
-              {Object.entries(ZONE_NAMES).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+              <option value="">{inherited ? `Not set (use ${inherited.from})` : "Not set"}</option>
+              {Object.entries(ZONE_NAMES).map(([z, label]) => <option key={z} value={z}>{label}</option>)}
             </select></label>
           <button className="btn" disabled={zone === (current ?? "")}>Save</button>
           {saved && <span className="ok" role="status">Saved. Cabinets are compared with it at once.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
-        </form>) : <p>{zoneName(current)}</p>}
+        </form>) : current && <p>{zoneName(current)}</p>}
     </section>
   );
 }
@@ -310,6 +332,18 @@ export function WatchedServices({ level, id, name, editable }: { level: "clients
       <h2 id={`${level}-watched`}>Watched services for {name}</h2>
       {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above}
         what={level === "clients" ? `every cabinet of ${name}` : `every cabinet at ${name}`} editable={editable} onSaved={reload} />}
+    </section>
+  );
+}
+
+/** A site's own firewall policy (Admin, with a code), or the client's, else the fleet default, when it has none. */
+export function SiteFirewallPolicy({ siteId, name, editable }: { siteId: string; name: string; editable: boolean }) {
+  const { data, reload } = useLoad<{ own: Policy | null; client: Policy | null; fleet: Policy }>(`/api/sites/${siteId}/firewall-policy`);
+  return (
+    <section className="panel" aria-labelledby={`site-firewall-${siteId}`}>
+      <h2 id={`site-firewall-${siteId}`}>Firewall policy at {name}</h2>
+      {data && <PolicyEditor current={data.own} inherited={data.client ?? data.fleet} inheritedName={data.client ? "the client's policy" : "the fleet default"}
+        endpoint={`/api/sites/${siteId}/firewall-policy`} action="site.firewall_policy" target={siteId} what={name} editable={editable} onSaved={reload} />}
     </section>
   );
 }

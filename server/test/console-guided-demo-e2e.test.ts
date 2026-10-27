@@ -142,7 +142,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
     await page.getByRole("row", { name: /^IPv4/ }).getByText(/inside 172\.20\.1\.0\/24/).waitFor();
-    await page.getByRole("button", { name: "Apply the client's firewall policy" }).click();
+    await page.getByRole("button", { name: "Apply the firewall policy" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText("Off on every profile").waitFor({ timeout: 90_000 }).catch(async e => {
       throw new Error(`${e.message}\nDrawer panel: ${await page.locator('[data-tour="drawer-check"]').innerText()}\nAlerts: ${JSON.stringify(await page.locator("[role=alert]").allTextContents())}`);

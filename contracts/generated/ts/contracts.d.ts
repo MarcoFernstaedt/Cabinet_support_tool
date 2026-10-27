@@ -263,6 +263,33 @@ export interface WatchedServiceStatus {
 export type WatchedServiceNames = string[];
 
 /**
+ * A firewall policy: each Windows firewall profile on or off. Set for the fleet, a client or a site; the most specific level with a policy applies (docs/spec/05-server-spec.md "Site policies").
+ */
+export interface FirewallProfilePolicy {
+  domain: "on" | "off";
+  private: "on" | "off";
+  public: "on" | "off";
+}
+
+/**
+ * A new site's own policies, confirmed with its first approval. A field left out or null means the site sets none and inherits: the client's firewall policy, else the fleet's; the client's time zone, else the fleet's. The network standard is set later from what the site's cabinets report.
+ */
+export interface SitePolicies {
+  firewall?: FirewallProfilePolicy | null;
+  timeZone?:
+    | (
+        | "Eastern Standard Time"
+        | "Central Standard Time"
+        | "Mountain Standard Time"
+        | "US Mountain Standard Time"
+        | "Pacific Standard Time"
+        | "Alaskan Standard Time"
+        | "Hawaiian Standard Time"
+      )
+    | null;
+}
+
+/**
  * What a site's network should look like (set by a Tier 2 or Admin): whether cabinets take their address from DHCP or have fixed ones, the subnet's size, the gateway, and the DNS servers. The diagnosis compares each cabinet with it.
  */
 export interface NetworkBaseline {
@@ -555,7 +582,7 @@ export interface AppControl {
 }
 
 /**
- * GET /api/admin/enrollments/:id/baseline query string: the client and site an approval would use, so the approval can show which approved baseline would apply and offer the ones that could be attached. Reading it changes nothing; the approval checks everything again.
+ * Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.
  */
 export interface ApproveEnrollmentBaseline {
   client: string;
@@ -575,6 +602,7 @@ export interface ApproveEnrollment {
    */
   syncCabinetId?: string;
   scanner?: ClientScannerChoice;
+  sitePolicies?: SitePolicies;
   /**
    * The baseline decision every approval needs (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). inherited: an approved baseline already applies (fleet, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.
    */
@@ -1115,14 +1143,10 @@ export interface EvidenceExport {
 }
 
 /**
- * An Admin sets a client's (or the fleet default) firewall policy: each profile on or off. null for a client removes its own policy, so the fleet default applies.
+ * An Admin sets the fleet default, a client's or a site's firewall policy: each profile on or off. null for a client or site removes its own policy, so the level above applies (site → client → fleet).
  */
 export interface FirewallPolicy {
-  policy: {
-    domain: "on" | "off";
-    private: "on" | "off";
-    public: "on" | "off";
-  } | null;
+  policy: FirewallProfilePolicy | null;
   stepUpToken: string;
 }
 
@@ -1861,7 +1885,7 @@ export interface SiteNetworkBaseline {
 }
 
 /**
- * Sets the Windows time zone a site's cabinets should use (Tier 2 and up), or clears it with null. Cabinets in another zone get a minor alert; nothing changes on a cabinet until someone corrects it.
+ * Sets the Windows time zone for a site (Tier 2 and up), a client's default (Tier 2 and up) or the fleet default (Admin), or clears it with null so the level above applies (site → client → fleet). Cabinets in another zone than the one that applies get a minor alert; nothing changes on a cabinet until someone corrects it.
  */
 export interface SiteTimeZone {
   timeZone:
@@ -1959,6 +1983,7 @@ export interface StepUpRequest {
     | "settings.sync"
     | "client.firewall_policy"
     | "fleet.firewall_policy"
+    | "site.firewall_policy"
     | "site.network_baseline"
     | "runbook.approve"
     | "runbook.reject"

@@ -839,5 +839,18 @@ Choices made in building it (confirm or change):
 - **The server's own callers may leave the decision out** (tests and tools call the service directly); the console route and the command line cannot.
 - **A capture over 5,000 items** is marked failed instead of retried on every upload, and the cabinet says to capture one by hand.
 
-Open, for the next enrollment step (site policies at first approval): which of firewall, network standard and time zone get fleet and client levels, and whether the approval should require them or prefill them.
+Settled for the next enrollment step: see "Site policies at first approval" below.
+
+## Site policies at first approval (2026-10-27)
+
+The owner's decisions (05-server-spec.md "Site policies"):
+- **Firewall and time zone are inherited fleet → client → site.** The firewall policy gained a site level; the time zone gained client and fleet defaults. The network standard stays per site, because gateways and DNS servers differ at every site.
+- **The approval pre-fills, the approver confirms.** Nothing blocks an approval for a missing policy.
+
+Choices made in building it (confirm or change):
+- **Keeping the pre-filled value stores nothing on the site**, so a later change to the client's or fleet's value still reaches it. Only a value the approver changes becomes the site's own.
+- **Who sets what:** a site's firewall policy is an Admin's with an authenticator code, like the client's; a client's default zone is Tier 2's, like a site's zone (no code); the fleet default zone is an Admin's.
+- **Site standards** ("Use this cabinet's settings") now set the site's own firewall policy, not the client's, so adopting one cabinet's settings no longer changes every site of the client.
+- **The network standard is not part of the approval**: a pending cabinet has reported no network, so there is nothing to pre-fill it from. The site page offers it from the first report.
+- The issue type's name "Firewall differs from client policy" is unchanged (Admins may have edited it); its resolution now reads "The firewall matches its policy again."
 

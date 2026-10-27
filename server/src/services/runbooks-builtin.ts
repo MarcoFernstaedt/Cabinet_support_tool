@@ -51,7 +51,7 @@ const timeZone: RunbookBody = { title: "Wrong time zone", links: [], steps: [
 
 const firewallPolicy: RunbookBody = { title: "Firewall differs from client policy", links: [], steps: [
   { title: "See which profiles differ", check: { operation: "firewall.state", params: {} } },
-  { title: "Apply the client's policy", detail: "Sets the three profiles the way the client's policy says. It goes through the safety net and is undone by itself if the cabinet stops reporting.", fix: { operation: "firewall.applyPolicy", params: {}, label: "Apply the client policy" } },
+  { title: "Apply the policy", detail: "Sets the three profiles the way the cabinet's firewall policy says (its site's, else its client's, else the fleet default). It goes through the safety net and is undone by itself if the cabinet stops reporting.", fix: { operation: "firewall.applyPolicy", params: {}, label: "Apply the policy" } },
   { title: "Check it held", detail: "The alert closes by itself once the cabinet reports the profiles matching. If it differs again, something on the cabinet is changing it: check Group Policy and who has access." },
 ] };
 

@@ -11,6 +11,7 @@ import { issueFromConsole, type Role } from "../services/console-commands.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { scannerIdsFor } from "../services/fleet.js";
 import { scannerUsedFor } from "../services/client-scanner.js";
+import { SITE_ZONE_SQL } from "../services/time.js";
 import { fixesForFindings, type KnownFixView } from "../services/known-fixes.js";
 import { effectiveRunbook, runbookSummaries } from "../services/runbooks.js";
 import { issueResolutions } from "../services/resolutions.js";
@@ -95,7 +96,7 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   } else net = { failure: "the network checks could not start" };
 
   const k = (await pool.query<{ name: string; role: string; zone: string | null }>(
-    "SELECT k.name, k.role, s.time_zone AS zone FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0];
+    `SELECT k.name, k.role, ${SITE_ZONE_SQL} AS zone FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) throw new Error("the cabinet is gone");
   const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, now: Date.now(),
     scannerUsed: issued.some(i => i.key === "peripheral") };

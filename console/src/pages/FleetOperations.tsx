@@ -19,7 +19,7 @@ type Operation = "time.setZone" | "time.sync" | "firewall.applyPolicy";
 const OPERATIONS: [Operation, string, string][] = [
   ["time.setZone", "Set each cabinet to its site's time zone", "Each cabinet gets its own site's zone; cabinets already in it, or whose site has none set, are skipped."],
   ["time.sync", "Sync clocks", "Windows Time synchronizes with its configured source; the source is not changed."],
-  ["firewall.applyPolicy", "Apply the firewall policy", "Each cabinet gets its client's firewall policy; cabinets that already match are skipped. The safety net applies."],
+  ["firewall.applyPolicy", "Apply the firewall policy", "Each cabinet gets the firewall policy that applies to it (its site's, else its client's, else the fleet default); cabinets that already match are skipped. The safety net applies."],
 ];
 /** Network fixes come from a network diagnosis (they need its findings), so they are started from its page; they are named here for the job page. */
 const JOB_NAMES: Record<string, string> = { "network.setDns": "Set the DNS servers", "network.setIp": "Fix the address settings", "network.renewLease": "Renew the DHCP lease" };
@@ -155,7 +155,7 @@ export function FleetOperations() {
             <tbody>{previewPaged.rows.map(c => (
               <tr key={c.id}><th scope="row">{c.name}</th><td>{c.ipv4 ?? "—"}</td>
                 <td>{c.skip ? <><Badge tone="off">Skipped</Badge> {c.skip}</> : preview.operation === "time.setZone"
-                  ? <>Set to {zone((c.params as { timeZoneId: string }).timeZoneId)}</> : preview.operation === "time.sync" ? "Sync the clock" : "Apply its client's policy"}</td></tr>))}
+                  ? <>Set to {zone((c.params as { timeZoneId: string }).timeZoneId)}</> : preview.operation === "time.sync" ? "Sync the clock" : "Apply its firewall policy"}</td></tr>))}
             </tbody>
           </table></div>
           <Pager {...previewPaged} label="preview cabinets" />

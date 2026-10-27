@@ -1,11 +1,11 @@
 // What a site's standards could be, worked out from what its cabinets already report, so onboarding is "use what this cabinet has"
 // instead of typing it all in. This only suggests; nothing is saved here. Saving goes through the same step-up routes as any other
-// edit (site.network_baseline, site time zone, client firewall policy).
+// edit (site.network_baseline, site time zone, site firewall policy).
 import { type Queryable } from "../db/db.js";
 import type { NetworkBaseline } from "../diagnose/network-findings.js";
-import { fleetPolicy, type FirewallPolicy } from "./firewall-policy.js";
+import { sitePolicy } from "./firewall-policy.js";
 import { parseJson } from "./settings.js";
-import { TIME_ZONES } from "./time.js";
+import { siteTimeZone, TIME_ZONES } from "./time.js";
 
 interface Adapter { connected: boolean; type: string; ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { servers: string[] } }
 
@@ -31,9 +31,11 @@ const mostCommon = <T,>(items: T[], key: (t: T) => string): T | null => {
 };
 
 export async function siteStandards(db: Queryable, siteId: string) {
-  const site = (await db.query<{ client_id: string; time_zone: string | null; network_baseline: NetworkBaseline | null; client_policy: string | null }>(
-    `SELECT s.client_id, s.time_zone, s.network_baseline, c.firewall_policy AS client_policy FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1 AND s.removed_at IS NULL`, [siteId])).rows[0];
+  const site = (await db.query<{ client_id: string; time_zone: string | null; network_baseline: NetworkBaseline | null }>(
+    `SELECT s.client_id, s.time_zone, s.network_baseline FROM sites s WHERE s.id = $1 AND s.removed_at IS NULL`, [siteId])).rows[0];
   if (!site) return null;
+  const firewall = await sitePolicy(db, siteId);
+  const zone_ = await siteTimeZone(db, siteId);
   const cabs = (await db.query<{ id: string; name: string; time_zone_id: string | null; firewall_profiles: { domain: boolean; private: boolean; public: boolean } | null }>(
     "SELECT id, name, time_zone_id, firewall_profiles FROM cabinets WHERE site_id = $1 AND status <> 'removed' ORDER BY name", [siteId])).rows;
   // The newest finished diagnosis of each cabinet (the adapters are cut out of the readings as JSON text).
@@ -49,9 +51,10 @@ export async function siteStandards(db: Queryable, siteId: string) {
   const zone = mostCommon(cabs.filter(c => c.time_zone_id && (TIME_ZONES as readonly string[]).includes(c.time_zone_id)), c => c.time_zone_id!);
   const profiles = mostCommon(cabs.filter(c => c.firewall_profiles), c => JSON.stringify(c.firewall_profiles));
   const onOff = (b: boolean) => (b ? "on" : "off") as "on" | "off";
-  const own = parseJson<FirewallPolicy>(site.client_policy);
   return {
-    current: { networkBaseline: site.network_baseline, timeZone: site.time_zone, clientFirewall: own, fleetFirewall: await fleetPolicy(db) },
+    // What the site sets itself, and what it follows when it sets nothing (its client's, else the fleet's).
+    current: { networkBaseline: site.network_baseline, timeZone: site.time_zone, inheritedTimeZone: site.time_zone ? null : zone_.zone,
+      siteFirewall: firewall.own, inheritedFirewall: firewall.client ?? firewall.fleet, inheritedFirewallFrom: firewall.client ? "client" as const : "fleet" as const },
     clientId: site.client_id,
     suggested: {
       networkBaseline: read[0] ? { baseline: read[0].baseline!, fromCabinet: { id: read[0].r.cabinet_id, name: read[0].r.name }, readAt: read[0].r.finished_at.toISOString() } : null,

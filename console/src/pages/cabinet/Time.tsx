@@ -41,7 +41,7 @@ export function Time({ cabinet }: { cabinet: CabinetDetail }) {
       {f && (<>
         <KeyValues rows={[
           ["Cabinet's time zone", <>{zoneName(f.timeZoneId)} {f.zoneWrong && <Badge tone="warn">Not the site's zone</Badge>}</>],
-          ["Site's time zone", f.siteTimeZone ? zoneName(f.siteTimeZone) : <>Not set. <Link to={`/sites/${cabinet.site.id}`}>Set it on the site</Link> so wrong zones are found.</>],
+          ["Zone it should use", f.siteTimeZone ? zoneName(f.siteTimeZone) : <>Not set for the site, its client or the fleet. <Link to={`/sites/${cabinet.site.id}`}>Set it on the site</Link> so wrong zones are found.</>],
           ["Clock", <>{skewText(f.clockSkewSeconds)} {f.clockOff && <Badge tone="warn">More than 2 minutes off</Badge>}</>],
           ["Reported", f.reportedAt ? `In the heartbeat at ${fullTime(f.reportedAt)}` : "Not yet"],
         ]} />

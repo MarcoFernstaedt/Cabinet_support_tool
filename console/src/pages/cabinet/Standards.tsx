@@ -7,13 +7,13 @@ import { atLeast, useSession } from "../../lib/session";
 import { Badge } from "../../components/ui";
 import { describePolicy, type Policy } from "../../components/FirewallPolicy";
 import { ScannerIdsEditor } from "../../components/DeviceSettings";
-import { ClientFirewallPolicy, SiteNetwork, SiteTimeZone, WatchedServices, type SiteDetail } from "../Fleet";
+import { SiteFirewallPolicy, SiteNetwork, SiteTimeZone, WatchedServices, type SiteDetail } from "../Fleet";
 import { CabinetSyncLine, SiteSync } from "../../components/SyncCabinets";
 import { zoneName, type CabinetTime } from "./Time";
 import { Link } from "../../lib/router";
 import type { CabinetDetail } from "./CabinetPage";
 
-interface CabinetPolicy { policy: Policy; source: "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
+interface CabinetPolicy { policy: Policy; source: "site" | "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
 interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; effective: string[]; source: string }
 interface Reading { adapters: { connected: boolean; ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { servers: string[] } }[] }
 type State = "matches" | "differs" | "unknown" | "unset";
@@ -46,7 +46,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       <p>Windows Firewall profiles on this cabinet are meant to be: <strong>{describePolicy(fw.data.policy)}</strong> ({SOURCE[fw.data.source]!.toLowerCase()}).</p>
       {fw.data.reported && <p>It reports: <strong>{profiles(fw.data.reported)}</strong>.</p>}
       <p className="muted small">Editing the policy changes no cabinet; apply it from the Firewall tab or from a diagnosis. Requires an authenticator code.</p>
-      <ClientFirewallPolicy clientId={cabinet.client.id} name={cabinet.client.name} editable={atLeast(me, "admin")} />
+      <SiteFirewallPolicy siteId={cabinet.site.id} name={cabinet.site.name} editable={atLeast(me, "admin")} />
       <p><Link to={`/cabinets/${cabinet.id}/firewall`}>Open this cabinet's firewall</Link></p></>,
   });
   if (s) {
@@ -66,9 +66,9 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     });
     const zone = time.data;
     lines.push({
-      key: "timezone", label: "Time zone", source: s.timeZone ? SOURCE.site! : SOURCE.none!, standard: s.timeZone ? zoneName(s.timeZone) : "Not set",
-      actual: zone ? zoneName(zone.timeZoneId) : "Not reported yet", state: !s.timeZone ? "unset" : !zone ? "unknown" : zone.zoneWrong ? "differs" : "matches",
-      detail: <><SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
+      key: "timezone", label: "Time zone", source: SOURCE[s.timeZoneApplies?.source ?? "none"]!, standard: s.timeZoneApplies?.zone ? zoneName(s.timeZoneApplies.zone) : "Not set",
+      actual: zone ? zoneName(zone.timeZoneId) : "Not reported yet", state: !s.timeZoneApplies?.zone ? "unset" : !zone ? "unknown" : zone.zoneWrong ? "differs" : "matches",
+      detail: <><SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} applies={s.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/time`}>Open this cabinet's time</Link></p></>,
     });
     const sync = cabinet.sync;
