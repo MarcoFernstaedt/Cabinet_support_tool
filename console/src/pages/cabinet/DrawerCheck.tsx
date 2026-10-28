@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { FirewallProfileState, FirewallStateOutput, NetworkConfigOutput, NetworkSetIpOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../../lib/commands";
-import { analyseDrawer, drawerAddressParams, drawerText, needsDrawerAddress, DRAWER_NETWORK, DRAWER_PREFIX, type DrawerAnalysis } from "../../lib/drawer";
+import { analyseDrawer, drawerAddressParams, drawerText, needsDrawerAddress, DRAWER_ADDRESS, DRAWER_PREFIX, type DrawerAnalysis } from "../../lib/drawer";
 import type { AdapterReading } from "../../components/NetworkReadings";
 import { Badge, SAFETY_NET_NOTE } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
@@ -46,7 +46,6 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
   const canPolicy = useCanWrite(cabinet, "firewall.applyPolicy");
   const address = useConfirmedWrite<NetworkSetIpOutput>(cabinet, "network.setIp", r => { if (r.status === "succeeded") changed(); });
   const canAddress = useCanWrite(cabinet, "network.setIp");
-  const [octet, setOctet] = useState("");
   const a = result?.analysis ?? null;
   const copy = async () => { if (!a) return; try { await navigator.clipboard.writeText(drawerText(cabinet.name, a)); setCopied(true); } catch { setCopied(false); } };
 
@@ -54,7 +53,7 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
     <section className="panel" aria-labelledby="drawer-heading" data-tour="drawer-check">
       <div className="row gap wrap spread">
         <h2 id="drawer-heading">Drawer</h2>
-        <span className="muted small">Expected network {DRAWER_NETWORK.address}/{DRAWER_NETWORK.prefixLength}, mask 255.255.255.255 (/{DRAWER_PREFIX})</span>
+        <span className="muted small">Expected address {DRAWER_ADDRESS}/{DRAWER_PREFIX} (mask 255.255.255.255), static, no gateway</span>
         <button className="btn" disabled={state === "running"} onClick={() => void go()}>{state === "running" ? step : "Check drawer"}</button>
       </div>
       {problem && <p className="notice crit" role="alert">{problem}</p>}
@@ -78,14 +77,12 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
         {canAddress && needsDrawerAddress(a) && a.adapter && (
           <form className="row gap wrap" aria-label="Set the drawer address" data-tour="drawer-address" onSubmit={e => {
             e.preventDefault();
-            const params = drawerAddressParams(a.adapter!.interfaceIndex, octet.trim());
-            if (params) address.ask(params, <>
-              <p>Give <strong>{a.adapter!.name}</strong> the fixed address <strong>{params.address}/{params.prefixLength}</strong> with no gateway, as the drawer network needs.</p>
+            const params = drawerAddressParams(a.adapter!.interfaceIndex);
+            address.ask(params, <>
+              <p>Give <strong>{a.adapter!.name}</strong> the drawer address <strong>{params.address}/{params.prefixLength}</strong> (mask 255.255.255.255) with no gateway, as on every cabinet.</p>
               <p className="muted small">{SAFETY_NET_NOTE}</p></>);
           }}>
-            <label className="field inline"><span>Drawer link address</span>
-              <span className="row gap"><code>{DRAWER_NETWORK.address.split(".").slice(0, 3).join(".")}.</code><input required inputMode="numeric" size={3} aria-label="Last number of the address" value={octet} onChange={e => setOctet(e.target.value.replace(/\D/g, ""))} /></span></label>
-            <button className="btn" type="submit" disabled={drawerAddressParams(a.adapter.interfaceIndex, octet.trim()) === null || address.run.state === "running"}>Set the drawer address</button>
+            <button className="btn" type="submit" disabled={address.run.state === "running"}>Set the drawer address ({DRAWER_ADDRESS})</button>
           </form>)}
         {address.run.state === "done" && address.run.result?.status !== "succeeded" && <p className="notice crit" role="alert">The cabinet could not set the address{address.run.result?.error ? `: ${address.run.result.error.message}` : ""}.</p>}
         {write.outcome}{write.dialog}{policy.dialog}{address.dialog}

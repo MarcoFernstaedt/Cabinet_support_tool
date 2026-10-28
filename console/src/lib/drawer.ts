@@ -7,6 +7,11 @@ import type { AdapterReading } from "../components/NetworkReadings";
 export const DRAWER_NETWORK = { address: "172.20.1.0", prefixLength: 24 };
 /** The mask the cabinets' drawer adapters use: 255.255.255.255, a single-address link (the owner's answer, 2026-10-28). */
 export const DRAWER_PREFIX = 32;
+/**
+ * The drawer adapter's own address, the same on every cabinet: each drawer is on its own spoofed Ethernet link, so they never meet
+ * (the owner's answer, 2026-10-28). Mirrored in server/src/diagnose/network-findings.ts.
+ */
+export const DRAWER_ADDRESS = "172.20.1.0";
 
 export interface FirewallProfileReading { profile: string; enabled: boolean }
 export type Tone = "ok" | "warn" | "crit" | "info";
@@ -70,8 +75,9 @@ export function analyseDrawer(first: AdapterReading[], second: AdapterReading[] 
   else {
     const mine = v4.find(x => inDrawerNetwork(x.address));
     if (!mine) add("ip", "crit", "IPv4", `${v4.map(x => `${x.address}/${x.prefixLength}`).join(", ")} is not in the drawer network ${net}.`);
+    else if (mine.address !== DRAWER_ADDRESS) add("ip", "warn", "IPv4", `${mine.address}/${mine.prefixLength}: every drawer adapter uses ${DRAWER_ADDRESS}/${DRAWER_PREFIX}.`);
     else if (mine.prefixLength !== DRAWER_PREFIX) add("ip", "warn", "IPv4", `${mine.address}/${mine.prefixLength}: drawer adapters use the mask 255.255.255.255 (/${DRAWER_PREFIX}).`);
-    else add("ip", "ok", "IPv4", `${mine.address}/${mine.prefixLength}, inside ${net}, mask 255.255.255.255.`);
+    else add("ip", "ok", "IPv4", `${mine.address}/${mine.prefixLength}, the drawer address, mask 255.255.255.255.`);
   }
   add("mode", a.ipv4.dhcp ? "warn" : "ok", "Addressing", a.ipv4.dhcp ? "DHCP. The drawer address is fixed; switch the adapter to a static address." : "Static.");
   add("gateway", a.ipv4.gateways.length ? "warn" : "ok", "Gateway", a.ipv4.gateways.length ? `${a.ipv4.gateways.join(", ")}. The drawer link has no router; a gateway here can pull traffic onto the wrong adapter.` : "None, as it should be.");
@@ -110,16 +116,9 @@ export function analyseDrawer(first: AdapterReading[], second: AdapterReading[] 
 export const needsDrawerAddress = (a: DrawerAnalysis): boolean =>
   a.adapter !== null && a.lines.some(l => (l.id === "ip" || l.id === "mode" || l.id === "gateway") && l.tone !== "ok");
 
-/**
- * The network.setIp parameters that give the drawer link a fixed address in the drawer network with the drawer mask (/32) and no
- * gateway, or null when the last number is not 0 to 254 (with a /32 mask every one of them is a usable address).
- */
-export function drawerAddressParams(interfaceIndex: number, lastNumber: string, net = DRAWER_NETWORK): { interfaceIndex: number; mode: "static"; address: string; prefixLength: number } | null {
-  if (lastNumber === "" || lastNumber.length > 3 || ![...lastNumber].every(c => c >= "0" && c <= "9")) return null;
-  const n = Number(lastNumber);
-  if (n > 254) return null;
-  const base = net.address.split(".").slice(0, 3).join(".");
-  return { interfaceIndex, mode: "static", address: `${base}.${n}`, prefixLength: DRAWER_PREFIX };
+/** The network.setIp parameters that give the drawer link the drawer address, 172.20.1.0/32, with no gateway. Nothing is typed. */
+export function drawerAddressParams(interfaceIndex: number): { interfaceIndex: number; mode: "static"; address: string; prefixLength: number } {
+  return { interfaceIndex, mode: "static", address: DRAWER_ADDRESS, prefixLength: DRAWER_PREFIX };
 }
 
 /** The result as plain text for a ticket. */
