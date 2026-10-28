@@ -67,8 +67,9 @@ function fakeAgent(ids: Record<string, string>, fail: string[] = []) {
   return { seen, stop: async () => { stop = true; await loop; } };
 }
 
-async function run(ids: Record<string, string>, order: string[], batchSize: number, fail: string[] = [], beforeRun?: (jobId: string) => Promise<void>) {
-  const cabinetIds = order.map(n => ids[n]!);
+async function run(ids: Record<string, string>, order: string[], batchSize: number, fail: string[] = [], beforeRun?: (jobId: string) => Promise<void>, chosen?: string[]) {
+  // The fake agent answers for `ids`; the job covers `chosen` when given (a cabinet that never answers, such as an offline one, is in the job only).
+  const cabinetIds = chosen ?? order.map(n => ids[n]!);
   const jobId = randomUUID();
   const token = await issueStepUpToken(db.app, adminId, "fleet.job", jobId, paramsHash({ operation: "firewall.applyPolicy", cabinetIds, batchSize }));
   await startJob(db.app, { userId: adminId, role: "admin" }, { jobId, operation: "firewall.applyPolicy", cabinetIds, batchSize, stepUpToken: token });
@@ -132,4 +133,16 @@ test("the reason names whole satellites and stays within its 300 characters", ()
   assert.ok(text.length <= 300, String(text.length));
   assert.match(text, new RegExp(`\\(${"A".repeat(100)} and 2 more\\)`));
   assert.match(doubtReason(["X".repeat(200)]), /\(1 more\)/);
+});
+
+test("a satellite skipped before its turn (offline) does not hold the sync cabinet back", async () => {
+  const ids = await site("Skipped Health", [["SAT A", "satellite"], ["SAT OFF", "satellite"], ["SYNC", "sync"]]);
+  // Offline: the plan skips it, so it is never changed and says nothing about the change.
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -2, SYSUTCDATETIME()) WHERE id = $1", [ids["SAT OFF"]]);
+  const agent = { ...ids };
+  delete agent["SAT OFF"];
+  const { seen, result } = await run(agent, [], 1, [], undefined, ["SAT A", "SAT OFF", "SYNC"].map(n => ids[n]!));
+  assert.deepEqual(seen, ["SAT A", "SYNC"]);
+  assert.equal(stateOf(result, "SAT OFF").state, "skipped");
+  assert.equal(stateOf(result, "SYNC").state, "verified");
 });

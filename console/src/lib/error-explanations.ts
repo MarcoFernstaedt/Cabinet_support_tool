@@ -207,6 +207,61 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "Another program is already approved under this name, and approving the scanner's service would replace it.",
     fix: "Remove or rename that entry on the approved list, or check the scanner's service key name.",
   },
+  control_entry_not_approved: {
+    title: "Service not on the approved list",
+    detail: "Only a service on this cabinet's approved-programs list can be started, stopped or restarted from the console.",
+    fix: "Ask an Admin to add the service to the approved programs for this cabinet, its site or its client.",
+  },
+  control_process_not_approved: {
+    title: "Program not on the approved list",
+    detail: "The cabinet reports a program under that process ID that is not on its approved-programs list, so it cannot be ended.",
+    fix: "Refresh the process list and check the program; ask an Admin to approve it if it should be controllable.",
+  },
+  control_process_unreported: {
+    title: "Process not found",
+    detail: "The cabinet's latest process list has no process with that ID and name; it may have ended or restarted.",
+    fix: "Refresh the process list and try again.",
+  },
+  control_process_no_reading: {
+    title: "No process list yet",
+    detail: "This cabinet has never reported its processes, so the process cannot be checked against its approved list.",
+    fix: "Open the Processes tab to read the list first, then try again.",
+  },
+  signing_off: {
+    title: "List signing is not set up",
+    detail: "No list-signing key is configured on this server, so approved-program lists are not signed.",
+    fix: "Ask the server administrator to set up the list-signing keys; until then, lists take effect without a signature.",
+  },
+  conflict: {
+    title: "Not waiting for a signature",
+    detail: "That version of the list is not the one waiting for a signature; it may have been signed or replaced already.",
+    fix: "Reload the page and sign the version it shows as waiting.",
+  },
+  architecture_mismatch: {
+    title: "Wrong architecture",
+    detail: "The package's programs are built for a different Windows architecture than the one chosen for this release.",
+    fix: "Choose the architecture the package was built for, or upload the package built for this one.",
+  },
+  package_architecture_unknown: {
+    title: "Architecture cannot be read",
+    detail: "The package's programs could not be read to tell whether they are 64-bit or 32-bit.",
+    fix: "Rebuild the release package with agent/install/New-AgentRelease.ps1 and upload it again.",
+  },
+  package_not_a_release: {
+    title: "Not a release package",
+    detail: "The upload is missing programs the updater installs; an installer bundle installs a cabinet but cannot be used to update one.",
+    fix: "Build the release package with agent/install/New-AgentRelease.ps1 and upload that.",
+  },
+  setup_incomplete: {
+    title: "Server setup incomplete",
+    detail: "This server's settings cannot produce an installer yet (for example, no agent host or port is set).",
+    fix: "Ask the server administrator to finish the agent setup settings, then try again.",
+  },
+  bad_request: {
+    title: "Not a supported architecture",
+    detail: "The installer can be made for windows-x64 or windows-x86 only.",
+    fix: "Choose one of the two and try again.",
+  },
   not_a_sync_cabinet: {
     title: "Not a sync cabinet",
     detail: "Only an active sync cabinet has an address its satellites reach.",

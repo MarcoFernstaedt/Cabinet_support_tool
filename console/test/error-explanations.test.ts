@@ -6,6 +6,9 @@
 // and holds the fallback to never inventing a cause.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PLATFORM_CODES, explainFailure, formatExplanation, normaliseFailure } from "../src/lib/error-explanations.ts";
 
 /** Every refusal code the server can send, straight from the grep in the task. */
@@ -16,7 +19,7 @@ const DISCOVERED_CODES = [
   "invalid_address", "invalid_code", "invalid_json", "invalid_manifest", "invalid_output", "invalid_params",
   "invalid_ports", "choose_sync_cabinet", "invalid_sync_cabinet", "not_a_satellite", "not_a_sync_cabinet", "scanner_for_existing_client", "approved_key_in_use", "sync_not_allowed",
   "invalid_request", "invalid_result", "invalid_runbook", "invalid_window", "job_exists", "last_admin",
-  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
+  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "control_entry_not_approved", "control_process_not_approved", "control_process_unreported", "control_process_no_reading", "signing_off", "conflict", "architecture_mismatch", "package_architecture_unknown", "package_not_a_release", "setup_incomplete", "bad_request", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
   "not_approved", "not_awaiting_package", "not_deleted", "not_found", "not_live", "not_paused", "not_pending",
   "not_searchable", "not_uploading", "not_yours", "not_yourself", "one_site_only", "own_proposal",
   "package_not_approved", "pilot_not_eligible", "query_timeout", "query_too_slow", "rate_limited",
@@ -220,4 +223,26 @@ test("an explanation sends people to the role that can actually do it", () => {
   assert.match(explainFailure({ code: "totp_required", message: "" }).fix, /ask an Admin to reset it/);
   // already_claimed is only ever an alert someone else claimed (server/src/services/alerts.ts), never a cabinet.
   assert.match(explainFailure({ code: "already_claimed", message: "" }).detail, /claimed this alert/);
+});
+
+test("every refusal code in the server's source has an explanation, so a new one cannot reach the console unexplained", () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "server", "src");
+  const found = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".ts")) {
+        // Plain text search for the literal `new Refused("code"`: no pattern matching of input, just the source's own literals.
+        const text = readFileSync(p, "utf8");
+        for (let i = text.indexOf('new Refused("'); i >= 0; i = text.indexOf('new Refused("', i + 1)) {
+          const start = i + 'new Refused("'.length;
+          found.add(text.slice(start, text.indexOf('"', start)));
+        }
+      }
+    }
+  };
+  walk(root);
+  assert.ok(found.size > 50, `read ${found.size} codes from ${root}`);
+  assert.deepEqual([...found].filter(code => !PLATFORM_CODES.includes(code)).sort(), []);
 });
