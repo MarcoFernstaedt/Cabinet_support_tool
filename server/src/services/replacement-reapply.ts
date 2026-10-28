@@ -5,7 +5,7 @@
 // The approval queues one re-apply. Once the new cabinet has reported, the server plans the steps:
 //   - firewall: the policy that applies to the new cabinet (its site's, else its client's, else the fleet's);
 //   - time zone: the zone that applies to its site, else the zone the old cabinet reported;
-//   - drawer: the address the old cabinet's drawer adapter had (172.20.1.x, with its prefix), on the new cabinet's drawer adapter;
+//   - drawer: the standard drawer address, 172.20.1.0/32, on the new cabinet's drawer adapter, when the old cabinet had a drawer;
 //   - DNS and address: the fixed DNS servers and the fixed address, prefix and gateway of the old cabinet's network adapter, when it
 //     had them (a cabinet on DHCP stays on DHCP), on the new cabinet's network adapter. The address goes last: it is the change most
 //     likely to cut the cabinet off, and the agent's safety net undoes it if the cabinet loses contact.
@@ -14,7 +14,7 @@
 // adapter, no drawer adapter, nothing reported) is skipped with the reason, never guessed. Nothing here runs a command of its own kind.
 import { operations } from "../contracts.js";
 import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
-import { isDrawerAddress } from "../diagnose/network-findings.js";
+import { DRAWER_ADDRESS, isDrawerAddress } from "../diagnose/network-findings.js";
 import { issueCommand } from "./commands.js";
 import { currentItems } from "./config-ingest.js";
 import type { Item } from "./config-canonical.js";
@@ -88,9 +88,10 @@ export function planNetwork(old: readonly OldAdapter[], now: readonly NewAdapter
   const drawer = newDrawerAdapter(now);
   if (oldDrawer.length !== 1) step("drawer", "network.setIp", null, oldDrawer.length === 0 ? "The old cabinet reported no drawer address." : "The old cabinet reported more than one drawer address.");
   else if (!drawer) step("drawer", "network.setIp", null, "No single drawer adapter on the new cabinet (an Ethernet adapter on an unidentified network).");
-  else if (drawer.ipv4.addresses.some(x => x.address === oldDrawer[0]!.address && x.prefixLength === oldDrawer[0]!.prefixLength) && drawer.ipv4.gateways.length === 0)
-    step("drawer", "network.setIp", null, `Already set: ${oldDrawer[0]!.address}/${oldDrawer[0]!.prefixLength}.`);
-  else step("drawer", "network.setIp", { interfaceIndex: drawer.interfaceIndex, mode: "static", address: oldDrawer[0]!.address, prefixLength: oldDrawer[0]!.prefixLength }, null);
+  // The drawer address is the standard one on every cabinet, whatever the old cabinet had: its drawer only says there is one.
+  else if (drawer.ipv4.addresses.some(x => x.address === DRAWER_ADDRESS.address && x.prefixLength === DRAWER_ADDRESS.prefixLength) && drawer.ipv4.gateways.length === 0)
+    step("drawer", "network.setIp", null, `Already set: ${DRAWER_ADDRESS.address}/${DRAWER_ADDRESS.prefixLength}.`);
+  else step("drawer", "network.setIp", { interfaceIndex: drawer.interfaceIndex, mode: "static", address: DRAWER_ADDRESS.address, prefixLength: DRAWER_ADDRESS.prefixLength }, null);
 
   // DNS and the address of the network adapter: only what the old cabinet had fixed.
   const was = networkAdapter(old);

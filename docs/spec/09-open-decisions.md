@@ -502,7 +502,7 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 - **Shutdown is Admin-only** because a shut-down cabinet stays off until someone switches it on. The server checks this; the agent has no notion of roles.
 - `network.setIp` accepts a static address **without a gateway** (a link with no router, such as the drawer's). With no gateway the agent clears any gateway left from before; Windows may refuse the empty list on some builds, in which case the address is still set.
 - `network.renewLease` accepts `release: true`: give the lease back, then ask for a new one.
-- The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: a fixed `172.20.1.n` with the mask 255.255.255.255 (/32) and no gateway, the last number typed by the person (0 to 254).
+- The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: the standard drawer address `172.20.1.0` with the mask 255.255.255.255 (/32), static, no gateway; nothing is typed.
 - Scheduled-task last and next run times and logon times are empty in this version (Windows needs per-task calls for them).
 
 **Open question for the owner:** whether Fast Startup should be changeable at Tier 1 as built, or Tier 2 like the other settings that survive a restart.
@@ -867,7 +867,7 @@ Choices made in building it (confirm or change):
 - **Alerts are resolved, not moved.** The new cabinet starts clean; the old alerts stay on the old cabinet's page.
 
 Answered (2026-10-28):
-- **The drawer address.** The whole fleet's drawers are on 172.20.1.0, and the drawer adapters use the mask **255.255.255.255**. The drawer check now expects /32 (it warned on every /32 adapter before), and **Set the drawer address** writes /32. The re-apply copies the old cabinet's drawer address and mask exactly, so it is right whether every cabinet uses the same drawer-adapter address or each its own.
+- **The drawer address.** The whole fleet's drawers are on 172.20.1.0, and the drawer adapters use the mask **255.255.255.255**. The drawer check now expects /32 (it warned on every /32 adapter before), and **Set the drawer address** writes /32. The re-apply puts the standard drawer address on the new cabinet (below).
 - **The server originating commands.** Approved: 01-architecture.md now reads "no command without a person's approval"; the re-apply's commands are issued in the approving Admin's name.
 
 Choices made in the re-apply (confirm or change):
@@ -877,7 +877,7 @@ Choices made in the re-apply (confirm or change):
 - **It waits for the new cabinet's first report** however long that takes; it does not expire.
 
 Open:
-- **One exact drawer-adapter address as a standard.** If every cabinet's drawer adapter has the very same address (for example 172.20.1.0/32), the platform could hold it and the drawer check could flag any other. Today it accepts any address in 172.20.1.0/24 with the /32 mask.
+- **One exact drawer-adapter address (answered 2026-10-28).** Every cabinet's drawer is on a spoofed Ethernet cable, listed under adapters as Ethernet with the static address **172.20.1.0**, mask 255.255.255.255. That is now the standard: the drawer check flags any other address in 172.20.1.x and the wrong mask; Set the drawer address sets exactly it; the replacement re-apply sets it; the demo uses it. Any 172.20.1.x address still marks an adapter as the drawer link, so a wrong one is found and fixed rather than missed.
 
 ## Sync cabinets in bulk jobs (2026-10-28)
 

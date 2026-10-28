@@ -48,6 +48,8 @@ const onOff = (p: Profiles) => PROFILE_NAMES.map(k => `${k[0]!.toUpperCase()}${k
 const differs = (want: Profiles, have: Profiles) => PROFILE_NAMES.some(k => want[k] !== have[k]);
 /** An address on the drawer link: in 172.20.1.0/24 (the same network as console/src/lib/drawer.ts). */
 export const isDrawerAddress = (address: string) => address.startsWith("172.20.1.");
+/** The drawer adapter's own address and mask, the same on every cabinet (the owner's answer, 2026-10-28; console/src/lib/drawer.ts). */
+export const DRAWER_ADDRESS = { address: "172.20.1.0", prefixLength: 32 } as const;
 /** The drawer link: an adapter with an address on it. */
 const isDrawerLink = (a: { ipv4: { addresses: { address: string }[] } }) => a.ipv4.addresses.some(x => isDrawerAddress(x.address));
 const isApipa = (a: string) => a.startsWith("169.254.");

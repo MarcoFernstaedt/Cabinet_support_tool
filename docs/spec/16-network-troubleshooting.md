@@ -124,11 +124,11 @@ What a technician can change from the Network section, by role: Tier 1 renews a 
 Some cabinets connect their drawers through the monitor over a spoofed Ethernet link. Windows lists it as an Ethernet adapter on an "Unidentified network" with a fixed address and no gateway. The Network tab has a **Drawer** panel (`console/src/pages/cabinet/DrawerCheck.tsx`, logic in `console/src/lib/drawer.ts`, covered by `console/test/drawer.test.ts`):
 
 - Finds the drawer adapter: an Ethernet adapter with an address in the drawer network, else one on an unidentified network. Wi-Fi is never chosen. If none is found, the panel says so and points at the cable and Devices and drivers.
-- Checks status (link, disabled), IPv4 (inside the drawer network, mask 255.255.255.255, static, no gateway) and packet counters. `network.config` is read twice, five seconds apart, so the panel reports traffic and new errors or drops in that window, not just totals since boot.
+- Checks status (link, disabled), IPv4 (exactly 172.20.1.0, mask 255.255.255.255, static, no gateway; another 172.20.1.x address is flagged) and packet counters. `network.config` is read twice, five seconds apart, so the panel reports traffic and new errors or drops in that window, not just totals since boot.
 - Reads the firewall state and shows each profile that is on, with the ordinary **Turn off…** control (`firewall.setProfile`, the same confirmation and safety net as the Firewall tab). The drawer network is unidentified, which Windows treats as Public.
 - Copy as text for the ticket.
 
-The drawer network is `172.20.1.0/24` and drawer adapters use the mask 255.255.255.255 (`DRAWER_PREFIX`, /32; the owner's answer of 2026-10-28), fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has. Open question in 09-open-decisions.md: whether the address should be a platform setting.
+Every drawer adapter has the address `172.20.1.0` with the mask 255.255.255.255 (`DRAWER_ADDRESS`, `DRAWER_PREFIX`; the owner's answers of 2026-10-28). Any address in `172.20.1.0/24` marks the drawer link, fixed in `drawer.ts` (`DRAWER_NETWORK`) and mirrored in `server/src/diagnose/network-findings.ts` so a network diagnosis does not judge the drawer link against the site's baseline or gateway. No new agent operation is involved; it uses reads the agent already has.
 
 ## USB ports
 

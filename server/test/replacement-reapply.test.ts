@@ -122,6 +122,11 @@ test("the plan puts the drawer address, the fixed DNS and the fixed address on t
   assert.deepEqual(p[2]!.params, { interfaceIndex: 4, mode: "static", address: "10.30.0.40", prefixLength: 24, gateway: "10.30.0.1" });
 });
 
+test("the drawer gets the standard address even when the old cabinet had another one", () => {
+  const odd = asOld(OLD_NETWORK.map(a => a.interfaceIndex === 9 ? { ...a, addresses: ["172.20.1.12/24"] } : a));
+  assert.deepEqual(planNetwork(odd, freshMachine().adapters)[0]!.params, { interfaceIndex: 12, mode: "static", address: "172.20.1.0", prefixLength: 32 });
+});
+
 test("the plan skips, with the reason, what it cannot place safely", () => {
   const dhcp = asOld(OLD_NETWORK.map(a => ({ ...a, dhcp: true, dnsAutomatic: true })));
   assert.deepEqual(planNetwork(dhcp, freshMachine().adapters).slice(1).map(s => s.skip), ["The old cabinet took its DNS servers automatically.", "The old cabinet took its address from DHCP."]);
