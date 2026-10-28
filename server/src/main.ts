@@ -29,6 +29,7 @@ import { DemoSimulator } from "./demo/demo.js";
 import { checkQuietLoops } from "./services/crashes.js";
 import { sweepHealth } from "./services/cabinet-health.js";
 import { resumeJobs } from "./services/fleet-jobs.js";
+import { startDueReapplies } from "./services/replacement-reapply.js";
 
 import cluster from "node:cluster";
 import { createHmac, randomBytes } from "node:crypto";
@@ -136,13 +137,15 @@ if (runsServices) {
 
   // Fleet jobs that were running when the server stopped carry on where they left off.
   resumeJobs(jobs, undefined, message => logError(message)).catch(failed("resuming fleet jobs"));
+  // A replacement's settings are put back once its new agent reports; one that was running when the server stopped carries on.
+  const reapplyJob = setInterval(() => { startDueReapplies(jobs, undefined, message => logError(message)).catch(failed("replacement re-apply")); }, 15_000);
 
   // The daily audit chain check (a break raises a security alert) and retention.
   const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
   // Database size, free disk, backup age and CA expiry: one open operations alert per kind, shown in the console (no outbound notification).
   const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem });
   const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt });
-  stopServices = () => { clearInterval(offlineJob); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
+  stopServices = () => { clearInterval(offlineJob); clearInterval(reapplyJob); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
 }
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every

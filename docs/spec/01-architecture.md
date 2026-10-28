@@ -7,7 +7,7 @@ An internal support tool that lets Mashura support staff diagnose CUBEX and Zimb
 ## Components
 
 - Console: a React web app support staff sign into. Shows clients, sites, cabinets, alerts and diagnostics, and lets authorized staff trigger operations.
-- Server: a Node service that authenticates staff, relays their requests to agents, stores results, raises alerts and keeps the audit log. It originates no commands on its own. Every command traces back to a person clicking something.
+- Server: a Node service that authenticates staff, relays their requests to agents, stores results, raises alerts and keeps the audit log. It originates no command without a person's approval: every command traces back to a person clicking something, or to a change an Admin approved with an authenticator code that names what follows from it (a replaced cabinet's settings put back on its replacement, issued in that Admin's name; 05-server-spec.md "Replacing a cabinet").
 - Agent: a C# Windows service on each cabinet, split into a low-privilege network process and a privileged broker that never touches the network. It connects outward to the server, polls for commands, runs only operations in its fixed catalog, and reports results. It also watches the cabinet in the background and reports errors and changes.
 
 ## Request flow

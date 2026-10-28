@@ -99,9 +99,9 @@ test("restart, end a process, power settings, DHCP release, a static address wit
     assert.equal(await form.getByRole("button", { name: "Set the drawer address" }).isDisabled(), true, "300 is not a host address");
     await form.getByLabel("Last number of the address").fill("12");
     await form.getByRole("button", { name: "Set the drawer address" }).click();
-    await page.getByRole("dialog").getByText("172.20.1.12/24").waitFor();
+    await page.getByRole("dialog").getByText("172.20.1.12/32").waitFor();
     await c.confirmWithCode(page);
-    await page.getByRole("row", { name: /^IPv4/ }).getByText(/172\.20\.1\.12\/24/).waitFor({ timeout: 60_000 });
+    await page.getByRole("row", { name: /^IPv4/ }).getByText(/172\.20\.1\.12\/32/).waitFor({ timeout: 60_000 });
     await page.getByRole("row", { name: /^Gateway/ }).getByText(/None, as it should be/).waitFor();
 
     assert.deepEqual(problems, []);

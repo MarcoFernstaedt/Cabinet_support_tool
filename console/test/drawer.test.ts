@@ -5,7 +5,7 @@ import { analyseDrawer, drawerText, findDrawerAdapter, inDrawerNetwork } from ".
 const stats = (o: Partial<Record<string, number>> = {}) => ({ bytesReceived: 1000, bytesSent: 1000, receiveErrors: 0, sendErrors: 0, receiveDiscards: 0, sendDiscards: 0, ...o });
 const adapter = (o: any = {}): any => ({
   interfaceIndex: 7, name: "Ethernet 2", description: "USB Ethernet", type: "ethernet", connected: true, linkSpeedBps: 100_000_000, macAddress: null,
-  ipv4: { dhcp: false, addresses: [{ address: "172.20.1.10", prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
+  ipv4: { dhcp: false, addresses: [{ address: "172.20.1.10", prefixLength: 32 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
   details: { networkProfile: { name: "Unidentified network", category: "public" }, adminStatus: "up", statistics: stats() }, ...o });
 const later = (a: any, s: object) => ({ ...a, details: { ...a.details, statistics: stats(s) } });
 const off = [{ profile: "domain", enabled: false }, { profile: "private", enabled: false }, { profile: "public", enabled: false }];
@@ -41,6 +41,9 @@ test("each fault is named", () => {
   assert.equal(tone(adapter({ details: { adminStatus: "down", networkProfile: { name: "Unidentified network", category: "public" } } }), null).lines.find(l => l.id === "status")?.tone, "crit");
   assert.equal(tone(adapter({ ipv4: { dhcp: true, addresses: [{ address: "169.254.1.1", prefixLength: 16 }], gateways: [] } }), null).lines.find(l => l.id === "ip")?.tone, "crit");
   assert.equal(tone(adapter({ ipv4: { dhcp: false, addresses: [{ address: "172.20.1.10", prefixLength: 16 }], gateways: [] } }), null).lines.find(l => l.id === "ip")?.tone, "warn");
+  // Drawer adapters use the mask 255.255.255.255: a /24 is named.
+  assert.match(tone(adapter({ ipv4: { dhcp: false, addresses: [{ address: "172.20.1.10", prefixLength: 24 }], gateways: [] } }), null).lines.find(l => l.id === "ip")!.text, /255\.255\.255\.255/);
+  assert.equal(tone(adapter(), null).lines.find(l => l.id === "ip")?.tone, "ok");
   assert.equal(tone(adapter({ ipv4: { dhcp: false, addresses: [{ address: "192.168.1.5", prefixLength: 24 }], gateways: [] }, details: { networkProfile: { name: "Unidentified network", category: "public" } } }), null).lines.find(l => l.id === "ip")?.tone, "crit");
   assert.equal(tone(adapter({ ipv4: { dhcp: false, addresses: [{ address: "172.20.1.10", prefixLength: 24 }], gateways: ["172.20.1.1"] } }), null).lines.find(l => l.id === "gateway")?.tone, "warn");
   assert.equal(tone(adapter(), later(adapter(), { receiveErrors: 3 })).lines.find(l => l.id === "packets")?.tone, "crit");
@@ -65,6 +68,7 @@ test("hostile readings do not break the analysis", () => {
 
 test("the drawer address is built from the drawer network and a usable last number, never from other text", async () => {
   const { drawerAddressParams } = await import("../src/lib/drawer.ts");
-  assert.deepEqual(drawerAddressParams(7, "10"), { interfaceIndex: 7, mode: "static", address: "172.20.1.10", prefixLength: 24 });
-  for (const bad of ["", "0", "255", "256", "1.5", "10 ", "1e1", "-1", "0010x", "1000", "١٠"]) assert.equal(drawerAddressParams(7, bad), null, bad);
+  assert.deepEqual(drawerAddressParams(7, "10"), { interfaceIndex: 7, mode: "static", address: "172.20.1.10", prefixLength: 32 });
+  assert.deepEqual(drawerAddressParams(7, "0"), { interfaceIndex: 7, mode: "static", address: "172.20.1.0", prefixLength: 32 }, "with a /32 mask .0 is an address");
+  for (const bad of ["", "255", "256", "1.5", "10 ", "1e1", "-1", "0010x", "1000", "١٠"]) assert.equal(drawerAddressParams(7, bad), null, bad);
 });

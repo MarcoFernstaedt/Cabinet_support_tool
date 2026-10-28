@@ -304,7 +304,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         o.adapters.push({ ...JSON.parse(JSON.stringify(a)), interfaceIndex: a.interfaceIndex + 1, name: "Ethernet 2", description: "USB Ethernet Adapter (drawer link)",
           connected: true, linkSpeedBps: 100_000_000, macAddress: `00-E0-4C-68-${(16 + ctx.index).toString(16).toUpperCase().padStart(2, "0")}-A1`, ipv6Addresses: [],
           ipv4: ctx.drawer === "unset" ? { dhcp: true, addresses: [{ address: `169.254.${20 + ctx.index}.7`, prefixLength: 16 }], gateways: [] }
-            : { dhcp: false, addresses: [{ address: ctx.drawer ?? `172.20.1.${10 + ctx.index}`, prefixLength: 24 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
+            : { dhcp: false, addresses: [{ address: ctx.drawer ?? `172.20.1.${10 + ctx.index}`, prefixLength: 32 }], gateways: [] }, dns: { automatic: false, servers: [] }, dnsSuffix: null,
           details: { dhcpServer: null, leaseObtained: null, leaseExpires: null, mtu: 1500, interfaceMetric: 50, adminStatus: "up", netbios: "default",
             driver: { provider: "Realtek", version: "10.50.0.1", date: "2021-06-09T00:00:00Z" }, networkProfile: { name: "Unidentified network", category: "public" },
             statistics: { bytesReceived: 40_000_000 + secs * 900, bytesSent: 12_000_000 + secs * 400, receiveErrors: 0, sendErrors: 0, receiveDiscards: 0, sendDiscards: 0 } } });

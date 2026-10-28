@@ -331,7 +331,8 @@ async function networkVerified(pool: Pool, creator: { userId: string; role: Role
   return false;
 }
 
-async function verified(db: Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
+/** Whether a cabinet's own report after the change shows it; also used by a replacement's re-apply (replacement-reapply.ts). */
+export async function verified(db: Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
   if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") return networkVerified(db, creator, operation, a);
   const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: string | null }>(
     "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS [last], firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
