@@ -208,9 +208,49 @@ const codeExplanations: Record<string, Explanation> = {
     fix: "Remove or rename that entry on the approved list, or check the scanner's service key name.",
   },
   control_entry_not_approved: {
-    title: "Service not on the approved list",
-    detail: "Only a service on this cabinet's approved-programs list can be started, stopped or restarted from the console.",
-    fix: "Ask an Admin to add the service to the approved programs for this cabinet, its site or its client.",
+    title: "Not on the approved list",
+    detail: "Only a service or program on this cabinet's approved-programs list can be controlled from the console.",
+    fix: "Ask an Admin to add it to the approved programs for this cabinet, its site or its client.",
+  },
+  control_entry_invalid: {
+    title: "Not an approved-list entry",
+    detail: "The request does not name an entry from the approved-programs list (an entry looks like app:<name>).",
+    fix: "Reload the page and choose the program from the cabinet's list.",
+  },
+  control_action_unknown: {
+    title: "Not a control action",
+    detail: "A control request asks for start, stop, restart or end; this one asked for something else.",
+    fix: "Reload the page and use one of the buttons shown.",
+  },
+  control_action_not_allowed: {
+    title: "Action not available for this entry",
+    detail: "This kind of entry does not take that action: a service is started, stopped or restarted; an application is ended.",
+    fix: "Use an action the page offers for this entry.",
+  },
+  control_action_not_supported: {
+    title: "Not built yet",
+    detail: "Restarting an application is not built yet.",
+    fix: "End the process, then start the program on the cabinet.",
+  },
+  control_pid_required: {
+    title: "Process ID missing",
+    detail: "Ending a process needs the process ID the cabinet reported, and this request carried none.",
+    fix: "Refresh the process list and end the process from there.",
+  },
+  step_up_wrong_scope: {
+    title: "Confirmation does not match",
+    detail: "The code you entered was confirmed for another entry, action or cabinet, or it has expired or been used.",
+    fix: "Repeat the action and enter a fresh code when asked.",
+  },
+  already_removed: {
+    title: "Already removed",
+    detail: "This note's text was already removed by someone else.",
+    fix: "Reload the page to see the current notes.",
+  },
+  job_finished: {
+    title: "Job already finished",
+    detail: "The job has already finished, so there is nothing left to cancel.",
+    fix: "Reload the page to see its results.",
   },
   control_process_not_approved: {
     title: "Program not on the approved list",
