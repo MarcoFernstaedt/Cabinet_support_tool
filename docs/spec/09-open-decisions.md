@@ -502,7 +502,7 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 - **Shutdown is Admin-only** because a shut-down cabinet stays off until someone switches it on. The server checks this; the agent has no notion of roles.
 - `network.setIp` accepts a static address **without a gateway** (a link with no router, such as the drawer's). With no gateway the agent clears any gateway left from before; Windows may refuse the empty list on some builds, in which case the address is still set.
 - `network.renewLease` accepts `release: true`: give the lease back, then ask for a new one.
-- The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: a fixed `172.20.1.n/24` with no gateway, the last number typed by the person.
+- The drawer check offers **Set the drawer address** when the drawer link's address, addressing or gateway is wrong: a fixed `172.20.1.n` with the mask 255.255.255.255 (/32) and no gateway, the last number typed by the person (0 to 254).
 - Scheduled-task last and next run times and logon times are empty in this version (Windows needs per-task calls for them).
 
 **Open question for the owner:** whether Fast Startup should be changeable at Tier 1 as built, or Tier 2 like the other settings that survive a restart.
@@ -866,6 +866,15 @@ Choices made in building it (confirm or change):
 - **The old name is freed only when the new cabinet takes it.** Given another name, the old record keeps its own.
 - **Alerts are resolved, not moved.** The new cabinet starts clean; the old alerts stay on the old cabinet's page.
 
+Answered (2026-10-28):
+- **The drawer address.** The whole fleet's drawers are on 172.20.1.0, and the drawer adapters use the mask **255.255.255.255**. The drawer check now expects /32 (it warned on every /32 adapter before), and **Set the drawer address** writes /32. The re-apply copies the old cabinet's drawer address and mask exactly, so it is right whether every cabinet uses the same drawer-adapter address or each its own.
+- **The server originating commands.** Approved: 01-architecture.md now reads "no command without a person's approval"; the re-apply's commands are issued in the approving Admin's name.
+
+Choices made in the re-apply (confirm or change):
+- **No second confirmation.** The Admin's code at approval covers the steps; each is audited as the replacement's and counts once against the Admin's hourly limit.
+- **The site's time zone wins** over the zone the old cabinet had; the old one is used only when no zone applies to the site.
+- **A failed step stops the steps after it**, so the address is never changed after something before it went wrong. Nothing is retried automatically; the page shows what failed.
+- **It waits for the new cabinet's first report** however long that takes; it does not expire.
+
 Open:
-- **The drawer address as a fixed standard.** The owner said the drawer address should always be the same. Today the drawer check matches the whole 172.20.1.0/24 network (see "Drawer check"). Should one exact address (and prefix) become a standard the platform holds and checks, fleet-wide or per client? The re-apply after a replacement uses the old cabinet's reported drawer address until this is answered.
-- **The server originating commands.** 01-architecture.md says the server originates no commands on its own; the automatic re-apply runs commands in the approving Admin's name after the new agent reports. The wording would become "never without a person's approval". To confirm with the re-apply step.
+- **One exact drawer-adapter address as a standard.** If every cabinet's drawer adapter has the very same address (for example 172.20.1.0/32), the platform could hold it and the drawer check could flag any other. Today it accepts any address in 172.20.1.0/24 with the /32 mask.

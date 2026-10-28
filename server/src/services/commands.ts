@@ -19,6 +19,12 @@ export interface WriteAuthority {
   confirmedParams?: unknown;
   /** The operator CLI on the server host issues writes without step-up; recorded as such in the audit log. */
   viaCli?: boolean;
+  /**
+   * A replacement's re-apply (replacement-reapply.ts): confirmed with the Admin's code when the approval named the cabinet it replaces,
+   * so its steps take no token of their own. The replaced cabinet's id; recorded in the audit log. Its steps share one bulk id and count
+   * once against the Admin's hourly limit.
+   */
+  viaReplacement?: { replaces: string; bulkId: string };
 }
 
 /**
@@ -32,7 +38,7 @@ export async function issueCommand(pool: Pool, userId: string, cabinetId: string
   const entry = catalog.get(operation)!;
   // Confirmation levels (docs/spec/12-milestones-8-to-12.md): a code-level write needs a step-up token bound to its
   // parameters; a click-level write is confirmed in the console and takes no token; reads take none.
-  if (needsCode(operation) && !write?.stepUpToken && !write?.viaCli) throw new Refused("step_up_required", 403, "this change needs an authenticator code for these exact parameters");
+  if (needsCode(operation) && !write?.stepUpToken && !write?.viaCli && !write?.viaReplacement) throw new Refused("step_up_required", 403, "this change needs an authenticator code for these exact parameters");
   if (!needsCode(operation) && write?.stepUpToken) throw new Refused("invalid_request", 400, "this operation takes no step-up token");
   if (entry.kind === "write" && !write) throw new Refused("invalid_request", 400, "a write needs its authority");
   if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
@@ -89,10 +95,11 @@ async function issueInTransaction(pool: Pool, userId: string, cabinetId: string,
       commandId: randomUUID(), cabinetId, operation, params: params as Record<string, unknown>, issuedBy: userId,
       issuedAt: issuedAt.toISOString(), expiresAt: new Date(issuedAt.getTime() + entry.expirySeconds * 1000).toISOString(),
     };
-    await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued')`,
-      [command.commandId, cabinetId, operation, safeJson(params), userId, issuedAt, new Date(command.expiresAt)]);
+    await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id) VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`,
+      [command.commandId, cabinetId, operation, safeJson(params), userId, issuedAt, new Date(command.expiresAt), write?.viaReplacement?.bulkId ?? null]);
     await audit(c, { actorKind: "user", actorId: userId, action: entry.kind === "write" ? "command.write" : auditAction, targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
-      details: { commandId: command.commandId, operation, params, ...(write?.viaCli ? { via: "cli" } : {}) } });
+      details: { commandId: command.commandId, operation, params, ...(write?.viaCli ? { via: "cli" } : {}),
+        ...(write?.viaReplacement ? { via: "replacement", replaces: write.viaReplacement.replaces } : {}) } });
     return command;
   });
 }

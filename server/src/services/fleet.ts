@@ -7,6 +7,7 @@ import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scann
 import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
 import { clientScanner, scannerUsedFor } from "./client-scanner.js";
 import { fleetTimeZone } from "./time.js";
+import { reapplyStatus } from "./replacement-reapply.js";
 
 export { fleetScannerIds, fleetSyncPorts };
 
@@ -186,6 +187,8 @@ export async function cabinet(db: Queryable, id: string, page: Page = {}) {
     scannerUsed: await scannerUsedFor(db, id),
     siblings: await pageRows(db, siblings), siblingCount, siblingsPage: { limit, offset, hasMore: offset + siblings.length < siblingCount },
     ...(await replacementLinks(db, id)),
+    // What a replacement put back on the machine, step by step (null when it replaced none).
+    reapply: await reapplyStatus(db, id),
   };
 }
 

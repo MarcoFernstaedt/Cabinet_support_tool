@@ -46,8 +46,10 @@ export interface NetworkEvidence {
 const PROFILE_NAMES = ["domain", "private", "public"] as const;
 const onOff = (p: Profiles) => PROFILE_NAMES.map(k => `${k[0]!.toUpperCase()}${k.slice(1)} ${p[k] ? "on" : "off"}`).join(", ");
 const differs = (want: Profiles, have: Profiles) => PROFILE_NAMES.some(k => want[k] !== have[k]);
-/** The drawer link: an address in 172.20.1.0/24 (the same network as console/src/lib/drawer.ts). */
-const isDrawerLink = (a: { ipv4: { addresses: { address: string }[] } }) => a.ipv4.addresses.some(x => x.address.startsWith("172.20.1."));
+/** An address on the drawer link: in 172.20.1.0/24 (the same network as console/src/lib/drawer.ts). */
+export const isDrawerAddress = (address: string) => address.startsWith("172.20.1.");
+/** The drawer link: an adapter with an address on it. */
+const isDrawerLink = (a: { ipv4: { addresses: { address: string }[] } }) => a.ipv4.addresses.some(x => isDrawerAddress(x.address));
 const isApipa = (a: string) => a.startsWith("169.254.");
 const octets = (a: string): number | null => {
   const p = a.split(".");

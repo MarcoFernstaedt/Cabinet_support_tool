@@ -60,6 +60,8 @@ test("a reinstalled cabinet is approved as the one it replaces, and the two page
     await page.waitForURL(new RegExp(`/cabinets/${fresh}$`, "i"));
     await page.getByRole("heading", { name: "Ward 3", level: 1 }).waitFor();
     await page.getByRole("link", { name: /^Ward 3 \(replaced \d{4}-\d{2}-\d{2}\)$/ }).waitFor();
+    // What will be put back once the new agent reports (no agent runs here, so it waits).
+    await page.getByRole("region", { name: /^Settings put back from Ward 3 \(replaced/ }).getByText(/Waiting for this cabinet to report/).waitFor();
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();

@@ -5,7 +5,7 @@
 //   - the new cabinet takes its place: its sync link (a satellite), its satellites (a sync cabinet) and its Admin-set sync address;
 //   - the old cabinet's own settings are copied: scanner IDs, watched services, file-facts paths, the in-office flag, its approved
 //     programs (waiting for the Admin's signature when signing is on), its USB watch policy and its cabinet baseline.
-// What the replacement re-applies on the machine itself comes after the new agent reports, and is not done here.
+// What it re-applies on the machine itself is queued here and runs once the new agent reports (replacement-reapply.ts).
 import { audit, auditMany, notify, type Queryable } from "../db/db.js";
 import { REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { copyCabinetList } from "./approved-apps.js";
@@ -16,6 +16,7 @@ import { upsertSetting } from "./settings.js";
 import { LIVE_LINK } from "./sync-cabinets.js";
 import { checkStoredUsbPolicy, usbPolicyAuditEntry, usbPolicySettingKey } from "./usb-policy.js";
 import { readUsbPolicyRow } from "./usb-store.js";
+import { queueReapply } from "./replacement-reapply.js";
 
 /** The old cabinet as the replacement reads it, under lock. */
 export interface OldCabinet {
@@ -91,6 +92,8 @@ export async function completeReplacement(c: Queryable, userId: string, old: Old
     details: { issueTypeId: a.issue, resolution, automatic: true, replacedBy: newId } })));
   const copied = { scannerIds: old.scannerHardwareIds !== null, watchedServices: old.watchedServices !== null, filefactsPaths: old.filefactsPaths !== null,
     inOffice: old.inOffice, approvedApps: apps, usbPolicy: usb.ok, baseline: baseline?.versionId ?? null };
+  // The settings on the machine (firewall, time zone, drawer, DNS, address), put back once the new agent reports.
+  await queueReapply(c, newId, old.id, userId);
   await audit(c, { actorKind: "user", actorId: userId, action: "cabinet.replace", targetKind: "cabinet", targetId: newId, outcome: "succeeded",
     details: { replaces: old.id, oldName: old.name, satellitesMoved: moved, alertsResolved: closed.length, copied } });
   await audit(c, { actorKind: "user", actorId: userId, action: "cabinet.revoke", targetKind: "cabinet", targetId: old.id, outcome: "succeeded", details: { replacedBy: newId } });

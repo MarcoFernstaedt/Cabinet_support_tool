@@ -4,7 +4,7 @@
 import { useState } from "react";
 import type { FirewallProfileState, FirewallStateOutput, NetworkConfigOutput, NetworkSetIpOutput } from "@mashura/cabinet-contracts/types";
 import { useRunner } from "../../lib/commands";
-import { analyseDrawer, drawerAddressParams, drawerText, needsDrawerAddress, DRAWER_NETWORK, type DrawerAnalysis } from "../../lib/drawer";
+import { analyseDrawer, drawerAddressParams, drawerText, needsDrawerAddress, DRAWER_NETWORK, DRAWER_PREFIX, type DrawerAnalysis } from "../../lib/drawer";
 import type { AdapterReading } from "../../components/NetworkReadings";
 import { Badge, SAFETY_NET_NOTE } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
@@ -54,7 +54,7 @@ export function DrawerCheck({ cabinet }: { cabinet: CabinetDetail }) {
     <section className="panel" aria-labelledby="drawer-heading" data-tour="drawer-check">
       <div className="row gap wrap spread">
         <h2 id="drawer-heading">Drawer</h2>
-        <span className="muted small">Expected network {DRAWER_NETWORK.address}/{DRAWER_NETWORK.prefixLength}</span>
+        <span className="muted small">Expected network {DRAWER_NETWORK.address}/{DRAWER_NETWORK.prefixLength}, mask 255.255.255.255 (/{DRAWER_PREFIX})</span>
         <button className="btn" disabled={state === "running"} onClick={() => void go()}>{state === "running" ? step : "Check drawer"}</button>
       </div>
       {problem && <p className="notice crit" role="alert">{problem}</p>}
