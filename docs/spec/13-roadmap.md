@@ -137,9 +137,10 @@ Built (October 2026):
 - **Preview.** What each cabinet would get, and which are skipped and why: offline, read-only, client paused, already right, site has no zone.
 - **Confirmation.** The password again; the token is bound to the job's ID and to {operation, cabinets, batch size}. At most 200 cabinets. The fleet and client pauses, the person's own pause and limit apply; one job counts as one write.
 - **Jobs.** The target list is fixed when the job starts. Commands go out in batches (1 to 50 at a time); the next batch starts when this one has answered. Each cabinet's result is recorded: skipped, failed (with the agent's reason or "did not answer"), verified from the cabinet's next report, or "not verified" when its report did not show the change in time. A pause during a job skips the cabinets not yet reached. Jobs survive a server restart. The person who started a job, or an Admin, can cancel the rest.
+- **Sync cabinets last** (the owner's decision, October 2026). A sync cabinet serves every satellite at its site, so a change that breaks it cuts them all off. In every job, sync cabinets go after all the other cabinets, in batches of their own, and only once every satellite in the job has checked out. If a satellite in the job failed or went unverified, each sync cabinet in it is left unchanged and marked skipped with the satellites named. A standalone cabinet's failure does not hold them back; a job of sync cabinets alone runs as usual. The preview lists them last with "Sync cabinet: last" and says why.
 - **Scale, measured against the simulator** (fleet-jobs.test): 10 cabinets in about 0.4 s, 60 in about 0.7 s, 98 in about 1.1 s, every reachable cabinet verified. Real cabinets answer within their poll interval and verify on their next heartbeat (up to a minute).
 
-Still to build: more operations as jobs (restarts, updates) once those operations exist; scheduling a job for later; sync-cabinet protection (module 37) for disruptive operations.
+Still to build: more operations as jobs (restarts, updates) once those operations exist; scheduling a job for later.
 
 ## Evidence and retention (modules 12 and 39)
 

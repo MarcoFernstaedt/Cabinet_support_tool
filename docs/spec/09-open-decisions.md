@@ -878,3 +878,13 @@ Choices made in the re-apply (confirm or change):
 
 Open:
 - **One exact drawer-adapter address as a standard.** If every cabinet's drawer adapter has the very same address (for example 172.20.1.0/32), the platform could hold it and the drawer check could flag any other. Today it accepts any address in 172.20.1.0/24 with the /32 mask.
+
+## Sync cabinets in bulk jobs (2026-10-28)
+
+The owner's decision (13-roadmap.md "Fleet operations", "Sync cabinets last"): sync cabinets go last, after every satellite in the job checked out; if a satellite failed, the sync cabinets are skipped with the reason.
+
+Choices made in building it (confirm or change):
+- **Every job operation**, not only network and firewall ones: the rule is simple to state and costs only order (a time-zone job runs its sync cabinets last too).
+- **Only satellites hold sync cabinets back.** A standalone cabinet that fails does not.
+- **A satellite that was skipped** (offline, read-only, already right) does not hold them back: it was not changed, so it says nothing about the change.
+
