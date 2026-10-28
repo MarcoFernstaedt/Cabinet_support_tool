@@ -150,7 +150,7 @@ export function FleetOperations() {
         {preview && (<>
           <p role="status"><strong>{preview.change}</strong> will be changed; <strong>{preview.skip}</strong> will be skipped.</p>
           {preview.cabinets.some(c => c.role === "sync" && !c.skip) && (
-            <p className="notice" role="note">Sync cabinets go last, on their own, and only after every satellite in this job checked out. If a satellite fails, the sync cabinets are left unchanged: each serves every satellite at its site.</p>)}
+            <p className="notice" role="note">Sync cabinets go last, on their own, and only after every satellite being changed in this job checked out. If one does not, the sync cabinets are left unchanged: each serves every satellite at its site.</p>)}
           <div className="table-wrap"><table className="table compact">
             <caption className="sr-only">What each cabinet would get</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">What happens</th></tr></thead>

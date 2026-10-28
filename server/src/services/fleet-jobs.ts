@@ -220,13 +220,15 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
       [jobId, job.batch_size])).rows;
     let next = await pendingOf(false);
     if (next.length === 0) {
+      // Doubt is anything but verified or skipped: failed, not verified, and also "succeeded" (the cabinet said it made the change, but
+      // nothing verified it, as a server restart inside the verification window leaves it).
       const doubt = (await c.query<{ name: string }>(
-        `SELECT TOP (3) k.name FROM fleet_job_targets t JOIN cabinets k ON k.id = t.cabinet_id
-          WHERE t.job_id = $1 AND k.role = 'satellite' AND t.state IN ('failed', 'not_verified') ORDER BY t.[position]`, [jobId])).rows;
+        `SELECT k.name FROM fleet_job_targets t JOIN cabinets k ON k.id = t.cabinet_id
+          WHERE t.job_id = $1 AND k.role = 'satellite' AND t.state NOT IN ('verified', 'skipped') ORDER BY t.[position]`, [jobId])).rows;
       if (doubt.length > 0) {
         await c.query(`UPDATE t SET t.state = 'skipped', t.detail = $2, t.updated_at = SYSUTCDATETIME()
                          FROM fleet_job_targets t JOIN cabinets k ON k.id = t.cabinet_id WHERE t.job_id = $1 AND t.state = 'pending' AND k.role = 'sync'`,
-          [jobId, `Not changed: a satellite in this job did not check out (${doubt.map(d => d.name).join(", ")}), and a sync cabinet serves every satellite at its site.`.slice(0, 300)]);
+          [jobId, doubtReason(doubt.map(d => d.name))]);
         return [];
       }
       next = await pendingOf(true);
@@ -267,6 +269,19 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
   }).then(async issued =>
     // Every cabinet in this batch was skipped: go on to the next batch rather than ending the job.
     issued.length > 0 || !(await pendingLeft(pool, jobId)) ? issued : issueBatch(pool, jobId, job));
+}
+
+/** Why the sync cabinets were not changed, naming the satellites in doubt; whole names only, within the column's 300 characters. */
+export function doubtReason(names: readonly string[]): string {
+  const say = (shown: readonly string[], more: number) => {
+    const list = [shown.join(", "), more > 0 ? `${more} more` : ""].filter(Boolean).join(" and ");
+    return `Not changed: a satellite in this job did not check out (${list}), and a sync cabinet serves every satellite at its site.`;
+  };
+  for (let n = names.length; n >= 0; n--) {
+    const text = say(names.slice(0, n), names.length - n);
+    if (text.length <= 300) return text;
+  }
+  return say([], names.length);
 }
 
 const pendingLeft = async (pool: Pool, jobId: string) =>

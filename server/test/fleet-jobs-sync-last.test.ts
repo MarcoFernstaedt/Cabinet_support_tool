@@ -8,7 +8,7 @@ import { hashPassword } from "../src/auth/passwords.js";
 import { paramsHash } from "../src/auth/canonical.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import { NULL_BINARY } from "../src/db/db.js";
-import { job, preview, runJob, startJob } from "../src/services/fleet-jobs.js";
+import { doubtReason, job, preview, runJob, startJob } from "../src/services/fleet-jobs.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
@@ -67,11 +67,12 @@ function fakeAgent(ids: Record<string, string>, fail: string[] = []) {
   return { seen, stop: async () => { stop = true; await loop; } };
 }
 
-async function run(ids: Record<string, string>, order: string[], batchSize: number, fail: string[] = []) {
+async function run(ids: Record<string, string>, order: string[], batchSize: number, fail: string[] = [], beforeRun?: (jobId: string) => Promise<void>) {
   const cabinetIds = order.map(n => ids[n]!);
   const jobId = randomUUID();
   const token = await issueStepUpToken(db.app, adminId, "fleet.job", jobId, paramsHash({ operation: "firewall.applyPolicy", cabinetIds, batchSize }));
   await startJob(db.app, { userId: adminId, role: "admin" }, { jobId, operation: "firewall.applyPolicy", cabinetIds, batchSize, stepUpToken: token });
+  if (beforeRun) await beforeRun(jobId);
   const agent = fakeAgent(ids, fail);
   try { await runJob(db.app, jobId, TIMING); } finally { await agent.stop(); }
   return { seen: agent.seen, result: (await job(db.app, jobId))! };
@@ -111,4 +112,24 @@ test("a standalone cabinet that fails does not hold the sync cabinet back, and a
   const only = await site("Only Sync Health", [["SYNC A", "sync"], ["SYNC B", "sync"]]);
   const r2 = await run(only, ["SYNC A", "SYNC B"], 1);
   assert.deepEqual(r2.result.cabinets.map(c => c.state), ["verified", "verified"]);
+});
+
+test("a satellite left waiting for verification by a server restart holds the sync cabinets back too", async () => {
+  const ids = await site("Restart Health", [["SAT A", "satellite"], ["SYNC", "sync"]]);
+  // The state a restart inside the verification window leaves: the cabinet answered, nothing verified it, and resuming does not revisit it.
+  const { seen, result } = await run(ids, ["SAT A", "SYNC"], 1, [], jobId => db.app.query(
+    "UPDATE fleet_job_targets SET state = 'succeeded', detail = 'The cabinet made the change; waiting for its next report to verify it.' WHERE job_id = $1 AND cabinet_id = $2",
+    [jobId, ids["SAT A"]]).then(() => undefined));
+  assert.deepEqual(seen, [], "no command reached the sync cabinet");
+  assert.equal(stateOf(result, "SYNC").state, "skipped");
+  assert.match(stateOf(result, "SYNC").detail!, /did not check out \(SAT A\)/);
+});
+
+test("the reason names whole satellites and stays within its 300 characters", () => {
+  assert.equal(doubtReason(["SAT A", "SAT B"]), "Not changed: a satellite in this job did not check out (SAT A, SAT B), and a sync cabinet serves every satellite at its site.");
+  const long = ["A".repeat(100), "B".repeat(100), "C".repeat(100)];
+  const text = doubtReason(long);
+  assert.ok(text.length <= 300, String(text.length));
+  assert.match(text, new RegExp(`\\(${"A".repeat(100)} and 2 more\\)`));
+  assert.match(doubtReason(["X".repeat(200)]), /\(1 more\)/);
 });
