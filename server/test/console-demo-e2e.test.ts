@@ -371,7 +371,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.goto(`${origin}/cabinets/${withDrawer}/network`);
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("table", { name: "Drawer check" }).waitFor({ timeout: 60_000 });
-    await page.getByRole("row", { name: /^IPv4/ }).getByText(/inside 172\.20\.1\.0\/24/).waitFor();
+    await page.getByRole("row", { name: /^IPv4/ }).getByText(/172\.20\.1\.0\/32, the drawer address/).waitFor();
     await page.getByRole("row", { name: /^Packets/ }).getByText(/bytes in/).waitFor();
     await page.getByRole("row", { name: /^Firewall/ }).waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/drawer.png`, fullPage: true });

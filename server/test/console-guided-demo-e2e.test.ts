@@ -141,7 +141,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     assert.equal(await panel.getByRole("button", { name: "Next" }).isDisabled(), true, "Next waits for the drawer to be fixed");
     await page.getByRole("button", { name: "Check drawer" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText(/^On for/).waitFor({ timeout: 60_000 });
-    await page.getByRole("row", { name: /^IPv4/ }).getByText(/inside 172\.20\.1\.0\/24/).waitFor();
+    await page.getByRole("row", { name: /^IPv4/ }).getByText(/172\.20\.1\.0\/32, the drawer address/).waitFor();
     await page.getByRole("button", { name: "Apply the firewall policy" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Make the change" }).click();
     await page.getByRole("row", { name: /^Firewall/ }).getByText("Off on every profile").waitFor({ timeout: 90_000 }).catch(async e => {
