@@ -888,3 +888,11 @@ Choices made in building it (confirm or change):
 - **Only satellites hold sync cabinets back.** A standalone cabinet that fails does not.
 - **A satellite that was skipped** (offline, read-only, already right) does not hold them back: it was not changed, so it says nothing about the change.
 
+## Sync cabinets: bulk firewall apply and the change warning (2026-10-28)
+
+The owner's decisions (module 37):
+- **The client/site bulk firewall apply stays as it is:** a firewall change applies to all cabinets, sync cabinets included, together. Only fleet jobs order sync cabinets last (13-roadmap.md "Sync cabinets last").
+- **The extra confirmation is a warning, not another step:** every change confirmed on a sync cabinet's page names its satellites (the first ten by name, then "and N more"). Built in the two confirmation dialogs, so every change on that page carries it.
+
+Noted for later (the owner's words): when cabinets are off, the client must turn the sync cabinet on first, so the satellites can connect. Restarts are not job operations yet; when they become one, this decides their order (open: restart satellites first and the sync cabinet last, or the sync cabinet first and wait for it, so it is up before the satellites come back).
+

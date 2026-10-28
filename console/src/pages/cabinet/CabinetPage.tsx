@@ -9,7 +9,8 @@ import { Link, useRouter } from "../../lib/router";
 import { ago, duration, fullTime } from "../../lib/time";
 import { roleLabel, type CabinetRow } from "../Fleet";
 import { useLoad } from "../../lib/useLoad";
-import { Badge, KeyValues, OnlineBadge } from "../../components/ui";
+import { Badge, ConfirmationWarning, KeyValues, OnlineBadge } from "../../components/ui";
+import { syncWarning } from "../../lib/sync-warning";
 import { Processes, Services } from "./Services";
 import { DemoTag } from "../../components/DemoBanner";
 import { CabinetCrashes } from "../Crashes";
@@ -63,7 +64,10 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
   if (problem) return <div className="page"><h1>Cabinet not available</h1><p className="error" role="alert">{problem}</p><p><Link to="/">Back to the fleet</Link></p></div>;
   if (!cabinet || cabinet.id !== id) return <div className="page"><p className="muted" role="status">Loading cabinet…</p></div>;
 
+  // Every change confirmed on a sync cabinet names the satellites that depend on it (module 37).
+  const warning = cabinet.sync?.role === "sync" ? syncWarning(cabinet.sync.satellites, cabinet.sync.satelliteNames ?? []) : null;
   return (
+    <ConfirmationWarning.Provider value={warning}>
     <div className="cabinet-layout">
       <aside className="sidebar">
         <nav aria-label="Cabinet sections" className="section-nav">
@@ -109,6 +113,7 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
         <Section current={current} cabinet={cabinet} reload={reload} />
       </div>
     </div>
+    </ConfirmationWarning.Provider>
   );
 }
 
