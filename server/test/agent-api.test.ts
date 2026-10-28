@@ -240,17 +240,30 @@ test("a revoked cabinet is refused on its next connection", async () => {
 });
 
 test("a certificate this platform never issued is refused and raises one security alert, however often it is tried", async () => {
-  const otherDir = tempDir();
-  const stranger = await developmentServerCertificate(await developmentIssuingKey(otherDir), otherDir, ["cab-stranger"]);
-  const identity = { key: { keyPem: stranger.keyPem }, certPem: stranger.certPem } as unknown as Identity;
-  for (let i = 0; i < 3; i++) assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, identity)).status, 401);
-  const alerts = (await db.app.query<{ occurrences: number; detail: { reason: string } }>(
-    "SELECT occurrences, detail FROM security_alerts WHERE kind = 'certificate' AND signature = 'certificate|unknown' AND state = 'open'")).rows;
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0]!.occurrences, 1, "the same certificate again within the hour is not another occurrence");
-  // A caller with no certificate at all (a scanner, a browser) is refused and only logged.
-  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat)).status, 401);
-  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'certificate'")).rows[0]!.n, 2);
+  // Its own agent API: the refusal throttle is per process and per reason (one "unknown" alert every 10 s), so sharing the file's API
+  // would make this depend on how long ago the "another CA" test above raised its own "unknown" alert. Any open one is resolved first.
+  const own = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, tempDir(), ["localhost"]), logger: false });
+  await own.listen({ host: "127.0.0.1", port: 0 });
+  const saved = port;
+  port = (own.server.address() as { port: number }).port;
+  try {
+    await db.app.query("UPDATE security_alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'test reset' WHERE signature = 'certificate|unknown' AND state = 'open'");
+    const otherDir = tempDir();
+    const stranger = await developmentServerCertificate(await developmentIssuingKey(otherDir), otherDir, ["cab-stranger"]);
+    const identity = { key: { keyPem: stranger.keyPem }, certPem: stranger.certPem } as unknown as Identity;
+    for (let i = 0; i < 3; i++) assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, identity)).status, 401);
+    const alerts = (await db.app.query<{ occurrences: number; detail: { reason: string; certificateSerial: string } }>(
+      "SELECT occurrences, detail FROM security_alerts WHERE kind = 'certificate' AND signature = 'certificate|unknown' AND state = 'open'")).rows;
+    assert.equal(alerts.length, 1);
+    assert.equal(alerts[0]!.occurrences, 1, "the same certificate again within the hour is not another occurrence");
+    const detail = typeof alerts[0]!.detail === "string" ? JSON.parse(alerts[0]!.detail) : alerts[0]!.detail;
+    assert.equal(detail.reason, "unknown");
+    assert.equal(detail.certificateSerial.toUpperCase(), new X509Certificate(stranger.certPem).serialNumber.toUpperCase(), "the alert is this certificate's");
+    // A caller with no certificate at all (a scanner, a browser) is refused and only logged.
+    const before = Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'certificate'")).rows[0]!.n);
+    assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat)).status, 401);
+    assert.equal(Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM security_alerts WHERE kind = 'certificate'")).rows[0]!.n), before);
+  } finally { port = saved; await own.close(); }
 });
 
 test("events are stored once even when the agent retries", async () => {

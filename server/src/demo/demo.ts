@@ -583,6 +583,9 @@ export class DemoSimulator {
   private timer: NodeJS.Timeout | null = null;
   private lastHeartbeat = 0;
   private busy = false;
+  /** The heartbeat sweep runs beside the ticks, never inside one: a sweep of every cabinet takes seconds (much longer on a loaded
+   *  server), and while a tick waited on it no command was taken, so a diagnosis started at that moment could run out its minute. */
+  private sweeping: Promise<void> | null = null;
   constructor(private readonly pool: Pool, private readonly log: (message: string) => void, private readonly tickMs = 1000, private readonly answerDelayMs: readonly [number, number] = [300, 1200]) {}
 
   start(): void {
@@ -601,6 +604,19 @@ export class DemoSimulator {
     this.answers.clear();
   }
 
+  /** Every simulated cabinet's heartbeat, one cabinet at a time; stops between cabinets when the simulator stops. */
+  private async sweep(): Promise<void> {
+    for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario NOT IN (SELECT value FROM OPENJSON($1))", [LOOPING])).rows) {
+      if (this.stopped) return;
+      // One cabinet's heartbeat can lose a deadlock to a person's action on it; it is tried again once, and never stops the others.
+      try { await heartbeat(this.pool, id); }
+      catch (e) { if (isDeadlock(e)) await heartbeat(this.pool, id).catch(e2 => this.log(`demo heartbeat failed: ${(e2 as Error).message}`)); else this.log(`demo heartbeat failed: ${(e as Error).message}`); }
+    }
+  }
+
+  /** The sweep in progress, if any: for tests and a clean shutdown that want every heartbeat written. */
+  async settled(): Promise<void> { await this.sweeping; }
+
   async tick(): Promise<void> {
     if (this.busy || this.stopped) return;
     this.busy = true;
@@ -615,13 +631,9 @@ export class DemoSimulator {
           const t = setTimeout(() => { this.answers.delete(t); if (!this.stopped) answer(this.pool, id, command).catch(e => { if (!this.stopped) this.log(`demo answer failed: ${(e as Error).message}`); }); }, min + Math.random() * (max - min));
           this.answers.add(t);
         }
-      if (Date.now() - this.lastHeartbeat >= 60_000) {
+      if (!this.sweeping && Date.now() - this.lastHeartbeat >= 60_000) {
         this.lastHeartbeat = Date.now();
-        for (const { id } of (await this.pool.query<{ id: string }>("SELECT id FROM cabinets WHERE demo_scenario IS NOT NULL AND demo_scenario NOT IN (SELECT value FROM OPENJSON($1))", [LOOPING])).rows) {
-          // One cabinet's heartbeat can lose a deadlock to a person's action on it; it is tried again once, and never stops the others.
-          try { await heartbeat(this.pool, id); }
-          catch (e) { if (isDeadlock(e)) await heartbeat(this.pool, id).catch(e2 => this.log(`demo heartbeat failed: ${(e2 as Error).message}`)); else this.log(`demo heartbeat failed: ${(e as Error).message}`); }
-        }
+        this.sweeping = this.sweep().catch(e => { if (!this.stopped) this.log(`demo heartbeat sweep failed: ${(e as Error).message}`); }).finally(() => { this.sweeping = null; });
       }
     } catch (e) {
       if (!this.stopped) this.log(`demo tick failed: ${(e as Error).message}`);
