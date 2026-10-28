@@ -14,7 +14,7 @@ export type AddressSource = "reported" | "admin" | null;
 export interface SyncCabinetRef { id: string; name: string; address: string | null; addressSource: AddressSource }
 export type CabinetSync =
   | { role: "satellite"; state: "linked" | "unassigned" | "address_needed"; syncCabinet: SyncCabinetRef | null }
-  | { role: "sync"; address: string | null; addressSource: AddressSource; satellites: number }
+  | { role: "sync"; address: string | null; addressSource: AddressSource; satellites: number; satelliteNames?: string[] }
   | { role: "standalone" };
 export interface SiteSyncInfo {
   ports: number[] | null; effectivePorts: number[]; portsSource: string;

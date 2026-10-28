@@ -1,5 +1,5 @@
 import { paramsHash } from "../lib/confirm";
-import { useId, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useId, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, describeError } from "../lib/api";
 import type { CommandResult, Run } from "../lib/commands";
 import { fullTime } from "../lib/time";
@@ -62,6 +62,16 @@ export function ResultProblem({ result }: { result: CommandResult }) {
   );
 }
 
+/**
+ * A warning every confirmation inside it shows above its description: the cabinet page sets it for a sync cabinet, naming the satellites
+ * that depend on it (lib/sync-warning.ts), so no change to that cabinet is confirmed without it.
+ */
+export const ConfirmationWarning = createContext<string | null>(null);
+const Warning = () => {
+  const w = useContext(ConfirmationWarning);
+  return w ? <p className="notice warn" role="note">{w}</p> : null;
+};
+
 /** Asks for a fresh authenticator code and turns it into a token bound to exactly this action and target. */
 /**
  * Confirmation with an authenticator code. When params is given, the token is bound to exactly those parameters
@@ -95,6 +105,7 @@ export function StepUpDialog({ open, action, target, description, onToken, onClo
     <dialog ref={ref} className="dialog" aria-labelledby="stepup-title" onClose={onClose}>
       <form method="dialog" onSubmit={e => { e.preventDefault(); void submit(); }}>
         <h2 id="stepup-title">Confirm with your authenticator</h2>
+        <Warning />
         <div className="dialog-body">{description}</div>
         <label className="field">
           <span>Authenticator code</span>
@@ -134,6 +145,7 @@ export function ConfirmDialog({ open, title = "Confirm the change", description,
     <dialog ref={ref} className="dialog" aria-labelledby={titleId} onClose={onClose}>
       <form method="dialog" onSubmit={e => { e.preventDefault(); void submit(); }}>
         <h2 id={titleId}>{title}</h2>
+        <Warning />
         <div className="dialog-body">{description}</div>
         {problem && <p className="error" role="alert">{problem}</p>}
         <div className="row gap end">

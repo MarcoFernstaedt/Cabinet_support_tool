@@ -92,6 +92,9 @@ test("a satellite approved before any sync cabinet is incomplete, and the site's
   const state = await cabinetSync(db.app, sat);
   assert.equal(state?.role === "satellite" && state.state, "address_needed", "linked, but the sync cabinet has not reported an address yet");
   assert.equal((await cabinet(db.app, sat))!.syncUnassigned, false);
+  // The sync cabinet names its satellites, for the warning in a change's confirmation (module 37).
+  const own = await cabinetSync(db.app, sync);
+  assert.deepEqual(own?.role === "sync" && [own.satellites, own.satelliteNames], [1, ["SAT 1"]]);
 });
 
 test("a satellite at a site with one sync cabinet is linked to it without being asked", async () => {

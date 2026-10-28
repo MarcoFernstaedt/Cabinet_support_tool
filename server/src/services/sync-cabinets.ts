@@ -116,7 +116,9 @@ export interface SyncCabinetRef { id: string; name: string; address: string | nu
 
 export type CabinetSync =
   | { role: "satellite"; state: SatelliteState; syncCabinet: SyncCabinetRef | null }
-  | { role: "sync"; address: string | null; addressSource: "reported" | "admin" | null; satellites: number }
+  | { role: "sync"; address: string | null; addressSource: "reported" | "admin" | null; satellites: number;
+      /** The first satellites by name (at most 10), for the warning in a change's confirmation (module 37). */
+      satelliteNames: string[] }
   | { role: "standalone" };
 
 /** A cabinet's place in its site's sync arrangement, as the cabinet page shows it. */
@@ -129,7 +131,12 @@ export async function cabinetSync(db: Queryable, cabinetId: string): Promise<Cab
        LEFT JOIN cabinets y ON y.id = k.sync_cabinet_id AND y.site_id = k.site_id AND y.role = 'sync' AND y.status = 'active'
       WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) return null;
-  if (k.role === "sync") return { role: "sync", address: k.address, addressSource: k.source, satellites: Number(k.satellites) };
+  if (k.role === "sync") {
+    const names = (await db.query<{ name: string }>(
+      `SELECT TOP (10) z.name FROM cabinets z JOIN cabinets k ON k.id = $1
+        WHERE z.sync_cabinet_id = k.id AND z.site_id = k.site_id AND z.role = 'satellite' AND z.status = 'active' ORDER BY z.name`, [cabinetId])).rows.map(r => r.name);
+    return { role: "sync", address: k.address, addressSource: k.source, satellites: Number(k.satellites), satelliteNames: names };
+  }
   if (k.role !== "satellite") return { role: "standalone" };
   if (!k.sid) return { role: "satellite", state: "unassigned", syncCabinet: null };
   return { role: "satellite", state: k.saddress ? "linked" : "address_needed", syncCabinet: { id: k.sid, name: k.sname!, address: k.saddress, addressSource: k.ssource } };
