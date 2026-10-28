@@ -19,7 +19,7 @@ const DISCOVERED_CODES = [
   "invalid_address", "invalid_code", "invalid_json", "invalid_manifest", "invalid_output", "invalid_params",
   "invalid_ports", "choose_sync_cabinet", "invalid_sync_cabinet", "not_a_satellite", "not_a_sync_cabinet", "scanner_for_existing_client", "approved_key_in_use", "sync_not_allowed",
   "invalid_request", "invalid_result", "invalid_runbook", "invalid_window", "job_exists", "last_admin",
-  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "control_entry_not_approved", "control_process_not_approved", "control_process_unreported", "control_process_no_reading", "signing_off", "conflict", "architecture_mismatch", "package_architecture_unknown", "package_not_a_release", "setup_incomplete", "bad_request", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
+  "name_taken", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "control_entry_not_approved", "control_process_not_approved", "control_process_unreported", "control_process_no_reading", "signing_off", "conflict", "architecture_mismatch", "package_architecture_unknown", "package_not_a_release", "setup_incomplete", "bad_request", "control_entry_invalid", "control_action_unknown", "control_action_not_allowed", "control_action_not_supported", "control_pid_required", "step_up_wrong_scope", "already_removed", "job_finished", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
   "not_approved", "not_awaiting_package", "not_deleted", "not_found", "not_live", "not_paused", "not_pending",
   "not_searchable", "not_uploading", "not_yours", "not_yourself", "one_site_only", "own_proposal",
   "package_not_approved", "pilot_not_eligible", "query_timeout", "query_too_slow", "rate_limited",
@@ -226,23 +226,59 @@ test("an explanation sends people to the role that can actually do it", () => {
 });
 
 test("every refusal code in the server's source has an explanation, so a new one cannot reach the console unexplained", () => {
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "server", "src");
+  const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const isCode = (t: string) => t.length > 0 && [...t].every(ch => (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9") || ch === "_");
+  /** The double-quoted literals in `text` that look like codes. */
+  const literals = (text: string): string[] => {
+    const out: string[] = [];
+    for (let i = text.indexOf('"'); i >= 0; ) {
+      const end = text.indexOf('"', i + 1);
+      if (end < 0) break;
+      const t = text.slice(i + 1, end);
+      // A literal a condition compares against (`state === "resolved" ? ...`) is not a code the expression yields.
+      const before = text.slice(0, i).trimEnd();
+      if (isCode(t) && !before.endsWith("==") && !before.endsWith("!=")) out.push(t);
+      i = text.indexOf('"', end + 1);
+    }
+    return out;
+  };
+  /** The first argument of each call to `callee(` in `text`: up to the first comma outside brackets and quotes. */
+  const firstArguments = (text: string, callee: string): string[] => {
+    const out: string[] = [];
+    for (let i = text.indexOf(callee); i >= 0; i = text.indexOf(callee, i + 1)) {
+      let depth = 0, quote = "", j = i + callee.length;
+      for (; j < text.length; j++) {
+        const ch = text[j]!;
+        if (quote) { if (ch === quote && text[j - 1] !== "\\") quote = ""; continue; }
+        if (ch === '"' || ch === "'" || ch === "`") quote = ch;
+        else if (ch === "(" || ch === "[" || ch === "{") depth++;
+        else if (ch === ")" || ch === "]" || ch === "}") { if (depth === 0) break; depth--; }
+        else if (ch === "," && depth === 0) break;
+      }
+      out.push(text.slice(i + callee.length, j));
+    }
+    return out;
+  };
   const found = new Set<string>();
   const walk = (dir: string): void => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith(".ts")) {
-        // Plain text search for the literal `new Refused("code"`: no pattern matching of input, just the source's own literals.
-        const text = readFileSync(p, "utf8");
-        for (let i = text.indexOf('new Refused("'); i >= 0; i = text.indexOf('new Refused("', i + 1)) {
-          const start = i + 'new Refused("'.length;
-          found.add(text.slice(start, text.indexOf('"', start)));
-        }
-      }
+      if (e.isDirectory()) { walk(p); continue; }
+      if (!e.name.endsWith(".ts")) continue;
+      const text = readFileSync(p, "utf8");
+      // Every way the server raises a code: a Refused (a literal, or a choice between literals), a package refusal, and the
+      // control family's constants (raised through refusal(CONTROL_CODES.x, ...)).
+      for (const callee of ["new Refused(", "new PackageRefused("]) for (const a of firstArguments(text, callee)) literals(a).forEach(c => found.add(c));
+      const block = text.indexOf("export const CONTROL_CODES = {");
+      if (block >= 0) literals(text.slice(block, text.indexOf("\n}", block))).forEach(c => found.add(c));
     }
   };
-  walk(root);
-  assert.ok(found.size > 50, `read ${found.size} codes from ${root}`);
-  assert.deepEqual([...found].filter(code => !PLATFORM_CODES.includes(code)).sort(), []);
+  walk(join(repo, "server", "src"));
+  // The console words a code in error-explanations.ts, or in api.ts's local table (sign-in codes, package refusals, claim_first).
+  const api = readFileSync(join(repo, "console", "src", "lib", "api.ts"), "utf8");
+  const tableStart = api.indexOf("const localExplanations");
+  const local = new Set(api.slice(tableStart, api.indexOf("};", tableStart)).split("\n").map(l => l.trim()).map(l => l.slice(0, l.indexOf(":"))).filter(isCode));
+  assert.ok(found.size > 60, `read ${found.size} codes`);
+  assert.ok(found.has("control_action_not_allowed") && found.has("job_finished") && found.has("publisher_not_trusted"), "the scan sees constants, choices and package refusals");
+  assert.deepEqual([...found].filter(code => !PLATFORM_CODES.includes(code) && !local.has(code)).sort(), []);
 });
