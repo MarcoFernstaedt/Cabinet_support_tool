@@ -26,8 +26,12 @@ test("a command issued while the heartbeat sweep runs is answered without waitin
     // The first tick is due a sweep: it starts it and returns at once.
     const started = Date.now();
     await sim.tick();
-    assert.ok(Date.now() - started < 1_000, `the tick waited ${Date.now() - started} ms`);
+    // The tick came back while the sweep is still going (a finished sweep would settle before the next turn of the event loop), and
+    // well inside the sweep's own seconds; the time bound is loose on purpose, so a slow test machine does not fail it.
     const sweep = sim.settled();
+    const stillSweeping = await Promise.race([sweep.then(() => false), new Promise<boolean>(r => setImmediate(() => r(true)))]);
+    assert.ok(stillSweeping, "the tick waited for the sweep to finish");
+    assert.ok(Date.now() - started < 5_000, `the tick waited ${Date.now() - started} ms`);
     let swept = false;
     void sweep.then(() => { swept = true; });
     // A read issued now is taken and answered by the next ticks while the sweep goes on.
