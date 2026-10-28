@@ -240,7 +240,7 @@ test("a revoked cabinet is refused on its next connection", async () => {
 });
 
 test("a certificate this platform never issued is refused and raises one security alert, however often it is tried", async () => {
-  // Its own agent API: the refusal throttle is per process and per reason (one "unknown" alert every 10 s), so sharing the file's API
+  // Its own agent API: the refusal throttle belongs to each agent API instance and is per reason (one "unknown" alert every 10 s), so sharing the file's API
   // would make this depend on how long ago the "another CA" test above raised its own "unknown" alert. Any open one is resolved first.
   const own = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, tls: await developmentServerCertificate(key, tempDir(), ["localhost"]), logger: false });
   await own.listen({ host: "127.0.0.1", port: 0 });
