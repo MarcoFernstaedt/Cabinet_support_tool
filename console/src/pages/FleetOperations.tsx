@@ -28,7 +28,7 @@ const LIMIT = 200;
 
 interface Row { id: string; name: string; role: string; site: { id: string; name: string; timeZone: string | null }; client: { id: string; name: string }; demo: boolean;
   readOnly: boolean | null; online: boolean; timeZoneId: string | null; clockSkewSeconds: number | null; ipv4: string | null; openAlerts: number }
-interface Preview { operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
+interface Preview { operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; role?: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
 interface SiteOption { id: string; name: string; client: { id: string; name: string }; demo: boolean; cabinets: number }
 
 const KEY = "fleet-ops-selection";
@@ -149,11 +149,13 @@ export function FleetOperations() {
         {error && <p className="error" role="alert">{error}</p>}
         {preview && (<>
           <p role="status"><strong>{preview.change}</strong> will be changed; <strong>{preview.skip}</strong> will be skipped.</p>
+          {preview.cabinets.some(c => c.role === "sync" && !c.skip) && (
+            <p className="notice" role="note">Sync cabinets go last, on their own, and only after every satellite being changed in this job checked out. If one does not, the sync cabinets are left unchanged: each serves every satellite at its site.</p>)}
           <div className="table-wrap"><table className="table compact">
             <caption className="sr-only">What each cabinet would get</caption>
             <thead><tr><th scope="col">Cabinet</th><th scope="col">IPv4 address</th><th scope="col">What happens</th></tr></thead>
             <tbody>{previewPaged.rows.map(c => (
-              <tr key={c.id}><th scope="row">{c.name}</th><td>{c.ipv4 ?? "—"}</td>
+              <tr key={c.id}><th scope="row">{c.name}{c.role === "sync" && <> <Badge tone="info">Sync cabinet: last</Badge></>}</th><td>{c.ipv4 ?? "—"}</td>
                 <td>{c.skip ? <><Badge tone="off">Skipped</Badge> {c.skip}</> : preview.operation === "time.setZone"
                   ? <>Set to {zone((c.params as { timeZoneId: string }).timeZoneId)}</> : preview.operation === "time.sync" ? "Sync the clock" : "Apply its firewall policy"}</td></tr>))}
             </tbody>

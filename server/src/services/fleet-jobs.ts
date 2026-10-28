@@ -4,6 +4,8 @@
 // starts once this one has answered), records each cabinet's result, then verifies it from the cabinet's next report:
 // a change that cannot be seen is "not verified", never counted as done. Confirmed with the password, bound to the exact
 // operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
+// Sync cabinets go last, in batches of their own, and only once every satellite in the job checked out: a change that breaks a
+// sync cabinet cuts off every satellite at its site, so it is never made while a satellite's result is in doubt (the owner's decision, 8e).
 import { parseJson } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { catalog, operations } from "../contracts.js";
@@ -62,13 +64,13 @@ export async function fleetSites(db: Queryable) {
 
 // ---- Planning: what each cabinet would get, or why it is skipped ---------------------------------------------------------
 
-interface Plan { cabinetId: string; name: string; site: string; client: string; params: Record<string, unknown> | null; skip: string | null; detail?: string }
+interface Plan { cabinetId: string; name: string; role: string; site: string; client: string; params: Record<string, unknown> | null; skip: string | null; detail?: string }
 
 /** For each chosen cabinet, in the order given: the parameters the server fills in, or why the operation skips it. */
 export async function plan(db: Queryable, operation: JobOperation, cabinetIds: string[]): Promise<Plan[]> {
-  const rows = new Map((await db.query<{ id: string; site_id: string; name: string; site: string; client: string; status: string; read_only: boolean | null; paused: boolean;
+  const rows = new Map((await db.query<{ id: string; site_id: string; name: string; role: string; site: string; client: string; status: string; read_only: boolean | null; paused: boolean;
     online: number; zone: string | null; site_zone: string | null; skew: number | null }>(
-    `SELECT k.id, k.site_id, k.name, s.name AS site, cl.name AS client, k.status, k.read_only, cl.write_paused AS paused,
+    `SELECT k.id, k.site_id, k.name, k.role, s.name AS site, cl.name AS client, k.status, k.read_only, cl.write_paused AS paused,
             CASE WHEN k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS online,
             k.time_zone_id AS zone, ${SITE_ZONE_SQL} AS site_zone, k.clock_skew_seconds AS skew
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`,
@@ -80,7 +82,7 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
   for (const id of cabinetIds) {
     const r = rows.get(id);
     if (!r) throw new Refused("not_found", 404, "one of the chosen cabinets does not exist");
-    const base = { cabinetId: id, name: r.name, site: r.site, client: r.client };
+    const base = { cabinetId: id, name: r.name, role: r.role, site: r.site, client: r.client };
     const skip = (why: string): Plan => ({ ...base, params: null, skip: why });
     if (r.status !== "active") { out.push(skip("Not an active cabinet.")); continue; }
     if (r.read_only !== false) { out.push(skip("Installed read-only: it accepts no changes.")); continue; }
@@ -102,7 +104,8 @@ export async function plan(db: Queryable, operation: JobOperation, cabinetIds: s
       out.push({ ...base, params: { profiles: switchesFor(p.policy) }, skip: null });
     }
   }
-  return out;
+  // Sync cabinets last, each group keeping the order chosen.
+  return [...out.filter(t => t.role !== "sync"), ...out.filter(t => t.role === "sync")];
 }
 
 /** The change a cabinet's latest diagnosis found for this operation, as the operation's own parameters. */
@@ -127,7 +130,7 @@ export async function preview(db: Queryable, user: { role: Role }, operation: Jo
   const p = await plan(db, operation, cabinetIds);
   const ipv4s = new Map((await db.query<{ id: string; ipv4: string | null }>("SELECT id, ipv4 FROM cabinets WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [cabinetIds])).rows.map(r => [r.id, r.ipv4]));
   return { operation, limit: BULK_LIMIT, change: p.filter(x => !x.skip).length, skip: p.filter(x => x.skip).length,
-    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, site: x.site, client: x.client, ipv4: ipv4s.get(x.cabinetId) ?? null, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
+    cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, role: x.role, site: x.site, client: x.client, ipv4: ipv4s.get(x.cabinetId) ?? null, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
 }
 
 function checkRole(role: Role, operation: JobOperation): void {
@@ -210,9 +213,26 @@ const cancelled = async (pool: Pool, jobId: string) =>
 /** Issues the next batch's commands in one transaction, re-checking the pauses: a pause that started mid-job skips the rest. */
 async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperation; created_by: string; batch_size: number }): Promise<{ cabinet_id: string; command_id: string; params: Record<string, unknown> }[]> {
   return transaction(pool, async c => {
-    const next = (await c.query<{ cabinet_id: string; params: Record<string, unknown> }>(
-      "SELECT TOP ($2) cabinet_id, params FROM fleet_job_targets WITH (UPDLOCK, ROWLOCK) WHERE job_id = $1 AND state = 'pending' ORDER BY [position]",
+    // Everything but sync cabinets first; sync cabinets only once every satellite in the job is done and none failed or went unverified.
+    const pendingOf = async (sync: boolean) => (await c.query<{ cabinet_id: string; params: Record<string, unknown> }>(
+      `SELECT TOP ($2) t.cabinet_id, t.params FROM fleet_job_targets t WITH (UPDLOCK, ROWLOCK) JOIN cabinets k ON k.id = t.cabinet_id
+        WHERE t.job_id = $1 AND t.state = 'pending' AND ${sync ? "k.role = 'sync'" : "k.role <> 'sync'"} ORDER BY t.[position]`,
       [jobId, job.batch_size])).rows;
+    let next = await pendingOf(false);
+    if (next.length === 0) {
+      // Doubt is anything but verified or skipped: failed, not verified, and also "succeeded" (the cabinet said it made the change, but
+      // nothing verified it, as a server restart inside the verification window leaves it).
+      const doubt = (await c.query<{ name: string }>(
+        `SELECT k.name FROM fleet_job_targets t JOIN cabinets k ON k.id = t.cabinet_id
+          WHERE t.job_id = $1 AND k.role = 'satellite' AND t.state NOT IN ('verified', 'skipped') ORDER BY t.[position]`, [jobId])).rows;
+      if (doubt.length > 0) {
+        await c.query(`UPDATE t SET t.state = 'skipped', t.detail = $2, t.updated_at = SYSUTCDATETIME()
+                         FROM fleet_job_targets t JOIN cabinets k ON k.id = t.cabinet_id WHERE t.job_id = $1 AND t.state = 'pending' AND k.role = 'sync'`,
+          [jobId, doubtReason(doubt.map(d => d.name))]);
+        return [];
+      }
+      next = await pendingOf(true);
+    }
     if (next.length === 0) return [];
     const stop = async (why: string): Promise<never[]> => {
       await c.query("UPDATE fleet_job_targets SET state = 'skipped', detail = $2, updated_at = SYSUTCDATETIME() WHERE job_id = $1 AND state = 'pending'", [jobId, why]);
@@ -249,6 +269,19 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
   }).then(async issued =>
     // Every cabinet in this batch was skipped: go on to the next batch rather than ending the job.
     issued.length > 0 || !(await pendingLeft(pool, jobId)) ? issued : issueBatch(pool, jobId, job));
+}
+
+/** Why the sync cabinets were not changed, naming the satellites in doubt; whole names only, within the column's 300 characters. */
+export function doubtReason(names: readonly string[]): string {
+  const say = (shown: readonly string[], more: number) => {
+    const list = [shown.join(", "), more > 0 ? `${more} more` : ""].filter(Boolean).join(" and ");
+    return `Not changed: a satellite in this job did not check out (${list}), and a sync cabinet serves every satellite at its site.`;
+  };
+  for (let n = names.length; n >= 0; n--) {
+    const text = say(names.slice(0, n), names.length - n);
+    if (text.length <= 300) return text;
+  }
+  return say([], names.length);
 }
 
 const pendingLeft = async (pool: Pool, jobId: string) =>
