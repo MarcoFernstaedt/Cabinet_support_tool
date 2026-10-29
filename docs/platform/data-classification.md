@@ -19,6 +19,7 @@ The platform never reads the cabinet application's database or the Windows Secur
 | **Firewall history** | Profile and rule changes with before and after | Confidential | Database | Setting: firewall history, 30 to 3650 days (default 365) |
 | **Diagnoses** | Network diagnosis runs and findings | Internal | Database | Setting: network diagnoses, 7 to 365 days (default 30) |
 | **Boot records** | When each cabinet started (reboot-loop detection, crash timelines) | Internal | Database | Setting: boot records, 30 to 3650 days (default 365) |
+| **Incidents** | One problem on one cabinet followed from symptom to outcome: the steps (symptom, evidence, likely cause, proposed repair, approval, what ran, verification, notes, close), who took each, and links to the alerts, diagnoses, commands, case notes and fleet jobs involved. Steps and links cannot be changed by the application | Internal | Database; every step also in the audit log | Closed incidents follow the resolved alerts setting (default 365 days); open ones are never removed; removed with their cabinet |
 | **Fleet operation jobs** | Each job and every cabinet's result | Internal | Database | Setting: fleet operation jobs, 30 to 3650 days (default 365); running jobs are never removed. The commands and audit entries stay |
 | **Security alerts** | Suspicious activity raised to Admins | Restricted | Database; the app cannot delete them | Forever |
 | **Software library and releases** | Approved packages and agent releases | Internal | Server file store, read-only | Until retired by an Admin |
