@@ -2128,6 +2128,433 @@ export interface WritePause {
 }
 
 /**
+ * One diagnostic module (docs/platform/diagnostic-engine-execution.md, "The foundation in detail", item 1): a declaration of what a check applies to, which catalog reads and events it uses, the ordered checks it runs, the evidence it keeps, the causes it can name, the catalog operations that may repair each one and how each repair is verified, what it cannot tell, and when it hands over to a person. It is data, never code: a check is a catalog read or a named rule written and tested on the server, and a repair is only a catalog write with its own role and confirmation. Nothing here can run a program, a script or a command line. The server checks again, beyond this schema, that every operation named is in the catalog and of the right kind, that every read's parameters pass that operation's own schema, and that every reference inside the module resolves (server/src/diagnose/module.ts).
+ */
+export interface DiagnosticModule {
+  /**
+   * Lower-case words joined by hyphens, such as scanner-offline.
+   */
+  id: string;
+  /**
+   * Raised on every change to the module, so a stored finding names the exact version that made it.
+   */
+  version: number;
+  title: string;
+  /**
+   * The part of the cabinet the module is about; the same areas a diagnosis groups its findings by.
+   */
+  area:
+    "system" | "storage" | "performance" | "scanner" | "devices" | "services" | "updates" | "time" | "logs" | "network";
+  /**
+   * Which cabinets the module applies to. A field left out means no restriction on it. Nothing here grants access; it only narrows.
+   */
+  applicability: {
+    /**
+     * @minItems 1
+     * @maxItems 3
+     */
+    roles?: ["sync" | "satellite" | "standalone", ...("sync" | "satellite" | "standalone")[]];
+    /**
+     * @minItems 1
+     * @maxItems 2
+     */
+    architectures?: ["windows-x64" | "windows-x86", ...("windows-x64" | "windows-x86")[]];
+    /**
+     * Windows build numbers, inclusive. At least one end is given.
+     */
+    windowsBuilds?: {
+      min?: number;
+      max?: number;
+    };
+    /**
+     * Hardware manufacturers as Windows reports them, compared exactly (no wildcards, no patterns).
+     *
+     * @minItems 1
+     * @maxItems 16
+     */
+    manufacturers?: [string & string, ...(string & string)[]];
+    /**
+     * true: only cabinets whose client uses a fingerprint scanner.
+     */
+    scannerRequired?: boolean;
+  };
+  signals: {
+    /**
+     * The catalog reads the module may ask for, each with fixed parameters. Only read operations; the server refuses a write here.
+     *
+     * @minItems 1
+     * @maxItems 16
+     */
+    reads: [
+      {
+        /**
+         * A name inside one module: lower-case letters, digits and underscores.
+         */
+        id: string;
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts"
+          | "config.snapshot";
+        /**
+         * Checked against the operation's own params schema by the server.
+         */
+        params: {};
+      },
+      ...{
+        /**
+         * A name inside one module: lower-case letters, digits and underscores.
+         */
+        id: string;
+        /**
+         * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+         */
+        operation:
+          | "system.info"
+          | "eventlog.channels"
+          | "eventlog.query"
+          | "eventlog.get"
+          | "devices.list"
+          | "usb.ports"
+          | "drivers.list"
+          | "peripheral.status"
+          | "updates.status"
+          | "disk.smart"
+          | "files.list"
+          | "network.config"
+          | "network.test"
+          | "network.trace"
+          | "system.performance"
+          | "network.listeners"
+          | "firewall.state"
+          | "network.setIp"
+          | "network.setDns"
+          | "firewall.setProfile"
+          | "firewall.applyPolicy"
+          | "firewall.setRule"
+          | "firewall.restore"
+          | "package.install"
+          | "driver.uninstall"
+          | "updates.uninstall"
+          | "services.list"
+          | "processes.list"
+          | "service.control"
+          | "service.setStartType"
+          | "time.status"
+          | "time.setZone"
+          | "time.sync"
+          | "network.renewLease"
+          | "network.flushDns"
+          | "system.security"
+          | "software.list"
+          | "startup.list"
+          | "sessions.list"
+          | "shares.list"
+          | "reliability.list"
+          | "disk.folders"
+          | "dns.cache"
+          | "power.status"
+          | "system.restart"
+          | "process.end"
+          | "system.checkHealth"
+          | "power.set"
+          | "system.hardware"
+          | "system.identity"
+          | "network.hosts"
+          | "config.snapshot";
+        /**
+         * Checked against the operation's own params schema by the server.
+         */
+        params: {};
+      }[]
+    ];
+    /**
+     * Kinds of agent event that start or inform the module.
+     *
+     * @minItems 1
+     * @maxItems 8
+     */
+    events?: [
+      "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change",
+      ...(
+        "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change"
+      )[]
+    ];
+    /**
+     * Named numbers the rules compare against, so a limit is changed here and not in code.
+     *
+     * @minItems 1
+     * @maxItems 16
+     */
+    thresholds?: [
+      {
+        /**
+         * A name inside one module: lower-case letters, digits and underscores.
+         */
+        name: string;
+        value: number;
+        unit: "count" | "percent" | "seconds" | "milliseconds" | "megabytes" | "days" | "celsius";
+      },
+      ...{
+        /**
+         * A name inside one module: lower-case letters, digits and underscores.
+         */
+        name: string;
+        value: number;
+        unit: "count" | "percent" | "seconds" | "milliseconds" | "megabytes" | "days" | "celsius";
+      }[]
+    ];
+  };
+  /**
+   * The checks, in order. A read step names one of the declared reads; a rule step names a rule written and tested on the server. A read that did not answer makes its step "could not check", never healthy.
+   *
+   * @minItems 1
+   * @maxItems 32
+   */
+  procedure: [
+    {
+      /**
+       * A name inside one module: lower-case letters, digits and underscores.
+       */
+      id: string;
+      kind: "read" | "rule";
+      /**
+       * For a read step: the id of a declared read.
+       */
+      read?: string;
+      /**
+       * For a rule step: the name of a server rule.
+       */
+      rule?: string;
+    },
+    ...{
+      /**
+       * A name inside one module: lower-case letters, digits and underscores.
+       */
+      id: string;
+      kind: "read" | "rule";
+      /**
+       * For a read step: the id of a declared read.
+       */
+      read?: string;
+      /**
+       * For a rule step: the name of a server rule.
+       */
+      rule?: string;
+    }[]
+  ];
+  /**
+   * What the module keeps from a run, and for how long. Only the outputs of its own reads, never raw logs or files.
+   */
+  evidence: {
+    /**
+     * Ids of declared reads whose output is kept with the finding.
+     *
+     * @maxItems 16
+     */
+    keep: string[];
+    retentionDays: number;
+  };
+  /**
+   * The causes the module can name. Each becomes a finding with a stable key that runbooks and known fixes attach to.
+   *
+   * @minItems 1
+   * @maxItems 16
+   */
+  hypotheses: [
+    {
+      /**
+       * A name inside one module: lower-case letters, digits and underscores.
+       */
+      id: string;
+      /**
+       * The finding's stable name, without an instance number.
+       */
+      findingKey: string;
+      statement: string & string;
+      severity: "problem" | "warning" | "info";
+      /**
+       * How sure the module is when every step behind it answered.
+       */
+      certainty: "confirmed" | "probable" | "possible";
+    },
+    ...{
+      /**
+       * A name inside one module: lower-case letters, digits and underscores.
+       */
+      id: string;
+      /**
+       * The finding's stable name, without an instance number.
+       */
+      findingKey: string;
+      statement: string & string;
+      severity: "problem" | "warning" | "info";
+      /**
+       * How sure the module is when every step behind it answered.
+       */
+      certainty: "confirmed" | "probable" | "possible";
+    }[]
+  ];
+  /**
+   * Repairs the module may offer. Each is one catalog write, offered for named causes only, and verified. Offering never runs it: the person's role, the operation's confirmation, the write pause and the cabinet decide that. Empty when the module only diagnoses.
+   *
+   * @maxItems 8
+   */
+  remediation: {
+    /**
+     * A name inside one module: lower-case letters, digits and underscores.
+     */
+    id: string;
+    /**
+     * Every operation in the agent catalog (contracts/schemas/operations/catalog.json).
+     */
+    operation:
+      | "system.info"
+      | "eventlog.channels"
+      | "eventlog.query"
+      | "eventlog.get"
+      | "devices.list"
+      | "usb.ports"
+      | "drivers.list"
+      | "peripheral.status"
+      | "updates.status"
+      | "disk.smart"
+      | "files.list"
+      | "network.config"
+      | "network.test"
+      | "network.trace"
+      | "system.performance"
+      | "network.listeners"
+      | "firewall.state"
+      | "network.setIp"
+      | "network.setDns"
+      | "firewall.setProfile"
+      | "firewall.applyPolicy"
+      | "firewall.setRule"
+      | "firewall.restore"
+      | "package.install"
+      | "driver.uninstall"
+      | "updates.uninstall"
+      | "services.list"
+      | "processes.list"
+      | "service.control"
+      | "service.setStartType"
+      | "time.status"
+      | "time.setZone"
+      | "time.sync"
+      | "network.renewLease"
+      | "network.flushDns"
+      | "system.security"
+      | "software.list"
+      | "startup.list"
+      | "sessions.list"
+      | "shares.list"
+      | "reliability.list"
+      | "disk.folders"
+      | "dns.cache"
+      | "power.status"
+      | "system.restart"
+      | "process.end"
+      | "system.checkHealth"
+      | "power.set"
+      | "system.hardware"
+      | "system.identity"
+      | "network.hosts"
+      | "config.snapshot";
+    /**
+     * @minItems 1
+     * @maxItems 16
+     */
+    forHypotheses: [string, ...string[]];
+    /**
+     * What must be true before the repair is offered, said in words for the person.
+     *
+     * @maxItems 8
+     */
+    preconditions: string[];
+    /**
+     * How the repair is shown to have worked. functional: a read that exercises the thing itself; read_back: a read that shows the setting changed; none: no test exists, so the result is reported as incomplete and the reason is required.
+     */
+    verification: {
+      kind: "functional" | "read_back" | "none";
+      /**
+       * For functional and read_back: the id of a declared read.
+       */
+      read?: string;
+      /**
+       * For none: why no test exists.
+       */
+      reason?: string;
+    };
+  }[];
+  /**
+   * What the module cannot tell, said plainly, so a clean result is not read as more than it is.
+   *
+   * @minItems 1
+   * @maxItems 8
+   */
+  limits: [string & string, ...(string & string)[]];
+  /**
+   * When the module stops and hands over to a person, and to whom.
+   */
+  escalation: {
+    to: "tier2" | "admin" | "vendor";
+    when: string;
+  };
+}
+
+/**
  * Command envelope: one operation for one cabinet, issued by one person (docs/spec/03-protocol.md).
  */
 export interface Command {

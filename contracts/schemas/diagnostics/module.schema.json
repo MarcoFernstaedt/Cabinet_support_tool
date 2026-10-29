@@ -1,0 +1,577 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/diagnostics/module.schema.json",
+  "title": "diagnostic module",
+  "description": "One diagnostic module (docs/platform/diagnostic-engine-execution.md, \"The foundation in detail\", item 1): a declaration of what a check applies to, which catalog reads and events it uses, the ordered checks it runs, the evidence it keeps, the causes it can name, the catalog operations that may repair each one and how each repair is verified, what it cannot tell, and when it hands over to a person. It is data, never code: a check is a catalog read or a named rule written and tested on the server, and a repair is only a catalog write with its own role and confirmation. Nothing here can run a program, a script or a command line. The server checks again, beyond this schema, that every operation named is in the catalog and of the right kind, that every read's parameters pass that operation's own schema, and that every reference inside the module resolves (server/src/diagnose/module.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "version",
+    "title",
+    "area",
+    "applicability",
+    "signals",
+    "procedure",
+    "evidence",
+    "hypotheses",
+    "remediation",
+    "limits",
+    "escalation"
+  ],
+  "properties": {
+    "id": {
+      "description": "Lower-case words joined by hyphens, such as scanner-offline.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    },
+    "version": {
+      "description": "Raised on every change to the module, so a stored finding names the exact version that made it.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "title": {
+      "allOf": [
+        {
+          "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+        },
+        {
+          "type": "string",
+          "maxLength": 200
+        }
+      ]
+    },
+    "area": {
+      "description": "The part of the cabinet the module is about; the same areas a diagnosis groups its findings by.",
+      "type": "string",
+      "enum": [
+        "system",
+        "storage",
+        "performance",
+        "scanner",
+        "devices",
+        "services",
+        "updates",
+        "time",
+        "logs",
+        "network"
+      ]
+    },
+    "applicability": {
+      "description": "Which cabinets the module applies to. A field left out means no restriction on it. Nothing here grants access; it only narrows.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/cabinetRole"
+          }
+        },
+        "architectures": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "../common.schema.json#/$defs/architecture"
+          }
+        },
+        "windowsBuilds": {
+          "description": "Windows build numbers, inclusive. At least one end is given.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "min": {
+              "type": "integer",
+              "minimum": 7600,
+              "maximum": 99999
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 7600,
+              "maximum": 99999
+            }
+          }
+        },
+        "manufacturers": {
+          "description": "Hardware manufacturers as Windows reports them, compared exactly (no wildcards, no patterns).",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+              },
+              {
+                "type": "string",
+                "maxLength": 200
+              }
+            ]
+          }
+        },
+        "scannerRequired": {
+          "description": "true: only cabinets whose client uses a fingerprint scanner.",
+          "type": "boolean"
+        }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reads"
+      ],
+      "properties": {
+        "reads": {
+          "description": "The catalog reads the module may ask for, each with fixed parameters. Only read operations; the server refuses a write here.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "operation",
+              "params"
+            ],
+            "properties": {
+              "id": {
+                "description": "A name inside one module: lower-case letters, digits and underscores.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "operation": {
+                "$ref": "../common.schema.json#/$defs/operationName"
+              },
+              "params": {
+                "description": "Checked against the operation's own params schema by the server.",
+                "type": "object",
+                "maxProperties": 16
+              }
+            }
+          }
+        },
+        "events": {
+          "description": "Kinds of agent event that start or inform the module.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "error",
+              "firewall_changed",
+              "smart_warning",
+              "agent_status",
+              "security",
+              "scanner",
+              "service",
+              "change"
+            ]
+          }
+        },
+        "thresholds": {
+          "description": "Named numbers the rules compare against, so a limit is changed here and not in code.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "value",
+              "unit"
+            ],
+            "properties": {
+              "name": {
+                "description": "A name inside one module: lower-case letters, digits and underscores.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "value": {
+                "type": "number",
+                "minimum": -1000000000,
+                "maximum": 1000000000
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "count",
+                  "percent",
+                  "seconds",
+                  "milliseconds",
+                  "megabytes",
+                  "days",
+                  "celsius"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "procedure": {
+      "description": "The checks, in order. A read step names one of the declared reads; a rule step names a rule written and tested on the server. A read that did not answer makes its step \"could not check\", never healthy.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "description": "A name inside one module: lower-case letters, digits and underscores.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "read",
+              "rule"
+            ]
+          },
+          "read": {
+            "description": "For a read step: the id of a declared read.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "rule": {
+            "description": "For a rule step: the name of a server rule.",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-zA-Z0-9]*(\\.[a-z][a-zA-Z0-9]*)+$"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "read"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "read"
+              ],
+              "not": {
+                "required": [
+                  "rule"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "rule"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "rule"
+              ],
+              "not": {
+                "required": [
+                  "read"
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "evidence": {
+      "description": "What the module keeps from a run, and for how long. Only the outputs of its own reads, never raw logs or files.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "keep",
+        "retentionDays"
+      ],
+      "properties": {
+        "keep": {
+          "description": "Ids of declared reads whose output is kept with the finding.",
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "description": "A name inside one module: lower-case letters, digits and underscores.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 365
+        }
+      }
+    },
+    "hypotheses": {
+      "description": "The causes the module can name. Each becomes a finding with a stable key that runbooks and known fixes attach to.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "findingKey",
+          "statement",
+          "severity",
+          "certainty"
+        ],
+        "properties": {
+          "id": {
+            "description": "A name inside one module: lower-case letters, digits and underscores.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "findingKey": {
+            "description": "The finding's stable name, without an instance number.",
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80,
+            "pattern": "^[a-z][a-z0-9_.-]*$"
+          },
+          "statement": {
+            "allOf": [
+              {
+                "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+              },
+              {
+                "type": "string",
+                "maxLength": 200
+              }
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "problem",
+              "warning",
+              "info"
+            ]
+          },
+          "certainty": {
+            "description": "How sure the module is when every step behind it answered.",
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "probable",
+              "possible"
+            ]
+          }
+        }
+      }
+    },
+    "remediation": {
+      "description": "Repairs the module may offer. Each is one catalog write, offered for named causes only, and verified. Offering never runs it: the person's role, the operation's confirmation, the write pause and the cabinet decide that. Empty when the module only diagnoses.",
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "operation",
+          "forHypotheses",
+          "preconditions",
+          "verification"
+        ],
+        "properties": {
+          "id": {
+            "description": "A name inside one module: lower-case letters, digits and underscores.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "operation": {
+            "$ref": "../common.schema.json#/$defs/operationName"
+          },
+          "forHypotheses": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "uniqueItems": true,
+            "items": {
+              "description": "A name inside one module: lower-case letters, digits and underscores.",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "pattern": "^[a-z][a-z0-9_]*$"
+            }
+          },
+          "preconditions": {
+            "description": "What must be true before the repair is offered, said in words for the person.",
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 200
+                }
+              ]
+            }
+          },
+          "verification": {
+            "description": "How the repair is shown to have worked. functional: a read that exercises the thing itself; read_back: a read that shows the setting changed; none: no test exists, so the result is reported as incomplete and the reason is required.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "functional",
+                  "read_back",
+                  "none"
+                ]
+              },
+              "read": {
+                "description": "For functional and read_back: the id of a declared read.",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "reason": {
+                "allOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+                  },
+                  {
+                    "type": "string",
+                    "maxLength": 200
+                  }
+                ],
+                "description": "For none: why no test exists."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "kind": {
+                      "const": "none"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "reason"
+                  ],
+                  "not": {
+                    "required": [
+                      "read"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "read"
+                  ],
+                  "not": {
+                    "required": [
+                      "reason"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "limits": {
+      "description": "What the module cannot tell, said plainly, so a clean result is not read as more than it is.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "allOf": [
+          {
+            "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+          },
+          {
+            "type": "string",
+            "maxLength": 200
+          }
+        ]
+      }
+    },
+    "escalation": {
+      "description": "When the module stops and hands over to a person, and to whom.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "to",
+        "when"
+      ],
+      "properties": {
+        "to": {
+          "type": "string",
+          "enum": [
+            "tier2",
+            "admin",
+            "vendor"
+          ]
+        },
+        "when": {
+          "allOf": [
+            {
+              "$ref": "../common.schema.json#/$defs/nonEmptyShortText"
+            },
+            {
+              "type": "string",
+              "maxLength": 200
+            }
+          ]
+        }
+      }
+    }
+  }
+}

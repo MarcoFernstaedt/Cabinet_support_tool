@@ -1,0 +1,50 @@
+{
+  "id": "time-drift",
+  "version": 1,
+  "title": "The clock is out of step with the time server",
+  "area": "time",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "time",
+        "operation": "time.status",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_time",
+      "kind": "read",
+      "read": "time"
+    },
+    {
+      "id": "drift",
+      "kind": "rule",
+      "rule": "time.drift"
+    }
+  ],
+  "evidence": {
+    "keep": [],
+    "retentionDays": 7
+  },
+  "hypotheses": [
+    {
+      "id": "drifted",
+      "findingKey": "time.drift",
+      "statement": "The clock is out of step",
+      "severity": "warning",
+      "certainty": "possible"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Cannot tell why the time server is unreachable",
+    "Cannot see whether the cabinet application keeps its own clock"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The clock drifts again after a sync"
+  }
+}

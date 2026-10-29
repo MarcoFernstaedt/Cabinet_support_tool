@@ -19,9 +19,10 @@ public static class ExampleData
     public static IEnumerable<object[]> Valid() =>
         All().Where(e => e.Kind == "valid").Select(e => new object[] { e.Target, Path.GetFileName(e.File) });
 
-    /// <summary>Valid examples of the contracts the agent itself reads or writes (the console's request bodies are the server's alone).</summary>
+    /// <summary>Valid examples of the contracts the agent itself reads or writes (the console's request bodies and the diagnostic modules are the server's alone).</summary>
     public static IEnumerable<object[]> ValidForAgent() =>
-        All().Where(e => e.Kind == "valid" && !e.Target.StartsWith("console/", StringComparison.Ordinal)).Select(e => new object[] { e.Target, Path.GetFileName(e.File) });
+        All().Where(e => e.Kind == "valid" && !e.Target.StartsWith("console/", StringComparison.Ordinal) && !e.Target.StartsWith("diagnostics/", StringComparison.Ordinal))
+            .Select(e => new object[] { e.Target, Path.GetFileName(e.File) });
 
     public static IEnumerable<object[]> Invalid() =>
         All().Where(e => e.Kind == "invalid").Select(e => new object[] { e.Target, Path.GetFileName(e.File) });

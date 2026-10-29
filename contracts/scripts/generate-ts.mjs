@@ -44,6 +44,8 @@ export async function generate() {
   for (const { file } of readSchemas()) {
     if (file.startsWith("envelopes/")) targets.push([pascal(file.slice(10, -12)), BASE_ID + file]);
     if (file.startsWith("console/")) targets.push([pascal(file.slice(8, -12)), BASE_ID + file]);
+    // Diagnostic modules are server data: named Diagnostic<Name> so they cannot collide with an envelope or console body.
+    if (file.startsWith("diagnostics/")) targets.push([`Diagnostic${pascal(file.slice(12, -12))}`, BASE_ID + file]);
     // The release files and the signed approved lists the server checks on upload (the agent checks both again with its own keys).
     if (["agent/upgrade-manifest.schema.json", "agent/upgrade-signature.schema.json", "agent/upgrade-keys.schema.json",
       "agent/approved-list.schema.json", "agent/approved-list-signature.schema.json", "agent/approved-list-keys.schema.json"].includes(file))
