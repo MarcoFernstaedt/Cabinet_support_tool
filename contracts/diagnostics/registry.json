@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "capabilities": [
     {
       "id": "cabinet-system",
@@ -96,6 +96,18 @@
       "title": "Errors in the System and Application logs over the last 24 hours",
       "provides": [
         "diagnose"
+      ]
+    },
+    {
+      "id": "network-diagnosis",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "The network, layer by layer: link, address, gateway, DNS, the platform, the sync cabinet and the firewall",
+      "provides": [
+        "diagnose",
+        "repair",
+        "verify"
       ]
     },
     {

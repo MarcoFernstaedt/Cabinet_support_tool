@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { CABINET_RULES, cabinetModules } from "../src/diagnose/cabinet-findings.js";
 import { bundleReads } from "../src/diagnose/cabinet.js";
 import { loadRegistry } from "../src/diagnose/registry.js";
+import { networkModule } from "../src/diagnose/network-module.js";
 import { findingKey } from "../src/services/known-fixes.js";
 
 const source = readFileSync(join(resolve(dirname(fileURLToPath(import.meta.url)), "..", ".."), "src", "diagnose", "cabinet-findings.ts"), "utf8");
@@ -42,7 +43,7 @@ test("every cabinet module is checked, runs in the registry's order, and every r
   const modules = cabinetModules();
   assert.equal(modules.length, 9);
   assert.deepEqual(new Set(modules.flatMap(m => m.procedure.filter(p => p.kind === "rule").map(p => p.rule))), new Set(Object.keys(CABINET_RULES)));
-  const registry = loadRegistry(new Map(modules.map(m => [m.id, m])));
+  const registry = loadRegistry(new Map([...modules, networkModule()].map(m => [m.id, m])));
   // A module runs after everything it depends on.
   const position = new Map(modules.map((m, i) => [m.id, i]));
   for (const c of registry.capabilities.filter(c => c.status === "built"))

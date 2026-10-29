@@ -84,8 +84,9 @@ twice.
    (detect, diagnose, repair, verify), version, supported hardware, dependencies, the workflow chain and the phase.
 4. **The existing findings re-expressed as modules, behaviour unchanged.** (Cabinet half built 2026-10-29: nine modules in
    `contracts/diagnostics/modules/cabinet-*.json`, registered as built; `cabinetFindings` runs their rule steps through
-   `CABINET_RULES`; `server/test/cabinet-modules.test.ts` keeps reads, causes and repairs in step with the code. The network
-   diagnosis follows as its own change.) `cabinet-findings.ts` and
+   `CABINET_RULES`; `server/test/cabinet-modules.test.ts` keeps reads, causes and repairs in step with the code. Network half
+   built the same day: `contracts/diagnostics/modules/network-diagnosis.json`, run through `server/src/diagnose/network-module.ts`,
+   kept in step by `server/test/network-module.test.ts`; the module contract now allows 48 causes and two-letter finding keys.) `cabinet-findings.ts` and
    `network-findings.ts` gain module wrappers; the regression proof is the same reads producing the same findings for the
    same input, with the existing tests unchanged and green.
 5. **Tests alongside.** Schema validation including malformed and hostile input; the migration applied to a **copy of the
