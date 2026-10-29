@@ -1,0 +1,72 @@
+{
+  "id": "cabinet-updates",
+  "version": 1,
+  "title": "Windows updates: failures, pending security updates and how recent",
+  "area": "updates",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "updates",
+        "operation": "updates.status",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_updates",
+      "kind": "read",
+      "read": "updates"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.updates"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "updates"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "updates-unread",
+      "statement": "Could not read the update history",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "failed",
+      "findingKey": "updates-failed",
+      "statement": "Windows updates failed to install",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "pending_security",
+      "findingKey": "updates-pending-security",
+      "statement": "Security updates are waiting to install",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "stale",
+      "findingKey": "updates-stale",
+      "statement": "No Windows update installed for a long time",
+      "severity": "warning",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Reads the update history; cannot tell why Windows Update was blocked"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "Updates keep failing after the cause found here is fixed"
+  }
+}

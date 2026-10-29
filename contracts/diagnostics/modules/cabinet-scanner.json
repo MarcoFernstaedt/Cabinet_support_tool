@@ -1,0 +1,73 @@
+{
+  "id": "cabinet-scanner",
+  "version": 1,
+  "title": "The fingerprint scanner: present, working and stable",
+  "area": "scanner",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "peripheral",
+        "operation": "peripheral.status",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_peripheral",
+      "kind": "read",
+      "read": "peripheral"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.scanner"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "peripheral"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "scanner-unread",
+      "statement": "Could not read the fingerprint scanner",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "missing",
+      "findingKey": "scanner-missing",
+      "statement": "The fingerprint scanner is not detected",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "error",
+      "findingKey": "scanner-error",
+      "statement": "Windows reports a problem with the fingerprint scanner",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "degraded",
+      "findingKey": "scanner-degraded",
+      "statement": "The fingerprint scanner's checks are failing",
+      "severity": "problem",
+      "certainty": "probable"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Cannot tell a faulty cable from a faulty scanner",
+    "Cannot see inside the cabinet application"
+  ],
+  "escalation": {
+    "to": "vendor",
+    "when": "The scanner is present and passes its checks but the cabinet application still cannot use it"
+  }
+}

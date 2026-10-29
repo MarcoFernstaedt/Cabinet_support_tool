@@ -1,0 +1,65 @@
+{
+  "id": "cabinet-storage",
+  "version": 1,
+  "title": "Drive health from each drive's own report",
+  "area": "storage",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "smart",
+        "operation": "disk.smart",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_smart",
+      "kind": "read",
+      "read": "smart"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.storage"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "smart"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "drive-unread",
+      "statement": "Could not read the drives' health",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "no_drive",
+      "findingKey": "drive-none",
+      "statement": "No drive reported its health",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "drive_health",
+      "findingKey": "drive-health",
+      "statement": "A drive reports it is failing or wearing out",
+      "severity": "problem",
+      "certainty": "probable"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Only as good as what each drive reports; some drives report nothing"
+  ],
+  "escalation": {
+    "to": "vendor",
+    "when": "A drive predicts failure: plan its replacement"
+  }
+}

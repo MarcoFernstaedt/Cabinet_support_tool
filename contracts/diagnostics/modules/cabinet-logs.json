@@ -1,0 +1,151 @@
+{
+  "id": "cabinet-logs",
+  "version": 1,
+  "title": "Errors in the System and Application logs over the last 24 hours",
+  "area": "logs",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "system_log",
+        "operation": "eventlog.query",
+        "params": {
+          "log": "System",
+          "levels": [
+            "error",
+            "critical"
+          ],
+          "pageSize": 100
+        }
+      },
+      {
+        "id": "app_log",
+        "operation": "eventlog.query",
+        "params": {
+          "log": "Application",
+          "levels": [
+            "error",
+            "critical"
+          ],
+          "pageSize": 100
+        }
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_system_log",
+      "kind": "read",
+      "read": "system_log"
+    },
+    {
+      "id": "read_app_log",
+      "kind": "read",
+      "read": "app_log"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.logs"
+    }
+  ],
+  "evidence": {
+    "keep": [],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "log-unread",
+      "statement": "Could not read an event log",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "app_crashes",
+      "findingKey": "log-app-crashes",
+      "statement": "A program crashed",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "other_errors",
+      "findingKey": "log-other-errors",
+      "statement": "Other errors in the System and Application logs",
+      "severity": "info",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "unexpected_shutdown",
+      "findingKey": "log-unexpected-shutdown",
+      "statement": "The cabinet shut down without warning",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "blue_screen",
+      "findingKey": "log-blue-screen",
+      "statement": "Windows stopped with a blue screen",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "disk_errors",
+      "findingKey": "log-disk-errors",
+      "statement": "Windows logged disk errors",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "file_system",
+      "findingKey": "log-file-system",
+      "statement": "Windows logged file system errors",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "storage_reset",
+      "findingKey": "log-storage-reset",
+      "statement": "The storage controller was reset",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "hardware",
+      "findingKey": "log-hardware",
+      "statement": "The hardware reported an error (WHEA)",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "service_failures",
+      "findingKey": "log-service-failures",
+      "statement": "Services failed or timed out",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "update_failures",
+      "findingKey": "log-update-failures",
+      "statement": "Windows Update logged failures",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "dns_timeouts",
+      "findingKey": "log-dns-timeouts",
+      "statement": "Name lookups timed out",
+      "severity": "warning",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Matches known events by exact source and event ID; an error it does not know is only counted",
+    "Reads the last 24 hours only (the diagnosis adds the start time when it runs)"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "An error repeats that no known event explains"
+  }
+}

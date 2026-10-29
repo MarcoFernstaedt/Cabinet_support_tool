@@ -26,6 +26,8 @@ COPY contracts/load.mjs contracts/load.d.mts ./
 COPY contracts/schemas ./schemas
 COPY contracts/generated ./generated
 COPY contracts/trust ./trust
+# The diagnostic modules the cabinet diagnosis runs, and the capability registry they are checked against.
+COPY contracts/diagnostics ./diagnostics
 # The simulated cabinets of the demo build every answer from these valid examples.
 COPY contracts/examples ./examples
 

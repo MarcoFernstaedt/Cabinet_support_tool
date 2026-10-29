@@ -1,0 +1,83 @@
+{
+  "id": "cabinet-devices",
+  "version": 1,
+  "title": "Devices with problems and USB devices that fail",
+  "area": "devices",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "devices",
+        "operation": "devices.list",
+        "params": {
+          "problemsOnly": true
+        }
+      },
+      {
+        "id": "usb",
+        "operation": "usb.ports",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_devices",
+      "kind": "read",
+      "read": "devices"
+    },
+    {
+      "id": "read_usb",
+      "kind": "read",
+      "read": "usb"
+    },
+    {
+      "id": "check_1",
+      "kind": "rule",
+      "rule": "cabinet.devices"
+    },
+    {
+      "id": "check_2",
+      "kind": "rule",
+      "rule": "cabinet.usbPorts"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "devices",
+      "usb"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "devices-unread",
+      "statement": "Could not read the devices",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "devices_problem",
+      "findingKey": "devices-problem",
+      "statement": "Devices have problems Windows reports",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "usb_failing",
+      "findingKey": "usb-failing",
+      "statement": "A USB device is failing",
+      "severity": "warning",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Lists what Windows reports as a problem; a device that has disappeared entirely is not listed"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "A device keeps reporting a problem after its driver is reinstalled"
+  }
+}

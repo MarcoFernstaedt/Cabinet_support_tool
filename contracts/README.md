@@ -13,6 +13,7 @@ schemas/
                                 checks what a schema cannot (server/src/diagnose/module.ts)
   diagnostics/registry.schema.json the capability registry: one entry per module, built or planned (what it can do,
                                 version, dependencies, what follows it, its phase)
+diagnostics/modules/*.json      the diagnostic modules, one file per module, named by its id
 diagnostics/registry.json       the committed capability registry (server/src/diagnose/registry.ts checks it against the
                                 modules the server has)
 examples/<target>/{valid,invalid}/*.json
