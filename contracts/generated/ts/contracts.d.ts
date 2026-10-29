@@ -2410,7 +2410,7 @@ export interface DiagnosticModule {
    * The causes the module can name. Each becomes a finding with a stable key that runbooks and known fixes attach to.
    *
    * @minItems 1
-   * @maxItems 16
+   * @maxItems 48
    */
   hypotheses: [
     {

@@ -1,0 +1,481 @@
+{
+  "id": "network-diagnosis",
+  "version": 1,
+  "title": "The network, layer by layer: link, address, gateway, DNS, the platform, the sync cabinet and the firewall",
+  "area": "network",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "config",
+        "operation": "network.config",
+        "params": {}
+      },
+      {
+        "id": "firewall",
+        "operation": "firewall.state",
+        "params": {}
+      },
+      {
+        "id": "gateway",
+        "operation": "network.test",
+        "params": {
+          "target": "gateway",
+          "method": "ping",
+          "count": 4
+        }
+      },
+      {
+        "id": "dns_0",
+        "operation": "network.test",
+        "params": {
+          "target": "dns_server",
+          "method": "dns",
+          "dnsServerIndex": 0
+        }
+      },
+      {
+        "id": "dns_1",
+        "operation": "network.test",
+        "params": {
+          "target": "dns_server",
+          "method": "dns",
+          "dnsServerIndex": 1
+        }
+      },
+      {
+        "id": "dns_2",
+        "operation": "network.test",
+        "params": {
+          "target": "dns_server",
+          "method": "dns",
+          "dnsServerIndex": 2
+        }
+      },
+      {
+        "id": "dns_3",
+        "operation": "network.test",
+        "params": {
+          "target": "dns_server",
+          "method": "dns",
+          "dnsServerIndex": 3
+        }
+      },
+      {
+        "id": "platform",
+        "operation": "network.test",
+        "params": {
+          "target": "platform_server",
+          "method": "dns"
+        }
+      },
+      {
+        "id": "sync_ping",
+        "operation": "network.test",
+        "params": {
+          "target": "sync_cabinet",
+          "method": "ping",
+          "count": 10
+        }
+      },
+      {
+        "id": "trace_platform",
+        "operation": "network.trace",
+        "params": {
+          "target": "platform_server"
+        }
+      },
+      {
+        "id": "trace_sync",
+        "operation": "network.trace",
+        "params": {
+          "target": "sync_cabinet"
+        }
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_config",
+      "kind": "read",
+      "read": "config"
+    },
+    {
+      "id": "read_firewall",
+      "kind": "read",
+      "read": "firewall"
+    },
+    {
+      "id": "read_gateway",
+      "kind": "read",
+      "read": "gateway"
+    },
+    {
+      "id": "read_dns_0",
+      "kind": "read",
+      "read": "dns_0"
+    },
+    {
+      "id": "read_dns_1",
+      "kind": "read",
+      "read": "dns_1"
+    },
+    {
+      "id": "read_dns_2",
+      "kind": "read",
+      "read": "dns_2"
+    },
+    {
+      "id": "read_dns_3",
+      "kind": "read",
+      "read": "dns_3"
+    },
+    {
+      "id": "read_platform",
+      "kind": "read",
+      "read": "platform"
+    },
+    {
+      "id": "read_sync_ping",
+      "kind": "read",
+      "read": "sync_ping"
+    },
+    {
+      "id": "read_trace_platform",
+      "kind": "read",
+      "read": "trace_platform"
+    },
+    {
+      "id": "read_trace_sync",
+      "kind": "read",
+      "read": "trace_sync"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "network.findings"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "config",
+      "firewall"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "config",
+      "findingKey": "config",
+      "statement": "Could not read the network settings",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "link",
+      "findingKey": "link",
+      "statement": "No network link on any adapter",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "ip",
+      "findingKey": "ip",
+      "statement": "An adapter has no usable IP address",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "speed",
+      "findingKey": "speed",
+      "statement": "An adapter linked at a low speed",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "gateway_none",
+      "findingKey": "gateway-none",
+      "statement": "No default gateway",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "gateway",
+      "findingKey": "gateway",
+      "statement": "The gateway does not answer",
+      "severity": "problem",
+      "certainty": "probable"
+    },
+    {
+      "id": "baseline_subnet",
+      "findingKey": "baseline-subnet",
+      "statement": "An adapter has an address outside the site's network",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "baseline_addressing",
+      "findingKey": "baseline-addressing",
+      "statement": "An adapter's addressing (fixed or DHCP) differs from the site's standard",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "baseline_gateway",
+      "findingKey": "baseline-gateway",
+      "statement": "An adapter uses the wrong gateway",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "baseline_dns",
+      "findingKey": "baseline-dns",
+      "statement": "An adapter uses DNS servers that are not the site's",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "dns_all",
+      "findingKey": "dns-all",
+      "statement": "No DNS server answers",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "dns_server",
+      "findingKey": "dns-dns",
+      "statement": "A DNS server does not answer",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "platform_dns",
+      "findingKey": "platform-dns",
+      "statement": "The platform server's name does not resolve",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "sync_self",
+      "findingKey": "sync-self",
+      "statement": "This is the site's sync cabinet, so there is no sync cabinet to reach",
+      "severity": "info",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "sync_none",
+      "findingKey": "sync-none",
+      "statement": "No sync cabinet to test",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "sync_down",
+      "findingKey": "sync-down",
+      "statement": "Cannot reach the sync cabinet",
+      "severity": "problem",
+      "certainty": "probable"
+    },
+    {
+      "id": "sync_flaky",
+      "findingKey": "sync-flaky",
+      "statement": "The connection to the sync cabinet is unreliable",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "sync_firewall",
+      "findingKey": "sync-firewall",
+      "statement": "The firewall on the sync cabinet is blocking its ports",
+      "severity": "problem",
+      "certainty": "probable"
+    },
+    {
+      "id": "sync_port",
+      "findingKey": "sync-port",
+      "statement": "Sync ports on the sync cabinet do not answer",
+      "severity": "problem",
+      "certainty": "possible"
+    },
+    {
+      "id": "sync_ping",
+      "findingKey": "sync-ping",
+      "statement": "The sync cabinet does not answer ping",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "sync_not_checked_ping",
+      "findingKey": "sync-nc-sync-ping",
+      "statement": "Could not test the sync cabinet by ping",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "sync_not_checked_port",
+      "findingKey": "sync-nc-sync-tcp",
+      "statement": "Could not test a sync port",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "firewall",
+      "findingKey": "firewall",
+      "statement": "This cabinet's firewall differs from its policy",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "lease",
+      "findingKey": "obs-lease",
+      "statement": "A DHCP lease has run out or ends soon",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "mtu",
+      "findingKey": "obs-mtu",
+      "statement": "An adapter uses an unusual packet size",
+      "severity": "info",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "errors",
+      "findingKey": "obs-errors",
+      "statement": "An adapter has dropped packets",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "ping_loss",
+      "findingKey": "obs-ping-loss",
+      "statement": "Packets to the gateway are being lost",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "ping_slow",
+      "findingKey": "obs-ping-slow",
+      "statement": "The gateway is slow to answer",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "ping_jitter",
+      "findingKey": "obs-ping-jitter",
+      "statement": "The gateway's answer times jump around",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "arp",
+      "findingKey": "obs-arp",
+      "statement": "The gateway does not answer ARP",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "routes",
+      "findingKey": "obs-routes",
+      "statement": "There is more than one default route",
+      "severity": "info",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "trace_sync",
+      "findingKey": "obs-trace-sync",
+      "statement": "The path to the sync cabinet stops or crosses a router",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "trace_platform",
+      "findingKey": "obs-trace-platform",
+      "statement": "The path to the platform server stops",
+      "severity": "info",
+      "certainty": "probable"
+    }
+  ],
+  "remediation": [
+    {
+      "id": "renew_lease",
+      "operation": "network.renewLease",
+      "forHypotheses": [
+        "ip"
+      ],
+      "preconditions": [
+        "The adapter takes its address from DHCP"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "config"
+      }
+    },
+    {
+      "id": "set_address",
+      "operation": "network.setIp",
+      "forHypotheses": [
+        "baseline_addressing",
+        "baseline_gateway"
+      ],
+      "preconditions": [
+        "The site has a network standard"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "config"
+      }
+    },
+    {
+      "id": "set_dns",
+      "operation": "network.setDns",
+      "forHypotheses": [
+        "baseline_dns"
+      ],
+      "preconditions": [
+        "The site has a network standard"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "config"
+      }
+    },
+    {
+      "id": "apply_policy",
+      "operation": "firewall.applyPolicy",
+      "forHypotheses": [
+        "firewall"
+      ],
+      "preconditions": [
+        "The client has a firewall policy"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "firewall"
+      }
+    },
+    {
+      "id": "apply_policy_sync",
+      "operation": "firewall.applyPolicy",
+      "forHypotheses": [
+        "sync_firewall"
+      ],
+      "preconditions": [
+        "The client has a firewall policy; the change is made on the sync cabinet"
+      ],
+      "verification": {
+        "kind": "functional",
+        "read": "sync_ping"
+      }
+    }
+  ],
+  "limits": [
+    "The sync cabinet's ports come from the site's settings; a TCP test for each is added when the diagnosis runs",
+    "Asks only as many DNS servers as the connected adapters use",
+    "Many networks drop the probes a path trace uses, so a trace that stops is not proof on its own"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The cabinet still cannot reach the sync cabinet or the platform after the fixes offered here"
+  }
+}

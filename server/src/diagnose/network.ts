@@ -13,8 +13,9 @@ import { Refused } from "../services/errors.js";
 import { findingKey, fixesForFindings, markSeen } from "../services/known-fixes.js";
 import { upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
-import { layerStates, networkFindings, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
+import { layerStates, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
 import type { TraceRun } from "./network-observations.js";
+import { runNetworkModule } from "./network-module.js";
 
 /** How long the whole run may take; a cabinet answers reads in about a second. */
 export const RUN_LIMIT_MS = 60_000;
@@ -36,6 +37,28 @@ export async function waitFor(pool: Pool, ids: string[], deadline: number): Prom
 }
 
 const MAX_RUNNING_PER_USER = 3;
+
+export interface PlannedRead { key: string; label: string; operation: "network.test" | "network.trace"; params: Record<string, unknown> }
+
+/**
+ * The tests and traces a diagnosis issues after the network settings are in (the network-diagnosis module declares the same reads;
+ * server/test/network-module.test.ts keeps them identical): the gateway, each DNS server the connected adapters use (`dnsCount`, 1 to
+ * 4), the platform server's name, and, for a cabinet that has a sync cabinet to reach (`syncPorts` not null), the sync cabinet by ping
+ * and on each of its first four ports; then the paths to the platform server and the sync cabinet, to see where replies stop.
+ */
+export function plannedTests(dnsCount: number, syncPorts: readonly number[] | null): { tests: PlannedRead[]; traces: PlannedRead[] } {
+  const tests: PlannedRead[] = [{ key: "gateway", label: "Gateway (ping)", operation: "network.test", params: { target: "gateway", method: "ping", count: 4 } }];
+  for (let i = 0; i < dnsCount; i++) tests.push({ key: `dns-${i}`, label: `DNS server ${i + 1}`, operation: "network.test", params: { target: "dns_server", method: "dns", dnsServerIndex: i } });
+  tests.push({ key: "platform", label: "Platform server name", operation: "network.test", params: { target: "platform_server", method: "dns" } });
+  if (syncPorts) {
+    tests.push({ key: "sync-ping", label: "Sync cabinet (ping)", operation: "network.test", params: { target: "sync_cabinet", method: "ping", count: 10 } });
+    for (const port of syncPorts.slice(0, 4))
+      tests.push({ key: `sync-tcp-${port}`, label: `Sync cabinet port ${port}`, operation: "network.test", params: { target: "sync_cabinet", method: "tcp", port, count: 5 } });
+  }
+  const traces: PlannedRead[] = [{ key: "trace-platform", label: "Path to the platform server", operation: "network.trace", params: { target: "platform_server" } }];
+  if (syncPorts) traces.push({ key: "trace-sync", label: "Path to the sync cabinet", operation: "network.trace", params: { target: "sync_cabinet" } });
+  return { tests, traces };
+}
 
 export async function startNetworkDiagnosis(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
   const k = (await pool.query<{ name: string; role: string }>("SELECT name, role FROM cabinets WHERE id = $1 AND status = 'active'", [cabinetId])).rows[0];
@@ -80,21 +103,14 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   const config = firstDone.get(first[0]!.commandId);
   const configOut = config?.status === "succeeded" ? config.output as NetworkConfigOutput : undefined;
 
-  // The tests: the gateway, each DNS server the connected adapters use, the platform server's name, and the site's sync cabinet.
   const connected = configOut?.adapters.filter(a => a.connected) ?? [];
   const dnsCount = Math.min(4, Math.max(1, ...connected.map(a => a.dns.servers.length)));
   const sync = await syncForCabinet(pool, cabinetId);
-  const tests: Issued[] = [await issue("gateway", "Gateway (ping)", "network.test", { target: "gateway", method: "ping", count: 4 })];
-  for (let i = 0; i < dnsCount; i++) tests.push(await issue(`dns-${i}`, `DNS server ${i + 1}`, "network.test", { target: "dns_server", method: "dns", dnsServerIndex: i }));
-  tests.push(await issue("platform", "Platform server name", "network.test", { target: "platform_server", method: "dns" }));
-  if (cabinet.role !== "sync" && sync?.address) {
-    tests.push(await issue("sync-ping", "Sync cabinet (ping)", "network.test", { target: "sync_cabinet", method: "ping", count: 10 }));
-    for (const port of sync.effective.slice(0, 4))
-      tests.push(await issue(`sync-tcp-${port}`, `Sync cabinet port ${port}`, "network.test", { target: "sync_cabinet", method: "tcp", port, count: 5 }));
-  }
-  // The routes to the sync cabinet and the platform server: where along the way replies stop or slow down.
-  const traces: Issued[] = [await issue("trace-platform", "Path to the platform server", "network.trace", { target: "platform_server" })];
-  if (cabinet.role !== "sync" && sync?.address) traces.push(await issue("trace-sync", "Path to the sync cabinet", "network.trace", { target: "sync_cabinet" }));
+  const plan = plannedTests(dnsCount, cabinet.role !== "sync" && sync?.address ? sync.effective : null);
+  const tests: Issued[] = [];
+  for (const t of plan.tests) tests.push(await issue(t.key, t.label, t.operation, t.params));
+  const traces: Issued[] = [];
+  for (const t of plan.traces) traces.push(await issue(t.key, t.label, t.operation, t.params));
   const all = [...first, ...tests, ...traces];
   await pool.query("UPDATE diagnoses SET commands = $2 WHERE id = $1", [id, safeJson(all.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
   const results = await waitFor(pool, all.map(c => c.commandId), deadline);
@@ -125,7 +141,7 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
     const o = outcome(t);
     return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as NetworkTraceOutput } : { failure: o.failure ?? o.status }) };
   });
-  const findings = networkFindings(evidence);
+  const findings = runNetworkModule(evidence);
   // Everything that was read, kept whether or not anything is wrong, so the console can show the full read.
   const readings = { takenAt: new Date().toISOString(), adapters: configOut?.adapters ?? [], routes: configOut?.routes ?? [], neighbors: configOut?.neighbors ?? [],
     tests: evidence.tests, traces: evidence.traces };
