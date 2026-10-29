@@ -254,3 +254,23 @@ test("every committed diagnostic module matches its schema and is named by its f
     assert.equal(`${data.id}.json`, file);
   }
 });
+
+test("every directory load.mjs reads at run time is in the server image", () => {
+  // The server reads these through load.mjs inside the container, so the image must carry each one: the build context is a whitelist
+  // (deploy/Dockerfile.dockerignore) and the contracts stage copies directory by directory (deploy/Dockerfile).
+  const root = join(SCHEMA_DIR, "..");
+  const loader = readFileSync(join(root, "load.mjs"), "utf8");
+  const dirs = new Set(["schemas"]);
+  const marker = 'join(SCHEMA_DIR, "..", "';
+  for (let i = loader.indexOf(marker); i >= 0; i = loader.indexOf(marker, i + 1)) {
+    const from = i + marker.length;
+    dirs.add(loader.slice(from, loader.indexOf('"', from)));
+  }
+  assert.ok(dirs.has("diagnostics"), "the scan finds the loader's reads");
+  const dockerfile = readFileSync(join(root, "..", "deploy", "Dockerfile"), "utf8");
+  const ignore = readFileSync(join(root, "..", "deploy", "Dockerfile.dockerignore"), "utf8").split("\n").map(l => l.trim());
+  for (const d of dirs) {
+    assert.ok(dockerfile.includes(`COPY contracts/${d} ./${d}`), `deploy/Dockerfile copies contracts/${d}`);
+    assert.ok(ignore.includes(`!contracts/${d}/**`), `deploy/Dockerfile.dockerignore lets contracts/${d} into the build context`);
+  }
+});
