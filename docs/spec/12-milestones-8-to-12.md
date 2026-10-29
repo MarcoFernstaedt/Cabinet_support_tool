@@ -149,7 +149,7 @@ New operations:
 - **network.stats** gains, per adapter: negotiated speed and duplex, the highest speed the adapter supports, and link up and down counts in the last 24 hours from the System log.
 - **drivers.list** gains, per driver, the files it installed (path, version, size), read from the driver store.
 
-Bulk: updates.install and system.restart can be sent to a client or a site like the bulk firewall policy (password, up to 200 cabinets). Restarts are staggered, at most 20 starting each minute.
+Bulk: updates.install can be sent to a client or a site like the bulk firewall policy (password, up to 200 cabinets). system.restart is never sent in bulk (the owner's decision, 2026-10-29, for security): one cabinet at a time from its own page. See 09-open-decisions.md "No bulk restarts".
 
 Physical-layer findings in the network diagnosis, each with its fix:
 

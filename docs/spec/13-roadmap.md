@@ -141,7 +141,7 @@ Built (October 2026):
 - **Sync cabinet warning** (module 37, the owner's decision, October 2026). Every change confirmed on a sync cabinet's page (the authenticator-code and the one-click confirmations alike) names the satellites that depend on it: "This is the sync cabinet for 2 satellites (EXAM 1, EXAM 2). If this change takes it offline, they lose sync until it is back." The confirmation level is the operation's own; the warning adds no step. The client/site bulk firewall apply keeps applying to every cabinet, sync cabinets included, as the owner decided.
 - **Scale, measured against the simulator** (fleet-jobs.test): 10 cabinets in about 0.4 s, 60 in about 0.7 s, 98 in about 1.1 s, every reachable cabinet verified. Real cabinets answer within their poll interval and verify on their next heartbeat (up to a minute).
 
-Still to build: more operations as jobs (restarts, updates) once those operations exist; scheduling a job for later; any further sync-cabinet ordering once restarts become job operations (see 09 "Sync cabinets: bulk firewall apply and the change warning").
+Still to build: more operations as jobs (updates) once those operations exist; scheduling a job for later. Restarts are never a job operation (the owner's decision, 2026-10-29, for security; 09 "No bulk restarts").
 
 ## Evidence and retention (modules 12 and 39)
 
