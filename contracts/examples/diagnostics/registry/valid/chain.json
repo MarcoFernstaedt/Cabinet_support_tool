@@ -1,0 +1,33 @@
+{
+  "version": 3,
+  "capabilities": [
+    {
+      "id": "scanner-offline",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "The fingerprint scanner is not answering",
+      "provides": [
+        "detect",
+        "diagnose",
+        "repair",
+        "verify"
+      ],
+      "next": [
+        "usb-power"
+      ]
+    },
+    {
+      "id": "usb-power",
+      "status": "planned",
+      "phase": 2,
+      "title": "USB power settings that drop devices",
+      "provides": [
+        "diagnose"
+      ],
+      "dependsOn": [
+        "scanner-offline"
+      ]
+    }
+  ]
+}

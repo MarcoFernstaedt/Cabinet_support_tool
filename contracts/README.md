@@ -11,6 +11,10 @@ schemas/
   diagnostics/module.schema.json a diagnostic module: catalog reads, ordered checks, causes, catalog repairs and how
                                 each is verified. Server data only: the agent has no C# type for it, and the server
                                 checks what a schema cannot (server/src/diagnose/module.ts)
+  diagnostics/registry.schema.json the capability registry: one entry per module, built or planned (what it can do,
+                                version, dependencies, what follows it, its phase)
+diagnostics/registry.json       the committed capability registry (server/src/diagnose/registry.ts checks it against the
+                                modules the server has)
 examples/<target>/{valid,invalid}/*.json
                                 every envelope and operation has valid examples; every operation's params
                                 have hostile ones (traversal, injection, oversized, unknown fields, Security log…)
