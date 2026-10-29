@@ -73,7 +73,8 @@ twice.
    read or a pure rule), evidence (what is kept and for how long), hypotheses with confidence, remediation (catalog
    operations only, with preconditions), verification (functional, or a read-back, and what "incomplete: no test exists"
    looks like), limits (what the module cannot tell) and escalation.
-2. **The unified incident record.** `server/migrations/0009_incidents.sql`: one row joining symptom, evidence,
+2. **The unified incident record** (built 2026-10-29 as `server/migrations/0017_incidents.sql` with `server/src/services/incidents.ts` and
+   `server/test/incidents.test.ts`; nothing creates incidents yet). Planned as `server/migrations/0009_incidents.sql`: one row joining symptom, evidence,
    hypothesis, proposed repair, approval, execution and verification, linked to its alerts, findings, commands and case
    notes, with an audit entry per step and retention by class. Audit section 7 names this as the thing that unifies
    "alert resolved" with "fleet operation verified".

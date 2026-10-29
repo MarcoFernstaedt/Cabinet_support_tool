@@ -213,7 +213,7 @@ export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: Batch
 }
 
 export interface RetentionRun { events: number; eventsCleared: number; opsCounters: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
-  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number; configChanges: number; healthTransitions: number }
+  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number; configChanges: number; healthTransitions: number; incidents: number }
 
 /**
  * Removes events, resolved alerts, firewall history, diagnoses, boot records and finished fleet jobs past their retention, and clears old command results
@@ -253,8 +253,10 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
                            (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o, { table: "fleet_job_targets", cutoff: cut(r.jobsDays) });
   const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
                                         AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o, { table: "fleet_jobs", cutoff: cut(r.jobsDays) });
+  // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed.
+  const incidents = await inBatches(pool, "DELETE TOP ($1) FROM incidents WHERE closed_at IS NOT NULL AND closed_at < $2", [cut(r.alertsDays)], o, { table: "incidents", cutoff: cut(r.alertsDays) });
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
-    driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions };
+    driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions, incidents };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
   // Counts for the System health page: that it ran, and how many rows it removed or cleared per table (numbers only).
   opsMeter.count("retention", "ok");
