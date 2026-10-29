@@ -6,6 +6,8 @@ import type { DevicesListOutput, DiskSmartOutput, EventlogQueryOutput, Periphera
   SystemPerformanceOutput, TimeStatusOutput, UpdatesStatusOutput, UsbPortsOutput } from "@mashura/cabinet-contracts/types";
 import { findingKey } from "../services/known-fixes.js";
 import type { Finding as NetworkFinding, FixAction as NetworkFixAction } from "./network-findings.js";
+import { readModules } from "@mashura/cabinet-contracts/load";
+import { parseModule, type DiagnosticModule } from "./module.js";
 
 export type Area = "system" | "storage" | "performance" | "scanner" | "devices" | "services" | "updates" | "time" | "logs" | "network";
 export const AREAS: readonly [Area, string][] = [["system", "System"], ["storage", "Drive health"], ["performance", "Performance"], ["scanner", "Fingerprint scanner"],
@@ -120,8 +122,8 @@ const codeText = (code: number | null | undefined, text: string | null | undefin
 
 // ---- The checks --------------------------------------------------------------------------------------------------------------------------
 
-interface Part { findings: BundleFinding[]; ok: string | null }
-type Make = (x: Omit<BundleFinding, "key" | "source"> & { key?: string }) => BundleFinding;
+export interface Part { findings: BundleFinding[]; ok: string | null }
+export type Make = (x: Omit<BundleFinding, "key" | "source"> & { key?: string }) => BundleFinding;
 
 /** Services that Windows and the cabinet need running. Compared by exact name (lower case); a stopped one set to start automatically is worth a look. */
 const MUST_RUN: Record<string, string> = {
@@ -477,6 +479,52 @@ export function fromNetwork(f: NetworkFinding): BundleFinding | null {
     ...(f.causedBy ? { causedBy: `net-${f.causedBy}`.slice(0, 60) } : {}) };
 }
 
+// ---- The checks as modules (docs/platform/diagnostic-engine-execution.md, item 4) -------------------------------------------------------
+
+/** What a rule sees besides the evidence: the findings of the modules that ran before it in this diagnosis. */
+export interface RuleContext { findings: readonly BundleFinding[] }
+export type CabinetRule = (e: CabinetEvidence, make: Make, ctx: RuleContext) => Part;
+
+/** The server rules the cabinet modules name (contracts/diagnostics/modules/cabinet-*.json). A module naming any other rule is refused. */
+export const CABINET_RULES: Readonly<Record<string, CabinetRule>> = {
+  "cabinet.system": (e, make) => system(e, make),
+  "cabinet.storage": (e, make) => storage(e, make),
+  "cabinet.performance": (e, make) => performance(e, make),
+  "cabinet.scanner": (e, make) => scanner(e, make),
+  "cabinet.devices": (e, make) => devices(e, make),
+  "cabinet.usbPorts": (e, make) => usbPorts(e, make),
+  "cabinet.services": (e, make) => services(e, make),
+  // A failed update that a nearly full system drive explains points at it (cabinet-updates depends on cabinet-performance in the registry).
+  "cabinet.updates": (e, make, ctx) => updates(e, make, ctx.findings.find(f => f.key === "disk-space" && f.title.toLowerCase().startsWith("c"))?.id ?? null),
+  "cabinet.time": (e, make) => time(e, make),
+  "cabinet.logs": (e, make) => logs(e, make),
+};
+
+/** The order the cabinet modules run in, and so the order their areas are listed. */
+const CABINET_MODULE_ORDER = ["cabinet-system", "cabinet-storage", "cabinet-performance", "cabinet-scanner", "cabinet-devices", "cabinet-services", "cabinet-updates", "cabinet-time", "cabinet-logs"];
+let cabinetModuleCache: readonly DiagnosticModule[] | null = null;
+/** The cabinet modules, read and checked once (a module that fails its checks stops the diagnosis rather than running half). */
+export function cabinetModules(): readonly DiagnosticModule[] {
+  if (cabinetModuleCache) return cabinetModuleCache;
+  const rules = new Set(Object.keys(CABINET_RULES));
+  const byId = new Map(readModules().filter(f => f.file.startsWith("cabinet-")).map(f => { const m = parseModule(f.data, rules); return [m.id, m] as const; }));
+  cabinetModuleCache = CABINET_MODULE_ORDER.map(id => { const m = byId.get(id); if (!m) throw new Error(`the ${id} module is missing`); return m; });
+  if (byId.size !== CABINET_MODULE_ORDER.length) throw new Error("a cabinet module is not in the run order");
+  return cabinetModuleCache;
+}
+
+/** Runs one module's rule steps in order; their findings are one part (the first step's healthy text speaks for the module). */
+function runModule(m: DiagnosticModule, e: CabinetEvidence, make: Make, ctx: { findings: BundleFinding[] }): Part {
+  let part: Part | null = null;
+  for (const step of m.procedure) {
+    if (step.kind !== "rule") continue;
+    const p = CABINET_RULES[step.rule!]!(e, make, ctx);
+    ctx.findings.push(...p.findings);
+    part = part ? mergeParts(part, p) : p;
+  }
+  return part ?? { findings: [], ok: null };
+}
+
 export interface AreaSummary { area: Area; label: string; state: "ok" | "warning" | "problem" | "unknown"; summary: string }
 
 export interface CabinetFindings { findings: BundleFinding[]; areas: AreaSummary[]; headline: string }
@@ -490,10 +538,8 @@ export function cabinetFindings(e: CabinetEvidence, network?: { findings: Networ
     const key = safeKey(x.key ?? findingKey(x.id));
     return { ...x, key, source: "cabinet", title: clean(x.title, 200), evidence: lines(x.evidence), fix: x.fix ? clean(x.fix, 600) : null };
   };
-  const perf = performance(e, make);
-  const lowSpace = perf.findings.find(f => f.key === "disk-space" && f.title.toLowerCase().startsWith("c"))?.id ?? null;
-  const parts: [Area, Part][] = [["system", system(e, make)], ["storage", storage(e, make)], ["performance", perf], ["scanner", scanner(e, make)],
-    ["devices", mergeParts(devices(e, make), usbPorts(e, make))], ["services", services(e, make)], ["updates", updates(e, make, lowSpace)], ["time", time(e, make)], ["logs", logs(e, make)]];
+  const ctx = { findings: [] as BundleFinding[] };
+  const parts: [Area, Part][] = cabinetModules().map(m => [m.area, runModule(m, e, make, ctx)]);
   const all: BundleFinding[] = parts.flatMap(([, p]) => p.findings);
   const asked: Record<Area, boolean> = { system: !!e.info, storage: !!e.smart, performance: !!e.performance, scanner: !!e.peripheral || e.scannerUsed === false, devices: !!e.devices || !!e.usb, services: !!e.services,
     updates: !!e.updates, time: !!e.time, logs: !!e.systemLog || !!e.appLog, network: network !== undefined };

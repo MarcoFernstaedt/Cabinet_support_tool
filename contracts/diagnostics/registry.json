@@ -1,12 +1,111 @@
 {
-  "version": 1,
+  "version": 2,
   "capabilities": [
+    {
+      "id": "cabinet-system",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "System: how long the cabinet has been up and whether its drive is writable",
+      "provides": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "cabinet-storage",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Drive health from each drive's own report",
+      "provides": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "cabinet-performance",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Processor, memory, disk activity and free space",
+      "provides": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "cabinet-scanner",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "The fingerprint scanner: present, working and stable",
+      "provides": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "cabinet-devices",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Devices with problems and USB devices that fail",
+      "provides": [
+        "diagnose"
+      ]
+    },
+    {
+      "id": "cabinet-services",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Services the cabinet and Windows need",
+      "provides": [
+        "diagnose",
+        "repair",
+        "verify"
+      ]
+    },
+    {
+      "id": "cabinet-updates",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Windows updates: failures, pending security updates and how recent",
+      "provides": [
+        "diagnose"
+      ],
+      "dependsOn": [
+        "cabinet-performance"
+      ]
+    },
+    {
+      "id": "cabinet-time",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "The clock, its time zone and time sync",
+      "provides": [
+        "diagnose",
+        "repair",
+        "verify"
+      ]
+    },
+    {
+      "id": "cabinet-logs",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 1,
+      "title": "Errors in the System and Application logs over the last 24 hours",
+      "provides": [
+        "diagnose"
+      ]
+    },
     {
       "id": "sql-connectivity-ladder",
       "status": "planned",
       "phase": 3,
       "title": "Prove a configured SQL Server answers: name, port, TLS and a login-free pre-login",
-      "provides": ["diagnose"]
+      "provides": [
+        "diagnose"
+      ]
     }
   ]
 }

@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ContractError } from "../src/contracts.js";
 import type { DiagnosticModule } from "../src/diagnose/module.js";
+import { cabinetModules } from "../src/diagnose/cabinet-findings.js";
 import { dependencyCycle, loadRegistry, parseRegistry, RegistryError, registryIssues, type Capability, type CapabilityRegistry } from "../src/diagnose/registry.js";
 
 const examples = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "contracts", "examples", "diagnostics");
@@ -22,10 +23,12 @@ function refusal(change: (r: CapabilityRegistry) => void, ms = modules(scanner()
   return registryIssues(r, ms).map(i => `${i.path}: ${i.reason}`);
 }
 
-test("the committed registry is valid with the modules the server has today (none yet)", () => {
-  const r = loadRegistry(new Map());
-  assert.ok(r.capabilities.every(c => c.status === "planned"));
-  assert.ok(r.capabilities.some(c => c.id === "sql-connectivity-ladder"), "the plan's first module is named");
+test("the committed registry is valid with the modules the server has (the cabinet checks)", () => {
+  const r = loadRegistry(new Map(cabinetModules().map(m => [m.id, m])));
+  assert.deepEqual(r.capabilities.filter(c => c.status === "built").map(c => c.id).sort(), cabinetModules().map(m => m.id).sort());
+  assert.ok(r.capabilities.some(c => c.id === "sql-connectivity-ladder" && c.status === "planned"), "the plan's first new module is named");
+  // Leaving a module out of the registry is refused.
+  assert.throws(() => loadRegistry(new Map([...cabinetModules().map(m => [m.id, m] as const), ["extra-module", { ...cabinetModules()[0]!, id: "extra-module" }]])), RegistryError);
 });
 
 test("every valid example is accepted and every hostile one is refused by the schema", () => {

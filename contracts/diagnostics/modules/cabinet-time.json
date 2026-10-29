@@ -1,0 +1,117 @@
+{
+  "id": "cabinet-time",
+  "version": 1,
+  "title": "The clock, its time zone and time sync",
+  "area": "time",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "time",
+        "operation": "time.status",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_time",
+      "kind": "read",
+      "read": "time"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.time"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "time"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "time-unread",
+      "statement": "Could not read the time settings",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "service",
+      "findingKey": "time-service",
+      "statement": "The Windows Time service is not running",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "skew",
+      "findingKey": "time-skew",
+      "statement": "The clock is out of step with the server",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "zone",
+      "findingKey": "time-zone",
+      "statement": "The cabinet is set to the wrong time zone",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "never_synced",
+      "findingKey": "time-never-synced",
+      "statement": "The clock has never synced",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "sync_old",
+      "findingKey": "time-sync-old",
+      "statement": "The clock has not synced for a long time",
+      "severity": "warning",
+      "certainty": "possible"
+    }
+  ],
+  "remediation": [
+    {
+      "id": "sync",
+      "operation": "time.sync",
+      "forHypotheses": [
+        "skew",
+        "never_synced",
+        "sync_old"
+      ],
+      "preconditions": [
+        "The Windows Time service is running"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "time"
+      }
+    },
+    {
+      "id": "set_zone",
+      "operation": "time.setZone",
+      "forHypotheses": [
+        "zone"
+      ],
+      "preconditions": [
+        "The site has a time zone set"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "time"
+      }
+    }
+  ],
+  "limits": [
+    "Compares with the server's clock, which is assumed correct"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The clock drifts again after a sync"
+  }
+}

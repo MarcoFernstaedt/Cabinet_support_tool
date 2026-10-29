@@ -1,0 +1,115 @@
+{
+  "id": "cabinet-services",
+  "version": 1,
+  "title": "Services the cabinet and Windows need",
+  "area": "services",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "services",
+        "operation": "services.list",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_services",
+      "kind": "read",
+      "read": "services"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.services"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "services"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "services-unread",
+      "statement": "Could not read the services",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "failing",
+      "findingKey": "service-failing",
+      "statement": "A watched service will not stay running",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "watch",
+      "findingKey": "service-watch",
+      "statement": "A watched service is missing, disabled or refused",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "restarts",
+      "findingKey": "service-restarts",
+      "statement": "A watched service restarted many times today",
+      "severity": "warning",
+      "certainty": "probable"
+    },
+    {
+      "id": "stopped",
+      "findingKey": "service-stopped",
+      "statement": "A service Windows needs is stopped but set to start automatically",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "disabled",
+      "findingKey": "service-disabled",
+      "statement": "A service Windows needs is disabled",
+      "severity": "warning",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [
+    {
+      "id": "start",
+      "operation": "service.control",
+      "forHypotheses": [
+        "stopped"
+      ],
+      "preconditions": [
+        "The service is one Windows needs and is set to start automatically"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "services"
+      }
+    },
+    {
+      "id": "automatic",
+      "operation": "service.setStartType",
+      "forHypotheses": [
+        "disabled"
+      ],
+      "preconditions": [
+        "The service is one Windows needs"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "services"
+      }
+    }
+  ],
+  "limits": [
+    "Checks a fixed list of Windows services and the watched services; others are not judged"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "A service will not stay running after it is started"
+  }
+}

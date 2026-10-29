@@ -1,0 +1,72 @@
+{
+  "id": "cabinet-system",
+  "version": 1,
+  "title": "System: how long the cabinet has been up and whether its drive is writable",
+  "area": "system",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "info",
+        "operation": "system.info",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_info",
+      "kind": "read",
+      "read": "info"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.system"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "info"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "system-unread",
+      "statement": "Could not read the system information",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "read_only",
+      "findingKey": "read-only",
+      "statement": "The system drive is read-only",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "uptime_long",
+      "findingKey": "uptime-long",
+      "statement": "The cabinet has not restarted in a long time",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "uptime_short",
+      "findingKey": "uptime-short",
+      "statement": "The cabinet restarted very recently",
+      "severity": "info",
+      "certainty": "possible"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Reads what Windows reports about itself; cannot see hardware faults that Windows does not report"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The system drive stays read-only after a restart"
+  }
+}

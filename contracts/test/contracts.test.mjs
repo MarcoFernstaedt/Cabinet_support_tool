@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { createAjv, readSchemas, readCatalog, readRegistry, ref, SCHEMA_DIR } from "../load.mjs";
+import { createAjv, readModules, readSchemas, readCatalog, readRegistry, ref, SCHEMA_DIR } from "../load.mjs";
 
 const EXAMPLES = join(SCHEMA_DIR, "..", "examples");
 const ajv = createAjv();
@@ -243,4 +243,14 @@ test("generated TypeScript types are up to date", async () => {
 test("the committed capability registry matches its schema", () => {
   const validate = ajv.getSchema(ref("diagnostics/registry.schema.json"));
   assert.equal(validate(readRegistry()), true, JSON.stringify(validate.errors));
+});
+
+test("every committed diagnostic module matches its schema and is named by its file", () => {
+  const validate = ajv.getSchema(ref("diagnostics/module.schema.json"));
+  const modules = readModules();
+  assert.ok(modules.length > 0);
+  for (const { file, data } of modules) {
+    assert.equal(validate(data), true, `${file}: ${JSON.stringify(validate.errors)}`);
+    assert.equal(`${data.id}.json`, file);
+  }
 });

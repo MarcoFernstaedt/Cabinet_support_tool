@@ -35,6 +35,12 @@ export function readRegistry() {
   return JSON.parse(readFileSync(join(SCHEMA_DIR, "..", "diagnostics", "registry.json"), "utf8"));
 }
 
+/** Every diagnostic module file (diagnostics/modules/*.json), sorted by name, unchecked: validate each before use. */
+export function readModules() {
+  const dir = join(SCHEMA_DIR, "..", "diagnostics", "modules");
+  return readdirSync(dir).filter(f => f.endsWith(".json")).sort().map(f => ({ file: f, data: JSON.parse(readFileSync(join(dir, f), "utf8")) }));
+}
+
 /**
  * An Ajv instance with every schema registered.
  * strict mode rejects unknown keywords and ambiguous schemas, so a typo in a

@@ -1,0 +1,79 @@
+{
+  "id": "cabinet-performance",
+  "version": 1,
+  "title": "Processor, memory, disk activity and free space",
+  "area": "performance",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "performance",
+        "operation": "system.performance",
+        "params": {}
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_performance",
+      "kind": "read",
+      "read": "performance"
+    },
+    {
+      "id": "check",
+      "kind": "rule",
+      "rule": "cabinet.performance"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "performance"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unread",
+      "findingKey": "perf-unread",
+      "statement": "Could not read the performance counters",
+      "severity": "info",
+      "certainty": "possible"
+    },
+    {
+      "id": "cpu_high",
+      "findingKey": "cpu-high",
+      "statement": "The processor is busy most of the time",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "memory_low",
+      "findingKey": "memory-low",
+      "statement": "Memory is nearly full",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "disk_busy",
+      "findingKey": "disk-busy",
+      "statement": "The disk is busy most of the time",
+      "severity": "warning",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "disk_space",
+      "findingKey": "disk-space",
+      "statement": "A drive is nearly full",
+      "severity": "problem",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "A single sample: a short spike can look like a lasting problem"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The cabinet is still slow after the cause found here is fixed"
+  }
+}
