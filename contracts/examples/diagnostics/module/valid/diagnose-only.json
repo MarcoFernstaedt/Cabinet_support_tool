@@ -1,7 +1,7 @@
 {
   "id": "time-drift",
   "version": 1,
-  "title": "The fingerprint scanner is not answering",
+  "title": "The clock is out of step with the time server",
   "area": "time",
   "applicability": {},
   "signals": {
@@ -40,8 +40,8 @@
   ],
   "remediation": [],
   "limits": [
-    "Cannot tell a faulty cable from a faulty scanner",
-    "Cannot see inside the cabinet application"
+    "Cannot tell why the time server is unreachable",
+    "Cannot see whether the cabinet application keeps its own clock"
   ],
   "escalation": {
     "to": "tier2",

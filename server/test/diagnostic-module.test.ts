@@ -60,6 +60,9 @@ test("ids and finding keys are unique, builds are in order, and something is rea
   // The duplicate is named; the read it replaced then resolves to nothing, and that is said too.
   assert.deepEqual(refusal(m => { m.signals.reads[1]!.id = "peripheral"; }), ["/signals/reads/1/id: duplicate id", "/procedure/1/read: names no declared read", "/evidence/keep/1: names no declared read"]);
   assert.deepEqual(refusal(m => { m.procedure[1]!.id = "read_scanner"; }), ["/procedure/1/id: duplicate id"]);
+  // A threshold is named by `name`, not `id`: the refusal points at the property the author wrote.
+  assert.deepEqual(refusal(m => { m.signals.thresholds = [{ name: "disconnects_per_day", value: 3, unit: "count" }, { name: "disconnects_per_day", value: 5, unit: "count" }]; }),
+    ["/signals/thresholds/1/name: duplicate name"]);
   assert.deepEqual(refusal(m => { m.hypotheses[1]!.id = "unplugged"; }), ["/hypotheses/1/id: duplicate id", "/remediation/0/forHypotheses/0: names no hypothesis"]);
   assert.deepEqual(refusal(m => { m.hypotheses[1]!.findingKey = "scanner.not_present"; }), ["/hypotheses/1/findingKey: duplicate finding key"]);
   assert.deepEqual(refusal(m => { m.applicability.windowsBuilds = { min: 22000, max: 19045 }; }), ["/applicability/windowsBuilds: min is above max"]);

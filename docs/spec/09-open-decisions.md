@@ -897,3 +897,9 @@ The owner's decisions (module 37):
 
 Noted (the owner's words): when cabinets are off, the client must turn the sync cabinet on first, so the satellites can connect. Closed on 2026-10-29: restarts never become job operations ("No bulk restarts" above), so there is no restart order for the platform to keep; a person restarting cabinets one at a time keeps this order.
 
+
+## Diagnostic modules and clients (2026-10-29)
+
+The execution plan (docs/platform/diagnostic-engine-execution.md, item 1) listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and decision 5 there (one organization, no per-client split) points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
+
+Open for the owner: should a module ever be limited to particular clients? If so, it would be a server setting (a module turned off for a client), not a field in the module file.

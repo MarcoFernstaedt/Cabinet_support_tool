@@ -27,9 +27,10 @@ export class ModuleError extends Error {
 export function moduleIssues(m: DiagnosticModule, rules: ReadonlySet<string>): ModuleIssue[] {
   const issues: ModuleIssue[] = [];
   const add = (path: string, reason: string) => { if (issues.length < 50) issues.push({ path, reason }); };
-  const unique = (ids: string[], path: string) => {
+  // `field` is the property that must be unique, so the refusal points at the place the author wrote.
+  const unique = (ids: string[], path: string, field = "id") => {
     const seen = new Set<string>();
-    ids.forEach((id, i) => { if (seen.has(id)) add(`${path}/${i}/id`, "duplicate id"); seen.add(id); });
+    ids.forEach((id, i) => { if (seen.has(id)) add(`${path}/${i}/${field}`, `duplicate ${field}`); seen.add(id); });
     return seen;
   };
 
@@ -40,7 +41,7 @@ export function moduleIssues(m: DiagnosticModule, rules: ReadonlySet<string>): M
     if (entry.kind !== "read") return add(`/signals/reads/${i}/operation`, "a signal must be a read operation");
     if (!operations[r.operation].params.is(r.params)) add(`/signals/reads/${i}/params`, "does not match the operation's parameters");
   });
-  unique((m.signals.thresholds ?? []).map(t => t.name).map(id => id), "/signals/thresholds");
+  unique((m.signals.thresholds ?? []).map(t => t.name), "/signals/thresholds", "name");
 
   unique(m.procedure.map(p => p.id), "/procedure");
   m.procedure.forEach((p, i) => {

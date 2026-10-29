@@ -68,8 +68,8 @@ twice.
 
 1. **Module contract** (built 2026-10-29 as `contracts/schemas/diagnostics/module.schema.json`, with `server/src/diagnose/module.ts` and
    `server/test/diagnostic-module.test.ts`; nothing uses it yet). Planned as `contracts/schemas/diagnostic-module.schema.json`, its generated TypeScript beside the other
-   contracts, and the types in `server/src/diagnose/module.ts`: applicability (clients, roles, hardware, Windows
-   versions as ranges), signals (which reads, which events, which thresholds), procedure (ordered checks, each a catalog
+   contracts, and the types in `server/src/diagnose/module.ts`: applicability (roles, hardware, Windows
+   versions as ranges; clients left out as built, see 09-open-decisions.md "Diagnostic modules and clients"), signals (which reads, which events, which thresholds), procedure (ordered checks, each a catalog
    read or a pure rule), evidence (what is kept and for how long), hypotheses with confidence, remediation (catalog
    operations only, with preconditions), verification (functional, or a read-back, and what "incomplete: no test exists"
    looks like), limits (what the module cannot tell) and escalation.
