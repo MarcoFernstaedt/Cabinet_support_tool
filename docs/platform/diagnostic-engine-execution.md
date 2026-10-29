@@ -66,7 +66,8 @@ twice.
 
 ## The foundation in detail
 
-1. **Module contract.** `contracts/schemas/diagnostic-module.schema.json`, its generated TypeScript beside the other
+1. **Module contract** (built 2026-10-29 as `contracts/schemas/diagnostics/module.schema.json`, with `server/src/diagnose/module.ts` and
+   `server/test/diagnostic-module.test.ts`; nothing uses it yet). Planned as `contracts/schemas/diagnostic-module.schema.json`, its generated TypeScript beside the other
    contracts, and the types in `server/src/diagnose/module.ts`: applicability (clients, roles, hardware, Windows
    versions as ranges), signals (which reads, which events, which thresholds), procedure (ordered checks, each a catalog
    read or a pure rule), evidence (what is kept and for how long), hypotheses with confidence, remediation (catalog

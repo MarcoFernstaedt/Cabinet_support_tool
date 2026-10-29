@@ -1,0 +1,119 @@
+{
+  "id": "scanner-offline",
+  "version": 1,
+  "title": "The fingerprint scanner is not answering",
+  "area": "scanner",
+  "applicability": {
+    "scannerRequired": true,
+    "architectures": [
+      "windows-x64",
+      "windows-x86"
+    ],
+    "windowsBuilds": {
+      "min": 17763
+    }
+  },
+  "signals": {
+    "reads": [
+      {
+        "id": "peripheral",
+        "operation": "peripheral.status",
+        "params": {}
+      },
+      {
+        "id": "usb",
+        "operation": "usb.ports",
+        "params": {}
+      },
+      {
+        "id": "services",
+        "operation": "services.list",
+        "params": {}
+      }
+    ],
+    "events": [
+      "scanner",
+      "service"
+    ],
+    "thresholds": [
+      {
+        "name": "disconnects_per_day",
+        "value": 3,
+        "unit": "count"
+      }
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_scanner",
+      "kind": "read",
+      "read": "peripheral"
+    },
+    {
+      "id": "read_usb",
+      "kind": "read",
+      "read": "usb"
+    },
+    {
+      "id": "read_services",
+      "kind": "read",
+      "read": "services"
+    },
+    {
+      "id": "present",
+      "kind": "rule"
+    },
+    {
+      "id": "service_running",
+      "kind": "rule",
+      "rule": "scanner.serviceRunning"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "peripheral",
+      "usb"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "unplugged",
+      "findingKey": "scanner.not_present",
+      "statement": "The scanner is not plugged in or not seen by Windows",
+      "severity": "problem",
+      "certainty": "probable"
+    },
+    {
+      "id": "service_stopped",
+      "findingKey": "scanner.service_stopped",
+      "statement": "The scanner's service is stopped",
+      "severity": "problem",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [
+    {
+      "id": "restart_service",
+      "operation": "service.control",
+      "forHypotheses": [
+        "service_stopped"
+      ],
+      "preconditions": [
+        "The scanner's service is on the client's approved list"
+      ],
+      "verification": {
+        "kind": "read_back",
+        "read": "services"
+      }
+    }
+  ],
+  "limits": [
+    "Cannot tell a faulty cable from a faulty scanner",
+    "Cannot see inside the cabinet application"
+  ],
+  "escalation": {
+    "to": "vendor",
+    "when": "The scanner is present and its service runs, but the cabinet application still reports no scanner"
+  }
+}

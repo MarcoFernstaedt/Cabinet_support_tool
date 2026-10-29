@@ -8,6 +8,9 @@ schemas/
   envelopes/*.schema.json       command, result, event, event-batch, heartbeat, enrollment, renewal, responses
   operations/catalog.json       the fixed operation catalog: kind, minimum role, step-up, expiry, rate class
   operations/<name>.schema.json one file per operation, with $defs/params and $defs/output
+  diagnostics/module.schema.json a diagnostic module: catalog reads, ordered checks, causes, catalog repairs and how
+                                each is verified. Server data only: the agent has no C# type for it, and the server
+                                checks what a schema cannot (server/src/diagnose/module.ts)
 examples/<target>/{valid,invalid}/*.json
                                 every envelope and operation has valid examples; every operation's params
                                 have hostile ones (traversal, injection, oversized, unknown fields, Security log…)
