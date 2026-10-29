@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { createAjv, readSchemas, readCatalog, ref, SCHEMA_DIR } from "../load.mjs";
+import { createAjv, readSchemas, readCatalog, readRegistry, ref, SCHEMA_DIR } from "../load.mjs";
 
 const EXAMPLES = join(SCHEMA_DIR, "..", "examples");
 const ajv = createAjv();
@@ -238,4 +238,9 @@ test("generated TypeScript types are up to date", async () => {
   const fresh = await generate();
   const current = readFileSync(join(SCHEMA_DIR, "..", "generated", "ts", "contracts.d.ts"), "utf8");
   assert.equal(current, fresh, "generated/ts/contracts.d.ts is stale: run npm run generate");
+});
+
+test("the committed capability registry matches its schema", () => {
+  const validate = ajv.getSchema(ref("diagnostics/registry.schema.json"));
+  assert.equal(validate(readRegistry()), true, JSON.stringify(validate.errors));
 });

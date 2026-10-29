@@ -2555,6 +2555,57 @@ export interface DiagnosticModule {
 }
 
 /**
+ * The capability registry (docs/platform/diagnostic-engine-execution.md, "The foundation in detail", item 3): one entry per diagnostic module, built or planned, saying what it can do (detect, diagnose, repair, verify), which version is registered, what it depends on, what runs after it, and the engine phase it belongs to. It sits above the operation catalog: an entry never names an operation, it names a module, and the module names catalog operations. Supported hardware is the module's own applicability, so it is written once. The server checks, beyond this schema, that every built entry has its module at that version, that what an entry claims the module can actually do (a repair only with every repair verified), that every reference resolves, that dependencies have no cycle, and that every module the server has is registered (server/src/diagnose/registry.ts).
+ */
+export interface CapabilityRegistry {
+  /**
+   * Raised on every change to the registry.
+   */
+  version: number;
+  /**
+   * @maxItems 200
+   */
+  capabilities: {
+    /**
+     * The module's id.
+     */
+    id: string;
+    /**
+     * built: the module exists and is checked against this entry. planned: named so dependencies and the chain can be written down; nothing runs.
+     */
+    status: "built" | "planned";
+    /**
+     * For a built entry: the module version registered. A module at any other version is refused.
+     */
+    moduleVersion?: number;
+    /**
+     * The engine phase that builds it (docs/platform/remaining-phases.md maps these onto the roadmap's phases).
+     */
+    phase: number;
+    title: string;
+    /**
+     * detect: started by the cabinet's own events. diagnose: names causes. repair: offers catalog repairs. verify: every repair it offers is verified by a read.
+     *
+     * @minItems 1
+     * @maxItems 4
+     */
+    provides: ["detect" | "diagnose" | "repair" | "verify", ...("detect" | "diagnose" | "repair" | "verify")[]];
+    /**
+     * Entries whose results this one needs first.
+     *
+     * @maxItems 16
+     */
+    dependsOn?: string[];
+    /**
+     * The workflow chain: entries a person is offered once this one has run.
+     *
+     * @maxItems 16
+     */
+    next?: string[];
+  }[];
+}
+
+/**
  * Command envelope: one operation for one cabinet, issued by one person (docs/spec/03-protocol.md).
  */
 export interface Command {

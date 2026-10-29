@@ -78,7 +78,9 @@ twice.
    hypothesis, proposed repair, approval, execution and verification, linked to its alerts, findings, commands and case
    notes, with an audit entry per step and retention by class. Audit section 7 names this as the thing that unifies
    "alert resolved" with "fleet operation verified".
-3. **The capability registry, as data.** A JSON Schema plus a registry file above the operation catalog: capability
+3. **The capability registry, as data** (built 2026-10-29: `contracts/schemas/diagnostics/registry.schema.json`, the registry
+   `contracts/diagnostics/registry.json`, `server/src/diagnose/registry.ts` and `server/test/capability-registry.test.ts`; supported
+   hardware is the module's own applicability rather than a second copy in the registry). A JSON Schema plus a registry file above the operation catalog: capability
    (detect, diagnose, repair, verify), version, supported hardware, dependencies, the workflow chain and the phase.
 4. **The existing findings re-expressed as modules, behaviour unchanged.** `cabinet-findings.ts` and
    `network-findings.ts` gain module wrappers; the regression proof is the same reads producing the same findings for the

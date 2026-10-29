@@ -111,6 +111,7 @@ import type {
   FleetDifferencesQuery,
   FleetDifferenceGroupQuery,
   DiagnosticModule,
+  CapabilityRegistry,
 } from "@mashura/cabinet-contracts/types";
 
 export type * from "@mashura/cabinet-contracts/types";
@@ -194,6 +195,7 @@ export const approvedListFiles = {
 /** Diagnostic modules (docs/platform/diagnostic-engine-execution.md): server data, checked again by server/src/diagnose/module.ts. */
 export const diagnosticFiles = {
   module: validator<DiagnosticModule>("diagnostic module", ref("diagnostics/module.schema.json")),
+  registry: validator<CapabilityRegistry>("capability registry", ref("diagnostics/registry.schema.json")),
 } as const;
 
 /** Shared definitions checked on their own, such as a stored rule's match. */

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "capabilities": [
+    {
+      "id": "sql-connectivity-ladder",
+      "status": "planned",
+      "phase": 3,
+      "title": "Prove a configured SQL Server answers: name, port, TLS and a login-free pre-login",
+      "provides": ["diagnose"]
+    }
+  ]
+}

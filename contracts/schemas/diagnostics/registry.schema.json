@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/diagnostics/registry.schema.json",
+  "title": "capability registry",
+  "description": "The capability registry (docs/platform/diagnostic-engine-execution.md, \"The foundation in detail\", item 3): one entry per diagnostic module, built or planned, saying what it can do (detect, diagnose, repair, verify), which version is registered, what it depends on, what runs after it, and the engine phase it belongs to. It sits above the operation catalog: an entry never names an operation, it names a module, and the module names catalog operations. Supported hardware is the module's own applicability, so it is written once. The server checks, beyond this schema, that every built entry has its module at that version, that what an entry claims the module can actually do (a repair only with every repair verified), that every reference resolves, that dependencies have no cycle, and that every module the server has is registered (server/src/diagnose/registry.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "capabilities"],
+  "properties": {
+    "version": { "description": "Raised on every change to the registry.", "type": "integer", "minimum": 1, "maximum": 1000000 },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "status", "phase", "title", "provides"],
+        "properties": {
+          "id": { "description": "The module's id.", "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" },
+          "status": { "description": "built: the module exists and is checked against this entry. planned: named so dependencies and the chain can be written down; nothing runs.", "type": "string", "enum": ["built", "planned"] },
+          "moduleVersion": { "description": "For a built entry: the module version registered. A module at any other version is refused.", "type": "integer", "minimum": 1, "maximum": 1000000 },
+          "phase": { "description": "The engine phase that builds it (docs/platform/remaining-phases.md maps these onto the roadmap's phases).", "type": "integer", "minimum": 1, "maximum": 6 },
+          "title": { "allOf": [{ "$ref": "../common.schema.json#/$defs/nonEmptyShortText" }, { "type": "string", "maxLength": 200 }] },
+          "provides": {
+            "description": "detect: started by the cabinet's own events. diagnose: names causes. repair: offers catalog repairs. verify: every repair it offers is verified by a read.",
+            "type": "array", "minItems": 1, "maxItems": 4, "uniqueItems": true,
+            "items": { "type": "string", "enum": ["detect", "diagnose", "repair", "verify"] }
+          },
+          "dependsOn": { "description": "Entries whose results this one needs first.", "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" } },
+          "next": { "description": "The workflow chain: entries a person is offered once this one has run.", "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "minLength": 3, "maxLength": 64, "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$" } }
+        },
+        "allOf": [
+          { "if": { "properties": { "status": { "const": "built" } } }, "then": { "required": ["moduleVersion"] }, "else": { "not": { "required": ["moduleVersion"] } } }
+        ]
+      }
+    }
+  }
+}

@@ -30,6 +30,11 @@ export function readCatalog() {
   return JSON.parse(readFileSync(join(SCHEMA_DIR, "operations", "catalog.json"), "utf8"));
 }
 
+/** The capability registry (diagnostics/registry.json), unchecked: validate it against diagnostics/registry.schema.json before use. */
+export function readRegistry() {
+  return JSON.parse(readFileSync(join(SCHEMA_DIR, "..", "diagnostics", "registry.json"), "utf8"));
+}
+
 /**
  * An Ajv instance with every schema registered.
  * strict mode rejects unknown keywords and ambiguous schemas, so a typo in a
