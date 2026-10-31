@@ -30,6 +30,7 @@ import { knownFixRoutes } from "./known-fix-routes.js";
 import { troubleshootRoutes } from "./troubleshoot-routes.js";
 import { reportRoutes } from "./report-routes.js";
 import { crashRoutes } from "./crash-routes.js";
+import { incidentRoutes } from "./incident-routes.js";
 import { readingRoutes } from "./reading-routes.js";
 import { fleetOpsRoutes } from "./fleet-ops-routes.js";
 import type { PackageStore } from "../services/packages.js";
@@ -168,6 +169,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   await app.register(troubleshootRoutes, { ...o, guards });
   await app.register(reportRoutes, { ...o, guards });
   await app.register(crashRoutes, { ...o, guards });
+  await app.register(incidentRoutes, { ...o, guards });
   await app.register(readingRoutes, { ...o, guards });
   await app.register(fleetOpsRoutes, { ...o, guards });
   await app.register(manageRoutes, { ...o, guards });

@@ -1249,6 +1249,13 @@ export interface HealthQuery {
 }
 
 /**
+ * A cabinet's incident records, from the query string: how many of the newest to list (1 to 200, 50 when left out).
+ */
+export interface IncidentQuery {
+  limit?: string;
+}
+
+/**
  * Creates or edits an issue type.
  */
 export interface IssueType {
