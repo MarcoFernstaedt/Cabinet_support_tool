@@ -3,7 +3,7 @@ import { raiseSecurityAlert } from "./security.js";
 import { randomUUID } from "node:crypto";
 import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
-import { checkWriteAllowed, WriteLimitReached } from "./writes.js";
+import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { ingestAndEvaluate } from "./config-service.js";
@@ -42,12 +42,7 @@ export async function issueCommand(pool: Pool, userId: string, cabinetId: string
   if (!needsCode(operation) && write?.stepUpToken) throw new Refused("invalid_request", 400, "this operation takes no step-up token");
   if (entry.kind === "write" && !write) throw new Refused("invalid_request", 400, "a write needs its authority");
   if (!operations[operation].params.is(params)) throw new Refused("invalid_params", 400, "parameters do not match the operation's schema");
-  try {
-    return await issueInTransaction(pool, userId, cabinetId, operation, params, auditAction, entry, write);
-  } catch (e) {
-    if (e instanceof WriteLimitReached) await recordLimitPause(pool, userId);
-    throw e;
-  }
+  return pauseOnWriteLimit(pool, userId, () => issueInTransaction(pool, userId, cabinetId, operation, params, auditAction, entry, write));
 }
 
 /**
@@ -63,20 +58,6 @@ export function needsCode(operation: string): boolean {
 const REFUSED_PACKAGE: Record<string, "signature_failure" | "package_refused"> = {
   signature_invalid: "signature_failure", hash_mismatch: "package_refused", publisher_not_trusted: "package_refused", verification_failed: "package_refused",
 };
-
-async function recordLimitPause(pool: Pool, userId: string): Promise<void> {
-  // The refused command's transaction rolled back; the pause itself must stick.
-  await transaction(pool, async c => {
-    const r = await c.query("UPDATE users SET writes_paused = 1, writes_paused_reason = COALESCE(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND writes_paused = 0", [userId]);
-    if (r.rowCount === 1) {
-      await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
-      const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [userId])).rows[0];
-      await raiseSecurityAlert(c, { kind: "write_volume", signature: `write_volume|${userId}`, userId,
-        title: `Unusual write volume from ${who?.username ?? "a user"}: over ${who?.write_limit ?? "the"} writes in an hour; their writes are paused`,
-        detail: { writeLimit: who?.write_limit ?? null } });
-    }
-  });
-}
 
 async function issueInTransaction(pool: Pool, userId: string, cabinetId: string, operation: OperationName, params: unknown, auditAction: string,
   entry: CatalogEntry, write?: WriteAuthority): Promise<Command> {

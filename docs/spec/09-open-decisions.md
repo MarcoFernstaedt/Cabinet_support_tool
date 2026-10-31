@@ -208,6 +208,7 @@ Decided here, open to change:
 - **The write pause and limits.**
   - Writes can be paused fleet-wide or per client. A paused cabinet still accepts diagnostics.
   - A user who goes over their hourly limit (20 by default) has their writes paused until an Admin resumes them.
+  - This holds on every write path: a single command, a fleet job and a bulk firewall change (owner's decision, 2026-10-31). A fleet job or bulk change counts as one write however many cabinets it covers, so working across many cabinets does not reach the limit sooner. Resuming restarts the count. A person who needs more can be given a higher limit on the Users screen.
   - The pause and resume controls are on the command line (`platform-admin writes pause|resume`, `user resume-writes`) until Milestone 6's Fleet safety screen.
   - The console shows the pause banner now.
 - **Command-line writes skip step-up.** `platform-admin issue … --write` needs a Tier 2 or Admin account, is audited with `via: "cli"`, and still obeys every pause, limit and read-only check. It exists for operators on the server itself and for CI.

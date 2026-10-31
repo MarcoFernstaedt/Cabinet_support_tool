@@ -5,6 +5,7 @@ import { catalog } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
+import { raiseSecurityAlert } from "./security.js";
 
 export const WRITE_OPERATIONS = [...catalog.values()].filter(e => e.kind === "write").map(e => e.name);
 
@@ -54,6 +55,34 @@ export async function assertUnderWriteLimit(c: Tx, userId: string): Promise<void
 /** The command's transaction rolls back; the caller then records the pause in its own transaction so it sticks. */
 export class WriteLimitReached extends Refused {
   constructor() { super("write_limit_reached", 429, "over the hourly write limit: your writes are paused until an Admin resumes them"); }
+}
+
+/**
+ * Runs a write's transaction and, when it is refused for going over the hourly limit, pauses the person in a transaction of its
+ * own so the pause sticks after the write rolls back. Every write path goes through this (a single command, a fleet job, a bulk
+ * firewall change), so going over the limit has the same result on each. A fleet job or bulk change counts as one write however
+ * many cabinets it covers, so a person working across many cabinets reaches the limit no sooner than one working on one.
+ */
+export async function pauseOnWriteLimit<T>(pool: Pool, userId: string, write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    if (e instanceof WriteLimitReached) await recordLimitPause(pool, userId);
+    throw e;
+  }
+}
+
+async function recordLimitPause(pool: Pool, userId: string): Promise<void> {
+  await transaction(pool, async c => {
+    const r = await c.query("UPDATE users SET writes_paused = 1, writes_paused_reason = COALESCE(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND writes_paused = 0", [userId]);
+    if (r.rowCount === 1) {
+      await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
+      const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [userId])).rows[0];
+      await raiseSecurityAlert(c, { kind: "write_volume", signature: `write_volume|${userId}`, userId,
+        title: `Unusual write volume from ${who?.username ?? "a user"}: over ${who?.write_limit ?? "the"} writes in an hour; their writes are paused`,
+        detail: { writeLimit: who?.write_limit ?? null } });
+    }
+  });
 }
 
 export async function setFleetPause(pool: Pool, adminId: string, paused: boolean, reason: string | null, stepUpToken: string): Promise<void> {

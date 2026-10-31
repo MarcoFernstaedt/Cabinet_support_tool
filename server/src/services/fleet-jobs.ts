@@ -14,7 +14,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
-import { assertUnderWriteLimit, fleetPause } from "./writes.js";
+import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
 import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
@@ -146,7 +146,7 @@ export interface JobRequest { jobId: string; operation: JobOperation; cabinetIds
 export async function startJob(pool: Pool, user: { userId: string; role: Role }, r: JobRequest): Promise<{ jobId: string; change: number; skip: number }> {
   checkRole(user.role, r.operation);
   if (r.cabinetIds.length > BULK_LIMIT) throw new Refused("too_many_cabinets", 409, `a fleet operation covers at most ${BULK_LIMIT} cabinets`);
-  return transaction(pool, async c => {
+  return pauseOnWriteLimit(pool, user.userId, () => transaction(pool, async c => {
     await consumeStepUpToken(c, r.stepUpToken, user.userId, "fleet.job", r.jobId, { operation: r.operation, cabinetIds: r.cabinetIds, batchSize: r.batchSize });
     if ((await c.query("SELECT 1 FROM fleet_jobs WHERE id = $1", [r.jobId])).rows[0]) throw new Refused("job_exists", 409, "that job was already started");
     await lock(c, `writes:${user.userId}`);
@@ -166,7 +166,7 @@ export async function startJob(pool: Pool, user: { userId: string; role: Role },
       details: { operation: r.operation, cabinets: targets.length, change, batchSize: r.batchSize } });
     if (change === 0) await c.query("UPDATE fleet_jobs SET state = 'done', finished_at = SYSUTCDATETIME() WHERE id = $1", [r.jobId]);
     return { jobId: r.jobId, change, skip: targets.length - change };
-  });
+  }));
 }
 
 // ---- Running a job ------------------------------------------------------------------------------------------------------
