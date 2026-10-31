@@ -148,7 +148,9 @@ order they are being fixed.
 - [x] **The approved-applications list cannot be set outside the console (medium).** The refusal said only that the service was
   not on the list. It now says why: no list at any level (the tester's case), a damaged list, an empty list, or a list that
   leaves this out, and that an Admin sets it under Admin > Approved programs. Owner's decision: no CLI command; the console,
-  with its confirmation, audit and signing, stays the only way to set the list.
+  with its confirmation, audit and signing, stays the only way to set the list. The page now also sets one cabinet's own list
+  (owner's decision, 2026-10-31): a replacement takes over the old cabinet's list, which wins over every level above, and a
+  damaged one had no way out in the console.
 - [ ] **Two minor items to check:** `power.status` reports USB selective suspend as plugged-in/battery values rather than on/off;
   `package verify` says "checked" for files that are not installers.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
