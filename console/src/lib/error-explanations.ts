@@ -210,7 +210,7 @@ const codeExplanations: Record<string, Explanation> = {
   control_entry_not_approved: {
     title: "Not on the approved list",
     detail: "Only a service or program on this cabinet's approved-programs list can be controlled from the console.",
-    fix: "Ask an Admin to add it to the approved programs for this cabinet, its site or its client.",
+    fix: "Ask an Admin to add it under Admin > Approved programs, for this cabinet, its site, its client or the fleet. A cabinet with no list at any level controls nothing.",
   },
   control_entry_invalid: {
     title: "Not an approved-list entry",
@@ -255,7 +255,7 @@ const codeExplanations: Record<string, Explanation> = {
   control_process_not_approved: {
     title: "Program not on the approved list",
     detail: "The cabinet reports a program under that process ID that is not on its approved-programs list, so it cannot be ended.",
-    fix: "Refresh the process list and check the program; ask an Admin to approve it if it should be controllable.",
+    fix: "Refresh the process list and check the program. If it should be controllable, ask an Admin to add it under Admin > Approved programs.",
   },
   control_process_unreported: {
     title: "Process not found",

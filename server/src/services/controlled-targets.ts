@@ -8,7 +8,7 @@
 // service name; a process is ended only when the cabinet's own last report shows that ID running the exact program an entry approves.
 // A cabinet with no list, or whose list was rejected, controls nothing.
 import type { Queryable } from "../db/db.js";
-import { appLevels, entryPath } from "./approved-apps.js";
+import { appLevels, entryPath, type AppLevels } from "./approved-apps.js";
 import { Refused } from "./errors.js";
 import { latestReading } from "./readings.js";
 
@@ -59,6 +59,25 @@ export async function reportedServices(db: Queryable, cabinetId: string): Promis
   return { at: reading.at, services };
 }
 
+/** Where an Admin sets or fixes the list in the console: the page as the console names it. */
+export const LIST_PAGE = "Admin > Approved programs";
+
+/**
+ * Why nothing on this cabinet's list matched, in words a technician can act on: no list at any level (where a fresh install starts),
+ * a stored list that fails its own check and so approves nothing, a list that is empty, or a list that leaves this out. Each says
+ * where the list is set, because the console is the only way in.
+ */
+export function listProblem(levels: AppLevels, what: string): string {
+  const damaged = levels.rejected.length > 0
+    ? `; the ${levels.rejected.join(", ")} list is damaged (it does not describe its own entries), so it approves nothing until an Admin saves it again under ${LIST_PAGE}` : "";
+  if (levels.source === "none")
+    return `this cabinet has no approved-programs list: none is set for the cabinet, its site, its client or the fleet, so nothing can be controlled. An Admin sets one in the console under ${LIST_PAGE}`;
+  if ((levels.rejected as string[]).includes(levels.source)) return `${what} is not approved${damaged}`;
+  if ((levels.effective?.entries.length ?? 0) === 0)
+    return `the ${levels.source} list that applies to this cabinet is empty, so it approves nothing. An Admin adds programs under ${LIST_PAGE}${damaged}`;
+  return `${what} is not on the ${levels.source} list that applies to this cabinet. An Admin adds it under ${LIST_PAGE}${damaged}`;
+}
+
 /**
  * Refuses a service.control or process.end whose target is not on the list that applies to this cabinet. Any other operation passes
  * untouched. The parameters have already been checked against the operation's schema.
@@ -71,7 +90,7 @@ export async function assertApprovedTarget(db: Queryable, cabinetId: string, ope
     // Windows compares service key names without regard to case, so the list does too.
     const name = typeof params.name === "string" ? params.name.toLowerCase() : "";
     if (!entries.some(e => e.kind === "service" && e.serviceName !== null && e.serviceName.toLowerCase() === name))
-      throw new Refused("control_entry_not_approved", 403, "that service is not on this cabinet's approved-applications list");
+      throw new Refused("control_entry_not_approved", 403, listProblem(levels, "that service"));
     return;
   }
   const reported = await reportedProcesses(db, cabinetId);
@@ -82,5 +101,5 @@ export async function assertApprovedTarget(db: Queryable, cabinetId: string, ope
   // Windows compares paths without regard to case, and so does the cabinet (ApprovedApps.ForProgram).
   const reportedPath = row.executablePath?.toLowerCase() ?? null;
   if (reportedPath === null || !entries.some(e => entryPath(e).toLowerCase() === reportedPath))
-    throw new Refused("control_process_not_approved", 403, "the program the cabinet reports under that process ID is not on its approved-applications list");
+    throw new Refused("control_process_not_approved", 403, listProblem(levels, "the program the cabinet reports under that process ID"));
 }
