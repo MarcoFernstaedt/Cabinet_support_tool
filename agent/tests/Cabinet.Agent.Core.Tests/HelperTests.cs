@@ -455,6 +455,22 @@ public sealed class ConfigAndStoreTests
         Assert.Throws<AgentConfigException>(() => AgentConfigLoader.Parse(Bytes(text)));
 
     [Fact]
+    public void A_configuration_file_that_cannot_be_read_is_refused_with_the_reason_and_the_remedy()
+    {
+        // The 2026-10-30 hardware test: the file existed but the network service was denied access, and the service died unlogged.
+        using var dir = new TempDir();
+        File.WriteAllText(dir.File("agent-config.json"), Valid());
+        var denied = Assert.Throws<AgentConfigException>(() => AgentConfigLoader.Load(dir.File("agent-config.json"), _ => throw new UnauthorizedAccessException("denied")));
+        Assert.Contains("access is denied", denied.Message);
+        Assert.Contains("Run the installer again", denied.Message);
+        var locked = Assert.Throws<AgentConfigException>(() => AgentConfigLoader.Load(dir.File("agent-config.json"), _ => throw new IOException("in use")));
+        Assert.Contains("cannot be read: IOException", locked.Message);
+        // The ordinary path still loads, and other exceptions are not swallowed.
+        Assert.True(AgentConfigLoader.Load(dir.File("agent-config.json")).ReadOnlyMode);
+        Assert.Throws<InvalidOperationException>(() => AgentConfigLoader.Load(dir.File("agent-config.json"), _ => throw new InvalidOperationException()));
+    }
+
+    [Fact]
     public void A_configuration_with_unknown_or_duplicate_settings_is_refused()
     {
         Assert.Throws<AgentConfigException>(() => AgentConfigLoader.Parse(Bytes(Valid().Replace("\"readOnlyMode\": true", "\"readOnlyMode\": true, \"shell\": \"cmd\""))));
