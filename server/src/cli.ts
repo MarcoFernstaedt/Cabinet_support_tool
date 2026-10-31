@@ -9,6 +9,7 @@ import { databaseUrl, loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
 import { connectOwner, migrate } from "./db/migrate.js";
 import { upsertSetting } from "./services/settings.js";
+import { setClientPauseByCli } from "./services/writes.js";
 import { formatHealth, healthSummary } from "./services/ops-health.js";
 import { listCabinets, revokeCabinet } from "./services/cabinets.js";
 import { commandRecord } from "./services/commands.js";
@@ -44,7 +45,7 @@ const USAGE = `platform-admin <command> [options]
   package upload <file> --type driver|msi --name N --version V --vendor X [--hardware-id ID] --as <admin>
   package approve <packageId> --as <admin>  a different Admin than the uploader
   package retire <packageId> --as <admin>
-  writes pause|resume [--client <clientId>] [--reason R] --as <admin>
+  writes pause|resume [--client <clientId> | --cabinet <cabinetId>] [--reason R] --as <admin>
   user resume-writes --username u --as <admin>               after a user went over their write limit
   release check --manifest m.json --signature s.json --package p.zip   the server's checks of a signed release (no database needed)
   release add --manifest m.json --signature s.json --package p.zip --architecture windows-x64|windows-x86 --as <admin>   put a signed release in the update store
@@ -206,24 +207,27 @@ async function main(argv: string[]): Promise<void> {
       case "writes resume": {
         const adminId = await userId(pool, values.as, "admin");
         const paused = command === "writes" && positionals[1] === "pause";
+        if (values.client && values.cabinet) throw new Refused("usage", 2, "give --client or --cabinet, not both");
+        const target = values.cabinet ? { cabinetId: values.cabinet } : values.client ? { clientId: values.client } : null;
+        if (target) {
+          // Says which client was changed and how many cabinets that covers, so a pause on the wrong client is seen at once.
+          const r = await transaction(pool, c => setClientPauseByCli(c, adminId, target, paused, values.reason ?? null));
+          console.log(`Writes ${paused ? "paused" : "resumed"} for client ${r.name} (${r.clientId}): ${r.cabinets} active cabinet${r.cabinets === 1 ? "" : "s"}.`);
+          return;
+        }
         await transaction(pool, async c => {
-          if (values.client) {
-            const r = await c.query("UPDATE clients SET write_paused = $2, write_pause_reason = $3 WHERE id = $1", [values.client, paused, paused ? values.reason ?? null : null]);
-            if (r.rowCount !== 1) throw new Refused("not_found", 1, "no such client");
-          } else {
-            await upsertSetting(c, "writes.paused", { paused, reason: values.reason ?? null, by: adminId, at: new Date().toISOString() }, adminId);
-          }
+          await upsertSetting(c, "writes.paused", { paused, reason: values.reason ?? null, by: adminId, at: new Date().toISOString() }, adminId);
           await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded",
-            details: { scope: values.client ? "client" : "fleet", clientId: values.client ?? null, reason: values.reason ?? null, via: "cli" } });
+            details: { scope: "fleet", clientId: null, reason: values.reason ?? null, via: "cli" } });
         });
-        console.log(paused ? "Writes paused." : "Writes resumed.");
+        console.log(paused ? "Writes paused fleet-wide." : "Writes resumed fleet-wide.");
         return;
       }
       case "user resume-writes": {
         if (!values.username) throw new Refused("usage", 2, USAGE);
         const adminId = await userId(pool, values.as, "admin");
         await transaction(pool, async c => {
-          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [values.username]);
+          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [values.username]);
           if (!r.rows[0]) throw new Refused("not_found", 1, "no such user");
           await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: r.rows[0].id, outcome: "succeeded", details: { via: "cli" } });
         });

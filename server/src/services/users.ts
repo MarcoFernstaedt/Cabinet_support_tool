@@ -122,7 +122,7 @@ export async function reactivateUser(pool: Pool, adminId: string, id: string, re
     if (!t) throw new Refused("not_found", 404, "no such user");
     if (t.status !== "deleted") throw new Refused("not_deleted", 409, "only a deleted account can be reactivated");
     await c.query(`UPDATE users SET status = 'active', password_hash = $2, must_change_password = 1, totp_enabled = 0, totp_secret_enc = NULL, totp_last_step = NULL,
-                          failed_logins = 0, locked_until = NULL, writes_paused = 0, writes_paused_reason = NULL WHERE id = $1`, [id, hash]);
+                          failed_logins = 0, locked_until = NULL, writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() WHERE id = $1`, [id, hash]);
     await endAllSessions(c, id);
     await audit(c, { actorKind: "user", actorId: adminId, action: "user.reactivate", targetKind: "user", targetId: id, outcome: "succeeded",
       details: { username: t.username, role: t.role, reason } });
@@ -158,7 +158,7 @@ export async function resumeUserWrites(pool: Pool, adminId: string, id: string, 
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "user.resume_writes", id);
     const t = await target(c, id);
-    const r = await c.query("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL WHERE id = $1 AND writes_paused = 1", [id]);
+    const r = await c.query("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() WHERE id = $1 AND writes_paused = 1", [id]);
     if (r.rowCount !== 1) throw new Refused("not_paused", 409, "this person's writes are not paused");
     await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: id, outcome: "succeeded", details: { username: t.username } });
   });

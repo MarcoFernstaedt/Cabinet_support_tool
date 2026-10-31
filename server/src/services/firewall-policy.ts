@@ -11,7 +11,7 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 import { parseJson, upsertSetting } from "./settings.js";
-import { fleetPause, WRITE_OPERATIONS, WriteLimitReached } from "./writes.js";
+import { assertUnderWriteLimit, fleetPause } from "./writes.js";
 
 export type Switch = "on" | "off";
 export interface FirewallPolicy { domain: Switch; private: Switch; public: Switch }
@@ -175,13 +175,7 @@ export async function bulkApply(pool: Pool, userId: string, scope: "site" | "cli
     await consumeStepUpToken(c, stepUpToken, userId, "bulk.firewall_policy", id, { scope, id });
     await lock(c, `writes:${userId}`);
     if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
-    const u = (await c.query<{ writes_paused: boolean; write_limit: number }>("SELECT writes_paused, write_limit FROM users WHERE id = $1 AND status = 'active'", [userId])).rows[0];
-    if (!u) throw new Refused("forbidden", 403, "unknown or disabled user");
-    if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
-    const used = Number((await c.query<{ n: string }>(
-      "SELECT COUNT(DISTINCT COALESCE(m.bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > DATEADD(hour, -1, SYSUTCDATETIME()) AND m.operation IN (SELECT [value] FROM OPENJSON($2)) AND t.demo_scenario IS NULL",
-      [userId, WRITE_OPERATIONS])).rows[0]!.n);
-    if (used >= u.write_limit) throw new WriteLimitReached();
+    await assertUnderWriteLimit(c, userId);
     const targets = await bulkCandidates(c, scope, id);
     if (targets.length > BULK_LIMIT) throw new Refused("too_many_cabinets", 409, `${targets.length} cabinets differ; a bulk change covers at most ${BULK_LIMIT}`);
     const bulkId = randomUUID();

@@ -127,6 +127,27 @@ These are gates, not phases, and they block a real clinic, not the build:
 6. **The cabinets' network** — most of phase 3 only matters against real cabinets, so reachability has to be settled to
    prove it.
 
+## Fixes from the hardware test (2026-10-30)
+
+Agent 0.3.1 on a real 64-bit Windows 11 machine: 34 of 34 reads and the reversible writes worked. These came out of it, in the
+order they are being fixed.
+
+- [x] **Client pause did not stop a write (high).** The write check itself was right. The CLI paused by client id with no check
+  and no feedback, and a removed client with the same name ("Home") could be paused instead of the live one. Now
+  `writes pause --client` refuses a removed client and says which client and how many cabinets it covers, and
+  `--cabinet <id>` pauses the cabinet's own client. Tested in `server/test/write-safety.test.ts`.
+- [x] **Resume-writes did not resume (medium).** The hourly count still held the writes that tripped the limit, so the next write
+  paused the person again. Resuming now restarts the count (migration 0018). Same test file.
+- [ ] **A config file with lost permissions kills the agent silently (medium).** Reading the config can fail with "access denied",
+  which is not caught, so the network service exits before logging anything. Fix: log "Refusing to start" with the reason and
+  exit cleanly. Open question: should the broker restore the file's permissions at start?
+- [ ] **The approved-applications list cannot be set outside the console (medium).** The refusal should say the list is empty and
+  where to set it. A CLI command to set it is optional.
+- [ ] **Two minor items to check:** `power.status` reports USB selective suspend as plugged-in/battery values rather than on/off;
+  `package verify` says "checked" for files that are not installers.
+- [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
+  package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
+
 ## The engine's six phases, mapped so nothing is counted twice
 
 | Engine phase (audit, section 5) | Where it lands |
