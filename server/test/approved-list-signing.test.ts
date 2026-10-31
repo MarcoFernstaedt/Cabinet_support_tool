@@ -131,8 +131,11 @@ test("the scripts refuse: a key inside the repository, an existing key file, a s
 
     const keyFile = join(work, "k.pem");
     assert.equal(ps("New-ApprovedListTrust.ps1", `-NewKey '${keyFile}' -OutDir '${join(work, "t")}'`, work).status, 0);
+    // The refusal itself, not its wording: pwsh 7.4 wraps and colours the error text, so a phrase match fails on some hosts.
+    const keyBefore = readFileSync(keyFile);
     const again = ps("New-ApprovedListTrust.ps1", `-NewKey '${keyFile}' -OutDir '${join(work, "t")}'`, work);
-    assert.match(again.stderr + again.stdout, /never overwritten/);
+    assert.notEqual(again.status, 0, "an existing key file is refused");
+    assert.deepEqual(readFileSync(keyFile), keyBefore, "and keeps its bytes");
 
     const short = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command",
       `$p = ConvertTo-SecureString 'short' -AsPlainText -Force; & '${script("New-ApprovedListTrust.ps1")}' -NewKey '${join(work, "s.pem")}' -OutDir '${join(work, "t")}' -Passphrase $p`], { encoding: "utf8" });

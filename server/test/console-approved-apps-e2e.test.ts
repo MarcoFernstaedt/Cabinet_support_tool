@@ -56,7 +56,7 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
   try {
     const page = await (await browser.newContext()).newPage();
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
-    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
+    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429|500)/.test(m.text())) problems.push(m.text()); });
     await page.goto(origin);
     await page.getByLabel("Username").fill("ada.admin");
     await page.getByLabel("Password").fill(password);
@@ -112,8 +112,16 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     assert.deepEqual((await appLevels(db.app, cabinetId)).rejected, ["cabinet"]);
     await page.getByLabel("Set the list for").selectOption("cabinet");
     await page.getByLabel("Client", { exact: true }).selectOption({ label: "Acme Health" });
+    // The cabinet choice depends on loading the site: when that fails, the page says so beside it and can try again.
+    let failed = 0;
+    await page.route(`**/api/fleet/sites/${siteId}`, route => failed++ === 0
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal" }) }) : route.continue());
     await page.getByLabel("Site", { exact: true }).selectOption({ label: "North" });
+    await page.getByRole("alert").first().waitFor();
+    assert.equal(await page.getByText(/Choose a client, a site and a cabinet/).count(), 0, "a failed load is not blamed on the Admin's choice");
+    await page.getByRole("button", { name: "Try again" }).click();
     await page.getByLabel("Cabinet", { exact: true }).selectOption({ label: "FRONT DESK" });
+    await page.unroute(`**/api/fleet/sites/${siteId}`);
     await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor();
     await page.getByRole("alert").getByText(/stored list is damaged and approves nothing/).waitFor();
     await page.getByRole("button", { name: "Use the level above" }).click();

@@ -153,6 +153,9 @@ order they are being fixed.
   damaged one had no way out in the console.
 - [ ] **Two minor items to check:** `power.status` reports USB selective suspend as plugged-in/battery values rather than on/off;
   `package verify` says "checked" for files that are not installers.
+- [ ] **Two test-and-page follow-ups from the #130 review.** `server/test/installer-scripts.test.ts` finds pwsh only at three fixed
+  paths, so a pwsh installed elsewhere (for example under the home folder) skips two tests. The Approved programs page's client
+  list load (the page's first load) shows nothing when it fails. (The signing test's wrapped-text assertion was fixed in #130.)
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 
