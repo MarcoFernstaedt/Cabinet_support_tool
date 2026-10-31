@@ -156,8 +156,12 @@ test("the scripts refuse: a key inside the repository, an existing key file, a s
     assert.notEqual(spoof.status, 0, "a name with a hidden character is refused");
     assert.ok(!existsSync(join(work, "hidden.signature.json")));
 
-    const noSigner = ps("Sign-ApprovedList.ps1", `-ListFile '${notList}'`, work);
-    assert.notEqual(noSigner.status, 0, "signing needs exactly one key");
-    assert.ok(!existsSync(join(work, "manifest.signature.json")));
+    // "Exactly one key", on a valid list, so nothing but that rule can refuse it: two keys named at once. With the rule gone the
+    // script signs with the key file, so a signature file appears; a list that is not valid would be refused anyway.
+    const valid = join(work, "approved-list-site-v9.json");
+    writeFileSync(valid, listDocumentBytes(site));
+    const twoKeys = ps("Sign-ApprovedList.ps1", `-ListFile '${valid}' -KeyFile '${keyFile}' -AwsKmsKeyId 'alias/not-used' -Yes`, work);
+    assert.notEqual(twoKeys.status, 0, "signing needs exactly one key");
+    assert.ok(!existsSync(join(work, "approved-list-site-v9.signature.json")));
   } finally { rmSync(work, { recursive: true, force: true }); }
 });
