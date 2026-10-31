@@ -27,13 +27,23 @@ export async function checkWriteAllowed(c: Tx, userId: string, cabinetId: string
   if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
   if (k.write_paused) throw new Refused("writes_paused", 409, "writes are paused for this client");
   if (k.read_only) throw new Refused("read_only_cabinet", 409, "this cabinet was installed read-only");
-  const u = (await c.query<{ writes_paused: boolean; write_limit: number; writes_resumed_at: Date | null }>("SELECT writes_paused, write_limit, writes_resumed_at FROM users WHERE id = $1", [userId])).rows[0];
-  if (!u) throw new Refused("forbidden", 403, "unknown user");
+  await assertUnderWriteLimit(c, userId);
+}
+
+/**
+ * Refuses a person whose writes are paused or who has used their hourly writes. Every write path calls this (a single command, a
+ * fleet job, a bulk firewall change), so they all count the same way: a bulk change's commands share a bulk_id and count once,
+ * simulated cabinets do not count, and writes from before an Admin last resumed this person do not count either. Those are what
+ * paused them, and counting them again would refuse them at once. A command's issued_at is cut to the second, so the resume time
+ * is too: a write in the same second as the resume counts (erring towards the limit, never past it).
+ * Call it in the write's own transaction after taking the `writes:<userId>` lock, so the count cannot be raced.
+ */
+export async function assertUnderWriteLimit(c: Tx, userId: string): Promise<void> {
+  const u = (await c.query<{ writes_paused: boolean; write_limit: number; writes_resumed_at: Date | null }>(
+    "SELECT writes_paused, write_limit, writes_resumed_at FROM users WHERE id = $1 AND status = 'active'", [userId])).rows[0];
+  if (!u) throw new Refused("forbidden", 403, "unknown or disabled user");
   if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
   const used = Number((await c.query<{ n: string }>(
-    // A bulk change's commands share a bulk_id and count once. Writes from before an Admin last resumed this person do not count: they
-    // are what paused them, and counting them again would pause them on their very next write. A command's issued_at is cut to the
-    // second, so the resume time is too: a write in the same second as the resume counts (erring towards the limit, never past it).
     `SELECT COUNT(DISTINCT COALESCE(m.bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id
       WHERE m.issued_by = $1 AND m.issued_at > DATEADD(hour, -1, SYSUTCDATETIME()) AND ($3 IS NULL OR m.issued_at >= DATEADD(millisecond, -DATEPART(millisecond, $3), $3))
         AND m.operation IN (SELECT value FROM OPENJSON($2)) AND t.demo_scenario IS NULL`, [userId, WRITE_OPERATIONS, u.writes_resumed_at])).rows[0]!.n);
@@ -60,7 +70,8 @@ export async function setFleetPause(pool: Pool, adminId: string, paused: boolean
 export async function setClientPause(pool: Pool, adminId: string, clientId: string, paused: boolean, reason: string | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, paused ? "writes.pause" : "writes.resume", clientId);
-    const r = await c.query("UPDATE clients SET write_paused = $2, write_pause_reason = $3 WHERE id = $1", [clientId, paused, paused ? reason : null]);
+    // A removed client is refused, as in the CLI: no live cabinet reads its pause, so pausing it would protect nothing.
+    const r = await c.query("UPDATE clients SET write_paused = $2, write_pause_reason = $3 WHERE id = $1 AND removed_at IS NULL", [clientId, paused, paused ? reason : null]);
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such client");
     await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded", details: { scope: "client", clientId, reason } });
   });

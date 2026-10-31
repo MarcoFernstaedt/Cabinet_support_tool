@@ -9,8 +9,10 @@ import { issueStepUpToken } from "../src/auth/stepup.js";
 import { transaction } from "../src/db/db.js";
 import { issueFromConsole } from "../src/services/console-commands.js";
 import { Refused } from "../src/services/errors.js";
+import { bulkApply } from "../src/services/firewall-policy.js";
+import { startJob } from "../src/services/fleet-jobs.js";
 import { resumeUserWrites } from "../src/services/users.js";
-import { setClientPauseByCli } from "../src/services/writes.js";
+import { setClientPause, setClientPauseByCli } from "../src/services/writes.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
@@ -83,4 +85,36 @@ test("a person resumed after going over the hourly limit can write again, and th
   assert.equal(await refusal(write()), "accepted");
   assert.equal(await refusal(write()), "accepted");
   assert.equal(await refusal(write()), "write_limit_reached", "the limit still holds after the resume");
+});
+
+/** A Tier 2 with a limit of 2 who went over it on this cabinet and was paused, then resumed by an Admin. */
+async function resumedAfterLimit(cabinet: string): Promise<string> {
+  const tech = randomUUID();
+  await db.app.query("INSERT INTO users (id, username, name, role, password_hash, write_limit) VALUES ($1, $2, 'Tech', 'tier2', 'x', 2)", [tech, `tech.${tech.slice(0, 6)}`]);
+  const write = () => issueFromConsole(db.app, { userId: tech, role: "tier2" }, cabinet, "time.sync", {}, undefined, true);
+  await write(); await write();
+  assert.equal(await refusal(write()), "write_limit_reached");
+  await db.app.query("UPDATE commands SET issued_at = DATEADD(second, -30, issued_at) WHERE issued_by = $1", [tech]);
+  await resumeUserWrites(db.app, admin, tech, await issueStepUpToken(db.app, admin, "user.resume_writes", tech, paramsHash({})));
+  return tech;
+}
+
+test("a resumed person can start a fleet job and apply a bulk firewall change: every write path counts from the resume", async () => {
+  const { client, cabinet } = await clientWithCabinet("Bulk paths");
+  const tech = await resumedAfterLimit(cabinet);
+  const jobId = randomUUID();
+  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1 };
+  // Before the fix both of these were refused write_limit_reached by the writes that had paused the person.
+  assert.equal(await refusal(startJob(db.app, { userId: tech, role: "tier2" }, { jobId, ...job,
+    stepUpToken: await issueStepUpToken(db.app, tech, "fleet.job", jobId, paramsHash(job)) })), "accepted");
+  assert.equal(await refusal(bulkApply(db.app, tech, "client", client,
+    await issueStepUpToken(db.app, tech, "bulk.firewall_policy", client, paramsHash({ scope: "client", id: client })))), "accepted");
+});
+
+test("the console's client pause refuses a removed client, as the CLI does", async () => {
+  const gone = await clientWithCabinet("Console gone");
+  await db.app.query("UPDATE clients SET removed_at = SYSUTCDATETIME() WHERE id = $1", [gone.client]);
+  const token = await issueStepUpToken(db.app, admin, "writes.pause", gone.client);
+  assert.equal(await refusal(setClientPause(db.app, admin, gone.client, true, "x", token)), "not_found");
+  assert.equal((await db.app.query<{ p: boolean }>("SELECT write_paused AS p FROM clients WHERE id = $1", [gone.client])).rows[0]!.p, false);
 });

@@ -14,7 +14,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
-import { fleetPause, WRITE_OPERATIONS, WriteLimitReached } from "./writes.js";
+import { assertUnderWriteLimit, fleetPause } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
 import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
@@ -151,13 +151,7 @@ export async function startJob(pool: Pool, user: { userId: string; role: Role },
     if ((await c.query("SELECT 1 FROM fleet_jobs WHERE id = $1", [r.jobId])).rows[0]) throw new Refused("job_exists", 409, "that job was already started");
     await lock(c, `writes:${user.userId}`);
     if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
-    const u = (await c.query<{ writes_paused: boolean; write_limit: number }>("SELECT writes_paused, write_limit FROM users WHERE id = $1 AND status = 'active'", [user.userId])).rows[0];
-    if (!u) throw new Refused("forbidden", 403, "unknown or disabled user");
-    if (u.writes_paused) throw new Refused("writes_paused_for_you", 409, "your writes are paused until an Admin resumes them");
-    const used = Number((await c.query<{ n: string }>(
-      "SELECT COUNT(DISTINCT COALESCE(m.bulk_id, m.id)) AS n FROM commands m JOIN cabinets t ON t.id = m.cabinet_id WHERE m.issued_by = $1 AND m.issued_at > DATEADD(hour, -1, SYSUTCDATETIME()) AND m.operation IN (SELECT value FROM OPENJSON($2)) AND t.demo_scenario IS NULL",
-      [user.userId, WRITE_OPERATIONS])).rows[0]!.n);
-    if (used >= u.write_limit) throw new WriteLimitReached();
+    await assertUnderWriteLimit(c, user.userId);
     const targets = await plan(c, r.operation, r.cabinetIds);
     await c.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, $2, $3, $4, $5)",
       [r.jobId, r.operation, user.userId, r.batchSize, targets.length]);
