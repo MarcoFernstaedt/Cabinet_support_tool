@@ -117,9 +117,11 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     await page.route(`**/api/fleet/sites/${siteId}`, route => failed++ === 0
       ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal" }) }) : route.continue());
     await page.getByLabel("Site", { exact: true }).selectOption({ label: "North" });
-    await page.getByRole("alert").first().waitFor();
+    const retry = page.getByRole("button", { name: "Try again" });
+    await retry.waitFor();
+    assert.equal(await page.getByRole("alert").count(), 1, "the site's failure is the one alert on the page");
     assert.equal(await page.getByText(/Choose a client, a site and a cabinet/).count(), 0, "a failed load is not blamed on the Admin's choice");
-    await page.getByRole("button", { name: "Try again" }).click();
+    await retry.click();
     await page.getByLabel("Cabinet", { exact: true }).selectOption({ label: "FRONT DESK" });
     await page.unroute(`**/api/fleet/sites/${siteId}`);
     await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor();
