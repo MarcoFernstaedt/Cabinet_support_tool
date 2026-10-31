@@ -138,9 +138,13 @@ order they are being fixed.
   `--cabinet <id>` pauses the cabinet's own client. Tested in `server/test/write-safety.test.ts`.
 - [x] **Resume-writes did not resume (medium).** The hourly count still held the writes that tripped the limit, so the next write
   paused the person again. Resuming now restarts the count (migration 0018). Same test file.
-- [ ] **A config file with lost permissions kills the agent silently (medium).** Reading the config can fail with "access denied",
-  which is not caught, so the network service exits before logging anything. Fix: log "Refusing to start" with the reason and
-  exit cleanly. Open question: should the broker restore the file's permissions at start?
+- [x] **A config file with lost permissions kills the agent silently (medium).** Reading the config failed with "access denied",
+  which was not caught, so the network service exited before logging anything. Now it logs "Refusing to start" with the reason
+  and the remedy (run the installer again) and exits cleanly (#119). Owner's decision: the broker does not restore the file's
+  permissions; lost permissions can mean tampering, so they are reported, not quietly repaired.
+- [x] **A fleet job or bulk firewall change over the hourly limit was refused but did not pause the person**, though the refusal
+  said it did. Every write path now pauses the same way. A job or bulk change still counts as one write, so working across many
+  cabinets does not reach the limit sooner. Tested in `server/test/write-safety.test.ts`.
 - [ ] **The approved-applications list cannot be set outside the console (medium).** The refusal should say the list is empty and
   where to set it. A CLI command to set it is optional.
 - [ ] **Two minor items to check:** `power.status` reports USB selective suspend as plugged-in/battery values rather than on/off;

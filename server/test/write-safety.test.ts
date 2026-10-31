@@ -34,6 +34,7 @@ async function clientWithCabinet(name: string, removed = false): Promise<{ clien
   return { client, cabinet };
 }
 const timeSync = (user: string, cabinet: string) => issueFromConsole(db.app, { userId: user, role: "admin" }, cabinet, "time.sync", {}, undefined, true);
+const timeSyncAs = (user: string, cabinet: string) => issueFromConsole(db.app, { userId: user, role: "tier2" }, cabinet, "time.sync", {}, undefined, true);
 async function refusal(p: Promise<unknown>): Promise<string> {
   try { await p; } catch (e) { assert.ok(e instanceof Refused, String(e)); return e.code; }
   return "accepted";
@@ -117,4 +118,32 @@ test("the console's client pause refuses a removed client, as the CLI does", asy
   const token = await issueStepUpToken(db.app, admin, "writes.pause", gone.client);
   assert.equal(await refusal(setClientPause(db.app, admin, gone.client, true, "x", token)), "not_found");
   assert.equal((await db.app.query<{ p: boolean }>("SELECT write_paused AS p FROM clients WHERE id = $1", [gone.client])).rows[0]!.p, false);
+});
+
+test("going over the limit with a fleet job or a bulk firewall change pauses the person, as a single command does", async () => {
+  const { client, cabinet } = await clientWithCabinet("Bulk limit");
+  const overLimit = async (): Promise<string> => {
+    const tech = randomUUID();
+    await db.app.query("INSERT INTO users (id, username, name, role, password_hash, write_limit) VALUES ($1, $2, 'Tech', 'tier2', 'x', 2)", [tech, `tech.${tech.slice(0, 6)}`]);
+    await timeSyncAs(tech, cabinet); await timeSyncAs(tech, cabinet);
+    return tech;
+  };
+  const paused = async (tech: string) => {
+    assert.equal((await db.app.query<{ p: boolean }>("SELECT writes_paused AS p FROM users WHERE id = $1", [tech])).rows[0]!.p, true);
+    assert.equal((await db.app.query("SELECT 1 FROM security_alerts WHERE kind = 'write_volume' AND user_id = $1 AND state = 'open'", [tech])).rows.length, 1);
+    assert.equal(await refusal(timeSyncAs(tech, cabinet)), "writes_paused_for_you");
+  };
+
+  const jobber = await overLimit();
+  const jobId = randomUUID();
+  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1 };
+  // Before this change both were refused write_limit_reached but left the person unpaused, though the refusal says "paused".
+  assert.equal(await refusal(startJob(db.app, { userId: jobber, role: "tier2" }, { jobId, ...job,
+    stepUpToken: await issueStepUpToken(db.app, jobber, "fleet.job", jobId, paramsHash(job)) })), "write_limit_reached");
+  await paused(jobber);
+
+  const bulker = await overLimit();
+  assert.equal(await refusal(bulkApply(db.app, bulker, "client", client,
+    await issueStepUpToken(db.app, bulker, "bulk.firewall_policy", client, paramsHash({ scope: "client", id: client })))), "write_limit_reached");
+  await paused(bulker);
 });

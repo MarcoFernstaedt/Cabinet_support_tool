@@ -11,7 +11,7 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 import { parseJson, upsertSetting } from "./settings.js";
-import { assertUnderWriteLimit, fleetPause } from "./writes.js";
+import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 
 export type Switch = "on" | "off";
 export interface FirewallPolicy { domain: Switch; private: Switch; public: Switch }
@@ -171,7 +171,7 @@ export async function bulkCandidates(db: Queryable, scope: "site" | "client", id
  * cabinets; the write pause, the person's own pause and limit apply, and the whole bulk counts as one write.
  */
 export async function bulkApply(pool: Pool, userId: string, scope: "site" | "client", id: string, stepUpToken: string) {
-  return transaction(pool, async c => {
+  return pauseOnWriteLimit(pool, userId, () => transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "bulk.firewall_policy", id, { scope, id });
     await lock(c, `writes:${userId}`);
     if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
@@ -195,5 +195,5 @@ export async function bulkApply(pool: Pool, userId: string, scope: "site" | "cli
     await audit(c, { actorKind: "user", actorId: userId, action: "bulk.firewall_policy", targetKind: scope, targetId: id, outcome: "succeeded",
       details: { bulkId, cabinets: commands.length, commandIds: commands.map(x => x.commandId) } });
     return { bulkId, expiresAt: expiresAt.toISOString(), issuedAt: issuedAt.toISOString(), commands };
-  });
+  }));
 }
