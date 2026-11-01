@@ -162,9 +162,11 @@ order they are being fixed.
   (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
   shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
   approved-list-signing refusal test's title does not name the one-key rule it now covers.
-- [ ] **The server suite takes about 40 minutes on CI.** It ran in about 18 minutes on a 4-core container and reached 293 of
-  824 tests in CI's first 15 minutes (2026-11-01), so the step's limit went from 15 to 60 minutes in PR #132. Worth finding
-  the slow files (the browser tests and the real-agent ones are the likely ones) before the limit is reached again.
+- [ ] **The server suite is slow on CI (an estimate of about 40 minutes, not yet measured end to end).** It ran in about
+  18 minutes on a 4-core container; on CI the 15-minute limit cancelled it with 293 of 824 tests passed (job 124743655225,
+  `c2268977`) and 296 of 824 passed (job 124745044847, `947c1a09`), none failed. The step's limit went from 15 to 60 minutes
+  in PR #132. Worth finding the slow files (the browser tests and the real-agent ones are the likely ones) before the limit
+  is reached again.
 - [x] **The result outbox read pending results back out of order after a restart.** It ordered them by file write time, then by
   name: two results written inside one file-time tick came back in name order (the owner saw
   `Results_survive_a_restart_until_delivered_then_are_kept_to_answer_repeats` fail one run in five), and a result the server

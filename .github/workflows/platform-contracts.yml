@@ -224,7 +224,7 @@ jobs:
         # One step: the Windows runner ends processes a step started when that step finishes, server included.
         shell: pwsh
         run: |
-          # SQL Server Express (see deploy/ci/windows-sqlserver.ps1; not yet proven on a real runner).
+          # SQL Server Express, installed when the image has none (deploy/ci/windows-sqlserver.ps1).
           $ownerUrl = (& deploy/ci/windows-sqlserver.ps1 -SaPassword 'Ci-only-not-a-secret-1' | Select-Object -Last 1)
           "DATABASE_OWNER_URL=$ownerUrl" | Out-File -Append $env:GITHUB_ENV
           Push-Location contracts; npm ci --ignore-scripts; Pop-Location
