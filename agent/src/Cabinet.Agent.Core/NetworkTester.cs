@@ -180,31 +180,74 @@ public sealed class NetworkTester
     }
 
     /// <summary>
+    /// The longest a TCP series may run. A series of 20 (the contract's most) at 5 s a try could take 105.7 s, past the operation's
+    /// own 90-second limit (<see cref="OperationRunner.DefaultTimeout"/>), which would return nothing at all; the series stops
+    /// starting tries that could end past this budget and reports the ones it made.
+    /// </summary>
+    internal static readonly TimeSpan SeriesBudget = TimeSpan.FromSeconds(80);
+
+    /// <summary>Whether another try fits in <see cref="SeriesBudget"/> after <paramref name="elapsed"/> of the series.</summary>
+    internal static bool RoomForAnother(TimeSpan elapsed) => elapsed + Timeout <= SeriesBudget;
+
+    /// <summary>How one connection in a TCP series ended.</summary>
+    internal enum TcpTry { Connected, Refused, Missed }
+
+    /// <summary>
+    /// Whether a TCP series stops after this connection. A refusal stops it: the port is closed, and more tries say nothing new.
+    /// Two misses in a row (no answer within <see cref="Timeout"/>, or unreachable) stop it too: each try already carries the
+    /// system's own resends of the opening packet, so two silent tries mean the port is not answering, and going on would push
+    /// the diagnosis past its one-minute limit (it tests up to four sync ports one after another). Anything but a miss resets the count.
+    /// </summary>
+    internal static bool EndsSeries(TcpTry last, ref int missesInARow)
+    {
+        missesInARow = last == TcpTry.Missed ? missesInARow + 1 : 0;
+        return last == TcpTry.Refused || missesInARow >= 2;
+    }
+
+    /// <summary>
     /// Several TCP connections in a row to one port: how many were made, how long each took and how much that jumps around. Built for weak links
     /// (a satellite on poor Wi-Fi) where one try says little: the output separates "never answers" from "answers some of the time".
+    /// Each connection gets the single test's limit (<see cref="Timeout"/>, 5 s): Windows retries a refused connection before giving up, and
+    /// the earlier 2-second limit reported a closed port as "No answer". The series can end early (<see cref="EndsSeries"/>,
+    /// <see cref="SeriesBudget"/>), so
+    /// statistics.sent is the connections actually tried.
     /// </summary>
     private static async Task<NetworkTestOutput> TcpSeriesAsync(IPAddress address, int port, int count, IReadOnlyList<IPAddress>? names,
         Func<bool, IPAddress?, double?, IReadOnlyList<IPAddress>?, string?, NetworkTestOutput> result, CancellationToken token)
     {
         var times = new List<double>();
         string? lastFailure = null;
-        for (int i = 0; i < count; i++)
+        int tried = 0, missesInARow = 0;
+        var series = Stopwatch.StartNew();
+        for (int i = 0; i < count && RoomForAnother(series.Elapsed); i++)
         {
             token.ThrowIfCancellationRequested();
+            tried++;
             using var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(token);
-            limit.CancelAfter(TimeSpan.FromSeconds(2));
+            limit.CancelAfter(Timeout);
             var watch = Stopwatch.StartNew();
+            TcpTry outcome;
             try
             {
                 await socket.ConnectAsync(new IPEndPoint(address, port), limit.Token).ConfigureAwait(false);
                 times.Add(watch.Elapsed.TotalMilliseconds);
+                outcome = TcpTry.Connected;
             }
-            catch (OperationCanceledException) when (!token.IsCancellationRequested) { lastFailure = $"No answer on TCP port {port} within 2 seconds."; }
-            catch (SocketException e) { lastFailure = e.SocketErrorCode == SocketError.ConnectionRefused ? $"TCP port {port} refused the connection." : $"TCP port {port} could not be reached ({e.SocketErrorCode})."; }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
+            {
+                lastFailure = $"No answer on TCP port {port} within {Timeout.TotalSeconds:0} seconds.";
+                outcome = TcpTry.Missed;
+            }
+            catch (SocketException e)
+            {
+                outcome = e.SocketErrorCode == SocketError.ConnectionRefused ? TcpTry.Refused : TcpTry.Missed;
+                lastFailure = outcome == TcpTry.Refused ? $"TCP port {port} refused the connection." : $"TCP port {port} could not be reached ({e.SocketErrorCode}).";
+            }
+            if (EndsSeries(outcome, ref missesInARow)) break;
             if (i < count - 1) await Task.Delay(300, token).ConfigureAwait(false);
         }
-        PingStatistics stats = Summarize(count, times);
+        PingStatistics stats = Summarize(tried, times);
         NetworkTestOutput basis = times.Count > 0
             ? result(true, address, stats.AvgMs, names, null)
             : result(false, address, null, names, lastFailure ?? $"TCP port {port} did not answer.");

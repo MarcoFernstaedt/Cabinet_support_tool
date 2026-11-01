@@ -3912,7 +3912,7 @@ export interface NetworkTestOutput {
   resolvedAddresses: string[];
   error: string | null;
   /**
-   * Optional: ping only, when more than one request was sent.
+   * Optional: a ping series (more than one request), or a tcp series. For tcp, sent is the connections actually tried: a refusal, or two tries in a row with no answer, ends the series early.
    */
   statistics?: null | {
     sent: number;

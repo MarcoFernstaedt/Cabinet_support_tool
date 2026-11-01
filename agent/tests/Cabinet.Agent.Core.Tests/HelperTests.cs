@@ -403,6 +403,38 @@ public sealed class NetworkTesterTests
     }
 
     [Fact]
+    public void A_tcp_series_never_starts_a_try_that_could_end_past_its_budget_and_the_budget_ends_before_the_operation_limit()
+    {
+        Assert.True(NetworkTester.RoomForAnother(TimeSpan.Zero));
+        Assert.True(NetworkTester.RoomForAnother(NetworkTester.SeriesBudget - NetworkTester.Timeout));
+        Assert.False(NetworkTester.RoomForAnother(NetworkTester.SeriesBudget - NetworkTester.Timeout + TimeSpan.FromMilliseconds(1)));
+        // The last try may start at the budget less one try's limit and then take the whole limit; the result must still be sent.
+        Assert.True(NetworkTester.SeriesBudget < OperationRunner.DefaultTimeout);
+        // The diagnosis's own series (5 tries) always fits: 5 tries at the limit plus the four 300 ms gaps.
+        Assert.True(5 * NetworkTester.Timeout + 4 * TimeSpan.FromMilliseconds(300) <= NetworkTester.SeriesBudget);
+    }
+
+    [Theory]
+    [InlineData(new[] { 'R', 'C' }, 1)]                  // closed: one try
+    [InlineData(new[] { 'M', 'M', 'C' }, 2)]             // not answering: two silent tries
+    [InlineData(new[] { 'M', 'C', 'M', 'C', 'M' }, 5)]   // weak: misses never two in a row, so every try runs
+    [InlineData(new[] { 'C', 'M', 'M', 'C' }, 3)]        // answered once, then went quiet
+    [InlineData(new[] { 'C', 'C', 'R', 'C' }, 3)]        // closed part way through
+    [InlineData(new[] { 'M', 'R', 'C' }, 2)]             // a refusal after a miss still ends it
+    // Each sequence but the weak one has a try after the expected stop, so a rule that runs on is caught, not only one that stops early.
+    public void A_tcp_series_ends_at_a_refusal_or_at_two_misses_in_a_row_and_nowhere_else(char[] tries, int expectedTried)
+    {
+        int tried = 0, misses = 0;
+        foreach (char t in tries)
+        {
+            tried++;
+            var outcome = t switch { 'C' => NetworkTester.TcpTry.Connected, 'R' => NetworkTester.TcpTry.Refused, _ => NetworkTester.TcpTry.Missed };
+            if (NetworkTester.EndsSeries(outcome, ref misses)) break;
+        }
+        Assert.Equal(expectedTried, tried);
+    }
+
+    [Fact]
     public async Task A_tcp_series_counts_every_connection_and_tells_a_dead_port_from_a_weak_one()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -421,11 +453,11 @@ public sealed class NetworkTesterTests
             new NetworkTestParams { Target = NetworkTestTarget.SyncCabinet, Method = NetworkTestMethod.Tcp, Port = port, Count = 3 }, default);
         Assert.False(down.Success);
         Assert.Equal(100, down.Statistics!.LossPercent);
-        // On the Windows CI runner the refusal sometimes comes back after the series' own 2-second limit per connection
-        // (NetworkTester.TcpSeriesAsync), so the series reports "No answer"; on the same runner image it has also come back
-        // in time. How long Windows takes has not been measured. Elsewhere the refusal comes back at once and must be named.
-        if (OperatingSystem.IsWindows()) Assert.Matches("refused|No answer", down.Error!);
-        else Assert.Contains("refused", down.Error);
+        // A closed port is named as refused on every platform (each connection gets 5 s, longer than Windows takes to give up on
+        // a refused one), and the refusal ends the series: one connection tried, not three.
+        Assert.Contains("refused", down.Error);
+        Assert.Equal(1, down.Statistics.Sent);
+        Assert.Equal(0, down.Statistics.Received);
         AssertValid(down);
     }
 
