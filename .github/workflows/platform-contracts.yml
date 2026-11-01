@@ -112,7 +112,12 @@ jobs:
           $fx = Join-Path $env:RUNNER_TEMP 'package-fixtures'
           New-Item -ItemType Directory -Force $fx | Out-Null
           $chosen = $null
-          $folders = Get-WindowsDriver -Online | Where-Object { $_.Driver -like 'oem*.inf' } | ForEach-Object { Split-Path $_.OriginalFileName } | Sort-Object -Unique
+          # Only device classes the agent will install (DriverPackage.AllowedClasses); a driver of any other class is refused
+          # before its signature is looked at, which is not what these fixtures test.
+          $allowed = 'Biometric','USB','USBDevice','HIDClass','Keyboard','Mouse','Ports','Image','Camera','Printer','SmartCardReader','Net','Bluetooth','SCSIAdapter','HDC','Display','Monitor','MEDIA','Extension'
+          $drivers = Get-WindowsDriver -Online | Where-Object { $_.Driver -like 'oem*.inf' }
+          $drivers | Format-Table Driver, ClassName, ProviderName
+          $folders = $drivers | Where-Object { $_.ClassName -in $allowed } | ForEach-Object { Split-Path $_.OriginalFileName } | Sort-Object -Unique
           foreach ($folder in $folders) {
             $cat = Get-ChildItem $folder -Filter *.cat -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $cat) { continue }
@@ -121,7 +126,7 @@ jobs:
             $size = (Get-ChildItem $folder -Recurse -File | Measure-Object Length -Sum).Sum
             if (-not $chosen -or $size -lt $chosen.Size) { $chosen = @{ Folder = $folder; Size = $size } }
           }
-          if (-not $chosen) { throw 'No third-party driver signed through Microsoft is installed on this runner.' }
+          if (-not $chosen) { throw 'No third-party driver of an allowed device class, signed through Microsoft, is installed on this runner.' }
           Write-Host "Driver fixture: $($chosen.Folder) ($($chosen.Size) bytes)"
           Get-ChildItem $chosen.Folder -Recurse -File | Format-Table Name, Length
           Compress-Archive -Path (Join-Path $chosen.Folder '*') -DestinationPath "$fx\oem-driver.zip"
@@ -135,7 +140,7 @@ jobs:
           # A package whose catalog is unsigned, and the same signed by an impostor certificate carrying Microsoft's publisher name.
           $i = Join-Path $env:RUNNER_TEMP 'impostor'
           New-Item -ItemType Directory $i | Out-Null
-          Set-Content "$i\impostor.inf" "[Version]`r`nSignature=`"`$WINDOWS NT`$`"`r`nClass=System`r`nCatalogFile=impostor.cat`r`n" -Encoding Ascii
+          Set-Content "$i\impostor.inf" "[Version]`r`nSignature=`"`$WINDOWS NT`$`"`r`nClass=Ports`r`nCatalogFile=impostor.cat`r`n" -Encoding Ascii
           Copy-Item "$env:windir\System32\version.dll" "$i\impostor.dll"
           New-FileCatalog -Path $i -CatalogFilePath "$i\impostor.cat" -CatalogVersion 2.0 | Out-Null
           $u = Join-Path $env:RUNNER_TEMP 'unsigned'
