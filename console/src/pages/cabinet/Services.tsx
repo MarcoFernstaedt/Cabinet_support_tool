@@ -202,7 +202,7 @@ export function Processes({ cabinet }: { cabinet: CabinetDetail }) {
               <option value="cpu">CPU</option><option value="memory">Memory</option><option value="threads">Threads</option><option value="handles">Handles</option><option value="name">Name</option></select></label>
             <label className="field inline"><input type="checkbox" checked={live} onChange={e => setLive(e.target.checked)} /><span>Live</span></label>
             <span className="muted small">{shown.length} of {out.processes.length}{out.truncated ? " (first 2,000)" : ""}</span>
-            {canEnd && <span className="muted small">Only approved programs can be ended (Admin, Approved programs).</span>}
+            {canEnd && <span className="muted small">Only approved programs can be ended (set under Admin {">"} Approved programs).</span>}
           </div>
           <PagedRows rows={shown} label="processes">{page => (<table className="table compact">
             <caption className="sr-only">Running processes</caption>

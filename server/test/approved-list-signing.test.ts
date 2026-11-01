@@ -125,25 +125,27 @@ test("the scripts refuse: a key inside the repository, an existing key file, a s
   const work = mkdtempSync(join(tmpdir(), "list-sign-"));
   try {
     const inRepo = ps("New-ApprovedListTrust.ps1", `-NewKey '${join(repo, "server", "oops.pem")}' -OutDir '${join(work, "t")}'`, work);
-    assert.notEqual(inRepo.status, 0);
-    assert.match(inRepo.stderr + inRepo.stdout, /never be written inside the repository/);
+    // Every refusal here is checked by its effect (a non-zero exit, nothing written), never by its wording: pwsh 7.4 wraps and
+    // colours the error text, so a phrase match passes on one pwsh and fails on another.
+    assert.notEqual(inRepo.status, 0, "a key inside the repository is refused");
     assert.ok(!existsSync(join(repo, "server", "oops.pem")));
 
     const keyFile = join(work, "k.pem");
     assert.equal(ps("New-ApprovedListTrust.ps1", `-NewKey '${keyFile}' -OutDir '${join(work, "t")}'`, work).status, 0);
+    const keyBefore = readFileSync(keyFile);
     const again = ps("New-ApprovedListTrust.ps1", `-NewKey '${keyFile}' -OutDir '${join(work, "t")}'`, work);
-    assert.match(again.stderr + again.stdout, /never overwritten/);
+    assert.notEqual(again.status, 0, "an existing key file is refused");
+    assert.deepEqual(readFileSync(keyFile), keyBefore, "and keeps its bytes");
 
     const short = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command",
       `$p = ConvertTo-SecureString 'short' -AsPlainText -Force; & '${script("New-ApprovedListTrust.ps1")}' -NewKey '${join(work, "s.pem")}' -OutDir '${join(work, "t")}' -Passphrase $p`], { encoding: "utf8" });
-    assert.match(short.stderr + short.stdout, /at least 12 characters/);
+    assert.notEqual(short.status, 0, "a short passphrase is refused");
     assert.ok(!existsSync(join(work, "s.pem")));
 
     const notList = join(work, "manifest.json");
     writeFileSync(notList, JSON.stringify({ product: "mashura-cabinet-agent", version: "1.0.0" }));
     const refused = ps("Sign-ApprovedList.ps1", `-ListFile '${notList}' -KeyFile '${keyFile}' -Yes`, work);
-    assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr + refused.stdout, /not an approved list/);
+    assert.notEqual(refused.status, 0, "a file that is not a list is refused");
     assert.ok(!existsSync(join(work, "manifest.signature.json")));
 
     const hidden = join(work, "hidden.json");
@@ -151,9 +153,15 @@ test("the scripts refuse: a key inside the repository, an existing key file, a s
     doc.entries[0].name = "Kiosk\u202e";
     writeFileSync(hidden, JSON.stringify(doc));
     const spoof = ps("Sign-ApprovedList.ps1", `-ListFile '${hidden}' -KeyFile '${keyFile}' -Yes`, work);
-    assert.match(spoof.stderr + spoof.stdout, /hidden character/);
+    assert.notEqual(spoof.status, 0, "a name with a hidden character is refused");
+    assert.ok(!existsSync(join(work, "hidden.signature.json")));
 
-    const noSigner = ps("Sign-ApprovedList.ps1", `-ListFile '${notList}'`, work);
-    assert.match(noSigner.stderr + noSigner.stdout, /exactly one key/);
+    // "Exactly one key", on a valid list, so nothing but that rule can refuse it: two keys named at once. With the rule gone the
+    // script signs with the key file, so a signature file appears; a list that is not valid would be refused anyway.
+    const valid = join(work, "approved-list-site-v9.json");
+    writeFileSync(valid, listDocumentBytes(site));
+    const twoKeys = ps("Sign-ApprovedList.ps1", `-ListFile '${valid}' -KeyFile '${keyFile}' -AwsKmsKeyId 'alias/not-used' -Yes`, work);
+    assert.notEqual(twoKeys.status, 0, "signing needs exactly one key");
+    assert.ok(!existsSync(join(work, "approved-list-site-v9.signature.json")));
   } finally { rmSync(work, { recursive: true, force: true }); }
 });

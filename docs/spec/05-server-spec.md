@@ -138,7 +138,7 @@ The only way files reach a cabinet. There is no general file transfer.
 ## Fleet safety controls
 
 - Write pause: an Admin can pause all write operations fleet-wide, or for one client, at once. Reads keep working. Meant for incidents or anything that looks wrong.
-- Per-user write limit: by default at most 20 write commands per hour per user. Going over pauses that user's writes and raises a security alert to Admins.
+- Per-user write limit: by default at most 20 writes per hour per user. A fleet job or bulk change counts as one. Going over, on any write path, pauses that user's writes and raises a security alert to Admins. An Admin's resume restarts the count.
 - One cabinet per write command, always. There is no way to send a change to many cabinets at once, except signed agent upgrades through staged rollout.
 
 ## Security alerts

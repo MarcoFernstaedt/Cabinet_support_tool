@@ -431,6 +431,37 @@ public sealed class ResultOutboxTests
     };
 
     [Fact]
+    public void Results_written_in_quick_succession_come_back_after_a_restart_in_the_order_they_were_added()
+    {
+        using var dir = new TempDir();
+        var frozen = new ManualClock(Fixtures.Start); // every write in the same instant: the tie a coarse file time gives
+        var outbox = new ResultOutbox(dir.Path, frozen, _ => { });
+        var added = Enumerable.Range(0, 50).Select(_ => Ok()).ToList();
+        foreach (var r in added) outbox.Add(r);
+        var reopened = new ResultOutbox(dir.Path, frozen, _ => { });
+        var order = new List<Guid>();
+        while (reopened.Next() is { } next) { order.Add(next.Id); reopened.Delivered(next.Id); }
+        Assert.Equal(added.Select(r => r.CommandId), order);
+    }
+
+    [Fact]
+    public void A_requeued_result_comes_back_after_a_restart_behind_the_ones_already_pending()
+    {
+        using var dir = new TempDir();
+        var outbox = new ResultOutbox(dir.Path, TimeProvider.System, _ => { });
+        var first = Ok();
+        outbox.Add(first);
+        outbox.Delivered(first.CommandId);
+        var pending = Enumerable.Range(0, 5).Select(_ => Ok()).ToList();
+        foreach (var r in pending) outbox.Add(r);
+        Assert.True(outbox.Requeue(first.CommandId)); // offered again after the others were written
+        var reopened = new ResultOutbox(dir.Path, TimeProvider.System, _ => { });
+        var order = new List<Guid>();
+        while (reopened.Next() is { } next) { order.Add(next.Id); reopened.Delivered(next.Id); }
+        Assert.Equal(pending.Select(r => r.CommandId).Append(first.CommandId), order);
+    }
+
+    [Fact]
     public void Results_survive_a_restart_until_delivered_then_are_kept_to_answer_repeats()
     {
         using var dir = new TempDir();
