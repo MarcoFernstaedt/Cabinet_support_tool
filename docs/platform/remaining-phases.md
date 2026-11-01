@@ -192,15 +192,16 @@ order they are being fixed.
   offered again kept its delivery time and so came back first. Each pending file now gets a write time later than the last one
   (`ResultOutbox.StampPending`), on add and on requeue. Fixed in PR #132, with a frozen-clock test and a requeue test that fail
   without it.
-- [x] **On Windows a closed TCP port can read as "no answer" in a test series.** What the runs show: the series' own limit of
+- [ ] **On Windows a closed TCP port can read as "no answer" in a test series.** What the runs show: the series' own limit of
   2 seconds per connection (`NetworkTester.TcpSeriesAsync`) expired before the refusal came back, so the error was "No answer on
   TCP port ... within 2 seconds". On the same runner image (windows-2025-vs2026, 20261021.618) the strict test failed at
   `f38627de` (job 124714381133, the test took 8 s) and passed at `be976942` (job 124722989775), so the refusal sometimes comes
-  back in time and sometimes not; how long Windows takes has not been measured. Fixed (decision D1 in
+  back in time and sometimes not; how long Windows takes has not been measured. Changed, not proven (decision D1 in
   [decision-log.md](decision-log.md)): each connection now gets the single test's 5 seconds, a refusal ends the series, and two
   tries in a row with no answer end it, as does an 80-second budget; `statistics.sent` is the connections actually tried. The test is strict again on every
   platform and asserts one try for a refused port. **Not yet proven on Windows:** GitHub Actions is on hold, so the strict test
-  has run only on Linux; the next Windows run is the proof.
+  has run only on Linux, where a refusal comes back at once. 5 seconds is more room, not a measured bound: if the delay can
+  run past it, the strict test fails on Windows again.
 - [ ] **A network diagnosis against a sync cabinet that answers nothing runs past its one-minute limit.** Worked out from the
   limits, not measured: a 10-request ping series with no replies takes 20.9 s and four silent port series 41.2 s (44.8 s
   before D1), before the gateway and DNS tests; reads still running at the minute show as "no answer within a minute".

@@ -16,9 +16,11 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - no try starts that could end past 80 seconds into the series;
 - `statistics.sent` is the number of connections actually tried, not the number asked for.
 
-**Why.** On the Windows CI runner a closed port was reported as "No answer ... within 2 seconds" instead of "refused":
-Windows tries a refused connection again before giving up, and that sometimes took longer than 2 seconds (job 124714381133
-failed, job 124722989775 passed, same runner image). A support person reading "no answer" looks for a firewall or a dead
+**Why.** On the Windows CI runner a closed port was sometimes reported as "No answer ... within 2 seconds" instead of
+"refused": the refusal came back inside 2 seconds on one run and not on another, on the same runner image (job 124714381133
+failed, job 124722989775 passed). Why it was late, and how long Windows takes to report a refusal, have **not been
+measured**. A fixed operating-system schedule would have been late on every run, not on one of two, so the cause is open.
+A longer limit gives a late refusal more room to arrive; it is not a demonstrated bound (see Cost). A support person reading "no answer" looks for a firewall or a dead
 link; "refused" means the sync application is not listening. Getting that word right is the point of the test.
 
 Raising the limit alone would have made a port that never answers much slower, and the network diagnosis tests up to four
@@ -29,20 +31,21 @@ is meant to explain (a firewalled sync cabinet). Stopping early keeps the series
 **Options compared** (a 5-try series, as the diagnosis asks for; times are **worked out** from the limits and the 300 ms gap
 between tries, not measured):
 
-| Option | Closed port | Port that never answers | Four silent ports | Closed port named correctly on Windows |
+| Option | Closed port | Port that never answers | Four silent ports | Room for a late refusal on Windows |
 |---|---|---|---|---|
-| Before: 2 s each, always 5 tries | up to 11.2 s | 11.2 s | 44.8 s | No, sometimes "No answer" |
-| 5 s each, always 5 tries | up to 26.2 s | 26.2 s | 104.8 s (past the 1-minute limit) | Yes |
-| 5 s each, stop at refusal only | one try (under 5 s) | 26.2 s | 104.8 s (past the 1-minute limit) | Yes |
-| **Chosen: 5 s each, stop at refusal or two misses in a row** | **one try (under 5 s)** | **10.3 s** | **41.2 s** | **Yes** |
+| Before: 2 s each, always 5 tries | up to 11.2 s | 11.2 s | 44.8 s | 2 s: sometimes not enough (one run of two) |
+| 5 s each, always 5 tries | up to 26.2 s | 26.2 s | 104.8 s (past the 1-minute limit) | 5 s, not proven enough |
+| 5 s each, stop at refusal only | one try (under 5 s) | 26.2 s | 104.8 s (past the 1-minute limit) | 5 s, not proven enough |
+| **Chosen: 5 s each, stop at refusal or two misses in a row** | **one try (under 5 s)** | **10.3 s** | **41.2 s** | **5 s, not proven enough** |
 
 Also considered and not taken:
 
 - **A limit between 2 and 5 seconds (say 2.5).** How long Windows takes to report a refusal has not been measured, so any
   such number would be a guess.
-- **A Windows socket option that stops the system resending the opening packet.** That would make refusals immediate,
-  but it is Windows-only, cannot be tested here, and it changes what a try measures on a weak link: the resends are part of
-  what a real connection from the sync application goes through.
+- **A Windows socket option that stops the system resending the opening packet.** Not taken: it is Windows-only,
+  cannot be tested here, and it changes what a try measures on a weak link (the resends are part of what a real connection
+  from the sync application goes through). Whether it would affect late refusals at all is unknown, because their cause
+  is unknown.
 - **Stop at the first miss.** That is faster, but a weak link that loses one try would read as dead, and telling "dead"
   from "answers some of the time" is why the series exists.
 
@@ -54,6 +57,12 @@ early and still returns the tries it made. Nothing in the product asks for more 
 
 **Cost.**
 
+- **5 seconds is not a demonstrated bound.** The late refusal was intermittent, not a fixed delay, and its cause is not
+  measured. If it can take longer than 5 seconds, a closed port on Windows can still read as "No answer", and the
+  assertion that is now strict on every platform can fail on Windows again. Getting "refused" out of a closed port on
+  Windows is the point of this change, so the next Windows runs are the evidence. What would measure it: time each
+  refused connection on the Windows runner (a series against a closed loopback port, printing each try's duration and
+  outcome) over many runs, and set the limit from that distribution.
 - A weak link is reported as "not answering" when two tries in a row each fail within 5 seconds, even if a later try would
   have connected. Each try already includes the system's own resends of the opening packet, so this needs every packet of
   two tries to be lost.
@@ -73,6 +82,8 @@ early and still returns the tries it made. Nothing in the product asks for more 
   sequences.
 - Four mutants of the rule were each caught by a failing test: three misses instead of two, one miss, no stop at a
   refusal, and a count that does not reset.
+- No test on Linux can fail for the 2 s to 5 s change itself: a refusal on loopback comes back at once, so the strict
+  assertion passes with either limit there. That change is exercised only on Windows.
 - `A_tcp_series_never_starts_a_try_that_could_end_past_its_budget_and_the_budget_ends_before_the_operation_limit` checks
   the budget's edge and that it stays under the operation limit; both budget mutants were caught. That the loop consults
   the budget is not covered by a test: it would need a real series of more than 80 seconds.
@@ -111,7 +122,8 @@ Writing it now would put an unproven change into the one CI step that took the l
 
 Both together cover both cases.
 
-**Status.** Not built. First item when Actions resumes.
+**Status.** Decided, not built. Tracked as open in [09-open-decisions.md](../spec/09-open-decisions.md) until it is built and
+proven on CI; first item when Actions resumes.
 
 ---
 

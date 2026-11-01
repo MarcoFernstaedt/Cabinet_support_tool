@@ -207,8 +207,9 @@ public sealed class NetworkTester
     /// <summary>
     /// Several TCP connections in a row to one port: how many were made, how long each took and how much that jumps around. Built for weak links
     /// (a satellite on poor Wi-Fi) where one try says little: the output separates "never answers" from "answers some of the time".
-    /// Each connection gets the single test's limit (<see cref="Timeout"/>, 5 s): Windows retries a refused connection before giving up, and
-    /// the earlier 2-second limit reported a closed port as "No answer". The series can end early (<see cref="EndsSeries"/>,
+    /// Each connection gets the single test's limit (<see cref="Timeout"/>, 5 s). With the earlier 2-second limit a closed port on the
+    /// Windows CI runner sometimes read as "No answer": the refusal came back in time on one run and not on another. Why, and how long
+    /// Windows takes, have not been measured, so 5 s gives a late refusal more room but is not a proven bound (decision-log.md, D1). The series can end early (<see cref="EndsSeries"/>,
     /// <see cref="SeriesBudget"/>), so
     /// statistics.sent is the connections actually tried.
     /// </summary>
