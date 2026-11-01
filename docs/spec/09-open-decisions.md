@@ -208,6 +208,7 @@ Decided here, open to change:
 - **The write pause and limits.**
   - Writes can be paused fleet-wide or per client. A paused cabinet still accepts diagnostics.
   - A user who goes over their hourly limit (20 by default) has their writes paused until an Admin resumes them.
+  - This holds on every write path: a single command, a fleet job and a bulk firewall change (owner's decision, 2026-10-31). A fleet job or bulk change counts as one write however many cabinets it covers, so working across many cabinets does not reach the limit sooner. Resuming restarts the count. A person who needs more can be given a higher limit on the Users screen.
   - The pause and resume controls are on the command line (`platform-admin writes pause|resume`, `user resume-writes`) until Milestone 6's Fleet safety screen.
   - The console shows the pause banner now.
 - **Command-line writes skip step-up.** `platform-admin issue … --write` needs a Tier 2 or Admin account, is audited with `via: "cli"`, and still obeys every pause, limit and read-only check. It exists for operators on the server itself and for CI.
@@ -726,6 +727,7 @@ Decided with the owner: only programs on the approved list are watched or restar
 - **Starting, stopping and starting at boot are all control.** `service.control`, `service.setStartType` and `process.end` need an approved target and an authenticator code bound to the parameters, whatever the catalog says. Lowering a start type is control too, since it stops the service at the next boot. That makes `service.setStartType` a code action for an approved service only. Runbooks can no longer offer it as a one-click fix, and existing runbook steps that use it are refused when run.
 - **Watched services are filtered on the server.** A service on a watched list that the approved list does not name is never sent to the cabinet. Agents built before the watcher checked the list start whatever they are told to watch.
 - **A damaged list is shown as damaged.** The heartbeat and the control check read the stored lists the same way: a damaged level denies everything and is never read as "not set". The console says so and lets an Admin replace it.
+- **The console edits every level, the cabinet's own list included (owner, 2026-10-31).** Admin > Approved programs sets the fleet, a client, a site or one cabinet. A cabinet usually has its own list only because a replacement took over the old cabinet's, and that list wins over every level above, so without an editor a damaged one could not be fixed. A refused control says which case it is (no list anywhere, damaged, empty, or not on it) and names this page.
 - **Process paths are compared without regard to case**, as Windows and the cabinet do.
 - **The cabinet repairs its list file.** If the file is missing or damaged, the next heartbeat answer rewrites it, even when the server's list did not change.
 - **Known and accepted:**

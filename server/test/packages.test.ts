@@ -142,7 +142,7 @@ test("an MSI signed by a trusted publisher passes; its streams and nested storag
   assert.equal(refusal(() => verifyPackage(signedMsi(STREAMS, vendor, s => [...s, ["Extra", Buffer.from("x")]]), "msi", trust)), "signature_invalid");
 });
 
-test("an unsigned MSI, an unlisted signer and a damaged file are refused", () => {
+test("an unsigned MSI, an unlisted signer and a damaged file are refused; a file that is not an installer is not a signature failure", () => {
   assert.equal(refusal(() => verifyPackage(compoundFile(STREAMS, SUB), "msi", trust)), "signature_invalid");
   assert.equal(refusal(() => verifyPackage(signedMsi(STREAMS, pki.signer("Evil Corp", "Evil")), "msi", trust)), "publisher_not_trusted");
   const good = signedMsi();
@@ -151,7 +151,11 @@ test("an unsigned MSI, an unlisted signer and a damaged file are refused", () =>
     (b: Buffer) => { const c = Buffer.from(b); c.writeUInt32LE(5, 512 + 4); return c; },  // a FAT chain that loops
     (b: Buffer) => { const c = Buffer.from(b); c.writeUInt16LE(13, 0x1e); return c; },    // impossible sector size
     (b: Buffer) => Buffer.concat([Buffer.from("not a compound file"), b]),
-  ]) assert.equal(refusal(() => verifyPackage(damage(good), "msi", trust)), "signature_invalid");
+  ]) assert.equal(refusal(() => verifyPackage(damage(good), "msi", trust)), "verification_failed");
+  // The hardware test uploaded files that are not installers: they are refused as unverifiable, the same code a driver upload gets,
+  // and never as a signature failure (which an agent-side refusal would raise as a security alert).
+  for (const notAnInstaller of [Buffer.from("hello\n"), Buffer.alloc(4096, 7), zip([["readme.txt", Buffer.from("x")]])])
+    assert.equal(refusal(() => verifyPackage(notAnInstaller, "msi", trust)), "verification_failed");
 });
 
 test("only driver packages and MSI installers exist", () => {

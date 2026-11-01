@@ -73,11 +73,22 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     p.on("pageerror", e => problems.push(`page error: ${e.message}`));
     // The console asks who is signed in before sign-in (401); anything else in the browser console is a problem.
     p.on("console", m => { if (m.type() === "error" && !/status of 401/.test(m.text())) problems.push(m.text()); });
+    // The dialog closes once the confirmed request has succeeded, shows the console's own reason when it is refused, and says
+    // "Confirming…" while the request is still out. The wait is for the outcome, and a failure says which of the three it was.
     const confirmCode = async () => {
       const dialog = p.getByRole("dialog", { name: "Confirm with your authenticator" });
       await dialog.getByLabel("Authenticator code").fill(code());
       await dialog.getByRole("button", { name: "Confirm" }).click();
-      await dialog.waitFor({ state: "hidden" });
+      const refusal = dialog.getByRole("alert");
+      const outcome = await Promise.race([
+        dialog.waitFor({ state: "hidden", timeout: 30_000 }).then(() => "closed" as const, () => "timeout" as const),
+        refusal.waitFor({ state: "visible", timeout: 30_000 }).then(() => "refused" as const, () => "timeout" as const),
+      ]);
+      if (outcome === "refused") assert.fail(`the confirmation was refused: ${await refusal.textContent()}`);
+      if (outcome === "timeout" && await dialog.isVisible())
+        assert.fail(await dialog.getByRole("button", { name: "Confirming…" }).isVisible()
+          ? "the confirmed request was still running after 30 s (the dialog says Confirming…)"
+          : "the dialog stayed open for 30 s with no request running and no reason shown");
     };
     await p.goto(origin);
     await p.getByLabel("Username").fill("marco");

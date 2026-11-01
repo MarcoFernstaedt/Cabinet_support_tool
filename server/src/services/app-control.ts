@@ -25,7 +25,7 @@ import { appLevels, rawEntry, type AppLevels } from "./approved-apps.js";
 import { issueFromConsole, type Role } from "./console-commands.js";
 import { Refused } from "./errors.js";
 import { keyProblem } from "./filefacts-path.js";
-import { reportedProcesses, reportedServices } from "./controlled-targets.js";
+import { listProblem, reportedProcesses, reportedServices } from "./controlled-targets.js";
 
 export { reportedProcesses, reportedServices, type ReportedProcess, type ReportedService } from "./controlled-targets.js";
 
@@ -167,9 +167,7 @@ export async function controlApproved(db: Queryable, user: { userId: string; rol
   if (keyFault) throw await refusal(CONTROL_CODES.entryInvalid, 400, `the entry key is not an approved-list key (${keyFault}): an entry key looks like app:<name>`);
   const found = levels.effective?.entries.find(e => e.key === body.entryKey) ?? null;
   if (!found) {
-    const where = levels.source === "none" ? "no level sets a list" : `the list from the ${levels.source} level applies`;
-    const ignored = levels.rejected.length > 0 ? `; a list at ${levels.rejected.join(", ")} is damaged (it does not describe its own entries), so it approves nothing` : "";
-    throw await refusal(CONTROL_CODES.entryNotApproved, 403, `that entry is not on this cabinet's approved list (${where})${ignored}`,
+    throw await refusal(CONTROL_CODES.entryNotApproved, 403, listProblem(levels, "that entry"),
       { listFrom: levels.source, rejected: levels.rejected });
   }
 

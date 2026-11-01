@@ -81,8 +81,10 @@ public sealed class ReadOperationTests
             Assert.Equal(Core.Configuration.ConfigCanonical.Hash(c.Items), c.Hash);
             Assert.True(c.Items.Count <= Core.Configuration.ConfigBuilders.MaxItems);
         }
-        JsonElement one = await Succeeds(Catalog.ConfigSnapshot, new { categories = new[] { "time" } });
-        Assert.Single(one.GetProperty("categories").EnumerateArray());
+        // Asks for one category this machine could read (a runner may not read every one; an unreadable one is left out).
+        string first = output.GetProperty("categories")[0].GetProperty("category").GetString()!;
+        JsonElement one = await Succeeds(Catalog.ConfigSnapshot, new { categories = new[] { first } });
+        Assert.Equal(first, Assert.Single(one.GetProperty("categories").EnumerateArray()).GetProperty("category").GetString());
     }
 
     [Fact]

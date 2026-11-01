@@ -23,6 +23,9 @@ const LOGIN = "cabinet_app_login";
 const connect = async (name) => new mssql.ConnectionPool({
   server: decodeURIComponent(url.hostname), port: Number(url.port || 1433), user: decodeURIComponent(url.username), password: decodeURIComponent(url.password), database: name,
   options: { encrypt: url.searchParams.get("encrypt") !== "false", trustServerCertificate: url.searchParams.get("trustServerCertificate") === "true" },
+  // Creating the database and growing its log to 1 GB has the server write out the whole file, which on a slow or busy disk takes
+  // longer than the driver's default 15 seconds; this one-off setup waits for it instead of failing half done.
+  requestTimeout: 300_000,
 }).connect();
 
 if (step === "create") {
