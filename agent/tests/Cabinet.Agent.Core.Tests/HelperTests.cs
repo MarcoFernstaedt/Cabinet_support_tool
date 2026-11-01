@@ -421,8 +421,9 @@ public sealed class NetworkTesterTests
             new NetworkTestParams { Target = NetworkTestTarget.SyncCabinet, Method = NetworkTestMethod.Tcp, Port = port, Count = 3 }, default);
         Assert.False(down.Success);
         Assert.Equal(100, down.Statistics!.LossPercent);
-        // Windows retries a refused connection for about two seconds before it gives up, which is the series' own limit per
-        // connection, so there a closed port can read as no answer. Elsewhere the refusal comes back at once and must be named.
+        // On the Windows CI runner the refusal sometimes comes back after the series' own 2-second limit per connection
+        // (NetworkTester.TcpSeriesAsync), so the series reports "No answer"; on the same runner image it has also come back
+        // in time. How long Windows takes has not been measured. Elsewhere the refusal comes back at once and must be named.
         if (OperatingSystem.IsWindows()) Assert.Matches("refused|No answer", down.Error!);
         else Assert.Contains("refused", down.Error);
         AssertValid(down);

@@ -162,10 +162,19 @@ order they are being fixed.
   (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
   shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
   approved-list-signing refusal test's title does not name the one-key rule it now covers.
-- [ ] **On Windows a closed TCP port can read as "no answer" in a test series.** Windows retries a refused connection for about two
-  seconds, the series' own limit per connection, so the agent's series cannot always tell a closed port from a dead link there
-  (the single TCP test, with 5 seconds, can). Found when CI ran again on 2026-11-01; the test accepts either on Windows for now.
-  Fix in the agent: give each connection in a series a little longer, or read the refusal from Windows another way.
+- [x] **The result outbox read pending results back out of order after a restart.** It ordered them by file write time, then by
+  name: two results written inside one file-time tick came back in name order (the owner saw
+  `Results_survive_a_restart_until_delivered_then_are_kept_to_answer_repeats` fail one run in five), and a result the server
+  offered again kept its delivery time and so came back first. Each pending file now gets a write time later than the last one
+  (`ResultOutbox.StampPending`), on add and on requeue. Fixed in PR #132, with a frozen-clock test and a requeue test that fail
+  without it.
+- [ ] **On Windows a closed TCP port can read as "no answer" in a test series.** What the runs show: the series' own limit of
+  2 seconds per connection (`NetworkTester.TcpSeriesAsync`) expired before the refusal came back, so the error was "No answer on
+  TCP port ... within 2 seconds". On the same runner image (windows-2025-vs2026, 20261021.618) the strict test failed at
+  `f38627de` (job 124714381133, the test took 8 s) and passed at `be976942` (job 124722989775), so the refusal sometimes comes
+  back in time and sometimes not; how long Windows takes has not been measured. The single TCP test allows 5 seconds and is not
+  affected. Found when CI ran again on 2026-11-01; the test accepts either on Windows for now. The fix is a longer limit per
+  connection in the series, which makes a series against a port that never answers slower (see the PR #132 discussion).
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 
