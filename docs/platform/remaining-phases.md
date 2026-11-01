@@ -162,9 +162,17 @@ order they are being fixed.
   (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
   shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
   approved-list-signing refusal test's title does not name the one-key rule it now covers.
-- [ ] **The server suite takes about 19 minutes on CI.** The first complete run took 18.6 minutes (job 124747977897,
-  `ba42057`); two earlier runs were cancelled by the old 15-minute limit with 293 (`c2268977`) and 296 (`947c1a09`) of 824
-  passed and none failed. The step's limit is now 40 minutes (PR #132). Worth finding the slow files (the browser tests and
+- [ ] **Two more reds of that shape on CI at `ba42057` (2026-11-01), one per run, neither in a file the PR touched.**
+  - `fleet-jobs.test.ts` "preview says what each cabinet gets…" (job 124747966648): the cabinet the test made offline came back
+    online, because the demo simulator's heartbeat sweep refreshed it between the test's update and the preview. Fixed in PR
+    #132: the test moves that cabinet into the simulator's `offline` scenario (which it never heartbeats), waits for a sweep in
+    progress, then makes it offline, and asserts each cabinet's skip reason by its ID.
+  - `console-setup-e2e.test.ts` (job 124747977897): the step-up dialog after approving the agent stayed open for 30 s; the log
+    cannot say whether the approval was refused or still running. Not root-caused. PR #132 makes the wait report which it was
+    (the console's refusal text, or "still Confirming…"), so the next occurrence names its cause.
+- [ ] **The server suite takes about 19 minutes on CI.** Complete runs took 18.6 and 20.1 minutes (jobs 124747977897 and
+  124747966648, `ba42057`); two earlier runs were cancelled by the old 15-minute limit with 293 (`c2268977`) and 296
+  (`947c1a09`) of 824 passed and none failed. The step's limit is now 40 minutes (PR #132). Worth finding the slow files (the browser tests and
   the real-agent ones are the likely ones) before it creeps up again.
 - [x] **The result outbox read pending results back out of order after a restart.** It ordered them by file write time, then by
   name: two results written inside one file-time tick came back in name order (the owner saw

@@ -43,7 +43,7 @@ jobs:
         run: npm ci --ignore-scripts && npm run build && npm test && npm audit --audit-level=low && npm audit signatures
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
-        # The suite took 18.6 minutes here on 2026-11-01 (job 124747977897), and two earlier runs were cancelled at 15.
+        # The suite took 18.6 and 20.1 minutes here on 2026-11-01 (jobs 124747977897, 124747966648); two earlier runs were cancelled at 15.
         timeout-minutes: 40
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net10.0/Cabinet.Agent.TestAgent.dll
