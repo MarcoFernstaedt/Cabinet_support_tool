@@ -40,8 +40,8 @@
       },
       "System.CodeDom": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "WTlRjL6KWIMr/pAaq3rYqh0TJlzpouaQ/W1eelssHgtlwHAH25jXTkUphTYx9HaIIf7XA6qs/0+YhtLEQRkJ+Q=="
+        "resolved": "10.0.14",
+        "contentHash": "oJYTzyBcc2g06mU699LaJfm964mdlFg6l7BPeqdu8bmK6Fdy9fL9BWugGsZAqWtjnNWp4tanZZ9DlZwHJmmhgg=="
       },
       "System.Diagnostics.EventLog": {
         "type": "Transitive",
@@ -50,10 +50,10 @@
       },
       "System.Management": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "jrK22i5LRzxZCfGb+tGmke2VH7oE0DvcDlJ1HAKYU8cPmD8XnpUT0bYn2Gy98GEhGjtfbR/sxKTVb+dE770pfA==",
+        "resolved": "10.0.14",
+        "contentHash": "ywAltakc72Oe7liNatclpyq8oiLYx0VMSjQvphlsbPbiQ9glrV3JKvn5M2xFbsOzzh8sV3QAiUdmu2AV/ffN7Q==",
         "dependencies": {
-          "System.CodeDom": "8.0.0"
+          "System.CodeDom": "10.0.14"
         }
       },
       "cabinet.agent.contracts": {
@@ -71,7 +71,7 @@
         "dependencies": {
           "Cabinet.Agent.Core": "[1.0.0, )",
           "System.Diagnostics.EventLog": "[10.0.14, )",
-          "System.Management": "[8.0.0, )",
+          "System.Management": "[10.0.14, )",
           "System.ServiceProcess.ServiceController": "[8.0.1, )"
         }
       }
@@ -93,10 +93,10 @@
       },
       "System.Management": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "jrK22i5LRzxZCfGb+tGmke2VH7oE0DvcDlJ1HAKYU8cPmD8XnpUT0bYn2Gy98GEhGjtfbR/sxKTVb+dE770pfA==",
+        "resolved": "10.0.14",
+        "contentHash": "ywAltakc72Oe7liNatclpyq8oiLYx0VMSjQvphlsbPbiQ9glrV3JKvn5M2xFbsOzzh8sV3QAiUdmu2AV/ffN7Q==",
         "dependencies": {
-          "System.CodeDom": "8.0.0"
+          "System.CodeDom": "10.0.14"
         }
       }
     },
@@ -117,10 +117,10 @@
       },
       "System.Management": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "jrK22i5LRzxZCfGb+tGmke2VH7oE0DvcDlJ1HAKYU8cPmD8XnpUT0bYn2Gy98GEhGjtfbR/sxKTVb+dE770pfA==",
+        "resolved": "10.0.14",
+        "contentHash": "ywAltakc72Oe7liNatclpyq8oiLYx0VMSjQvphlsbPbiQ9glrV3JKvn5M2xFbsOzzh8sV3QAiUdmu2AV/ffN7Q==",
         "dependencies": {
-          "System.CodeDom": "8.0.0"
+          "System.CodeDom": "10.0.14"
         }
       }
     }
