@@ -482,7 +482,7 @@ jobs:
 
           Write-Host 'A tampered package: 0.1.2 is genuine on upload, then its stored zip is changed on the server. The cabinet refuses it at the hash check.'
           Release '0.1.2' $v2
-          $stored = (Resolve-Path 'data/releases/agent-0.1.2.zip').Path
+          $stored = (Resolve-Path 'data/releases/agent-0.1.2-windows-x64.zip').Path
           Set-ItemProperty $stored -Name IsReadOnly -Value $false
           $bytes = [IO.File]::ReadAllBytes($stored); $mid = [int]($bytes.Length / 2); $bytes[$mid] = $bytes[$mid] -bxor 0xFF; [IO.File]::WriteAllBytes($stored, $bytes)
           $rollout = (node server/dist/src/cli.js rollout start 0.1.2 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
