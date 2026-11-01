@@ -45,6 +45,7 @@
           ]
         },
         "usbSelectiveSuspend": {
+          "description": "USB selective suspend on the active power plan, as Windows keeps it: one value when plugged in and one on battery (null when powercfg does not answer). A cabinet runs plugged in, so pluggedIn is the one that matters; power.set turns both on or off together.",
           "anyOf": [
             {
               "type": "object",
