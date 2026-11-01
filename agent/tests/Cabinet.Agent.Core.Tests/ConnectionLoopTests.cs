@@ -310,9 +310,10 @@ public sealed class ConnectionLoopTests : IDisposable
         {
             await Until(() => server.To("/agent/v1/heartbeat").Any(), "the first heartbeat");
             int before = Volatile.Read(ref polls);
-            await Task.Delay(TimeSpan.FromSeconds(3.2)); // a poll that returns at once is followed by a 1 s pause, so about three polls
+            // A poll that returns at once is followed by a 1 s pause, so two more polls take a little over 2 s; a busy runner may
+            // take longer, so wait for them (well inside the 30 s Retry-After) rather than for a fixed time.
+            await Until(() => Volatile.Read(ref polls) >= before + 2, "polling to go on while the heartbeat waits", seconds: 10);
             Assert.Single(server.To("/agent/v1/heartbeat")); // its Retry-After (30 s) is honoured, although its own interval is 300 ms
-            Assert.True(Volatile.Read(ref polls) >= before + 2, $"polling went on ({before} -> {polls})");
         });
     }
 

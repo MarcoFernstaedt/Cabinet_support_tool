@@ -53,6 +53,8 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
     page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
     await page.goto(origin);
+    // isVisible() does not wait: on a busy machine the console may not have drawn the sign-in form yet, so wait for it first.
+    await page.getByLabel("Username").waitFor();
     // Sign-in stays usable on the smallest supported laptop width, and below it still shows (the layout scrolls, it is not hidden).
     await page.setViewportSize({ width: 1024, height: 768 });
     assert.equal(await page.locator("#root").isVisible(), true);
