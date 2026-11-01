@@ -453,8 +453,9 @@ public sealed class NetworkTesterTests
             new NetworkTestParams { Target = NetworkTestTarget.SyncCabinet, Method = NetworkTestMethod.Tcp, Port = port, Count = 3 }, default);
         Assert.False(down.Success);
         Assert.Equal(100, down.Statistics!.LossPercent);
-        // A closed port is named as refused on every platform (each connection gets 5 s, longer than Windows takes to give up on
-        // a refused one), and the refusal ends the series: one connection tried, not three.
+        // A closed port is named as refused on every platform (each connection gets 5 s, because the refusal sometimes
+        // arrived after the 2-second limit had expired on Windows; why, and how long Windows takes, are not measured --
+        // decision-log.md D1), and the refusal ends the series: one connection tried, not three.
         Assert.Contains("refused", down.Error);
         Assert.Equal(1, down.Statistics.Sent);
         Assert.Equal(0, down.Statistics.Received);
