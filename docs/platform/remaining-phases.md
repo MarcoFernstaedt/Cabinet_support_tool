@@ -175,6 +175,10 @@ order they are being fixed.
     straight after `goto`, before the console had drawn. Fixed in PR #132: it waits for the sign-in form first.
   - `troubleshooting.test.ts` "a drive that is failing and a clock that is wrong…" (62 s, past the 60 s diagnosis limit): the ICU
     diagnosis had no time-skew finding. Not root-caused; the assertion now prints the diagnosis' state and findings.
+  - `troubleshooting.test.ts` again at `b811d72` (job 124775471652), the #130 shape: "Diagnose this cabinet" got a 500
+    (`server_error`) from POST /diagnose, then every later test in the file failed signing in. The app runs without a logger,
+    so the cause was not in the log; the file now records every unexpected server error (an `onError` hook that skips the
+    4xx answers) and prints them, and the harness's sign-in assertion shows the responses it got.
 - [ ] **The server suite takes about 19 minutes on CI.** Complete runs took 18.6 and 20.1 minutes (jobs 124747977897 and
   124747966648, `ba42057`); two earlier runs were cancelled by the old 15-minute limit with 293 (`c2268977`) and 296
   (`947c1a09`) of 824 passed and none failed. The step's limit is now 40 minutes (PR #132). Worth finding the slow files (the browser tests and

@@ -15,6 +15,8 @@ import { BUILT_IN_RUNBOOKS } from "../src/services/runbooks-builtin.js";
 import { checkRunbookBody } from "../src/services/runbooks.js";
 import { runErrorTrends } from "../src/services/error-trends.js";
 import { ISSUE } from "../src/services/rules.js";
+import { ContractError } from "../src/contracts.js";
+import { Refused } from "../src/services/errors.js";
 import { ConsoleHarness, ORIGIN, type Role } from "./console-harness.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -30,6 +32,9 @@ const account = (role: Role) => h.account(role);
 const call = h.call.bind(h);
 const cab = async (name: string) => (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = $1 AND demo_scenario IS NOT NULL", [name])).rows[0]!;
 const UUID0 = "00000000-0000-4000-8000-000000000000";
+/** Every unexpected server error (a 500): the app is built without a logger, so this is the only place its cause shows up. */
+const serverErrors: string[] = [];
+const errorsSoFar = () => (serverErrors.length ? ` Server errors so far: ${serverErrors.join(" | ")}` : "");
 
 test.before(async () => {
   db = await createTestDatabase();
@@ -39,13 +44,18 @@ test.before(async () => {
   await stream.start();
   app = await buildConsoleApi({ pool: db.app, secrets, issuingKey: await developmentIssuingKey(tempDir()), origin: ORIGIN, stream, logger: false, now: () => h.clock });
   h.db = db; h.app = app;
+  app.addHook("onError", async (request, _reply, error) => {
+    // The ones the error handler answers with a 4xx (a refusal, a contract failure, a client error) are expected here.
+    if (error instanceof Refused || error instanceof ContractError || ((error as { statusCode?: number }).statusCode ?? 500) < 500) return;
+    serverErrors.push(`${request.method} ${request.url}: ${error.name}: ${error.message}`.slice(0, 500));
+  });
   const owner = randomUUID();
   await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, 'demo.owner', 'Demo owner', 'admin', 'x')`, [owner]);
   await enableDemo(db.app, owner);
   sim = new DemoSimulator(db.app, () => {}, 100, [10, 50]);
   sim.start();
 });
-test.after(async () => { sim.stop(); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
+test.after(async () => { if (serverErrors.length) console.error(`troubleshooting: ${serverErrors.length} server error(s): ${serverErrors.join(" | ")}`); sim.stop(); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 async function finished(url: string, t: Awaited<ReturnType<typeof account>>) {
   for (const end = Date.now() + 90_000; Date.now() < end; await new Promise(r => setTimeout(r, 200))) {
@@ -66,7 +76,7 @@ test("Diagnose this cabinet: the scanner that is not detected comes first, with 
   assert.equal((await call("POST", `/api/cabinets/${k}/diagnose`, { extra: 1 }, t1)).status, 400);
   assert.equal((await call("POST", `/api/cabinets/${UUID0}/diagnose`, {}, t1)).status, 404);
   const started = await call("POST", `/api/cabinets/${k}/diagnose`, {}, t1);
-  assert.equal(started.status, 202, JSON.stringify(started.body));
+  assert.equal(started.status, 202, JSON.stringify(started.body) + errorsSoFar());
   // A second click while it runs joins the same run.
   assert.equal((await call("POST", `/api/cabinets/${k}/diagnose`, {}, t1)).body.diagnosisId, started.body.diagnosisId);
   const d = await finished(`/api/cabinet-diagnoses/${started.body.diagnosisId}`, t1);
