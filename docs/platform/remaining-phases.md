@@ -159,7 +159,8 @@ order they are being fixed.
   paths, so a pwsh installed elsewhere (for example under the home folder) skips two tests. The Approved programs page's client
   list load (the page's first load) shows nothing when it fails. (The signing test's wrapped-text assertion was fixed in #130.)
 - [ ] **Two follow-ups from the #130 review.** `troubleshooting.test.ts` failed 8 times in one full run at `--test-concurrency=2`
-  (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The
+  (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
+  shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
   approved-list-signing refusal test's title does not name the one-key rule it now covers.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
