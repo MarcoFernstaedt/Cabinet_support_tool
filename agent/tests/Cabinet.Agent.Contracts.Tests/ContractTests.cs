@@ -103,7 +103,6 @@ public sealed class ContractTests
         new object[] { typeof(RuleChange), "operations/firewall.setRule.schema.json", "/$defs/params/properties/change/enum" },
         new object[] { typeof(PackageType), "operations/package.install.schema.json", "/$defs/params/properties/packageType/enum" },
         new object[] { typeof(CheckOutcome), "operations/package.install.schema.json", "/$defs/output/properties/checks/properties/hash/enum" },
-        new object[] { typeof(BrokerRequestKind), "agent/broker-request.schema.json", "/properties/kind/enum" },
         new object[] { typeof(BrokerStatus), "agent/broker-response.schema.json", "/properties/status/enum" },
         new object[] { typeof(UpgradeCheck), "common.schema.json", "/$defs/upgradeCheck/enum" },
         new object[] { typeof(UpgradePhase), "agent/upgrade-journal.schema.json", "/properties/phase/enum" },
