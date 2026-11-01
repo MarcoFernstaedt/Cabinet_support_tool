@@ -156,6 +156,10 @@ order they are being fixed.
 - [ ] **Two test-and-page follow-ups from the #130 review.** `server/test/installer-scripts.test.ts` finds pwsh only at three fixed
   paths, so a pwsh installed elsewhere (for example under the home folder) skips two tests. The Approved programs page's client
   list load (the page's first load) shows nothing when it fails. (The signing test's wrapped-text assertion was fixed in #130.)
+- [ ] **On Windows a closed TCP port can read as "no answer" in a test series.** Windows retries a refused connection for about two
+  seconds, the series' own limit per connection, so the agent's series cannot always tell a closed port from a dead link there
+  (the single TCP test, with 5 seconds, can). Found when CI ran again on 2026-11-01; the test accepts either on Windows for now.
+  Fix in the agent: give each connection in a series a little longer, or read the refusal from Windows another way.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 
