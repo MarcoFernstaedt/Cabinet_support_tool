@@ -403,7 +403,8 @@ jobs:
       - name: "Milestone 7: a signed upgrade rolls out to a test batch, a tampered package is refused, a failed upgrade restores the old version on its own"
         # One step: the server must keep running while the agent upgrades itself.
         shell: pwsh
-        timeout-minutes: 45
+        # Each rollout waits for the cabinet's next check-in (about 5 minutes); the five cases took about 44 minutes on 2026-11-01.
+        timeout-minutes: 75
         run: |
           $ErrorActionPreference = 'Stop'
           $t = $env:RUNNER_TEMP
@@ -506,10 +507,14 @@ jobs:
           Release '0.1.4' $v4
           $rollout = (node server/dist/src/cli.js rollout start 0.1.4 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
           $journal = "$env:ProgramData\Mashura\CabinetAgent\broker\upgrade.json"
-          for ($i = 0; $i -lt 900; $i++) {
-            if ((Test-Path $journal) -and ((Get-Content $journal -Raw | ConvertFrom-Json).version -eq '0.1.4')) { break }
-            Start-Sleep -Milliseconds 200
+          # The agent takes an offer on its next check-in, about every 5 minutes: wait up to 10 for 0.1.4 to start, and say so if it
+          # never does, rather than stopping the server on a cabinet that is not upgrading.
+          $started = $false
+          for ($i = 0; $i -lt 3000 -and -not $started; $i++) {
+            $started = (Test-Path $journal) -and ((Get-Content $journal -Raw | ConvertFrom-Json).version -eq '0.1.4')
+            if (-not $started) { Start-Sleep -Milliseconds 200 }
           }
+          if (-not $started) { Logs; throw 'The cabinet did not start the upgrade to 0.1.4 within 10 minutes.' }
           Stop-Process -Id $server.Id -Force
           Write-Host "  Server stopped at phase $((Get-Content $journal -Raw | ConvertFrom-Json).phase)."
           for ($i = 0; $i -lt 120; $i++) {
