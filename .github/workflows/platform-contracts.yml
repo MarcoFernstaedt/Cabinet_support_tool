@@ -259,7 +259,7 @@ jobs:
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
           if (-not $request) { Get-Content "$env:RUNNER_TEMP\server.log" -Tail 30; throw 'No enrollment request arrived.' }
           if (Test-Path "$env:ProgramData\Mashura\CabinetAgent\state\bootstrap-token") { throw 'The bootstrap token was not deleted after use.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone --baseline capture
           $online = $null
           for ($i = 0; $i -lt 60 -and -not $online; $i++) { Start-Sleep 2; $online = node server/dist/src/cli.js cabinets | Select-String ' online ' }
           node server/dist/src/cli.js cabinets
@@ -443,7 +443,7 @@ jobs:
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           if (-not $request) { throw 'No enrollment request arrived.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone --baseline capture
           $cab = $null
           for ($i = 0; $i -lt 60 -and -not $cab; $i++) { Start-Sleep 2; $cab = node server/dist/src/cli.js cabinets | Select-String 'Upgrade runner' | Select-String ' online ' }
           if (-not $cab) { throw 'The cabinet did not come online.' }
