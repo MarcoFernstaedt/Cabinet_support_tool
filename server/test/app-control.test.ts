@@ -6,7 +6,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { CONTROL_ACTIONS, CONTROL_AUDIT_ACTION, CONTROL_CODES, MAX_ATTEMPTED, PROCESS_END_STEP_UP, SERVICE_CONTROL_STEP_UP,
   boundParams, controlApproved, type ControlEffects, type ControlRequest } from "../src/services/app-control.js";
-import { appsHash, normalizeEntries, rawEntry, type ApprovedApp } from "../src/services/approved-apps.js";
+import { appsHash, normalizeEntries, rawEntry, resolveLevels, type ApprovedApp } from "../src/services/approved-apps.js";
+import { listProblem } from "../src/services/controlled-targets.js";
 import { Refused } from "../src/services/errors.js";
 import type { AuditEntry, Queryable } from "../src/db/db.js";
 import type { Command } from "../src/contracts.js";
@@ -120,7 +121,7 @@ test("the most specific level with a list wins whole, and a level that was rejec
   const fleetOnly = await refusalOf(body(), { levels: { k: stored([DISPENSER]), s: null, c: null, f: stored([SPOOLER]) } });
   assert.equal(fleetOnly.code, CONTROL_CODES.entryNotApproved);
   assert.equal(fleetOnly.status, 403);
-  assert.match(fleetOnly.message, /the list from the cabinet level applies/);
+  assert.match(fleetOnly.message, /not on the cabinet list that applies to this cabinet/);
   assert.deepEqual((refusedRow(fleetOnly.calls, CONTROL_CODES.entryNotApproved).details as Record<string, unknown>).listFrom, "cabinet");
   // With no list of its own the fleet's applies, and the same request is issued: the fallback is real, not a refusal of its own.
   const fleetWins = fakeEffects();
@@ -138,7 +139,8 @@ test("the most specific level with a list wins whole, and a level that was rejec
   // Nothing at any level, and a cabinet the platform does not have (or has removed), are two different answers.
   const nothing = await refusalOf(body(), { levels: { k: null, s: null, c: null, f: null } });
   assert.equal(nothing.code, CONTROL_CODES.entryNotApproved);
-  assert.match(nothing.message, /no level sets a list/);
+  assert.match(nothing.message, /has no approved-programs list: none is set for the cabinet, its site, its client or the fleet/);
+  assert.match(nothing.message, /Admin > Approved programs/, "the refusal says where the list is set");
   const gone = await refusalOf(body(), { levels: null });
   assert.equal(gone.code, "not_found");
   assert.equal(gone.status, 404);
@@ -287,4 +289,17 @@ test("a hostile key is recorded, but it cannot smuggle control characters in or 
   const idDetails = refusedRow(badId.calls, "invalid_params").details as Record<string, unknown>;
   assert.equal(String(badId.calls.row[0]!.targetId).length, MAX_ATTEMPTED);
   assert.equal(/"stepUpToken"|"{43}"/.test(JSON.stringify(idDetails)), false);
+});
+
+test("a refusal says why nothing matched and where an Admin sets the list: none set, damaged, empty, or not on it", () => {
+  const why = (levels: Record<string, unknown>) => listProblem(resolveLevels(levels), "that service");
+  // The hardware test's cabinet: no level set a list, and the old refusal only said the service was not on it.
+  assert.match(why({}), /^this cabinet has no approved-programs list: .* An Admin sets one in the console under Admin > Approved programs$/);
+  assert.match(why({ client: stored([]) }), /^the client list that applies to this cabinet is empty, so it approves nothing\. An Admin adds programs under Admin > Approved programs$/);
+  assert.match(why({ site: stored([DISPENSER]) }), /^that service is not on the site list that applies to this cabinet\. An Admin adds it under Admin > Approved programs$/);
+  // A list written by hand without its hash wins and denies everything (never the level above): the refusal names it as damaged.
+  const damaged = why({ cabinet: stored([SPOOLER], { hash: "0".repeat(64) }), fleet: stored([SPOOLER]) });
+  assert.match(damaged, /^that service is not approved; the cabinet list is damaged .* until an Admin saves it again under Admin > Approved programs$/);
+  // A damaged level below the one in force is still mentioned, so it is not a surprise when a list above it is removed.
+  assert.match(why({ site: stored([DISPENSER]), fleet: "not json" }), /not on the site list .*; the fleet list is damaged/);
 });

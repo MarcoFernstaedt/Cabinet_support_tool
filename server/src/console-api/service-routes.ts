@@ -147,9 +147,15 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     });
   }
 
+  // A cabinet's levels (what the cabinet page reads) plus its own list in the editor's shape: a replacement copies the old cabinet's own
+  // list here, and that list wins over every level above, so an Admin has to be able to see, replace or remove it.
+  const cabinetApps = async (cabinetId: string) => {
+    const own = await readLevelState(o.pool, "cabinet", cabinetId);
+    return { ...(await appLevels(o.pool, cabinetId)), own: own.list, ownRejected: own.rejected, ownPending: own.pending, ...signingState };
+  };
   app.get("/api/cabinets/:id/approved-apps", async request => {
     await o.guards.role(request, "tier1");
-    return appLevels(o.pool, id(request));
+    return cabinetApps(id(request));
   });
 
   app.put("/api/cabinets/:id/approved-apps", async request => {
@@ -157,6 +163,6 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const b = consoleBodies.approvedApps.parse(request.body);
     const scope = id(request);
     await setApprovedApps(o.pool, u, "cabinet", scope, b.entries ?? null, b.stepUpToken, appsConfirmed(b, "cabinet", scope), signing);
-    return appLevels(o.pool, scope);
+    return cabinetApps(scope);
   });
 }
