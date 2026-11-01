@@ -3,7 +3,9 @@
 import { PackageRefused } from "./asn1.js";
 
 const ENDOFCHAIN = 0xfffffffe, FREESECT = 0xffffffff, NOSTREAM = 0xffffffff;
-const bad = (m: string): never => { throw new PackageRefused("signature_invalid", `The installer file is damaged (${m}).`); };
+// A file that is not a well-formed compound file is not an installer at all, so it is refused as unverifiable, not as a bad signature:
+// signature_invalid is kept for a real installer whose signature does not hold.
+const bad = (m: string): never => { throw new PackageRefused("verification_failed", `The installer file is damaged (${m}).`); };
 
 export interface Entry { id: number; name: Buffer; type: number; clsid: Buffer; child: number; left: number; right: number; start: number; size: number; }
 
@@ -16,7 +18,8 @@ export class CompoundFile {
   private readonly miniCutoff: number;
 
   constructor(private readonly buf: Buffer) {
-    if (buf.length < 512 || buf.readUInt32LE(0) !== 0xe011cfd0 || buf.readUInt32LE(4) !== 0xe11ab1a1) bad("not a compound file");
+    if (buf.length < 512 || buf.readUInt32LE(0) !== 0xe011cfd0 || buf.readUInt32LE(4) !== 0xe11ab1a1)
+      throw new PackageRefused("verification_failed", "The file is not an MSI installer.");
     const shift = buf.readUInt16LE(0x1e);
     if (shift !== 9 && shift !== 12) bad("sector size");
     this.sectorSize = 1 << shift;
