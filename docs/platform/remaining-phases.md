@@ -151,11 +151,17 @@ order they are being fixed.
   with its confirmation, audit and signing, stays the only way to set the list. The page now also sets one cabinet's own list
   (owner's decision, 2026-10-31): a replacement takes over the old cabinet's list, which wins over every level above, and a
   damaged one had no way out in the console.
-- [ ] **Two minor items to check:** `power.status` reports USB selective suspend as plugged-in/battery values rather than on/off;
-  `package verify` says "checked" for files that are not installers.
+- [x] **Two minor items to check.** `power.status` reports USB selective suspend as plugged-in/battery values: intended, since Windows
+  keeps one of each and `power.set` turns both on or off; the contract now says so. `package verify` on files that are not
+  installers: "checked" does not reproduce on current main, which prints `refused`. But a non-MSI file was refused as
+  `signature_invalid` (a signature failure); it is now `verification_failed`, the code a non-driver file already got.
 - [ ] **Two test-and-page follow-ups from the #130 review.** `server/test/installer-scripts.test.ts` finds pwsh only at three fixed
   paths, so a pwsh installed elsewhere (for example under the home folder) skips two tests. The Approved programs page's client
   list load (the page's first load) shows nothing when it fails. (The signing test's wrapped-text assertion was fixed in #130.)
+- [ ] **Two follow-ups from the #130 review.** `troubleshooting.test.ts` failed 8 times in one full run at `--test-concurrency=2`
+  (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
+  shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
+  approved-list-signing refusal test's title does not name the one-key rule it now covers.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 
