@@ -220,7 +220,7 @@
           "$ref": "../common.schema.json#/$defs/nullableShortText"
         },
         "statistics": {
-          "description": "Optional: ping only, when more than one request was sent.",
+          "description": "Optional: a ping series (more than one request), or a tcp series. For tcp, sent is the connections actually tried: a refusal, or two tries in a row with no answer, ends the series early.",
           "anyOf": [
             {
               "type": "null"

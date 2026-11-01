@@ -11,6 +11,8 @@ what has been proven, how it is run, and what is left.
 - [readiness.md](readiness.md): what is proven and what is not, with the evidence.
 - [first-sign-in.md](first-sign-in.md): what a new account sees on the way in.
 - [demo.md](demo.md): the demo fleet and how to drive it.
+- [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost; for the
+  end-of-project review.
 
 ## Security
 

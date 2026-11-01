@@ -905,3 +905,8 @@ Noted (the owner's words): when cabinets are off, the client must turn the sync 
 The execution plan (docs/platform/diagnostic-engine-execution.md, item 1) listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and decision 5 there (one organization, no per-client split) points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
 
 Answered by the owner (2026-10-29): no. Every module applies to every client's cabinets, narrowed only by the module's own applicability. Nothing per client is built.
+
+
+## Checking the CI SQL Server Express installer (2026-11-01)
+
+Open, not built. The owner agreed the Windows CI job should check the SQL Server Express installer before running it as administrator: a valid Authenticode signature from Microsoft, and a SHA-256 pinned in the repository. It waits on two things: the real file's hash (download.microsoft.com and community.chocolatey.org are not reachable from the build container), and a CI run to prove the changed install, with GitHub Actions on hold. Reasoning in docs/platform/decision-log.md, D2.
