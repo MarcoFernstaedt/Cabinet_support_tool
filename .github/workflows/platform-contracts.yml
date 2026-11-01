@@ -43,15 +43,22 @@ jobs:
         run: npm ci --ignore-scripts && npm run build && npm test && npm audit --audit-level=low && npm audit signatures
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
-        # The suite ran in about 18 minutes on a 4-core container and about 3 times slower here (293 of 824 tests in the first
-        # 15 minutes on 2026-11-01), so 15 minutes no longer covers it.
-        timeout-minutes: 60
+        # The suite took 18.6 minutes here on 2026-11-01 (job 124747977897), and two earlier runs were cancelled at 15.
+        timeout-minutes: 40
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net10.0/Cabinet.Agent.TestAgent.dll
         run: |
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
-          npm test
+          # The whole TAP output is kept; on a failure the failing tests are printed again at the end, where they can be found
+          # in a log of several thousand lines. pipefail: without a shell: line the step runs bash -e, where a pipe reports tee's status.
+          set -o pipefail
+          if ! npm test 2>&1 | tee "$RUNNER_TEMP/server-tests.tap"; then
+            echo '::group::Failing tests'
+            grep -n -E -A 40 '^\s*not ok ' "$RUNNER_TEMP/server-tests.tap" || true
+            echo '::endgroup::'
+            exit 1
+          fi
           npm audit --audit-level=low
           npm audit signatures
       - name: Agent API under load (1,000 simulated agents with their own certificates, 3 minutes; the full 8,000 run is a rollout gate)
