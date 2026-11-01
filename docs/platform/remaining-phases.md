@@ -170,6 +170,11 @@ order they are being fixed.
   - `console-setup-e2e.test.ts` (job 124747977897): the step-up dialog after approving the agent stayed open for 30 s; the log
     cannot say whether the approval was refused or still running. Not root-caused. PR #132 makes the wait report which it was
     (the console's refusal text, or "still Confirming…"), so the next occurrence names its cause.
+- [ ] **Two more at `e429b81` (one run, job 124754172624), also outside the PR's files.**
+  - `console-screens-e2e.test.ts` "every page fits its screen…": asserted `#root` visible with `isVisible()` (which does not wait)
+    straight after `goto`, before the console had drawn. Fixed in PR #132: it waits for the sign-in form first.
+  - `troubleshooting.test.ts` "a drive that is failing and a clock that is wrong…" (62 s, past the 60 s diagnosis limit): the ICU
+    diagnosis had no time-skew finding. Not root-caused; the assertion now prints the diagnosis' state and findings.
 - [ ] **The server suite takes about 19 minutes on CI.** Complete runs took 18.6 and 20.1 minutes (jobs 124747977897 and
   124747966648, `ba42057`); two earlier runs were cancelled by the old 15-minute limit with 293 (`c2268977`) and 296
   (`947c1a09`) of 824 passed and none failed. The step's limit is now 40 minutes (PR #132). Worth finding the slow files (the browser tests and

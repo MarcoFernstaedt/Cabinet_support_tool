@@ -98,7 +98,9 @@ test("a drive that is failing and a clock that is wrong are found on the cabinet
   const s2 = await call("POST", `/api/cabinets/${icu}/diagnose`, {}, t1);
   const d2 = await finished(`/api/cabinet-diagnoses/${s2.body.diagnosisId}`, t1);
   const skew = d2.findings.find((f: { key: string }) => f.key === "time-skew");
-  assert.equal(skew?.action.operation, "time.sync");
+  // When this fails, say what the diagnosis did find (and its state), not only that the finding is missing.
+  assert.equal(skew?.action?.operation, "time.sync",
+    `no time-skew finding with a time.sync fix on ICU; the diagnosis ended ${d2.state} with: ${JSON.stringify(d2.findings.map((f: { key: string; severity: string }) => [f.key, f.severity]))}`);
 });
 
 test("an offline cabinet is refused at once, not waited for", async () => {
