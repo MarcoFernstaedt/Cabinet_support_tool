@@ -28,7 +28,8 @@ export class ConsoleHarness {
                              VALUES ($1, $2, $3, $4, $5, 0, 1, $6, $7)`, [a.id, a.username, `Test ${a.username}`, role, await hashPassword(a.password), this.secrets.seal(a.secret), writeLimit]);
     const login = await this.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify({ username: a.username, password: a.password }) });
     a.cookie = String(login.headers["set-cookie"]).split(";")[0]!;
-    assert.equal((await this.call("POST", "/api/auth/totp", { code: this.code(a) }, a)).body.stage, "complete");
+    const second = await this.call("POST", "/api/auth/totp", { code: this.code(a) }, a);
+    assert.equal(second.body.stage, "complete", `signing ${a.username} in: login ${login.statusCode}, code ${second.status} ${JSON.stringify(second.body).slice(0, 300)}`);
     return a;
   }
 

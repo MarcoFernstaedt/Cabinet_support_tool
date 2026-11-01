@@ -135,6 +135,10 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
   const wrong = await inSite(ny, "time_zone_wrong");
   const [healthy] = await inSite(ny, "healthy");
   const offline = (await inSite(ny, "net_static_wrong"))[0]!;
+  // The demo simulator sends every simulated cabinet a heartbeat, except one whose scenario is "offline". Moving this one into that
+  // scenario, and letting a sweep that already listed it finish, is what keeps it offline until the preview has read it.
+  await db.app.query("UPDATE cabinets SET demo_scenario = 'offline' WHERE id = $1", [offline]);
+  await sim.settled();
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [offline]);
   // Cabinets from two sites are refused: a bulk change covers one site.
   const [elsewhere] = await scenarioIds("disk_failing");
@@ -144,8 +148,10 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
   const p = (await call("POST", "/api/fleet-operations/preview", { operation: "time.setZone", cabinetIds: [...wrong, offline, healthy!] }, t1)).body;
   assert.ok(p.cabinets.every((c: { ipv4: string | null }) => c.ipv4 !== null), "the preview shows each cabinet's address");
   assert.equal(p.change, 3);
-  assert.deepEqual(p.cabinets.filter((c: { skip: string | null }) => c.skip).map((c: { skip: string }) => c.skip).sort(),
-    ["Already in its site's time zone.", "Offline: not heard from in the last 5 minutes."]);
+  const skipOf = (id: string) => p.cabinets.find((c: { id: string }) => c.id === id)?.skip ?? null;
+  assert.equal(skipOf(offline), "Offline: not heard from in the last 5 minutes.");
+  assert.equal(skipOf(healthy!), "Already in its site's time zone.");
+  assert.ok(wrong.every(id => skipOf(id) === null), "every cabinet in the wrong zone is changed");
   // Each cabinet gets its own site's zone, filled in by the server.
   for (const c of p.cabinets.filter((x: { skip: string | null }) => !x.skip)) {
     const site = (await db.app.query<{ time_zone: string | null }>("SELECT s.time_zone FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [c.id])).rows[0]!.time_zone;
@@ -156,7 +162,7 @@ test("preview says what each cabinet gets and why any is skipped, and changes no
     { operation: "time.sync", cabinetIds: Array.from({ length: 201 }, () => randomUUID()) }])
     assert.equal((await call("POST", "/api/fleet-operations/preview", body, t1)).status, 400, JSON.stringify(body).slice(0, 80));
   assert.equal((await call("POST", "/api/fleet-operations/preview", { operation: "time.sync", cabinetIds: [randomUUID()] }, t1)).status, 404);
-  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [offline]);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), demo_scenario = 'net_static_wrong' WHERE id = $1", [offline]);
 });
 
 test("scenario C: Tier 1 corrects every wrong time zone with the password; each cabinet is changed, verified, and its alert closes", async () => {

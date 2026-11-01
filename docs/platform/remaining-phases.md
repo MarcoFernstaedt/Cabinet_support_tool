@@ -162,6 +162,43 @@ order they are being fixed.
   (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
   shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
   approved-list-signing refusal test's title does not name the one-key rule it now covers.
+- [ ] **Two more reds of that shape on CI at `ba42057` (2026-11-01), one per run, neither in a file the PR touched.**
+  - `fleet-jobs.test.ts` "preview says what each cabinet gets…" (job 124747966648): the cabinet the test made offline came back
+    online, because the demo simulator's heartbeat sweep refreshed it between the test's update and the preview. Fixed in PR
+    #132: the test moves that cabinet into the simulator's `offline` scenario (which it never heartbeats), waits for a sweep in
+    progress, then makes it offline, and asserts each cabinet's skip reason by its ID.
+  - `console-setup-e2e.test.ts` (job 124747977897): the step-up dialog after approving the agent stayed open for 30 s; the log
+    cannot say whether the approval was refused or still running. Not root-caused. PR #132 makes the wait report which it was
+    (the console's refusal text, or "still Confirming…"), so the next occurrence names its cause.
+- [ ] **Two more at `e429b81` (one run, job 124754172624), also outside the PR's files.**
+  - `console-screens-e2e.test.ts` "every page fits its screen…": asserted `#root` visible with `isVisible()` (which does not wait)
+    straight after `goto`, before the console had drawn. Fixed in PR #132: it waits for the sign-in form first.
+  - `troubleshooting.test.ts` "a drive that is failing and a clock that is wrong…" (62 s, past the 60 s diagnosis limit): the ICU
+    diagnosis had no time-skew finding. Not root-caused; the assertion now prints the diagnosis' state and findings.
+  - `troubleshooting.test.ts` again at `b811d72` (job 124775471652), the #130 shape, as one burst: "Diagnose this cabinet" got
+    a 500 (`server_error`) from POST /diagnose at 07:05:05.028, then the file's eight remaining tests each failed signing in
+    within the next second (to 07:05:05.878). Two different routes failing inside one second points at a connection-level
+    failure (the database connection, not anything about /diagnose); there was no later test to show recovery, and the paired
+    run of the same commit was 843/843. The app runs without a logger, so the error itself was not in the log; the file now
+    records every unexpected server error (an `onError` hook that skips the 4xx answers) and prints them, and the harness's
+    sign-in assertion shows the responses it got.
+- [ ] **The server suite takes about 19 minutes on CI.** Complete runs took 18.6 and 20.1 minutes (jobs 124747977897 and
+  124747966648, `ba42057`); two earlier runs were cancelled by the old 15-minute limit with 293 (`c2268977`) and 296
+  (`947c1a09`) of 824 passed and none failed. The step's limit is now 40 minutes (PR #132). Worth finding the slow files (the browser tests and
+  the real-agent ones are the likely ones) before it creeps up again.
+- [x] **The result outbox read pending results back out of order after a restart.** It ordered them by file write time, then by
+  name: two results written inside one file-time tick came back in name order (the owner saw
+  `Results_survive_a_restart_until_delivered_then_are_kept_to_answer_repeats` fail one run in five), and a result the server
+  offered again kept its delivery time and so came back first. Each pending file now gets a write time later than the last one
+  (`ResultOutbox.StampPending`), on add and on requeue. Fixed in PR #132, with a frozen-clock test and a requeue test that fail
+  without it.
+- [ ] **On Windows a closed TCP port can read as "no answer" in a test series.** What the runs show: the series' own limit of
+  2 seconds per connection (`NetworkTester.TcpSeriesAsync`) expired before the refusal came back, so the error was "No answer on
+  TCP port ... within 2 seconds". On the same runner image (windows-2025-vs2026, 20261021.618) the strict test failed at
+  `f38627de` (job 124714381133, the test took 8 s) and passed at `be976942` (job 124722989775), so the refusal sometimes comes
+  back in time and sometimes not; how long Windows takes has not been measured. The single TCP test allows 5 seconds and is not
+  affected. Found when CI ran again on 2026-11-01; the test accepts either on Windows for now. The fix is a longer limit per
+  connection in the series, which makes a series against a port that never answers slower (see the PR #132 discussion).
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 

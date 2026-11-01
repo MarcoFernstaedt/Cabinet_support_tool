@@ -36,6 +36,9 @@ public sealed class ResultOutbox
     private readonly Dictionary<Guid, long> _sizes = new();
     private readonly Dictionary<Guid, DateTimeOffset> _delivered = new();
     private TaskCompletionSource _added = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    /// <summary>The newest write time given to a pending file. Each pending file gets a later one than the last, so a restart
+    /// reads them back in the order they were queued (two writes inside one file-time tick would otherwise tie).</summary>
+    private DateTime _lastPendingStamp = DateTime.MinValue;
 
     public ResultOutbox(string folder, TimeProvider clock, Action<string> log)
     {
@@ -48,7 +51,12 @@ public sealed class ResultOutbox
         foreach (string temp in Directory.EnumerateFiles(folder, "*.tmp", SearchOption.AllDirectories)) TryDelete(temp);
         foreach (var file in new DirectoryInfo(_pending).EnumerateFiles("*.json").OrderBy(f => f.LastWriteTimeUtc).ThenBy(f => f.Name, StringComparer.Ordinal))
         {
-            if (Id(file.Name) is { } id && file.Length <= MaxResultBytes && Read(file.FullName, id) is not null) { _queue.Add(id); _sizes[id] = file.Length; }
+            if (Id(file.Name) is { } id && file.Length <= MaxResultBytes && Read(file.FullName, id) is not null)
+            {
+                _queue.Add(id);
+                _sizes[id] = file.Length;
+                if (file.LastWriteTimeUtc > _lastPendingStamp) _lastPendingStamp = file.LastWriteTimeUtc;
+            }
             else TryDelete(file.FullName); // not ours, damaged or no longer matching the contract: never sent
         }
         DateTimeOffset now = clock.GetUtcNow();
@@ -84,6 +92,7 @@ public sealed class ResultOutbox
         {
             string path = PendingPath(result.CommandId);
             WriteAtomic(path, json);
+            StampPending(path);
             TryDelete(DonePath(result.CommandId));
             _delivered.Remove(result.CommandId);
             _queue.Remove(result.CommandId);
@@ -103,6 +112,7 @@ public sealed class ResultOutbox
             try { File.Move(DonePath(commandId), PendingPath(commandId), overwrite: true); }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
             // The file is moved first: until it has been, the delivered copy is the only answer the offer can get.
+            StampPending(PendingPath(commandId)); // it still carries its delivery time, which would put it first after a restart
             _delivered.Remove(commandId);
             _queue.Add(commandId);
             _sizes[commandId] = new FileInfo(PendingPath(commandId)).Length;
@@ -207,6 +217,17 @@ public sealed class ResultOutbox
             file.Flush(flushToDisk: true);
         }
         File.Move(temp, path, overwrite: true);
+    }
+
+    /// <summary>Gives a pending file a write time later than every other pending file's (the clock's time, or 1 ms past the last
+    /// one when the clock has not moved on), so the order on disk is the queue's order whatever the file system's time resolution.
+    /// A file system that refuses the change leaves the time it had; the result is still delivered, only perhaps out of order.</summary>
+    private void StampPending(string path)
+    {
+        DateTime stamp = _clock.GetUtcNow().UtcDateTime;
+        if (stamp <= _lastPendingStamp) stamp = _lastPendingStamp.AddMilliseconds(1); // NTFS and ext4 both keep far finer times
+        try { File.SetLastWriteTimeUtc(path, stamp); _lastPendingStamp = stamp; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     private string PendingPath(Guid id) => Path.Combine(_pending, id.ToString("D") + ".json");
