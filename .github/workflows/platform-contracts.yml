@@ -43,7 +43,9 @@ jobs:
         run: npm ci --ignore-scripts && npm run build && npm test && npm audit --audit-level=low && npm audit signatures
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
-        timeout-minutes: 15
+        # The suite ran in about 18 minutes on a 4-core container and about 3 times slower here (293 of 824 tests in the first
+        # 15 minutes on 2026-11-01), so 15 minutes no longer covers it.
+        timeout-minutes: 60
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net10.0/Cabinet.Agent.TestAgent.dll
         run: |
@@ -163,7 +165,7 @@ jobs:
         shell: pwsh
         run: |
           ./agent/install/Publish-CabinetAgent.ps1
-          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
+          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -CabinetRole standalone
           Start-Sleep -Seconds 10
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log", "$env:ProgramData\Mashura\CabinetAgent\broker\logs\*.log"
       - name: Services run with the intended accounts
@@ -244,7 +246,7 @@ jobs:
           node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
-            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token
+            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
@@ -430,7 +432,7 @@ jobs:
           Start-Sleep 5
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -SourceDir $v0 -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
-            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token -CabinetRole standalone
+            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token -CabinetRole standalone
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           if (-not $request) { throw 'No enrollment request arrived.' }
