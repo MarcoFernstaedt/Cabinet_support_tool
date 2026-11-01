@@ -403,7 +403,8 @@ jobs:
       - name: "Milestone 7: a signed upgrade rolls out to a test batch, a tampered package is refused, a failed upgrade restores the old version on its own"
         # One step: the server must keep running while the agent upgrades itself.
         shell: pwsh
-        # Each rollout waits for the cabinet's next check-in (about 5 minutes); the five cases took about 44 minutes on 2026-11-01.
+        # Each rollout waits for the cabinet's next check-in (about 5 minutes). The step took 33 minutes on 2026-11-01 without the
+        # failed-upgrade case, which adds up to 10 minutes for its offer, the 5-minute check-in window and the verification after it.
         timeout-minutes: 75
         run: |
           $ErrorActionPreference = 'Stop'
