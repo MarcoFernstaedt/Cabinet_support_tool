@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Builds the two agent services, the harness and the updater as self-contained win-x64 programs.
+  Builds the two agent services, the harness and the updater as self-contained programs for one Windows architecture (-Architecture, win-x64 by default).
 .DESCRIPTION
   Release builds for cabinets come only from the build pipeline
   (docs/spec/02-security-model.md). Use this script for a test machine.
@@ -31,7 +31,10 @@ if ($UpgradeTrustDir) {
     $extra += "-p:UpgradeTrustDir=$((Resolve-Path $UpgradeTrustDir).Path)"
 }
 foreach ($project in 'Cabinet.Agent.Broker', 'Cabinet.Agent.Network', 'Cabinet.Agent.Harness', 'Cabinet.Agent.Updater') {
-    $target = Join-Path $Output "$project-$Architecture"
+    # One folder per program, named for the program: the layout Install-CabinetAgent.ps1 (its -SourceDir), New-AgentRelease.ps1
+    # (its -PublishDir) and the updater read. Keep two architectures apart with -Output (for example ..\out\win-x86); both
+    # the installer and New-AgentRelease.ps1 read each program's PE machine, so a folder of the wrong one is refused.
+    $target = Join-Path $Output $project
     # The committed lock files pin the runtime packs of both architectures (agent/Directory.Build.props), so the restore is
     # locked: the published programs are built from exactly the reviewed, signed packages (agent/nuget.config).
     # No --runtime here: it narrows the project's runtime identifiers to the one asked for, which a lock file listing both

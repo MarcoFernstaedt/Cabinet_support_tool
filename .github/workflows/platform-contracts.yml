@@ -43,13 +43,22 @@ jobs:
         run: npm ci --ignore-scripts && npm run build && npm test && npm audit --audit-level=low && npm audit signatures
       - name: Server (database, audit chain, both APIs, a real agent end to end, and the console in a real browser)
         working-directory: server
-        timeout-minutes: 15
+        # The suite took 18.6 and 20.1 minutes here on 2026-11-01 (jobs 124747977897, 124747966648); two earlier runs were cancelled at 15.
+        timeout-minutes: 40
         env:
           TEST_AGENT_DLL: ${{ github.workspace }}/agent/tests/Cabinet.Agent.TestAgent/bin/Release/net10.0/Cabinet.Agent.TestAgent.dll
         run: |
           npm ci --ignore-scripts
           npx playwright install --with-deps chromium
-          npm test
+          # The whole TAP output is kept; on a failure the failing tests are printed again at the end, where they can be found
+          # in a log of several thousand lines. pipefail: without a shell: line the step runs bash -e, where a pipe reports tee's status.
+          set -o pipefail
+          if ! npm test 2>&1 | tee "$RUNNER_TEMP/server-tests.tap"; then
+            echo '::group::Failing tests'
+            grep -n -E -A 40 '^\s*not ok ' "$RUNNER_TEMP/server-tests.tap" || true
+            echo '::endgroup::'
+            exit 1
+          fi
           npm audit --audit-level=low
           npm audit signatures
       - name: Agent API under load (1,000 simulated agents with their own certificates, 3 minutes; the full 8,000 run is a rollout gate)
@@ -112,7 +121,12 @@ jobs:
           $fx = Join-Path $env:RUNNER_TEMP 'package-fixtures'
           New-Item -ItemType Directory -Force $fx | Out-Null
           $chosen = $null
-          $folders = Get-WindowsDriver -Online | Where-Object { $_.Driver -like 'oem*.inf' } | ForEach-Object { Split-Path $_.OriginalFileName } | Sort-Object -Unique
+          # Only device classes the agent will install (DriverPackage.AllowedClasses); a driver of any other class is refused
+          # before its signature is looked at, which is not what these fixtures test.
+          $allowed = 'Biometric','USB','USBDevice','HIDClass','Keyboard','Mouse','Ports','Image','Camera','Printer','SmartCardReader','Net','Bluetooth','SCSIAdapter','HDC','Display','Monitor','MEDIA','Extension'
+          $drivers = Get-WindowsDriver -Online | Where-Object { $_.Driver -like 'oem*.inf' }
+          $drivers | Format-Table Driver, ClassName, ProviderName
+          $folders = $drivers | Where-Object { $_.ClassName -in $allowed } | ForEach-Object { Split-Path $_.OriginalFileName } | Sort-Object -Unique
           foreach ($folder in $folders) {
             $cat = Get-ChildItem $folder -Filter *.cat -ErrorAction SilentlyContinue | Select-Object -First 1
             if (-not $cat) { continue }
@@ -121,7 +135,7 @@ jobs:
             $size = (Get-ChildItem $folder -Recurse -File | Measure-Object Length -Sum).Sum
             if (-not $chosen -or $size -lt $chosen.Size) { $chosen = @{ Folder = $folder; Size = $size } }
           }
-          if (-not $chosen) { throw 'No third-party driver signed through Microsoft is installed on this runner.' }
+          if (-not $chosen) { throw 'No third-party driver of an allowed device class, signed through Microsoft, is installed on this runner.' }
           Write-Host "Driver fixture: $($chosen.Folder) ($($chosen.Size) bytes)"
           Get-ChildItem $chosen.Folder -Recurse -File | Format-Table Name, Length
           Compress-Archive -Path (Join-Path $chosen.Folder '*') -DestinationPath "$fx\oem-driver.zip"
@@ -135,7 +149,7 @@ jobs:
           # A package whose catalog is unsigned, and the same signed by an impostor certificate carrying Microsoft's publisher name.
           $i = Join-Path $env:RUNNER_TEMP 'impostor'
           New-Item -ItemType Directory $i | Out-Null
-          Set-Content "$i\impostor.inf" "[Version]`r`nSignature=`"`$WINDOWS NT`$`"`r`nClass=System`r`nCatalogFile=impostor.cat`r`n" -Encoding Ascii
+          Set-Content "$i\impostor.inf" "[Version]`r`nSignature=`"`$WINDOWS NT`$`"`r`nClass=Ports`r`nCatalogFile=impostor.cat`r`n" -Encoding Ascii
           Copy-Item "$env:windir\System32\version.dll" "$i\impostor.dll"
           New-FileCatalog -Path $i -CatalogFilePath "$i\impostor.cat" -CatalogVersion 2.0 | Out-Null
           $u = Join-Path $env:RUNNER_TEMP 'unsigned'
@@ -158,7 +172,7 @@ jobs:
         shell: pwsh
         run: |
           ./agent/install/Publish-CabinetAgent.ps1
-          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -CabinetRole standalone
+          ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -CabinetRole standalone
           Start-Sleep -Seconds 10
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\*.log", "$env:ProgramData\Mashura\CabinetAgent\broker\logs\*.log"
       - name: Services run with the intended accounts
@@ -217,7 +231,7 @@ jobs:
         # One step: the Windows runner ends processes a step started when that step finishes, server included.
         shell: pwsh
         run: |
-          # SQL Server Express (see deploy/ci/windows-sqlserver.ps1; not yet proven on a real runner).
+          # SQL Server Express, installed when the image has none (deploy/ci/windows-sqlserver.ps1).
           $ownerUrl = (& deploy/ci/windows-sqlserver.ps1 -SaPassword 'Ci-only-not-a-secret-1' | Select-Object -Last 1)
           "DATABASE_OWNER_URL=$ownerUrl" | Out-File -Append $env:GITHUB_ENV
           Push-Location contracts; npm ci --ignore-scripts; Pop-Location
@@ -239,13 +253,13 @@ jobs:
           node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
-            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token
+            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
           if (-not $request) { Get-Content "$env:RUNNER_TEMP\server.log" -Tail 30; throw 'No enrollment request arrived.' }
           if (Test-Path "$env:ProgramData\Mashura\CabinetAgent\state\bootstrap-token") { throw 'The bootstrap token was not deleted after use.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone --baseline capture
           $online = $null
           for ($i = 0; $i -lt 60 -and -not $online; $i++) { Start-Sleep 2; $online = node server/dist/src/cli.js cabinets | Select-String ' online ' }
           node server/dist/src/cli.js cabinets
@@ -389,7 +403,9 @@ jobs:
       - name: "Milestone 7: a signed upgrade rolls out to a test batch, a tampered package is refused, a failed upgrade restores the old version on its own"
         # One step: the server must keep running while the agent upgrades itself.
         shell: pwsh
-        timeout-minutes: 45
+        # Each rollout waits for the cabinet's next check-in (about 5 minutes). The step took 33 minutes on 2026-11-01 without the
+        # failed-upgrade case, which adds up to 10 minutes for its offer, the 5-minute check-in window and the verification after it.
+        timeout-minutes: 75
         run: |
           $ErrorActionPreference = 'Stop'
           $t = $env:RUNNER_TEMP
@@ -408,9 +424,9 @@ jobs:
             return $out
           }
           function Release($version, $publishDir, [switch] $Unsigned) {
-            ./agent/install/New-AgentRelease.ps1 -PublishDir $publishDir -Version $version -MinimumVersion 0.1.0 -OutDir "$t\release-$version" -DevKeyFile "$t\release-key.pem" -AllowUnsignedForTest:$Unsigned | Out-Null
+            ./agent/install/New-AgentRelease.ps1 -PublishDir $publishDir -Architecture win-x64 -Version $version -MinimumVersion 0.1.0 -OutDir "$t\release-$version" -DevKeyFile "$t\release-key.pem" -AllowUnsignedForTest:$Unsigned | Out-Null
             $r = "$t\release-$version"
-            node server/dist/src/cli.js release add --manifest "$r\manifest.json" --signature "$r\signature.json" --package "$r\agent-$version.zip" --as ci.admin
+            node server/dist/src/cli.js release add --manifest "$r\manifest.json" --signature "$r\signature.json" --package "$r\agent-$version.zip" --architecture windows-x64 --as ci.admin
             if ($LASTEXITCODE -ne 0) { throw "The server refused release $version." }
           }
           $v0 = Build '0.1.0'; $v1 = Build '0.1.1'; $v2 = Build '0.1.2'; $v3 = Build '0.1.3'; $v4 = Build '0.1.4'
@@ -425,11 +441,11 @@ jobs:
           Start-Sleep 5
           $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -SourceDir $v0 -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
-            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -BootstrapToken $token -CabinetRole standalone
+            -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token -CabinetRole standalone
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           if (-not $request) { throw 'No enrollment request arrived.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone --baseline capture
           $cab = $null
           for ($i = 0; $i -lt 60 -and -not $cab; $i++) { Start-Sleep 2; $cab = node server/dist/src/cli.js cabinets | Select-String 'Upgrade runner' | Select-String ' online ' }
           if (-not $cab) { throw 'The cabinet did not come online.' }
@@ -454,7 +470,7 @@ jobs:
 
           Write-Host 'A signed upgrade to 0.1.1 rolls out to the test batch (one cabinet) and checks in.'
           Release '0.1.1' $v1
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.1 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.1 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) $($target.message); rollout $($r.rollout.state)"
@@ -468,10 +484,10 @@ jobs:
 
           Write-Host 'A tampered package: 0.1.2 is genuine on upload, then its stored zip is changed on the server. The cabinet refuses it at the hash check.'
           Release '0.1.2' $v2
-          $stored = (Resolve-Path 'data/releases/agent-0.1.2.zip').Path
+          $stored = (Resolve-Path 'data/releases/agent-0.1.2-windows-x64.zip').Path
           Set-ItemProperty $stored -Name IsReadOnly -Value $false
           $bytes = [IO.File]::ReadAllBytes($stored); $mid = [int]($bytes.Length / 2); $bytes[$mid] = $bytes[$mid] -bxor 0xFF; [IO.File]::WriteAllBytes($stored, $bytes)
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.2 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.2 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) at $($target.check): $($target.message); rollout $($r.rollout.state)"
@@ -481,7 +497,7 @@ jobs:
 
           Write-Host 'A properly signed release (0.1.3) whose package carries one binary not signed by the agent publisher: refused at the Authenticode check.'
           Release '0.1.3' $v3 -Unsigned
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.3 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.3 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) at $($target.check): $($target.message)"
@@ -490,12 +506,16 @@ jobs:
 
           Write-Host 'A failed upgrade: 0.1.4 (genuine) is installed, but the server goes away before it can check in. After 5 minutes the updater restores 0.1.1 on its own.'
           Release '0.1.4' $v4
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.4 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.4 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
           $journal = "$env:ProgramData\Mashura\CabinetAgent\broker\upgrade.json"
-          for ($i = 0; $i -lt 900; $i++) {
-            if ((Test-Path $journal) -and ((Get-Content $journal -Raw | ConvertFrom-Json).version -eq '0.1.4')) { break }
-            Start-Sleep -Milliseconds 200
+          # The agent takes an offer on its next check-in, about every 5 minutes: wait up to 10 for 0.1.4 to start, and say so if it
+          # never does, rather than stopping the server on a cabinet that is not upgrading.
+          $started = $false
+          for ($i = 0; $i -lt 3000 -and -not $started; $i++) {
+            $started = (Test-Path $journal) -and ((Get-Content $journal -Raw | ConvertFrom-Json).version -eq '0.1.4')
+            if (-not $started) { Start-Sleep -Milliseconds 200 }
           }
+          if (-not $started) { Logs; throw 'The cabinet did not start the upgrade to 0.1.4 within 10 minutes.' }
           Stop-Process -Id $server.Id -Force
           Write-Host "  Server stopped at phase $((Get-Content $journal -Raw | ConvertFrom-Json).phase)."
           for ($i = 0; $i -lt 120; $i++) {

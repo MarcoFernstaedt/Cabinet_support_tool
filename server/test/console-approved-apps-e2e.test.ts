@@ -1,7 +1,7 @@
 // Approved programs in a real browser: an Admin adds an application and a service to a client's list, confirms with an authenticator
-// code, and the server stores exactly those programs; the fleet default can approve nothing; a bad path is refused on the page before
-// anything is sent. With a list-signing key set up, a saved list waits until the Admin downloads it, signs it on their own computer
-// and uploads the signature. Runs when the console is built.
+// code, and the server stores exactly those programs; the fleet default can approve nothing; a cabinet's damaged own list can be
+// removed; a bad path is refused on the page before anything is sent. With a list-signing key set up, a saved list waits until the
+// Admin downloads it, signs it on their own computer and uploads the signature. Runs when the console is built.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from "node:crypto";
@@ -16,7 +16,7 @@ import { SecretBox } from "../src/auth/secrets.js";
 import { hashPassword } from "../src/auth/passwords.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
-import { readLevel, readLevelState } from "../src/services/approved-apps.js";
+import { appLevels, readLevel, readLevelState } from "../src/services/approved-apps.js";
 import { ListSigningKeys } from "../src/services/approved-list-signing.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -43,6 +43,12 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
                       VALUES ($1, 'ada.admin', 'Ada Admin', 'admin', $2, 0, 1, $3, 1)`, [randomUUID(), await hashPassword(password), secrets.seal(secret)]);
   const clientId = randomUUID();
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [clientId]);
+  // A replacement cabinet whose own list (taken over from the cabinet it replaced) was later edited by hand and no longer describes
+  // its own entries: it approves nothing, and the site, client and fleet lists do not apply to it while it is there.
+  const [siteId, cabinetId] = [randomUUID(), randomUUID()];
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [siteId, clientId]);
+  await db.app.query(`INSERT INTO cabinets (id, site_id, name, role, status, read_only, approved_apps) VALUES ($1, $2, 'FRONT DESK', 'standalone', 'active', 0, $3)`,
+    [cabinetId, siteId, JSON.stringify({ entries: [], version: 1, hash: "0".repeat(64), setBy: "hand", setAt: new Date().toISOString() })]);
   const code = () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
   const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
@@ -50,7 +56,7 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
   try {
     const page = await (await browser.newContext()).newPage();
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
-    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429)/.test(m.text())) problems.push(m.text()); });
+    page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429|500)/.test(m.text())) problems.push(m.text()); });
     await page.goto(origin);
     await page.getByLabel("Username").fill("ada.admin");
     await page.getByLabel("Password").fill(password);
@@ -101,6 +107,31 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
     await page.getByText("Saved. Cabinets use it from their next heartbeat.").waitFor();
     assert.deepEqual((await readLevel(db.app, "fleet", null))?.entries, []);
+
+    // A cabinet's own list has an editor too: the damaged one is shown as damaged and removed, so the client's list applies again.
+    assert.deepEqual((await appLevels(db.app, cabinetId)).rejected, ["cabinet"]);
+    await page.getByLabel("Set the list for").selectOption("cabinet");
+    await page.getByLabel("Client", { exact: true }).selectOption({ label: "Acme Health" });
+    // The cabinet choice depends on loading the site: when that fails, the page says so beside it and can try again.
+    let failed = 0;
+    await page.route(`**/api/fleet/sites/${siteId}`, route => failed++ === 0
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal" }) }) : route.continue());
+    await page.getByLabel("Site", { exact: true }).selectOption({ label: "North" });
+    const retry = page.getByRole("button", { name: "Try again" });
+    await retry.waitFor();
+    assert.equal(await page.getByRole("alert").count(), 1, "the site's failure is the one alert on the page");
+    assert.equal(await page.getByText(/Choose a client, a site and a cabinet/).count(), 0, "a failed load is not blamed on the Admin's choice");
+    await retry.click();
+    await page.getByLabel("Cabinet", { exact: true }).selectOption({ label: "FRONT DESK" });
+    await page.unroute(`**/api/fleet/sites/${siteId}`);
+    await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor();
+    await page.getByRole("alert").getByText(/stored list is damaged and approves nothing/).waitFor();
+    await page.getByRole("button", { name: "Use the level above" }).click();
+    await page.getByRole("dialog").getByLabel("Authenticator code").fill(code());
+    await page.getByRole("dialog").getByRole("button", { name: "Confirm", exact: true }).click();
+    await page.getByText("Saved. Cabinets use it from their next heartbeat.").waitFor();
+    const levels = await appLevels(db.app, cabinetId);
+    assert.deepEqual([levels.source, levels.rejected, levels.effective?.entries.length], ["client", [], 2]);
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();

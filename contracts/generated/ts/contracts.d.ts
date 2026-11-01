@@ -4883,6 +4883,9 @@ export interface PowerStatusOutput {
   plan: string;
   fastStartup: boolean | null;
   hibernate: boolean | null;
+  /**
+   * USB selective suspend on the active power plan, as Windows keeps it: one value when plugged in and one on battery (null when powercfg does not answer). A cabinet runs plugged in, so pluggedIn is the one that matters; power.set turns both on or off together.
+   */
   usbSelectiveSuspend: {
     pluggedIn: boolean | null;
     onBattery: boolean | null;
