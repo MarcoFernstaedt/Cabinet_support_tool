@@ -17,7 +17,6 @@ import { layerStates, type Finding, type FixAction, type NetworkBaseline, type N
 import type { TraceRun } from "./network-observations.js";
 import { runNetworkModule } from "./network-module.js";
 
-/** How long the whole run may take; a cabinet answers reads in about a second. */
 /**
  * How long a diagnosis waits for its reads (docs/platform/decision-log.md, D11). The wait ends as soon as every read has answered, so a
  * healthy cabinet is no slower for a longer limit; the limit only decides how much of a slow case is kept. Worked out from the agent's

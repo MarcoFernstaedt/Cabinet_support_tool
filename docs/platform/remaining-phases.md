@@ -257,7 +257,7 @@ order they are being fixed.
 - [x] **A network diagnosis against a sync cabinet that answers nothing runs past its one-minute limit.** Fixed (D11): the
   limit is two minutes, and the plan never asks for more than the agent's 10 network tests a minute. Worked out from the
   limits, not measured: a 10-request ping series with no replies takes 20.9 s and four silent port series 41.2 s (44.8 s
-  before D1), before the gateway and DNS tests; reads still running at the minute show as "no answer within a minute".
+  before D1), before the gateway and DNS tests; reads still running at the minute showed as "no answer within a minute" before D11 changed it.
   The options weighed and why two minutes was chosen are in D11.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
