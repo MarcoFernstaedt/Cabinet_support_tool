@@ -11,14 +11,14 @@ import { fileURLToPath } from "node:url";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { startConsole } from "./browser-console.js";
 import { csrFor, ecKey } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
 test("sync cabinets: the site's list, an incomplete satellite assigned, an Admin's address, and the approver's choice", { skip, timeout: 180_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const [client, site, syncA, syncB, sat] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];

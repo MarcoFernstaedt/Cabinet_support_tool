@@ -18,6 +18,7 @@ import { configHash, type Item } from "../src/services/config-canonical.js";
 import { ingestAndEvaluate } from "../src/services/config-service.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -25,7 +26,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("a cabinet that differs from its baseline: health, the difference, the changes, the capture and review of a baseline, the baselines pages and the fleet view", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -55,7 +56,6 @@ test("a cabinet that differs from its baseline: health, the difference, the chan
   await ingestAndEvaluate(db.app, cabinetId, [snap([eth(["10.21.4.10", "10.21.4.11"])], 0)] as never, "agent");
   await ingestAndEvaluate(db.app, cabinetId, [snap([eth(["8.8.8.8"])], 10)] as never, "agent");
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext()).newPage();

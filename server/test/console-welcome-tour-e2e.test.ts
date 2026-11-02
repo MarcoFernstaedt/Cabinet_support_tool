@@ -9,6 +9,7 @@ import type { Page } from "playwright";
 import { AxeBuilder } from "@axe-core/playwright";
 import { DemoSimulator } from "../src/demo/demo.js";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -47,10 +48,9 @@ async function walk(page: Page, expect: { outlined: (title: string) => string | 
 }
 
 test("the welcome tour: first sign-in, role differences, every tab, leaving early, and taking it again", { skip, timeout: 600_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
   const simulator = new DemoSimulator(c.db.app, () => {});
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   const open = async () => {
     const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();

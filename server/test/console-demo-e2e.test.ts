@@ -18,6 +18,7 @@ import { createBootstrapToken, submitEnrollment } from "../src/services/enrollme
 import { siteStandards } from "../src/services/site-standards.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -25,7 +26,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("the guided demo: check the site, fix the firewall with one click and see it clean, the scanner drops, and a network read with no baseline", { skip, timeout: 300_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -44,7 +45,6 @@ test("the guided demo: check the site, fix the firewall with one click and see i
   const simulatorProblems: string[] = [];
   const simulator = new DemoSimulator(db.app, m => simulatorProblems.push(m));
   simulator.start();
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();

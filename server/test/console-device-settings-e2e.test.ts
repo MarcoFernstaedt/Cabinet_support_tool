@@ -16,6 +16,7 @@ import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -23,7 +24,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("device settings in the console: a client's scanner and sync ports set once, inherited by its sites and cabinets, overridden by one site", { skip, timeout: 120_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -42,7 +43,6 @@ test("device settings in the console: a client's scanner and sync ports set once
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Acme Health')", [client]);
   await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
   await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $2, 'ICU cabinet', 'standalone', 'active', SYSUTCDATETIME())", [cabinet, site]);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext()).newPage();

@@ -8,15 +8,15 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 const WIDTHS = [1024, 1280, 1366, 1440, 1920, 2560];
 
 test("desktop widths 1024-2560 px: no sideways page scroll, every top-bar link reachable; below 1024 px a notice", { skip, timeout: 300_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   try {
     const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
     await c.signIn(page);

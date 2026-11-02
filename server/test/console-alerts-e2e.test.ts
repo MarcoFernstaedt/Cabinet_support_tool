@@ -22,6 +22,7 @@ import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import type { Event } from "../src/contracts.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -29,7 +30,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("alerts in the console: map an unrecognized error, approve it, and race to claim the major alert it raises", { skip, timeout: 180_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   const key = await developmentIssuingKey(tempDir());
   let clock = Date.now();
@@ -65,7 +66,6 @@ test("alerts in the console: map an unrecognized error, approve it, and race to 
   const lockError = (): Event => ({ eventId: randomUUID(), kind: "error", occurredAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"), severityHint: "minor",
     source: { log: "System", source: "Biometric Lock Driver", eventId: 4242, level: "error", recordId: ++record }, detail: { message: "Fingerprint sensor timed out." } });
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   const pages = await Promise.all(people.map(async () => (await browser.newContext()).newPage()));
   const [ada, tess, sam] = pages as [typeof pages[0], typeof pages[0], typeof pages[0]];

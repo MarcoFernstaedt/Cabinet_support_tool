@@ -20,6 +20,7 @@ import { appLevels, readLevel, readLevelState } from "../src/services/approved-a
 import { ListSigningKeys } from "../src/services/approved-list-signing.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -27,7 +28,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("an Admin sets a client's approved programs from the console, confirmed with a code", { skip, timeout: 180_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -51,7 +52,6 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     [cabinetId, siteId, JSON.stringify({ entries: [], version: 1, hash: "0".repeat(64), setBy: "hand", setAt: new Date().toISOString() })]);
   const code = () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext()).newPage();
@@ -142,7 +142,7 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
 });
 
 test("with a list-signing key, an Admin downloads the saved list, signs it and uploads the signature to put it in force", { skip, timeout: 180_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -167,7 +167,6 @@ test("with a list-signing key, an Admin downloads the saved list, signs it and u
   const code = () => { clock += 30_000; return totp.code(secret, totp.stepAt(clock)); };
   const work = mkdtempSync(join(tmpdir(), "list-sign-"));
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext({ acceptDownloads: true })).newPage();
