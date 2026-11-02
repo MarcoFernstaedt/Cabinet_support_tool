@@ -1,9 +1,14 @@
 # Phases left, and what each contains
 
-2026-10-25. **The exact answer: 5 phases are left — roadmap phases 2, 3, 4, 5 and 6.** Two of them are part built
-(phases 2 and 3); phases 4, 5 and 6 have little or nothing in them.
+**Reviewed against the code on 2026-11-02** (main at `37cc6c6`, plus PR #135). The previous version of this page was written on
+2026-10-25 and listed as "left" about twenty things that have since been built; every line below was checked against the
+contracts, agent, server and console, and says **built**, **partly built** or **not built**, with where to look.
 
-This is the one place the count lives. The [roadmap](13-roadmap.md) owns the module list and which phase builds each
+**The count: 5 phases are left — roadmap phases 2, 3, 4, 5 and 6.** None is complete. Phases 2 and 3 are mostly built;
+phases 4 and 5 are partly built; phase 6 is mostly not built. Separately, **6 gates outside the code** block a real clinic
+whatever the phases say (the last section before the fixes list).
+
+This is the one place the count lives. The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each
 module; the [diagnostic engine audit](diagnostic-engine-audit.md) and its
 [execution plan](diagnostic-engine-execution.md) decompose the same work a second way, and that second numbering is **not**
 extra phases — the mapping is at the bottom of this page so nothing is counted twice.
@@ -12,118 +17,158 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 
 - **Milestone phases 0 to 12** of the build spec, including the demo (roadmap phase 1), the console, enrollment,
   signed upgrades, the alerting engine, the troubleshooting workflow, baselines, trends and triage.
+- **The catalog: 52 operations, 34 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
 - **Both Windows builds** of the same agent code (`windows-x64`, `windows-x86`), with the cross-architecture refusal
   proven live.
-- **A live platform** (VPS, SQL Server 2022) serving both archives, and **a real cabinet test**: the agent installed
-  read-only on a real Windows machine, self-updated to 0.2.5, and answered 19 of the 34 read operations before it was
-  removed and its cabinet revoked. No write has ever run on real hardware.
+- **A live platform** (VPS, SQL Server 2022) serving both archives.
+- **Real hardware.** First test: an earlier agent installed read-only, self-updated to 0.2.5, answered 19 of the then 34
+  reads. Second test (2026-10-30): **agent 0.3.1 on a real 64-bit Windows 11 machine, 34 of 34 reads and the reversible
+  writes worked**; its fixes are listed below. The writes not yet run on hardware are listed there too.
 - **The troubleshooting tool** (roadmap module 10's first half): one-click diagnosis with ranked findings, severity,
-  certainty, evidence, a suggested fix, a runbook and a fix button where a safe operation exists.
+  certainty, evidence, a suggested fix, a runbook, known fixes and a fix button where a safe operation exists.
+- **Since the last version of this page:** replacing a cabinet with re-apply (8d), site policies at approval (8c), client
+  scanner switch (8b), sync cabinets per cabinet (8a), the diagnostic engine foundation parts 1 to 5a, the audit-chain race
+  fix (#135, migration 0019).
 
-## Phase 2 — blue screens, storage, drivers, incidents (part built)
+## Phase 2 — blue screens, storage, drivers, incidents (mostly built)
 
-Built already: the change watcher (`change` events), boots and reboot loops, stop codes, the crash and restart views, and
-the fleet incident view that compares crashed with uncrashed cabinets.
+**Built:**
+- Boots and reboot loops from heartbeats and events, stop codes, crash events (`server/src/services/crashes.ts`).
+- The crash view per cabinet with a timeline of what changed before it (updates, drivers, services, software, storage
+  errors), and the fleet **Incidents** page comparing crashed with uncrashed cabinets (`console/src/pages/Crashes.tsx`,
+  `fleetCrashIncident`).
+- Event watching on the agent for bug checks, Kernel-Power, WHEA, disk, NTFS and storage-controller resets
+  (`agent/.../Monitoring/EventLogWatch.cs`).
+- Drive health: daily SMART in the heartbeat, history, levels ok / watch / act / urgent, disk-full forecast, alerts, the
+  fleet "drives at risk" view (`server/src/services/drives.ts`, `trends.ts`).
+- One history per cabinet (`cabinet-timeline.ts`) and health with the last known healthy state (`cabinet-health.ts`).
+- Evidence packages: hashed per section and whole, audited (`evidence.ts`).
+- **Engine foundation parts 1 to 5a:** module contract, incident record (migration 0017), capability registry, today's
+  cabinet checks and the network diagnosis as modules, incidents shown on the cabinet's History tab.
 
-Left in this phase:
+**Partly built:**
+- Storage risk classes: drives have levels, but the spec's named classes (Healthy, Attention, High risk, Critical, Unknown)
+  from configurable rules are not built.
+- Power-loss classification: "restarted without shutting down cleanly" (Kernel-Power 41) is recognised; telling a bug check
+  from power loss from forced off is not.
+- Evidence preservation: hashed bundles built; resumable uploads not.
 
-- **Agent operations:** `crash.list` (bug checks, dump inventory, minidump metadata parsed on the cabinet: stop code,
-  parameters, faulting module and version), `boot.history` (boots, shutdowns, uptime before each), `storage.health`
-  (SMART, the NVMe health log, volume state).
-- **Agent monitors:** new dumps, short uptimes, repeated boots.
-- **Server:** crash signatures (stop code plus faulting module) grouped across the fleet; storage risk classes
-  (Healthy, Attention, High risk, Critical, Unknown) from configurable rules; power-loss classification (bug check,
-  power loss, forced off, unknown).
-- **Console:** one crash investigation page per cabinet with a timeline of updates, driver changes, storage errors and
-  crashes; the fleet incident page comparing affected and unaffected cabinets by model, build, driver and update.
-- **Drivers and services half of the diagnostic engine** (engine phase 2): Plug and Play change events, device history,
-  functional verification of a device, driver and service work.
-- **Also in this phase:** fleet incident correlation, one timeline per cabinet with a daily health snapshot, incident
-  response mode, and evidence preservation (hashed bundles with their source, resumable uploads).
-- **The foundation of the diagnostic engine is the first slice of this phase** — see the mapping below. Until it exists,
-  the modules above have nowhere to record a symptom, a hypothesis and a verified repair.
+**Not built:**
+- Agent operations `crash.list` (dump inventory, minidump parsed on the cabinet), `boot.history`, `storage.health` (the NVMe
+  health log, volume state).
+- Agent monitors for new dumps and short uptimes (repeated boots are caught on the server, not the agent).
+- Crash signatures (stop code plus faulting module) grouped across the fleet: needs `crash.list`.
+- Incident response mode.
+- **Engine foundation part 5b:** the incident record on the triage view and the crash incident page. **Nothing in the product
+  creates an incident yet** (`openIncident` is called only by tests).
+- **The drivers and services half of the engine** (engine phase 2).
 
-## Phase 3 — network, services, boot, updates, fleet operations (part built)
+## Phase 3 — network, services, boot, updates, fleet operations (mostly built)
 
-Built already: adapters, IP, DNS, gateway, ping, the DNS and TCP tests, firewall profiles and rules, client firewall
-policy and bulk apply, and the drift alert.
+**Built:**
+- Network: adapters with error and discard counters, routes, ARP neighbours, network profile, proxy, Wi-Fi, IP, DNS per
+  server, gateway, ping series with loss and jitter, TCP tests, traceroute (`network.trace`), listening ports and connections
+  (`network.listeners`), firewall profiles and rules, client and site firewall policy with bulk apply and drift alert, site
+  network baselines, and the automatic network diagnosis with findings and one-click fixes.
+- Services and processes: list, control, watched services with auto-restart and an alert after 3 failures, `process.end` and
+  restart aimed only at the per-client approved-applications list (`app-control.ts`, `controlled-targets.ts`), startup
+  programs and scheduled tasks with last result, CPU, memory, commit and page activity, volumes.
+- Hardware and security: BIOS, Secure Boot, TPM, last boot, USB power settings (`power.status`, `power.set`).
+- Updates: installed updates, uninstall, pending reboot, and "who has KB X" through the fleet reading search.
+- Fleet operations and time: the fleet operations page, jobs with a fixed target list, batches, per-cabinet results,
+  verification and cancellation, sync cabinets last (`fleet-jobs.ts`); time zones per site, client and fleet; clock sync;
+  wrong-zone and clock-skew alerts (`time.ts`); a whole site going quiet together raises a site alert (`site-outage.ts`).
+- Safe remediation: restart, time zone, DHCP renew and release, DNS flush and set, static IP, firewall, health check
+  (DISM `/CheckHealth`).
 
-Left in this phase:
+**Partly built:**
+- WHEA: events are watched and shown; their detail is not parsed.
+- Volume health: free space and NTFS errors; no volume state read.
+- Required ports: sync ports per client and site; no per-vendor endpoint list.
 
-- **Network diagnostics:** routes, ARP, connections, adapter statistics, network profile, proxy, per-server DNS,
-  traceroute, and **the SQL connectivity ladder** (DNS, TCP, TLS, login-free TDS pre-login) that proves a server answers;
-  the automatic diagnosis that turns those into findings.
-- **Services, processes and devices:** dependencies, process signer and parent, application-crash correlation (WER),
-  scheduled-task health, startup apps, `process.end` and `app.restart` behind a per-client allowlist; the NVMe health
-  log, volume health, CPU/memory/page file, WHEA detail, USB power settings, BIOS, Secure Boot and TPM, and the files
-  installed by each driver.
-- **Boot and recovery:** read-only boot configuration, WinRE status, pending reboot, boot-critical services.
-- **Windows Update:** install security and quality updates, pending reboot, fleet compliance, "who has KB X".
-- **Cabinet-specific:** profiles for the three scanner types, vendor middleware services, required ports and endpoints.
-- **Fleet operations and time:** the fleet operations page (select by client, site or hand-picked cabinets; preview;
-  jobs with per-cabinet results), per-site time zones and clock sync, execution control (fixed target list, concurrency,
-  staggering, cancellation), primary-cabinet protection, site topology ("all cabinets at a site went quiet together"),
-  pre-maintenance preflight for each disruptive operation.
-- **Safe remediation beyond what exists:** restart, updates, time zone and allowlisted registry values, each typed,
-  role-checked and verified.
-- **The network and application half of the engine** (engine phase 3) and **the sustained connection check**: path-health
-  interpretation is written and tested but nothing feeds it samples — no table, no ingest, no sampler, no page.
+**Not built:**
+- **The SQL connectivity ladder** (DNS, TCP, TLS, login-free TDS pre-login): the engine's planned first module.
+- Process signer and parent; service dependencies; application-crash correlation (Application Error and hang events are
+  not mapped); the files installed by each driver.
+- Boot and recovery: boot configuration, WinRE status, boot-critical services.
+- Installing updates, and update compliance across the fleet.
+- Profiles for the three scanner types and their vendor middleware services.
+- Pre-maintenance preflight for each disruptive operation.
+- Allowlisted registry values as a typed write.
+- **The sustained connection check:** the path-health analysis and correlation are written and tested
+  (`pathhealth-*.ts`), but there is no table, no ingest, no sampler on the agent and no page.
+- **The network and application half of the engine** (engine phase 3).
 
-## Phase 4 — the support call and controlled remediation
+## Phase 4 — the support call and controlled remediation (partly built)
 
-- **Symptom playbooks** (module 10's second half): read-only checks first, findings with how sure they are, the fix
-  offered, verification, case notes.
-- **Reports and case notes** (module 16): a diagnosis report and Issue/Findings/Actions/Pending/Next steps, copied into
-  Salesforce, with no patient data.
-- **Support call mode** (module 43): choose a symptom, run its playbook, apply the fix, get the notes.
-- **Before and after snapshots** (module 29) generalised to every fix, with a comparison.
-- **Change tracking** (module 36): one timeline of updates, drivers, software, services and network changes.
-- **Site readiness** (module 38) and **preventive maintenance** (module 44): a per-site checklist with no "unknown counts
-  as ready", and the daily and weekly exception reports.
-- **The controlled-remediation half of the engine** (engine phase 4): the remediation registry, per-incident approvals,
-  what a repair is allowed to touch, and functional verification.
+**Built:**
+- Runbooks for issue types and diagnosis findings, with optional read-only checks and one-click fixes, Tier 2 proposes and an
+  Admin approves (`runbooks.ts`); known fixes saved with their environment (`known-fixes.ts`).
+- Case notes, append-only, with Admin redaction (`case-notes.ts`); resolving an alert records cause and fix.
+- Change tracking: the cabinet's history and the "what changed" timeline before a crash.
+- A person's own activity (changes made, checks run, alerts resolved, fixes saved) written as case notes to paste into a
+  ticket (`activity-report.ts`).
 
-## Phase 5 — configuration, software and the agent's own health
+**Not built:**
+- Symptom playbooks and support call mode (choose a symptom, run its playbook, apply the fix, get the notes).
+- The case report in Issue / Findings / Actions / Pending / Next steps form (the activity report above is the part built).
+- Before and after snapshots for every fix (the writes that report a change return the before and after of what they
+  changed, and only a firewall write keeps it as history and takes a snapshot first).
+- Site readiness checklist; preventive-maintenance daily and weekly exception reports.
+- **The controlled-remediation half of the engine** (engine phase 4): the incident record has the approval states, but no
+  repair goes through it.
 
-- **Configuration drift** (module 8) and **configuration backup** (module 28): versioned baselines per client and model,
-  snapshots of approved settings, comparison, restoring chosen items.
-- **Registry** (module 22) and **environment variables** (module 23): allowlisted keys read and compared; allowlisted
-  values written with a backup and verification.
-- **File deployment** (module 24), **software lifecycle** (module 25), **dependency mapping** (module 30).
-- **Agent and server** (module 14): agent health in the console; **agent self-recovery** (module 26): agent health and
-  crash history, and a recovery task that can only restart the agent.
-- **Peripheral reliability** (module 34): scanner reconnect history and comparison across cabinets.
-- **Alerting** (module 15): maintenance windows, repeated-restart and USB disconnect alerts.
-- **The extended half of the engine** (engine phase 5): storage, performance baselines, integrity scans (DISM and SFC)
-  and security.
+## Phase 5 — configuration, software and the agent's own health (partly built)
 
-## Phase 6 — advanced diagnostics and fleet intelligence
+**Built:**
+- Configuration drift and backup: snapshots, versioned baselines per scope (global, model, client, site, cabinet), drift, health, last
+  known healthy, and re-applying settings on a replacement cabinet (`baselines.ts`, `baseline-drift.ts`,
+  `replacement-reapply.ts`).
+- Software inventory and approved package install from the signed software library (the only way files reach a cabinet).
+- Peripheral reliability: the scanner's disconnects and what changed before them (`scanner-history.ts`), USB rules for
+  absent, reconnecting and dependent devices (`usb-rules.ts`).
+- Alerting: repeated service restarts, USB disconnects, suppressions.
+- Agent self-check after an upgrade, with a security alert when it fails.
 
-- **Advanced diagnostics** (module 17): Defender, BitLocker, certificates, time, power plans, DNS cache and profile
-  changes; ETW only on demand.
-- **Performance analysis** (module 32): counters for CPU, memory, paging, disk latency and network, with bottleneck
-  findings that carry their measurements.
-- **Windows installation health** (module 33): read-only servicing state, and DISM and SFC as Tier 2 operations.
-- **Packet capture** (module 31): Admin-started, 60 seconds at most, filtered, size-capped, deleted at retention.
-- **Out-of-band** (module 27): detect AMT or vPro only.
-- **The intelligence half of the engine** (engine phase 6): failure rates per driver, update and hardware model;
-  recurrence per component; cross-signal correlation; health scoring; the unified timeline; an optional plain-language
-  explanation.
-- **UI, accessibility, tests and the feature matrix** (modules 18, 19, 20, 46, 47) are added inside every phase above,
-  not after them.
+**Not built:**
+- Restoring chosen configuration items on any cabinet (only replacement re-apply exists).
+- Registry and environment-variable reads and writes.
+- Software lifecycle and dependency mapping.
+- Agent health and crash history in the console; agent self-recovery.
+- Maintenance windows.
+- **The extended half of the engine** (engine phase 5): performance baselines, integrity scans beyond `/CheckHealth`.
+
+## Phase 6 — advanced diagnostics and fleet intelligence (mostly not built)
+
+**Built:**
+- Defender, BitLocker, certificates, activation, power plans, DNS cache, time (`system.security`, `power.status`,
+  `dns.cache`, `time.status`).
+- Performance samples in the heartbeat with trends; CPU, memory and disk counters on request (`system.performance`).
+- Error trends per issue type and per error, marked new or rising (`error-trends.ts`); the triage queue.
+
+**Not built:**
+- Bottleneck findings from the performance counters; network counters.
+- DISM and SFC repair as Tier 2 operations (only `/CheckHealth` exists).
+- Packet capture; AMT or vPro detection; ETW on demand.
+- **The intelligence half of the engine** (engine phase 6): failure rates per driver, update and model; recurrence;
+  cross-signal correlation; health scoring; an optional plain-language explanation.
+- UI, accessibility, tests and the feature matrix (modules 18, 19, 20, 46, 47) are added inside every phase, not after.
 
 ## Not phases: what has to happen outside the code
 
-These are gates, not phases, and they block a real clinic, not the build:
+These are gates, not phases, and they block a real clinic, not the build. All six were re-checked on 2026-11-02 and still
+stand:
 
 1. **Release-signing certificates (KMS)** — releases are still signed with the development key, so the installer needs
-   `-AllowUnsigned`.
-2. **TPM-held agent keys.**
+   `-AllowUnsigned` (`docs/platform/readiness.md`).
+2. **TPM-held agent keys** — the agent's key is in the software key store (`MicrosoftSoftwareKeyStorageProvider`,
+   `agent/src/Cabinet.Agent.Windows/ServerConnection.cs`).
 3. **An independent penetration test.**
-4. **A writable test on real cabinet hardware** — the read path is proven on a real machine; no write has ever run on
-   real hardware.
-5. **A real 32-bit cabinet** (control-half session 9) — the x86 build and its refusal are proven, but the install on a
-   32-bit machine waits for a machine on the cabinets' own network.
+4. **The remaining writes on real hardware** — reads and the reversible writes ran on 2026-10-30; static IP, lease release,
+   restart and shutdown, update and driver uninstall, package install, `firewall.restore`, and service and process control
+   have not (see the fixes list).
+5. **A real 32-bit cabinet** — the x86 build and its refusal are proven, but the install on a 32-bit machine waits for a
+   machine on the cabinets' own network.
 6. **The cabinets' network** — most of phase 3 only matters against real cabinets, so reachability has to be settled to
    prove it.
 
