@@ -182,7 +182,8 @@ input checks, so refused input opens none.
   POST /diagnose, then the same error on each sign-in. Why the clock skew made it appear in that file has **not been
   established**; the race does not need it.
 - `test/audit-concurrency.test.ts` reproduces the race without any skew: rounds of 30 appends at once, single and batched,
-  straight on the pool. **Measured** here (Linux container, SQL Server 2022 CU27 in Docker, 4 cores): before the fix,
+  straight on the pool. **Measured** here (Linux host on 2 cores, `nproc` and the container's `cpu_count` agreeing;
+  SQL Server 2022 CU27 in Docker): before the fix,
   231, 232 and 239 of 300 calls failed in three runs; after it, 3 of 3 runs passed with every append in place, sequence
   numbers 1 to N with no gaps, the head at the last entry, and the chain verifying.
 
@@ -206,8 +207,9 @@ input checks, so refused input opens none.
 - `audit-concurrency.test.ts`: two tests. The concurrency test above, and one that checks an append inside a caller's
   transaction still commits or rolls back with that transaction, and that refused input changes nothing.
 - The existing database, audit and migration tests: 24 of 24 passed.
-- Full server suite with the migration: 845 of 845 passed, 1,187 s at `--test-concurrency=2` (**measured**, Linux container,
-  2026-11-02).
+- Full server suite with the migration: 845 tests, 807 passed, 38 skipped, 0 failed, 604 s at `--test-concurrency=2`
+  (**measured**, Linux host, 2 cores, 2026-11-02). The skips are unmet prerequisites, not failures: 23 need a built console,
+  10 need `TEST_AGENT_DLL`, 5 need `pwsh`.
 - `troubleshooting.test.ts` with the 60 s skew: 10 of 10 in two runs after the fix. That alone proves little, because the
   skew reproduced the burst only once in three runs before; the concurrency test is the proof.
 
