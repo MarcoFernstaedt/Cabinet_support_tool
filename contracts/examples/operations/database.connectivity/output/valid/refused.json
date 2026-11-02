@@ -1,0 +1,1 @@
+{"port": 1433, "address": "10.21.9.20", "result": "refused", "tcp": {"connected": false, "ms": null}, "prelogin": null, "tls": null, "error": "TCP port 1433 refused the connection."}

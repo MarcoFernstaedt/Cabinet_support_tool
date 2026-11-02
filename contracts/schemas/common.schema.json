@@ -241,6 +241,7 @@
         "network.config",
         "network.test",
         "network.trace",
+        "database.connectivity",
         "system.performance",
         "network.listeners",
         "firewall.state",

@@ -30,6 +30,7 @@ public static class Catalog
     public const string NetworkConfig = "network.config";
     public const string NetworkTest = "network.test";
     public const string NetworkTrace = "network.trace";
+    public const string DatabaseConnectivity = "database.connectivity";
     public const string FirewallState = "firewall.state";
     public const string NetworkSetIp = "network.setIp";
     public const string NetworkSetDns = "network.setDns";
@@ -91,6 +92,7 @@ public static class Catalog
         Read<EmptyParams, NetworkConfigOutput>(NetworkConfig),
         Read<NetworkTestParams, NetworkTestOutput>(NetworkTest, RateClass.NetworkTest),
         Read<NetworkTraceParams, NetworkTraceOutput>(NetworkTrace, RateClass.NetworkTrace),
+        Read<DatabaseConnectivityParams, DatabaseConnectivityOutput>(DatabaseConnectivity, RateClass.NetworkTest),
         Read<EmptyParams, FirewallStateOutput>(FirewallState),
         Read<EmptyParams, SystemPerformanceOutput>(SystemPerformance),
         Read<EmptyParams, NetworkListenersOutput>(NetworkListeners),

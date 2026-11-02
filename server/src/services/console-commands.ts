@@ -58,12 +58,12 @@ export async function issueFromConsole(pool: Pool, user: { userId: string; role:
     const ids = await scannerIdsFor(pool, cabinetId);
     if (ids) filled.hardwareIds = ids;
   }
-  if (operation === "network.test") {
+  if (operation === "network.test" || operation === "database.connectivity") {
     // Only the console's settings may name the sync cabinet (the site's address; the site's, else the client's, else the fleet's ports);
-    // anything the browser sent is replaced.
+    // anything the browser sent is replaced. The database check always aims at the sync cabinet.
     delete filled.syncAddress;
     delete filled.syncPorts;
-    if (filled.target === "sync_cabinet") {
+    if (operation === "database.connectivity" || filled.target === "sync_cabinet") {
       const s = await syncForCabinet(pool, cabinetId);
       if (s?.address) filled.syncAddress = s.address;
       if (s && s.effective.length > 0) filled.syncPorts = s.effective;

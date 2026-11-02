@@ -1,0 +1,1 @@
+{"port": 8080, "address": "10.21.9.20", "result": "not_sql_server", "tcp": {"connected": true, "ms": 2.0}, "prelogin": {"answered": false, "ms": null, "serverVersion": null, "encryption": null}, "tls": null, "error": "Port 8080 answered, but not as SQL Server."}
