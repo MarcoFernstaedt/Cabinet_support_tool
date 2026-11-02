@@ -6,6 +6,56 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D11. A diagnosis waits up to two minutes and never plans more than ten network tests (2026-11-02)
+
+**Decision.**
+- The time a network or cabinet diagnosis waits for its reads goes from 60 s to 120 s (`RUN_LIMIT_MS`,
+  `server/src/diagnose/network.ts`). Reads still unanswered at the limit are reported as "no answer within 2 minutes".
+- The planned network tests never exceed the agent's limit of 10 a minute. When a cabinet has four DNS servers and four
+  sync ports (11 tests), the fourth DNS server is the one left out.
+- The console waits up to two minutes for an earlier check to finish, and the cabinet page says the diagnosis "usually takes
+  under a minute, and up to two when something does not answer".
+
+**Why the longer limit.**
+- The wait already ends as soon as every read has answered (`waitFor`), so a healthy cabinet takes exactly as long as before.
+  The limit only decides how much of a slow case is kept.
+- The slow case is the one the diagnosis exists for: a sync cabinet that answers nothing. Worked out from the agent's limits
+  (not measured), that costs:
+  - about 21 s for the 10-request ping series;
+  - 41 s for the four port series, each stopping after two silent tries (D1);
+  - about 12 s for the trace towards it (four silent hops, three 1 s probes each);
+  - plus the other reads.
+
+  That is past one minute, so the port tests and the trace, the evidence that says where the path breaks, came back as "no
+  answer within a minute". Two minutes covers it.
+- Possibly related: the `troubleshooting.test.ts` failure at `e429b81` ran 62 s and lacked a finding. Not shown to be this.
+
+**Why the cap on network tests.** The agent spec allows 10 network tests a minute and the agent refuses the 11th
+(`RateLimiter.cs`). The plan could reach 11, so on such a cabinet one test was always refused. The spec sets the limit, so the
+server stays inside it rather than the agent raising it. DNS servers are dropped first: Windows asks them in order, so a
+fourth is asked only after three have failed, while each sync port is a service the sync application needs.
+
+**Alternatives.**
+- **Fewer tries once the sync ping gets no reply.** Rejected: all reads are issued together, so the server would have to wait
+  for the ping first, which adds time in every case. ICMP silence also does not mean the ports are closed
+  (`pathhealth-correlation.ts`), so the ports still need testing.
+- **A limit worked out per plan.** Rejected: a fixed limit is easier to reason about and to show to people, and the early end
+  already makes the normal case fast.
+- **Raising the agent's limit.** Rejected: it is set by the spec and protects cabinets from being flooded.
+
+**Cost.**
+- In the slow case the person waits up to a minute longer, and sees every reading instead of "no answer".
+- A cabinet with four DNS servers and four sync ports does not have its fourth DNS server tested.
+- Two diagnoses on one cabinet within a minute still meet the agent's limit. The second's tests are refused, and the
+  findings say so. Not changed here.
+
+**Proof.**
+- `network-module.test.ts`: every combination of 1 to 4 DNS servers and 0 to 5 ports stays within 10 tests, keeps every
+  port up to four, and keeps the first DNS servers. With the cap removed, that test fails.
+- The two-minute limit itself is not exercised by a test: that would need an agent that answers slowly for over a minute.
+
+---
+
 ## D10. Audit appends run in their own transaction (2026-11-02)
 
 **Decision.** Migration `0019_audit_append_atomic.sql` changes `audit_append` and `audit_append_many` so each runs in its own

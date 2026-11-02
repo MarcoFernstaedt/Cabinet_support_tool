@@ -16,7 +16,7 @@ import { fixesForFindings, type KnownFixView } from "../services/known-fixes.js"
 import { effectiveRunbook, runbookSummaries } from "../services/runbooks.js";
 import { issueResolutions } from "../services/resolutions.js";
 import { listNotes } from "../services/case-notes.js";
-import { beginDiagnosis, RUN_LIMIT_MS, waitFor, type Outcome } from "./network.js";
+import { beginDiagnosis, NO_ANSWER, RUN_LIMIT_MS, waitFor, type Outcome } from "./network.js";
 import { cabinetFindings, clean, type BundleFinding, type CabinetEvidence, type Read } from "./cabinet-findings.js";
 import type { Finding as NetworkFinding } from "./network-findings.js";
 
@@ -84,7 +84,7 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   const read = <T,>(key: string): Read<T> | undefined => {
     const c = issued.find(i => i.key === key);
     if (!c) return undefined;
-    const o: Outcome = results.get(c.commandId) ?? { status: "no_answer", failure: "no answer within a minute" };
+    const o: Outcome = results.get(c.commandId) ?? { status: "no_answer", failure: NO_ANSWER };
     return o.status === "succeeded" && o.output !== undefined ? { ok: true, output: o.output as T } : { ok: false, failure: o.failure ?? o.status };
   };
   // The network part gets what is left of its own minute; its findings are carried over, not re-derived here.
