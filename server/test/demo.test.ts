@@ -419,6 +419,33 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
   }
 });
 
+test("the sync database check on a demo cabinet answers through the same path as a real agent, agrees with the TCP test, and only names SQL Server on 1433", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const surgery = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Surgery' AND demo_scenario IS NOT NULL")).rows[0]!.id;
+    const run = async (operation: string, params: Record<string, unknown>) => {
+      const issued = await call("POST", `/api/cabinets/${surgery}/commands`, { operation, params }, t1);
+      assert.equal(issued.status, 202, JSON.stringify(issued.body));
+      let r: any;
+      // "succeeded" means the server's result path accepted the output, and it checks every output against the operation's contract.
+      await until(`${operation} to answer`, async () => ["succeeded", "failed", "rejected"].includes((r = (await call("GET", `/api/commands/${issued.body.commandId}`, undefined, t1)).body).status), 20_000);
+      assert.equal(r.status, "succeeded", JSON.stringify(r));
+      return r.result.output;
+    };
+    const tcp = await run("network.test", { target: "sync_cabinet", method: "tcp", port: 1433 });
+    const sql = await run("database.connectivity", { port: 1433 });
+    assert.equal(sql.result === "sql_server", tcp.success, `the two checks of port 1433 agree: ${JSON.stringify({ tcp: tcp.success, sql: sql.result })}`);
+    if (sql.result === "sql_server") {
+      assert.equal(sql.prelogin.serverVersion, "16.0.4305");
+      assert.ok(sql.tls.certificate.selfSigned);
+      assert.equal((await run("database.connectivity", { port: 8080 })).result, "not_sql_server", "another port answers, but not as SQL Server");
+    }
+    assert.equal(sql.address, tcp.resolvedTarget, "both aim at the sync cabinet the console has set");
+  } finally { sim.stop(); }
+});
+
 test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
   const t1 = await signIn(await account("tier1"));
   // Cabinets that never answer keep their diagnoses running.

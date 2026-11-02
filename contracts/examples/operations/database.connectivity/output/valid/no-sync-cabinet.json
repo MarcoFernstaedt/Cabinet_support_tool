@@ -1,0 +1,1 @@
+{"port": 1433, "address": null, "result": "no_sync_cabinet", "tcp": {"connected": false, "ms": null}, "prelogin": null, "tls": null, "error": "This cabinet has no sync cabinet address to check."}

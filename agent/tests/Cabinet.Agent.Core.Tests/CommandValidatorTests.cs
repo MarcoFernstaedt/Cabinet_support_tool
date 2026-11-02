@@ -148,6 +148,13 @@ public sealed class CommandValidatorTests
         new object[] { "network.trace", """{"target":"gateway","host":"10.0.0.1"}""" },
         new object[] { "network.trace", """{"target":"dns_server"}""" },
         new object[] { "network.trace", """{"target":"gateway","syncAddress":"10.0.0.5"}""" },
+        new object[] { "database.connectivity", """{"port":1433,"host":"db.example.org"}""" },
+        new object[] { "database.connectivity", """{"port":1433,"user":"sa","password":"hunter2"}""" },
+        new object[] { "database.connectivity", """{"port":1433,"database":"cabinet_app"}""" },
+        new object[] { "database.connectivity", """{"port":1433,"query":"SELECT 1"}""" },
+        new object[] { "database.connectivity", """{"port":0}""" },
+        new object[] { "database.connectivity", """{}""" },
+        new object[] { "database.connectivity", """{"port":1433,"syncAddress":"sql.example.org"}""" },
     };
 
     [Theory]
@@ -168,6 +175,17 @@ public sealed class CommandValidatorTests
         var p = new JsonObject { ["target"] = "sync_cabinet", ["method"] = "tcp", ["port"] = 445 };
         Assert.Equal("invalid_params", Run(Command("network.test", p)));
         Assert.Null(Run(Command("network.test", (JsonObject)p.DeepClone()), Validator(Config(ports: new[] { 445 }))));
+    }
+
+    [Fact]
+    public void Step5_the_database_check_only_goes_to_allowed_ports()
+    {
+        var p = new JsonObject { ["port"] = 1433 };
+        Assert.Equal("invalid_params", Run(Command("database.connectivity", p)));
+        Assert.Null(Run(Command("database.connectivity", (JsonObject)p.DeepClone()), Validator(Config(ports: new[] { 1433 }))));
+        // The site's sync ports, filled in by the server, allow it too, and only for those ports.
+        Assert.Null(Run(Command("database.connectivity", new JsonObject { ["port"] = 1433, ["syncPorts"] = new JsonArray(1433) })));
+        Assert.Equal("invalid_params", Run(Command("database.connectivity", new JsonObject { ["port"] = 1434, ["syncPorts"] = new JsonArray(1433) })));
     }
 
     [Theory]

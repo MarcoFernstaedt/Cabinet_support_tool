@@ -6,6 +6,80 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D13. The SQL connectivity check: how it is built (2026-11-02)
+
+The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed
+(`diagnostic-engine-execution.md`, decision 7). These are the choices made while building it.
+
+**1. It runs in the network service, not the broker.** The plan says "implemented in the agent's broker". CLAUDE.md says the
+broker never opens a network connection, and that rule does not bend. The check needs no rights, so the unprivileged network
+service answers it, beside `network.test`. **This differs from the plan, for that reason.**
+
+**2. The target is the sync cabinet only, on an allowed port.** The plan says "a target an Admin configured". The sync cabinet's
+address and its ports are already set by Admins (per cabinet, site, client or fleet), and the agent already enforces them for
+TCP tests:
+- the address must be private and on the cabinet's own network;
+- the port must be in the local allowed list or the site's sync ports.
+
+Reusing that adds no new setting and no new way to aim the agent. **Rejected:** a separate "database target" setting, which
+would be one more thing to configure and a second path to the same server.
+
+**3. The steps are TCP, pre-login, then TLS inside TDS.**
+- The pre-login offers "encryption off", so the answer says whether the server *requires* encryption.
+- When the server supports encryption, the TLS handshake runs inside TDS packets, as SQL Server expects, so the certificate it
+  presents can be read.
+- The certificate is judged by the system's own checks: a certificate the system trusts completes the handshake, and anything
+  else stops it, after the certificate has been recorded. Nothing is ever sent over the session.
+- **There is no DNS step.** The target is an IP address set in the console, so there is nothing to resolve.
+- **Not covered:** TDS 8 "strict" servers, which expect TLS before the pre-login. They would read as "not SQL Server" until
+  that case is added.
+
+**4. It counts against the 10 network tests a minute** (`rateClass: network_test`). It is a network probe like the others,
+so the agent's limit on probing a client's network covers it.
+
+**5. A hostile server is expected.**
+- Every TDS packet is capped at 4,096 bytes and every pre-login option's offset and length are checked against the packet.
+  Anything malformed is "not SQL Server", never a guess.
+- The TLS handshake stops after 64 KB.
+- Each step has the 5 s limit of a network test.
+
+**Cost.**
+- It opens a connection to the sync cabinet's SQL Server, which logs a pre-login with no login after it. A server that alerts
+  on that would see one per check.
+- The certificate check uses no revocation lookup (the cabinets' network has no route to revocation servers).
+
+**Proof (Linux container).**
+- `SqlConnectivityTests` (20 tests), against servers made in the test:
+  - a SQL-like server with real TLS inside TDS;
+  - one with no encryption support;
+  - a closed port;
+  - an HTTP server;
+  - a silent listener, given up on at 5 s;
+  - wrong packet types;
+  - a junk handshake;
+  - the size cap;
+  - 8 malformed pre-login answers;
+  - a cabinet with no sync cabinet.
+- Every output was checked against the contract.
+- Removing the size cap fails a test; removing the pre-login bounds check fails three.
+- **Against the real SQL Server 2022 (16.0.4305) in Docker:** answered as SQL Server, encryption "off", and its self-signed
+  certificate read, with "does not name this address" and "not trusted".
+- The validator refuses a port that is not allowed and every hostile parameter tried (a host name, a user and password, a
+  database name, a query). The server replaces any address or ports the browser sends; with that removed, its test fails.
+- Agent Core: 819 of 819. Full server suite: 849 of 849, 1,257 s at `--test-concurrency=2`.
+- **Demo and console.**
+  - The demo's sync cabinets answer as a default SQL Server install, through the same result path as a real agent. That
+    path rejects any output that does not match the contract.
+  - `demo.test.ts` checks that the database check agrees with the TCP test of the same port.
+  - `console-actions-e2e` clicks "Check the sync database" on a healthy satellite and reads the version and certificate, and
+    on a blocked one reads "No answer".
+- **One difference.** On a *sync* cabinet the server fills in no address. A real agent then checks the sync address in its
+  own configuration, or reports "no sync cabinet" when there is none. The demo checks the sync cabinet's own address, as its
+  TCP test already does.
+- **Not run:** on Windows, and against a real sync server on a real cabinet network.
+
+---
+
 ## D12. Console e2e tests launch the browser first, through one helper with a 30-second limit (2026-11-02)
 
 **Decision.** All 25 console e2e test files start Chromium through `server/test/browser-launch.ts`, as the first thing in

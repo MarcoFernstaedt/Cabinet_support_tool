@@ -264,6 +264,15 @@ test("the server refuses a public sync address, and fills the sync target and sc
   assert.equal(sync.status, 202);
   const syncParams = (await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [sync.body.commandId])).rows[0].params;
   assert.deepEqual(syncParams, { target: "sync_cabinet", method: "tcp", port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "the browser's address is replaced by the sync cabinet's");
+  // The database check is aimed the same way: the browser names only the port, and an address or ports it sends are replaced.
+  const db1 = await call("POST", `/api/cabinets/${satellite}/commands`,
+    { operation: "database.connectivity", params: { port: 1433, syncAddress: "10.99.99.99", syncPorts: [1, 2] } }, cookie);
+  assert.equal(db1.status, 202);
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [db1.body.commandId])).rows[0].params,
+    { port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "only the console's settings name the sync cabinet");
+  // Nothing that names a server, a login or a database gets past the contract.
+  for (const extra of [{ host: "db.example.org" }, { user: "sa", password: "x" }, { database: "cabinet_app" }])
+    assert.equal((await call("POST", `/api/cabinets/${satellite}/commands`, { operation: "database.connectivity", params: { port: 1433, ...extra } }, cookie)).status, 400, JSON.stringify(extra));
 
   const scan = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation: "peripheral.status", params: {} }, cookie);
   assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [scan.body.commandId])).rows[0].params, { hardwareIds: ["USB\\VID_AAAA&PID_0001"] });

@@ -140,6 +140,14 @@ public sealed class CommandValidator
             return t.SyncAddress is { } a && !LocalNetwork.IsPrivateOnLocalNetwork(a, _localNetworks())
                 ? "The sync cabinet address from the server is not a private address on this cabinet's own network." : null;
         }
+        if (entry.Name == Catalog.DatabaseConnectivity)
+        {
+            var d = parameters.Deserialize<DatabaseConnectivityParams>(ContractJson.Options)!;
+            if (d.SyncAddress is { } a && !LocalNetwork.IsPrivateOnLocalNetwork(a, _localNetworks()))
+                return "The sync cabinet address from the server is not a private address on this cabinet's own network.";
+            bool allowed = _config.AllowedTcpPorts.Contains(d.Port) || d.SyncPorts?.Contains(d.Port) == true;
+            return allowed ? null : "The database check is allowed only to ports in this cabinet's configuration or its site's sync ports.";
+        }
         if (entry.Name != Catalog.NetworkTest) return null;
         var p = parameters.Deserialize<NetworkTestParams>(ContractJson.Options)!;
         if (p.SyncAddress is { } address && !LocalNetwork.IsPrivateOnLocalNetwork(address, _localNetworks()))

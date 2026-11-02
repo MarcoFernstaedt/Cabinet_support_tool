@@ -987,6 +987,7 @@ export interface CommandRequest {
     | "network.config"
     | "network.test"
     | "network.trace"
+    | "database.connectivity"
     | "system.performance"
     | "network.listeners"
     | "firewall.state"
@@ -1584,6 +1585,7 @@ export interface RunbookPropose {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -1646,6 +1648,7 @@ export interface RunbookPropose {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -1713,6 +1716,7 @@ export interface RunbookPropose {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -1775,6 +1779,7 @@ export interface RunbookPropose {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -2216,6 +2221,7 @@ export interface DiagnosticModule {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -2282,6 +2288,7 @@ export interface DiagnosticModule {
           | "network.config"
           | "network.test"
           | "network.trace"
+          | "database.connectivity"
           | "system.performance"
           | "network.listeners"
           | "firewall.state"
@@ -2481,6 +2488,7 @@ export interface DiagnosticModule {
       | "network.config"
       | "network.test"
       | "network.trace"
+      | "database.connectivity"
       | "system.performance"
       | "network.listeners"
       | "firewall.state"
@@ -2636,6 +2644,7 @@ export interface Command {
     | "network.config"
     | "network.test"
     | "network.trace"
+    | "database.connectivity"
     | "system.performance"
     | "network.listeners"
     | "firewall.state"
@@ -3959,6 +3968,92 @@ export interface NetworkTraceOutput {
   error: string | null;
 }
 
+export interface DatabaseConnectivityParams {
+  /**
+   * The port to check. The agent accepts it only if it is in its local allowed-port list or one of the site's sync ports.
+   */
+  port: number;
+  /**
+   * The site's sync cabinet as set in the console, filled in by the server. The agent accepts it only if it is a private IPv4 address on one of the cabinet's own connected networks.
+   */
+  syncAddress?: string;
+  /**
+   * TCP ports the site's settings allow for the sync cabinet, filled in by the server.
+   *
+   * @minItems 1
+   * @maxItems 4
+   */
+  syncPorts?: [number, ...number[]];
+}
+
+export interface DatabaseConnectivityOutput {
+  port: number;
+  /**
+   * The address checked; null when the cabinet has no sync cabinet to check.
+   */
+  address: string | null;
+  /**
+   * sql_server: a SQL Server answered the pre-login. not_sql_server: something listens but did not answer as SQL Server. refused: the port is closed. no_answer: nothing came back in time. unreachable: the network could not reach the address. no_sync_cabinet: there is no sync cabinet address to check.
+   */
+  result: "sql_server" | "not_sql_server" | "refused" | "no_answer" | "unreachable" | "no_sync_cabinet";
+  tcp: {
+    connected: boolean;
+    ms: number | null;
+  };
+  /**
+   * Null when TCP did not connect.
+   */
+  prelogin: null | {
+    answered: boolean;
+    ms: number | null;
+    /**
+     * major.minor.build as the server reports it, for example 16.0.4305.
+     */
+    serverVersion: string | null;
+    /**
+     * What the server said about encryption: off (only the login is encrypted), on, required, not_supported (it has no certificate).
+     */
+    encryption: ("off" | "on" | "required" | "not_supported") | null;
+  };
+  /**
+   * Null when the pre-login was not answered or the server does not support encryption. The handshake ends there: nothing is sent over it.
+   */
+  tls: null | {
+    completed: boolean;
+    ms: number | null;
+    protocol: ("tls1.0" | "tls1.1" | "tls1.2" | "tls1.3" | "other") | null;
+    certificate: null | {
+      /**
+       * A single line of text with no control characters.
+       */
+      subject: string;
+      /**
+       * A single line of text with no control characters.
+       */
+      issuer: string;
+      /**
+       * UTC time, ISO 8601, always ending in Z.
+       */
+      notAfter: string;
+      /**
+       * Lower-case hex SHA-256 digest.
+       */
+      sha256: string;
+      selfSigned: boolean;
+    };
+    /**
+     * Why the certificate would not be trusted by a client that checks it: name_mismatch (it does not name the address), untrusted_chain (it does not chain to a trusted root, or has expired), missing (none was presented).
+     *
+     * @maxItems 3
+     */
+    problems: ("name_mismatch" | "untrusted_chain" | "missing")[];
+  };
+  /**
+   * Why the check stopped, in words; null when a SQL Server answered.
+   */
+  error: string | null;
+}
+
 /**
  * Operations that take no parameters accept only an empty object.
  */
@@ -5122,7 +5217,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -5144,6 +5239,7 @@ export interface OperationTypes {
   "network.config": { params: NetworkConfigParams; output: NetworkConfigOutput };
   "network.test": { params: NetworkTestParams; output: NetworkTestOutput };
   "network.trace": { params: NetworkTraceParams; output: NetworkTraceOutput };
+  "database.connectivity": { params: DatabaseConnectivityParams; output: DatabaseConnectivityOutput };
   "system.performance": { params: SystemPerformanceParams; output: SystemPerformanceOutput };
   "network.listeners": { params: NetworkListenersParams; output: NetworkListenersOutput };
   "usb.ports": { params: UsbPortsParams; output: UsbPortsOutput };

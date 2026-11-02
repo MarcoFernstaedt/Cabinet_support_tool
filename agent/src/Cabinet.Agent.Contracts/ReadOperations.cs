@@ -427,6 +427,63 @@ public sealed record NetworkTestOutput
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PingStatistics? Statistics { get; init; }
 }
 
+/// <summary>database.connectivity: whether a SQL Server answers on the sync cabinet, before any login. Never a credential, a login or a query.</summary>
+public sealed record DatabaseConnectivityParams
+{
+    public required int Port { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? SyncAddress { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyList<int>? SyncPorts { get; init; }
+}
+
+public enum DatabaseConnectivityResult { SqlServer, NotSqlServer, Refused, NoAnswer, Unreachable, NoSyncCabinet }
+public enum PreloginEncryption { Off, On, Required, NotSupported }
+public enum TlsProblem { NameMismatch, UntrustedChain, Missing }
+
+public sealed record ConnectivityTcpStep
+{
+    public required bool Connected { get; init; }
+    public required double? Ms { get; init; }
+}
+
+public sealed record ConnectivityPreloginStep
+{
+    public required bool Answered { get; init; }
+    public required double? Ms { get; init; }
+    /// <summary>major.minor.build, as the server reports it.</summary>
+    public required string? ServerVersion { get; init; }
+    public required PreloginEncryption? Encryption { get; init; }
+}
+
+public sealed record ConnectivityCertificate
+{
+    public required string Subject { get; init; }
+    public required string Issuer { get; init; }
+    public required DateTimeOffset NotAfter { get; init; }
+    public required string Sha256 { get; init; }
+    public required bool SelfSigned { get; init; }
+}
+
+public sealed record ConnectivityTlsStep
+{
+    public required bool Completed { get; init; }
+    public required double? Ms { get; init; }
+    /// <summary>tls1.0, tls1.1, tls1.2, tls1.3 or other; null when the handshake did not complete.</summary>
+    public required string? Protocol { get; init; }
+    public required ConnectivityCertificate? Certificate { get; init; }
+    public required IReadOnlyList<TlsProblem> Problems { get; init; }
+}
+
+public sealed record DatabaseConnectivityOutput
+{
+    public required int Port { get; init; }
+    public required string? Address { get; init; }
+    public required DatabaseConnectivityResult Result { get; init; }
+    public required ConnectivityTcpStep Tcp { get; init; }
+    public required ConnectivityPreloginStep? Prelogin { get; init; }
+    public required ConnectivityTlsStep? Tls { get; init; }
+    public required string? Error { get; init; }
+}
+
 public sealed record FirewallSnapshotInfo
 {
     public required Guid SnapshotId { get; init; }

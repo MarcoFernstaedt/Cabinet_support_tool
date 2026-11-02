@@ -101,6 +101,24 @@ test("restart, end a process, power settings, DHCP release, a static address wit
     await page.getByRole("row", { name: /^IPv4/ }).getByText(/172\.20\.1\.0\/32, the drawer address/).waitFor({ timeout: 60_000 });
     await page.getByRole("row", { name: /^Gateway/ }).getByText(/None, as it should be/).waitFor();
 
+    // The sync database check: on a satellite it finds SQL Server on its sync cabinet, before any sign-in.
+    const dbCheck = async (cabinet: string) => {
+      await page.goto(`${c.origin}/cabinets/${await id(cabinet)}/network`);
+      await page.getByRole("button", { name: "Check the sync database" }).click();
+    };
+    // A healthy satellite whose sync cabinet's firewall is off (the demo's sync cabinet answers then), whichever one the fleet has.
+    const reachable = (await c.db.app.query<{ name: string }>(`SELECT TOP (1) k.name FROM cabinets k JOIN cabinets y ON y.id = k.sync_cabinet_id
+      WHERE k.demo_scenario = 'healthy' AND k.role = 'satellite' AND y.status = 'active'
+        AND ISNULL(JSON_VALUE(y.firewall_profiles, '$.domain'), 'false') <> 'true' AND ISNULL(JSON_VALUE(y.firewall_profiles, '$.private'), 'false') <> 'true'
+        AND ISNULL(JSON_VALUE(y.firewall_profiles, '$.public'), 'false') <> 'true' ORDER BY k.name`)).rows[0];
+    assert.ok(reachable, "the demo fleet has a healthy satellite whose sync cabinet answers");
+    await dbCheck(reachable.name);
+    await page.getByText("SQL Server answers", { exact: true }).waitFor({ timeout: 30_000 });
+    await page.getByText(/version 16\.0\.4305 · encrypts the sign-in only · certificate CN=SSL_Self_Signed_Fallback \(self-signed\)/).waitFor();
+    // And one whose sync cabinet's firewall blocks it says so, without guessing.
+    await dbCheck("Surgery");
+    await page.getByText(/No answer 10\.\d+\.\d+\.\d+:1433 — No answer on TCP port 1433 within 5 seconds\./).waitFor({ timeout: 30_000 });
+
     assert.deepEqual(problems, []);
   } catch (e) {
     // What the person would have been looking at when it failed.
