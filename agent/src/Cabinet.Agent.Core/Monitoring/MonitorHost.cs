@@ -55,6 +55,8 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
 
     /// <summary>Each firewall profile on or off as the watcher last saw it; null until it has looked once. Sent with every heartbeat.</summary>
     public FirewallProfileSwitches? FirewallProfiles => _firewallProfiles;
+    /// <summary>Called when the firewall profile switches differ from the last ones read (not on the first read), whoever changed them.</summary>
+    public Action? FirewallProfilesChanged { get; set; }
 
     private readonly object _drivesGate = new();
     private IReadOnlyList<DriveSmart>? _drivesToSend;
@@ -198,12 +200,15 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
             try
             {
                 FirewallStateOutput state = await sources.Firewall!(token).ConfigureAwait(false);
-                _firewallProfiles = new FirewallProfileSwitches
+                var switches = new FirewallProfileSwitches
                 {
                     Domain = state.Profiles.Any(p => p.Profile == FirewallProfile.Domain && p.Enabled),
                     Private = state.Profiles.Any(p => p.Profile == FirewallProfile.Private && p.Enabled),
                     Public = state.Profiles.Any(p => p.Profile == FirewallProfile.Public && p.Enabled),
                 };
+                FirewallProfileSwitches? before = _firewallProfiles;
+                _firewallProfiles = switches;
+                if (before is not null && before != switches) FirewallProfilesChanged?.Invoke();
                 if (watch.Check(state, clock.GetUtcNow()) is { } e)
                 {
                     log(e.CommandId is { } cmd ? $"The firewall configuration changed through the platform (command {cmd})." : "The firewall configuration changed outside the platform.");

@@ -52,6 +52,8 @@ public sealed class AgentConnectionOptions
     public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(60);
     /// <summary>The heartbeat interval once the server speaks protocol 1.1 and names none (presence then also comes from the long poll).</summary>
     public TimeSpan HeartbeatInterval11 { get; init; } = TimeSpan.FromSeconds(300);
+    /// <summary>The shortest time between heartbeats an early request (HeartbeatSoon) can bring.</summary>
+    public TimeSpan EarlyHeartbeatGap { get; init; } = TimeSpan.FromSeconds(15);
     /// <summary>The range a server-directed heartbeat interval is clamped to (the contract's 60–900 s).</summary>
     public TimeSpan MinHeartbeat { get; init; } = TimeSpan.FromSeconds(60);
     public TimeSpan MaxHeartbeat { get; init; } = TimeSpan.FromSeconds(900);
@@ -90,6 +92,18 @@ public sealed class AgentConnection(AgentConnectionOptions o)
     public const int MaxQueuedCommands = 200;
 
     private readonly Pacing _pacing = new(o.HeartbeatInterval, o.HeartbeatInterval11, o.MinHeartbeat, o.MaxHeartbeat);
+    private readonly SemaphoreSlim _beatSoon = new(0, 1);
+
+    /// <summary>
+    /// Asks for the next heartbeat now instead of at the end of the interval (300 s once the server speaks 1.1), so state the
+    /// heartbeat carries reaches the platform when it changes: the firewall profiles after a write or an out-of-band change
+    /// (product test 2026-11-02, finding 2). Requests while one is pending fold into it, and early heartbeats come at most once
+    /// every <see cref="AgentConnectionOptions.EarlyHeartbeatGap"/>, so a flapping firewall cannot flood the server.
+    /// </summary>
+    public void HeartbeatSoon()
+    {
+        try { if (_beatSoon.CurrentCount == 0) _beatSoon.Release(); } catch (SemaphoreFullException) { }
+    }
     private ResultOutbox? _outbox;
 
     /// <summary>The pacing currently in force (tests and diagnostics).</summary>
@@ -350,6 +364,8 @@ public sealed class AgentConnection(AgentConnectionOptions o)
             {
                 try
                 {
+                    // This heartbeat answers every early request made before it reads the state it carries.
+                    while (_beatSoon.Wait(0)) { }
                     double? skew = s.Api.LastServerTime is { } t ? Math.Clamp(Math.Round((t.Local - t.Server).TotalSeconds, 1), -86_400, 86_400) : null;
                     HealthSample? health = o.Health?.Invoke();
                     HeartbeatResponse answer = await s.Api.HeartbeatAsync(new Heartbeat
@@ -382,9 +398,20 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                     }
                 }
             }
-            await Delay(next, token).ConfigureAwait(false);
+            await HeartbeatWaitAsync(next, token).ConfigureAwait(false);
         }
         return Ended.Cancelled;
+    }
+
+    /// <summary>Waits out the interval, or until an early heartbeat is asked for, but never less than the early-heartbeat gap.</summary>
+    private async Task HeartbeatWaitAsync(TimeSpan next, CancellationToken token)
+    {
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        if (!await _beatSoon.WaitAsync(next, token).ConfigureAwait(false)) return; // the interval ran out
+        // Asked for early: still keep the gap since the last heartbeat, but never wait past the interval itself.
+        TimeSpan untilGap = o.EarlyHeartbeatGap - waited.Elapsed, untilInterval = next - waited.Elapsed;
+        TimeSpan rest = untilGap < untilInterval ? untilGap : untilInterval;
+        if (rest > TimeSpan.Zero) await Delay(rest, token).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -218,6 +218,22 @@ test("an agent clock in the future cannot push an alert's last-seen time ahead",
 
 // ---- Map to issue -----------------------------------------------------------------------
 
+test("the agent's own status report (a flooded log, a dropped queue) raises Agent problem, not an unrecognized alert", async () => {
+  // As a real cabinet sent it (product test 2026-11-02, finding 5).
+  const flood: Event = { eventId: randomUUID(), kind: "agent_status", occurredAt: at(), severityHint: "minor",
+    detail: { message: "299 more entries from Microsoft-Windows-CodeIntegrity (event 3033) were not sent: the log is being flooded." } };
+  const r = await send(cab.b, flood);
+  assert.equal(r.outcomes[0]!.kind, "issue");
+  const alertId = (r.outcomes[0] as { alertId: string }).alertId;
+  const a = (await db.app.query("SELECT issue_type_id, severity, signature FROM alerts WHERE id = $1", [alertId])).rows[0];
+  assert.equal(a.issue_type_id, "00000000-0000-4000-8000-000000000107", "the built-in Agent problem issue type");
+  assert.equal(a.severity, "minor");
+  assert.notEqual(a.signature, unrecognizedSignature(flood));
+  // A different status report (a fault, sent as a code) folds into the same issue on that cabinet.
+  const fault: Event = { eventId: randomUUID(), kind: "agent_status", occurredAt: at(), severityHint: "minor", detail: { message: "monitor.firewall: E_ACCESS" } };
+  assert.equal(((await send(cab.b, fault)).outcomes[0] as { alertId: string }).alertId, alertId);
+});
+
 test("an unrecognized error is mapped by Tier 2, approved by an Admin, regrouped, and the next one raises the issue", async () => {
   const tier1 = await account("tier1"); const t1 = await signIn(tier1);
   const tier2 = await account("tier2"); const t2 = await signIn(tier2);

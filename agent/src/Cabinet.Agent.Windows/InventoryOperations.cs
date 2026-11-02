@@ -126,9 +126,8 @@ public static class InventoryOperations
                     using (cert)
                     {
                         var notAfter = new DateTimeOffset(cert.NotAfter.ToUniversalTime(), TimeSpan.Zero);
-                        long days = InventoryRules.DaysLeft(notAfter, now);
-                        if (days > 90) continue;
-                        found.Add(new CertificateExpiry { Store = label, Subject = InventoryRules.Clean(cert.Subject, 300) ?? "(no subject)", NotAfter = notAfter, DaysLeft = days, Expired = days < 0 });
+                        if (InventoryRules.DaysLeft(notAfter, now) > 90) continue;
+                        found.Add(InventoryRules.CertificateExpiryFor(label, cert.Subject, notAfter, now));
                     }
                 }
             }
@@ -250,20 +249,9 @@ public static class InventoryOperations
     public static ReliabilityListOutput Reliability()
     {
         var rows = Try(Wmi.CimV2, "SELECT TimeGenerated, SourceName, ProductName, EventIdentifier, Message FROM Win32_ReliabilityRecords", 2000);
-        var records = rows.Where(r => r.Date("TimeGenerated") is not null).Select(r =>
-        {
-            string source = InventoryRules.Clean(r.Text("SourceName"), 120) ?? "Unknown";
-            long? id = r.Long("EventIdentifier");
-            return new ReliabilityRecord
-            {
-                At = r.Date("TimeGenerated")!.Value,
-                Source = source,
-                Product = InventoryRules.Clean(r.Text("ProductName"), 120),
-                EventId = id,
-                Kind = InventoryRules.ReliabilityKindFor(source, id),
-                Message = EventText.FirstLine(r.Text("Message"), 300),
-            };
-        }).OrderByDescending(r => r.At);
+        var records = rows.Where(r => r.Date("TimeGenerated") is not null)
+            .Select(r => InventoryRules.ReliabilityRecordFor(r.Date("TimeGenerated")!.Value, r.Text("SourceName"), r.Text("ProductName"), r.Long("EventIdentifier"), r.Text("Message")))
+            .OrderByDescending(r => r.At);
         var (items, cut) = InventoryRules.Bound(records, 300);
         return new ReliabilityListOutput { TakenAt = DateTimeOffset.UtcNow, Records = items, Truncated = cut };
     }
@@ -317,13 +305,8 @@ public static class InventoryOperations
     public static DnsCacheOutput DnsCache()
     {
         var rows = Try(StandardCim, "SELECT Name, Type, Data, TimeToLive FROM MSFT_DNSClientCache", 1000);
-        var entries = rows.Select(r => new DnsCacheEntry
-        {
-            Name = InventoryRules.Clean(r.Text("Name"), 253) ?? "",
-            Type = r.Long("Type") switch { 1 => "A", 2 => "NS", 5 => "CNAME", 12 => "PTR", 15 => "MX", 16 => "TXT", 28 => "AAAA", 33 => "SRV", var t => $"{t}" },
-            Data = InventoryRules.Clean(r.Text("Data"), 300) ?? "",
-            TtlSeconds = Math.Clamp(r.Long("TimeToLive") ?? 0, 0, 2_000_000),
-        }).Where(e => e.Name.Length > 0);
+        var entries = rows.Select(r => InventoryRules.DnsCacheEntryFor(r.Text("Name"), r.Long("Type"), r.Text("Data"), r.Long("TimeToLive")))
+            .Where(e => e is not null).Select(e => e!);
         var (items, cut) = InventoryRules.Bound(entries, 500);
         return new DnsCacheOutput { TakenAt = DateTimeOffset.UtcNow, Entries = items, Truncated = cut };
     }

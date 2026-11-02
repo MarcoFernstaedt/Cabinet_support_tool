@@ -4,7 +4,7 @@
 // database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
 import { advanceAuditCheckpoint, audit, auditChainHeadAnchor, auditCheckpoint, Pool, transaction, verifyAuditChain, type ChainCheck, type ChainCheckpoint, type Queryable } from "../db/db.js";
 import { platformSettings, upsertSetting } from "./settings.js";
-import { raiseSecurityAlert } from "./security.js";
+import { closeStaleSecurityAlerts, raiseSecurityAlert } from "./security.js";
 import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
 
@@ -296,6 +296,8 @@ export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, op
     await verifyChainAndAlert(pool, mode === "full" ? "weekly" : "daily", mode)
       .then(c => { if (!c.ok) log(`Audit chain broken at entry ${c.firstBadSeq}.`); }, () => log("Audit chain check failed to run."));
     await runRetention(pool).catch(() => { opsMeter.count("retention", "failed"); log("Retention failed to run."); });
+    await closeStaleSecurityAlerts(pool).then(n => { if (n > 0) log(`Closed ${n} security alert(s) not seen again for 14 days.`); },
+      () => log("Closing stale security alerts failed to run."));
   };
   const plan = () => {
     const delay = Math.max(1_000, nextRunAt(at).getTime() - Date.now());

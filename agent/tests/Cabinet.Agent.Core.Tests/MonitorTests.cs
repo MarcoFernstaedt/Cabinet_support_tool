@@ -600,4 +600,35 @@ public class EventFloodTests
         Assert.Equal("280", summary.Detail!.Fields!["skipped"]);
         foreach (var e in events) Assert.True(EventQueueTests.Valid(e));
     }
+
+    [Fact]
+    public async Task A_changed_firewall_is_announced_once_so_the_platform_hears_of_it_before_the_next_heartbeat()
+    {
+        // Product test 2026-11-02, finding 2: the profiles reached the platform only with the next 5-minute heartbeat.
+        int reads = 0, announced = 0;
+        FirewallProfileState Profile(FirewallProfile p, bool on) => new() { Profile = p, Enabled = on, DefaultInbound = FirewallAction.Block, DefaultOutbound = FirewallAction.Allow, ReenableAt = null };
+        var host = new MonitorHost(new MonitorSources
+        {
+            Firewall = _ =>
+            {
+                bool publicOn = Interlocked.Increment(ref reads) >= 3; // the first two reads off, then on and staying on
+                return Task.FromResult(new FirewallStateOutput
+                {
+                    Profiles = [Profile(FirewallProfile.Domain, true), Profile(FirewallProfile.Private, true), Profile(FirewallProfile.Public, publicOn)],
+                    Rules = [], RulesTruncated = false, Snapshots = [],
+                });
+            },
+        }, new MonitorSettings(null, null), new EventQueue(null), null, TimeProvider.System, _ => { },
+            new MonitorIntervals { FirewallFull = TimeSpan.FromMilliseconds(100) });
+        host.FirewallProfilesChanged = () => Interlocked.Increment(ref announced);
+        using var stop = new CancellationTokenSource();
+        Task running = host.RunAsync(stop.Token);
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (Volatile.Read(ref reads) < 6 && DateTime.UtcNow < deadline) await Task.Delay(50);
+        stop.Cancel();
+        try { await running.WaitAsync(TimeSpan.FromSeconds(10)); } catch (OperationCanceledException) { }
+        Assert.True(Volatile.Read(ref reads) >= 6, "the loop read the firewall several times");
+        Assert.Equal(1, announced); // not for the first read, not for reads that changed nothing: once, for the change
+        Assert.True(host.FirewallProfiles!.Public);
+    }
 }

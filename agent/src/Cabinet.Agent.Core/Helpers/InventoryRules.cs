@@ -51,6 +51,41 @@ public static class InventoryRules
     /// <summary>Registry display names are untrusted text: single line, capped, and null when nothing is left.</summary>
     public static string? Clean(string? text, int max) => EventText.ShortText(text, max) is { Length: > 0 } s ? s : null;
 
+    /// <summary>The contracts' shortText cap (common.schema.json). A field capped above it fails the whole operation's own output check.</summary>
+    public const int ShortTextMax = 256;
+
+    /// <summary>One reliability record, every text field within its contract cap (a long Windows message once failed the whole read).</summary>
+    public static ReliabilityRecord ReliabilityRecordFor(DateTimeOffset at, string? source, string? product, long? eventId, string? message)
+    {
+        string named = Clean(source, 120) ?? "Unknown";
+        return new ReliabilityRecord
+        {
+            At = at, Source = named, Product = Clean(product, 120), EventId = eventId,
+            Kind = ReliabilityKindFor(named, eventId), Message = EventText.FirstLine(message, ShortTextMax),
+        };
+    }
+
+    /// <summary>One DNS cache entry within its contract caps; null when it has no name.</summary>
+    public static DnsCacheEntry? DnsCacheEntryFor(string? name, long? type, string? data, long? ttlSeconds)
+    {
+        string? n = Clean(name, 253);
+        if (n is null) return null;
+        return new DnsCacheEntry
+        {
+            Name = n,
+            Type = type switch { 1 => "A", 2 => "NS", 5 => "CNAME", 12 => "PTR", 15 => "MX", 16 => "TXT", 28 => "AAAA", 33 => "SRV", var t => $"{t}" },
+            Data = Clean(data, ShortTextMax) ?? "",
+            TtlSeconds = Math.Clamp(ttlSeconds ?? 0, 0, 2_000_000),
+        };
+    }
+
+    /// <summary>A certificate near or past its expiry, its subject within the contract cap.</summary>
+    public static CertificateExpiry CertificateExpiryFor(string store, string? subject, DateTimeOffset notAfter, DateTimeOffset now)
+    {
+        long days = DaysLeft(notAfter, now);
+        return new CertificateExpiry { Store = store, Subject = Clean(subject, ShortTextMax) ?? "(no subject)", NotAfter = notAfter, DaysLeft = days, Expired = days < 0 };
+    }
+
     /// <summary>Keeps at most <paramref name="max"/> items and says whether any were dropped.</summary>
     public static (List<T> Items, bool Truncated) Bound<T>(IEnumerable<T> source, int max)
     {

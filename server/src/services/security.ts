@@ -63,6 +63,36 @@ export async function listSecurityAlerts(db: Queryable, state: "open" | "resolve
   }));
 }
 
+/**
+ * Kinds raised by one event at a time (a connection, a sign-in, a refused package), with nothing that clears them when the cause has
+ * passed. They close on their own after STALE_SECURITY_DAYS with no recurrence (owner's decision 2026-11-02; docs/spec/05-server-spec.md
+ * "Security alerts"). Not here: audit_chain (a broken audit chain stays open until a person has looked), and the ops_* kinds, which
+ * already close themselves when their condition clears (ops-health.ts).
+ */
+export const EVENT_SECURITY_KINDS: readonly SecurityKind[] = ["write_volume", "failed_logins", "failed_step_ups", "new_location", "new_device",
+  "agent_self_check", "package_refused", "signature_failure", "certificate"];
+export const STALE_SECURITY_DAYS = 14;
+
+/**
+ * Closes open event-driven security alerts not seen again for STALE_SECURITY_DAYS, each with an audit entry; returns how many. Nothing is
+ * deleted, and a recurrence afterwards opens a fresh alert (open alerts fold by signature, closed ones do not).
+ */
+export async function closeStaleSecurityAlerts(pool: Pool, days = STALE_SECURITY_DAYS): Promise<number> {
+  const resolution = `No recurrence in ${days} days; closed automatically.`;
+  return transaction(pool, async c => {
+    const closed = (await c.query<{ id: string; kind: string; title: string }>(
+      `DECLARE @o TABLE (id uniqueidentifier, kind nvarchar(64), title nvarchar(256));
+       UPDATE security_alerts SET state = 'resolved', resolved_by = NULL, resolved_at = SYSUTCDATETIME(), resolution = $2
+         OUTPUT inserted.id, inserted.kind, inserted.title INTO @o
+        WHERE state = 'open' AND kind IN (SELECT value FROM OPENJSON($3)) AND last_seen < DATEADD(day, -$1, SYSUTCDATETIME());
+       SELECT id, kind, title FROM @o;`, [days, resolution, JSON.stringify(EVENT_SECURITY_KINDS)])).rows;
+    for (const a of closed)
+      await audit(c, { actorKind: "system", actorId: "security", action: "security_alert.resolve", targetKind: "security_alert", targetId: a.id,
+        outcome: "succeeded", details: { kind: a.kind, title: a.title, automatic: true, staleDays: days } });
+    return closed.length;
+  });
+}
+
 export async function openSecurityAlertCount(db: Queryable): Promise<number> {
   return Number((await db.query<{ n: string }>("SELECT COUNT(*) AS n FROM security_alerts WHERE state = 'open'")).rows[0]!.n);
 }
