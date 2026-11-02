@@ -46,7 +46,7 @@ public sealed class ConnectionLoopTests : IDisposable
     private bool Logged(string text) { lock (_log) return _log.Any(l => l.Contains(text)); }
 
     private AgentConnection Connection(FakeServer server, EventQueue? events = null, Func<HealthSample?>? health = null, TimeSpan? validFor = null,
-        bool enrolled = true, Func<EnrollFingerprints>? fingerprints = null)
+        bool enrolled = true, Func<EnrollFingerprints>? fingerprints = null, TimeSpan? heartbeat = null, TimeSpan? earlyGap = null)
     {
         var store = new IdentityStore(_dir.Path);
         if (enrolled) store.SaveIdentity(new AgentIdentity(Fixtures.Cabinet, Issue(validFor ?? TimeSpan.FromDays(365))));
@@ -62,8 +62,9 @@ public sealed class ConnectionLoopTests : IDisposable
             ServerUri = new Uri("https://platform.test:8443"), PlatformCa = _ca, Keys = _keys, Store = store, Config = Fixtures.Config(),
             ProcessorFor = _ => processor, Fingerprints = fingerprints ?? (() => throw new NotSupportedException()), AgentVersion = "0.2.0", UptimeSeconds = () => 1,
             Log = m => { lock (_log) _log.Add(m); }, Events = events, Health = health, HandlerFactory = server.Handler,
-            EventSendInterval = TimeSpan.FromMilliseconds(50), HeartbeatInterval = TimeSpan.FromMilliseconds(300), HeartbeatInterval11 = TimeSpan.FromMilliseconds(300),
-            MinHeartbeat = TimeSpan.FromMilliseconds(300), MaxHeartbeat = TimeSpan.FromMilliseconds(300), ReconnectFlushJitter = TimeSpan.Zero,
+            EventSendInterval = TimeSpan.FromMilliseconds(50), HeartbeatInterval = heartbeat ?? TimeSpan.FromMilliseconds(300), HeartbeatInterval11 = heartbeat ?? TimeSpan.FromMilliseconds(300),
+            MinHeartbeat = heartbeat ?? TimeSpan.FromMilliseconds(300), MaxHeartbeat = heartbeat ?? TimeSpan.FromMilliseconds(300), ReconnectFlushJitter = TimeSpan.Zero,
+            EarlyHeartbeatGap = earlyGap ?? TimeSpan.FromSeconds(15),
             ResetJitter = TimeSpan.FromMilliseconds(50), Backoff = new Backoff(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200)),
             LoopRestartBackoff = () => new Backoff(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100)), MaxEventFailures = 3,
             LocalBackoff = () => new Backoff(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200)),
@@ -507,5 +508,26 @@ public sealed class ConnectionLoopTests : IDisposable
         using JsonDocument doc = JsonDocument.Parse(enroll.Body);
         Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Envelope("enroll-request"), doc.RootElement));
         Assert.Equal(Environment.Is64BitProcess ? "windows-x64" : "windows-x86", enroll.Json!["fingerprints"]?["architecture"]?.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task An_early_heartbeat_comes_when_asked_for_not_at_the_end_of_the_interval_and_requests_inside_the_gap_fold_into_one()
+    {
+        // The interval is a minute; only an early heartbeat can arrive within the test.
+        var server = new FakeServer();
+        var connection = Connection(server, heartbeat: TimeSpan.FromMinutes(1), earlyGap: TimeSpan.FromSeconds(1));
+        await Run(connection, async _ =>
+        {
+            await Until(() => server.To("/agent/v1/heartbeat").Count() >= 1, "the first heartbeat");
+            await Task.Delay(TimeSpan.FromSeconds(2)); // past start-up: from here only the one-minute interval would bring another
+            int before = server.To("/agent/v1/heartbeat").Count();
+            var asked = DateTime.UtcNow;
+            connection.HeartbeatSoon();
+            connection.HeartbeatSoon(); // a second request while one is pending changes nothing
+            await Until(() => server.To("/agent/v1/heartbeat").Count() >= before + 1, "the early heartbeat", seconds: 10);
+            Assert.True(DateTime.UtcNow - asked < TimeSpan.FromSeconds(10), "long before the one-minute interval");
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            Assert.Equal(before + 1, server.To("/agent/v1/heartbeat").Count()); // the two requests brought one heartbeat
+        });
     }
 }
