@@ -6,6 +6,65 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D10. Audit appends run in their own transaction (2026-11-02)
+
+**Decision.** Migration `0019_audit_append_atomic.sql` changes `audit_append` and `audit_append_many` so each runs in its own
+transaction with `XACT_ABORT ON`. The bodies are otherwise unchanged. In `audit_append_many` the transaction opens after the
+input checks, so refused input opens none.
+
+**The bug it fixes.** This is a product bug, not only a test problem.
+- When `audit()` is called outside a transaction (straight on the pool, as at least eight call sites do, for example
+  `src/diagnose/cabinet.ts:70` when someone starts "Diagnose this cabinet"), each statement in the procedure commits on its
+  own. The `UPDLOCK, HOLDLOCK` that is meant to serialize the chain then ends with the SELECT that takes it.
+- Two calls can therefore read the same head and take the same sequence number. The duplicate-key error ends only that one
+  statement, so the losing call still goes on to move the head.
+- The head can then fall behind the log. From that point every append collides with an entry that is already there, and
+  each audited action fails with a 500 until the head catches up.
+
+**Evidence.**
+- `troubleshooting.test.ts`, CI job 124775471652 at `b811d72`: "Diagnose this cabinet" got a 500, then every later sign-in
+  in the file failed within one second. The app ran without a logger, so the error text was not recorded.
+- Local reproduction with the test's fake clock 60 s behind the database's: the same burst (9 of 10 failed), **once**; two
+  more runs with the same skew passed, so it is not a reliable reproduction. The `onError`
+  hook added in #132 recorded `Violation of PRIMARY KEY constraint 'audit_log_pkey' ... duplicate key value is (27)` on
+  POST /diagnose, then the same error on each sign-in. Why the clock skew made it appear in that file has **not been
+  established**; the race does not need it.
+- `test/audit-concurrency.test.ts` reproduces the race without any skew: rounds of 30 appends at once, single and batched,
+  straight on the pool. **Measured** here (Linux host on 2 cores, `nproc` and the container's `cpu_count` agreeing;
+  SQL Server 2022 CU27 in Docker): before the fix,
+  231, 232 and 239 of 300 calls failed in three runs; after it, 3 of 3 runs passed with every append in place, sequence
+  numbers 1 to N with no gaps, the head at the last entry, and the chain verifying.
+
+**Alternatives.**
+- **Wrap every caller in a transaction.** Rejected: there are 15 call sites that are, or may be, outside a transaction,
+  and any future one would bring the bug back. Fixing it in the procedure covers every caller, present and future.
+- **A SEQUENCE for the numbers.** Rejected: each entry's hash includes the previous entry's hash, so appends have to be
+  serialized anyway. Unique numbers alone would still let two entries chain from the same predecessor.
+- **Retry on a duplicate key in the app.** Rejected: by then the losing call has already moved the head, so a retry would
+  not repair the chain.
+
+**Cost.**
+- An error inside an append now rolls back the caller's whole transaction (`XACT_ABORT`). Before, the error reached the
+  app as an exception and the caller rolled back anyway, so behaviour only changes for a caller that caught and ignored an
+  audit error. None does: the `catch` blocks near audit calls rethrow everything except their own refusals (checked with grep
+  over `src/`).
+- Appends made outside a transaction now hold the chain lock for the whole procedure instead of one statement. That
+  serializes them, which is what the lock was always meant to do. The added wait has not been measured.
+
+**Proof.**
+- `audit-concurrency.test.ts`: two tests. The concurrency test above, and one that checks an append inside a caller's
+  transaction still commits or rolls back with that transaction, and that refused input changes nothing.
+- The existing database, audit and migration tests: 24 of 24 passed.
+- Full server suite with the migration: 845 tests, 807 passed, 38 skipped, 0 failed, 604 s at `--test-concurrency=2`
+  (**measured**, Linux host, 2 cores, 2026-11-02). The skips are unmet prerequisites, not failures: 23 need a built console,
+  10 need `TEST_AGENT_DLL`, 5 need `pwsh`.
+- `troubleshooting.test.ts` with the 60 s skew: 10 of 10 in two runs after the fix. That alone proves little, because the
+  skew reproduced the burst only once in three runs before; the concurrency test is the proof.
+
+**Relation to D3.** This race was found because the suite runs two files at a time. A serial run would have hidden it.
+
+---
+
 ## D1. TCP test series: 5 seconds per connection, stop at a refusal or at two misses in a row (2026-11-01)
 
 **Decision.** In a TCP series (`network.test` with `method: tcp` and `count` above 1, `NetworkTester.TcpSeriesAsync`):

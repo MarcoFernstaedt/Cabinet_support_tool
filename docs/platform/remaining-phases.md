@@ -168,13 +168,20 @@ order they are being fixed.
     #132: the test moves that cabinet into the simulator's `offline` scenario (which it never heartbeats), waits for a sweep in
     progress, then makes it offline, and asserts each cabinet's skip reason by its ID.
   - `console-setup-e2e.test.ts` (job 124747977897): the step-up dialog after approving the agent stayed open for 30 s; the log
-    cannot say whether the approval was refused or still running. Not root-caused. PR #132 makes the wait report which it was
+    cannot say whether the approval was refused or still running. Not root-caused. Passed 3 of 3 locally on 2026-11-02 (with
+    the D10 fix), so not reproduced; a 500 from the audit race above would also leave the dialog open, but that is not shown. PR #132 makes the wait report which it was
     (the console's refusal text, or "still Confirming…"), so the next occurrence names its cause.
 - [ ] **Two more at `e429b81` (one run, job 124754172624), also outside the PR's files.**
   - `console-screens-e2e.test.ts` "every page fits its screen…": asserted `#root` visible with `isVisible()` (which does not wait)
     straight after `goto`, before the console had drawn. Fixed in PR #132: it waits for the sign-in form first.
   - `troubleshooting.test.ts` "a drive that is failing and a clock that is wrong…" (62 s, past the 60 s diagnosis limit): the ICU
     diagnosis had no time-skew finding. Not root-caused; the assertion now prints the diagnosis' state and findings.
+  - **Root-caused 2026-11-02 (decision D10 in [decision-log.md](decision-log.md)): an audit-chain race, a product bug.**
+    Audit appends made outside a transaction could take the same sequence number and leave the chain head behind the log,
+    after which every audited action failed with a duplicate key until the head caught up. Fixed by migration 0019;
+    `audit-concurrency.test.ts` failed 231 to 239 of 300 appends per run before it and passes after it. The #130 run (8
+    sign-in failures in one file) and the `demo.test.ts` reds have the same shape but logged no error text, so they are
+    likely the same cause, not proven.
   - `troubleshooting.test.ts` again at `b811d72` (job 124775471652), the #130 shape, as one burst: "Diagnose this cabinet" got
     a 500 (`server_error`) from POST /diagnose at 07:05:05.028, then the file's eight remaining tests each failed signing in
     within the next second (to 07:05:05.878). Two different routes failing inside one second points at a connection-level
