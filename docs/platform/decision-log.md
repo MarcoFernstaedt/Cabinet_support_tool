@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D12. Console e2e tests launch the browser first, through one helper with a 30-second limit (2026-11-02)
+
+**Decision.** All 25 console e2e test files start Chromium through `server/test/browser-launch.ts`, as the first thing in
+the test, before they start a database, a server or the demo simulator. The helper:
+- gives the launch 30 seconds (Playwright's default is three minutes);
+- fails with a message that names which browser it tried (the `PLAYWRIGHT_CHROMIUM` path, or Playwright's own) and why.
+
+**Why.** Every file launched the browser after starting its servers and simulator, and outside the `try` that stops them. When
+the browser could not start, the test failed, but the servers kept the process alive. **Measured** here with a browser path
+that does not exist: on `main`, `console-actions-e2e` was still running after 150 s and was killed; with this change it fails
+in 2 s, exits, and the error names the missing path.
+
+**Alternatives.**
+- **Move each launch inside its file's `try`.** Rejected: the cleanup in each file is different, and a launch failure would
+  still have started everything first.
+- **A global hook that kills leftover browsers.** Rejected: it hides the cause instead of reporting it.
+
+**Cost.** If a test's own setup fails after the browser started, the browser is not closed by that test. That is the same
+kind of leak as before, now for the browser instead of the servers. A setup failure is rare, and the runner's per-test limit
+still ends it.
+
+**Proof.**
+- `browser-launch.test.ts`: a missing browser is refused at once, naming the path; a browser that starts but never answers
+  is given up on at the limit (a script that only sleeps, 3 s limit).
+- All 25 e2e files with the real browser: 28 of 28 passed, 660 s.
+
+---
+
 ## D11. A diagnosis waits up to two minutes and never plans more than ten network tests (2026-11-02)
 
 **Decision.**

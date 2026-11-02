@@ -21,6 +21,7 @@ import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/
 import { verifyAuditChain } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { agentDownloads, tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -30,7 +31,7 @@ const skip = !dll ? "set TEST_AGENT_DLL to run" : !existsSync(join(dist, "index.
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("the console end to end: install, approve, find a cabinet, browse logs, run diagnostics, and it is all audited", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
@@ -57,7 +58,6 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     [randomUUID(), randomUUID(), await hashPassword(password), secrets.seal(adminSecret)]);
   const code = (): string => { clock += 30_000; return totp.code(adminSecret, totp.stepAt(clock)); };
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   let agent: ChildProcess | null = null;
   const agentLog: string[] = [];
   const problems: string[] = [];

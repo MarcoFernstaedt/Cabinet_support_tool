@@ -9,14 +9,14 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendStep, openIncident } from "../src/services/incidents.js";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
 test("a cabinet's History tab lists its incidents and opens one to its steps", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const [client, site, cab, quiet] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];

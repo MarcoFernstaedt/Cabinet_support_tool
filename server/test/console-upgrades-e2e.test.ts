@@ -20,6 +20,7 @@ import { offerFor, recordUpgradeStatus } from "../src/services/rollouts.js";
 import { createTestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
 import { keysFolder, makeRelease, releaseKey } from "./release-kit.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -27,7 +28,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("upgrades in the console: add a signed release, start a staged rollout, see it pause on a failure with the exact check, stop it", { skip, timeout: 180_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   const dir = tempDir();
   const key = releaseKey();
@@ -63,7 +64,6 @@ test("upgrades in the console: add a signed release, start a staged rollout, see
   writeFileSync(join(dir, "signature.json"), JSON.stringify(release.signature));
   writeFileSync(join(dir, "agent-0.2.0.zip"), release.zip);
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext()).newPage();

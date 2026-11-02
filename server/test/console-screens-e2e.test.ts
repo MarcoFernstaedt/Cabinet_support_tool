@@ -19,6 +19,7 @@ import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { createTestDatabase, startFeed } from "./database.js";
 import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -26,7 +27,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("every page fits its screen and shows no raw values", { skip, timeout: 600_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   let clock = Date.now();
   const port = await freePort();
@@ -45,7 +46,6 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
   const simulatorProblems: string[] = [];
   const simulator = new DemoSimulator(db.app, m => simulatorProblems.push(m));
   simulator.start();
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const context = await browser.newContext({ viewport: { width: 1360, height: 900 } });

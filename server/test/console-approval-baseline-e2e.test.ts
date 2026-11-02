@@ -11,14 +11,14 @@ import { fileURLToPath } from "node:url";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { startConsole } from "./browser-console.js";
 import { csrFor, ecKey } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
 test("the approval asks for a baseline decision, and the cabinet says Baseline required until one is in force", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 900 } })).newPage();

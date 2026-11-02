@@ -7,17 +7,17 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DemoSimulator } from "../src/demo/demo.js";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
 test("restart, end a process, power settings, DHCP release, a static address with no gateway and the drawer address all work from the console", { skip, timeout: 600_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
   const simulator = new DemoSimulator(c.db.app, () => {});
   simulator.start();
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   const page = await (await browser.newContext({ viewport: { width: 1360, height: 900 } })).newPage();
   try {

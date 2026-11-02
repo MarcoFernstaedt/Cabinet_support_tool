@@ -24,6 +24,7 @@ import { storeEvents } from "../src/services/events.js";
 import { issueCommand, storeResult } from "../src/services/commands.js";
 import { asOwner, createTestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir, setUpAuthenticatorInBrowser } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -31,7 +32,7 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("administration in the console: accounts, who opened a cabinet, pausing writes, and a security alert for every trigger", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
@@ -62,7 +63,6 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
   const { cabinetId } = await approveEnrollment(db.app, key, requestId, { clientName: "Acme Health", siteName: "North", cabinetName: "ICU cabinet", role: "standalone" }, adaId);
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0");
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const open = async (who: string, headers: Record<string, string> = {}) => {

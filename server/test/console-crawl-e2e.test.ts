@@ -10,6 +10,7 @@ import { AxeBuilder } from "@axe-core/playwright";
 import type { Page } from "playwright";
 import { DemoSimulator } from "../src/demo/demo.js";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -19,11 +20,10 @@ const skip = existsSync(join(dist, "index.html")) ? false : "build the console f
 const READS = /^(Run|Read|Check|Measure|Diagnose|Refresh|Scan|List|Load|Look|Show|Test|Trace|Start reading)\b/i;
 
 test("every page and cabinet section loads cleanly and its read buttons answer", { skip, timeout: 900_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
   const simulator = new DemoSimulator(c.db.app, () => {});
   simulator.start();
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   let where = "";
   const note = (m: string) => problems.push(`${where}: ${m}`);

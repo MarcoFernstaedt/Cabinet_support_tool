@@ -32,6 +32,7 @@ import { verifyAuditChain, NULL_BINARY } from "../src/db/db.js";
 import { pe, TestPki, zip } from "./package-pki.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
+import { launchChromium } from "./browser-launch.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -40,7 +41,7 @@ const skip = !dll ? "set TEST_AGENT_DLL to run" : !existsSync(join(dist, "index.
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("writes in the console: library upload and two-person approval, install, firewall and DNS changes, history, roles and the pause banner", { skip, timeout: 300_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const db: TestDatabase = await createTestDatabase();
   const dir = tempDir();
   const key = await developmentIssuingKey(dir);
@@ -101,7 +102,6 @@ test("writes in the console: library upload and two-person approval, install, fi
     assert.fail(`timed out waiting for ${what}. Agent log:\n${agentLog.join("")}`);
   };
 
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     await until("the enrollment request", async () => (await pendingRequests(db.app)).length > 0);

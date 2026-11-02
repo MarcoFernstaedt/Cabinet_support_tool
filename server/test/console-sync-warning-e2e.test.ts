@@ -7,14 +7,14 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startConsole } from "./browser-console.js";
+import { launchChromium } from "./browser-launch.js";
 
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
 test("a change on a sync cabinet is confirmed with a warning naming its satellites", { skip, timeout: 240_000 }, async () => {
-  const { chromium } = await import("playwright");
+  const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
-  const browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM } : {});
   const problems: string[] = [];
   try {
     const [client, site, sync, satA, satB] = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
