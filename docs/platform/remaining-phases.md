@@ -112,7 +112,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 **Not built:**
 - Symptom playbooks and support call mode (choose a symptom, run its playbook, apply the fix, get the notes).
 - The case report in Issue / Findings / Actions / Pending / Next steps form (the activity report above is the part built).
-- Before and after snapshots for every fix (only firewall changes keep a before and after).
+- Before and after snapshots for every fix (the writes that report a change return the before and after of what they
+  changed, and only a firewall write keeps it as history and takes a snapshot first).
 - Site readiness checklist; preventive-maintenance daily and weekly exception reports.
 - **The controlled-remediation half of the engine** (engine phase 4): the incident record has the approval states, but no
   repair goes through it.
