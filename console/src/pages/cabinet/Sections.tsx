@@ -9,7 +9,7 @@ import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pager, usePaged } from "../../components/Pager";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
-  NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput } from "@mashura/cabinet-contracts/types";
+  NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput, DatabaseConnectivityOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
@@ -167,6 +167,7 @@ export function Network({ cabinet }: { cabinet: CabinetDetail }) {
         {Array.from({ length: Math.max(dnsCount, 1) }, (_, i) => (
           <NetTest key={i} cabinetId={cabinetId} label={`DNS server ${i + 1} (lookup)`} params={{ target: "dns_server", method: "dns", dnsServerIndex: i }} />))}
         <SyncTcpTest cabinetId={cabinetId} />
+        <SyncDatabaseTest cabinetId={cabinetId} />
         <NetTest cabinetId={cabinetId} label="Platform server (DNS)" params={{ target: "platform_server", method: "dns" }} />
       </div>
     </section>
@@ -198,6 +199,39 @@ function SyncTcpTest({ cabinetId }: { cabinetId: string }) {
       {Number.isInteger(n) && n >= 1 && n <= 65535
         ? <NetTest cabinetId={cabinetId} label={`Sync cabinet port ${n} (TCP)`} params={{ target: "sync_cabinet", method: "tcp", port: n }} />
         : <span className="muted small">Port 1–65535</span>}
+    </div>
+  );
+}
+
+const DB_RESULT: Record<DatabaseConnectivityOutput["result"], string> = {
+  sql_server: "SQL Server answers", not_sql_server: "Something answers, but not SQL Server", refused: "Port closed",
+  no_answer: "No answer", unreachable: "Unreachable", no_sync_cabinet: "No sync cabinet set",
+};
+const ENCRYPTION: Record<string, string> = { off: "encrypts the sign-in only", on: "encrypts", required: "requires encryption", not_supported: "has no certificate" };
+const TLS_PROBLEM: Record<string, string> = { name_mismatch: "does not name this address", untrusted_chain: "not from a trusted authority", missing: "none presented" };
+
+/** Whether SQL Server answers on the sync cabinet, before any sign-in: no credential is sent and no database is opened. */
+function SyncDatabaseTest({ cabinetId }: { cabinetId: string }) {
+  const [port, setPort] = useState("1433");
+  const n = Number(port);
+  const op = useOperation<DatabaseConnectivityOutput>(cabinetId, "database.connectivity");
+  const out = op.result?.output;
+  const valid = Number.isInteger(n) && n >= 1 && n <= 65535;
+  return (
+    <div className="test" aria-live="polite">
+      <label className="field inline"><span>Sync database port</span><input inputMode="numeric" value={port} onChange={e => setPort(e.target.value.replace(/\D/g, ""))} size={6} /></label>
+      <button className="btn" onClick={() => void op.start({ port: n })} disabled={!valid || op.state === "running"}>{op.state === "running" ? "Checking…" : "Check the sync database"}</button>
+      {op.problem && <span className="error">{op.problem}</span>}
+      {op.result && op.result.status !== "succeeded" && <span className="error">{op.result.error?.message}</span>}
+      {out && <span>
+        <Badge tone={out.result === "sql_server" ? "ok" : "crit"}>{DB_RESULT[out.result]}</Badge>{" "}
+        {out.address && <code>{out.address}:{out.port}</code>}
+        {out.prelogin?.serverVersion && <> · version {out.prelogin.serverVersion}</>}
+        {out.prelogin?.encryption && <> · {ENCRYPTION[out.prelogin.encryption]}</>}
+        {out.tls?.certificate && <> · certificate {out.tls.certificate.subject}{out.tls.certificate.selfSigned ? " (self-signed)" : ""}</>}
+        {out.tls && out.tls.problems.length > 0 && <span className="muted"> — certificate {out.tls.problems.map(p => TLS_PROBLEM[p]).join(", ")}</span>}
+        {out.error && <span className="muted"> — {out.error}</span>}
+      </span>}
     </div>
   );
 }

@@ -336,6 +336,20 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       if (ctx.syncBlocked && params.target === "sync_cabinet" && params.method === "tcp") return series(fail(resolved, `Port ${params.port ?? 1433} did not answer within 3 seconds.`));
       return series({ ...ok, resolvedTarget: resolved });
     }
+    case "database.connectivity": {
+      // The demo's sync cabinets run SQL Server on 1433 with its own self-signed certificate, as a default install does.
+      const n = ctx.net, up = reachesGateway(n, ctx.baseline), port = params.port as number;
+      const address = (params.syncAddress as string | undefined) ?? `${ctx.subnet}.20`;
+      const stop = (result: string, error: string) => ({ port, address, result, tcp: { connected: false, ms: null }, prelogin: null, tls: null, error });
+      if (!n.linkUp || !up || ctx.syncBlocked) return stop("no_answer", `No answer on TCP port ${port} within 5 seconds.`);
+      const tcp = { connected: true, ms: 1 + (ctx.index % 3) };
+      if (port !== 1433) return { port, address, result: "not_sql_server", tcp, prelogin: { answered: false, ms: null, serverVersion: null, encryption: null }, tls: null,
+        error: `Port ${port} closed the connection without answering as SQL Server.` };
+      return { port, address, result: "sql_server", tcp, prelogin: { answered: true, ms: 3.1, serverVersion: "16.0.4305", encryption: "off" },
+        tls: { completed: false, ms: 6.4, protocol: null, problems: ["name_mismatch", "untrusted_chain"],
+          certificate: { subject: "CN=SSL_Self_Signed_Fallback", issuer: "CN=SSL_Self_Signed_Fallback", notAfter: "2036-10-01T00:00:00Z",
+            sha256: "6b93808ea4519d0950b7020f472769a686034da6983be3674567bba761022e0b", selfSigned: true } }, error: null };
+    }
     case "network.trace": {
       const n = ctx.net, b = ctx.baseline, up = reachesGateway(n, b);
       const rtt = (base: number) => [0, 1, 2].map(i => Math.round((base + (ctx.index % 3) * 0.1 + i * 0.1) * 10) / 10);

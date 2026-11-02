@@ -276,6 +276,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "database.connectivity"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/database.connectivity.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "firewall.state"
           }
         },

@@ -290,6 +290,8 @@ public static class NetworkOperations
             .Register<EmptyParams, NetworkConfigOutput>(Catalog.NetworkConfig, system.NetworkConfigAsync)
             .Register<NetworkTestParams, NetworkTestOutput>(Catalog.NetworkTest, network.RunAsync)
             .Register<NetworkTraceParams, NetworkTraceOutput>(Catalog.NetworkTrace, network.TraceAsync)
+            // Answered here, in the unprivileged network service: it needs no rights, and the broker never opens a network connection.
+            .Register<DatabaseConnectivityParams, DatabaseConnectivityOutput>(Catalog.DatabaseConnectivity, new SqlConnectivity(config).RunAsync)
             .Register<EmptyParams, FirewallStateOutput>(Catalog.FirewallState, system.FirewallStateAsync)
             .Register<EmptyParams, SystemIdentityOutput>(Catalog.SystemIdentity, (_, _) => Task.FromResult(HardwareOperations.Identity()));
         packages?.Register(registry, broker.RunAsync);
