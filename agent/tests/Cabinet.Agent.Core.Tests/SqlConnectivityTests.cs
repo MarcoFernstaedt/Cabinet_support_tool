@@ -207,6 +207,22 @@ public sealed class SqlConnectivityTests(ITestOutputHelper output)
         MatchesContract(o);
     }
 
+    /// <summary>
+    /// An address that is not IPv4 is nothing to check, not a result the platform refuses to record. The contract's
+    /// address is an IPv4 string, so putting ::1 or fd00::1 in it loses the whole output, the same way
+    /// reliability.list lost its output over a 300 character message.
+    /// </summary>
+    [Fact]
+    public async Task A_sync_cabinet_address_that_is_not_ipv4_is_nothing_to_check()
+    {
+        DatabaseConnectivityOutput o = await new SqlConnectivity(Config(sync: "fd00::1"))
+            .RunAsync(new DatabaseConnectivityParams { Port = 1433 }, CancellationToken.None);
+        Assert.Equal(DatabaseConnectivityResult.NoSyncCabinet, o.Result);
+        Assert.Null(o.Address);
+        Assert.False(o.Tcp.Connected);
+        MatchesContract(o);
+    }
+
     [Fact]
     public void The_pre_login_sent_carries_no_name_no_credential_and_reads_back_as_a_pre_login()
     {
@@ -258,13 +274,16 @@ public sealed class SqlConnectivityTests(ITestOutputHelper output)
     public void A_malformed_pre_login_answer_is_refused_whole(string what, byte[] payload) =>
         Assert.True(SqlConnectivity.ParsePrelogin(payload) is null, what);
 
-    /// <summary>A real SQL Server, when one is named (the Linux CI job sets it; locally: TEST_SQLSERVER_ENDPOINT=127.0.0.1:1433).</summary>
+    /// <summary>A real SQL Server, named by TEST_SQLSERVER_ENDPOINT (the Linux CI job sets it; locally: TEST_SQLSERVER_ENDPOINT=127.0.0.1:1433).</summary>
     [Fact]
     public async Task A_real_sql_server_answers_as_sql_server()
     {
         string? endpoint = Environment.GetEnvironmentVariable("TEST_SQLSERVER_ENDPOINT");
-        if (endpoint is null) { output.WriteLine("Not run: TEST_SQLSERVER_ENDPOINT is not set."); return; }
-        IPEndPoint target = IPEndPoint.Parse(endpoint);
+        // Never a quiet pass. With the endpoint missing this test has verified nothing, and counting it as passed is
+        // how the one check that needs a real server gets reported as covered. Same shape as PACKAGE_FIXTURES.
+        Assert.False(string.IsNullOrWhiteSpace(endpoint),
+            "TEST_SQLSERVER_ENDPOINT is not set — this test needs a real SQL Server (locally: TEST_SQLSERVER_ENDPOINT=127.0.0.1:1433)");
+        IPEndPoint target = IPEndPoint.Parse(endpoint!);
         DatabaseConnectivityOutput o = await SqlConnectivity.CheckAsync(target.Address, target.Port, CancellationToken.None);
         output.WriteLine(JsonSerializer.Serialize(o, ContractJson.Options));
         Assert.Equal(DatabaseConnectivityResult.SqlServer, o.Result);

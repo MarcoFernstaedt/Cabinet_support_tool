@@ -102,12 +102,15 @@ public sealed class SqlConnectivity
     private static async Task<IPAddress?> AddressAsync(string? configured, CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(configured)) return null;
-        if (IPAddress.TryParse(configured, out IPAddress? ip)) return ip;
+        // IPv4 only: the contract's address is an IPv4 string, so anything else would be reported as a result the
+        // platform refuses to record, and the validator only lets a private IPv4 address through anyway.
+        if (IPAddress.TryParse(configured, out IPAddress? ip))
+            return ip.AddressFamily == AddressFamily.InterNetwork ? ip : null;
         try
         {
             using var limit = Limit(token);
             IPAddress[] found = await Dns.GetHostAddressesAsync(configured, limit.Token).ConfigureAwait(false);
-            return found.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork) ?? found.FirstOrDefault();
+            return found.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
         }
         catch (Exception e) when (e is SocketException or OperationCanceledException && !token.IsCancellationRequested) { return null; }
     }
