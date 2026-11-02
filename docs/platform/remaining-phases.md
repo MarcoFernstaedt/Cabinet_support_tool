@@ -253,10 +253,11 @@ order they are being fixed.
   platform and asserts one try for a refused port. **Not yet proven on Windows:** GitHub Actions is on hold, so the strict test
   has run only on Linux, where a refusal comes back at once. 5 seconds is more room, not a measured bound: if the delay can
   run past it, the strict test fails on Windows again.
-- [ ] **A network diagnosis against a sync cabinet that answers nothing runs past its one-minute limit.** Worked out from the
+- [x] **A network diagnosis against a sync cabinet that answers nothing runs past its one-minute limit.** Fixed (D11): the
+  limit is two minutes, and the plan never asks for more than the agent's 10 network tests a minute. Worked out from the
   limits, not measured: a 10-request ping series with no replies takes 20.9 s and four silent port series 41.2 s (44.8 s
   before D1), before the gateway and DNS tests; reads still running at the minute show as "no answer within a minute".
-  Options for the review: a time budget across the diagnosis's tests, or fewer tries once the ping series got no reply.
+  The options weighed and why two minutes was chosen are in D11.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
   package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
 

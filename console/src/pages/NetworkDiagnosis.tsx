@@ -30,10 +30,10 @@ export function useStartDiagnosis() {
   const start = async (body: { cabinetIds: string[] } | { siteId: string }) => {
     setBusy(true); setProblem(null);
     try {
-      // An earlier check by this person may still be finishing: wait for it (up to a minute) instead of showing an error.
+      // An earlier check by this person may still be finishing: wait for it (up to two minutes, the server's limit) instead of showing an error.
       for (let tries = 0; ; tries++) {
         try { const r = await api<{ batchId: string }>("POST", "/api/diagnose/network", body); navigate(`/network/diagnosis/${r.batchId}`); return; }
-        catch (e) { if (!(e instanceof ApiError) || e.status !== 429 || tries >= 30) throw e; setProblem("Your earlier check is still finishing. Starting this one when it is done…"); await new Promise(r => setTimeout(r, 2000)); }
+        catch (e) { if (!(e instanceof ApiError) || e.status !== 429 || tries >= 60) throw e; setProblem("Your earlier check is still finishing. Starting this one when it is done…"); await new Promise(r => setTimeout(r, 2000)); }
       }
     } catch (e) { setProblem(describeError(e)); setBusy(false); }
   };

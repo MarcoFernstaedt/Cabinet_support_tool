@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cabinetModules } from "../src/diagnose/cabinet-findings.js";
 import { NETWORK_RULES, networkModule } from "../src/diagnose/network-module.js";
-import { plannedTests } from "../src/diagnose/network.js";
+import { AGENT_NETWORK_TESTS_PER_MINUTE, plannedTests } from "../src/diagnose/network.js";
 import { loadRegistry } from "../src/diagnose/registry.js";
 import { findingKey } from "../src/services/known-fixes.js";
 
@@ -32,11 +32,33 @@ test("the module declares exactly the reads the diagnosis plans, apart from one 
   const planned: { operation: string; params: Record<string, unknown> }[] = [{ operation: "network.config", params: {} }, { operation: "firewall.state", params: {} }, ...full.tests, ...full.traces];
   const perPort = planned.filter(r => r.params.method === "tcp");
   assert.deepEqual(perPort.map(r => r.params.port), PORTS, "the port tests are the configured ports, and only those");
-  assert.deepEqual(networkModule().signals.reads.map(key).sort(), planned.filter(r => r.params.method !== "tcp").map(key).sort());
+  // Four DNS servers and four ports would be 11 tests, over the agent's limit, so the module's reads are compared with a plan that
+  // keeps all four DNS servers (one port); the next test covers what is left out when both are at four.
+  const allDns = plannedTests(4, [PORTS[0]!]);
+  const declared: { operation: string; params: Record<string, unknown> }[] = [{ operation: "network.config", params: {} }, { operation: "firewall.state", params: {} }, ...allDns.tests, ...allDns.traces];
+  assert.deepEqual(networkModule().signals.reads.map(key).sort(), declared.filter(r => r.params.method !== "tcp").map(key).sort());
   // A sync cabinet itself plans no sync tests; one DNS server plans one DNS test.
   const own = plannedTests(1, null);
   assert.deepEqual(own.tests.map(t => t.key), ["gateway", "dns-0", "platform"]);
   assert.deepEqual(own.traces.map(t => t.key), ["trace-platform"]);
+});
+
+test("no plan asks the agent for more network tests than it takes in a minute, and DNS servers are what is left out, never ports", () => {
+  for (const ports of [null, [], [445], [445, 1433], [445, 1433, 8080], PORTS, [...PORTS, 9200]]) {
+    for (let dns = 1; dns <= 4; dns++) {
+      const p = plannedTests(dns, ports);
+      assert.ok(p.tests.length <= AGENT_NETWORK_TESTS_PER_MINUTE, `${dns} DNS, ${JSON.stringify(ports)}: ${p.tests.length} tests`);
+      assert.ok(p.tests.every(t => t.operation === "network.test"));
+      const tcp = p.tests.filter(t => t.params.method === "tcp").map(t => t.params.port);
+      assert.deepEqual(tcp, (ports ?? []).slice(0, 4), "every configured port up to four is tested");
+      const dnsKeys = p.tests.filter(t => t.key.startsWith("dns-")).map(t => t.key);
+      assert.deepEqual(dnsKeys, dnsKeys.map((_, i) => `dns-${i}`), "the DNS servers kept are the first ones");
+      assert.ok(dnsKeys.length >= 1, "at least one DNS server is always tested");
+    }
+  }
+  // The one case that is over: four DNS servers and four ports keep three DNS servers.
+  assert.equal(plannedTests(4, PORTS).tests.filter(t => t.key.startsWith("dns-")).length, 3);
+  assert.equal(plannedTests(4, PORTS).tests.length, AGENT_NETWORK_TESTS_PER_MINUTE);
 });
 
 /** Every `add({ id: …, severity: … })` in the checks, with each id's placeholders filled in from the planned tests. */

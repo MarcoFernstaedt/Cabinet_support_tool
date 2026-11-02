@@ -61,7 +61,7 @@ export function DiagnoseCabinet({ cabinetId, cabinetName }: { cabinetId: string;
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       <div aria-live="polite">
-        {d?.state === "running" && <p className="muted" role="status">Reading {cabinetName}… this takes up to a minute.</p>}
+        {d?.state === "running" && <p className="muted" role="status">Reading {cabinetName}… this usually takes under a minute, and up to two when something does not answer.</p>}
         {d?.state === "failed" && <p className="error" role="alert">The diagnosis did not finish: {d.failure}</p>}
         {d?.state === "done" && d.readings && (<>
           <p role="status"><strong>{d.readings.headline}</strong> <span className="muted small">Run by {d.runBy} {ago(d.finishedAt ?? d.startedAt)}.</span></p>

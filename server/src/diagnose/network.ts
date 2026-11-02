@@ -18,7 +18,18 @@ import type { TraceRun } from "./network-observations.js";
 import { runNetworkModule } from "./network-module.js";
 
 /** How long the whole run may take; a cabinet answers reads in about a second. */
-export const RUN_LIMIT_MS = 60_000;
+/**
+ * How long a diagnosis waits for its reads (docs/platform/decision-log.md, D11). The wait ends as soon as every read has answered, so a
+ * healthy cabinet is no slower for a longer limit; the limit only decides how much of a slow case is kept. Worked out from the agent's
+ * own limits, a sync cabinet that answers nothing costs about 21 s for its 10-request ping series, 41 s for four port series that each
+ * stop after two silent tries, and about 12 s more for the trace towards it, on top of the other reads: past one minute, so the last
+ * reads came back as "no answer". Two minutes keeps them.
+ */
+export const RUN_LIMIT_MS = 120_000;
+/** What a read that did not answer in time is reported as. */
+export const NO_ANSWER = `no answer within ${RUN_LIMIT_MS / 60_000} minutes`;
+/** The agent refuses more than this many network tests a minute (docs/spec/04-agent-spec.md; RateLimiter.cs); a plan stays within it. */
+export const AGENT_NETWORK_TESTS_PER_MINUTE = 10;
 const POLL_MS = 300;
 
 interface Issued { key: string; label: string; operation: string; params: Record<string, unknown>; commandId: string }
@@ -44,11 +55,16 @@ export interface PlannedRead { key: string; label: string; operation: "network.t
  * The tests and traces a diagnosis issues after the network settings are in (the network-diagnosis module declares the same reads;
  * server/test/network-module.test.ts keeps them identical): the gateway, each DNS server the connected adapters use (`dnsCount`, 1 to
  * 4), the platform server's name, and, for a cabinet that has a sync cabinet to reach (`syncPorts` not null), the sync cabinet by ping
- * and on each of its first four ports; then the paths to the platform server and the sync cabinet, to see where replies stop.
+ * and on each of its first four ports; then the paths to the platform server and the sync cabinet, to see where replies stop. At most
+ * AGENT_NETWORK_TESTS_PER_MINUTE tests: with four sync ports, a fourth DNS server is left out.
  */
 export function plannedTests(dnsCount: number, syncPorts: readonly number[] | null): { tests: PlannedRead[]; traces: PlannedRead[] } {
   const tests: PlannedRead[] = [{ key: "gateway", label: "Gateway (ping)", operation: "network.test", params: { target: "gateway", method: "ping", count: 4 } }];
-  for (let i = 0; i < dnsCount; i++) tests.push({ key: `dns-${i}`, label: `DNS server ${i + 1}`, operation: "network.test", params: { target: "dns_server", method: "dns", dnsServerIndex: i } });
+  // Every test here is a network.test, and the agent takes at most 10 a minute. The DNS servers are the ones left out when the plan would
+  // go over: Windows asks them in order, so a fourth is asked only after three have failed, while each sync port is a service of its own.
+  const syncTests = syncPorts ? 1 + Math.min(4, syncPorts.length) : 0;
+  const dnsTests = Math.max(0, Math.min(dnsCount, AGENT_NETWORK_TESTS_PER_MINUTE - 2 - syncTests));
+  for (let i = 0; i < dnsTests; i++) tests.push({ key: `dns-${i}`, label: `DNS server ${i + 1}`, operation: "network.test", params: { target: "dns_server", method: "dns", dnsServerIndex: i } });
   tests.push({ key: "platform", label: "Platform server name", operation: "network.test", params: { target: "platform_server", method: "dns" } });
   if (syncPorts) {
     tests.push({ key: "sync-ping", label: "Sync cabinet (ping)", operation: "network.test", params: { target: "sync_cabinet", method: "ping", count: 10 } });
@@ -114,7 +130,7 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   const all = [...first, ...tests, ...traces];
   await pool.query("UPDATE diagnoses SET commands = $2 WHERE id = $1", [id, safeJson(all.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
   const results = await waitFor(pool, all.map(c => c.commandId), deadline);
-  const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: "no answer within a minute" };
+  const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: NO_ANSWER };
   const fw = outcome(first[1]!);
 
   // This satellite's own sync cabinet as the platform knows it: whether it is checking in, and its firewall profiles.
