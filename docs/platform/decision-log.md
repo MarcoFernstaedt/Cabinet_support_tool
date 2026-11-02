@@ -6,6 +6,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D14. One-off security alerts close themselves after 14 days with no recurrence (2026-11-02)
+
+**Decision (owner's, from three options).** Open security alerts of the event-driven kinds close automatically when they have not recurred
+for 14 days. The kinds are write volume, failed sign-ins, failed step-ups, new location, new device, agent self-check, refused package,
+signature failure and certificate. Each closure:
+- has the resolution "No recurrence in 14 days; closed automatically";
+- has no person as the resolver;
+- writes an audit entry.
+
+The check runs with the daily jobs. Nothing is deleted, and a recurrence opens a fresh alert.
+
+**Why.** Product test 2026-11-02, finding 3: these kinds are raised by one event and nothing clears them, so the list became a
+permanent backlog (four rows idle for 11+ days whose causes were gone), and a new alert was harder to spot.
+
+**Options not chosen.**
+- **Keep manual resolution, sorting stale alerts last.** The backlog still grows.
+- **Mark stale alerts and move them aside without resolving.** Still needs a person for every one.
+
+**Not included.**
+- An audit chain break: a person must look before it closes.
+- The `ops_*` kinds: they already close when their condition clears.
+
+**Cost.** An alert nobody looked at within 14 days closes anyway. It stays in the resolved list and the audit log, marked automatic.
+
+**Proof.** `security-stale.test.ts` checks:
+- old certificate and new-device alerts close, with an audit entry and no person as resolver;
+- a 13-day-old alert, a broken chain and an ops alert stay open;
+- a second run closes nothing more;
+- a recurrence opens a new alert.
+
+Making the close a no-op, or adding `audit_chain` to the closable kinds, fails the test.
+
+---
+
 ## D12. Console e2e tests launch the browser first, through one helper with a 30-second limit (2026-11-02)
 
 **Decision.** All 25 console e2e test files start Chromium through `server/test/browser-launch.ts`, as the first thing in
